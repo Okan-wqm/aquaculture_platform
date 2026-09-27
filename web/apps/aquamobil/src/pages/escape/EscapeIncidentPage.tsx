@@ -44,7 +44,7 @@ const ESCAPE_CAUSES: ReadonlyArray<{ value: EscapeIncidentCause; label: string; 
 ];
 
 const ESCAPE_THEME: RecordEntityTheme = {
-  headerGradient: 'bg-gradient-to-r from-orange-600 to-amber-500',
+  headerTone: 'orange',
   accentText: 'text-orange-600',
   summaryHeaderBg:
     'bg-orange-50 dark:bg-orange-900/20 border-orange-100 dark:border-orange-800/50',

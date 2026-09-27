@@ -1,6 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Card, useCanMutate } from '@aquaculture/shared-ui';
+import {
+  Card,
+  DataTable,
+  PageHeader,
+  type DataTableColumn,
+  useCanMutate,
+  useI18n,
+  Select,
+} from '@aquaculture/shared-ui';
 
 import {
   EnvironmentAvailabilityStatus,
@@ -12,6 +20,7 @@ import {
   useEnvironmentForecast,
   useEnvironmentHistory,
   useEnvironmentLayerCatalog,
+  useEnvironmentMonitoringStatus,
   useEnvironmentSceneImage,
   useEnvironmentScenes,
   useEnvironmentWindowAnchor,
@@ -24,27 +33,43 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 const FORECAST_DAYS = 7;
 
 const AVAILABILITY_STYLES: Record<EnvironmentAvailabilityStatus, string> = {
-  PREPARING: 'bg-blue-50 text-blue-800 border-blue-200',
-  READY: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  PARTIAL_FAILURE: 'bg-red-50 text-red-900 border-red-300',
-  PARTIAL_COVERAGE: 'bg-amber-50 text-amber-900 border-amber-300',
-  NO_DATA: 'bg-gray-100 text-gray-700 border-gray-200',
+  PREPARING:
+    'bg-info-50 dark:bg-info-900/20 text-info-800 dark:text-info-200 border-info-200 dark:border-info-800',
+  READY:
+    'bg-success-50 dark:bg-success-900/20 text-success-800 dark:text-success-200 border-success-200 dark:border-success-800',
+  PARTIAL_FAILURE:
+    'bg-error-50 dark:bg-error-900/20 text-error-900 dark:text-error-100 border-error-300 dark:border-error-700',
+  PARTIAL_COVERAGE:
+    'bg-warning-50 dark:bg-warning-900/20 text-warning-900 dark:text-warning-100 border-warning-300 dark:border-warning-700',
+  NO_DATA:
+    'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
   CLOUD_OBSCURED: 'bg-slate-100 text-slate-800 border-slate-300',
-  OUT_OF_COVERAGE: 'bg-amber-50 text-amber-900 border-amber-200',
-  STALE: 'bg-orange-50 text-orange-900 border-orange-200',
-  PROVIDER_UNAVAILABLE: 'bg-red-50 text-red-800 border-red-200',
-  CONFIGURATION_ERROR: 'bg-rose-50 text-rose-900 border-rose-200',
+  OUT_OF_COVERAGE:
+    'bg-warning-50 dark:bg-warning-900/20 text-warning-900 dark:text-warning-100 border-warning-200 dark:border-warning-800',
+  STALE:
+    'bg-accent-50 dark:bg-accent-900/20 text-accent-900 dark:text-accent-100 border-accent-200 dark:border-accent-800',
+  PROVIDER_UNAVAILABLE:
+    'bg-error-50 dark:bg-error-900/20 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800',
+  CONFIGURATION_ERROR:
+    'bg-error-50 dark:bg-error-900/20 text-error-900 dark:text-error-100 border-error-200 dark:border-error-800',
 };
 
 const QUALITY_STYLES: Record<EnvironmentQualityStatus, string> = {
-  VALID: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  PROVISIONAL: 'bg-blue-50 text-blue-800 border-blue-200',
-  NO_DATA: 'bg-gray-100 text-gray-700 border-gray-200',
+  VALID:
+    'bg-success-50 dark:bg-success-900/20 text-success-800 dark:text-success-200 border-success-200 dark:border-success-800',
+  PROVISIONAL:
+    'bg-info-50 dark:bg-info-900/20 text-info-800 dark:text-info-200 border-info-200 dark:border-info-800',
+  NO_DATA:
+    'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
   CLOUD_OBSCURED: 'bg-slate-100 text-slate-800 border-slate-300',
-  OUT_OF_COVERAGE: 'bg-amber-50 text-amber-900 border-amber-200',
-  STALE: 'bg-orange-50 text-orange-900 border-orange-200',
-  PROVIDER_UNAVAILABLE: 'bg-red-50 text-red-800 border-red-200',
-  CONFIGURATION_ERROR: 'bg-rose-50 text-rose-900 border-rose-200',
+  OUT_OF_COVERAGE:
+    'bg-warning-50 dark:bg-warning-900/20 text-warning-900 dark:text-warning-100 border-warning-200 dark:border-warning-800',
+  STALE:
+    'bg-accent-50 dark:bg-accent-900/20 text-accent-900 dark:text-accent-100 border-accent-200 dark:border-accent-800',
+  PROVIDER_UNAVAILABLE:
+    'bg-error-50 dark:bg-error-900/20 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800',
+  CONFIGURATION_ERROR:
+    'bg-error-50 dark:bg-error-900/20 text-error-900 dark:text-error-100 border-error-200 dark:border-error-800',
 };
 
 function formatMetric(metric: string): string {
@@ -123,8 +148,8 @@ function ValueProvenance({ value }: { value: EnvironmentValue }): React.ReactEle
   const stationDistanceKm = value.stationDistanceKm;
 
   return (
-    <div className="text-xs text-gray-500">
-      <p className="font-medium text-gray-600">{providerLabel(value)}</p>
+    <div className="text-xs text-gray-500 dark:text-gray-400">
+      <p className="font-medium text-gray-600 dark:text-gray-400">{providerLabel(value)}</p>
       {caveat && <p className="mt-1">{caveat}</p>}
       <dl className="mt-2 grid grid-cols-1 gap-1">
         {value.source === 'MET_FROST' && (
@@ -219,7 +244,7 @@ function LoadingState({ label }: { label: string }): React.ReactElement {
     <div
       role="status"
       aria-live="polite"
-      className="flex min-h-40 items-center justify-center rounded-lg border border-gray-200 bg-white text-sm text-gray-600"
+      className="flex min-h-40 items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-600 dark:text-gray-400"
     >
       {label}
     </div>
@@ -230,9 +255,26 @@ function ErrorState({ message }: { message: string }): React.ReactElement {
   return (
     <div
       role="alert"
-      className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+      className="rounded-lg border border-error-200 dark:border-error-800 bg-error-50 dark:bg-error-900/20 px-4 py-3 text-sm text-error-800 dark:text-error-200"
     >
       {message}
+    </div>
+  );
+}
+
+/**
+ * The rollout gate is closed for this deployment (ORPHAN-MEDIUM-827). Not an
+ * error and not an empty tenant: nothing the tenant does changes it, so the
+ * panel says exactly that instead of three "could not be loaded" alerts.
+ */
+function MonitoringDisabledState(): React.ReactElement {
+  const { t } = useI18n();
+  return (
+    <div role="status">
+      <EmptyState
+        title={t('environment.monitoring.disabledTitle')}
+        description={t('environment.monitoring.disabledDescription')}
+      />
     </div>
   );
 }
@@ -245,9 +287,11 @@ function EmptyState({
   description: string;
 }): React.ReactElement {
   return (
-    <div className="rounded-lg border border-dashed border-gray-300 bg-white px-6 py-10 text-center">
-      <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-      <p className="mx-auto mt-2 max-w-xl text-sm text-gray-600">{description}</p>
+    <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-6 py-10 text-center">
+      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
+      <p className="mx-auto mt-2 max-w-xl text-sm text-gray-600 dark:text-gray-400">
+        {description}
+      </p>
     </div>
   );
 }
@@ -263,10 +307,12 @@ function CurrentValueCard({
     <Card padding="md" className="min-w-0">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-gray-600">{label}</p>
+          <p className="truncate text-sm font-medium text-gray-600 dark:text-gray-400">{label}</p>
           <p className="mt-2 text-2xl font-bold text-gray-950">
             {formatValue(value.value)}{' '}
-            <span className="text-base font-medium text-gray-600">{value.unit}</span>
+            <span className="text-base font-medium text-gray-600 dark:text-gray-400">
+              {value.unit}
+            </span>
           </p>
         </div>
         <QualityPill status={value.qualityStatus} />
@@ -274,7 +320,7 @@ function CurrentValueCard({
       <div className="mt-3">
         <ValueProvenance value={value} />
       </div>
-      <dl className="mt-3 grid grid-cols-1 gap-1 text-xs text-gray-500">
+      <dl className="mt-3 grid grid-cols-1 gap-1 text-xs text-gray-500 dark:text-gray-400">
         <div>
           <dt className="inline font-medium">Valid:</dt>{' '}
           <dd className="inline">{formatDateTime(value.validAt)} UTC</dd>
@@ -306,45 +352,58 @@ function ValueTable({
     );
   }
 
+  type ValueRow = (typeof values)[number];
+  const valueRowColumns: DataTableColumn<ValueRow>[] = [
+    {
+      key: 'validTimeUtc',
+      header: 'Valid time (UTC)',
+      render: (_value, value) => formatDateTime(value.validAt),
+    },
+    {
+      key: 'value',
+      header: 'Value',
+      render: (_value, value) => (
+        <>
+          {formatValue(value.value)} {value.unit}
+        </>
+      ),
+    },
+    {
+      key: 'sourceAndProvenance',
+      header: 'Source and provenance',
+      render: (_value, value) => <ValueProvenance value={value} />,
+    },
+    {
+      key: 'quality',
+      header: 'Quality',
+      render: (_value, value) => <QualityPill status={value.qualityStatus} />,
+    },
+    {
+      key: 'depth',
+      header: 'Depth',
+      render: (_value, value) => (
+        <>
+          {value.depthM === null || value.depthM === undefined
+            ? 'Surface / not applicable'
+            : `${formatValue(value.depthM)} m`}
+        </>
+      ),
+    },
+  ];
+
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 text-sm">
-          <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
-            <tr>
-              <th className="px-4 py-3">Valid time (UTC)</th>
-              <th className="px-4 py-3">Value</th>
-              <th className="px-4 py-3">Source and provenance</th>
-              <th className="px-4 py-3">Quality</th>
-              <th className="px-4 py-3">Depth</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {values.map((value) => (
-              <tr
-                key={`${value.source}|${value.datasetId}|${value.metric}|${value.validAt}|${value.depthM ?? 'surface'}`}
-                className="text-gray-700"
-              >
-                <td className="whitespace-nowrap px-4 py-3">{formatDateTime(value.validAt)}</td>
-                <td className="whitespace-nowrap px-4 py-3 font-semibold text-gray-950">
-                  {formatValue(value.value)} {value.unit}
-                </td>
-                <td className="px-4 py-3">
-                  <ValueProvenance value={value} />
-                </td>
-                <td className="px-4 py-3">
-                  <QualityPill status={value.qualityStatus} />
-                </td>
-                <td className="whitespace-nowrap px-4 py-3">
-                  {value.depthM === null || value.depthM === undefined
-                    ? 'Surface / not applicable'
-                    : `${formatValue(value.depthM)} m`}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+      <DataTable<ValueRow>
+        data={values}
+        columns={valueRowColumns}
+        keyExtractor={(value) =>
+          `${value.source}|${value.datasetId}|${value.metric}|${value.validAt}|${value.depthM ?? 'surface'}`
+        }
+        emptyMessage="No records found"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+      />
     </div>
   );
 }
@@ -356,23 +415,27 @@ function LayerAvailabilityPanel({ layers }: { layers: EnvironmentLayer[] }): Rea
       subtitle="Labels, units and scientific meaning come from the backend catalog."
       padding="none"
     >
-      <ul className="max-h-[42rem] divide-y divide-gray-100 overflow-y-auto">
+      <ul className="max-h-[42rem] divide-y divide-gray-100 dark:divide-gray-700 overflow-y-auto">
         {layers.map((layer) => (
           <li key={layer.id} className="p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="font-semibold text-gray-900">{layer.name}</p>
-                <p className="mt-1 text-xs text-gray-600">{layer.description}</p>
+                <p className="font-semibold text-gray-900 dark:text-gray-100">{layer.name}</p>
+                <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{layer.description}</p>
               </div>
               <StatusPill status={layer.availability} />
             </div>
-            <p className="mt-2 text-xs font-medium text-gray-700">{layer.scientificLabel}</p>
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+              {layer.scientificLabel}
+            </p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {layer.resolutionLabel}
               {layer.unit ? ` · Unit: ${layer.unit}` : ''}
             </p>
-            <p className="mt-2 text-xs text-gray-500">{availabilityMessage(layer.availability)}</p>
-            <p className="mt-2 text-xs text-gray-600">
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {availabilityMessage(layer.availability)}
+            </p>
+            <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
               Coverage: {layer.coverage.successful}/{layer.coverage.expected} provider scopes
               completed
               {layer.coverage.failed > 0 ? ` · ${layer.coverage.failed} failed` : ''}
@@ -382,8 +445,8 @@ function LayerAvailabilityPanel({ layers }: { layers: EnvironmentLayer[] }): Rea
                 : ''}
             </p>
             {layer.coverage.scopes.some((scope) => scope.outcome !== 'AVAILABLE') && (
-              <details className="mt-2 text-xs text-gray-600">
-                <summary className="cursor-pointer font-medium text-gray-700">
+              <details className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                <summary className="cursor-pointer font-medium text-gray-700 dark:text-gray-300">
                   Coverage gaps and failures
                 </summary>
                 <ul className="mt-2 space-y-1 pl-4">
@@ -468,6 +531,7 @@ function isRenderableLayerAvailability(status: EnvironmentAvailabilityStatus): b
 
 const EnvironmentPage: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const canCreateSite = useCanMutate('createSite');
   const { siteId: routeSiteId } = useParams<{ siteId: string }>();
   const [activeView, setActiveView] = useState<EnvironmentView>('current');
@@ -477,6 +541,11 @@ const EnvironmentPage: React.FC = () => {
   const [selectedLayerId, setSelectedLayerId] = useState('');
   const [selectedSceneId, setSelectedSceneId] = useState('');
   const timeAnchor = useEnvironmentWindowAnchor();
+
+  // Read the rollout gate first: while it is closed every site read below is
+  // refused, so none of them is issued until the gate reports open.
+  const monitoringStatusQuery = useEnvironmentMonitoringStatus();
+  const monitoringEnabled = monitoringStatusQuery.data?.enabled === true;
 
   const sitesQuery = useSiteList({ isActive: true });
   const hasSiteListData = sitesQuery.data !== undefined;
@@ -505,7 +574,7 @@ const EnvironmentPage: React.FC = () => {
     }
   }, [eligibleSites, hasSiteListData, navigate, selectedSite]);
 
-  const canQuerySite = selectedSite !== null;
+  const canQuerySite = selectedSite !== null && monitoringEnabled;
   const currentQuery = useEnvironmentCurrent(selectedSite?.id ?? '', canQuerySite);
   const catalogQuery = useEnvironmentLayerCatalog(selectedSite?.id ?? '', canQuerySite);
   const layers = catalogQuery.data ?? [];
@@ -637,9 +706,37 @@ const EnvironmentPage: React.FC = () => {
     enabled: canQuerySite && activeView === 'satellite' && sceneCanRender,
   });
 
+  if (monitoringStatusQuery.isPending) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
+        <LoadingState label={t('environment.monitoring.checkingAvailability')} />
+      </div>
+    );
+  }
+
+  // A refetch failure with a last-known gate answer keeps that answer, the
+  // same last-known-good rule the site list and layer catalog follow below.
+  if (monitoringStatusQuery.isError && monitoringStatusQuery.data === undefined) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
+        <ErrorState message={t('environment.monitoring.availabilityUnknown')} />
+      </div>
+    );
+  }
+
+  if (!monitoringEnabled) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
+        <div className="mx-auto max-w-3xl">
+          <MonitoringDisabledState />
+        </div>
+      </div>
+    );
+  }
+
   if (sitesQuery.isPending) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
         <LoadingState label="Loading your authorized sea-cage sites…" />
       </div>
     );
@@ -647,7 +744,7 @@ const EnvironmentPage: React.FC = () => {
 
   if (sitesQuery.isError && !hasSiteListData) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
         <ErrorState message="Your authorized sites could not be loaded." />
       </div>
     );
@@ -655,7 +752,7 @@ const EnvironmentPage: React.FC = () => {
 
   if (eligibleSites.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
         <div className="mx-auto max-w-3xl">
           {sitesQuery.isError && (
             <div className="mb-4">
@@ -678,7 +775,7 @@ const EnvironmentPage: React.FC = () => {
             <div className="mt-4 text-center">
               <Link
                 to="/sites/setup/sites"
-                className="inline-flex min-h-10 items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                className="inline-flex min-h-10 items-center rounded-md bg-info-600 px-4 py-2 text-sm font-semibold text-white hover:bg-info-700"
               >
                 Open site setup
               </Link>
@@ -691,7 +788,7 @@ const EnvironmentPage: React.FC = () => {
 
   if (!selectedSite) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
         <LoadingState label="Opening an authorized sea-cage site…" />
       </div>
     );
@@ -705,39 +802,41 @@ const EnvironmentPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="border-b border-gray-200 bg-white">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
+      <header className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
         <div className="px-4 py-6 sm:px-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-blue-700">
-                Site-specific
-              </p>
-              <h1 className="mt-1 text-2xl font-bold text-gray-950">Environmental monitoring</h1>
-              <p className="mt-1 max-w-3xl text-sm text-gray-600">
+          <PageHeader
+            title="Environmental monitoring"
+            description={
+              <>
                 Weather, Copernicus Marine model values and exact Sentinel-2 scenes for your
                 authorized sea-cage sites.
+              </>
+            }
+            eyebrow={
+              <p className="text-xs font-semibold uppercase tracking-widest text-info-700 dark:text-info-300">
+                Site-specific
               </p>
-            </div>
-            <label className="block min-w-64 text-sm font-medium text-gray-700">
-              Sea-cage site
-              <select
-                aria-label="Sea-cage site"
-                value={selectedSite.id}
-                onChange={(event) => {
-                  navigate(`/sites/environment/${encodeURIComponent(event.target.value)}`);
-                }}
-                className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {eligibleSites.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name} ({site.code})
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-600">
+            }
+            actions={
+              <label className="block min-w-64 text-sm font-medium text-gray-700 dark:text-gray-300">
+                Sea-cage site
+                <Select
+                  aria-label="Sea-cage site"
+                  value={selectedSite.id}
+                  onChange={(event) => {
+                    navigate(`/sites/environment/${encodeURIComponent(event.target.value)}`);
+                  }}
+                  className="mt-1 [&_select]:min-h-10"
+                  options={eligibleSites.map((site) => ({
+                    value: site.id,
+                    label: `${site.name} (${site.code})`,
+                  }))}
+                />
+              </label>
+            }
+          />
+          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
             <span>
               Coordinates: {selectedSite.location.latitude.toFixed(5)},{' '}
               {selectedSite.location.longitude.toFixed(5)}
@@ -749,7 +848,7 @@ const EnvironmentPage: React.FC = () => {
       </header>
 
       <nav
-        className="border-b border-gray-200 bg-white px-4 sm:px-6"
+        className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 sm:px-6"
         aria-label="Environment views"
       >
         <div className="-mb-px flex gap-6 overflow-x-auto">
@@ -768,8 +867,8 @@ const EnvironmentPage: React.FC = () => {
               aria-current={activeView === view ? 'page' : undefined}
               className={`whitespace-nowrap border-b-2 px-1 py-4 text-sm font-semibold ${
                 activeView === view
-                  ? 'border-blue-600 text-blue-700'
-                  : 'border-transparent text-gray-600 hover:border-gray-300 hover:text-gray-900'
+                  ? 'border-info-600 text-info-700 dark:text-info-300'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-900 dark:hover:text-gray-100'
               }`}
             >
               {label}
@@ -822,34 +921,33 @@ const EnvironmentPage: React.FC = () => {
 
           {activeView === 'history' && (
             <div>
-              <div className="mb-4 grid gap-3 rounded-lg border border-gray-200 bg-white p-4 sm:grid-cols-2">
-                <label className="text-sm font-medium text-gray-700">
+              <div className="mb-4 grid gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 sm:grid-cols-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Metric
-                  <select
+                  <Select
                     aria-label="History metric"
                     value={activeHistoryMetric}
                     onChange={(event) => setSelectedHistoryMetric(event.target.value)}
                     disabled={historyMetricOptions.length === 0}
-                    className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2"
-                  >
-                    {historyMetricOptions.map((metric) => (
-                      <option key={metric} value={metric}>
-                        {metricLabel(metric, layers)}
-                      </option>
-                    ))}
-                  </select>
+                    className="mt-1 [&_select]:min-h-10"
+                    options={historyMetricOptions.map((metric) => ({
+                      value: metric,
+                      label: metricLabel(metric, layers),
+                    }))}
+                  />
                 </label>
-                <label className="text-sm font-medium text-gray-700">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Period
-                  <select
+                  <Select
                     aria-label="History period"
                     value={historyDays}
                     onChange={(event) => setHistoryDays(event.target.value === '7' ? 7 : 30)}
-                    className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2"
-                  >
-                    <option value={7}>Last 7 days</option>
-                    <option value={30}>Last 30 days</option>
-                  </select>
+                    className="mt-1 [&_select]:min-h-10"
+                    options={[
+                      { value: 7, label: 'Last 7 days' },
+                      { value: 30, label: 'Last 30 days' },
+                    ]}
+                  />
                 </label>
               </div>
               {historyMetricOptions.length === 0 ? (
@@ -869,24 +967,22 @@ const EnvironmentPage: React.FC = () => {
 
           {activeView === 'forecast' && (
             <div>
-              <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4">
-                <label className="block max-w-md text-sm font-medium text-gray-700">
+              <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+                <label className="block max-w-md text-sm font-medium text-gray-700 dark:text-gray-300">
                   Metric
-                  <select
+                  <Select
                     aria-label="Forecast metric"
                     value={activeForecastMetric}
                     onChange={(event) => setSelectedForecastMetric(event.target.value)}
                     disabled={forecastMetricOptions.length === 0}
-                    className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2"
-                  >
-                    {forecastMetricOptions.map((metric) => (
-                      <option key={metric} value={metric}>
-                        {metricLabel(metric, layers)}
-                      </option>
-                    ))}
-                  </select>
+                    className="mt-1 [&_select]:min-h-10"
+                    options={forecastMetricOptions.map((metric) => ({
+                      value: metric,
+                      label: metricLabel(metric, layers),
+                    }))}
+                  />
                 </label>
-                <p className="mt-2 text-xs text-gray-600">
+                <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
                   Forecast horizon is capped at seven days. Copernicus Marine values are model
                   outputs, not sensor measurements.
                 </p>
@@ -917,48 +1013,44 @@ const EnvironmentPage: React.FC = () => {
                 />
               ) : (
                 <>
-                  <div className="mb-4 grid gap-3 rounded-lg border border-gray-200 bg-white p-4 lg:grid-cols-2">
-                    <label className="text-sm font-medium text-gray-700">
+                  <div className="mb-4 grid gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 lg:grid-cols-2">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                       Satellite layer
-                      <select
+                      <Select
                         aria-label="Satellite layer"
                         value={selectedLayer?.id ?? ''}
                         onChange={(event) => setSelectedLayerId(event.target.value)}
-                        className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2"
-                      >
-                        {imageryLayers.map((layer) => (
-                          <option key={layer.id} value={layer.id}>
-                            {layer.name}
-                          </option>
-                        ))}
-                      </select>
+                        className="mt-1 [&_select]:min-h-10"
+                        options={imageryLayers.map((layer) => ({
+                          value: layer.id,
+                          label: layer.name,
+                        }))}
+                      />
                     </label>
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                       Real acquisition
-                      <select
+                      <Select
                         aria-label="Sentinel scene"
                         value={selectedScene?.sceneId ?? ''}
                         onChange={(event) => setSelectedSceneId(event.target.value)}
                         disabled={scenes.length === 0}
-                        className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2"
-                      >
-                        {scenes.map((scene) => (
-                          <option key={scene.id} value={scene.sceneId}>
-                            {sceneLabel(scene)}
-                          </option>
-                        ))}
-                      </select>
+                        className="mt-1 [&_select]:min-h-10"
+                        options={scenes.map((scene) => ({
+                          value: scene.sceneId,
+                          label: sceneLabel(scene),
+                        }))}
+                      />
                     </label>
                   </div>
 
                   {selectedLayer && (
-                    <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+                    <div className="mb-4 rounded-lg border border-info-200 dark:border-info-800 bg-info-50 dark:bg-info-900/20 p-4 text-sm text-info-900">
                       <div className="flex flex-wrap items-center gap-2">
                         <strong>{selectedLayer.name}</strong>
                         <StatusPill status={selectedLayer.availability} />
                       </div>
                       <p className="mt-2">{selectedLayer.scientificLabel}</p>
-                      <p className="mt-1 text-xs text-blue-900">
+                      <p className="mt-1 text-xs text-info-900 dark:text-info-100">
                         {selectedLayer.description} · {selectedLayer.resolutionLabel}
                         {selectedLayer.unit ? ` · Unit: ${selectedLayer.unit}` : ''}
                       </p>
@@ -968,7 +1060,7 @@ const EnvironmentPage: React.FC = () => {
                   {selectedScene?.coverageStatus === 'UNKNOWN' && (
                     <div
                       role="status"
-                      className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
+                      className="mb-4 rounded-lg border border-warning-300 dark:border-warning-700 bg-warning-50 dark:bg-warning-900/20 p-4 text-sm text-warning-900"
                     >
                       This is a legacy catalog row: its saved site-AOI coverage method and sample
                       count were not recorded. The exact scene is revalidated before rendering, but
@@ -978,7 +1070,7 @@ const EnvironmentPage: React.FC = () => {
                   {selectedScene?.coverageStatus === 'PARTIAL' && (
                     <div
                       role="status"
-                      className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
+                      className="mb-4 rounded-lg border border-warning-300 dark:border-warning-700 bg-warning-50 dark:bg-warning-900/20 p-4 text-sm text-warning-900"
                     >
                       This scene covers only part of the site monitoring AOI. The displayed coverage
                       percentage is a deterministic grid estimate, not a provider measurement.
@@ -1015,13 +1107,13 @@ const EnvironmentPage: React.FC = () => {
                   ) : sceneImage.error ? (
                     <ErrorState message={sceneImage.error} />
                   ) : sceneImage.imageUrl && selectedLayer && selectedScene ? (
-                    <figure className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                    <figure className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
                       <img
                         src={sceneImage.imageUrl}
                         alt={`${selectedLayer.name}, acquired ${formatDateTime(selectedScene.acquiredAt)}`}
                         className="aspect-video w-full bg-slate-950 object-contain"
                       />
-                      <figcaption className="grid gap-2 p-4 text-xs text-gray-600 sm:grid-cols-2">
+                      <figcaption className="grid gap-2 p-4 text-xs text-gray-600 dark:text-gray-400 sm:grid-cols-2">
                         <span>Acquired: {formatDateTime(selectedScene.acquiredAt)} UTC</span>
                         <span>
                           Cloud:{' '}

@@ -35,7 +35,7 @@ When the kernel invokes you via the bound async queue, you receive a single `ari
 
 - `request_id`, `cycle_id`, `target_agent: "aria-goldset-curator"`, `expected_output_path`.
 - `evidence_refs[]` — paths to the confirmed TP/FP records you will draw from (`aria-tools/findings.jsonl`, operator-feedback rows, and the underlying source files at the snapshot SHA).
-- `must_satisfy[]` — typically: `{id: "MS-1", statement: "Draft a regression fixture covering >=20 confirmed TP and >=10 FP for tool <id>, each with concrete evidence ref + expected behavior + verdict source"}`.
+- `must_satisfy[]` — typically: `{id: "MS-1", description: "Draft a regression fixture covering >=20 confirmed TP and >=10 FP for tool <id>, each with concrete evidence ref + expected behavior + verdict source"}`.
 
 ### Outputs you produce
 

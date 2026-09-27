@@ -15,12 +15,21 @@
  */
 
 import { clsx } from 'clsx';
-import { File as FileIcon, Reply, Copy, Forward, Trash2, CornerUpRight, Pencil } from 'lucide-react';
+import {
+  File as FileIcon,
+  Reply,
+  Copy,
+  Forward,
+  Trash2,
+  CornerUpRight,
+  Pencil,
+} from 'lucide-react';
 import { useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
 
 import { ReadReceipt } from './ReadReceipt';
 import { VoicePlayer } from './VoicePlayer';
 
+import { BottomSheet } from '@/components/ui/BottomSheet';
 import type { MessageContentType, MessageAttachment } from '@/types/messaging';
 import { isSafeUrl } from '@/utils/messaging-helpers';
 
@@ -153,10 +162,7 @@ function renderRichText(
   let lastIndex = 0;
 
   // Combined regex for URLs and mentions
-  const combinedRegex = new RegExp(
-    `${MENTION_REGEX.source}|${URL_REGEX.source}`,
-    'g',
-  );
+  const combinedRegex = new RegExp(`${MENTION_REGEX.source}|${URL_REGEX.source}`, 'g');
 
   let match: RegExpExecArray | null;
   combinedRegex.lastIndex = 0;
@@ -269,16 +275,6 @@ export function MessageBubble({
     };
   }, []);
 
-  // Dismiss context menu on scroll
-  useEffect(() => {
-    if (!showMenu) return;
-    const handleScroll = (): void => setShowMenu(false);
-    window.addEventListener('scroll', handleScroll, { capture: true, passive: true });
-    return () => {
-      window.removeEventListener('scroll', handleScroll, { capture: true });
-    };
-  }, [showMenu]);
-
   const closeMenu = useCallback(() => setShowMenu(false), []);
 
   const handleAction = useCallback(
@@ -297,9 +293,8 @@ export function MessageBubble({
     contentType === 'VOICE' && metadata
       ? (metadata['voiceDurationSeconds'] as number | undefined)
       : undefined;
-  const voiceAttachment = contentType === 'VOICE' && attachments?.length
-    ? attachments[0]
-    : undefined;
+  const voiceAttachment =
+    contentType === 'VOICE' && attachments?.length ? attachments[0] : undefined;
 
   const isForwarded = !!forwardedFrom;
 
@@ -310,9 +305,7 @@ export function MessageBubble({
     return (
       <div className={clsx('flex px-4 py-0.5', isOwn ? 'justify-end' : 'justify-start')}>
         <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-2 max-w-[80%]">
-          <span className="text-xs text-gray-400 dark:text-gray-500 italic">
-            [message deleted]
-          </span>
+          <span className="text-xs text-gray-400 dark:text-gray-500 italic">[message deleted]</span>
         </div>
       </div>
     );
@@ -368,23 +361,35 @@ export function MessageBubble({
                 : 'bg-gray-50 dark:bg-gray-700/60 border-ocean-400',
             )}
           >
-            <p className={clsx('font-bold truncate', isOwn ? 'text-white/90' : 'text-ocean-600 dark:text-ocean-400')}>
+            <p
+              className={clsx(
+                'font-bold truncate',
+                isOwn ? 'text-white/90' : 'text-ocean-600 dark:text-ocean-400',
+              )}
+            >
               {replyTo.senderName}
             </p>
-            <p className={clsx('truncate', isOwn ? 'text-white/85' : 'text-gray-500 dark:text-gray-400')}>
+            <p
+              className={clsx(
+                'truncate',
+                isOwn ? 'text-white/85' : 'text-gray-500 dark:text-gray-400',
+              )}
+            >
               {replyTo.text}
             </p>
           </div>
         )}
 
         {/* Voice note — render VoicePlayer instead of text */}
-        {contentType === 'VOICE' && voiceAttachment?.downloadUrl && isSafeUrl(voiceAttachment.downloadUrl) && (
-          <VoicePlayer
-            src={voiceAttachment.downloadUrl}
-            durationSeconds={voiceDuration ?? voiceAttachment.durationSeconds ?? undefined}
-            isOwn={isOwn}
-          />
-        )}
+        {contentType === 'VOICE' &&
+          voiceAttachment?.downloadUrl &&
+          isSafeUrl(voiceAttachment.downloadUrl) && (
+            <VoicePlayer
+              src={voiceAttachment.downloadUrl}
+              durationSeconds={voiceDuration ?? voiceAttachment.durationSeconds ?? undefined}
+              isOwn={isOwn}
+            />
+          )}
 
         {/* Image attachment -- URL protocol validated to prevent XSS */}
         {image && isSafeUrl(image.thumbnailUrl ?? image.url) && (
@@ -430,16 +435,24 @@ export function MessageBubble({
             <div
               className={clsx(
                 'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
-                isOwn ? 'bg-white/20' : 'bg-ocean-50 dark:bg-ocean-900/30',
+                isOwn ? 'bg-white/20 dark:bg-gray-900/20' : 'bg-ocean-50 dark:bg-ocean-900/30',
               )}
             >
-              <FileIcon size={18} className={isOwn ? 'text-white' : 'text-ocean-600 dark:text-ocean-400'} />
+              <FileIcon
+                size={18}
+                className={isOwn ? 'text-white' : 'text-ocean-600 dark:text-ocean-400'}
+              />
             </div>
             <div className="min-w-0 flex-1">
-              <p className={clsx('text-xs font-semibold truncate', isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100')}>
+              <p
+                className={clsx(
+                  'text-xs font-semibold truncate',
+                  isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100',
+                )}
+              >
                 {file.name}
               </p>
-              <p className={clsx('text-[10px]', isOwn ? 'text-white/75' : 'text-gray-400')}>
+              <p className={clsx('text-[10px]', isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500')}>
                 {file.size}
               </p>
             </div>
@@ -448,86 +461,100 @@ export function MessageBubble({
 
         {/* Text content with @mention and URL rendering */}
         {text && contentType !== 'VOICE' && (
-          <p className={clsx('text-sm leading-relaxed break-words whitespace-pre-wrap', isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100')}>
+          <p
+            className={clsx(
+              'text-sm leading-relaxed break-words whitespace-pre-wrap',
+              isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100',
+            )}
+          >
             {renderRichText(text, isOwn, onMentionTap)}
           </p>
         )}
 
         {/* Timestamp + edited + read receipt */}
-        <div className={clsx('flex items-center justify-end gap-1 mt-1', isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500')}>
+        <div
+          className={clsx(
+            'flex items-center justify-end gap-1 mt-1',
+            isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500',
+          )}
+        >
           {isEdited && <span className="text-[10px] italic">(edited)</span>}
           <span className="text-[10px] tabular-nums">{timeStr}</span>
           {isOwn && status && <ReadReceipt status={status} />}
         </div>
       </div>
 
-      {/* Context menu overlay */}
-      {showMenu && (
-        <>
-          {/* Backdrop — native <button> so the dismiss target is keyboard
-              operable and focusable without extra key handlers. */}
-          <button
-            type="button"
-            className="fixed inset-0 z-40"
-            onClick={closeMenu}
-            onTouchStart={closeMenu}
-            aria-label="Dismiss menu"
+      {/* Long-press actions — a sheet, so the menu is never clipped or
+          mis-positioned by the virtualised list's transforms. */}
+      <BottomSheet isOpen={showMenu} onClose={closeMenu} title="Message" bodyClassName="px-2 pb-2">
+        {onReply && (
+          <ActionRow
+            icon={<Reply size={18} className="text-gray-500 dark:text-gray-400" />}
+            label="Reply"
+            onSelect={() => handleAction(onReply)}
           />
-          {/* Menu */}
-          <div
-            className={clsx(
-              'absolute z-50 bg-white dark:bg-gray-800 rounded-xl shadow-elevated border border-gray-100 dark:border-gray-700 overflow-hidden',
-              isOwn ? 'right-4 top-full mt-1' : 'left-4 top-full mt-1',
-            )}
-          >
-            {onReply && (
-              <button
-                onClick={() => handleAction(onReply)}
-                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
-              >
-                <Reply size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Reply</span>
-              </button>
-            )}
-            {onCopy && (
-              <button
-                onClick={() => handleAction(onCopy)}
-                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
-              >
-                <Copy size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Copy</span>
-              </button>
-            )}
-            {onForward && (
-              <button
-                onClick={() => handleAction(onForward)}
-                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
-              >
-                <Forward size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Forward</span>
-              </button>
-            )}
-            {onEdit && (
-              <button
-                onClick={() => handleAction(onEdit)}
-                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
-              >
-                <Pencil size={16} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Edit</span>
-              </button>
-            )}
-            {onDelete && (
-              <button
-                onClick={() => handleAction(onDelete)}
-                className="flex items-center gap-3 px-4 py-3 min-w-[160px] min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-700 touch-feedback transition-colors"
-              >
-                <Trash2 size={16} className="text-red-500" />
-                <span className="text-sm font-medium text-red-600 dark:text-red-400">Delete</span>
-              </button>
-            )}
-          </div>
-        </>
-      )}
+        )}
+        {onCopy && (
+          <ActionRow
+            icon={<Copy size={18} className="text-gray-500 dark:text-gray-400" />}
+            label="Copy"
+            onSelect={() => handleAction(onCopy)}
+          />
+        )}
+        {onForward && (
+          <ActionRow
+            icon={<Forward size={18} className="text-gray-500 dark:text-gray-400" />}
+            label="Forward"
+            onSelect={() => handleAction(onForward)}
+          />
+        )}
+        {onEdit && (
+          <ActionRow
+            icon={<Pencil size={18} className="text-gray-500 dark:text-gray-400" />}
+            label="Edit"
+            onSelect={() => handleAction(onEdit)}
+          />
+        )}
+        {onDelete && (
+          <ActionRow
+            icon={<Trash2 size={18} className="text-red-500" />}
+            label="Delete"
+            tone="danger"
+            onSelect={() => handleAction(onDelete)}
+          />
+        )}
+      </BottomSheet>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Long-press action row
+// ---------------------------------------------------------------------------
+
+interface ActionRowProps {
+  icon: ReactElement;
+  label: string;
+  tone?: 'default' | 'danger';
+  onSelect: () => void;
+}
+
+function ActionRow({ icon, label, tone = 'default', onSelect }: ActionRowProps): ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="flex min-h-[3rem] w-full items-center gap-3 rounded-xl px-4 text-left touch-feedback transition-colors hover:bg-gray-50 dark:hover:bg-gray-800"
+    >
+      {icon}
+      <span
+        className={clsx(
+          'text-sm font-medium',
+          tone === 'danger' ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-gray-100',
+        )}
+      >
+        {label}
+      </span>
+    </button>
   );
 }

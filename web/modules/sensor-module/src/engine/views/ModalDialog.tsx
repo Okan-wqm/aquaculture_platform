@@ -10,6 +10,7 @@ import { useScadaPackageStore } from '../../store/scada';
 import { GRID_CELL_W, GRID_CELL_H } from '../../constants/scada-widget-sizes';
 import ScadaViewport from './ScadaViewport';
 import type { OverlayEntry } from './types';
+import { colors, colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 interface ModalDialogProps {
   overlay: OverlayEntry;
@@ -57,13 +58,7 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({ overlay }) => {
       {/* Backdrop */}
       <div
         onClick={handleClose}
-        style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,0.4)',
-          backdropFilter: 'blur(2px)',
-          zIndex: 10000,
-        }}
+        className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[10000]"
       />
 
       {/* Dialog */}
@@ -75,7 +70,7 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({ overlay }) => {
           transform: 'translate(-50%, -50%)',
           width,
           height,
-          background: '#fff',
+          background: themeColors.white,
           borderRadius: 16,
           boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
           display: 'flex',
@@ -92,16 +87,18 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({ overlay }) => {
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '12px 16px',
-            borderBottom: '1px solid #e5e7eb',
-            background: '#f9fafb',
+            borderBottom: `1px solid ${themeColors.neutral[200]}`,
+            background: colors.neutral[50],
             borderRadius: '16px 16px 0 0',
             flexShrink: 0,
           }}
         >
-          <span style={{ fontWeight: 600, fontSize: 14, color: '#111827' }}>
+          <span style={{ fontWeight: 600, fontSize: 14, color: colors.neutral[900] }}>
             {screenName}
           </span>
-          <button
+          <Button
+            variant="ghost"
+            iconOnly
             onClick={handleClose}
             style={{
               background: 'none',
@@ -112,12 +109,12 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({ overlay }) => {
               alignItems: 'center',
               justifyContent: 'center',
               borderRadius: 6,
-              color: '#6b7280',
+              color: colors.gray[400],
             }}
             aria-label="Close overlay"
           >
             <X size={16} />
-          </button>
+          </Button>
         </div>
 
         {/* Content */}
@@ -139,7 +136,14 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({ overlay }) => {
               variableMap={overlay.variableMap}
             />
           ) : (
-            <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center', paddingTop: 40 }}>
+            <div
+              style={{
+                fontSize: 12,
+                color: colors.neutral[400],
+                textAlign: 'center',
+                paddingTop: 40,
+              }}
+            >
               Screen not found
             </div>
           )}

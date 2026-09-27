@@ -118,7 +118,7 @@ export type ClockOutInput = {
 };
 
 export type CreateChannelInput = {
-  /** AI persona ID (e.g. "expert-v1", "operator-v1"). Only for AI channels. */
+  /** Published AI persona id (e.g. "expert-farm-production-v1"); omit for the tenant default. Only for AI channels. */
   aiPersona?: string | null | undefined;
   /** Channel description */
   description?: string | null | undefined;
@@ -243,7 +243,7 @@ export type CreateWaterQualityInput = {
   schemaVersion?: string | null | undefined;
   /** Site ID */
   siteId?: string | null | undefined;
-  /** Ölçüm kaynağı */
+  /** Ölçüm kaynağı (makine kaynakları reddedilir) */
   source: WaterQualityMeasurementSource;
   /** Tank ID */
   tankId?: string | null | undefined;

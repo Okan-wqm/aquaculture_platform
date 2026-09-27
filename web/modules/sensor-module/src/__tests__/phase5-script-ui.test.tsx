@@ -113,9 +113,9 @@ describe('ScriptEditor', () => {
     const textarea = screen.getByTestId('script-code-textarea') as HTMLTextAreaElement;
     expect(textarea).toBeTruthy();
     expect(textarea.tagName.toLowerCase()).toBe('textarea');
-    // Verify monospace font is applied via style or class
-    const style = textarea.style.fontFamily;
-    expect(style).toContain('monospace');
+    // The monospace font is the design system's `font-mono` utility, not an inline
+    // style; the shared-ui Textarea carries it on its wrapper and the control inherits it.
+    expect(textarea.closest('.font-mono')).not.toBeNull();
   });
 
   /* -------------------------------------------------------------- */

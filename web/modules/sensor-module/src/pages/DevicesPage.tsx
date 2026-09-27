@@ -7,7 +7,7 @@
  * - VFD devices (Danfoss, ABB, Siemens, etc.)
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Cpu,
@@ -22,7 +22,6 @@ import {
   Activity,
   Zap,
   AlertCircle,
-  Loader2,
   ChevronDown,
   ChevronRight,
   Server,
@@ -34,13 +33,22 @@ import {
   Settings,
   Upload,
   CheckCircle,
-  X,
 } from 'lucide-react';
 import { SensorRegistrationWizard } from '../components/registration/SensorRegistrationWizard';
 import { VfdRegistrationWizard } from '../components/vfd/VfdRegistrationWizard';
 import { EdgeDeviceWizard } from '../components/fleet/EdgeDeviceWizard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
-import { useAuth } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useAuth,
+  useClickOutside,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  PageHeader,
+  Button,
+  Select,
+} from '@aquaculture/shared-ui';
 import { useVfdDevices, useVfdStats } from '../hooks/useVfdRegistration';
 import {
   VfdDevice,
@@ -113,14 +121,14 @@ const getSensorTypeLabel = (type: string): string => {
 const StatusBadge: React.FC<{ isConnected?: boolean }> = ({ isConnected }) => {
   if (isConnected) {
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
         <Wifi className="w-3 h-3" />
         Çevrimiçi
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200">
       <WifiOff className="w-3 h-3" />
       Çevrimdışı
     </span>
@@ -129,19 +137,25 @@ const StatusBadge: React.FC<{ isConnected?: boolean }> = ({ isConnected }) => {
 
 const DataChannelItem: React.FC<{ channel: RegisteredSensor }> = ({ channel }) => {
   return (
-    <div className="flex items-center justify-between py-2 px-3 hover:bg-gray-50 rounded">
+    <div className="flex items-center justify-between py-2 px-3 hover:bg-gray-50 dark:hover:bg-gray-800 rounded">
       <div className="flex items-center gap-3">
-        <CircleDot className="w-4 h-4 text-cyan-500" />
+        <CircleDot className="w-4 h-4 text-info-500" />
         <div>
-          <span className="text-sm font-medium text-gray-900">{channel.name}</span>
-          <span className="text-xs text-gray-500 ml-2">({getSensorTypeLabel(channel.type)})</span>
+          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {channel.name}
+          </span>
+          <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
+            ({getSensorTypeLabel(channel.type)})
+          </span>
         </div>
       </div>
-      <div className="flex items-center gap-3 text-xs text-gray-500">
+      <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
         {channel.dataPath && (
-          <code className="bg-gray-100 px-2 py-0.5 rounded font-mono">{channel.dataPath}</code>
+          <code className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded font-mono">
+            {channel.dataPath}
+          </code>
         )}
-        {channel.unit && <span className="text-gray-500">{channel.unit}</span>}
+        {channel.unit && <span className="text-gray-500 dark:text-gray-400">{channel.unit}</span>}
       </div>
     </div>
   );
@@ -159,14 +173,14 @@ const StatCard: React.FC<{
 }> = ({ label, value, icon, color, onClick }) => (
   <div
     onClick={onClick}
-    className={`bg-white rounded-xl shadow-sm border border-gray-100 p-4 ${
+    className={`bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 ${
       onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''
     }`}
   >
     <div className="flex items-center justify-between">
       <div>
-        <p className="text-sm text-gray-500">{label}</p>
-        <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
+        <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{value}</p>
       </div>
       <div className={`p-3 rounded-lg ${color}`}>{icon}</div>
     </div>
@@ -186,7 +200,7 @@ const EdgeFilterDropdown: React.FC<{
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="appearance-none px-4 py-2 pr-8 bg-white border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+      className="appearance-none px-4 py-2 pr-8 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500 text-sm"
     >
       <option value="">{label}</option>
       {options.map((opt) => (
@@ -197,118 +211,10 @@ const EdgeFilterDropdown: React.FC<{
     </select>
     <ChevronDown
       size={16}
-      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none"
+      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400 pointer-events-none"
     />
   </div>
 );
-
-/**
- * Device list row for Edge Controllers list view
- */
-const EdgeDeviceListRow: React.FC<{
-  device: EdgeDevice;
-  onClick: () => void;
-  isSelected?: boolean;
-  onSelect?: (checked: boolean) => void;
-}> = ({ device, onClick, isSelected, onSelect }) => {
-  const isOnline = device.isOnline;
-  const lastSeenText =
-    device.lastSeenAt && !isOnline
-      ? new Date(device.lastSeenAt).toLocaleString('tr-TR')
-      : isOnline
-      ? 'Şimdi'
-      : 'Bilinmiyor';
-
-  return (
-    <tr
-      className="hover:bg-gray-50 cursor-pointer transition-colors"
-      onClick={onClick}
-    >
-      {onSelect && (
-        <td className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
-          <input
-            type="checkbox"
-            checked={isSelected || false}
-            onChange={(e) => onSelect(e.target.checked)}
-            className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
-          />
-        </td>
-      )}
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div
-            className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-              isOnline ? 'bg-cyan-100' : 'bg-gray-100'
-            }`}
-          >
-            <Server size={20} className={isOnline ? 'text-cyan-600' : 'text-gray-500'} />
-          </div>
-          <div>
-            <div className="font-medium text-gray-900">{device.deviceCode}</div>
-            <div className="text-xs text-gray-500">{device.deviceName}</div>
-          </div>
-        </div>
-      </td>
-      <td className="px-4 py-3">
-        <span className="text-sm text-gray-700">
-          {getDeviceModelText(device.deviceModel)}
-        </span>
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-2">
-          {isOnline ? (
-            <>
-              <Wifi size={14} className="text-green-500" />
-              <span className="text-sm text-green-600">Çevrimiçi</span>
-            </>
-          ) : (
-            <>
-              <WifiOff size={14} className="text-gray-500" />
-              <span className="text-sm text-gray-500">Çevrimdışı</span>
-            </>
-          )}
-        </div>
-      </td>
-      <td className="px-4 py-3">
-        <span
-          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-            device.lifecycleState === DeviceLifecycleState.ACTIVE
-              ? 'bg-green-100 text-green-800'
-              : device.lifecycleState === DeviceLifecycleState.ERROR
-              ? 'bg-red-100 text-red-800'
-              : device.lifecycleState === DeviceLifecycleState.MAINTENANCE
-              ? 'bg-yellow-100 text-yellow-800'
-              : 'bg-gray-100 text-gray-800'
-          }`}
-        >
-          {getDeviceStatusText(device.lifecycleState)}
-        </span>
-      </td>
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-1 text-sm text-gray-500">
-          <Clock size={12} />
-          <span>{lastSeenText}</span>
-        </div>
-      </td>
-      <td className="px-4 py-3">
-        <span className="text-sm text-gray-600">
-          {device.firmwareVersion || 'N/A'}
-        </span>
-      </td>
-      <td className="px-4 py-3 text-right">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onClick();
-          }}
-          className="text-cyan-600 hover:text-cyan-700 text-sm font-medium"
-        >
-          Detay
-        </button>
-      </td>
-    </tr>
-  );
-};
 
 const DeviceCard: React.FC<{
   group: GroupedDevice;
@@ -321,28 +227,32 @@ const DeviceCard: React.FC<{
   const topic = (parent.protocolConfiguration as any)?.topic;
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Device Header */}
       <div
-        className="p-5 cursor-pointer hover:bg-gray-50 transition-colors"
+        className="p-5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         onClick={onToggle}
       >
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
-            <div className={`p-3 rounded-lg ${isConnected ? 'bg-cyan-100' : 'bg-gray-100'}`}>
-              <Server className={`w-6 h-6 ${isConnected ? 'text-cyan-600' : 'text-gray-500'}`} />
+            <div
+              className={`p-3 rounded-lg ${isConnected ? 'bg-info-100 dark:bg-info-900/40' : 'bg-gray-100 dark:bg-gray-800'}`}
+            >
+              <Server
+                className={`w-6 h-6 ${isConnected ? 'text-info-600 dark:text-info-400' : 'text-gray-500 dark:text-gray-400'}`}
+              />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-gray-900">{parent.name}</h3>
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100">{parent.name}</h3>
                 <StatusBadge isConnected={isConnected} />
               </div>
-              <div className="flex items-center gap-4 mt-1 text-sm text-gray-500">
+              <div className="flex items-center gap-4 mt-1 text-sm text-gray-500 dark:text-gray-400">
                 <span className="font-mono text-xs">
                   {parent.serialNumber || parent.id.slice(0, 8).toUpperCase()}
                 </span>
                 {parent.protocolCode && (
-                  <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs">
+                  <span className="px-2 py-0.5 bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 rounded text-xs">
                     {parent.protocolCode}
                   </span>
                 )}
@@ -350,25 +260,27 @@ const DeviceCard: React.FC<{
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500">{children.length} veri kanalı</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">
+              {children.length} veri kanalı
+            </span>
             {isExpanded ? (
-              <ChevronDown className="w-5 h-5 text-gray-500" />
+              <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             ) : (
-              <ChevronRight className="w-5 h-5 text-gray-500" />
+              <ChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             )}
           </div>
         </div>
 
         {/* Device Info Row */}
-        <div className="flex items-center gap-6 mt-4 text-sm text-gray-600">
+        <div className="flex items-center gap-6 mt-4 text-sm text-gray-600 dark:text-gray-400">
           {(parent.location || parent.siteId) && (
             <div className="flex items-center gap-1.5">
-              <MapPin className="w-4 h-4 text-gray-500" />
+              <MapPin className="w-4 h-4 text-gray-500 dark:text-gray-400" />
               <span>{parent.location || 'Konum belirtilmemiş'}</span>
             </div>
           )}
           <div className="flex items-center gap-1.5">
-            <Clock className="w-4 h-4 text-gray-500" />
+            <Clock className="w-4 h-4 text-gray-500 dark:text-gray-400" />
             <span>Son görülme: {lastSeen}</span>
           </div>
         </div>
@@ -376,16 +288,18 @@ const DeviceCard: React.FC<{
         {/* MQTT Topic */}
         {topic && (
           <div className="mt-3 text-xs">
-            <span className="text-gray-500">Topic: </span>
-            <code className="bg-gray-100 px-2 py-0.5 rounded font-mono text-gray-700">{topic}</code>
+            <span className="text-gray-500 dark:text-gray-400">Topic: </span>
+            <code className="bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded font-mono text-gray-700 dark:text-gray-300">
+              {topic}
+            </code>
           </div>
         )}
       </div>
 
       {/* Data Channels (Expandable) */}
       {isExpanded && children.length > 0 && (
-        <div className="border-t border-gray-100 bg-gray-50 p-3">
-          <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2 px-3">
+        <div className="border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-3">
+          <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2 px-3">
             Veri Kanalları
           </h4>
           <div className="space-y-1">
@@ -397,10 +311,10 @@ const DeviceCard: React.FC<{
       )}
 
       {/* Card Footer */}
-      <div className="border-t border-gray-100 px-5 py-3 flex justify-end">
+      <div className="border-t border-gray-100 dark:border-gray-700 px-5 py-3 flex justify-end">
         <Link
           to={`/sensor/devices/${parent.id}`}
-          className="text-sm text-cyan-600 hover:text-cyan-700 font-medium"
+          className="text-sm text-info-600 dark:text-info-400 hover:text-info-700 dark:hover:text-info-200 font-medium"
         >
           Detayları Görüntüle
         </Link>
@@ -424,6 +338,12 @@ const DevicesPage: React.FC = () => {
   const [isVfdWizardOpen, setIsVfdWizardOpen] = useState(false);
   const [isEdgeWizardOpen, setIsEdgeWizardOpen] = useState(false);
   const [showDeviceTypeSelector, setShowDeviceTypeSelector] = useState(false);
+  const deviceTypeSelectorRef = useRef<HTMLDivElement>(null);
+  useClickOutside(
+    deviceTypeSelectorRef,
+    () => setShowDeviceTypeSelector(false),
+    showDeviceTypeSelector,
+  );
   const [expandedDevices, setExpandedDevices] = useState<Set<string>>(new Set());
 
   // Edge Controllers state
@@ -567,12 +487,9 @@ const DevicesPage: React.FC = () => {
     });
   };
 
-  const toggleAllDeviceSelection = (checked: boolean) => {
-    if (checked) {
-      setSelectedDeviceIds(new Set(edgeDevices.map((d) => d.id)));
-    } else {
-      setSelectedDeviceIds(new Set());
-    }
+  const closeBulkFirmwareModal = (): void => {
+    setShowBulkFirmwareModal(false);
+    setBulkUpdateResult(null);
   };
 
   const handleBulkFirmwareUpdate = () => {
@@ -593,15 +510,15 @@ const DevicesPage: React.FC = () => {
 
   // Group sensors by parent device
   const groupedDevices = useMemo(() => {
-    const parents = sensors.filter(s => s.isParentDevice);
-    const groups: GroupedDevice[] = parents.map(parent => ({
+    const parents = sensors.filter((s) => s.isParentDevice);
+    const groups: GroupedDevice[] = parents.map((parent) => ({
       parent,
-      children: sensors.filter(s => s.parentId === parent.id),
+      children: sensors.filter((s) => s.parentId === parent.id),
     }));
 
     // Also include orphan sensors (not parent, no parentId) as standalone devices
-    const orphans = sensors.filter(s => !s.isParentDevice && !s.parentId);
-    orphans.forEach(orphan => {
+    const orphans = sensors.filter((s) => !s.isParentDevice && !s.parentId);
+    orphans.forEach((orphan) => {
       groups.push({ parent: orphan, children: [] });
     });
 
@@ -615,7 +532,7 @@ const DevicesPage: React.FC = () => {
       const matchesSearch =
         device.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (device.serialNumber?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-        group.children.some(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()));
+        group.children.some((c) => c.name.toLowerCase().includes(searchTerm.toLowerCase()));
       const isConnected = device.connectionStatus?.isConnected;
       const matchesStatus =
         selectedStatus === 'all' ||
@@ -666,87 +583,201 @@ const DevicesPage: React.FC = () => {
 
   const onlineCount = groupedDevices.filter((g) => g.parent.connectionStatus?.isConnected).length;
 
-  return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Cihaz Yönetimi</h1>
-          <p className="text-gray-500 mt-1">
-            {loading ? 'Yükleniyor...' : `${onlineCount}/${groupedDevices.length} cihaz çevrimiçi`}
-          </p>
-        </div>
-        <div className="relative">
-          {canManageDevices && (
-          <button
-            onClick={() => setShowDeviceTypeSelector(!showDeviceTypeSelector)}
-            className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
+  const edgeDeviceColumns: DataTableColumn<EdgeDevice>[] = [
+    {
+      key: 'deviceCode',
+      header: 'Cihaz',
+      render: (_value, device) => (
+        <div className="flex items-center gap-3">
+          <div
+            className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+              device.isOnline ? 'bg-info-100 dark:bg-info-900/40' : 'bg-gray-100 dark:bg-gray-800'
+            }`}
           >
-            <Plus className="w-4 h-4" />
-            Yeni Cihaz Ekle
-          </button>
-          )}
-
-          {/* Device Type Selector Dropdown */}
-          {showDeviceTypeSelector && (
+            <Server
+              size={20}
+              className={
+                device.isOnline
+                  ? 'text-info-600 dark:text-info-400'
+                  : 'text-gray-500 dark:text-gray-400'
+              }
+            />
+          </div>
+          <div>
+            <div className="font-medium text-gray-900 dark:text-gray-100">{device.deviceCode}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">{device.deviceName}</div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'deviceModel',
+      header: 'Model',
+      render: (_value, device) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {getDeviceModelText(device.deviceModel)}
+        </span>
+      ),
+    },
+    {
+      key: 'isOnline',
+      header: 'Bağlantı',
+      render: (_value, device) => (
+        <div className="flex items-center gap-2">
+          {device.isOnline ? (
             <>
-              <div
-                className="fixed inset-0 z-10"
-                onClick={() => setShowDeviceTypeSelector(false)}
-              />
-              <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-20 overflow-hidden">
-                <div className="p-2">
-                  <button
-                    onClick={() => handleAddDevice('edge')}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
-                  >
-                    <div className="p-2 bg-gray-100 rounded-lg">
-                      <Server className="w-5 h-5 text-gray-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900">Edge Controller</p>
-                      <p className="text-xs text-gray-500">Revolution Pi, Industrial PC</p>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => handleAddDevice('sensor')}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
-                  >
-                    <div className="p-2 bg-cyan-100 rounded-lg">
-                      <Activity className="w-5 h-5 text-cyan-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900">Sensör</p>
-                      <p className="text-xs text-gray-500">Sıcaklık, pH, oksijen vb.</p>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => handleAddDevice('vfd')}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
-                  >
-                    <div className="p-2 bg-indigo-100 rounded-lg">
-                      <Zap className="w-5 h-5 text-indigo-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900">VFD / Frekans Konvertör</p>
-                      <p className="text-xs text-gray-500">Danfoss, ABB, Siemens vb.</p>
-                    </div>
-                  </button>
-                </div>
-              </div>
+              <Wifi size={14} className="text-success-500" />
+              <span className="text-sm text-success-600 dark:text-success-400">Çevrimiçi</span>
+            </>
+          ) : (
+            <>
+              <WifiOff size={14} className="text-gray-500 dark:text-gray-400" />
+              <span className="text-sm text-gray-500 dark:text-gray-400">Çevrimdışı</span>
             </>
           )}
         </div>
-      </div>
+      ),
+    },
+    {
+      key: 'lifecycleState',
+      header: 'Durum',
+      render: (_value, device) => (
+        <span
+          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+            device.lifecycleState === DeviceLifecycleState.ACTIVE
+              ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
+              : device.lifecycleState === DeviceLifecycleState.ERROR
+                ? 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
+                : device.lifecycleState === DeviceLifecycleState.MAINTENANCE
+                  ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+          }`}
+        >
+          {getDeviceStatusText(device.lifecycleState)}
+        </span>
+      ),
+    },
+    {
+      key: 'lastSeenAt',
+      header: 'Son Görülme',
+      render: (_value, device) => {
+        const lastSeenText =
+          device.lastSeenAt && !device.isOnline
+            ? new Date(device.lastSeenAt).toLocaleString('tr-TR')
+            : device.isOnline
+              ? 'Şimdi'
+              : 'Bilinmiyor';
+        return (
+          <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
+            <Clock size={12} />
+            <span>{lastSeenText}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'firmwareVersion',
+      header: 'Firmware',
+      render: (_value, device) => (
+        <span className="text-sm text-gray-600 dark:text-gray-400">
+          {device.firmwareVersion || 'N/A'}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'İşlemler',
+      align: 'right',
+      render: (_value, device) => (
+        <Button
+          variant="ghost"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleEdgeDeviceClick(device);
+          }}
+        >
+          Detay
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <PageHeader
+        title="Cihaz Yönetimi"
+        description={
+          loading ? 'Yükleniyor...' : `${onlineCount}/${groupedDevices.length} cihaz çevrimiçi`
+        }
+        actions={
+          <div className="relative" ref={deviceTypeSelectorRef}>
+            {canManageDevices && (
+              <Button
+                variant="primary"
+                leftIcon={<Plus className="w-4 h-4" />}
+                onClick={() => setShowDeviceTypeSelector(!showDeviceTypeSelector)}
+              >
+                Yeni Cihaz Ekle
+              </Button>
+            )}
+
+            {/* Device Type Selector Dropdown */}
+            {showDeviceTypeSelector && (
+              <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 overflow-hidden">
+                <div className="p-2">
+                  <Button variant="ghost" onClick={() => handleAddDevice('edge')}>
+                    <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                      <Server className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-gray-100">
+                        Edge Controller
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Revolution Pi, Industrial PC
+                      </p>
+                    </div>
+                  </Button>
+                  <Button variant="ghost" onClick={() => handleAddDevice('sensor')}>
+                    <div className="p-2 bg-info-100 dark:bg-info-900/40 rounded-lg">
+                      <Activity className="w-5 h-5 text-info-600 dark:text-info-400" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-gray-100">Sensör</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Sıcaklık, pH, oksijen vb.
+                      </p>
+                    </div>
+                  </Button>
+                  <Button variant="ghost" onClick={() => handleAddDevice('vfd')}>
+                    <div className="p-2 bg-primary-100 dark:bg-primary-900/40 rounded-lg">
+                      <Zap className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-gray-100">
+                        VFD / Frekans Konvertör
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Danfoss, ABB, Siemens vb.
+                      </p>
+                    </div>
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        }
+      />
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg w-fit">
         <button
           onClick={() => setActiveTab('edge')}
           className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
             activeTab === 'edge'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
           }`}
         >
           <span className="flex items-center gap-2">
@@ -758,8 +789,8 @@ const DevicesPage: React.FC = () => {
           onClick={() => setActiveTab('sensors')}
           className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
             activeTab === 'sensors'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
           }`}
         >
           <span className="flex items-center gap-2">
@@ -771,8 +802,8 @@ const DevicesPage: React.FC = () => {
           onClick={() => setActiveTab('vfd')}
           className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
             activeTab === 'vfd'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
           }`}
         >
           <span className="flex items-center gap-2">
@@ -793,10 +824,10 @@ const DevicesPage: React.FC = () => {
               {[...Array(4)].map((_, i) => (
                 <div
                   key={i}
-                  className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 animate-pulse"
+                  className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 animate-pulse"
                 >
-                  <div className="h-4 bg-gray-200 rounded w-20 mb-2" />
-                  <div className="h-8 bg-gray-200 rounded w-12" />
+                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-20 mb-2" />
+                  <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-12" />
                 </div>
               ))}
             </div>
@@ -805,21 +836,21 @@ const DevicesPage: React.FC = () => {
               <StatCard
                 label="Toplam Cihaz"
                 value={edgeStats.total}
-                icon={<Server size={24} className="text-gray-600" />}
-                color="bg-gray-100"
+                icon={<Server size={24} className="text-gray-600 dark:text-gray-400" />}
+                color="bg-gray-100 dark:bg-gray-800"
               />
               <StatCard
                 label="Çevrimiçi"
                 value={edgeStats.online}
-                icon={<Wifi size={24} className="text-green-600" />}
-                color="bg-green-100"
+                icon={<Wifi size={24} className="text-success-600 dark:text-success-400" />}
+                color="bg-success-100 dark:bg-success-900/40"
                 onClick={() => applyEdgeFilter(() => setEdgeOnlineFilter('online'))}
               />
               <StatCard
                 label="Çevrimdışı"
                 value={edgeStats.offline}
-                icon={<WifiOff size={24} className="text-gray-500" />}
-                color="bg-gray-100"
+                icon={<WifiOff size={24} className="text-gray-500 dark:text-gray-400" />}
+                color="bg-gray-100 dark:bg-gray-800"
                 onClick={() => applyEdgeFilter(() => setEdgeOnlineFilter('offline'))}
               />
               <StatCard
@@ -827,19 +858,21 @@ const DevicesPage: React.FC = () => {
                 value={
                   edgeStats.byState.find((s) => s.state === DeviceLifecycleState.ERROR)?.count || 0
                 }
-                icon={<AlertTriangle size={24} className="text-red-600" />}
-                color="bg-red-100"
-                onClick={() => applyEdgeFilter(() => setEdgeStateFilter(DeviceLifecycleState.ERROR))}
+                icon={<AlertTriangle size={24} className="text-error-600 dark:text-error-400" />}
+                color="bg-error-100 dark:bg-error-900/40"
+                onClick={() =>
+                  applyEdgeFilter(() => setEdgeStateFilter(DeviceLifecycleState.ERROR))
+                }
               />
             </div>
           ) : null}
 
           {/* Edge Filters */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
             <div className="flex flex-col md:flex-row gap-4">
               {/* Search */}
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400" />
                 <input
                   type="text"
                   placeholder="Cihaz kodu veya adı..."
@@ -848,13 +881,13 @@ const DevicesPage: React.FC = () => {
                     setEdgeSearchTerm(e.target.value);
                     setEdgePage(1);
                   }}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
                 />
               </div>
 
               {/* Filter Dropdowns */}
               <div className="flex items-center gap-2">
-                <Filter className="w-5 h-5 text-gray-500" />
+                <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
                 <EdgeFilterDropdown
                   label="Tüm Durumlar"
                   value={edgeStateFilter}
@@ -883,49 +916,51 @@ const DevicesPage: React.FC = () => {
                   }}
                 />
                 {hasEdgeFilters && (
-                  <button
-                    onClick={clearEdgeFilters}
-                    className="text-sm text-cyan-600 hover:text-cyan-700 font-medium"
-                  >
+                  <Button variant="ghost" onClick={clearEdgeFilters}>
                     Temizle
-                  </button>
+                  </Button>
                 )}
               </div>
 
               {/* Bulk Firmware Update (SENSOR-LOW-003: manage-gated) */}
               {canManageDevices && selectedDeviceIds.size > 0 && (
-                <button
+                <Button
+                  variant="primary"
+                  size="sm"
+                  leftIcon={<Upload size={16} />}
                   onClick={() => {
                     setBulkFirmwareVersion('');
                     setBulkUpdateResult(null);
                     setShowBulkFirmwareModal(true);
                   }}
-                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors"
                 >
-                  <Upload size={16} />
                   Toplu Firmware Güncelle ({selectedDeviceIds.size})
-                </button>
+                </Button>
               )}
 
               {/* View Mode Toggle */}
-              <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+              <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
                 <button
                   onClick={() => setEdgeViewMode('grid')}
                   className={`p-2 rounded-md transition-colors ${
-                    edgeViewMode === 'grid' ? 'bg-white shadow-sm' : 'hover:bg-gray-200'
+                    edgeViewMode === 'grid'
+                      ? 'bg-white dark:bg-gray-900 shadow-sm'
+                      : 'hover:bg-gray-200 dark:hover:bg-gray-600'
                   }`}
                   title="Grid Görünümü"
                 >
-                  <LayoutGrid size={18} className="text-gray-600" />
+                  <LayoutGrid size={18} className="text-gray-600 dark:text-gray-400" />
                 </button>
                 <button
                   onClick={() => setEdgeViewMode('list')}
                   className={`p-2 rounded-md transition-colors ${
-                    edgeViewMode === 'list' ? 'bg-white shadow-sm' : 'hover:bg-gray-200'
+                    edgeViewMode === 'list'
+                      ? 'bg-white dark:bg-gray-900 shadow-sm'
+                      : 'hover:bg-gray-200 dark:hover:bg-gray-600'
                   }`}
                   title="Liste Görünümü"
                 >
-                  <List size={18} className="text-gray-600" />
+                  <List size={18} className="text-gray-600 dark:text-gray-400" />
                 </button>
               </div>
             </div>
@@ -933,17 +968,19 @@ const DevicesPage: React.FC = () => {
 
           {/* Edge Error State */}
           {edgeError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-              <AlertTriangle className="w-5 h-5 text-red-500" />
+            <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 flex items-center gap-3">
+              <AlertTriangle className="w-5 h-5 text-error-500" />
               <div>
-                <p className="text-red-800 font-medium">Edge cihazları yüklenemedi</p>
-                <p className="text-red-600 text-sm">
+                <p className="text-error-800 dark:text-error-200 font-medium">
+                  Edge cihazları yüklenemedi
+                </p>
+                <p className="text-error-600 dark:text-error-400 text-sm">
                   {edgeError instanceof Error ? edgeError.message : 'Bilinmeyen hata'}
                 </p>
               </div>
               <button
                 onClick={() => refetchEdge()}
-                className="ml-auto px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
+                className="ml-auto px-3 py-1 bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 rounded hover:bg-error-200 dark:hover:bg-error-800/60"
               >
                 Tekrar Dene
               </button>
@@ -952,44 +989,41 @@ const DevicesPage: React.FC = () => {
 
           {/* Edge Loading State */}
           {edgeLoading && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
-              <Loader2 className="w-8 h-8 animate-spin mb-3" />
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+              <Spinner size="lg" color="inherit" className="mb-3" />
               <p>Edge cihazları yükleniyor...</p>
             </div>
           )}
 
           {/* Edge Empty State */}
           {!edgeLoading && edgeDevices.length === 0 && !hasEdgeFilters && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
               <Server className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">Henüz edge controller kaydedilmemiş</p>
               <p className="text-sm mt-1 mb-4">
                 İlk Revolution Pi veya Industrial PC cihazınızı kaydedin
               </p>
               {canManageDevices && (
-              <button
-                onClick={() => handleAddDevice('edge')}
-                className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                İlk Edge Controller'ı Kaydet
-              </button>
+                <Button
+                  variant="primary"
+                  leftIcon={<Plus className="w-4 h-4" />}
+                  onClick={() => handleAddDevice('edge')}
+                >
+                  İlk Edge Controller'ı Kaydet
+                </Button>
               )}
             </div>
           )}
 
           {/* Edge No Results State */}
           {!edgeLoading && edgeDevices.length === 0 && hasEdgeFilters && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
               <Search className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">Sonuç bulunamadı</p>
               <p className="text-sm mt-1">Arama veya filtre kriterlerini değiştirmeyi deneyin</p>
-              <button
-                onClick={clearEdgeFilters}
-                className="mt-4 text-cyan-600 hover:text-cyan-700 font-medium"
-              >
+              <Button variant="ghost" className="mt-4" onClick={clearEdgeFilters}>
                 Filtreleri temizle
-              </button>
+              </Button>
             </div>
           )}
 
@@ -1003,7 +1037,7 @@ const DevicesPage: React.FC = () => {
                       type="checkbox"
                       checked={selectedDeviceIds.has(device.id)}
                       onChange={(e) => toggleDeviceSelection(device.id, e.target.checked)}
-                      className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500 bg-white"
+                      className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500 bg-white dark:bg-gray-900"
                     />
                   </div>
                   <DeviceStatusCard
@@ -1018,70 +1052,38 @@ const DevicesPage: React.FC = () => {
 
           {/* Edge Device List */}
           {!edgeLoading && edgeDevices.length > 0 && edgeViewMode === 'list' && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th className="px-4 py-3 w-10">
-                      <input
-                        type="checkbox"
-                        checked={edgeDevices.length > 0 && edgeDevices.every((d) => selectedDeviceIds.has(d.id))}
-                        onChange={(e) => toggleAllDeviceSelection(e.target.checked)}
-                        className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
-                      />
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Cihaz
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Model
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Bağlantı
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Durum
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Son Görülme
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Firmware
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      İşlemler
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {edgeDevices.map((device) => (
-                    <EdgeDeviceListRow
-                      key={device.id}
-                      device={device}
-                      onClick={() => handleEdgeDeviceClick(device)}
-                      isSelected={selectedDeviceIds.has(device.id)}
-                      onSelect={(checked) => toggleDeviceSelection(device.id, checked)}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<EdgeDevice>
+              data={edgeDevices}
+              columns={edgeDeviceColumns}
+              keyExtractor={(device) => device.id}
+              selectable
+              selectedRows={Array.from(selectedDeviceIds)}
+              onSelectionChange={(ids) => setSelectedDeviceIds(new Set(ids))}
+              onRowClick={handleEdgeDeviceClick}
+              rowClassName={() => 'cursor-pointer'}
+              emptyMessage="Cihaz yok"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
           )}
 
           {/* Edge Pagination */}
           {!edgeLoading && edgeTotal > edgeLimit && (
-            <div className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-3">
-              <div className="text-sm text-gray-500">
-                {(edgePage - 1) * edgeLimit + 1} - {Math.min(edgePage * edgeLimit, edgeTotal)} / {edgeTotal} cihaz
+            <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                {(edgePage - 1) * edgeLimit + 1} - {Math.min(edgePage * edgeLimit, edgeTotal)} /{' '}
+                {edgeTotal} cihaz
               </div>
               <div className="flex items-center gap-2">
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => setEdgePage((p) => Math.max(1, p - 1))}
                   disabled={edgePage === 1}
-                  className="px-3 py-1 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Önceki
-                </button>
+                </Button>
                 <div className="flex items-center gap-1">
                   {[...Array(Math.min(5, edgeTotalPages))].map((_, i) => {
                     const pageNum = i + 1;
@@ -1091,8 +1093,8 @@ const DevicesPage: React.FC = () => {
                         onClick={() => setEdgePage(pageNum)}
                         className={`w-8 h-8 rounded-lg text-sm font-medium ${
                           edgePage === pageNum
-                            ? 'bg-cyan-600 text-white'
-                            : 'text-gray-600 hover:bg-gray-100'
+                            ? 'bg-info-600 text-white'
+                            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                         }`}
                       >
                         {pageNum}
@@ -1100,13 +1102,14 @@ const DevicesPage: React.FC = () => {
                     );
                   })}
                 </div>
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => setEdgePage((p) => Math.min(edgeTotalPages, p + 1))}
                   disabled={edgePage === edgeTotalPages}
-                  className="px-3 py-1 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Sonraki
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -1119,47 +1122,49 @@ const DevicesPage: React.FC = () => {
       {activeTab === 'sensors' && (
         <>
           {/* Filters */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
             <div className="flex flex-col md:flex-row gap-4">
               {/* Search */}
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400" />
                 <input
                   type="text"
                   placeholder="Cihaz adı veya seri numarası..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
                 />
               </div>
 
               {/* Status Filter */}
               <div className="flex items-center gap-2">
-                <Filter className="w-5 h-5 text-gray-500" />
-                <select
+                <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                <Select
+                  options={[
+                    { value: 'all', label: 'Tüm Durumlar' },
+                    { value: 'online', label: 'Çevrimiçi' },
+                    { value: 'offline', label: 'Çevrimdışı' },
+                  ]}
                   value={selectedStatus}
                   onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-                >
-                  <option value="all">Tüm Durumlar</option>
-                  <option value="online">Çevrimiçi</option>
-                  <option value="offline">Çevrimdışı</option>
-                </select>
+                />
               </div>
             </div>
           </div>
 
           {/* Error Message */}
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-              <AlertCircle className="w-5 h-5 text-red-500" />
+            <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-error-500" />
               <div>
-                <p className="text-red-800 font-medium">Cihazlar yüklenemedi</p>
-                <p className="text-red-600 text-sm">{error}</p>
+                <p className="text-error-800 dark:text-error-200 font-medium">
+                  Cihazlar yüklenemedi
+                </p>
+                <p className="text-error-600 dark:text-error-400 text-sm">{error}</p>
               </div>
               <button
                 onClick={() => refetch()}
-                className="ml-auto px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
+                className="ml-auto px-3 py-1 bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 rounded hover:bg-error-200 dark:hover:bg-error-800/60"
               >
                 Tekrar Dene
               </button>
@@ -1168,26 +1173,28 @@ const DevicesPage: React.FC = () => {
 
           {/* Loading State */}
           {loading && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
-              <Loader2 className="w-8 h-8 animate-spin mb-3" />
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+              <Spinner size="lg" color="inherit" className="mb-3" />
               <p>Cihazlar yükleniyor...</p>
             </div>
           )}
 
           {/* Empty State */}
           {!loading && groupedDevices.length === 0 && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
               <Cpu className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">Henüz cihaz kaydedilmemiş</p>
-              <p className="text-sm mt-1 mb-4">Başlamak için yeni bir sensör veya VFD cihazı ekleyin</p>
+              <p className="text-sm mt-1 mb-4">
+                Başlamak için yeni bir sensör veya VFD cihazı ekleyin
+              </p>
               {canManageDevices && (
-              <button
-                onClick={() => setShowDeviceTypeSelector(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                İlk Cihazı Ekle
-              </button>
+                <Button
+                  variant="primary"
+                  leftIcon={<Plus className="w-4 h-4" />}
+                  onClick={() => setShowDeviceTypeSelector(true)}
+                >
+                  İlk Cihazı Ekle
+                </Button>
               )}
             </div>
           )}
@@ -1208,7 +1215,7 @@ const DevicesPage: React.FC = () => {
 
           {/* No Results */}
           {!loading && groupedDevices.length > 0 && filteredDevices.length === 0 && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
               <Search className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">Sonuç bulunamadı</p>
               <p className="text-sm mt-1">Arama kriterlerini değiştirmeyi deneyin</p>
@@ -1225,73 +1232,84 @@ const DevicesPage: React.FC = () => {
           {/* VFD stat summary */}
           {vfdStats && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                <p className="text-sm text-gray-500">Toplam VFD</p>
-                <p className="text-2xl font-bold text-gray-900">{vfdStats.total ?? vfdTotal}</p>
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Toplam VFD</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {vfdStats.total ?? vfdTotal}
+                </p>
               </div>
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                <p className="text-sm text-gray-500">Aktif</p>
-                <p className="text-2xl font-bold text-green-600">{vfdStats.active ?? 0}</p>
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Aktif</p>
+                <p className="text-2xl font-bold text-success-600 dark:text-success-400">
+                  {vfdStats.active ?? 0}
+                </p>
               </div>
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                <p className="text-sm text-gray-500">Arızalı</p>
-                <p className="text-2xl font-bold text-red-600">{vfdStats.faulted ?? 0}</p>
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Arızalı</p>
+                <p className="text-2xl font-bold text-error-600 dark:text-error-400">
+                  {vfdStats.faulted ?? 0}
+                </p>
               </div>
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                <p className="text-sm text-gray-500">Bakım</p>
-                <p className="text-2xl font-bold text-cyan-600">{vfdStats.maintenance ?? 0}</p>
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Bakım</p>
+                <p className="text-2xl font-bold text-info-600 dark:text-info-400">
+                  {vfdStats.maintenance ?? 0}
+                </p>
               </div>
             </div>
           )}
 
           {/* Filters */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400" />
                 <input
                   type="text"
                   placeholder="VFD adı veya seri numarası..."
                   value={vfdSearchTerm}
                   onChange={(e) => applyVfdFilter(() => setVfdSearchTerm(e.target.value))}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
                 />
               </div>
               <div className="flex items-center gap-2">
-                <Filter className="w-5 h-5 text-gray-500" />
+                <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
                 <select
                   value={vfdStatusFilter}
                   onChange={(e) => applyVfdFilter(() => setVfdStatusFilter(e.target.value))}
-                  className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                  className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
                 >
                   <option value="">Tüm Durumlar</option>
                   {Object.values(VfdDeviceStatus).map((s) => (
-                    <option key={s} value={s}>{s}</option>
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
                   ))}
                 </select>
               </div>
               {hasVfdFilters && (
-                <button
-                  onClick={clearVfdFilters}
-                  className="px-3 py-2 text-sm text-gray-600 hover:text-gray-900"
-                >
+                <Button variant="ghost" size="sm" onClick={clearVfdFilters}>
                   Filtreleri Temizle
-                </button>
+                </Button>
               )}
             </div>
           </div>
 
           {/* Error */}
           {vfdError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-              <AlertCircle className="w-5 h-5 text-red-500" />
+            <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-error-500" />
               <div>
-                <p className="text-red-800 font-medium">VFD cihazları yüklenemedi</p>
-                <p className="text-red-600 text-sm">{(vfdError as Error).message}</p>
+                <p className="text-error-800 dark:text-error-200 font-medium">
+                  VFD cihazları yüklenemedi
+                </p>
+                <p className="text-error-600 dark:text-error-400 text-sm">
+                  {(vfdError as Error).message}
+                </p>
               </div>
               <button
                 onClick={() => refetchVfd()}
-                className="ml-auto px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
+                className="ml-auto px-3 py-1 bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 rounded hover:bg-error-200 dark:hover:bg-error-800/60"
               >
                 Tekrar Dene
               </button>
@@ -1300,27 +1318,28 @@ const DevicesPage: React.FC = () => {
 
           {/* Loading */}
           {vfdLoading && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
-              <Loader2 className="w-8 h-8 animate-spin mb-3" />
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+              <Spinner size="lg" color="inherit" className="mb-3" />
               <p>VFD cihazları yükleniyor...</p>
             </div>
           )}
 
           {/* Empty */}
           {!vfdLoading && vfdDevices.length === 0 && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
               <Zap className="w-12 h-12 mb-3 opacity-50" />
               <p className="text-lg font-medium">
                 {hasVfdFilters ? 'Sonuç bulunamadı' : 'Henüz VFD cihazı kaydedilmemiş'}
               </p>
               {!hasVfdFilters && canManageDevices && (
-                <button
+                <Button
+                  variant="primary"
+                  className="mt-4"
+                  leftIcon={<Plus className="w-4 h-4" />}
                   onClick={() => handleAddDevice('vfd')}
-                  className="mt-4 flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
                 >
-                  <Plus className="w-4 h-4" />
                   VFD Cihazı Ekle
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -1329,17 +1348,19 @@ const DevicesPage: React.FC = () => {
           {!vfdLoading && vfdDevices.length > 0 && (
             <div className="space-y-3">
               {vfdDevices.map((device) => (
-                <button
+                <Button
+                  variant="secondary"
                   key={device.id}
                   onClick={() => handleVfdDeviceClick(device)}
-                  className="w-full text-left bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:border-cyan-300 transition-colors flex items-center gap-4"
                 >
-                  <div className="w-10 h-10 rounded-lg bg-cyan-50 flex items-center justify-center">
-                    <Zap className="w-5 h-5 text-cyan-600" />
+                  <div className="w-10 h-10 rounded-lg bg-info-50 dark:bg-info-900/20 flex items-center justify-center">
+                    <Zap className="w-5 h-5 text-info-600 dark:text-info-400" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 truncate">{device.name}</p>
-                    <p className="text-sm text-gray-500 truncate">
+                    <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                      {device.name}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
                       {VFD_BRAND_NAMES[device.brand] ?? device.brand}
                       {' · '}
                       {VFD_PROTOCOL_NAMES[device.protocol] ?? device.protocol}
@@ -1347,36 +1368,38 @@ const DevicesPage: React.FC = () => {
                     </p>
                   </div>
                   <StatusBadge isConnected={device.connectionStatus?.isConnected} />
-                  <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                  <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                     {device.status}
                   </span>
-                  <ChevronRight className="w-5 h-5 text-gray-400" />
-                </button>
+                  <ChevronRight className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+                </Button>
               ))}
             </div>
           )}
 
           {/* Pagination */}
           {!vfdLoading && vfdTotalPages > 1 && (
-            <div className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 p-3">
-              <p className="text-sm text-gray-500">
+            <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-3">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 {vfdTotal} cihaz · Sayfa {vfdPage}/{vfdTotalPages}
               </p>
               <div className="flex items-center gap-2">
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   disabled={vfdPage <= 1}
                   onClick={() => setVfdPage((p) => Math.max(1, p - 1))}
-                  className="px-3 py-1 border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50"
                 >
                   Önceki
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   disabled={vfdPage >= vfdTotalPages}
                   onClick={() => setVfdPage((p) => Math.min(vfdTotalPages, p + 1))}
-                  className="px-3 py-1 border border-gray-200 rounded disabled:opacity-40 hover:bg-gray-50"
                 >
                   Sonraki
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -1406,117 +1429,117 @@ const DevicesPage: React.FC = () => {
 
       {/* Bulk Firmware Update Modal */}
       {showBulkFirmwareModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          onClick={(e) => { if (e.target === e.currentTarget) { setShowBulkFirmwareModal(false); setBulkUpdateResult(null); } }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Toplu Firmware Güncelleme"
-        >
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Toplu Firmware Güncelle</h3>
-              <button
-                onClick={() => { setShowBulkFirmwareModal(false); setBulkUpdateResult(null); }}
-                className="p-1 hover:bg-gray-100 rounded-lg"
-                aria-label="Kapat"
-              >
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-
-            <p className="text-sm text-gray-600 mb-4">
-              <strong>{selectedDeviceIds.size}</strong> cihaz guncellenecek
-            </p>
-
-            {/* Version selector */}
-            <div className="mb-4">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Hedef Surum</label>
-              <select
-                value={bulkFirmwareVersion}
-                onChange={(e) => setBulkFirmwareVersion(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden"
-              >
-                <option value="">Surum secin...</option>
-                {firmwareVersions.map((v) => (
-                  <option key={v.tag} value={v.tag}>
-                    {v.tag}{v.prerelease ? ' [pre-release]' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Result summary */}
-            {bulkUpdateResult && (
-              <div className="mb-4">
-                {bulkUpdateResult.success && bulkUpdateResult.failed.length === 0 ? (
-                  <div className="p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
-                    <span className="text-sm text-green-800">
-                      Tum cihazlara firmware guncelleme komutu gonderildi
-                    </span>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {bulkUpdateResult.success && (
-                      <div className="p-2 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
-                        <span className="text-sm text-green-800">
-                          {selectedDeviceIds.size - bulkUpdateResult.failed.length} cihaz başarılı
-                        </span>
-                      </div>
-                    )}
-                    {bulkUpdateResult.failed.length > 0 && (
-                      <div className="p-2 rounded-lg bg-red-50 border border-red-200">
-                        <div className="flex items-center gap-2 mb-1">
-                          <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-                          <span className="text-sm font-medium text-red-800">
-                            {bulkUpdateResult.failed.length} cihaz başarısız
-                          </span>
-                        </div>
-                        <ul className="text-xs text-red-700 ml-6 list-disc">
-                          {bulkUpdateResult.failed.map((f) => (
-                            <li key={f.id}>{f.id}: {f.error}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Mutation error */}
-            {bulkFirmwareMutation.isError && (
-              <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-                <span className="text-sm text-red-800">
-                  {bulkFirmwareMutation.error instanceof Error ? bulkFirmwareMutation.error.message : 'Güncelleme başarısız oldu'}
-                </span>
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => { setShowBulkFirmwareModal(false); setBulkUpdateResult(null); }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+        <Modal
+          isOpen
+          onClose={closeBulkFirmwareModal}
+          size="md"
+          title="Toplu Firmware Güncelle"
+          showCloseButton={!bulkFirmwareMutation.isPending}
+          closeOnEscape={!bulkFirmwareMutation.isPending}
+          closeOnOverlayClick={!bulkFirmwareMutation.isPending}
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setShowBulkFirmwareModal(false);
+                  setBulkUpdateResult(null);
+                }}
               >
                 {bulkUpdateResult ? 'Kapat' : 'İptal'}
-              </button>
+              </Button>
               {!bulkUpdateResult && (
-                <button
+                <Button
+                  variant="primary"
                   onClick={handleBulkFirmwareUpdate}
                   disabled={!bulkFirmwareVersion || bulkFirmwareMutation.isPending}
-                  className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
                 >
-                  {bulkFirmwareMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {bulkFirmwareMutation.isPending && <Spinner size="sm" color="inherit" />}
                   Devam
-                </button>
+                </Button>
+              )}
+            </>
+          }
+        >
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            <strong>{selectedDeviceIds.size}</strong> cihaz guncellenecek
+          </p>
+
+          {/* Version selector */}
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+              Hedef Surum
+            </label>
+            <select
+              value={bulkFirmwareVersion}
+              onChange={(e) => setBulkFirmwareVersion(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
+            >
+              <option value="">Surum secin...</option>
+              {firmwareVersions.map((v) => (
+                <option key={v.tag} value={v.tag}>
+                  {v.tag}
+                  {v.prerelease ? ' [pre-release]' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Result summary */}
+          {bulkUpdateResult && (
+            <div className="mb-4">
+              {bulkUpdateResult.success && bulkUpdateResult.failed.length === 0 ? (
+                <div className="p-3 rounded-lg bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-success-600 dark:text-success-400 shrink-0" />
+                  <span className="text-sm text-success-800 dark:text-success-200">
+                    Tum cihazlara firmware guncelleme komutu gonderildi
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {bulkUpdateResult.success && (
+                    <div className="p-2 rounded-lg bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-success-600 dark:text-success-400 shrink-0" />
+                      <span className="text-sm text-success-800 dark:text-success-200">
+                        {selectedDeviceIds.size - bulkUpdateResult.failed.length} cihaz başarılı
+                      </span>
+                    </div>
+                  )}
+                  {bulkUpdateResult.failed.length > 0 && (
+                    <div className="p-2 rounded-lg bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800">
+                      <div className="flex items-center gap-2 mb-1">
+                        <AlertTriangle className="w-4 h-4 text-error-600 dark:text-error-400 shrink-0" />
+                        <span className="text-sm font-medium text-error-800 dark:text-error-200">
+                          {bulkUpdateResult.failed.length} cihaz başarısız
+                        </span>
+                      </div>
+                      <ul className="text-xs text-error-700 dark:text-error-300 ml-6 list-disc">
+                        {bulkUpdateResult.failed.map((f) => (
+                          <li key={f.id}>
+                            {f.id}: {f.error}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
-          </div>
-        </div>
+          )}
+
+          {/* Mutation error */}
+          {bulkFirmwareMutation.isError && (
+            <div className="mb-4 p-3 rounded-lg bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-error-600 dark:text-error-400 shrink-0" />
+              <span className="text-sm text-error-800 dark:text-error-200">
+                {bulkFirmwareMutation.error instanceof Error
+                  ? bulkFirmwareMutation.error.message
+                  : 'Güncelleme başarısız oldu'}
+              </span>
+            </div>
+          )}
+        </Modal>
       )}
     </div>
   );

@@ -15,7 +15,9 @@ const cbs = vi.hoisted(() => ({
   logout: new Set<() => void>(),
   tenantChange: new Set<(oldTenantId: string) => void>(),
 }));
-vi.mock('@aquaculture/shared-ui', () => ({
+vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
+  // Scene templates read the theme tokens (FE-HIGH-066); pass the real ones through.
+  colors: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).colors,
   registerLogoutCleanup: (fn: () => void) => {
     cbs.logout.add(fn);
     return () => cbs.logout.delete(fn);

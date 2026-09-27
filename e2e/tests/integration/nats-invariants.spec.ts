@@ -286,16 +286,31 @@ function loadContractSubjectConstants(): Map<string, string> {
     'notification-commands.ts',
     'tenant-commands.ts',
     'websocket-envelopes.ts',
-    'auth-admin-commands.ts',
     'auth-user-queries.ts',
+    'auth-credential-queries.ts',
+    'farm-site-access-queries.ts',
+    // Farm AI specialists read contract (FARM-MEDIUM-328): responders and tools
+    // reference FARM_AI_QUERY_SUBJECTS.KEY, never a literal.
+    'farm-ai-queries.ts',
+    // Edge-device request-reply subjects live in backend-common (not
+    // event-contracts) — entries prefixed 'backend-common/' resolve under
+    // libs/backend-common/src/ instead.
+    'backend-common/constants/nats-patterns.ts',
   ];
+  // FARM-AI 0.2.2 port: a missing contract file must FAIL, not silently
+  // shrink coverage. The old `catch { continue }` let a renamed/split file
+  // quietly drop every literal it carried from RPC-coverage.
+  const missingContractFiles: string[] = [];
   for (const file of contractFiles) {
-    const path = join(REPO_ROOT, 'libs', 'event-contracts', 'src', file);
+    const path = file.startsWith('backend-common/')
+      ? join(REPO_ROOT, 'libs', 'backend-common', 'src', file.slice('backend-common/'.length))
+      : join(REPO_ROOT, 'libs', 'event-contracts', 'src', file);
     let text: string;
     try {
       text = readFileSync(path, 'utf-8');
     } catch {
-      continue; // contract file split/renamed — literals still covered below
+      missingContractFiles.push(file);
+      continue;
     }
     // KEY: 'subject.with.dots'  (object members)
     for (const m of text.matchAll(
@@ -310,13 +325,18 @@ function loadContractSubjectConstants(): Map<string, string> {
       constants.set(m[1], m[2]);
     }
   }
+  if (missingContractFiles.length > 0) {
+    throw new Error(
+      `nats-invariants: contract file(s) listed but missing on disk (RPC coverage silently shrunk):\n  ${missingContractFiles.join('\n  ')}`,
+    );
+  }
   return constants;
 }
 
 // `sensor.lookup.` (not bare `sensor.`) — sensor-service uses EventEmitter2
 // with `sensor.<verb>` names for IN-PROCESS events; only the lookup RPC
 // rides NATS. A bare `sensor.` prefix would flag every eventEmitter.emit().
-const NATS_SUBJECT_PREFIXES = /^(request|commands|events|sensor\.lookup|st|policy)\./;
+const NATS_SUBJECT_PREFIXES = /^(request|commands|events|telemetry|sensor\.lookup|st|policy)\./;
 
 /**
  * Event types built by an app but NEVER published to NATS — persisted or
@@ -363,6 +383,18 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
   for (const file of walkAppSources(appDir)) {
     const text = readFileSync(file, 'utf-8');
     for (const m of text.matchAll(/@(?:MessagePattern|EventPattern)\(\s*([^),]+)/g)) {
+      const subject = resolveRef(m[1].trim());
+      if (subject && NATS_SUBJECT_PREFIXES.test(subject)) handled.add(subject);
+    }
+    // A raw core subscription — `connection.subscribe('telemetry.*.SensorReading')`
+    // in the gateway's WebSocket bridge — is a handled subject too. Only the
+    // decorator form was read before, so when SENSOR-HIGH-092 moved
+    // SensorReading under the telemetry root the bridge's subject left the
+    // gateway's `events.>` grant with nothing to notice it: two Subscription
+    // Violations at every boot and no live readings on the dashboards
+    // (INFRA-HIGH-186). Variables are not resolved — a bridge that builds its
+    // subject at runtime declares the pattern it needs in services.yaml.
+    for (const m of text.matchAll(/\.subscribe(?:<[^>]*>)?\(\s*([^),]+)/g)) {
       const subject = resolveRef(m[1].trim());
       if (subject && NATS_SUBJECT_PREFIXES.test(subject)) handled.add(subject);
     }
@@ -520,6 +552,42 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
     }
     if (authBlock.includes("'$JS.API.>'")) offenders.push('nats.conf GENERATED block');
     expect(offenders).toEqual([]);
+  });
+
+  it('every JetStream user may publish $JS.API.INFO — jetstreamManager() probes it before any stream call', () => {
+    // @nats-io/jetstream's jetstreamManager(nc) issues `$JS.API.INFO`
+    // (getAccountInfo) at construction unless checkAPI is disabled, and the
+    // event bus constructs it on every connect. Enumerated STREAM/CONSUMER
+    // rights without INFO left every service refused at boot the first time
+    // production loaded the SSoT ACL (2026-09-20, main 750db0409f).
+    const offenders: string[] = [];
+    for (const svc of servicesDoc.services) {
+      const usesJetStream = svc.publish.some((s) => s.startsWith('$JS.API.'));
+      if (usesJetStream && !svc.publish.includes('$JS.API.INFO')) {
+        offenders.push(`${svc.name}: publish list enumerates $JS.API.* but not $JS.API.INFO`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('every generated user may answer the requests it receives (allow_responses) — the reply leg of request/reply', () => {
+    // INFRA-HIGH-188: a requester's inbox is `_INBOX<ITS CN>.<nuid>` and no
+    // responder holds a publish grant for another identity's inbox root, so
+    // under the scoped grants every reply was refused (`Publish Violation …
+    // "_INBOXGATEWAY_SERVICE.…"`, proven on nats:2.10.24) and every caller
+    // timed out. `allow_responses` lets a user publish only to the reply
+    // subject of a request it actually received; the generator emits it for
+    // every identity, so each user block must carry exactly one.
+    const block = loadNatsConfAuthBlock();
+    const users = [...block.matchAll(/user:\s*"CN=([A-Za-z0-9_-]+)"/g)].map((m) => m[1]);
+    expect(users.length).toBe(servicesDoc.services.length);
+    const blocks = block.split(/(?=user:\s*"CN=)/).filter((chunk) => chunk.includes('user: "CN='));
+    const missing = blocks
+      .filter(
+        (chunk) => !/allow_responses:\s*\{\s*max:\s*\d+,\s*expires:\s*"\d+[smh]"\s*\}/.test(chunk),
+      )
+      .map((chunk) => /user:\s*"CN=([A-Za-z0-9_-]+)"/.exec(chunk)?.[1] ?? '<unparsed>');
+    expect(missing).toEqual([]);
   });
 
   it('high-rate telemetry types carry a telemetry-root publish grant wherever they are published (Task 2)', () => {

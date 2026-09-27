@@ -8,6 +8,7 @@
  * the farm finance settings SSoT, so it is changed there, not here.
  */
 import React, { useEffect, useState } from 'react';
+import { Button, Input } from '@aquaculture/shared-ui';
 
 import {
   type HrLabourCost,
@@ -63,19 +64,23 @@ export const LabourCostTab: React.FC<LabourCostTabProps> = ({ data, isLoading })
   };
 
   if (isLoading || !data) {
-    return <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading labour cost…</div>;
+    return (
+      <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading labour cost…</div>
+    );
   }
 
   const currency = data.currency;
+  // A label/value ledger, not a data grid: a definition list carries the
+  // semantics without a header-less grid.
   const line = (label: string, value: number | string, strong = false) => (
-    <tr className={strong ? 'bg-gray-50 dark:bg-gray-900/40' : ''}>
-      <td className={`px-5 py-3 text-sm ${strong ? 'font-semibold' : ''} text-gray-900 dark:text-gray-100`}>
-        {label}
-      </td>
-      <td className={`px-5 py-3 text-right text-sm ${strong ? 'font-semibold' : 'font-medium'} text-gray-900 dark:text-gray-100`}>
-        {formatMoney(value, currency)}
-      </td>
-    </tr>
+    <div
+      className={`flex items-center justify-between gap-4 px-5 py-3 text-sm text-gray-900 dark:text-gray-100 ${
+        strong ? 'bg-gray-50 font-semibold dark:bg-gray-900/40' : ''
+      }`}
+    >
+      <dt>{label}</dt>
+      <dd className={strong ? 'font-semibold' : 'font-medium'}>{formatMoney(value, currency)}</dd>
+    </div>
   );
 
   return (
@@ -85,19 +90,29 @@ export const LabourCostTab: React.FC<LabourCostTabProps> = ({ data, isLoading })
         <div className="border-b border-gray-100 px-5 py-4 dark:border-gray-700">
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">Labour Cost</h2>
         </div>
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {line('Annual salaries', data.annualSalaryTotalDecimal)}
-            {line(`Pension fund (${settingsQuery.data?.pensionFundPct ?? 0}%)`, data.pensionFundDecimal)}
-            {line(`Social insurance fund (${settingsQuery.data?.socialInsurancePct ?? 0}%)`, data.socialInsuranceFundDecimal)}
-            {line(`Compulsory medical insurance fund (${settingsQuery.data?.medicalInsurancePct ?? 0}%)`, data.medicalInsuranceFundDecimal)}
-            {line(`Other cost (${settingsQuery.data?.otherCostPct ?? 5}% of annual salaries)`, data.otherCostDecimal)}
-            {line('Total Payroll', data.totalPayrollDecimal, true)}
-          </tbody>
-        </table>
+        <dl className="divide-y divide-gray-100 dark:divide-gray-700">
+          {line('Annual salaries', data.annualSalaryTotalDecimal)}
+          {line(
+            `Pension fund (${settingsQuery.data?.pensionFundPct ?? 0}%)`,
+            data.pensionFundDecimal,
+          )}
+          {line(
+            `Social insurance fund (${settingsQuery.data?.socialInsurancePct ?? 0}%)`,
+            data.socialInsuranceFundDecimal,
+          )}
+          {line(
+            `Compulsory medical insurance fund (${settingsQuery.data?.medicalInsurancePct ?? 0}%)`,
+            data.medicalInsuranceFundDecimal,
+          )}
+          {line(
+            `Other cost (${settingsQuery.data?.otherCostPct ?? 5}% of annual salaries)`,
+            data.otherCostDecimal,
+          )}
+          {line('Total Payroll', data.totalPayrollDecimal, true)}
+        </dl>
         <div className="border-t border-gray-100 px-5 py-3 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
-          Actual gross pay booked this year: {formatMoney(data.actualGrossPayYtdDecimal, currency)} ·
-          HR expenses: {formatMoney(data.hrExpensesYtdDecimal, currency)}
+          Actual gross pay booked this year: {formatMoney(data.actualGrossPayYtdDecimal, currency)}{' '}
+          · HR expenses: {formatMoney(data.hrExpensesYtdDecimal, currency)}
         </div>
       </div>
 
@@ -119,15 +134,16 @@ export const LabourCostTab: React.FC<LabourCostTabProps> = ({ data, isLoading })
           ] as Array<[string, string, React.Dispatch<React.SetStateAction<string>>]>
         ).map(([label, value, setter]) => (
           <div key={label}>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
-            <input
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              {label}
+            </label>
+            <Input
               type="number"
               min="0"
               max="100"
               step="0.01"
               value={value}
               onChange={(e) => setter(e.target.value)}
-              className="mt-1 block w-32 rounded-lg border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
             />
           </div>
         ))}
@@ -135,20 +151,16 @@ export const LabourCostTab: React.FC<LabourCostTabProps> = ({ data, isLoading })
           <div
             className={`rounded-md p-2 text-sm ${
               message.kind === 'ok'
-                ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                ? 'bg-success-50 text-success-700 dark:bg-success-900/30 dark:text-success-300'
+                : 'bg-error-50 text-error-700 dark:bg-error-900/30 dark:text-error-300'
             }`}
           >
             {message.text}
           </div>
         )}
-        <button
-          type="submit"
-          disabled={updateSettings.isPending}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
+        <Button variant="primary" type="submit" disabled={updateSettings.isPending}>
           {updateSettings.isPending ? 'Saving…' : 'Save rates'}
-        </button>
+        </Button>
       </form>
     </div>
   );

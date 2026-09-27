@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { X, Link2, CheckCircle } from 'lucide-react';
+import { Modal, Button, Input } from '@aquaculture/shared-ui';
+import { Link2, CheckCircle } from 'lucide-react';
 import { AttachableEquipment } from '../../../hooks/useAttachableEquipment';
 import { getEquipmentIcon } from '../../equipment-icons';
 
@@ -30,18 +31,6 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
     }
   }, [equipment]);
 
-  // Handle ESC key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
   if (!isOpen || !equipment) return null;
 
   const Icon = getEquipmentIcon(equipment.equipmentType?.code || 'default');
@@ -59,98 +48,90 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="sm"
+      bodyClassName=""
+      title={
+        <span className="flex items-center gap-2">
+          <Link2 className="w-5 h-5 text-info-600 dark:text-info-400" />
+          Link Equipment
+        </span>
+      }
     >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 animate-in fade-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <Link2 className="w-5 h-5 text-cyan-600" />
-            Link Equipment
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-            title="Close"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-4 space-y-4">
-          {/* Equipment Preview */}
-          <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
-            <div className="p-2 bg-white rounded-lg shadow-sm">
-              <Icon size={32} className="text-gray-700" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-gray-900 truncate">{equipment.name}</p>
-              <p className="text-sm text-gray-500 truncate">{equipment.code}</p>
-              {equipment.equipmentType && (
-                <p className="text-xs text-gray-500 truncate capitalize">
-                  {equipment.equipmentType.name}
-                </p>
-              )}
-            </div>
-            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-              equipment.status === 'operational' || equipment.status === 'active'
-                ? 'bg-green-100 text-green-700'
-                : equipment.status === 'maintenance'
-                ? 'bg-yellow-100 text-yellow-700'
-                : 'bg-gray-100 text-gray-700'
-            }`}>
-              {equipment.status}
-            </span>
+      {/* Content */}
+      <div className="p-4 space-y-4">
+        {/* Equipment Preview */}
+        <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
+          <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm">
+            <Icon size={32} className="text-gray-700 dark:text-gray-300" />
           </div>
-
-          {/* Custom Name Input */}
-          <div>
-            <label
-              htmlFor="equipment-name"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
-              Node Name
-            </label>
-            <input
-              id="equipment-name"
-              type="text"
-              value={customName}
-              onChange={(e) => setCustomName(e.target.value)}
-              onKeyDown={handleKeyDown}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors"
-              placeholder="Edit equipment name..."
-              autoFocus
-            />
-            <p className="text-xs text-gray-500 mt-1.5">
-              This name will be displayed on the canvas. You can edit it later.
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
+              {equipment.name}
             </p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{equipment.code}</p>
+            {equipment.equipmentType && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 truncate capitalize">
+                {equipment.equipmentType.name}
+              </p>
+            )}
           </div>
+          <span
+            className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+              equipment.status === 'operational' || equipment.status === 'active'
+                ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
+                : equipment.status === 'maintenance'
+                  ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+            }`}
+          >
+            {equipment.status}
+          </span>
         </div>
 
-        {/* Actions */}
-        <div className="flex gap-3 p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+        {/* Custom Name Input */}
+        <div>
+          <label
+            htmlFor="equipment-name"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
           >
-            Cancel
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!customName.trim()}
-            className="flex-1 px-4 py-2.5 text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors flex items-center justify-center gap-2"
-          >
-            <CheckCircle className="w-4 h-4" />
-            Link
-          </button>
+            Node Name
+          </label>
+          <Input
+            fullWidth
+            id="equipment-name"
+            type="text"
+            value={customName}
+            onChange={(e) => setCustomName(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Edit equipment name..."
+            autoFocus
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+            This name will be displayed on the canvas. You can edit it later.
+          </p>
         </div>
       </div>
-    </div>
+
+      {/* Actions */}
+      <div className="flex gap-3 p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-xl">
+        <Button variant="secondary" size="lg" className="flex-1" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          size="lg"
+          className="flex-1 justify-center"
+          leftIcon={<CheckCircle className="w-4 h-4" />}
+          onClick={handleConfirm}
+          disabled={!customName.trim()}
+        >
+          Link
+        </Button>
+      </div>
+    </Modal>
   );
 };
 

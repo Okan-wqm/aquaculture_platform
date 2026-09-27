@@ -112,7 +112,7 @@ export function BarcodeScanButton({ onScan }: { onScan: (value: string) => void 
             type="button"
             onClick={stopScanning}
             aria-label="Cancel scan"
-            className="mt-4 min-h-touch px-6 flex items-center gap-2 rounded-xl bg-white/15 text-white font-semibold touch-feedback"
+            className="mt-4 min-h-touch px-6 flex items-center gap-2 rounded-xl bg-white/15 dark:bg-gray-900/15 text-white font-semibold touch-feedback"
           >
             <X size={18} />
             Cancel

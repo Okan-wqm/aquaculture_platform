@@ -601,6 +601,18 @@ def _evaluate_branch_protection(claim: dict[str, Any], reasons: list[str], failu
         if proof.get(field_name) is not True:
             reasons.append(f"branch_protection_{field_name}_required")
             failures.append("branch_protection_required")
+    # ARIA-HIGH-201 — the review requirements are measured facts. Owned
+    # paths must need their owner (L1 excludes every CODEOWNERS path, so an
+    # owner review never blocks an ARIA L1 merge); the approving count must
+    # be a measured integer — zero is what lets an L1 merge proceed without
+    # a person, and the proof records which it is rather than implying it.
+    if proof.get("code_owner_reviews_required") is not True:
+        reasons.append("branch_protection_code_owner_reviews_required")
+        failures.append("branch_protection_required")
+    approving = proof.get("required_approving_review_count")
+    if not isinstance(approving, int) or isinstance(approving, bool) or approving < 0:
+        reasons.append("branch_protection_required_approving_review_count_unmeasured")
+        failures.append("branch_protection_required")
     ruleset_ids = proof.get("ruleset_ids")
     if not isinstance(ruleset_ids, list) or not ruleset_ids:
         reasons.append("branch_protection_ruleset_ids_required")

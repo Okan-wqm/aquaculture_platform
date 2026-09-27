@@ -64,6 +64,7 @@ import { RegulatoryReportDraftResolver } from './regulatory-report-draft.resolve
 import { ListRegulatoryReportsHandler } from './handlers/list-regulatory-reports.handler';
 import { GetRegulatoryReportHandler } from './handlers/get-regulatory-report.handler';
 import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-report-summary.handler';
+import { RegulatoryAiQueryResponder } from './responders/regulatory-ai-query.responder';
 
 @Module({
   imports: [
@@ -84,6 +85,8 @@ import { GetRegulatoryReportSummaryHandler } from './handlers/get-regulatory-rep
     // SSoT the biomass assembler reads (RPT-012 dedup verdict).
     BatchModule,
   ],
+  // NATS request-reply responders for the farm AI specialists (FARM-MEDIUM-328).
+  controllers: [RegulatoryAiQueryResponder],
   providers: [
     MaskinportenService,
     MattilsynetApiService,

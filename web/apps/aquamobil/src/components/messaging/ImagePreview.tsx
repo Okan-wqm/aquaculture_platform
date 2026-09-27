@@ -73,7 +73,7 @@ export function ImagePreview({ file, previewUrl, onSend, onCancel }: ImagePrevie
       <div className="flex items-center justify-between px-4 pt-safe-top py-3 bg-black/80">
         <button
           onClick={onCancel}
-          className="min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full hover:bg-white/10 touch-feedback transition-colors"
+          className="min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full hover:bg-white/10 dark:hover:bg-gray-800/10 touch-feedback transition-colors"
           aria-label="Cancel"
         >
           <X size={24} className="text-white" />
@@ -112,7 +112,7 @@ export function ImagePreview({ file, previewUrl, onSend, onCancel }: ImagePrevie
             placeholder="Add a caption..."
             maxLength={500}
             className={clsx(
-              'flex-1 bg-white/10 text-white placeholder-white/40 text-sm rounded-2xl px-4 py-3',
+              'flex-1 bg-white/10 dark:bg-gray-900/10 text-white placeholder-white/40 text-sm rounded-2xl px-4 py-3',
               'border border-white/10 focus:outline-none focus:ring-2 focus:ring-ocean-500/40 focus:border-ocean-500 transition-all',
             )}
           />

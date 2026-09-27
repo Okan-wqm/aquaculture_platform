@@ -5,6 +5,7 @@
  * mapping needs no picker (the effective site defaults to it).
  */
 import React from 'react';
+import { Select } from '@aquaculture/shared-ui';
 import type { SiteLocalityMapping } from '../hooks/useEffectiveReportSite';
 
 export interface SiteLocalitySelectorProps {
@@ -22,18 +23,17 @@ export const SiteLocalitySelector: React.FC<SiteLocalitySelectorProps> = ({
 }) => {
   if (!show) return null;
   return (
-    <select
+    <Select
+      aria-label="Site"
+      fullWidth={false}
+      size="sm"
       value={effectiveSiteId ?? ''}
       onChange={(e) => onChange(e.target.value || undefined)}
-      className="px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white"
-      aria-label="Site"
-    >
-      {siteMappings.map((m) => (
-        <option key={m.siteId} value={m.siteId}>
-          {m.siteName ?? `Lokalitet ${m.lokalitetsnummer}`}
-        </option>
-      ))}
-    </select>
+      options={siteMappings.map((m) => ({
+        value: m.siteId,
+        label: m.siteName ?? `Lokalitet ${m.lokalitetsnummer}`,
+      }))}
+    />
   );
 };
 

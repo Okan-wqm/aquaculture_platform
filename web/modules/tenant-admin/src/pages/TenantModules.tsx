@@ -1,36 +1,37 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Package,
-  Search,
-  RefreshCw,
-  AlertCircle,
-} from 'lucide-react';
-import { useAuthContext } from '@aquaculture/shared-ui';
+import { Package, Search, RefreshCw, AlertCircle } from 'lucide-react';
+import { useAuthContext, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 import { useModuleIds, useModuleUsageStats } from '../hooks/useTenantData';
 import { ModuleCard, AssignManagerModal, ModuleDetailsModal } from '../components/modules';
 import type { DisplayModule } from '../components/modules';
 
 /** Module route mapping -- correct dashboard routes. */
 const moduleRouteMap: Record<string, string> = {
-  'farm': '/farm/dashboard',
-  'sensor': '/sensor/dashboard',
-  'hr': '/hr/dashboard',
-  'hydroponics': '/hydroponics/setup',
+  farm: '/farm/dashboard',
+  sensor: '/sensor/dashboard',
+  hr: '/hr/dashboard',
+  hydroponics: '/hydroponics/setup',
 };
 
 const moduleIconMap: Record<string, string> = {
-  'farm': '\uD83D\uDC1F',
-  'sensor': '\uD83D\uDCCA',
-  'hr': '\uD83D\uDC65',
-  'hydroponics': '\uD83C\uDF31',
+  farm: '\uD83D\uDC1F',
+  sensor: '\uD83D\uDCCA',
+  hr: '\uD83D\uDC65',
+  hydroponics: '\uD83C\uDF31',
 };
 
 const moduleFeaturesMap: Record<string, string[]> = {
-  'farm': ['Site Management', 'Tank Tracking', 'Batch Management', 'Feeding', 'Growth Monitoring'],
-  'sensor': ['Real-time Data', 'Alerts', 'Historical Trends', 'Device Management'],
-  'hr': ['Employee Records', 'Attendance', 'Payroll', 'Leave Management'],
-  'hydroponics': ['System Management', 'Nutrient Solutions', 'Growing Beds', 'Climate Control', 'Harvest Tracking'],
+  farm: ['Site Management', 'Tank Tracking', 'Batch Management', 'Feeding', 'Growth Monitoring'],
+  sensor: ['Real-time Data', 'Alerts', 'Historical Trends', 'Device Management'],
+  hr: ['Employee Records', 'Attendance', 'Payroll', 'Leave Management'],
+  hydroponics: [
+    'System Management',
+    'Nutrient Solutions',
+    'Growing Beds',
+    'Climate Control',
+    'Harvest Tracking',
+  ],
 };
 
 /**
@@ -102,7 +103,7 @@ const TenantModules: React.FC = () => {
   if (authLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-tenant-600" />
+        <RefreshCw className="w-8 h-8 animate-spin text-success-600 dark:text-success-400" />
       </div>
     );
   }
@@ -110,69 +111,68 @@ const TenantModules: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Modules</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Manage your tenant&apos;s modules and assign managers
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => refreshAuth()}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-5 h-5 text-gray-500" />
-          </button>
-          <span className="px-3 py-1.5 rounded-lg bg-tenant-50 text-tenant-700 text-sm font-medium">
-            {modules.filter((m) => m.status === 'active').length} Active
-          </span>
-        </div>
-      </div>
+      <PageHeader
+        title="Modules"
+        description="Manage your tenant's modules and assign managers"
+        actions={
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Refresh"
+              onClick={() => refreshAuth()}
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            </Button>
+            <span className="px-3 py-1.5 rounded-lg bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 text-sm font-medium">
+              {modules.filter((m) => m.status === 'active').length} Active
+            </span>
+          </div>
+        }
+      />
 
       {/* FIX MED-17: Error state when fetch fails */}
       {fetchError && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-error-500 flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-red-800">Failed to load module data</p>
-            <p className="text-sm text-red-600">
+            <p className="text-sm font-medium text-error-800 dark:text-error-200">
+              Failed to load module data
+            </p>
+            <p className="text-sm text-error-600 dark:text-error-400">
               {fetchError instanceof Error ? fetchError.message : 'Unknown error occurred'}
             </p>
           </div>
-          <button
-            onClick={() => refreshAuth()}
-            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
-          >
+          <Button variant="ghost" size="sm" onClick={() => refreshAuth()}>
             Retry
-          </button>
+          </Button>
         </div>
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-xl border border-gray-100 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-4">
         <div className="flex flex-col md:flex-row md:items-center gap-4">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
             <input
               type="text"
               placeholder="Search modules..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-success-500 focus:border-transparent"
             />
           </div>
-          <select
+          <Select
+            options={[
+              { value: 'all', label: 'All Status' },
+              { value: 'active', label: 'Active' },
+              { value: 'inactive', label: 'Inactive' },
+              { value: 'pending', label: 'Pending' },
+            ]}
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
-          >
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="pending">Pending</option>
-          </select>
+          />
         </div>
       </div>
 
@@ -202,12 +202,12 @@ const TenantModules: React.FC = () => {
 
       {/* Empty State */}
       {filteredModules.length === 0 && (
-        <div className="bg-white rounded-xl border border-gray-100 py-12 text-center">
-          <Package className="w-12 h-12 text-gray-500 mx-auto" />
-          <h3 className="mt-4 text-sm font-medium text-gray-900">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 py-12 text-center">
+          <Package className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
+          <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">
             {modules.length === 0 ? 'No modules assigned' : 'No modules found'}
           </h3>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {modules.length === 0
               ? 'Contact your administrator to get modules assigned to your tenant.'
               : 'Try adjusting your search or filter criteria.'}

@@ -1,0 +1,221 @@
+{
+  "additional_files": [
+    {
+      "bytes": 466,
+      "path": "representation-diagnostic.json",
+      "sha256": "2351f0db9e78e2ae4a8a9f0074919b371b46d3735964c23f4e5c3b0a206e054d"
+    },
+    {
+      "bytes": 1622,
+      "path": "native-rejected-result.json",
+      "sha256": "6653f037f827c80438539a5dafeea0b6721965e43e28819674b53822fe53aabc"
+    },
+    {
+      "bytes": 592,
+      "path": "captured-twin.json",
+      "sha256": "691e21885310ca8ed71f0c915521e34300583b96bc228a1f5d3dd92551b964ff"
+    },
+    {
+      "bytes": 8243,
+      "path": "native-requests.jsonl",
+      "sha256": "abee9e4c56103b81299344bbb95b4c96f3221a4965860cf5a1d4db3554c1f240"
+    },
+    {
+      "bytes": 2477,
+      "path": "native-contexts.jsonl",
+      "sha256": "ce3dc565a16bc9460c450a74c356731f6b0e23e09bdaa90a562bac3535561a13"
+    },
+    {
+      "bytes": 11189,
+      "path": "native-prompts.jsonl",
+      "sha256": "2bec861e72be1a632b4f7766897f8c1b8996749e8f2796e9fd4b1b5ae4da8373"
+    },
+    {
+      "bytes": 1518,
+      "path": "native-results.jsonl",
+      "sha256": "ae940010f0788adfcbbc6f909547cd60cbdc10f03db1b4a2497ff06e9690a3a0"
+    },
+    {
+      "bytes": 228363,
+      "path": "agent_invocations.py.source-before",
+      "sha256": "cc52b0667ebb26fca5b0f85506104476e256bdc02f5c9923309472455c5ac06a"
+    },
+    {
+      "bytes": 23845,
+      "path": "twin.py.source-before",
+      "sha256": "a25738b3b2cad9fd5ceeae237986743e2635885ab3d967cbddbe8c382fb63c42"
+    },
+    {
+      "bytes": 41221,
+      "path": "test_learned_context_and_intent.py.source-before",
+      "sha256": "9082ea577efcd38c1a3c30be4f17e3626277fe78abfe86f35f0ea46cec35cc5d"
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "issued-v4-map-missing-history",
+      "files": [
+        {
+          "bytes": 4347,
+          "path": "issued-v4-map-missing-history.request.json",
+          "sha256": "5b4174268381064499b6b6abac7b2ce652b9468d5f47d6f34a5c4f7fc28a4292"
+        },
+        {
+          "bytes": 1340,
+          "path": "issued-v4-map-missing-history.context.json",
+          "sha256": "2b3b357e67c420ba39bfe9049de4d56cbf0a2ca82e08dd2b9bc65bbf39b5f908"
+        },
+        {
+          "bytes": 3660,
+          "path": "issued-v4-map-missing-history.fused.json",
+          "sha256": "c3534964455a15634e751af679b61a4db9b4bd030ec282c29ca5336aa8974e63"
+        },
+        {
+          "bytes": 4711,
+          "path": "issued-v4-map-missing-history.prompt-row.json",
+          "sha256": "5985bbb54d89170b44a4c755d17dbde896a423b3cacfa6dbfdd46fd1a3ee1a76"
+        },
+        {
+          "bytes": 4011,
+          "path": "issued-v4-map-missing-history.prompt.utf8",
+          "sha256": "9a4b2c3db2f5fe17217ca27b0abe5fe7ee5267a852ca22b02f71c2049f560447"
+        },
+        {
+          "bytes": 4011,
+          "path": "issued-v4-map-missing-history.fused.prompt.utf8",
+          "sha256": "9a4b2c3db2f5fe17217ca27b0abe5fe7ee5267a852ca22b02f71c2049f560447"
+        }
+      ],
+      "prompt_render_version": 4,
+      "request_id": "AIR-aria-evidence-judge-718e2ec75c07"
+    },
+    {
+      "case_id": "issued-v4-map-rejected-history",
+      "files": [
+        {
+          "bytes": 6483,
+          "path": "issued-v4-map-rejected-history.request.json",
+          "sha256": "e93e3dc3c1ead091f61eada6d4e84196c4e502160081ae5294b54e479c9cf069"
+        },
+        {
+          "bytes": 1409,
+          "path": "issued-v4-map-rejected-history.context.json",
+          "sha256": "ced2ea28a95a823a66629dbd6c2818c56b70ca83c4a2091b4338caf4560081ad"
+        },
+        {
+          "bytes": 5727,
+          "path": "issued-v4-map-rejected-history.fused.json",
+          "sha256": "09b83c37733fe43f6be317499bc54e0b1ea07aa279d30c06e1e2deeee88ce13b"
+        },
+        {
+          "bytes": 6521,
+          "path": "issued-v4-map-rejected-history.prompt-row.json",
+          "sha256": "9a471116e1c5ceaa217100885e6a564322a1789a72d09ffc78cf8fac48453db6"
+        },
+        {
+          "bytes": 5657,
+          "path": "issued-v4-map-rejected-history.prompt.utf8",
+          "sha256": "c993465b53a03d3afac805f51623d195d70b1f9955aaf8eca181571c22a54408"
+        },
+        {
+          "bytes": 5657,
+          "path": "issued-v4-map-rejected-history.fused.prompt.utf8",
+          "sha256": "c993465b53a03d3afac805f51623d195d70b1f9955aaf8eca181571c22a54408"
+        }
+      ],
+      "prompt_render_version": 4,
+      "request_id": "AIR-aria-evidence-judge-c09bcab42abd"
+    }
+  ],
+  "fixture_root": "/tmp/codex-aria-s3-20260910-jkaa_1c4/v4-issued-baseline-fixture",
+  "head_patch_sha256": "5cc6e3629a387c6f63d908929e4043992aeb2150cdbc41b1099eede41aa44abe",
+  "legacy_v1_v2_v3_files_unchanged": [
+    {
+      "bytes": 5252,
+      "mode": "0o444",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/capture-manifest.json",
+      "sha256": "1d1f5aed4a2ea7b8af78f6b2c1364cca5e4727afb4548252e35f607f5b7ec909"
+    },
+    {
+      "bytes": 1029,
+      "mode": "0o444",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v1-base.input.json",
+      "sha256": "69404bd7b1c3f8047ef8e4e8e5c2379608ade070836c0434e936ce470fba463c"
+    },
+    {
+      "bytes": 1319,
+      "mode": "0o444",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v1-base.prompt.utf8",
+      "sha256": "9164714d8c35296d6489e8dd668ce612a99f6ad6b33ae19f5450e72e69b64f4d"
+    },
+    {
+      "bytes": 4400,
+      "mode": "0o444",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v1-enriched.input.json",
+      "sha256": "51d81a8d923a549250a93159213490781bf30df779225a16ae728f0daf7cd083"
+    },
+    {
+      "bytes": 3521,
+      "mode": "0o444",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v1-enriched.prompt.utf8",
+      "sha256": "7d2fb61494e3029d4f7db62c0413b79bd8f47ec65be9ab6aa4ff36b7e28b013e"
+    },
+    {
+      "bytes": 1059,
+      "mode": "0o444",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v2-base.input.json",
+      "sha256": "88e6c06daabb959a1c9f41e2070fb01503cd14a31afb6c1c7f302866fbf1a518"
+    },
+    {
+      "bytes": 1596,
+      "mode": "0o444",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v2-base.prompt.utf8",
+      "sha256": "1203444bbe755842cb43554917b64966116996d573e2ee212bb3d01def6871a1"
+    },
+    {
+      "bytes": 4430,
+      "mode": "0o444",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v2-enriched.input.json",
+      "sha256": "c514f61a3794cdf7b32f3c8b5c180aaaa1476358361fe3e4d27e7264f4b6bedc"
+    },
+    {
+      "bytes": 3987,
+      "mode": "0o444",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v2-enriched.prompt.utf8",
+      "sha256": "271400ed2d518655cba589055a5404b339fa811afd081f9a30eda8fb37d70e21"
+    },
+    {
+      "bytes": 1059,
+      "mode": "0o444",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v3-base.input.json",
+      "sha256": "4000992341216b738dc61ce6311ddc573fc7e51f569213e9385ea88108cbf31e"
+    },
+    {
+      "bytes": 2088,
+      "mode": "0o444",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v3-base.prompt.utf8",
+      "sha256": "79b074223070ccd6327bc3cae83c076f103ad7255e0774aa66ba6c33311ef95f"
+    },
+    {
+      "bytes": 4430,
+      "mode": "0o444",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v3-enriched.input.json",
+      "sha256": "0ce8368129160b2f3ba298e1f613cf7d3e3b297a987ddf5f92ce4acc86630bb8"
+    },
+    {
+      "bytes": 4479,
+      "mode": "0o444",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v3-enriched.prompt.utf8",
+      "sha256": "7a3d75c7a6fd127b33cc5fe3f56eff1dec807e0843f2043b7e33328da5557a8d"
+    }
+  ],
+  "limits": [
+    "Ordinary local owner-produced request/rejection; no model execution or measured utility.",
+    "Fixture paths are part of original sealed prompt bytes; expectations are never regenerated.",
+    "No fixture claim lease tokens are included in the public capture."
+  ],
+  "native_fixture_owner": "tests.test_learned_context_and_intent._NativeHistoryFixture",
+  "schema_version": 1,
+  "source_identity_sha256": "3e99079f9645cbf0920b3f318e372859825ebdaf27a4b923aaa7648cc1880c7b",
+  "source_stable": true
+}

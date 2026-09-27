@@ -1,3 +1,4 @@
+import { colors, domainScale } from '@aquaculture/shared-contracts';
 /**
  * Chemical Reagent Database & Dosing Calculator
  * Ported from R CarbCalc calcAdjustment() function
@@ -415,17 +416,26 @@ export function reagentDirectionLine(
   return points;
 }
 
-// Reagent color palette for visualization
+/**
+ * One colour per reagent, off the categorical domain scale.
+ *
+ * Every reagent the operator has selected can be on the chart at once, so
+ * what matters is that no two lines read as the same colour — not that a
+ * reagent looks "good" or "dangerous". These are positions in a set, which
+ * is why they come off `domainScale.categorical` rather than the semantic
+ * scales: those carry four hues plus a coral, so a nine-member set aliased
+ * onto them collapses (two hydroxides both land on a near-black green).
+ */
 const REAGENT_COLORS: Record<string, string> = {
-  'Sodium Bicarbonate': '#2563eb',
-  'Sodium Carbonate': '#7c3aed',
-  'Sodium Hydroxide': '#059669',
-  'Calcium Carbonate': '#0891b2',
-  'Calcium Hydroxide': '#65a30d',
-  'Calcium Oxide': '#ca8a04',
-  'Add CO₂': '#ea580c',
-  'De-gas CO₂': '#dc2626',
-  'Muriatic Acid': '#be185d',
+  'Sodium Bicarbonate': domainScale.categorical[0],
+  'Sodium Carbonate': domainScale.categorical[1],
+  'Sodium Hydroxide': domainScale.categorical[2],
+  'Calcium Carbonate': domainScale.categorical[3],
+  'Calcium Hydroxide': domainScale.categorical[4],
+  'Calcium Oxide': domainScale.categorical[5],
+  'Add CO₂': domainScale.categorical[6],
+  'De-gas CO₂': domainScale.categorical[7],
+  'Muriatic Acid': domainScale.categorical[8],
 };
 
 /**
@@ -507,8 +517,8 @@ export function calcDosingVisualization(
   ];
 
   return {
-    reagentLine1: { points: line1, label: lower.formula, color: REAGENT_COLORS[lower.name] || '#6b7280' },
-    reagentLine2: { points: line2, label: higher.formula, color: REAGENT_COLORS[higher.name] || '#6b7280' },
+    reagentLine1: { points: line1, label: lower.formula, color: REAGENT_COLORS[lower.name] || colors.gray[400] },
+    reagentLine2: { points: line2, label: higher.formula, color: REAGENT_COLORS[higher.name] || colors.gray[400] },
     step1Path,
     step2Path,
     intermediatePoint: { DIC: dicStar, ALK: alkStar },

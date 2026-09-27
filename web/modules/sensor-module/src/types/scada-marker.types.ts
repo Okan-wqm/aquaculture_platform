@@ -3,6 +3,7 @@
  * Markers are rendered as <marker> defs scoped per-screen to avoid
  * cross-screen ID collisions in the shared ReactFlow SVG layer.
  */
+import { colors } from '@aquaculture/shared-ui';
 
 export type MarkerShape = 'arrow' | 'circle' | 'diamond' | 'square';
 export type MarkerPosition = 'start' | 'mid' | 'end';
@@ -27,6 +28,6 @@ export interface EdgeMarkers {
 export const DEFAULT_END_MARKER: MarkerConfig = {
   shape: 'arrow',
   size: 8,
-  fill: '#6b7280',
+  fill: colors.gray[400],
   outline: false,
 };

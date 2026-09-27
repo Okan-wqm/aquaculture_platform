@@ -69,13 +69,37 @@ export class ToolExecutorService {
       return denied;
     }
 
-    // Permission check
+    // Permission check (AISAFETY-MEDIUM-021): tools declare the persona TIERS
+    // that may run them; the driving persona's tier is the authority dimension
+    // for a human turn, the service grant for a service principal. JWT role
+    // names (TENANT_ADMIN|MODULE_USER…) never intersect the tier vocabulary and
+    // are deliberately not consulted.
     const hasPermission =
       serviceGrant ||
-      metadata.requiredPermissions.some((perm) => ctx.userRoles.includes(perm));
+      (ctx.personaTier !== null && metadata.requiredPermissions.includes(ctx.personaTier));
+    // RBAC-MEDIUM-016: a human turn may run only what its resolved profile
+    // offered. The offer filter carries the module entitlement and the tenant
+    // block list; without this check those rules would bind only well-behaved
+    // models (every farm tool admits every tier, so the tier check alone lets
+    // a general persona reach farm data on a hallucinated tool_use).
+    // A service principal authorizes through its grant alone (checked below).
+    const offered = ctx.servicePrincipal !== undefined || ctx.offeredToolNames.includes(toolName);
+    if (!offered) {
+      this.logger.warn(
+        `Tool not offered: ${ctx.userId} (persona: ${ctx.persona}) attempted ${toolName}`,
+      );
+      const denied: ToolResult = {
+        success: false,
+        error: `Tool ${toolName} is not available to persona ${ctx.persona}`,
+        durationMs: 0,
+        cacheable: false,
+      };
+      await this.audit(toolName, inputRecord, denied, ctx);
+      return denied;
+    }
     if (!hasPermission) {
       this.logger.warn(
-        `Permission denied: ${ctx.userId} (roles: ${ctx.userRoles.join(',')}) attempted ${toolName}`,
+        `Permission denied: ${ctx.userId} (tier: ${ctx.personaTier ?? 'none'}) attempted ${toolName}`,
       );
       const denied: ToolResult = {
         success: false,
@@ -125,7 +149,14 @@ export class ToolExecutorService {
     // already run, so returning a false failure would risk a double-actuation.
     if (metadata.requiresConfirmation) {
       try {
-        await this.auditService.logToolExecution(toolName, inputRecord, result, ctx, undefined, true);
+        await this.auditService.logToolExecution(
+          toolName,
+          inputRecord,
+          result,
+          ctx,
+          undefined,
+          true,
+        );
       } catch (auditError) {
         this.logger.error(
           `AUDIT GAP (actuation): ${toolName} executed but its audit write failed — ` +

@@ -43,8 +43,8 @@ from .agent_invocations import (
     list_agent_invocation_requests,
 )
 from .change_ledger import list_change_chains
-from .debt import list_debts
-from .finding import list_findings
+from .debt import debts_dir, list_debts
+from .finding import findings_dir, list_findings
 from .governance_reader import read_governance_rows
 from .ledger import append_declared_jsonl
 from .runtime_profile import enforce_profile_for_write
@@ -102,8 +102,7 @@ def _newest_plan_doc(repo_root: Path) -> dict[str, Any] | None:
 
 
 def _open_findings(repo_root: Path) -> list[dict[str, Any]]:
-    findings_dir = repo_root / "aria-findings"
-    if not findings_dir.exists():
+    if not findings_dir(repo_root).exists():
         return []
     rows = list_findings(repo_root)
     return [
@@ -119,8 +118,7 @@ def _open_findings(repo_root: Path) -> list[dict[str, Any]]:
 
 
 def _open_debts(repo_root: Path) -> list[dict[str, Any]]:
-    debts_dir = repo_root / "aria-debts"
-    if not debts_dir.exists():
+    if not debts_dir(repo_root).exists():
         return []
     rows = list_debts(repo_root)
     return [

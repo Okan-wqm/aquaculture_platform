@@ -14,7 +14,20 @@ import {
   CreateConsumableInput,
 } from '../../../hooks/useConsumables';
 import { useSupplierList } from '../../../hooks/useSuppliers';
-import { Modal } from '@aquaculture/shared-ui';
+import {
+  FormField,
+  Modal,
+  useConfirm,
+  useToast,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
+import { Box as BoxIcon, ChevronDown, Plus, Search as SearchIcon } from 'lucide-react';
 
 // ============================================================================
 // CONSTANTS
@@ -35,24 +48,24 @@ const CATEGORIES = [
 ];
 
 const categoryColors: Record<string, string> = {
-  NET: 'bg-blue-100 text-blue-800',
-  ROPE: 'bg-amber-100 text-amber-800',
-  PPE: 'bg-orange-100 text-orange-800',
-  SPARE_PART: 'bg-purple-100 text-purple-800',
-  OXYGEN: 'bg-cyan-100 text-cyan-800',
-  PACKAGING: 'bg-lime-100 text-lime-800',
-  CLEANING: 'bg-teal-100 text-teal-800',
-  TOOL: 'bg-indigo-100 text-indigo-800',
-  ELECTRICAL: 'bg-yellow-100 text-yellow-800',
-  PIPE_FITTING: 'bg-rose-100 text-rose-800',
-  OTHER: 'bg-gray-100 text-gray-800',
+  NET: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  ROPE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  PPE: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  SPARE_PART: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  OXYGEN: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  PACKAGING: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  CLEANING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  TOOL: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  ELECTRICAL: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  PIPE_FITTING: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusColors: Record<string, string> = {
-  AVAILABLE: 'bg-green-100 text-green-800',
-  LOW_STOCK: 'bg-yellow-100 text-yellow-800',
-  OUT_OF_STOCK: 'bg-red-100 text-red-800',
-  DISCONTINUED: 'bg-gray-100 text-gray-800',
+  AVAILABLE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  LOW_STOCK: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  OUT_OF_STOCK: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  DISCONTINUED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusLabels: Record<string, string> = {
@@ -117,21 +130,17 @@ const CollapsibleSection: React.FC<{
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <div className="border border-gray-200 rounded-lg mb-4">
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg mb-4">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 hover:bg-gray-100 rounded-t-lg"
+        className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg"
       >
-        <span className="font-medium text-gray-700">{title}</span>
-        <svg
-          className={`w-5 h-5 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        <span className="font-medium text-gray-700 dark:text-gray-300">{title}</span>
+        <ChevronDown
+          className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          aria-hidden="true"
+        />
       </button>
       {isOpen && <div className="p-4">{children}</div>}
     </div>
@@ -157,6 +166,8 @@ export const ConsumablesTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<ConsumableFormData>(initialFormData);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
 
   const consumables = consumablesData?.items || [];
@@ -217,23 +228,34 @@ export const ConsumablesTab: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const confirm = useConfirm();
+  const { toast } = useToast();
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this item?')) {
+    if (
+      await confirm({
+        title: 'Delete this item?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteConsumableMutation.mutateAsync(id);
       } catch (err) {
         console.error('Failed to delete consumable:', err);
-        alert('Failed to delete consumable. Please try again.');
+        toast({ title: 'Failed to delete consumable. Please try again.', variant: 'error' });
       }
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.code || !formData.category) {
-      alert('Name, code, and category are required.');
-      return;
-    }
+    const errors: Record<string, string> = {};
+    if (!formData.name) errors.name = 'Please enter a name.';
+    if (!formData.code) errors.code = 'Please enter a code.';
+    if (!formData.category) errors.category = 'Please select a category.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     setIsSaving(true);
     try {
@@ -272,14 +294,98 @@ export const ConsumablesTab: React.FC = () => {
       }
       setIsModalOpen(false);
       setFormData(initialFormData);
+      setFieldErrors({});
       setEditingId(null);
     } catch (err) {
       console.error('Failed to save consumable:', err);
-      alert('Failed to save consumable. Please try again.');
+      toast({ title: 'Failed to save consumable. Please try again.', variant: 'error' });
     } finally {
       setIsSaving(false);
     }
   };
+
+  type ItemRow = (typeof filtered)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'nameCode',
+      header: 'Name / Code',
+      render: (_value, item) => (
+        <>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.name}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{item.code}</div>
+        </>
+      ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (_value, item) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.category] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+          >
+            {getCategoryLabel(item.category)}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'unit',
+      header: 'Unit',
+      render: (_value, item) => item.unit,
+    },
+    {
+      key: 'stockMin',
+      header: 'Stock / Min',
+      render: (_value, item) => (
+        <>
+          <span
+            className={
+              item.quantity <= item.minStock
+                ? 'text-error-600 dark:text-error-400 font-medium'
+                : 'text-gray-900 dark:text-gray-100'
+            }
+          >
+            {item.quantity}
+          </span>
+          <span className="text-gray-400 dark:text-gray-500"> / {item.minStock}</span>
+        </>
+      ),
+    },
+    {
+      key: 'supplier',
+      header: 'Supplier',
+      render: (_value, item) => getSupplierName(item.supplierId),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, item) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+          >
+            {statusLabels[item.status] || item.status}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, item) => (
+        <>
+          <Button variant="ghost" className="mr-3" onClick={() => openEdit(item)}>
+            Edit
+          </Button>
+          <Button variant="ghost" onClick={() => handleDelete(item.id)}>
+            Delete
+          </Button>
+        </>
+      ),
+    },
+  ];
 
   return (
     <div>
@@ -292,169 +398,71 @@ export const ConsumablesTab: React.FC = () => {
               placeholder="Search consumables..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
-            <svg
-              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+            <SearchIcon
+              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
+              aria-hidden="true"
+            />
           </div>
-          <select
+          <Select
+            aria-label="Category filter"
+            fullWidth={false}
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="all">All Categories</option>
-            {CATEGORIES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'All Categories' },
+              ...CATEGORIES.map((c) => ({ value: c.value, label: c.label })),
+            ]}
+          />
         </div>
-        <button
-          onClick={openCreate}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-            />
-          </svg>
+        <Button variant="primary" onClick={openCreate}>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
           Add Consumable
-        </button>
+        </Button>
       </div>
 
       {/* Loading State */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load consumables. Please try again.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load consumables. Please try again.
+          </p>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
-          </button>
+          </Button>
         </div>
       )}
 
       {/* Table */}
       {!isLoading && !error && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Name / Code
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Category
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Unit
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Stock / Min
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Supplier
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filtered.map((item) => (
-                <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{item.name}</div>
-                    <div className="text-sm text-gray-500">{item.code}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.category] || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {getCategoryLabel(item.category)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.unit}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <span
-                      className={
-                        item.quantity <= item.minStock
-                          ? 'text-red-600 font-medium'
-                          : 'text-gray-900'
-                      }
-                    >
-                      {item.quantity}
-                    </span>
-                    <span className="text-gray-400"> / {item.minStock}</span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {getSupplierName(item.supplierId)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {statusLabels[item.status] || item.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => openEdit(item)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(item.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <DataTable<ItemRow>
+            data={filtered}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
           {filtered.length === 0 && (
             <div className="text-center py-12">
-              <svg
-                className="mx-auto h-12 w-12 text-gray-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                />
-              </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No consumables found</h3>
-              <p className="mt-1 text-sm text-gray-500">
+              <BoxIcon
+                className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
+                aria-hidden="true"
+              />
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                No consumables found
+              </h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Add consumable items to manage your stock.
               </p>
             </div>
@@ -474,102 +482,109 @@ export const ConsumablesTab: React.FC = () => {
             {/* Basic Information */}
             <CollapsibleSection title="Basic Information" defaultOpen={true}>
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Name *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.name}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Name *
+                    </label>
+                    <FormField
+                      error={formData.name ? undefined : fieldErrors.name}
+                      className="mb-0"
+                    >
+                      <Input
+                        fullWidth
+                        type="text"
+                        required
+                        value={formData.name}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                      />
+                    </FormField>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Code *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.code}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Code *
+                    </label>
+                    <FormField
+                      error={formData.code ? undefined : fieldErrors.code}
+                      className="mb-0"
+                    >
+                      <Input
+                        fullWidth
+                        type="text"
+                        required
+                        value={formData.code}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+                      />
+                    </FormField>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Select
+                    label="Category"
+                    required
+                    placeholder="Select"
+                    value={formData.category}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, category: e.target.value }))}
+                    error={formData.category ? undefined : fieldErrors.category}
+                    options={CATEGORIES.map((c) => ({ value: c.value, label: c.label }))}
+                  />
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Category *</label>
-                    <select
-                      required
-                      value={formData.category}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, category: e.target.value }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">Select</option>
-                      {CATEGORIES.map((c) => (
-                        <option key={c.value} value={c.value}>
-                          {c.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Unit</label>
-                    <select
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Unit
+                    </label>
+                    <Select
+                      fullWidth
+                      options={[
+                        { value: 'pcs', label: 'Pieces' },
+                        { value: 'm', label: 'Meters' },
+                        { value: 'kg', label: 'Kilograms' },
+                        { value: 'L', label: 'Liters' },
+                        { value: 'box', label: 'Box' },
+                        { value: 'roll', label: 'Roll' },
+                        { value: 'tank', label: 'Tank' },
+                        { value: 'set', label: 'Set' },
+                      ]}
                       value={formData.unit}
                       onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="pcs">Pieces</option>
-                      <option value="m">Meters</option>
-                      <option value="kg">Kilograms</option>
-                      <option value="L">Liters</option>
-                      <option value="box">Box</option>
-                      <option value="roll">Roll</option>
-                      <option value="tank">Tank</option>
-                      <option value="set">Set</option>
-                    </select>
+                    />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Brand</label>
-                    <input
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Brand
+                    </label>
+                    <Input
+                      fullWidth
                       type="text"
                       value={formData.brand}
                       onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Supplier</label>
-                    <select
-                      value={formData.supplierId}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">Select Supplier</option>
-                      {suppliers.map((supplier) => (
-                        <option key={supplier.id} value={supplier.id}>
-                          {supplier.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <Select
+                    label="Supplier"
+                    placeholder="Select Supplier"
+                    value={formData.supplierId}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
+                    }
+                    options={suppliers.map((supplier) => ({
+                      value: supplier.id,
+                      label: supplier.name,
+                    }))}
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Description</label>
-                  <textarea
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Description
+                  </label>
+                  <Textarea
+                    fullWidth
                     value={formData.description}
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, description: e.target.value }))
                     }
                     rows={2}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -577,10 +592,13 @@ export const ConsumablesTab: React.FC = () => {
 
             {/* Stock & Price */}
             <CollapsibleSection title="Stock & Price">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Current Stock</label>
-                  <input
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Current Stock
+                  </label>
+                  <Input
+                    fullWidth
                     type="number"
                     min="0"
                     step="0.01"
@@ -591,12 +609,14 @@ export const ConsumablesTab: React.FC = () => {
                         quantity: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Min Stock</label>
-                  <input
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Min Stock
+                  </label>
+                  <Input
+                    fullWidth
                     type="number"
                     min="0"
                     step="0.01"
@@ -607,12 +627,14 @@ export const ConsumablesTab: React.FC = () => {
                         minStock: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Unit Price</label>
-                  <input
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Unit Price
+                  </label>
+                  <Input
+                    fullWidth
                     type="number"
                     min="0"
                     step="0.01"
@@ -623,32 +645,35 @@ export const ConsumablesTab: React.FC = () => {
                         unitPrice: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Currency</label>
-                  <select
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Currency
+                  </label>
+                  <Select
+                    fullWidth
+                    options={[
+                      { value: 'NOK', label: 'NOK' },
+                      { value: 'EUR', label: 'EUR' },
+                      { value: 'USD', label: 'USD' },
+                    ]}
                     value={formData.currency}
                     onChange={(e) => setFormData((prev) => ({ ...prev, currency: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="NOK">NOK</option>
-                    <option value="EUR">EUR</option>
-                    <option value="USD">USD</option>
-                  </select>
+                  />
                 </div>
               </div>
             </CollapsibleSection>
 
             {/* Storage Conditions */}
             <CollapsibleSection title="Storage Conditions">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Min Temperature (°C)
                   </label>
-                  <input
+                  <Input
+                    fullWidth
                     type="number"
                     step="0.1"
                     value={formData.storageTempMin}
@@ -658,14 +683,14 @@ export const ConsumablesTab: React.FC = () => {
                         storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Max Temperature (°C)
                   </label>
-                  <input
+                  <Input
+                    fullWidth
                     type="number"
                     step="0.1"
                     value={formData.storageTempMax}
@@ -675,14 +700,14 @@ export const ConsumablesTab: React.FC = () => {
                         storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Min Humidity (%)
                   </label>
-                  <input
+                  <Input
+                    fullWidth
                     type="number"
                     step="0.1"
                     min="0"
@@ -694,14 +719,14 @@ export const ConsumablesTab: React.FC = () => {
                         storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Max Humidity (%)
                   </label>
-                  <input
+                  <Input
+                    fullWidth
                     type="number"
                     step="0.1"
                     min="0"
@@ -713,21 +738,20 @@ export const ConsumablesTab: React.FC = () => {
                         storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Storage Requirements
                   </label>
-                  <textarea
+                  <Textarea
+                    fullWidth
                     rows={2}
                     placeholder="Special storage instructions..."
                     value={formData.storageRequirements}
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -737,47 +761,33 @@ export const ConsumablesTab: React.FC = () => {
             <CollapsibleSection title="Additional Information">
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Notes</label>
-                  <textarea
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Notes
+                  </label>
+                  <Textarea
+                    fullWidth
                     value={formData.notes}
                     onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
                     rows={3}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Status</label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    {Object.entries(statusLabels).map(([v, l]) => (
-                      <option key={v} value={v}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Status"
+                  value={formData.status}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
+                  options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))}
+                />
               </div>
             </CollapsibleSection>
           </div>
 
-          <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-            >
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+            <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:bg-gray-400"
-            >
+            </Button>
+            <Button variant="primary" type="submit" disabled={isSaving}>
               {isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>

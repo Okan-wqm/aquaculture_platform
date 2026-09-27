@@ -479,7 +479,7 @@ describe('FuxaWidgetBrowser', () => {
       <FuxaWidgetBrowser open={true} onClose={onClose} onSelect={onSelect} />,
     );
 
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

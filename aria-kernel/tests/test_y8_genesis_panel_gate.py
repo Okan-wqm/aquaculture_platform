@@ -36,6 +36,7 @@ from aria_kernel.human_required import (
 )
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.adjudication import seed_adjudicator_opinion
 
 
 class HookOrderParityPin(unittest.TestCase):
@@ -201,25 +202,8 @@ class PanelApprovalChainTests(_GapStoreCase):
             record=record,
             base_dir=self.tools,
         )
-        invocations = self.tools / "agent-invocations"
         for rid, agent in zip(row["request_ids"], ("judge-a", "judge-b", "judge-c")):
-            output = invocations / f"{rid}.opinion.json"
-            output.write_text(
-                json.dumps({"verdict": verdict_value, "rationale": f"{agent}"}),
-                encoding="utf-8",
-            )
-            append_declared_jsonl(
-                invocations / "claims.jsonl",
-                {"request_id": rid, "claim_id": f"claim-{rid}", "agent_id": agent},
-                expected_surface="agent_invocation_claims",
-            )
-            append_declared_jsonl(
-                invocations / "results.jsonl",
-                {"request_id": rid, "role": hra.ADJUDICATION_ROLE, "status": "accepted",
-                 "agent_id": agent, "output_path": output.as_posix(),
-                 "output_hash": "sha256:" + "0" * 64},
-                expected_surface="agent_invocation_results",
-            )
+            seed_adjudicator_opinion(self.tools, rid, agent_id=agent, verdict=verdict_value, rationale=agent)
 
     def test_resolve_quorum_yields_request_and_draft_with_panel_proof(self) -> None:
         escalation_id = self._escalate_one_gap()

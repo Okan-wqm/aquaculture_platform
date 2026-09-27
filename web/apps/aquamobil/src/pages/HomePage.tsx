@@ -1,5 +1,23 @@
 import { clsx } from 'clsx';
-import { Fish, Skull, Scissors, Package, RefreshCw, LogOut, Waves, ArrowLeftRight, MapPin, ListChecks, Activity, AlertTriangle, CalendarOff, Droplets, Warehouse, ShieldAlert } from 'lucide-react';
+import {
+  Activity,
+  AlertTriangle,
+  ArrowLeftRight,
+  CalendarOff,
+  ChevronRight,
+  Droplets,
+  Fish,
+  ListChecks,
+  LogOut,
+  MapPin,
+  Package,
+  RefreshCw,
+  Scissors,
+  ShieldAlert,
+  Skull,
+  Warehouse,
+  Waves,
+} from 'lucide-react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -7,6 +25,7 @@ import { AiInsightsCard } from '@/components/ai';
 import { AlertsBell } from '@/components/AlertsBell';
 import { TankCard } from '@/components/cards/TankCard';
 import { NotificationBell } from '@/components/NotificationBell';
+import { EmptyState, ErrorState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/hooks/useAuth';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useMyTasks } from '@/hooks/useMyTasks';
@@ -103,9 +122,10 @@ const allQuickActions: QuickAction[] = [
 export function HomePage(): JSX.Element {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { data: tanks, isLoading, refetch, isRefetching } = useTanks();
+  const { data: tanks, isLoading, isError, refetch, isRefetching } = useTanks();
   const { pendingCount, isOnline } = useOfflineQueue();
-  const { canAccess, permissionsDegraded, permissionSource, refreshPermissions } = useMobilePermissions();
+  const { canAccess, permissionsDegraded, permissionSource, refreshPermissions } =
+    useMobilePermissions();
   // SEC-MEDIUM-050: canReach folds the entitlement flag with any feature role
   // floor (harvest => MODULE_MANAGER), so the harvest CTA disappears for a
   // MODULE_USER exactly as the route guard and backend @Roles require.
@@ -121,7 +141,10 @@ export function HomePage(): JSX.Element {
 
   // WHY: Aggregate stats give managers a quick operational pulse without scrolling through individual tanks.
   const totalFish = activeTanks.reduce((sum, t) => sum + (t.batchMetrics?.pieces ?? 0), 0);
-  const totalBiomass = activeTanks.reduce((sum, t) => sum + (t.batchMetrics?.biomass ?? t.currentBiomass ?? 0), 0);
+  const totalBiomass = activeTanks.reduce(
+    (sum, t) => sum + (t.batchMetrics?.biomass ?? t.currentBiomass ?? 0),
+    0,
+  );
   const overCapacityCount = activeTanks.filter((t) => t.batchMetrics?.isOverCapacity).length;
 
   return (
@@ -130,15 +153,15 @@ export function HomePage(): JSX.Element {
           The ocean-blue gradient is the app's primary brand color from the design system. */}
       <div className="bg-gradient-to-br from-ocean-700 via-ocean-600 to-ocean-500 text-white relative overflow-hidden">
         {/* Decorative elements */}
-        <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-white/5 -translate-y-1/2 translate-x-1/4" />
-        <div className="absolute bottom-4 left-0 w-28 h-28 rounded-full bg-white/5 translate-y-1/2 -translate-x-1/4" />
-        <div className="absolute top-1/2 right-1/4 w-16 h-16 rounded-full bg-white/3" />
+        <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-white/5 dark:bg-gray-900/5 -translate-y-1/2 translate-x-1/4" />
+        <div className="absolute bottom-4 left-0 w-28 h-28 rounded-full bg-white/5 dark:bg-gray-900/5 translate-y-1/2 -translate-x-1/4" />
+        <div className="absolute top-1/2 right-1/4 w-16 h-16 rounded-full bg-white/3 dark:bg-gray-900/3" />
 
         <div className="relative z-10 px-5 pt-safe-top">
           {/* Top bar */}
           <div className="flex items-center justify-between py-4">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 bg-white/15 backdrop-blur-sm rounded-2xl flex items-center justify-center shadow-inner-glow">
+              <div className="w-11 h-11 bg-white/15 dark:bg-gray-900/15 backdrop-blur-sm rounded-2xl flex items-center justify-center shadow-inner-glow">
                 <Fish size={24} className="text-white" />
               </div>
               <div>
@@ -149,7 +172,10 @@ export function HomePage(): JSX.Element {
             <div className="flex items-center gap-2">
               <AlertsBell />
               <NotificationBell />
-              <button onClick={() => void logout()} className="min-h-touch min-w-touch flex items-center justify-center bg-white/10 rounded-xl touch-feedback hover:bg-white/20 transition-colors">
+              <button
+                onClick={() => void logout()}
+                className="min-h-touch min-w-touch flex items-center justify-center bg-white/10 dark:bg-gray-900/10 rounded-xl touch-feedback hover:bg-white/20 dark:hover:bg-gray-800/20 transition-colors"
+              >
                 <LogOut size={18} />
               </button>
             </div>
@@ -158,29 +184,33 @@ export function HomePage(): JSX.Element {
           {/* WHY: Four-column stats row provides an operational dashboard at the top of the home screen.
               Pending sync count uses a warning color to draw attention when offline operations are queued. */}
           <div className="grid grid-cols-4 gap-2.5 pb-5">
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
+            <div className="bg-white/10 dark:bg-gray-900/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
               <div className="text-xl font-bold tabular-nums">{allTanks.length}</div>
               <div className="text-ocean-200 text-[10px] font-semibold">Tanks</div>
             </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
+            <div className="bg-white/10 dark:bg-gray-900/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
               <div className="text-xl font-bold tabular-nums">{activeTanks.length}</div>
               <div className="text-ocean-200 text-[10px] font-semibold">Batches</div>
             </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
+            <div className="bg-white/10 dark:bg-gray-900/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
               <div className="text-xl font-bold tabular-nums">
                 {totalFish >= 1000 ? `${(totalFish / 1000).toFixed(0)}K` : totalFish}
               </div>
               <div className="text-ocean-200 text-[10px] font-semibold">Total Fish</div>
             </div>
-            <div className={clsx(
-              'rounded-xl p-2.5 text-center backdrop-blur-sm',
-              pendingCount > 0 ? 'bg-coral-500/30' : 'bg-sea-500/20'
-            )}>
+            <div
+              className={clsx(
+                'rounded-xl p-2.5 text-center backdrop-blur-sm',
+                pendingCount > 0 ? 'bg-coral-500/30' : 'bg-sea-500/20',
+              )}
+            >
               <div className="text-xl font-bold tabular-nums">{pendingCount}</div>
-              <div className={clsx(
-                'text-[10px] font-semibold',
-                pendingCount > 0 ? 'text-coral-200' : 'text-sea-200'
-              )}>
+              <div
+                className={clsx(
+                  'text-[10px] font-semibold',
+                  pendingCount > 0 ? 'text-coral-200' : 'text-sea-200',
+                )}
+              >
                 Pending
               </div>
             </div>
@@ -207,7 +237,9 @@ export function HomePage(): JSX.Element {
               <p className="text-sm font-bold text-red-700 dark:text-red-300">
                 {overCapacityCount} tank{overCapacityCount > 1 ? 's' : ''} over capacity
               </p>
-              <p className="text-xs text-red-500 dark:text-red-400 mt-0.5">Consider harvesting or transferring</p>
+              <p className="text-xs text-red-500 dark:text-red-400 mt-0.5">
+                Consider harvesting or transferring
+              </p>
             </div>
           </div>
         </div>
@@ -218,7 +250,9 @@ export function HomePage(): JSX.Element {
       {permissionsDegraded && (
         <div className="px-5 pt-4">
           <button
-            onClick={() => { void refreshPermissions(); }}
+            onClick={() => {
+              void refreshPermissions();
+            }}
             className="w-full bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-3.5 flex items-center gap-3 touch-feedback"
           >
             <div className="w-9 h-9 bg-amber-100 dark:bg-amber-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -247,7 +281,7 @@ export function HomePage(): JSX.Element {
             onClick={() => navigate('/tasks')}
             className="w-full bg-gradient-to-r from-amber-500 to-amber-600 rounded-2xl p-4 shadow-card touch-feedback transition-all active:scale-[0.98] flex items-center gap-3"
           >
-            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+            <div className="w-10 h-10 bg-white/20 dark:bg-gray-900/20 rounded-xl flex items-center justify-center">
               <ListChecks size={22} className="text-white" />
             </div>
             <div className="flex-1 text-left">
@@ -257,9 +291,7 @@ export function HomePage(): JSX.Element {
               <p className="text-amber-100 text-xs mt-0.5">Tap to view</p>
             </div>
             <div className="text-white/85">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m9 18 6-6-6-6" />
-              </svg>
+              <ChevronRight size={20} aria-hidden="true" />
             </div>
           </button>
         </div>
@@ -268,12 +300,26 @@ export function HomePage(): JSX.Element {
       {/* Quick Actions */}
       {visibleActions.length > 0 && (
         <div className="px-5 pt-4">
-          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+          <h2 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">
             Quick Actions
           </h2>
           {/* PERF-09: Use a static lookup map instead of a template literal so Tailwind's
               JIT/PurgeCSS can detect the complete class strings at build time. */}
-          <div className={({ 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-3', 6: 'grid-cols-3', 7: 'grid-cols-4' } as Record<number, string>)[Math.min(visibleActions.length, 7)] + ' grid gap-2.5'}>
+          <div
+            className={
+              (
+                {
+                  1: 'grid-cols-1',
+                  2: 'grid-cols-2',
+                  3: 'grid-cols-3',
+                  4: 'grid-cols-4',
+                  5: 'grid-cols-3',
+                  6: 'grid-cols-3',
+                  7: 'grid-cols-4',
+                } as Record<number, string>
+              )[Math.min(visibleActions.length, 7)] + ' grid gap-2.5'
+            }
+          >
             {visibleActions.map((action) => {
               const Icon = action.icon;
               return (
@@ -282,7 +328,7 @@ export function HomePage(): JSX.Element {
                   onClick={() => navigate(action.path)}
                   className={clsx(
                     'flex flex-col items-center p-3.5 rounded-2xl touch-feedback shadow-card transition-all active:scale-[0.95]',
-                    `bg-gradient-to-br ${action.gradient}`
+                    `bg-gradient-to-br ${action.gradient}`,
                   )}
                 >
                   <Icon className={`${action.iconColor} mb-1.5`} size={24} />
@@ -301,29 +347,43 @@ export function HomePage(): JSX.Element {
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4">
             <div className="flex items-center gap-2 mb-3">
               <Activity size={14} className="text-ocean-500" />
-              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Farm Summary</h3>
+              <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                Farm Summary
+              </h3>
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div className="text-center">
                 <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
-                  {totalFish >= 1000000 ? `${(totalFish / 1000000).toFixed(1)}M` : totalFish >= 1000 ? `${(totalFish / 1000).toFixed(1)}K` : totalFish}
+                  {totalFish >= 1000000
+                    ? `${(totalFish / 1000000).toFixed(1)}M`
+                    : totalFish >= 1000
+                      ? `${(totalFish / 1000).toFixed(1)}K`
+                      : totalFish}
                 </div>
-                <div className="text-[10px] text-gray-400 font-semibold">Total Fish</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold">
+                  Total Fish
+                </div>
               </div>
               <div className="text-center">
                 <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
-                  {totalBiomass >= 1000 ? `${(totalBiomass / 1000).toFixed(1)}t` : `${totalBiomass.toFixed(0)}kg`}
+                  {totalBiomass >= 1000
+                    ? `${(totalBiomass / 1000).toFixed(1)}t`
+                    : `${totalBiomass.toFixed(0)}kg`}
                 </div>
-                <div className="text-[10px] text-gray-400 font-semibold">Biomass</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold">
+                  Biomass
+                </div>
               </div>
               <div className="text-center">
-                <div className={clsx(
-                  'text-lg font-bold tabular-nums',
-                  overCapacityCount > 0 ? 'text-red-500' : 'text-emerald-500',
-                )}>
+                <div
+                  className={clsx(
+                    'text-lg font-bold tabular-nums',
+                    overCapacityCount > 0 ? 'text-red-500' : 'text-emerald-500',
+                  )}
+                >
                   {overCapacityCount > 0 ? overCapacityCount : 'OK'}
                 </div>
-                <div className="text-[10px] text-gray-400 font-semibold">
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold">
                   {overCapacityCount > 0 ? 'Over Cap' : 'Capacity'}
                 </div>
               </div>
@@ -345,12 +405,14 @@ export function HomePage(): JSX.Element {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Waves size={14} className="text-ocean-500" />
-            <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+            <h2 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
               Tanks ({allTanks.length})
             </h2>
           </div>
           <button
-            onClick={() => { void refetch(); }}
+            onClick={() => {
+              void refetch();
+            }}
             disabled={isRefetching}
             className="p-2 text-ocean-500 touch-feedback rounded-lg hover:bg-ocean-50 dark:hover:bg-ocean-900/20 transition-colors"
           >
@@ -364,12 +426,25 @@ export function HomePage(): JSX.Element {
               <div key={i} className="h-32 rounded-2xl skeleton" />
             ))}
           </div>
+        ) : isError ? (
+          <ErrorState
+            title="Tanks could not be loaded"
+            description={
+              isOnline
+                ? 'Pull down or tap Retry to try again.'
+                : 'You are offline - showing cached data'
+            }
+            onRetry={() => {
+              void refetch();
+            }}
+            retrying={isRefetching}
+          />
         ) : allTanks.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
-            <Fish size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No tanks found</p>
-            {!isOnline && <p className="text-sm mt-1">You are offline - showing cached data</p>}
-          </div>
+          <EmptyState
+            icon={Fish}
+            title="No tanks found"
+            description={!isOnline ? 'You are offline - showing cached data' : undefined}
+          />
         ) : (
           <div className="space-y-3">
             {allTanks.map((tank) => (
@@ -378,9 +453,6 @@ export function HomePage(): JSX.Element {
           </div>
         )}
       </div>
-
-      {/* Bottom spacer for tab bar */}
-      <div className="h-24" />
     </div>
   );
 }

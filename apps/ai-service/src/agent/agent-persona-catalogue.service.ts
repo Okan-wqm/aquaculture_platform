@@ -1,0 +1,165 @@
+import { BadRequestException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import {
+  AI_PERSONA_CATALOGUE,
+  type AiPersonaCatalogueEntry,
+  type AiPersonaTier,
+} from '@aquaculture/shared-contracts';
+import { RESTRICTED_PROMPT_DELIMITERS } from '../safety/instruction-hierarchy.service';
+import { ToolRegistryService } from '../tools/tool-registry.service';
+import {
+  composePersona,
+  PROMPT_DECISION_ADVISORY,
+  PROMPT_DECISION_AUTONOMOUS,
+  PROMPT_POSTAMBLE,
+  PROMPT_PREAMBLE,
+  type ComposedPersona,
+} from './personas/compose';
+import { NARRATOR_PERSONA } from './personas/narrator';
+import type { ServicePersona } from './personas/types';
+import { SPECIALTIES } from './personas/specialties';
+import { TIERS } from './personas/tiers';
+
+/** Thrown when a caller names a persona the catalogue does not publish. */
+export class UnknownPersonaError extends BadRequestException {
+  constructor(personaId: string) {
+    super(`Unknown persona "${personaId}"`);
+  }
+}
+
+/**
+ * Composes every published persona (shared-contracts AI_PERSONA_CATALOGUE ×
+ * TIERS × SPECIALTIES) once, and refuses to boot when the composition is
+ * inconsistent: a bundle naming a tool the registry does not have, a bundled
+ * module-gated tool outside its specialty's module, a fragment carrying a
+ * reserved delimiter, or a catalogue id that does not compose. Unknown ids
+ * are a hard error — never a silent fallback to a lower-privilege persona.
+ */
+@Injectable()
+export class AgentPersonaCatalogueService implements OnApplicationBootstrap {
+  private readonly logger = new Logger(AgentPersonaCatalogueService.name);
+  private composed: ReadonlyMap<string, ComposedPersona> | null = null;
+
+  constructor(private readonly toolRegistry: ToolRegistryService) {}
+
+  onApplicationBootstrap(): void {
+    const catalogue = this.build();
+    // FARM-AI Sprint 1.2: the narrator is the service-grant persona — it must
+    // boot exactly as contracted (toolless, actuation-blocked, service-grant
+    // only) or the deploy is wrong, exactly like a broken composition.
+    if (
+      NARRATOR_PERSONA.defaultToolNames.length > 0 ||
+      NARRATOR_PERSONA.actuationPolicy !== 'blocked' ||
+      NARRATOR_PERSONA.permissionModel !== 'service-grant' ||
+      NARRATOR_PERSONA.allowAdditionalTools !== false
+    ) {
+      throw new Error('Service persona narrator-v1 violates its platform contract');
+    }
+    this.logger.log(
+      `Composed ${catalogue.size} AI personas from the shared catalogue + narrator-v1`,
+    );
+  }
+
+  /** The composed persona for a published id; throws for anything else. */
+  resolve(personaId: string): ComposedPersona {
+    const persona = this.build().get(personaId);
+    if (!persona) {
+      throw new UnknownPersonaError(personaId);
+    }
+    return persona;
+  }
+
+  /**
+   * The tier of a STORED persona id, or null when the catalogue no longer
+   * publishes it — for callers that must fail closed on a retired id without
+   * turning a persisted row into a thrown request error.
+   */
+  tierOf(personaId: string): AiPersonaTier | null {
+    return this.build().get(personaId)?.tier ?? null;
+  }
+
+  /** Every composed persona, in catalogue order. */
+  list(): readonly ComposedPersona[] {
+    return Array.from(this.build().values());
+  }
+
+  /**
+   * FARM-AI Sprint 1.2: service personas (service-grant permission model) —
+   * outside the user catalogue; authorized exclusively through the
+   * server-side SERVICE_PERSONA_GRANTS map. narrator-v1 today.
+   */
+  resolveServicePersona(personaId: string): ServicePersona | null {
+    return NARRATOR_PERSONA.id === personaId ? NARRATOR_PERSONA : null;
+  }
+
+  private build(): ReadonlyMap<string, ComposedPersona> {
+    if (this.composed) return this.composed;
+    this.assertFragmentsSafe();
+    this.assertBundlesRegistered();
+    const map = new Map<string, ComposedPersona>();
+    for (const entry of AI_PERSONA_CATALOGUE) {
+      map.set(entry.id, this.compose(entry));
+    }
+    this.composed = map;
+    return map;
+  }
+
+  private compose(entry: AiPersonaCatalogueEntry): ComposedPersona {
+    const tier = TIERS[entry.tier];
+    const specialty = SPECIALTIES[entry.specialty];
+    return composePersona(entry, tier, specialty, (toolName) =>
+      this.tierAllowsTool(entry.tier, toolName),
+    );
+  }
+
+  private tierAllowsTool(tier: AiPersonaCatalogueEntry['tier'], toolName: string): boolean {
+    const tool = this.toolRegistry.getTool(toolName);
+    if (!tool) return false;
+    return tool.getMetadata().requiredPermissions.includes(tier);
+  }
+
+  private assertBundlesRegistered(): void {
+    const problems: string[] = [];
+    for (const specialty of Object.values(SPECIALTIES)) {
+      for (const toolName of specialty.toolNames) {
+        const tool = this.toolRegistry.getTool(toolName);
+        if (!tool) {
+          problems.push(`specialty "${specialty.id}" bundles unregistered tool "${toolName}"`);
+          continue;
+        }
+        const requiresModule = tool.getMetadata().requiresModule;
+        if (requiresModule !== null && requiresModule !== specialty.requiresModule) {
+          problems.push(
+            `specialty "${specialty.id}" (module ${specialty.requiresModule ?? 'core'}) bundles ` +
+              `"${toolName}" which requires module "${requiresModule}"`,
+          );
+        }
+      }
+    }
+    if (problems.length > 0) {
+      throw new Error(`AI persona catalogue is inconsistent:\n  ${problems.join('\n  ')}`);
+    }
+  }
+
+  private assertFragmentsSafe(): void {
+    const fragments: Array<[string, string]> = [
+      ['PROMPT_PREAMBLE', PROMPT_PREAMBLE],
+      ['PROMPT_DECISION_ADVISORY', PROMPT_DECISION_ADVISORY],
+      ['PROMPT_DECISION_AUTONOMOUS', PROMPT_DECISION_AUTONOMOUS],
+      ['PROMPT_POSTAMBLE', PROMPT_POSTAMBLE],
+    ];
+    for (const tier of Object.values(TIERS))
+      fragments.push([`tier ${tier.id}`, tier.promptFragment]);
+    for (const specialty of Object.values(SPECIALTIES)) {
+      fragments.push([`specialty ${specialty.id}`, specialty.promptFragment]);
+    }
+    for (const [label, text] of fragments) {
+      for (const delimiter of RESTRICTED_PROMPT_DELIMITERS) {
+        if (text.includes(delimiter)) {
+          throw new Error(
+            `AI persona prompt fragment "${label}" contains the reserved delimiter "${delimiter}"`,
+          );
+        }
+      }
+    }
+  }
+}

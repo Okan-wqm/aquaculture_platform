@@ -5,7 +5,7 @@
 
 import React, { useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, Button } from '@aquaculture/shared-ui';
 import { getWeekMonday, formatDateISO } from '../../hooks/useScheduling';
 
 interface WeekNavigatorProps {
@@ -22,11 +22,7 @@ function getWeekNumber(date: Date): number {
   return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
 }
 
-export function WeekNavigator({
-  currentWeekStart,
-  onChange,
-  className,
-}: WeekNavigatorProps) {
+export function WeekNavigator({ currentWeekStart, onChange, className }: WeekNavigatorProps) {
   const weekNumber = useMemo(() => getWeekNumber(currentWeekStart), [currentWeekStart]);
 
   const weekEnd = useMemo(() => {
@@ -71,44 +67,38 @@ export function WeekNavigator({
 
   return (
     <nav className={cn('flex items-center gap-2', className)} aria-label="Hafta gezinme">
-      <button
-        onClick={goToPrevWeek}
-        className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-        aria-label="Onceki hafta"
-      >
-        <ChevronLeft className="h-5 w-5 text-gray-600" aria-hidden="true" />
-      </button>
+      <Button variant="ghost" iconOnly onClick={goToPrevWeek} aria-label="Onceki hafta">
+        <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-gray-400" aria-hidden="true" />
+      </Button>
 
       <div
-        className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg min-w-[280px]"
+        className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg min-w-[280px]"
         aria-live="polite"
         aria-atomic="true"
       >
-        <Calendar className="h-4 w-4 text-indigo-600" aria-hidden="true" />
+        <Calendar className="h-4 w-4 text-primary-600 dark:text-primary-400" aria-hidden="true" />
         <div className="flex flex-col">
-          <span className="text-sm font-semibold text-gray-900">
+          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
             Hafta {weekNumber}
           </span>
-          <span className="text-xs text-gray-500">{formatRange}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">{formatRange}</span>
         </div>
       </div>
 
-      <button
-        onClick={goToNextWeek}
-        className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-        aria-label="Sonraki hafta"
-      >
-        <ChevronRight className="h-5 w-5 text-gray-600" aria-hidden="true" />
-      </button>
+      <Button variant="ghost" iconOnly onClick={goToNextWeek} aria-label="Sonraki hafta">
+        <ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" aria-hidden="true" />
+      </Button>
 
       {!isThisWeek && (
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
+          className="ml-2"
           onClick={goToThisWeek}
-          className="ml-2 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
           aria-label="Bu haftaya don"
         >
           Bugune don
-        </button>
+        </Button>
       )}
     </nav>
   );

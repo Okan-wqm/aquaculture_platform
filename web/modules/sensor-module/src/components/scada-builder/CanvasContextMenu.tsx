@@ -46,19 +46,19 @@ const MenuItem: React.FC<MenuItemProps> = ({ icon, label, shortcut, disabled, on
   <button
     className={`flex w-full items-center gap-2 px-3 py-2 text-sm ${
       disabled
-        ? 'cursor-not-allowed text-gray-500'
-        : 'text-gray-700 hover:bg-gray-50'
+        ? 'cursor-not-allowed text-gray-500 dark:text-gray-400'
+        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
     }`}
     disabled={disabled}
     onClick={onClick}
   >
     {icon}
     <span>{label}</span>
-    {shortcut && <span className="ml-auto text-xs text-gray-500">{shortcut}</span>}
+    {shortcut && <span className="ml-auto text-xs text-gray-500 dark:text-gray-400">{shortcut}</span>}
   </button>
 );
 
-const Separator: React.FC = () => <div className="my-1 border-t border-gray-100" />;
+const Separator: React.FC = () => <div className="my-1 border-t border-gray-100 dark:border-gray-700" />;
 
 /* ------------------------------------------------------------------ */
 /*  CanvasContextMenu                                                  */
@@ -251,7 +251,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
   return (
     <div
       ref={menuRef}
-      className="fixed z-[9999] min-w-[200px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+      className="fixed z-[9999] min-w-[200px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 py-1 shadow-lg"
       style={{ left: x, top: y }}
     >
       {target === 'widget' && (

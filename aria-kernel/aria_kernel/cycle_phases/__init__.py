@@ -16,6 +16,10 @@ contract without re-touching the orchestrator body.
   (ORPHAN-HIGH-728), never re-enumerated here.
 * `memory.MemoryHook` — post-CONVERGED KG record + skill genesis
   stability check (V3.1-C consumes).
+* `knowledge_signer.cycle_knowledge_signer` — B7: the per-cycle signing
+  identity the memory hook stamps on its convention row, minted by the
+  orchestrator for every profile holding `knowledge_record` in
+  `runtime_profile.ACTION_PERMISSIONS` (derived, never re-enumerated).
 * `cost_telemetry.CostTelemetryHook` — V10.4 invocation-role
   threading + record_cost_attribution (V3.1-D consumes).
 * `profile_gate.ProfileGate` — V9.7 profile + V9.0-C preflight
@@ -55,6 +59,12 @@ from .implementer import (
     V9ImplementationRunner,
     select_v9_implementation_runner,
 )
+from .knowledge_signer import (
+    KNOWLEDGE_RECORD_ACTION_KIND,
+    KnowledgeSigner,
+    cycle_knowledge_signer,
+    knowledge_record_permitted,
+)
 from .memory import (
     MemoryHook,
     MemoryHookImpl,
@@ -72,11 +82,13 @@ from .profile_gate import NoOpProfileGate, ProfileGate
 
 __all__ = [
     "IMPLEMENTATION_ACTION_KIND",
+    "KNOWLEDGE_RECORD_ACTION_KIND",
     "AutonomousV9ImplementationRunner",
     "CostAttributionEnvelope",
     "CostTelemetryHook",
     "CostTelemetryHookImpl",
     "CyclePlanEnvelope",
+    "KnowledgeSigner",
     "MemoryHook",
     "MemoryHookImpl",
     "NoOpCostTelemetryHook",
@@ -90,6 +102,8 @@ __all__ = [
     "V9ImplementationResult",
     "V9ImplementationRunner",
     "V9PressureSourceProvider",
+    "cycle_knowledge_signer",
+    "knowledge_record_permitted",
     "select_cost_telemetry_hook",
     "select_memory_hook",
     "select_v9_implementation_runner",

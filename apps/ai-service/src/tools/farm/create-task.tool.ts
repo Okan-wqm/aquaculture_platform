@@ -50,7 +50,7 @@ interface CreateTaskNatsResponse {
   category: 'actuation',
   runtime: 'cloud',
   requiredPermissions: ['operator', 'manager', 'expert', 'supervisor'],
-  requiresModule: null,
+  requiresModule: 'farm',
   inputSchema: {
     type: 'object',
     properties: {
@@ -91,9 +91,7 @@ export class CreateTaskTool extends BaseTool<CreateTaskToolInput, CreateTaskTool
   // Typed to the single method the tool uses (DI resolves by the 'NATS_SERVICE'
   // token, not the parameter type) — the narrow surface keeps the collaborator
   // trivially mockable without a cast.
-  constructor(
-    @Inject('NATS_SERVICE') private readonly natsClient: Pick<ClientProxy, 'send'>,
-  ) {
+  constructor(@Inject('NATS_SERVICE') private readonly natsClient: Pick<ClientProxy, 'send'>) {
     super();
   }
 

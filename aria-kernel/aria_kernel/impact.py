@@ -110,7 +110,7 @@ def _validation_commands(risk_class: str, paths: list[str], graph: dict[str, Any
             ]
         return ["npm run test", "npm run lint", "npm run build", "npm run type-check"]
     if risk_class == "low":
-        return ["npm run format:check", "npm run gates:all"]
+        return ["node tools/quality/quality.mjs format check-changed", "npm run gates:all"]
     return ["npm run test", "npm run lint", "npm run build", "npm run type-check"]
 
 

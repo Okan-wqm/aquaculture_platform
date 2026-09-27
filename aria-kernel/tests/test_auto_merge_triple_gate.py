@@ -22,6 +22,7 @@ from aria_kernel.change_ledger import (
     emit_change_planned,
     emit_change_validated,
 )
+from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.validation_runs_ledger import record_validation_run
 
@@ -81,11 +82,9 @@ class AutoMergeTripleGateTests(unittest.TestCase):
             # ORPHAN-717 Gate 4 — the happy path now carries the full
             # hygiene battery, deliberately: a chain with only a test run
             # is BLOCKED (see test_hygiene_battery_missing_blocks).
-            for battery_cmd in (
-                "npm run format:check",
-                "npm run type-check",
-                "nx affected --target=test",
-            ):
+            # ARIA-HIGH-104 (2) — the battery IS the canonical suite, read
+            # from its one tuple rather than retyped here.
+            for battery_cmd in CANONICAL_VALIDATION_COMMANDS:
                 record_validation_run(
                     change_id=change_id,
                     cmd=battery_cmd,
@@ -133,8 +132,14 @@ class AutoMergeTripleGateTests(unittest.TestCase):
             pr_number=141, head_sha=commit_sha, base_dir=self.base,
         )
         self.assertFalse(result["passed"])
-        self.assertIn("triple_gate_hygiene_run_missing:format", result["reasons"])
-        self.assertIn("triple_gate_hygiene_run_missing:typecheck", result["reasons"])
+        # ARIA-HIGH-104 (2) — every canonical command but the one that ran
+        # is named as missing, in the command's own spelling.
+        for command in CANONICAL_VALIDATION_COMMANDS:
+            reason = f"triple_gate_hygiene_run_missing:{command}"
+            if command == "nx affected --target=test":
+                self.assertNotIn(reason, result["reasons"])
+            else:
+                self.assertIn(reason, result["reasons"])
 
     def test_happy_path_triple_gate_passes(self) -> None:
         commit_sha = "abc1234567890"

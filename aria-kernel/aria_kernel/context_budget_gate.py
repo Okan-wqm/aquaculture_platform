@@ -61,6 +61,8 @@ from typing import Any
 
 from .agent_resolver import resolve_agent_md_path
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .ledger import StateTransaction as _StateTransaction
+from .tool_registry import tools_dir as _tools_dir
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
     GovernanceError,
@@ -346,9 +348,37 @@ def audit_dispatch_context(
     if not write_ledger:
         return audit_row
 
+    return _persist_context_audit(audit_row, base_dir=base_dir)
+
+
+def _reprice_rendered_context(audit: dict[str, Any], rendered_prompt: str) -> dict[str, Any]:
+    """Price one complete render using the already captured preamble costs.
+
+    Native v5 minting uses this private path. Direct dictionary callers keep
+    their existing component attribution; full renders include excerpt text
+    once in the request component and never re-read agent/bookmark files.
+    """
+    tokens = estimate_tokens(rendered_prompt)
+    total = tokens + audit["agent_token_estimate"] + audit["knowledge_token_estimate"]
+    percent = total / audit["context_window_tokens"]
+    biggest = [dict(item) for item in audit["biggest_files"] if item["surface"] not in ("request", "evidence_excerpts")]
+    biggest.extend([{"surface": "request", "tokens": tokens},
+                    {"surface": "evidence_excerpts", "tokens": 0, "refs": []}])
+    return {**audit, "request_token_estimate": tokens, "evidence_excerpts_token_estimate": 0,
+            "total_estimate": total, "percent_of_context_window": round(percent, 6),
+            "cap_breached": percent > audit["cap_applied"],
+            "biggest_files": sorted(biggest, key=lambda item: item["tokens"], reverse=True)[:5]}
+
+
+def _persist_context_audit(
+    audit_row: dict[str, Any], *, base_dir: str | Path | None,
+    transaction: _StateTransaction | None = None, enforce: bool = False,
+) -> dict[str, Any]:
+    """Persist a privately prepared measurement through existing owners."""
     enforce_profile_for_write("context_audits", base_dir=base_dir)
-    root = ensure_tools_dir(base_dir)
-    stored_audit = append_declared_jsonl(
+    root = _tools_dir(base_dir) if transaction is not None else ensure_tools_dir(base_dir)
+    append = transaction.append_declared_jsonl if transaction is not None else append_declared_jsonl
+    stored_audit = append(
         root / CONTEXT_AUDITS_FILENAME,
         audit_row,
         expected_surface="context_audits",
@@ -357,14 +387,17 @@ def audit_dispatch_context(
         root,
         "context_budget_audited",
         {
-            "target_agent": target_agent,
-            "role": role,
-            "total_estimate": total,
+            "target_agent": audit_row["target_agent"],
+            "role": audit_row["role"],
+            "total_estimate": audit_row["total_estimate"],
             "percent_of_context_window": audit_row["percent_of_context_window"],
-            "cap_applied": cap,
+            "cap_applied": audit_row["cap_applied"],
             "cap_breached": audit_row["cap_breached"],
         },
+        transaction=transaction,
     )
+    if enforce:
+        _enforce_audited_context(stored_audit, root=root, transaction=transaction)
     return stored_audit
 
 
@@ -398,25 +431,33 @@ def enforce_context_budget(
         role_cap_override=role_cap_override,
         write_ledger=True,
     )
-    if not audit_row["cap_breached"]:
-        return audit_row
     root = ensure_tools_dir(base_dir)
+    _enforce_audited_context(audit_row, root=root)
+    return audit_row
+
+
+def _enforce_audited_context(
+    audit_row: dict[str, Any], *, root: Path, transaction: _StateTransaction | None = None,
+) -> None:
+    if not audit_row["cap_breached"]:
+        return
     append_tools_governance(
         root,
         "context_budget_exceeded",
         {
-            "target_agent": target_agent,
-            "role": role,
+            "target_agent": audit_row["target_agent"],
+            "role": audit_row["role"],
             "cap_applied": audit_row["cap_applied"],
             "percent_observed": audit_row["percent_of_context_window"],
             "total_estimate": audit_row["total_estimate"],
             "context_window_tokens": audit_row["context_window_tokens"],
         },
+        transaction=transaction,
     )
     raise GovernanceError(
-        f"context_budget_exceeded: role={role!r} cap={audit_row['cap_applied']:.2f} "
+        f"context_budget_exceeded: role={audit_row['role']!r} cap={audit_row['cap_applied']:.2f} "
         f"observed={audit_row['percent_of_context_window']:.4f} "
-        f"target_agent={target_agent!r}"
+        f"target_agent={audit_row['target_agent']!r}"
     )
 
 

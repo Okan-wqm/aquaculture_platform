@@ -289,6 +289,7 @@ export type AiSettings = {
   monthlyTokenBudget: Scalars['Int']['output'];
   openaiKeyHint?: Maybe<Scalars['String']['output']>;
   provider: Scalars['String']['output'];
+  zaiKeyHint?: Maybe<Scalars['String']['output']>;
 };
 
 export type AiSettingsType = {
@@ -2620,7 +2621,7 @@ export type CreateCertificationTypeInput = {
 };
 
 export type CreateChannelInput = {
-  /** AI persona ID (e.g. "expert-v1", "operator-v1"). Only for AI channels. */
+  /** Published AI persona id (e.g. "expert-farm-production-v1"); omit for the tenant default. Only for AI channels. */
   aiPersona?: InputMaybe<Scalars['String']['input']>;
   /** Channel description */
   description?: InputMaybe<Scalars['String']['input']>;
@@ -4013,7 +4014,7 @@ export type CreateWaterQualityInput = {
   schemaVersion?: InputMaybe<Scalars['String']['input']>;
   /** Site ID */
   siteId?: InputMaybe<Scalars['ID']['input']>;
-  /** Ölçüm kaynağı */
+  /** Ölçüm kaynağı (makine kaynakları reddedilir) */
   source: WaterQualityMeasurementSource;
   /** Tank ID */
   tankId?: InputMaybe<Scalars['ID']['input']>;
@@ -5313,6 +5314,10 @@ export type EnvironmentMetric =
   | 'WIND_DIRECTION'
   | 'WIND_GUST'
   | 'WIND_SPEED';
+
+export type EnvironmentMonitoringStatusResponse = {
+  enabled: Scalars['Boolean']['output'];
+};
 
 export type EnvironmentProvider =
   | 'CDSE_SENTINEL_2'
@@ -8998,6 +9003,17 @@ export type ManualAttendanceInput = {
   shiftId?: InputMaybe<Scalars['String']['input']>;
 };
 
+/** Marine data providers whose company credential the platform stores */
+export type MarineProviderCredentialProvider =
+  | 'CDSE';
+
+export type MarineProviderCredentialStatusDto = {
+  configured: Scalars['Boolean']['output'];
+  provider: MarineProviderCredentialProvider;
+  updatedAt?: Maybe<Scalars['DateTime']['output']>;
+  version?: Maybe<Scalars['Int']['output']>;
+};
+
 export type MarkReadInput = {
   /** Channel UUID */
   channelId: Scalars['ID']['input'];
@@ -9817,6 +9833,7 @@ export type Mutation = {
   setDeviceMaintenanceMode: EdgeDevice;
   setDigitalOutput: SetDigitalOutputResult;
   setLayoutAsDefault: DashboardLayout;
+  setMarineProviderCdseCredential: MarineProviderCredentialStatusDto;
   /** Set or update a retention policy. */
   setRetentionPolicy: RetentionPolicy;
   setSupplierApprovedSites: Array<SupplierSiteResponse>;
@@ -12346,6 +12363,11 @@ export type MutationSetDigitalOutputArgs = {
 
 export type MutationSetLayoutAsDefaultArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationSetMarineProviderCdseCredentialArgs = {
+  input: SetMarineProviderCdseCredentialInput;
 };
 
 
@@ -15409,6 +15431,7 @@ export type Query = {
   employeesByDepartment: Array<Employee>;
   enabledChannelsBySensor: Array<DataChannelType>;
   environmentLayerCatalog: Array<EnvironmentLayerResponse>;
+  environmentMonitoringStatus: EnvironmentMonitoringStatusResponse;
   environmentScenes: EnvironmentSceneCursorConnection;
   equipment?: Maybe<EquipmentResponse>;
   equipmentByDepartment: Array<EquipmentResponse>;
@@ -15563,6 +15586,7 @@ export type Query = {
   maintenanceScheduleByCode: MaintenanceSchedule;
   maintenanceSchedules: MaintenanceScheduleListResponse;
   mandatoryTrainingStatus: Array<MandatoryTrainingStatus>;
+  marineProviderCredentialStatus: MarineProviderCredentialStatusDto;
   /** Get Maskinporten configuration status */
   maskinportenStatus: MaskinportenStatus;
   /** Get Mattilsynet API configuration status */
@@ -16952,6 +16976,11 @@ export type QueryMaintenanceSchedulesArgs = {
 
 export type QueryMandatoryTrainingStatusArgs = {
   employeeId: Scalars['ID']['input'];
+};
+
+
+export type QueryMarineProviderCredentialStatusArgs = {
+  provider: MarineProviderCredentialProvider;
 };
 
 
@@ -19600,7 +19629,7 @@ export type Sensor = {
   calibrationOffset?: Maybe<Scalars['Float']['output']>;
   childSensors?: Maybe<Array<Sensor>>;
   configuration?: Maybe<Scalars['JSON']['output']>;
-  connectionStatus?: Maybe<Scalars['JSON']['output']>;
+  connectionStatus?: Maybe<SensorConnectionStatusType>;
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['String']['output']>;
   dataPath?: Maybe<Scalars['String']['output']>;
@@ -19948,6 +19977,14 @@ export type SetDigitalOutputResult = {
   success: Scalars['Boolean']['output'];
   tagName?: Maybe<Scalars['String']['output']>;
   value?: Maybe<Scalars['Boolean']['output']>;
+};
+
+export type SetMarineProviderCdseCredentialInput = {
+  clientId: Scalars['String']['input'];
+  clientSecret: Scalars['String']['input'];
+  instanceId?: InputMaybe<Scalars['String']['input']>;
+  /** Recorded in the configuration history for this write */
+  reason?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type SetRetentionPolicyInput = {
@@ -22716,6 +22753,7 @@ export type UpdateAiSettingsInput = {
   monthlyTokenBudget?: InputMaybe<Scalars['Int']['input']>;
   openaiApiKey?: InputMaybe<Scalars['String']['input']>;
   provider?: InputMaybe<Scalars['String']['input']>;
+  zaiApiKey?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateAlertRuleInput = {
@@ -23482,6 +23520,7 @@ export type UpdateMobileUserSettingsInput = {
 export type UpdateMyProfileInput = {
   firstName?: InputMaybe<Scalars['String']['input']>;
   lastName?: InputMaybe<Scalars['String']['input']>;
+  preferredLanguage?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateNotificationPreferencesInput = {
@@ -23651,6 +23690,7 @@ export type UpdateProfileInput = {
   email?: InputMaybe<Scalars['String']['input']>;
   firstName?: InputMaybe<Scalars['String']['input']>;
   lastName?: InputMaybe<Scalars['String']['input']>;
+  preferredLanguage?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateProgramInput = {

@@ -23,6 +23,7 @@ import {
   panelPermissionsToResourceArray,
   resolveEntitledCapabilities,
 } from './permission-catalogue';
+import { colors } from '@aquaculture/shared-contracts';
 
 // Re-export the catalogue SSoT so existing importers (tenant-role.resolver,
 // permission-catalogue.spec) keep their import path. The definition now lives in
@@ -36,7 +37,7 @@ const DEFAULT_TENANT_ROLES = [
   {
     name: 'Supervisor',
     description: 'Can manage daily operations, view reports, and oversee staff',
-    color: '#8B5CF6',
+    color: colors.accent[400],
     icon: 'user-check',
     level: 70,
     isSystem: true,
@@ -45,7 +46,7 @@ const DEFAULT_TENANT_ROLES = [
   {
     name: 'Technician',
     description: 'Can manage sensors, equipment, and maintenance tasks',
-    color: '#06B6D4',
+    color: colors.info[300],
     icon: 'wrench',
     level: 50,
     isSystem: true,
@@ -54,7 +55,7 @@ const DEFAULT_TENANT_ROLES = [
   {
     name: 'Feed Manager',
     description: 'Can manage feeding schedules, inventory, and records',
-    color: '#F59E0B',
+    color: colors.warning[400],
     icon: 'package',
     level: 50,
     isSystem: true,
@@ -63,7 +64,7 @@ const DEFAULT_TENANT_ROLES = [
   {
     name: 'Operator',
     description: 'Basic operational access for daily tasks',
-    color: '#10B981',
+    color: colors.success[400],
     icon: 'activity',
     level: 30,
     isSystem: true,
@@ -72,7 +73,7 @@ const DEFAULT_TENANT_ROLES = [
   {
     name: 'Viewer',
     description: 'Read-only access to dashboards and reports',
-    color: '#6B7280',
+    color: colors.gray[400],
     icon: 'eye',
     level: 10,
     isSystem: true,
@@ -83,7 +84,7 @@ const DEFAULT_TENANT_ROLES = [
 /**
  * Default role permissions
  */
-const DEFAULT_ROLE_PERMISSIONS: Record<
+export const DEFAULT_ROLE_PERMISSIONS: Record<
   string,
   Record<string, Record<string, Record<string, boolean>>>
 > = {
@@ -141,6 +142,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
       ai_settings: { view: true, manage: true },
       ai_personas: { operator: true, manager: true, expert: true, supervisor: false },
     },
+    // Farm specialists (RBAC-MEDIUM-016): every seeded role may drive them at the
+    // tier its ai_personas grants allow; the tenant admin can revoke per role.
+    ai_specialists: {
+      ai_specialties: { farm: true },
+    },
   },
   Technician: {
     farm: {
@@ -163,6 +169,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
     ai: {
       ai_assistant: { use: true },
       ai_personas: { operator: true, manager: true, expert: false, supervisor: false },
+    },
+    // Farm specialists (RBAC-MEDIUM-016): every seeded role may drive them at the
+    // tier its ai_personas grants allow; the tenant admin can revoke per role.
+    ai_specialists: {
+      ai_specialties: { farm: true },
     },
   },
   'Feed Manager': {
@@ -188,6 +199,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
     ai: {
       ai_assistant: { use: true },
       ai_personas: { operator: true, manager: true, expert: false, supervisor: false },
+    },
+    // Farm specialists (RBAC-MEDIUM-016): every seeded role may drive them at the
+    // tier its ai_personas grants allow; the tenant admin can revoke per role.
+    ai_specialists: {
+      ai_specialties: { farm: true },
     },
   },
   Operator: {
@@ -227,6 +243,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
     ai: {
       ai_assistant: { use: true },
       ai_personas: { operator: true, manager: false, expert: false, supervisor: false },
+    },
+    // Farm specialists (RBAC-MEDIUM-016): every seeded role may drive them at the
+    // tier its ai_personas grants allow; the tenant admin can revoke per role.
+    ai_specialists: {
+      ai_specialties: { farm: true },
     },
   },
   Viewer: {
@@ -269,6 +290,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
     ai: {
       ai_assistant: { use: true },
       ai_personas: { operator: true, manager: false, expert: false, supervisor: false },
+    },
+    // Farm specialists (RBAC-MEDIUM-016): every seeded role may drive them at the
+    // tier its ai_personas grants allow; the tenant admin can revoke per role.
+    ai_specialists: {
+      ai_specialties: { farm: true },
     },
   },
 };
@@ -499,7 +525,7 @@ export class TenantRoleService {
           tenantId,
           input.name,
           input.description || null,
-          input.color || '#6366F1',
+          input.color || colors.primary[500],
           input.icon || 'shield',
           input.level ?? 50,
           input.isDefault ?? false,

@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Input } from '@aquaculture/shared-ui';
 import { Settings, Trash2 } from 'lucide-react';
 import { widgetConfigMap } from './widget-configs';
 import { GeneralPropertiesSection } from './widget-configs/GeneralPropertiesSection';
@@ -19,7 +20,11 @@ import { ScriptsPanel } from './widget-configs/ScriptsPanel';
 import { AutomationBindingPanel } from './AutomationBindingPanel';
 import { PropertiesTabNav, groupForTab, type TabGroup, type TabId } from './PropertiesTabNav';
 import { PropertiesAlarmTab, type AlarmRule } from './PropertiesAlarmTab';
-import { PropertiesControlTab, type ControlSecurityConfig, type EmergencyStopConfig } from './PropertiesControlTab';
+import {
+  PropertiesControlTab,
+  type ControlSecurityConfig,
+  type EmergencyStopConfig,
+} from './PropertiesControlTab';
 import { PropertiesTrendsTab, type TrendConfig } from './PropertiesTrendsTab';
 import { CONNECTION_TYPES, type ConnectionType } from '../../config/connectionTypes';
 import type { ScadaEdge, ScadaEdgeType, ScadaEdgeData } from '../../types/scada-edge.types';
@@ -75,7 +80,11 @@ interface PropertiesPanelProps {
 
 const DEFAULT_ALARM_RULES: AlarmRule[] = [];
 const DEFAULT_CONTROL_SECURITY: ControlSecurityConfig = { none: [], confirm: [], pin: [] };
-const DEFAULT_EMERGENCY_STOP: EmergencyStopConfig = { holdDuration: 3000, affectedTags: [], resetRequiresPin: false };
+const DEFAULT_EMERGENCY_STOP: EmergencyStopConfig = {
+  holdDuration: 3000,
+  affectedTags: [],
+  resetRequiresPin: false,
+};
 const DEFAULT_TREND_CONFIG: TrendConfig = { retentionDays: 30, sampleIntervalSec: 60, tags: [] };
 
 // ---------------------------------------------------------------------------
@@ -132,7 +141,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const ConfigComponent = selectedWidget ? widgetConfigMap[selectedWidget.type] : null;
 
   return (
-    <div className="w-80 bg-white border-l border-gray-200 flex flex-col h-full">
+    <div className="w-80 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col h-full">
       {/* 2-tier tab navigation */}
       <PropertiesTabNav
         activeGroup={activeGroup}
@@ -145,7 +154,6 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-4">
-
         {/* ===== Properties Tab (widget-scoped) ===== */}
         {activeTab === 'properties' && (
           <>
@@ -167,7 +175,9 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 )}
                 <ConfigComponent
                   config={selectedWidget.config}
-                  onChange={(updates: Record<string, unknown>) => onWidgetConfigChange(selectedWidget.id, updates)}
+                  onChange={(updates: Record<string, unknown>) =>
+                    onWidgetConfigChange(selectedWidget.id, updates)
+                  }
                   deviceId={deviceId}
                 />
                 {onWidgetUpdate && (
@@ -179,34 +189,46 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               </div>
             ) : selectedEdge && onEdgeDataChange ? (
               <div className="space-y-4">
-                <h4 className="text-sm font-medium text-gray-700">Connection Properties</h4>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Connection Properties
+                </h4>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Connection Type</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Connection Type
+                  </label>
                   <select
                     value={selectedEdge.data.connectionType}
-                    onChange={(e) => onEdgeDataChange(selectedEdge.id, { connectionType: e.target.value as ConnectionType })}
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    onChange={(e) =>
+                      onEdgeDataChange(selectedEdge.id, {
+                        connectionType: e.target.value as ConnectionType,
+                      })
+                    }
+                    className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
                   >
                     {CONNECTION_TYPES.map((ct) => (
-                      <option key={ct.id} value={ct.id}>{ct.label}</option>
+                      <option key={ct.id} value={ct.id}>
+                        {ct.label}
+                      </option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Line Type</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Line Type
+                  </label>
                   <div className="flex gap-1">
-                    {([
+                    {[
                       { type: 'orthogonal' as const, label: 'Orthogonal' },
                       { type: 'multiHandle' as const, label: 'Polyline' },
                       { type: 'draggable' as const, label: 'Bezier' },
-                    ]).map((opt) => (
+                    ].map((opt) => (
                       <button
                         key={opt.type}
                         onClick={() => onEdgeTypeChange?.(selectedEdge.id, opt.type)}
                         className={`flex-1 px-2 py-1.5 text-xs rounded border transition-colors ${
                           selectedEdge.type === opt.type
-                            ? 'bg-cyan-50 border-cyan-300 text-cyan-700 font-medium'
-                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                            ? 'bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300 font-medium'
+                            : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                         }`}
                       >
                         {opt.label}
@@ -215,13 +237,17 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Label</label>
-                  <input
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Label
+                  </label>
+                  <Input
+                    fullWidth
                     type="text"
                     value={selectedEdge.data.label || ''}
-                    onChange={(e) => onEdgeDataChange(selectedEdge.id, { label: e.target.value || undefined })}
+                    onChange={(e) =>
+                      onEdgeDataChange(selectedEdge.id, { label: e.target.value || undefined })
+                    }
                     placeholder="Connection label"
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   />
                 </div>
                 <div className="flex items-center gap-2">
@@ -229,30 +255,37 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     type="checkbox"
                     id="edgeAnimated"
                     checked={!!selectedEdge.data.animated}
-                    onChange={(e) => onEdgeDataChange(selectedEdge.id, { animated: e.target.checked })}
-                    className="text-cyan-600 rounded focus:ring-cyan-500"
+                    onChange={(e) =>
+                      onEdgeDataChange(selectedEdge.id, { animated: e.target.checked })
+                    }
+                    className="text-info-600 dark:text-info-400 rounded focus:ring-info-500"
                   />
-                  <label htmlFor="edgeAnimated" className="text-xs text-gray-700">Animated flow</label>
+                  <label
+                    htmlFor="edgeAnimated"
+                    className="text-xs text-gray-700 dark:text-gray-300"
+                  >
+                    Animated flow
+                  </label>
                 </div>
-                <div className="pt-3 border-t border-gray-200">
-                  <p className="text-[11px] text-gray-500">
+                <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
                     Source: {selectedEdge.source} ({selectedEdge.sourceHandle})
                   </p>
-                  <p className="text-[11px] text-gray-500">
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
                     Target: {selectedEdge.target} ({selectedEdge.targetHandle})
                   </p>
                 </div>
                 <button
                   onClick={() => onEdgeDelete?.(selectedEdge.id)}
-                  className="w-full mt-2 px-3 py-2 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors flex items-center justify-center gap-1.5"
+                  className="w-full mt-2 px-3 py-2 text-xs font-medium text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg hover:bg-error-100 dark:hover:bg-error-900/50 transition-colors flex items-center justify-center gap-1.5"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   Delete Connection
                 </button>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 py-12">
-                <Settings className="w-10 h-10 mb-3 text-gray-500" />
+              <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 dark:text-gray-400 py-12">
+                <Settings className="w-10 h-10 mb-3 text-gray-500 dark:text-gray-400" />
                 <p className="text-sm">Select a widget</p>
                 <p className="text-xs mt-1">Select a widget from the canvas</p>
               </div>
@@ -261,8 +294,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
         )}
 
         {/* ===== Events Tab (widget-scoped) ===== */}
-        {activeTab === 'events' && (
-          selectedWidget && onWidgetEventsChange ? (
+        {activeTab === 'events' &&
+          (selectedWidget && onWidgetEventsChange ? (
             <EventsPanel
               events={selectedWidget.events ?? []}
               onChange={(events) => onWidgetEventsChange(selectedWidget.id, events)}
@@ -270,30 +303,28 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               scripts={scripts}
             />
           ) : (
-            <div className="flex flex-col items-center justify-center text-center text-gray-500 py-12">
-              <Settings className="w-10 h-10 mb-3 text-gray-500" />
+            <div className="flex flex-col items-center justify-center text-center text-gray-500 dark:text-gray-400 py-12">
+              <Settings className="w-10 h-10 mb-3 text-gray-500 dark:text-gray-400" />
               <p className="text-sm">Select a widget</p>
               <p className="text-xs mt-1">Select a widget to configure events</p>
             </div>
-          )
-        )}
+          ))}
 
         {/* ===== Animations Tab (widget-scoped) ===== */}
-        {activeTab === 'animations' && (
-          selectedWidget && onWidgetAnimationsChange ? (
+        {activeTab === 'animations' &&
+          (selectedWidget && onWidgetAnimationsChange ? (
             <AnimationsPanel
               animations={selectedWidget.animations ?? []}
               onChange={(animations) => onWidgetAnimationsChange(selectedWidget.id, animations)}
               deviceId={deviceId}
             />
           ) : (
-            <div className="flex flex-col items-center justify-center text-center text-gray-500 py-12">
-              <Settings className="w-10 h-10 mb-3 text-gray-500" />
+            <div className="flex flex-col items-center justify-center text-center text-gray-500 dark:text-gray-400 py-12">
+              <Settings className="w-10 h-10 mb-3 text-gray-500 dark:text-gray-400" />
               <p className="text-sm">Select a widget</p>
               <p className="text-xs mt-1">Select a widget to configure animations</p>
             </div>
-          )
-        )}
+          ))}
 
         {/* ===== Alarms Tab (package-scoped) ===== */}
         {activeTab === 'alarms' && (
@@ -312,7 +343,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
         {/* ===== Trends Tab (package-scoped) ===== */}
         {activeTab === 'trends' && (
-          <PropertiesTrendsTab trendConfig={trendConfig} onTrendConfigChange={onTrendConfigChange} />
+          <PropertiesTrendsTab
+            trendConfig={trendConfig}
+            onTrendConfigChange={onTrendConfigChange}
+          />
         )}
 
         {/* ===== Automation Tab (package-scoped) ===== */}

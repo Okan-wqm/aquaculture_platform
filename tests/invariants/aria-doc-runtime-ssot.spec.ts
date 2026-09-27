@@ -77,12 +77,12 @@ const LIVE_WORKFLOWS = [
   '.github/workflows/aria-agent-executor.yml',
   '.github/workflows/aria-daily-report.yml',
   '.github/workflows/aria-kernel.yml',
-  '.github/workflows/aria-kernel-fast.yml',
   '.github/workflows/aria-operational-proof.yml',
 ];
 
 const ARIA_SUITE_RUNNER = 'scripts/ci/aria-suite-run.sh';
 const ARIA_SUITE_SELECTOR = 'scripts/ci/aria-suite-changed.mjs';
+const ARIA_ADAPTERS_DIR = 'tools/aria-adapters';
 const ARIA_PYTEST_NATIVE_PLUGIN = 'aria_kernel.pytest_native_only';
 
 type WorkflowStep = { run?: string };
@@ -510,9 +510,10 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(executor).toContain('REQUIRED_CLAUDE_VERSION="2.1.221"');
     expect(executor).toContain('claude --version');
     // ORPHAN-MEDIUM-769 — aria-kernel-full.yml was deleted (a strict subset
-    // of aria-kernel.yml, never a required context) and aria-kernel-fast.yml
-    // became PR-only, so the push-on-main contract belongs to aria-kernel.yml
-    // alone.
+    // of aria-kernel.yml, never a required context); ARIA-MEDIUM-135 retired
+    // aria-kernel-fast.yml the same way (the identical full suite under a
+    // 60-minute budget it could not meet), so the kernel suite on PR and on
+    // main push belongs to aria-kernel.yml alone.
     expect(read('.github/workflows/aria-kernel.yml')).toMatch(/branches:\s*\n\s*- main/);
     const kernelWorkflow = read('.github/workflows/aria-kernel.yml');
     expect(kernelWorkflow).toContain('node-version: "22"');
@@ -619,17 +620,37 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(pythonFiles).toEqual(['*test*.py']);
   });
 
-  it('triggers both ARIA PR workflows when the canonical suite runner changes', () => {
-    for (const rel of [
-      '.github/workflows/aria-kernel.yml',
-      '.github/workflows/aria-kernel-fast.yml',
-    ]) {
+  it('triggers the ARIA PR workflow when the canonical suite runner changes', () => {
+    // The budget is reasoned in the workflow next to the value: aria-kernel
+    // runs the WHOLE suite — 40.9 min measured (run 34578152903), 48.4 min
+    // for the 6,484 tests of PR #1553 (run 34853938794) — plus
+    // ARIA-HIGH-098's registry pin, which runs every shipped adapter's
+    // fixture suite through the evidence validator (~8 min on a quiet host;
+    // two of those adapters are the ones whose runtime the finding recorded
+    // as weather-sensitive) — so its cap was 75 on the 24.04 image. On the
+    // 22.04 image the lane moved to for its sandbox (ARIA-MEDIUM-134) the
+    // same suite measured ~77 min (run 34902506329: last stage marker at
+    // 3539 s against 2236 s on 24.04), so the cap is 110 — the measurement
+    // plus the margin the old cap carried; ARIA-HIGH-136 brings it down.
+    // ARIA-MEDIUM-135: the fast lane claimed the "affected subset" here and
+    // ran the full suite under 60, so it is gone; a second lane over the
+    // same suite is drift.
+    const budgetMinutes: Record<string, number> = {
+      '.github/workflows/aria-kernel.yml': 110,
+    };
+    expect(existsSync(join(REPO_ROOT, '.github/workflows/aria-kernel-fast.yml'))).toBe(false);
+    for (const rel of Object.keys(budgetMinutes)) {
       const workflow = yaml.load(read(rel)) as PullRequestWorkflow;
       expect(workflow.on?.pull_request?.paths).toContain(ARIA_SUITE_RUNNER);
+      // ARIA-HIGH-098 — the adapter registry contract
+      // (aria-kernel/tests/test_adapter_fixture_evidence_contract.py) is a
+      // suite test over tools/aria-adapters/**; a lane that does not fire
+      // on that directory checks an adapters-only PR first on main.
+      expect(workflow.on?.pull_request?.paths).toContain(ARIA_ADAPTERS_DIR + '/**');
 
       const jobs = Object.values(workflow.jobs ?? {});
       expect(jobs).toHaveLength(1);
-      expect(jobs[0]?.['timeout-minutes']).toBe(60);
+      expect(jobs[0]?.['timeout-minutes']).toBe(budgetMinutes[rel]);
       const suiteSteps = (jobs[0]?.steps ?? []).filter(
         (step) => step.run === `bash ${ARIA_SUITE_RUNNER}`,
       );
@@ -696,7 +717,51 @@ describe('ARIA live runtime/documentation SSoT', () => {
       expect(diffArgs).toContain(ARIA_SUITE_SELECTOR);
       expect(diffArgs).toContain(ARIA_SUITE_RUNNER);
       expect(diffArgs).toContain('package.json');
+      expect(diffArgs).toContain(ARIA_ADAPTERS_DIR);
       expect(readFileSync(bashLog, 'utf8').trim()).toBe(ARIA_SUITE_RUNNER);
+    } finally {
+      removeFixtureTree(probeDir);
+    }
+  });
+
+  it('selects the adapter registry contract when only tools/aria-adapters changes', () => {
+    // ARIA-HIGH-098 — a manifest without a fixture case, or a case rewritten
+    // to expect a non-ok run, touches only tools/aria-adapters/**. The
+    // pre-push selector must reach the kernel module that refuses both.
+    const probeDir = mkdtempSync(join(tmpdir(), 'aria-suite-changed-adapters-'));
+    const bashLog = join(probeDir, 'bash-args');
+    try {
+      writeExecutable(
+        join(probeDir, 'git'),
+        [
+          'if [ "$1" = "rev-parse" ] && [ "$2" = "--abbrev-ref" ]; then',
+          "  printf 'probe-branch\\n'",
+          '  exit 0',
+          'fi',
+          'if [ "$1" = "rev-parse" ] && [ "$2" = "--verify" ]; then',
+          '  exit 0',
+          'fi',
+          'if [ "$1" = "diff" ]; then',
+          `  printf '${ARIA_ADAPTERS_DIR}/probe-adapter.tool.json\\n'`,
+          '  exit 0',
+          'fi',
+          'exit 2',
+        ].join('\n'),
+      );
+      writeExecutable(join(probeDir, 'bash'), 'printf \'%s\\n\' "$@" > "$ARIA_BASH_PROBE"');
+
+      execFileSync(process.execPath, ['scripts/ci/aria-suite-changed.mjs'], {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          ARIA_BASH_PROBE: bashLog,
+          PATH: `${probeDir}:${process.env.PATH ?? ''}`,
+        },
+      });
+
+      const bashArgs = readFileSync(bashLog, 'utf8').trim().split('\n');
+      expect(bashArgs[0]).toBe(ARIA_SUITE_RUNNER);
+      expect(bashArgs).toContain('test_adapter_fixture_evidence_contract.py');
     } finally {
       removeFixtureTree(probeDir);
     }

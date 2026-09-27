@@ -9,6 +9,7 @@
 import React, { useState, useRef, useEffect, useId, useMemo } from 'react';
 import type { Size } from '../../types';
 import type { SelectOption } from './Select';
+import { ChevronDown, X } from 'lucide-react';
 
 export interface SearchableSelectProps {
   label?: string;
@@ -118,8 +119,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   };
 
   const inputStateStyles = error
-    ? 'border-red-500 focus-within:ring-red-500 focus-within:border-red-500'
-    : 'border-gray-300 dark:border-gray-600 focus-within:ring-blue-500 focus-within:border-blue-500';
+    ? 'border-error-500 focus-within:ring-error-500 focus-within:border-error-500'
+    : 'border-gray-300 dark:border-gray-600 focus-within:ring-primary-500 focus-within:border-primary-500';
 
   const disabledStyles = disabled
     ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed text-gray-500'
@@ -133,7 +134,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
         >
           {label}
-          {required && <span className="text-red-500 ml-1">*</span>}
+          {required && <span className="text-error-500 ml-1">*</span>}
         </span>
       )}
 
@@ -160,7 +161,13 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             pr-10
           `}
         >
-          <span className={selectedOption ? 'text-gray-900 dark:text-white truncate' : 'text-gray-500 dark:text-gray-400'}>
+          <span
+            className={
+              selectedOption
+                ? 'text-gray-900 dark:text-white truncate'
+                : 'text-gray-500 dark:text-gray-400'
+            }
+          >
             {selectedOption ? selectedOption.label : placeholder}
           </span>
 
@@ -173,20 +180,14 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 className="p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                 tabIndex={-1}
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X className="w-4 h-4" aria-hidden="true" />
               </button>
             )}
             {/* Chevron */}
-            <svg
-              className={`w-4 h-4 text-gray-500 transition-transform pointer-events-none ${isOpen ? 'rotate-180' : ''}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+            <ChevronDown
+              className={`w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform pointer-events-none ${isOpen ? 'rotate-180' : ''}`}
+              aria-hidden="true"
+            />
           </div>
         </div>
 
@@ -201,7 +202,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={searchPlaceholder}
-                className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-hidden focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     setIsOpen(false);
@@ -213,11 +214,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             </div>
 
             {/* Options list */}
-            <div
-              id={listboxId}
-              role="listbox"
-              className="max-h-60 overflow-auto"
-            >
+            <div id={listboxId} role="listbox" className="max-h-60 overflow-auto">
               {filteredOptions.length === 0 ? (
                 <div className="px-3 py-2 text-gray-500 dark:text-gray-400 text-sm">
                   {noResultsText}
@@ -231,8 +228,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     onClick={() => !option.disabled && handleSelect(option.value)}
                     className={`
                       px-3 py-2 text-sm
-                      ${option.disabled ? 'opacity-50 cursor-not-allowed text-gray-400' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'}
-                      ${option.value === value ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium' : 'text-gray-900 dark:text-gray-200'}
+                      ${option.disabled ? 'opacity-50 cursor-not-allowed text-gray-400 dark:text-gray-500' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'}
+                      ${option.value === value ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-900 dark:text-gray-200'}
                     `}
                   >
                     {option.label}
@@ -250,15 +247,13 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       </div>
 
       {error && (
-        <p className="mt-1 text-sm text-red-600" role="alert">
+        <p className="mt-1 text-sm text-error-600 dark:text-error-400" role="alert">
           {error}
         </p>
       )}
 
       {!error && helperText && (
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          {helperText}
-        </p>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{helperText}</p>
       )}
     </div>
   );

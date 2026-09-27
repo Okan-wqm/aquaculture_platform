@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .canonical_path import lexical_repo_path
 from .evidence_probe import BaselineResolution, GitProbeSession
 from .tool_registry import GovernanceError
 
@@ -21,6 +23,14 @@ SELF_OUTPUT_PREFIXES: tuple[str, ...] = (
     "runner-temp/",
     "tmp/",
 )
+
+def is_self_output_ref(ref: str) -> bool:
+    """True when ``ref`` names ARIA's own output (gitignored, unresolvable at
+    any workspace SHA), lexically — the same prefix rule the classifier uses."""
+    path_part, _line = _split_ref(str(ref).strip())
+    normalized = lexical_repo_path(path_part)
+    return any(normalized.startswith(prefix) for prefix in SELF_OUTPUT_PREFIXES)
+
 
 @dataclass(frozen=True)
 class EvidenceEnvelope:
@@ -228,14 +238,34 @@ def classify_evidence_ref(
     )
 
 
+# ARIA-HIGH-195 — THE evidence-ref grammar: ``path`` or ``path:line``. It
+# lived twice: evidence_validator admitted a ``path:line:<excerpt>`` triplet
+# (V8.6, for plan_synthesizer's snippets) while this module split on the LAST
+# colon, so the excerpt became part of the path and a synthesized plan's own
+# evidence was graded missing (agent_evidence_not_repo_verified). One grammar
+# now, defined here and imported by the validator and compliance; the
+# synthesizer emits ``path:line``. The path class excludes whitespace and
+# ``:`` and nothing else repeats, so matching stays linear (ORPHAN-HIGH-081).
+EVIDENCE_REF_RE = re.compile(r"^(?P<path>[^\s:]+)(?::(?P<line>\d+))?$")
+
+
+def parse_evidence_ref(ref: str) -> tuple[str, int | None] | None:
+    """``(path, line)`` for a ref in the grammar, ``None`` for anything else."""
+    match = EVIDENCE_REF_RE.match(str(ref or "").strip())
+    if match is None:
+        return None
+    line = match.group("line")
+    return match.group("path"), int(line) if line is not None else None
+
+
 def _split_ref(ref: str) -> tuple[str, int | None]:
     raw = str(ref or "").strip()
     if not raw:
         return "", None
-    path, sep, suffix = raw.rpartition(":")
-    if sep and suffix.isdigit() and path:
-        return path, int(suffix)
-    return raw, None
+    parsed = parse_evidence_ref(raw)
+    # Outside the grammar the whole string is the (unresolvable) path, so the
+    # classifier grades it missing — the same verdict the validator reaches.
+    return parsed if parsed is not None else (raw, None)
 
 
 def _canonicalize(raw_path: str, root: Path) -> tuple[str, Path, tuple[str, ...]]:
@@ -399,6 +429,9 @@ __all__ = [
     "EvidenceEnvelope",
     "EvidencePolicy",
     "GitProbeSession",
+    "EVIDENCE_REF_RE",
     "SELF_OUTPUT_PREFIXES",
+    "is_self_output_ref",
+    "parse_evidence_ref",
     "classify_evidence_ref",
 ]

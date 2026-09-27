@@ -23,6 +23,12 @@ const PATHS = {
   gatewayGuard: 'apps/gateway-api/src/guards/auth.guard.ts',
   gatewayMiddleware: 'apps/gateway-api/src/middleware/jwt.middleware.ts',
   gatewayApp: 'apps/gateway-api/src/app.module.ts',
+  // The ONE module that builds and exports the gateway's read-only store: the
+  // root (global AuthGuard, JwtMiddleware) and WebSocketModule (live-socket
+  // revalidation) both import it. A root-declared provider was invisible to
+  // the child module — gateway-api could not boot (SEC-CRITICAL-169).
+  gatewayBlacklistModule: 'apps/gateway-api/src/guards/token-blacklist.module.ts',
+  gatewayWebsocket: 'apps/gateway-api/src/websocket/websocket.module.ts',
 } as const;
 
 function read(path: string): string {
@@ -91,6 +97,8 @@ describe('distributed token revocation writer/read-enforcement SSoT', () => {
   it('wires mandatory distributed enforcement on both auth boundaries', () => {
     const authApp = read(PATHS.authApp);
     const gatewayApp = read(PATHS.gatewayApp);
+    const gatewayBlacklistModule = read(PATHS.gatewayBlacklistModule);
+    const gatewayWebsocket = read(PATHS.gatewayWebsocket);
     const gatewayGuard = read(PATHS.gatewayGuard);
     const gatewayMiddleware = read(PATHS.gatewayMiddleware);
 
@@ -99,9 +107,19 @@ describe('distributed token revocation writer/read-enforcement SSoT', () => {
     expect(authApp).toContain('TOKEN_BLACKLIST,');
     expect(authApp).toContain('USER_TOKEN_REVOCATION,');
 
-    expect(gatewayApp).toContain('buildGatewayTokenBlacklistStore(');
+    // One owner of the store, exported, never optional; every enforcement
+    // point reaches it by importing that module.
+    expect(gatewayBlacklistModule).toContain('buildGatewayTokenBlacklistStore(');
+    expect(gatewayBlacklistModule).toContain('provide: TOKEN_BLACKLIST_STORE,');
+    expect(gatewayBlacklistModule).toContain('exports: [TOKEN_BLACKLIST_STORE]');
+    expect(gatewayBlacklistModule).not.toMatch(
+      /\{\s*token:\s*TOKEN_BLACKLIST_STORE,\s*optional:\s*true\s*\}/,
+    );
+    expect(gatewayApp).toContain('GatewayTokenBlacklistModule,');
     expect(gatewayApp).toContain('TOKEN_BLACKLIST_STORE,');
+    expect(gatewayApp).not.toContain('buildGatewayTokenBlacklistStore(');
     expect(gatewayApp).not.toMatch(/\{\s*token:\s*TOKEN_BLACKLIST_STORE,\s*optional:\s*true\s*\}/);
+    expect(gatewayWebsocket).toContain('GatewayTokenBlacklistModule,');
     expect(gatewayGuard).not.toContain('@Optional()');
     expect(gatewayMiddleware).not.toContain('@Optional()');
   });

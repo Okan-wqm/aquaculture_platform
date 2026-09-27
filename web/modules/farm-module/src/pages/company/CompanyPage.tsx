@@ -7,7 +7,17 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-request';
-import { graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  graphqlClient,
+  useAuth,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+  Spinner,
+  PageHeader,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
+import { CircleCheck, CircleX } from 'lucide-react';
 
 const GET_REGULATORY_SETTINGS = gql`
   query GetRegulatorySettings {
@@ -83,7 +93,9 @@ export const CompanyPage: React.FC = () => {
       return graphqlClient.request(UPDATE_REGULATORY_SETTINGS, { input });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'regulatorySettings') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'regulatorySettings'),
+      });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     },
@@ -123,25 +135,23 @@ export const CompanyPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        <span className="ml-3 text-gray-600">Loading company information...</span>
+        <Spinner size="lg" />
+        <span className="ml-3 text-gray-600 dark:text-gray-400">
+          Loading company information...
+        </span>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Page Header */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="px-4 sm:px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Company Information</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Manage your company details and registration information
-              </p>
-            </div>
-          </div>
+          <PageHeader
+            title="Company Information"
+            description="Manage your company details and registration information"
+          />
         </div>
       </div>
 
@@ -149,11 +159,9 @@ export const CompanyPage: React.FC = () => {
         <div className="max-w-3xl space-y-6">
           {/* Success Message */}
           {saveSuccess && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <div className="flex items-center text-green-800">
-                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
+            <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-4">
+              <div className="flex items-center text-success-800 dark:text-success-200">
+                <CircleCheck className="w-5 h-5 mr-2" aria-hidden="true" />
                 Company information saved successfully!
               </div>
             </div>
@@ -161,37 +169,41 @@ export const CompanyPage: React.FC = () => {
 
           {/* Error Message */}
           {updateSettingsMutation.isError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <div className="flex items-center text-red-800">
-                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                </svg>
+            <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+              <div className="flex items-center text-error-800 dark:text-error-200">
+                <CircleX className="w-5 h-5 mr-2" aria-hidden="true" />
                 Failed to save. Please try again.
               </div>
             </div>
           )}
 
           {/* Company Information Form */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Company Details</h2>
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+              Company Details
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
-                <input
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Company Name
+                </label>
+                <Input
+                  fullWidth
                   type="text"
                   value={formData.companyName}
                   onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   placeholder="Your Company AS"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Organisation Number</label>
-                <input
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Organisation Number
+                </label>
+                <Input
+                  fullWidth
                   type="text"
                   value={formData.organisationNumber}
                   onChange={(e) => setFormData({ ...formData, organisationNumber: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   placeholder="123456789"
                 />
               </div>
@@ -199,46 +211,56 @@ export const CompanyPage: React.FC = () => {
           </div>
 
           {/* Address */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Company Address</h2>
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+              Company Address
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Street Address</label>
-                <input
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Street Address
+                </label>
+                <Input
+                  fullWidth
                   type="text"
                   value={formData.street}
                   onChange={(e) => setFormData({ ...formData, street: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   placeholder="Storgata 1"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Postal Code</label>
-                <input
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Postal Code
+                </label>
+                <Input
+                  fullWidth
                   type="text"
                   value={formData.postalCode}
                   onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   placeholder="0123"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
-                <input
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  City
+                </label>
+                <Input
+                  fullWidth
                   type="text"
                   value={formData.city}
                   onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   placeholder="Oslo"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
-                <input
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Country
+                </label>
+                <Input
+                  fullWidth
                   type="text"
                   value={formData.country}
                   onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   placeholder="Norway"
                 />
               </div>
@@ -247,14 +269,14 @@ export const CompanyPage: React.FC = () => {
 
           {/* Save Button */}
           <div className="flex justify-end">
-            <button
+            <Button
+              variant="primary"
               type="button"
               onClick={handleSave}
               disabled={updateSettingsMutation.isPending}
-              className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {updateSettingsMutation.isPending ? 'Saving...' : 'Save Company Information'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

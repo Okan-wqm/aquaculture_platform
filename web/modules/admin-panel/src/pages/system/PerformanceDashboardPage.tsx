@@ -6,7 +6,15 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, LineChart } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  LineChart,
+  type DataTableColumn,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -16,10 +24,19 @@ import type {
   InfrastructureMetrics,
   PerformanceApplicationMetrics,
 } from '../../services/types';
+import { CircleAlert, Cpu, RefreshCw, Server, TriangleAlert, Zap } from 'lucide-react';
 
 // ============================================================================
 // Types
 // ============================================================================
+
+/** One row of the service breakdown table (derived from the metrics payload). */
+interface ServiceBreakdownRow {
+  service: string;
+  avgResponseTime: number;
+  errorRate: number;
+  requestCount: number;
+}
 
 interface ServiceHealth {
   name: string;
@@ -90,15 +107,15 @@ const getHealthColor = (
   thresholds: { warning: number; critical: number },
   inverse = false,
 ): string => {
-  if (value === null || value === undefined) return 'text-gray-400';
+  if (value === null || value === undefined) return 'text-gray-400 dark:text-gray-500';
   if (inverse) {
-    if (value <= thresholds.critical) return 'text-red-600';
-    if (value <= thresholds.warning) return 'text-yellow-600';
-    return 'text-green-600';
+    if (value <= thresholds.critical) return 'text-error-600 dark:text-error-400';
+    if (value <= thresholds.warning) return 'text-warning-600 dark:text-warning-400';
+    return 'text-success-600 dark:text-success-400';
   }
-  if (value >= thresholds.critical) return 'text-red-600';
-  if (value >= thresholds.warning) return 'text-yellow-600';
-  return 'text-green-600';
+  if (value >= thresholds.critical) return 'text-error-600 dark:text-error-400';
+  if (value >= thresholds.warning) return 'text-warning-600 dark:text-warning-400';
+  return 'text-success-600 dark:text-success-400';
 };
 
 const getProgressColor = (
@@ -106,9 +123,9 @@ const getProgressColor = (
   thresholds: { warning: number; critical: number },
 ): string => {
   if (value === null || value === undefined) return 'bg-gray-300';
-  if (value >= thresholds.critical) return 'bg-red-500';
-  if (value >= thresholds.warning) return 'bg-yellow-500';
-  return 'bg-green-500';
+  if (value >= thresholds.critical) return 'bg-error-500';
+  if (value >= thresholds.warning) return 'bg-warning-500';
+  return 'bg-success-500';
 };
 
 export const PerformanceDashboardPage: React.FC = () => {
@@ -174,11 +191,7 @@ export const PerformanceDashboardPage: React.FC = () => {
         infrastructureQuery.dataUpdatedAt,
         databaseQuery.dataUpdatedAt,
       ),
-    [
-      dashboardQuery.dataUpdatedAt,
-      infrastructureQuery.dataUpdatedAt,
-      databaseQuery.dataUpdatedAt,
-    ],
+    [dashboardQuery.dataUpdatedAt, infrastructureQuery.dataUpdatedAt, databaseQuery.dataUpdatedAt],
   );
 
   const isFetching =
@@ -194,7 +207,10 @@ export const PerformanceDashboardPage: React.FC = () => {
   // Helpers
   // ============================================================================
 
-  const getServiceStatus = (service: { avgResponseTime?: number; errorRate?: number }): ServiceHealth['status'] => {
+  const getServiceStatus = (service: {
+    avgResponseTime?: number;
+    errorRate?: number;
+  }): ServiceHealth['status'] => {
     if ((service.errorRate ?? 0) > 1 || (service.avgResponseTime ?? 0) > 500) return 'critical';
     if ((service.errorRate ?? 0) > 0.5 || (service.avgResponseTime ?? 0) > 300) return 'warning';
     return 'healthy';
@@ -225,14 +241,14 @@ export const PerformanceDashboardPage: React.FC = () => {
   if (isLoading && !hasContent) {
     return (
       <div className="space-y-6 animate-pulse">
-        <div className="h-8 bg-gray-200 rounded w-1/4" />
+        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4" />
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-white rounded-xl p-6 h-32" />
+            <div key={i} className="bg-white dark:bg-gray-900 rounded-xl p-6 h-32" />
           ))}
         </div>
-        <div className="bg-white rounded-xl p-6 h-64" />
-        <div className="bg-white rounded-xl p-6 h-96" />
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 h-64" />
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 h-96" />
       </div>
     );
   }
@@ -247,58 +263,127 @@ export const PerformanceDashboardPage: React.FC = () => {
   // Render - Main UI
   // ============================================================================
 
+  const serviceHealthColumns: DataTableColumn<ServiceBreakdownRow>[] = [
+    {
+      key: 'serviceName',
+      header: 'Service Name',
+      render: (_value, service) => {
+        const status = getServiceStatus(service);
+        return (
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-2 h-2 rounded-full ${
+                status === 'healthy'
+                  ? 'bg-success-500'
+                  : status === 'warning'
+                    ? 'bg-warning-500'
+                    : 'bg-error-500'
+              }`}
+            />
+            <span className="font-medium text-gray-900 dark:text-gray-100">{service.service}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, service) => {
+        const status = getServiceStatus(service);
+        return (
+          <Badge variant={getStatusBadgeVariant(status)} size="sm">
+            {status}
+          </Badge>
+        );
+      },
+    },
+    {
+      key: 'avgResponse',
+      header: 'Avg Response',
+      align: 'right',
+      render: (_value, service) => (
+        <>
+          <span
+            className={`font-medium ${getHealthColor(service.avgResponseTime ?? 0, {
+              warning: 300,
+              critical: 500,
+            })}`}
+          >
+            {Math.round(service.avgResponseTime ?? 0)} ms
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'errorRate',
+      header: 'Error Rate',
+      align: 'right',
+      render: (_value, service) => (
+        <>
+          <span
+            className={`font-medium ${getHealthColor(service.errorRate ?? 0, {
+              warning: 0.5,
+              critical: 1,
+            })}`}
+          >
+            {(service.errorRate ?? 0).toFixed(2)}%
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'requests',
+      header: 'Requests',
+      align: 'right',
+      render: (_value, service) => (
+        <span className="text-gray-900 dark:text-gray-100">
+          {service.requestCount.toLocaleString()}
+        </span>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Performance Dashboard</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Real-time sistem performans metrikleri ve servis saglik durumu
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm text-gray-600">
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            Auto-refresh
-          </label>
-          <select
-            aria-label="Time range"
-            value={rangeValue}
-            onChange={(e) => setRangeValue(e.target.value as TimeRangeValue)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            {TIME_RANGES.map((tr) => (
-              <option key={tr.value} value={tr.value}>
-                {tr.label}
-              </option>
-            ))}
-          </select>
-          <Button onClick={loadData} variant="secondary" disabled={isFetching}>
-            <svg
-              className={`w-5 h-5 ${isFetching ? 'animate-spin' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+      <PageHeader
+        title="Performance Dashboard"
+        description="Real-time sistem performans metrikleri ve servis saglik durumu"
+        actions={
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
               />
-            </svg>
-          </Button>
-        </div>
-      </div>
+              Auto-refresh
+            </label>
+            <select
+              aria-label="Time range"
+              value={rangeValue}
+              onChange={(e) => setRangeValue(e.target.value as TimeRangeValue)}
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
+            >
+              {TIME_RANGES.map((tr) => (
+                <option key={tr.value} value={tr.value}>
+                  {tr.label}
+                </option>
+              ))}
+            </select>
+            <Button onClick={loadData} variant="secondary" disabled={isFetching}>
+              <RefreshCw
+                className={`w-5 h-5 ${isFetching ? 'animate-spin' : ''}`}
+                aria-hidden="true"
+              />
+            </Button>
+          </div>
+        }
+      />
 
       {/* Last Updated */}
-      <div className="text-xs text-gray-500">
+      <div className="text-xs text-gray-500 dark:text-gray-400">
         Last updated: {formatTimestamp(lastUpdated)}
       </div>
 
@@ -309,16 +394,10 @@ export const PerformanceDashboardPage: React.FC = () => {
 
       {/* Alerts Banner */}
       {alerts.length > 0 && (
-        <Card className="border-l-4 border-yellow-400 bg-yellow-50">
+        <Card className="border-l-4 border-warning-400 bg-warning-50 dark:bg-warning-900/20">
           <div className="p-4">
-            <h3 className="font-semibold text-yellow-800 mb-2 flex items-center gap-2">
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                  clipRule="evenodd"
-                />
-              </svg>
+            <h3 className="font-semibold text-warning-800 dark:text-warning-200 mb-2 flex items-center gap-2">
+              <TriangleAlert className="w-5 h-5" aria-hidden="true" />
               Active Performance Alerts
             </h3>
             <div className="space-y-2">
@@ -326,10 +405,10 @@ export const PerformanceDashboardPage: React.FC = () => {
                 <div key={idx} className="flex items-center gap-3 text-sm">
                   <span
                     className={`w-2 h-2 rounded-full ${
-                      alert.severity === 'critical' ? 'bg-red-500' : 'bg-yellow-500'
+                      alert.severity === 'critical' ? 'bg-error-500' : 'bg-warning-500'
                     }`}
                   />
-                  <span className="text-yellow-800">
+                  <span className="text-warning-800 dark:text-warning-200">
                     {alert.metric}: {alert.currentValue}% (threshold: {alert.threshold}%)
                   </span>
                   <Badge variant={alert.severity === 'critical' ? 'error' : 'warning'} size="sm">
@@ -346,15 +425,10 @@ export const PerformanceDashboardPage: React.FC = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-6">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-sm font-medium text-gray-500">Response Time</div>
-            <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M13 10V3L4 14h7v7l9-11h-7z"
-              />
-            </svg>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              Response Time
+            </div>
+            <Zap className="w-5 h-5 text-info-500" aria-hidden="true" />
           </div>
           <div
             className={`text-3xl font-bold ${getHealthColor(application?.avgResponseTime, {
@@ -364,20 +438,13 @@ export const PerformanceDashboardPage: React.FC = () => {
           >
             {formatMetric(application?.avgResponseTime, ' ms')}
           </div>
-          <div className="text-xs text-gray-500 mt-1">Ortalama yanit suresi</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Ortalama yanit suresi</div>
         </Card>
 
         <Card className="p-6">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-sm font-medium text-gray-500">CPU Usage</div>
-            <svg className="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
-              />
-            </svg>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">CPU Usage</div>
+            <Cpu className="w-5 h-5 text-accent-500" aria-hidden="true" />
           </div>
           <div
             className={`text-3xl font-bold ${getHealthColor(infrastructure?.cpuUsage, {
@@ -387,20 +454,13 @@ export const PerformanceDashboardPage: React.FC = () => {
           >
             {formatMetric(infrastructure?.cpuUsage, '%')}
           </div>
-          <div className="text-xs text-gray-500 mt-1">CPU kullanimi</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">CPU kullanimi</div>
         </Card>
 
         <Card className="p-6">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-sm font-medium text-gray-500">Memory Usage</div>
-            <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"
-              />
-            </svg>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Memory Usage</div>
+            <Server className="w-5 h-5 text-success-500" aria-hidden="true" />
           </div>
           <div
             className={`text-3xl font-bold ${getHealthColor(infrastructure?.memoryUsage, {
@@ -410,20 +470,13 @@ export const PerformanceDashboardPage: React.FC = () => {
           >
             {formatMetric(infrastructure?.memoryUsage, '%')}
           </div>
-          <div className="text-xs text-gray-500 mt-1">Bellek kullanimi</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Bellek kullanimi</div>
         </Card>
 
         <Card className="p-6">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-sm font-medium text-gray-500">Error Rate</div>
-            <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Error Rate</div>
+            <CircleAlert className="w-5 h-5 text-error-500" aria-hidden="true" />
           </div>
           <div
             className={`text-3xl font-bold ${getHealthColor(application?.errorRate, {
@@ -433,7 +486,7 @@ export const PerformanceDashboardPage: React.FC = () => {
           >
             {formatMetric(application?.errorRate, '%', 2)}
           </div>
-          <div className="text-xs text-gray-500 mt-1">Error rate</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Error rate</div>
         </Card>
       </div>
 
@@ -441,8 +494,12 @@ export const PerformanceDashboardPage: React.FC = () => {
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">Overall System Health</h2>
-            <p className="text-sm text-gray-500">Tum metriklere dayali genel saglik skoru</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Overall System Health
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Tum metriklere dayali genel saglik skoru
+            </p>
           </div>
           <div className="flex items-center gap-3">
             {/* The `?? 100` that used to sit here made a platform with no
@@ -456,30 +513,30 @@ export const PerformanceDashboardPage: React.FC = () => {
             >
               {formatMetric(dashboard?.healthScore)}
             </div>
-            <div className="text-gray-500">/100</div>
+            <div className="text-gray-500 dark:text-gray-400">/100</div>
           </div>
         </div>
-        <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
+        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-500 ${
               dashboard?.healthScore === null || dashboard?.healthScore === undefined
                 ? 'bg-gray-300'
-                : 'bg-green-500'
+                : 'bg-success-500'
             }`}
             style={{ width: `${dashboard?.healthScore ?? 0}%` }}
           />
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t">
           <div>
-            <div className="text-sm text-gray-500 mb-1">Throughput</div>
-            <div className="text-xl font-bold text-gray-900">
+            <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Throughput</div>
+            <div className="text-xl font-bold text-gray-900 dark:text-gray-100">
               {application?.throughput === null || application?.throughput === undefined
                 ? UNKNOWN
                 : `${application.throughput.toLocaleString()} req/s`}
             </div>
           </div>
           <div>
-            <div className="text-sm text-gray-500 mb-1">Apdex Score</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Apdex Score</div>
             <div
               className={`text-xl font-bold ${getHealthColor(
                 application?.apdexScore,
@@ -491,13 +548,13 @@ export const PerformanceDashboardPage: React.FC = () => {
             </div>
           </div>
           <div>
-            <div className="text-sm text-gray-500 mb-1">DB Connections</div>
-            <div className="text-xl font-bold text-gray-900">
+            <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">DB Connections</div>
+            <div className="text-xl font-bold text-gray-900 dark:text-gray-100">
               {formatMetric(database?.activeConnections)}/{formatMetric(database?.poolSize)}
             </div>
           </div>
           <div>
-            <div className="text-sm text-gray-500 mb-1">Cache Hit Ratio</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Cache Hit Ratio</div>
             <div
               className={`text-xl font-bold ${getHealthColor(
                 database?.cacheHitRatio,
@@ -513,11 +570,15 @@ export const PerformanceDashboardPage: React.FC = () => {
 
       {/* Infrastructure Metrics */}
       <Card className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-6">Infrastructure Metrics</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-6">
+          Infrastructure Metrics
+        </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <div className="flex justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700">CPU Usage</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                CPU Usage
+              </span>
               <span
                 className={`text-sm font-bold ${getHealthColor(infrastructure?.cpuUsage, {
                   warning: 70,
@@ -527,7 +588,7 @@ export const PerformanceDashboardPage: React.FC = () => {
                 {formatMetric(infrastructure?.cpuUsage, '%')}
               </span>
             </div>
-            <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+            <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
               <div
                 className={`h-full transition-all duration-500 ${getProgressColor(
                   infrastructure?.cpuUsage,
@@ -540,7 +601,9 @@ export const PerformanceDashboardPage: React.FC = () => {
 
           <div>
             <div className="flex justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700">Memory Usage</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Memory Usage
+              </span>
               <span
                 className={`text-sm font-bold ${getHealthColor(infrastructure?.memoryUsage, {
                   warning: 70,
@@ -550,7 +613,7 @@ export const PerformanceDashboardPage: React.FC = () => {
                 {formatMetric(infrastructure?.memoryUsage, '%')}
               </span>
             </div>
-            <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+            <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
               <div
                 className={`h-full transition-all duration-500 ${getProgressColor(
                   infrastructure?.memoryUsage,
@@ -563,7 +626,9 @@ export const PerformanceDashboardPage: React.FC = () => {
 
           <div>
             <div className="flex justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700">Disk Usage</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Disk Usage
+              </span>
               <span
                 className={`text-sm font-bold ${getHealthColor(infrastructure?.diskUsage, {
                   warning: 70,
@@ -573,7 +638,7 @@ export const PerformanceDashboardPage: React.FC = () => {
                 {formatMetric(infrastructure?.diskUsage, '%')}
               </span>
             </div>
-            <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+            <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
               <div
                 className={`h-full transition-all duration-500 ${getProgressColor(
                   infrastructure?.diskUsage,
@@ -587,21 +652,21 @@ export const PerformanceDashboardPage: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6 pt-6 border-t">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">Network Latency</span>
-            <span className="text-lg font-bold text-gray-900">
+            <span className="text-sm text-gray-500 dark:text-gray-400">Network Latency</span>
+            <span className="text-lg font-bold text-gray-900 dark:text-gray-100">
               {formatMetric(infrastructure?.networkLatency, ' ms')}
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">Healthy Containers</span>
-            <span className="text-lg font-bold text-green-600">
+            <span className="text-sm text-gray-500 dark:text-gray-400">Healthy Containers</span>
+            <span className="text-lg font-bold text-success-600 dark:text-success-400">
               {formatMetric(infrastructure?.healthyContainers)}/
               {formatMetric(infrastructure?.containerCount)}
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">Avg Query Time</span>
-            <span className="text-lg font-bold text-gray-900">
+            <span className="text-sm text-gray-500 dark:text-gray-400">Avg Query Time</span>
+            <span className="text-lg font-bold text-gray-900 dark:text-gray-100">
               {formatMetric(database?.avgQueryTime, ' ms')}
             </span>
           </div>
@@ -611,40 +676,54 @@ export const PerformanceDashboardPage: React.FC = () => {
       {/* Performance Trends — real charts from the fetched dashboard.trends series */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Performance Trends</h2>
-          <span className="text-sm text-gray-500">{range.label}</span>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Performance Trends
+          </h2>
+          <span className="text-sm text-gray-500 dark:text-gray-400">{range.label}</span>
         </div>
         {!trends || trends.responseTime.length === 0 ? (
-          <div className="h-48 flex items-center justify-center text-sm text-gray-500">
+          <div className="h-48 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
             No trend data for this range
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Response Time (ms)</h3>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Response Time (ms)
+              </h3>
               <LineChart
                 labels={trends.responseTime.map((point) => formatTrendLabel(point.timestamp))}
-                datasets={[{ label: 'Response time', data: trends.responseTime.map((point) => point.value) }]}
+                datasets={[
+                  { label: 'Response time', data: trends.responseTime.map((point) => point.value) },
+                ]}
                 height={180}
                 className="w-full"
                 showLegend={false}
               />
             </div>
             <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Throughput (req/min)</h3>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Throughput (req/min)
+              </h3>
               <LineChart
                 labels={trends.throughput.map((point) => formatTrendLabel(point.timestamp))}
-                datasets={[{ label: 'Throughput', data: trends.throughput.map((point) => point.value) }]}
+                datasets={[
+                  { label: 'Throughput', data: trends.throughput.map((point) => point.value) },
+                ]}
                 height={180}
                 className="w-full"
                 showLegend={false}
               />
             </div>
             <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-2">Error Rate (%)</h3>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Error Rate (%)
+              </h3>
               <LineChart
                 labels={trends.errorRate.map((point) => formatTrendLabel(point.timestamp))}
-                datasets={[{ label: 'Error rate', data: trends.errorRate.map((point) => point.value) }]}
+                datasets={[
+                  { label: 'Error rate', data: trends.errorRate.map((point) => point.value) },
+                ]}
                 height={180}
                 className="w-full"
                 showLegend={false}
@@ -657,93 +736,24 @@ export const PerformanceDashboardPage: React.FC = () => {
       {/* Service Health Status Table */}
       <Card className="overflow-hidden">
         <div className="p-6 border-b">
-          <h2 className="text-lg font-semibold text-gray-900">Service Health Status</h2>
-          <p className="text-sm text-gray-500 mt-1">Real-time servis saglik durumlari ve performans metrikleri</p>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Service Health Status
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            Real-time servis saglik durumlari ve performans metrikleri
+          </p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Service Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Avg Response
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Error Rate
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Requests
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {serviceBreakdown.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
-                    No service data available
-                  </td>
-                </tr>
-              ) : (
-                serviceBreakdown.map((service, idx) => {
-                  const status = getServiceStatus(service);
-                  return (
-                    <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`w-2 h-2 rounded-full ${
-                              status === 'healthy'
-                                ? 'bg-green-500'
-                                : status === 'warning'
-                                ? 'bg-yellow-500'
-                                : 'bg-red-500'
-                            }`}
-                          />
-                          <span className="font-medium text-gray-900">{service.service}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <Badge variant={getStatusBadgeVariant(status)} size="sm">
-                          {status}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span
-                          className={`font-medium ${getHealthColor(service.avgResponseTime ?? 0, {
-                            warning: 300,
-                            critical: 500,
-                          })}`}
-                        >
-                          {Math.round(service.avgResponseTime ?? 0)} ms
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span
-                          className={`font-medium ${getHealthColor(service.errorRate ?? 0, {
-                            warning: 0.5,
-                            critical: 1,
-                          })}`}
-                        >
-                          {(service.errorRate ?? 0).toFixed(2)}%
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className="text-gray-900">{service.requestCount.toLocaleString()}</span>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<ServiceBreakdownRow>
+          data={serviceBreakdown}
+          columns={serviceHealthColumns}
+          keyExtractor={(service) => service.service}
+          emptyMessage="No service data available"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          className="shadow-none rounded-none"
+        />
       </Card>
-
     </div>
   );
 };

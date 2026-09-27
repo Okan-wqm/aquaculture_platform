@@ -32,6 +32,7 @@ import {
   formatErrorForToast,
   useCanMutate,
   useToast,
+  Button,
 } from '@aquaculture/shared-ui';
 
 import { useProcessAutoGenerateWorkOrders } from '../../../hooks/useMaintenance';
@@ -54,8 +55,7 @@ const ProcessAutoGenerateButton: React.FC = () => {
       if (created.length === 0) {
         toast({
           title: 'Üretilecek yeni iş emri yok',
-          description:
-            'Pencere içinde aktif planların hepsi için zaten iş emirleri açık.',
+          description: 'Pencere içinde aktif planların hepsi için zaten iş emirleri açık.',
           variant: 'info',
         });
       } else {
@@ -77,15 +77,16 @@ const ProcessAutoGenerateButton: React.FC = () => {
 
   return (
     <>
-      <button
+      <Button
+        variant="primary"
+        size="sm"
         type="button"
         onClick={() => setShowConfirm(true)}
         disabled={processMutation.isPending}
-        className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white rounded-md font-medium"
         title="Aktif planlardan otomatik iş emri üret (admin)"
       >
         Otomatik İş Emri Üret
-      </button>
+      </Button>
 
       <ConfirmModal
         isOpen={showConfirm}
@@ -94,15 +95,11 @@ const ProcessAutoGenerateButton: React.FC = () => {
         title="Otomatik iş emirleri üretilsin mi?"
         message={
           <span>
-            Bu eylem,{' '}
-            <span className="font-semibold">
-              "Otomatik üret" işaretli aktif planlar
-            </span>
-            {' '}arasında pencere içinde olanları tarar ve eksikler için
-            yeni iş emirleri açar. Tek tıklama düzinelerce iş emrine
-            yol açabilir; her iş emri kendi atama ve uyarısını
+            Bu eylem, <span className="font-semibold">"Otomatik üret" işaretli aktif planlar</span>{' '}
+            arasında pencere içinde olanları tarar ve eksikler için yeni iş emirleri açar. Tek
+            tıklama düzinelerce iş emrine yol açabilir; her iş emri kendi atama ve uyarısını
             tetikler. Devam etmek için{' '}
-            <span className="font-mono font-semibold text-purple-700">
+            <span className="font-mono font-semibold text-accent-700 dark:text-accent-300">
               {TYPED_CONFIRM_PHRASE}
             </span>{' '}
             yazın.

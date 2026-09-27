@@ -13,7 +13,14 @@ V9 ships ARIA's first WRITER agent (`aria-implementer` with `Edit + Write + Bash
 - Full `repo` scope = push to ANY branch including `main`, modify branch protection, install webhooks, exfiltrate every secret in repo settings
 - Plan v3 mitigation: two-token model:
   1. Long-lived operator PAT — preflight ONLY (read branch protection)
-  2. Per-cycle scoped installation token via a GitHub App — passed to `aria-implementer` (5-min TTL, scoped to `pull_requests:write + contents:write` on `refs/heads/aria-impl-*` only)
+  2. Per-request scoped installation token via a GitHub App — never passed to
+     `aria-implementer`: since ARIA-HIGH-124 the EXECUTOR mints it where it consumes it (the
+     delivery's push and `gh pr create`, after the contained gate; round 6) and revokes it the
+     moment the PR is open. GitHub expires an installation token exactly one hour after the
+     mint whatever the caller asks (the endpoint has no `expires_in`) — the lease carries that
+     horizon as `provider_expiry` and the delivery's own window is a few minutes inside it;
+     scoped to `pull_requests:write + contents:write` (+ `administration:read` for the
+     readiness probe)
 
 V9.0-C kernel code ships the FACTORY (`aria_kernel/gh_token_factory.py`) with TWO operating modes:
 
@@ -93,7 +100,7 @@ gh api -X POST /app/installations/$ARIA_GH_APP_INSTALLATION_ID/access_tokens \
   -f permissions[pull_requests]=write \
   -f permissions[contents]=write
 
-# Should return {"token": "ghs_...", "expires_at": "<5-min-future>"}
+# Should return {"token": "ghs_...", "expires_at": "<one hour from now — GitHub's own horizon>"}
 
 # 3. Test preflight
 PYTHONPATH=aria-kernel python3 -c "

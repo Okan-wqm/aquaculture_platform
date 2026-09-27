@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { Save, Check, RefreshCw, AlertCircle } from 'lucide-react';
 import { useMyTenant, useUpdateTenantSettings } from '../../hooks/useTenantData';
 import { logError, sanitizeErrorMessage } from '../../utils/error-handling';
@@ -52,12 +53,14 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
 
   const saving = updateSettingsMutation.isPending;
   const inputClass =
-    'w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed';
+    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-success-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
 
   return (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Tenant Name</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Tenant Name
+        </label>
         <input
           type="text"
           value={tenantName}
@@ -67,7 +70,9 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Contact Email</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Contact Email
+        </label>
         <input
           type="email"
           value={contactEmail}
@@ -77,7 +82,9 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Contact Phone</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Contact Phone
+        </label>
         <input
           type="tel"
           value={contactPhone}
@@ -87,7 +94,9 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Address
+        </label>
         <textarea
           value={address}
           onChange={(e) => setAddress(e.target.value)}
@@ -100,16 +109,12 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
       {canEdit && (
         <div className="flex items-center justify-end gap-3">
           {saveError && (
-            <p className="text-xs text-red-600 flex items-center gap-1">
+            <p className="text-xs text-error-600 dark:text-error-400 flex items-center gap-1">
               <AlertCircle className="w-3 h-3" />
               {saveError}
             </p>
           )}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
+          <Button variant="primary" onClick={handleSave} disabled={saving}>
             {saved ? (
               <>
                 <Check className="w-4 h-4" />
@@ -126,7 +131,7 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
                 Save Changes
               </>
             )}
-          </button>
+          </Button>
         </div>
       )}
     </div>

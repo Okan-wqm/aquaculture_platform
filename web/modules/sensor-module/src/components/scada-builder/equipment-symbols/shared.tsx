@@ -1,6 +1,7 @@
 import React from 'react';
 import type { EquipmentConnectionPoint } from '../../../types/scada-widget.types';
 import { CONNECTION_POINT_COLORS } from './types';
+import { colors } from '@aquaculture/shared-ui';
 
 /** Renders connection point circles on SVG edges */
 export const ConnectionPoints: React.FC<{
@@ -41,7 +42,7 @@ export const ConnectionPoints: React.FC<{
               cy={cy}
               r={4}
               fill={CONNECTION_POINT_COLORS[pt.direction]}
-              stroke="#ffffff"
+              stroke={colors.white}
               strokeWidth={1.5}
             />
           </g>
@@ -64,7 +65,7 @@ export const EquipmentLabel: React.FC<{
       y={viewBoxHeight - 2}
       textAnchor="middle"
       fontSize={10}
-      fill="#374151"
+      fill={colors.neutral[700]}
       fontFamily="sans-serif"
     >
       {label}

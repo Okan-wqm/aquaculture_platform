@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import errno
+import hashlib
 import json
 import os
 import shutil
@@ -114,6 +115,42 @@ class SnapshotBuildTests(unittest.TestCase):
         self.assertTrue(beliefs["tail_ledger_hash"].startswith("sha256:"))
         self.assertEqual(beliefs["segments"], ["memory/beliefs.jsonl"])
         self.assertTrue(verify_manifest_root(manifest))
+
+    def test_runtime_archives_are_attested_as_supported_leaves(self) -> None:
+        from tests.test_runtime_artifacts import _cold_runtime_fixture, _tree_bytes_and_modes
+
+        with _cold_runtime_fixture(self, self.tmp / "native-archive", legacy=False) as fixture:
+            tools = fixture["tools"]
+            archive_uri = fixture["archived"]["new_path"]
+            before = _tree_bytes_and_modes(tools)
+            manifest = build_snapshot(
+                snapshot_id="snap-native-cold-archive", cycle_id=fixture["run"]["cycle_id"],
+                lane="ordinary-retention-test", roots={"tools": tools},
+            )
+            entries = [row for row in manifest["surfaces"].values() if row["path"] == archive_uri]
+            self.assertEqual(len(entries), 1, "the actual retained leaf must be attested by the snapshot owner")
+            entry = entries[0]
+            self.assertEqual(entry["root_kind"], "tools")
+            self.assertEqual(entry["state_class"], "artifact")
+            self.assertEqual(entry["storage"], "artifact_only")
+            self.assertEqual(entry["segments"], [archive_uri])
+            self.assertEqual(entry["size_bytes"], len(fixture["original"]))
+            self.assertEqual(entry["sha256"], hashlib.sha256(fixture["original"]).hexdigest())
+            self.assertEqual(
+                {surface.path_pattern for surface in iter_surfaces() if surface.path_pattern.startswith(".archive/runtime/")},
+                {".archive/runtime/**/*.json", ".archive/runtime/**/*.log"},
+            )
+            # This producer exercises the JSON leaf. The log declaration is a policy
+            # assertion; portable real validation-log execution has its own R2 test.
+            sparse_archives = sorted((tools / "archives").glob("*.jsonl.gz"))
+            self.assertEqual(len(sparse_archives), 1)
+            sparse_uri = sparse_archives[0].relative_to(tools).as_posix()
+            sparse_entries = [row for row in manifest["surfaces"].values() if row["path"] == sparse_uri]
+            self.assertEqual(len(sparse_entries), 1)
+            self.assertEqual(sparse_entries[0]["sha256"], hashlib.sha256(sparse_archives[0].read_bytes()).hexdigest())
+            self.assertTrue(verify_manifest_root(manifest))
+            validate_snapshot_manifest(manifest)
+            self.assertEqual(_tree_bytes_and_modes(tools), before)
 
     def test_snapshot_json_budget_uses_exact_written_bytes(self) -> None:
         limit = 4 * 1024 * 1024

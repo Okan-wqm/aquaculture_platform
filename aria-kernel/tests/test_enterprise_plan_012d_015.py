@@ -166,6 +166,38 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
         self.assertEqual(validation_gate["status"], "ready_for_pr")
+        self.assertFalse(validation_gate["room_required"])
+        # ARIA-HIGH-150 — a contained gate needs the room it validated in on
+        # the plan row; an unmeasured room is a hole in the evidence, not a
+        # green: `validation_room_unobserved`. With the room observed (probe
+        # exit 0, no error) the gate opens.
+        unobserved = evaluate_validation_gate(
+            comparison_ref=comparison["ledger_hash"], base_dir=self.tools_dir, require_room=True,
+        )
+        self.assertEqual((unobserved["status"], unobserved["blocked_by"], unobserved["room_required"]),
+                         ("blocked", ["validation_room_unobserved"], True))
+        observed = run_validation_commands(
+            commands=["python3 -m unittest --help"], workspace_root=self.root, change_id=change_id,
+            commit_sha=commit_sha, runner_identity="ci-executor:plan-012d", validation_plan_id="observed",
+            base_dir=self.tools_dir, room={"schema_version": 1, "tmp_mode": "1777", "probe_exit": 0},
+        )
+        comparison_observed = compare_validation_groups(
+            baseline_ref=baseline["ledger_hash"], worktree_ref=observed["ledger_hash"], base_dir=self.tools_dir,
+        )
+        opened = evaluate_validation_gate(
+            comparison_ref=comparison_observed["ledger_hash"], base_dir=self.tools_dir, require_room=True,
+        )
+        self.assertEqual(opened["status"], "ready_for_pr")
+        failed_probe = run_validation_commands(
+            commands=["python3 -m unittest --help"], workspace_root=self.root, change_id=change_id,
+            commit_sha=commit_sha, runner_identity="ci-executor:plan-012d", validation_plan_id="failed-probe",
+            base_dir=self.tools_dir, room={"schema_version": 1, "probe_exit": 1, "error": "probe_failed"},
+        )
+        comparison_failed = compare_validation_groups(
+            baseline_ref=baseline["ledger_hash"], worktree_ref=failed_probe["ledger_hash"], base_dir=self.tools_dir,
+        )
+        self.assertEqual(evaluate_validation_gate(comparison_ref=comparison_failed["ledger_hash"], base_dir=self.tools_dir,
+                                                  require_room=True)["blocked_by"], ["validation_room_unobserved"])
 
         # Plan 022 §H-1 — pass the diff explicitly so the suppression scan
         # runs without triggering the diff-required fail-closed branch. It

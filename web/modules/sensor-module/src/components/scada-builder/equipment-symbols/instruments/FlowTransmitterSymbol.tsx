@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const FlowTransmitterSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -94,11 +95,11 @@ const FlowTransmitterSymbol: React.FC<EquipmentSymbolProps> = ({
         )}
 
         {state === 'fault' && (
-          <text x={40} y={42} textAnchor="middle" fontSize={10} fill="#ef4444" fontFamily="sans-serif" fontWeight="bold">!</text>
+          <text x={40} y={42} textAnchor="middle" fontSize={10} fill={themeColors.error[500]} fontFamily="sans-serif" fontWeight="bold">!</text>
         )}
 
         {label && (
-          <text x={40} y={97} textAnchor="middle" fontSize={8} fill="#374151" fontFamily="sans-serif">
+          <text x={40} y={97} textAnchor="middle" fontSize={8} fill={themeColors.neutral[700]} fontFamily="sans-serif">
             {label}
           </text>
         )}

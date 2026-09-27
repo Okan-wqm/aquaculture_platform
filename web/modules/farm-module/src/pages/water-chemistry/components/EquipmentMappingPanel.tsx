@@ -5,7 +5,14 @@
  * adding/removing mappings with frequency and alert configuration.
  */
 import React, { useState, useMemo } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Select,
+} from '@aquaculture/shared-ui';
 import {
   useParamEquipmentMappings,
   useCreateParamEquipmentMapping,
@@ -18,6 +25,7 @@ import {
   getFrequencyLabel,
 } from '../../../hooks/useParamEquipmentMapping';
 import { useEquipmentList } from '../../../hooks/useEquipment';
+import { Plus } from 'lucide-react';
 
 // ============================================================================
 // TYPES
@@ -46,66 +54,6 @@ const INITIAL_ADD_FORM: AddFormState = {
 // ============================================================================
 // SUB-COMPONENTS
 // ============================================================================
-
-const MappingRow: React.FC<{
-  mapping: ParamEquipmentMapping;
-  onToggleActive: (mapping: ParamEquipmentMapping) => void;
-  onToggleAlert: (mapping: ParamEquipmentMapping) => void;
-  onRemove: (id: string) => void;
-  isUpdating: boolean;
-  isDeleting: boolean;
-}> = ({ mapping, onToggleActive, onToggleAlert, onRemove, isUpdating, isDeleting }) => (
-  <tr className="hover:bg-gray-50">
-    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-      {mapping.equipment?.name ?? '-'}
-    </td>
-    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 font-mono">
-      {mapping.equipment?.code ?? '-'}
-    </td>
-    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-      {getFrequencyLabel(mapping.monitoringFrequency)}
-    </td>
-    <td className="px-4 py-3 whitespace-nowrap text-center">
-      <button
-        onClick={() => onToggleAlert(mapping)}
-        disabled={isUpdating}
-        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-          mapping.alertEnabled
-            ? 'bg-green-100 text-green-800 hover:bg-green-200'
-            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-        }`}
-      >
-        {mapping.alertEnabled ? 'On' : 'Off'}
-      </button>
-    </td>
-    <td className="px-4 py-3 whitespace-nowrap text-center">
-      <button
-        onClick={() => onToggleActive(mapping)}
-        disabled={isUpdating}
-        className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
-          mapping.isActive ? 'bg-blue-600' : 'bg-gray-200'
-        }`}
-        role="switch"
-        aria-checked={mapping.isActive}
-      >
-        <span
-          className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-            mapping.isActive ? 'translate-x-4' : 'translate-x-0'
-          }`}
-        />
-      </button>
-    </td>
-    <td className="px-4 py-3 whitespace-nowrap text-right text-sm">
-      <button
-        onClick={() => onRemove(mapping.id)}
-        disabled={isDeleting}
-        className="text-red-600 hover:text-red-900 disabled:opacity-50"
-      >
-        {isDeleting ? 'Removing...' : 'Remove'}
-      </button>
-    </td>
-  </tr>
-);
 
 // ============================================================================
 // MAIN COMPONENT
@@ -209,9 +157,93 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
   };
 
   // Render
+  const mappingColumns: DataTableColumn<ParamEquipmentMapping>[] = [
+    {
+      key: 'name',
+      header: 'Equipment Name',
+      render: (_value, mapping) => (
+        <span className="whitespace-nowrap font-medium text-gray-900 dark:text-gray-100">
+          {mapping.equipment?.name ?? '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'code',
+      header: 'Code',
+      render: (_value, mapping) => (
+        <span className="whitespace-nowrap font-mono text-gray-500 dark:text-gray-400">
+          {mapping.equipment?.code ?? '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'monitoringFrequency',
+      header: 'Frequency',
+      render: (_value, mapping) => (
+        <span className="whitespace-nowrap text-gray-500 dark:text-gray-400">
+          {getFrequencyLabel(mapping.monitoringFrequency)}
+        </span>
+      ),
+    },
+    {
+      key: 'alertEnabled',
+      header: 'Alert',
+      align: 'center',
+      render: (_value, mapping) => (
+        <button
+          onClick={() => void handleToggleAlert(mapping)}
+          disabled={updateMutation.isPending}
+          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+            mapping.alertEnabled
+              ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200 hover:bg-success-200 dark:hover:bg-success-800/60'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+          }`}
+        >
+          {mapping.alertEnabled ? 'On' : 'Off'}
+        </button>
+      ),
+    },
+    {
+      key: 'isActive',
+      header: 'Active',
+      align: 'center',
+      render: (_value, mapping) => (
+        <button
+          onClick={() => void handleToggleActive(mapping)}
+          disabled={updateMutation.isPending}
+          className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+            mapping.isActive ? 'bg-info-600' : 'bg-gray-200 dark:bg-gray-700'
+          }`}
+          role="switch"
+          aria-checked={mapping.isActive}
+        >
+          <span
+            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 shadow ring-0 transition duration-200 ease-in-out ${
+              mapping.isActive ? 'translate-x-4' : 'translate-x-0'
+            }`}
+          />
+        </button>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, mapping) => (
+        <Button
+          variant="ghost"
+          onClick={() => void handleRemove(mapping.id)}
+          disabled={deletingId === mapping.id}
+        >
+          {deletingId === mapping.id ? 'Removing...' : 'Remove'}
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <Modal isOpen onClose={onClose} title="Equipment Monitoring Points" size="xl">
-      <p className="-mt-2 mb-4 text-sm text-gray-500">
+      <p className="-mt-2 mb-4 text-sm text-gray-500 dark:text-gray-400">
         Parameter: <span className="font-medium">{parameterName}</span>
       </p>
 
@@ -219,16 +251,16 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
       <div className="max-h-[70vh] overflow-y-auto">
         {/* Error banner */}
         {mappingsError && (
-          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
-            <p className="text-sm text-red-800">
+          <div className="mb-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+            <p className="text-sm text-error-800 dark:text-error-200">
               Failed to load mappings: {(mappingsError as Error).message}
             </p>
           </div>
         )}
 
         {createMutation.error && (
-          <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
-            <p className="text-sm text-red-800">
+          <div className="mb-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+            <p className="text-sm text-error-800 dark:text-error-200">
               Failed to create mapping: {(createMutation.error as Error).message}
             </p>
           </div>
@@ -237,71 +269,35 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
         {/* Loading */}
         {mappingsLoading && (
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+            <Spinner size="lg" />
           </div>
         )}
 
         {/* Mappings Table */}
         {!mappingsLoading && (
-          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Equipment Name
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Code
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Frequency
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                    Alert
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                    Active
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {(!mappings || mappings.length === 0) && (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
-                      No equipment mapped to this parameter yet.
-                    </td>
-                  </tr>
-                )}
-                {mappings?.map((mapping) => (
-                  <MappingRow
-                    key={mapping.id}
-                    mapping={mapping}
-                    onToggleActive={handleToggleActive}
-                    onToggleAlert={handleToggleAlert}
-                    onRemove={handleRemove}
-                    isUpdating={updateMutation.isPending}
-                    isDeleting={deletingId === mapping.id}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ParamEquipmentMapping>
+            data={mappings ?? []}
+            columns={mappingColumns}
+            keyExtractor={(mapping) => mapping.id}
+            emptyMessage="No equipment mapped to this parameter yet."
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         )}
 
         {/* Add Equipment Form */}
         {showAddForm && (
-          <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <h4 className="text-sm font-medium text-gray-900 mb-3">Add Equipment Mapping</h4>
+          <div className="mt-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+            <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
+              Add Equipment Mapping
+            </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Category filter */}
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Category Filter
-                </label>
-                <select
+                <Select
+                  label="Category Filter"
+                  size="sm"
                   value={addForm.categoryFilter}
                   onChange={(e) =>
                     setAddForm((prev) => ({
@@ -310,21 +306,21 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                       equipmentId: '',
                     }))
                   }
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                >
-                  <option value="">All Categories</option>
-                  {EQUIPMENT_CATEGORY_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: '', label: 'All Categories' },
+                    ...EQUIPMENT_CATEGORY_OPTIONS.map((opt) => ({
+                      value: opt.value,
+                      label: opt.label,
+                    })),
+                  ]}
+                />
               </div>
 
               {/* Equipment selector */}
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Equipment</label>
-                <select
+                <Select
+                  label="Equipment"
+                  size="sm"
                   value={addForm.equipmentId}
                   onChange={(e) =>
                     setAddForm((prev) => ({
@@ -333,23 +329,21 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                     }))
                   }
                   disabled={equipmentLoading}
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                >
-                  <option value="">{equipmentLoading ? 'Loading...' : 'Select equipment'}</option>
-                  {filteredEquipment.map((eq) => (
-                    <option key={eq.id} value={eq.id}>
-                      {eq.name} ({eq.code}){eq.equipmentType ? ` - ${eq.equipmentType.name}` : ''}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: '', label: equipmentLoading ? 'Loading...' : 'Select equipment' },
+                    ...filteredEquipment.map((eq) => ({
+                      value: eq.id,
+                      label: `${eq.name} (${eq.code})${eq.equipmentType ? ` - ${eq.equipmentType.name}` : ''}`,
+                    })),
+                  ]}
+                />
               </div>
 
               {/* Frequency */}
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Monitoring Frequency
-                </label>
-                <select
+                <Select
+                  label="Monitoring Frequency"
+                  size="sm"
                   value={addForm.monitoringFrequency}
                   onChange={(e) =>
                     setAddForm((prev) => ({
@@ -357,14 +351,11 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                       monitoringFrequency: e.target.value as MonitoringFrequency,
                     }))
                   }
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
-                >
-                  {MONITORING_FREQUENCY_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                  options={MONITORING_FREQUENCY_OPTIONS.map((opt) => ({
+                    value: opt.value,
+                    label: opt.label,
+                  }))}
+                />
               </div>
 
               {/* Alert toggle */}
@@ -379,65 +370,54 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
                         alertEnabled: e.target.checked,
                       }))
                     }
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
                   />
-                  <span className="text-sm text-gray-700">Enable Alerts</span>
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Enable Alerts</span>
                 </label>
               </div>
             </div>
 
             {/* Form actions */}
             <div className="mt-4 flex justify-end space-x-2">
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => {
                   setShowAddForm(false);
                   setAddForm(INITIAL_ADD_FORM);
                   createMutation.reset();
                 }}
-                className="px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={handleAddMapping}
                 disabled={!addForm.equipmentId || createMutation.isPending}
-                className="px-3 py-1.5 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
               >
                 {createMutation.isPending ? 'Adding...' : 'Add Mapping'}
-              </button>
+              </Button>
             </div>
           </div>
         )}
       </div>
 
       {/* Footer */}
-      <div className="mt-4 flex items-center justify-between border-t border-gray-200 pt-4">
-        <div className="text-sm text-gray-500">
+      <div className="mt-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700 pt-4">
+        <div className="text-sm text-gray-500 dark:text-gray-400">
           {mappings ? `${mappings.length} equipment mapped` : ''}
         </div>
         <div className="flex space-x-3">
           {!showAddForm && (
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-            >
-              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 4v16m8-8H4"
-                />
-              </svg>
+            <Button variant="primary" onClick={() => setShowAddForm(true)}>
+              <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
               Add Equipment
-            </button>
+            </Button>
           )}
-          <button
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-          >
+          <Button variant="secondary" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

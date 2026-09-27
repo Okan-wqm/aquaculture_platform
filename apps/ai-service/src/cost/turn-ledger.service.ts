@@ -8,7 +8,16 @@ import { computeTurnCostUsd, TurnTokenUsage } from './model-pricing';
 
 export interface RecordTurnParams {
   tenantId: string;
-  conversationId: string;
+  /**
+   * Conversation the turn belongs to. NULL for ephemeral runs (FARM-AI
+   * Sprint 1.2) — machine-driven turns that persist no conversation; the
+   * row then keys on correlationId + servicePrincipal.
+   */
+  conversationId: string | null;
+  /** Ephemeral-run correlation id; null on conversation-backed turns. */
+  correlationId?: string | null;
+  /** Declared calling service for ephemeral runs; null on user turns. */
+  servicePrincipal?: string | null;
   /** Persona identifier for the turn; null on personaless paths. */
   personaId: string | null;
   model: string;
@@ -74,6 +83,8 @@ export class TurnLedgerService {
       );
       await scopedRepository.save({
         conversationId: params.conversationId,
+        correlationId: params.correlationId ?? null,
+        servicePrincipal: params.servicePrincipal ?? null,
         personaId: params.personaId,
         model: params.model,
         inputTokens: params.usage.input,

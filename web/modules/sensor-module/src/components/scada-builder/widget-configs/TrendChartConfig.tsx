@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button, Select } from '@aquaculture/shared-ui';
 import { TagBrowser } from '../TagBrowser';
 
 interface WidgetConfigProps {
@@ -30,10 +31,10 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       {/* Tag list */}
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="text-xs text-gray-500">Tags</label>
-          <button onClick={addTag} className="text-xs text-cyan-600 hover:text-cyan-700">
+          <label className="text-xs text-gray-500 dark:text-gray-400">Tags</label>
+          <Button variant="ghost" size="xs" onClick={addTag}>
             + Add Tag
-          </button>
+          </Button>
         </div>
         <div className="space-y-1">
           {tags.map((tag, i) => (
@@ -44,34 +45,34 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
                 onChange={(val) => updateTag(i, val)}
                 placeholder="Select tag..."
               />
-              <button
-                onClick={() => removeTag(i)}
-                className="text-red-400 hover:text-red-600 text-xs px-1"
-              >
+              <Button variant="ghost" size="xs" onClick={() => removeTag(i)}>
                 X
-              </button>
+              </Button>
             </div>
           ))}
           {tags.length === 0 && (
-            <p className="text-xs text-gray-400 italic">No tags added yet</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 italic">No tags added yet</p>
           )}
         </div>
       </div>
 
       {/* Default time range */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Default Time Range</label>
-        <select
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+          Default Time Range
+        </label>
+        <Select
+          fullWidth
+          options={[
+            { value: '1h', label: '1 Hour' },
+            { value: '6h', label: '6 Hours' },
+            { value: '24h', label: '24 Hours' },
+            { value: '7d', label: '7 Days' },
+            { value: '30d', label: '30 Days' },
+          ]}
           value={(config.defaultRange as string) || '24h'}
           onChange={(e) => onChange({ defaultRange: e.target.value })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        >
-          <option value="1h">1 Hour</option>
-          <option value="6h">6 Hours</option>
-          <option value="24h">24 Hours</option>
-          <option value="7d">7 Days</option>
-          <option value="30d">30 Days</option>
-        </select>
+        />
       </div>
 
       {/* Show grid */}
@@ -81,9 +82,11 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           id="showGrid"
           checked={showGrid}
           onChange={(e) => onChange({ showGrid: e.target.checked })}
-          className="text-cyan-600 rounded focus:ring-cyan-500"
+          className="text-info-600 dark:text-info-400 rounded focus:ring-info-500"
         />
-        <label htmlFor="showGrid" className="text-sm text-gray-700">Show grid</label>
+        <label htmlFor="showGrid" className="text-sm text-gray-700 dark:text-gray-300">
+          Show grid
+        </label>
       </div>
 
       {/* Show legend */}
@@ -93,22 +96,27 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           id="showLegend"
           checked={showLegend}
           onChange={(e) => onChange({ showLegend: e.target.checked })}
-          className="text-cyan-600 rounded focus:ring-cyan-500"
+          className="text-info-600 dark:text-info-400 rounded focus:ring-info-500"
         />
-        <label htmlFor="showLegend" className="text-sm text-gray-700">Show legend</label>
+        <label htmlFor="showLegend" className="text-sm text-gray-700 dark:text-gray-300">
+          Show legend
+        </label>
       </div>
 
       {/* Chart height mode */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Chart Height Mode</label>
-        <select
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+          Chart Height Mode
+        </label>
+        <Select
+          fullWidth
+          options={[
+            { value: 'auto', label: 'Auto' },
+            { value: 'fixed', label: 'Fixed' },
+          ]}
           value={(config.chartHeightMode as string) || 'auto'}
           onChange={(e) => onChange({ chartHeightMode: e.target.value })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        >
-          <option value="auto">Auto</option>
-          <option value="fixed">Fixed</option>
-        </select>
+        />
       </div>
     </div>
   );

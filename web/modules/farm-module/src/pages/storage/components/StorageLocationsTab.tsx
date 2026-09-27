@@ -2,7 +2,17 @@
  * Storage Locations Tab - CRUD for warehouse/silo/cold room locations
  */
 import React, { useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import {
+  FormField,
+  Modal,
+  useConfirm,
+  useToast,
+  Spinner,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import {
   useStorageLocationList,
   useCreateStorageLocation,
@@ -13,14 +23,15 @@ import {
   CreateStorageLocationInput,
 } from '../../../hooks/useStorageLocations';
 import { useSiteList } from '../../../hooks/useSites';
+import { Plus } from 'lucide-react';
 
 const typeColors: Record<string, string> = {
-  WAREHOUSE: 'bg-gray-100 text-gray-800',
-  COLD_ROOM: 'bg-blue-100 text-blue-800',
-  CHEMICAL_STORE: 'bg-orange-100 text-orange-800',
-  FEED_SILO: 'bg-amber-100 text-amber-800',
-  OUTDOOR: 'bg-green-100 text-green-800',
-  HAZMAT: 'bg-red-100 text-red-800',
+  WAREHOUSE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
+  COLD_ROOM: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  CHEMICAL_STORE: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  FEED_SILO: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  OUTDOOR: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  HAZMAT: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 const typeLabels: Record<string, string> = {
@@ -80,12 +91,15 @@ export const StorageLocationsTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<FormData>(emptyForm);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const locations = locationsData?.items || [];
 
   const openCreate = () => {
     setEditingId(null);
     setFormData(emptyForm);
+    setFieldErrors({});
     setIsModalOpen(true);
   };
   const openEdit = (loc: StorageLocation) => {
@@ -106,27 +120,34 @@ export const StorageLocationsTab: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const confirm = useConfirm();
+  const { toast } = useToast();
   const handleDelete = async (id: string) => {
-    if (confirm('Delete this location?')) {
+    if (
+      await confirm({
+        title: 'Delete this location?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteLocationMutation.mutateAsync(id);
       } catch (err) {
         console.error('Failed to delete location:', err);
-        alert('Failed to delete location.');
+        toast({ title: 'Failed to delete location.', variant: 'error' });
       }
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.code) {
-      alert('Name and code required.');
-      return;
-    }
-    if (!formData.siteId) {
-      alert('Please select a site.');
-      return;
-    }
+    const errors: Record<string, string> = {};
+    if (!formData.name) errors.name = 'Please enter a name.';
+    if (!formData.code) errors.code = 'Please enter a code.';
+    if (!formData.siteId) errors.siteId = 'Please select a site.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     try {
       const input: any = {
@@ -153,42 +174,34 @@ export const StorageLocationsTab: React.FC = () => {
       setIsModalOpen(false);
     } catch (err) {
       console.error('Failed to save location:', err);
-      alert('Failed to save location.');
+      toast({ title: 'Failed to save location.', variant: 'error' });
     }
   };
 
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h3 className="text-sm font-medium text-gray-500">{locations.length} locations</h3>
-        <button
-          onClick={openCreate}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-            />
-          </svg>
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
+          {locations.length} locations
+        </h3>
+        <Button variant="primary" onClick={openCreate}>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
           Add Location
-        </button>
+        </Button>
       </div>
 
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load locations.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">Failed to load locations.</p>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
             Retry
-          </button>
+          </Button>
         </div>
       )}
 
@@ -200,60 +213,63 @@ export const StorageLocationsTab: React.FC = () => {
                 ? Math.round((loc.usedCapacity / loc.capacity) * 100)
                 : 0;
             return (
-              <div key={loc.id} className="bg-white rounded-lg border border-gray-200 p-5">
+              <div
+                key={loc.id}
+                className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5"
+              >
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <h4 className="text-sm font-semibold text-gray-900">{loc.name}</h4>
-                    <span className="text-xs text-gray-500">{loc.code}</span>
+                    <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {loc.name}
+                    </h4>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{loc.code}</span>
                   </div>
                   <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${typeColors[loc.type] || 'bg-gray-100 text-gray-800'}`}
+                    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${typeColors[loc.type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                   >
                     {typeLabels[loc.type] || loc.type}
                   </span>
                 </div>
                 <div className="mb-3">
-                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
                     <span>Capacity</span>
                     <span>
                       {loc.usedCapacity} / {loc.capacity || 0} {loc.capacityUnit}
                     </span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                     <div
-                      className={`h-2 rounded-full ${usagePercent > 90 ? 'bg-red-500' : usagePercent > 70 ? 'bg-yellow-500' : 'bg-blue-500'}`}
+                      className={`h-2 rounded-full ${usagePercent > 90 ? 'bg-error-500' : usagePercent > 70 ? 'bg-warning-500' : 'bg-info-500'}`}
                       style={{ width: `${Math.min(usagePercent, 100)}%` }}
                     />
                   </div>
-                  <div className="text-right text-xs text-gray-400 mt-0.5">{usagePercent}%</div>
+                  <div className="text-right text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                    {usagePercent}%
+                  </div>
                 </div>
                 {(loc.temperatureMin != null || loc.temperatureMax != null) && (
-                  <div className="text-xs text-gray-500 mb-2">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
                     Temp: {loc.temperatureMin ?? '-'}°C - {loc.temperatureMax ?? '-'}°C
                     {(loc.humidityMin != null || loc.humidityMax != null) &&
                       ` | Humidity: ${loc.humidityMin ?? '-'}% - ${loc.humidityMax ?? '-'}%`}
                   </div>
                 )}
-                {loc.description && <p className="text-xs text-gray-500 mb-3">{loc.description}</p>}
-                <div className="flex gap-2 pt-2 border-t border-gray-100">
-                  <button
-                    onClick={() => openEdit(loc)}
-                    className="text-xs text-blue-600 hover:text-blue-800"
-                  >
+                {loc.description && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{loc.description}</p>
+                )}
+                <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+                  <Button variant="ghost" size="xs" onClick={() => openEdit(loc)}>
                     Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(loc.id)}
-                    className="text-xs text-red-600 hover:text-red-800"
-                  >
+                  </Button>
+                  <Button variant="ghost" size="xs" onClick={() => handleDelete(loc.id)}>
                     Delete
-                  </button>
+                  </Button>
                 </div>
               </div>
             );
           })}
           {locations.length === 0 && (
-            <div className="col-span-3 text-center py-12 text-gray-500 text-sm">
+            <div className="col-span-3 text-center py-12 text-gray-500 dark:text-gray-400 text-sm">
               No storage locations found. Add your first location.
             </div>
           )}
@@ -269,69 +285,65 @@ export const StorageLocationsTab: React.FC = () => {
       >
         <form onSubmit={handleSubmit}>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Name *
+                </label>
+                <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
+                  <Input
+                    fullWidth
+                    type="text"
+                    required
+                    value={formData.name}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                  />
+                </FormField>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Code *</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.code}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Type</label>
-                <select
-                  value={formData.type}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      type: e.target.value as StorageLocationType,
-                    }))
-                  }
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  {LOCATION_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {typeLabels[t]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Site *</label>
-                <select
-                  required
-                  value={formData.siteId}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Select Site</option>
-                  {sites.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Code *
+                </label>
+                <FormField error={formData.code ? undefined : fieldErrors.code} className="mb-0">
+                  <Input
+                    fullWidth
+                    type="text"
+                    required
+                    value={formData.code}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+                  />
+                </FormField>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Select
+                label="Type"
+                value={formData.type}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    type: e.target.value as StorageLocationType,
+                  }))
+                }
+                options={LOCATION_TYPES.map((t) => ({ value: t, label: typeLabels[t] }))}
+              />
+              <Select
+                label="Site"
+                required
+                placeholder="Select Site"
+                value={formData.siteId}
+                onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
+                error={formData.siteId ? undefined : fieldErrors.siteId}
+                options={sites.map((s) => ({ value: s.id, label: s.name }))}
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Capacity</label>
-                <input
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Capacity
+                </label>
+                <Input
+                  fullWidth
                   type="number"
                   min="0"
                   value={formData.capacity}
@@ -341,29 +353,34 @@ export const StorageLocationsTab: React.FC = () => {
                       capacity: e.target.value ? Number(e.target.value) : '',
                     }))
                   }
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Unit</label>
-                <select
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Unit
+                </label>
+                <Select
+                  fullWidth
+                  options={[
+                    { value: 'm³', label: 'm³' },
+                    { value: 'kg', label: 'kg' },
+                    { value: 'L', label: 'L' },
+                    { value: 'tons', label: 'tons' },
+                  ]}
                   value={formData.capacityUnit}
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, capacityUnit: e.target.value }))
                   }
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="m³">m³</option>
-                  <option value="kg">kg</option>
-                  <option value="L">L</option>
-                  <option value="tons">tons</option>
-                </select>
+                />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Temp Min (°C)</label>
-                <input
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Temp Min (°C)
+                </label>
+                <Input
+                  fullWidth
                   type="number"
                   step="0.1"
                   value={formData.temperatureMin}
@@ -373,12 +390,14 @@ export const StorageLocationsTab: React.FC = () => {
                       temperatureMin: e.target.value ? Number(e.target.value) : '',
                     }))
                   }
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Temp Max (°C)</label>
-                <input
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Temp Max (°C)
+                </label>
+                <Input
+                  fullWidth
                   type="number"
                   step="0.1"
                   value={formData.temperatureMax}
@@ -388,14 +407,16 @@ export const StorageLocationsTab: React.FC = () => {
                       temperatureMax: e.target.value ? Number(e.target.value) : '',
                     }))
                   }
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Humidity Min (%)</label>
-                <input
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Humidity Min (%)
+                </label>
+                <Input
+                  fullWidth
                   type="number"
                   step="0.1"
                   min="0"
@@ -407,12 +428,14 @@ export const StorageLocationsTab: React.FC = () => {
                       humidityMin: e.target.value ? Number(e.target.value) : '',
                     }))
                   }
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Humidity Max (%)</label>
-                <input
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Humidity Max (%)
+                </label>
+                <Input
+                  fullWidth
                   type="number"
                   step="0.1"
                   min="0"
@@ -424,34 +447,28 @@ export const StorageLocationsTab: React.FC = () => {
                       humidityMax: e.target.value ? Number(e.target.value) : '',
                     }))
                   }
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Description</label>
-              <textarea
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Description
+              </label>
+              <Textarea
+                fullWidth
                 rows={2}
                 value={formData.description}
                 onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
           </div>
-          <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white hover:bg-gray-50"
-            >
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+            <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
-            >
+            </Button>
+            <Button variant="primary" type="submit">
               {editingId ? 'Update' : 'Create'}
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>

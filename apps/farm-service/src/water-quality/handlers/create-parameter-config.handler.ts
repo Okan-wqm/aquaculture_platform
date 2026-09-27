@@ -1,3 +1,4 @@
+import { colors } from '@aquaculture/shared-contracts';
 /**
  * CreateParameterConfigHandler
  *
@@ -59,7 +60,7 @@ export class CreateParameterConfigHandler
       criticalMax: payload.criticalMax,
       speciesLimits: payload.speciesLimits as WaterQualityParameterConfig['speciesLimits'],
       enumValues: payload.enumValues,
-      chartColor: payload.chartColor ?? '#3b82f6',
+      chartColor: payload.chartColor ?? colors.info[500],
       icon: payload.icon,
       displayOrder: payload.displayOrder ?? 0,
       isVisible: payload.isVisible ?? true,

@@ -10,7 +10,8 @@
         var pref = localStorage.getItem('aquamobil_dark_mode') || 'system';
         var isDark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
         if (isDark) document.documentElement.classList.add('dark');
-        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark ? '#030712' : '#0073e6');
+        var themeMeta = document.querySelector('meta[name="theme-color"]');
+        if (themeMeta) themeMeta.setAttribute('content', themeMeta.getAttribute(isDark ? 'data-theme-color-dark' : 'data-theme-color-light'));
       })();
     </script>
     <meta charset="UTF-8" />
@@ -18,7 +19,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
 
     <!-- PWA Meta Tags -->
-    <meta name="theme-color" content="#0073e6" />
+    <!-- WHY placeholders and two data attributes: vite.config.ts fills them from
+         the Tailwind palette (ocean-600, gray-950), and the pre-paint script above
+         and useDarkMode read the light/dark chrome colours from this tag, so the
+         brand is recorded once, in tailwind.config.js. -->
+    <meta name="theme-color" content="%THEME_COLOR_LIGHT%" data-theme-color-light="%THEME_COLOR_LIGHT%" data-theme-color-dark="%THEME_COLOR_DARK%" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

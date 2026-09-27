@@ -12,8 +12,6 @@ export {
 
 export type { Tenant, TenantStats, TenantModule, User, TenantDatabaseInfo } from './useTenantData';
 
-export { useFocusTrap } from './useFocusTrap';
-
 export {
   useTenantRoles,
   useTenantRole,

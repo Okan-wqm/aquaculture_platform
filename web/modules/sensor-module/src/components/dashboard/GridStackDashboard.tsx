@@ -7,6 +7,15 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import {
+  Modal,
+  useConfirm,
+  useClickOutside,
+  Spinner,
+  Button,
+  Input,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import { GridStack, GridStackWidget } from 'gridstack';
 import 'gridstack/dist/gridstack.min.css';
 
@@ -20,7 +29,6 @@ import {
   ChevronDown,
   Star,
   Copy,
-  Loader2,
   AlertCircle,
   GitFork,
   RotateCcw,
@@ -39,7 +47,12 @@ import { ProcessViewWidgetContent } from './widgets/ProcessViewWidgetContent';
 import { ProcessBackgroundLayer } from './widgets/ProcessBackgroundLayer';
 import { AlertWidgetContent } from './widgets/AlertWidgetContent';
 import { HeatmapWidgetContent } from './widgets/HeatmapWidgetContent';
-import { useDashboardLayout, DashboardLayout, SaveLayoutInput, ProcessBackground } from '../../hooks/useDashboardLayout';
+import {
+  useDashboardLayout,
+  DashboardLayout,
+  SaveLayoutInput,
+  ProcessBackground,
+} from '../../hooks/useDashboardLayout';
 export type { DashboardLayout } from '../../hooks/useDashboardLayout';
 import { useActiveProcesses } from '../../hooks/useProcess';
 
@@ -88,7 +101,7 @@ const WidgetContent: React.FC<{ config: WidgetConfig }> = ({ config }) => {
       return <ProcessViewWidgetContent config={config} />;
     default:
       return (
-        <div className="flex items-center justify-center h-full text-gray-500">
+        <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">
           Unknown widget type
         </div>
       );
@@ -128,80 +141,77 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
     }
   }, [isOpen, defaultName]);
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative min-h-screen flex items-center justify-center p-4">
-        <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            {isUpdate ? 'Update Layout' : 'Save New Layout'}
-          </h3>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Layout Name
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Enter dashboard name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Description (Optional)
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Layout description"
-                rows={2}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-              />
-            </div>
-
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={setAsDefault}
-                onChange={(e) => setSetAsDefault(e.target.checked)}
-                className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 rounded"
-              />
-              <span className="text-sm text-gray-700">Set as default</span>
-            </label>
-          </div>
-
-          <div className="flex justify-end gap-3 mt-6">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => onSave(name, description, setAsDefault)}
-              disabled={!name.trim() || saving}
-              className={`
-                flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
-                ${name.trim() && !saving
-                  ? 'bg-cyan-600 text-white hover:bg-cyan-700'
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }
-              `}
-            >
-              {saving && <Loader2 size={16} className="animate-spin" />}
-              {isUpdate ? 'Update' : 'Save'}
-            </button>
-          </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="sm"
+      title={isUpdate ? 'Update Layout' : 'Save New Layout'}
+      showCloseButton={!saving}
+      closeOnEscape={!saving}
+      closeOnOverlayClick={!saving}
+      bodyClassName="p-6"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <button
+            onClick={() => onSave(name, description, setAsDefault)}
+            disabled={!name.trim() || saving}
+            className={`
+              flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
+              ${
+                name.trim() && !saving
+                  ? 'bg-info-600 text-white hover:bg-info-700'
+                  : 'bg-gray-300 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+              }
+            `}
+          >
+            {saving && <Spinner size="sm" color="inherit" />}
+            {isUpdate ? 'Update' : 'Save'}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Layout Name
+          </label>
+          <Input
+            fullWidth
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Enter dashboard name"
+          />
         </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Description (Optional)
+          </label>
+          <Textarea
+            fullWidth
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Layout description"
+            rows={2}
+          />
+        </div>
+
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={setAsDefault}
+            onChange={(e) => setSetAsDefault(e.target.checked)}
+            className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
+          />
+          <span className="text-sm text-gray-700 dark:text-gray-300">Set as default</span>
+        </label>
       </div>
-    </div>
+    </Modal>
   );
 };
 
@@ -209,9 +219,8 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
 // GridStack Dashboard Component
 // ============================================================================
 
-export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
-  className = '',
-}) => {
+export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({ className = '' }) => {
+  const confirm = useConfirm();
   const gridRef = useRef<HTMLDivElement>(null);
   const gridInstanceRef = useRef<GridStack | null>(null);
   // Bug #6 fix: Prevent race conditions during GridStack state updates
@@ -246,6 +255,10 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
   const [showLayoutDropdown, setShowLayoutDropdown] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showProcessDropdown, setShowProcessDropdown] = useState(false);
+  const layoutDropdownRef = useRef<HTMLDivElement>(null);
+  const processDropdownRef = useRef<HTMLDivElement>(null);
+  useClickOutside(layoutDropdownRef, () => setShowLayoutDropdown(false), showLayoutDropdown);
+  useClickOutside(processDropdownRef, () => setShowProcessDropdown(false), showProcessDropdown);
 
   // Process background state
   const [processBackground, setProcessBackground] = useState<ProcessBackground>({
@@ -310,7 +323,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
         disableDrag: !isEditMode,
         disableResize: !isEditMode,
       },
-      gridRef.current
+      gridRef.current,
     );
 
     gridInstanceRef.current = grid;
@@ -345,7 +358,9 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
         setLocalWidgets(updatedWidgets);
         setHasUnsavedChanges(true);
       } finally {
-        setTimeout(() => { isUpdatingRef.current = false; }, 0);
+        setTimeout(() => {
+          isUpdatingRef.current = false;
+        }, 0);
       }
     };
 
@@ -356,7 +371,6 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
       grid.destroy(false);
       gridInstanceRef.current = null;
     };
-   
   }, []); // PERF-002: run once on mount — add/remove is handled by makeWidget/removeWidget below
 
   // PERF-002: Register new DOM nodes with GridStack when localWidgets changes (instead of full re-init)
@@ -426,9 +440,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
 
   // Handle update widget (from edit)
   const handleUpdateWidget = useCallback((config: WidgetConfig) => {
-    setLocalWidgets((prev) =>
-      prev.map((w) => (w.id === config.id ? config : w))
-    );
+    setLocalWidgets((prev) => prev.map((w) => (w.id === config.id ? config : w)));
     setShowConfigModal(false);
     setEditingWidget(null);
     setHasUnsavedChanges(true);
@@ -472,23 +484,27 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
         setIsEditMode(false);
       }
     },
-    [currentLayout, localWidgets, processBackground, saveLayout, saveAsNew]
+    [currentLayout, localWidgets, processBackground, saveLayout, saveAsNew],
   );
 
   // Handle layout selection
   const handleLayoutSelect = useCallback(
     async (layoutId: string) => {
       if (hasUnsavedChanges) {
-        const confirm = window.confirm(
-          'You have unsaved changes. Do you want to continue?'
-        );
-        if (!confirm) return;
+        const proceed = await confirm({
+          title: 'Discard unsaved changes?',
+          message: 'Switching layouts drops the edits you have not saved.',
+          confirmText: 'Discard and switch',
+          cancelText: 'Stay',
+          variant: 'warning',
+        });
+        if (!proceed) return;
       }
       await loadLayout(layoutId);
       setShowLayoutDropdown(false);
       setIsEditMode(false);
     },
-    [loadLayout, hasUnsavedChanges]
+    [loadLayout, hasUnsavedChanges, confirm],
   );
 
   // Handle set as default
@@ -497,28 +513,31 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
       await setAsDefault(layoutId);
       setShowLayoutDropdown(false);
     },
-    [setAsDefault]
+    [setAsDefault],
   );
 
   // Handle delete layout
   const handleDeleteLayout = useCallback(
     async (layoutId: string) => {
-      const confirm = window.confirm(
-        'This layout will be deleted. Are you sure?'
-      );
-      if (!confirm) return;
+      const proceed = await confirm({
+        title: 'Delete this layout?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      });
+      if (!proceed) return;
       await deleteLayout(layoutId);
       setShowLayoutDropdown(false);
     },
-    [deleteLayout]
+    [deleteLayout, confirm],
   );
 
   // Loading state
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 size={32} className="animate-spin text-cyan-600" />
-        <span className="ml-2 text-gray-600">Loading dashboard...</span>
+        <Spinner size="lg" />
+        <span className="ml-2 text-gray-600 dark:text-gray-400">Loading dashboard...</span>
       </div>
     );
   }
@@ -527,47 +546,44 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
     <div className={`flex flex-col h-full ${className}`}>
       {/* Error Banner */}
       {error && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-red-50 border-b border-red-200 text-red-700">
+        <div className="flex items-center gap-2 px-4 py-2 bg-error-50 dark:bg-error-900/20 border-b border-error-200 dark:border-error-800 text-error-700 dark:text-error-300">
           <AlertCircle size={16} />
           <span className="text-sm">{error}</span>
-          <button
-            onClick={clearError}
-            className="ml-auto text-red-500 hover:text-red-700"
-          >
+          <Button variant="ghost" onClick={clearError}>
             Close
-          </button>
+          </Button>
         </div>
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200">
+      <div className="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-3">
           {/* Layout Selector */}
-          <div className="relative">
+          <div className="relative" ref={layoutDropdownRef}>
             <button
               onClick={() => setShowLayoutDropdown(!showLayoutDropdown)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
-              <span className="font-medium text-gray-900">
+              <span className="font-medium text-gray-900 dark:text-gray-100">
                 {currentLayout?.name || 'Select Layout'}
               </span>
               {currentLayout?.isDefault && (
-                <Star size={14} className="text-yellow-500 fill-current" />
+                <Star size={14} className="text-warning-500 fill-current" />
               )}
-              <ChevronDown size={16} className="text-gray-500" />
+              <ChevronDown size={16} className="text-gray-500 dark:text-gray-400" />
             </button>
 
             {/* Dropdown */}
             {showLayoutDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
-                <div className="p-2 border-b border-gray-100">
-                  <span className="text-xs font-medium text-gray-500 uppercase">
+              <div className="absolute top-full left-0 mt-1 w-72 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+                <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                     Saved Layouts
                   </span>
                 </div>
                 <div className="max-h-64 overflow-y-auto">
                   {layouts.length === 0 ? (
-                    <div className="p-4 text-center text-gray-500 text-sm">
+                    <div className="p-4 text-center text-gray-500 dark:text-gray-400 text-sm">
                       No saved layouts yet
                     </div>
                   ) : (
@@ -575,135 +591,145 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                       <div
                         key={layout.id}
                         className={`
-                          flex items-center justify-between px-3 py-2 hover:bg-gray-50
-                          ${currentLayout?.id === layout.id ? 'bg-cyan-50' : ''}
+                          flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800
+                          ${currentLayout?.id === layout.id ? 'bg-info-50 dark:bg-info-900/20' : ''}
                         `}
                       >
-                        <button
+                        <Button
+                          variant="ghost"
+                          className="flex-1"
                           onClick={() => handleLayoutSelect(layout.id)}
-                          className="flex-1 text-left"
                         >
-                          <span className="font-medium text-gray-900">
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
                             {layout.name}
                           </span>
                           {layout.isDefault && (
-                            <Star
-                              size={12}
-                              className="inline ml-1 text-yellow-500 fill-current"
-                            />
+                            <Star size={12} className="inline ml-1 text-warning-500 fill-current" />
                           )}
                           {layout.isSystemDefault && (
-                            <span className="text-xs text-gray-500 ml-1">
+                            <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
                               (System)
                             </span>
                           )}
-                        </button>
+                        </Button>
                         <div className="flex items-center gap-1">
                           {!layout.isDefault && !layout.isSystemDefault && (
-                            <button
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              iconOnly
+                              aria-label="Set as default"
                               onClick={() => handleSetAsDefault(layout.id)}
-                              className="p-1 text-gray-500 hover:text-yellow-500"
                               title="Set as default"
                             >
                               <Star size={14} />
-                            </button>
+                            </Button>
                           )}
                           {!layout.isSystemDefault && (
-                            <button
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              iconOnly
+                              aria-label="Delete"
                               onClick={() => handleDeleteLayout(layout.id)}
-                              className="p-1 text-gray-500 hover:text-red-500"
                               title="Delete"
                             >
                               <Trash2 size={14} />
-                            </button>
+                            </Button>
                           )}
                         </div>
                       </div>
                     ))
                   )}
                 </div>
-                <div className="p-2 border-t border-gray-100">
-                  <button
+                <div className="p-2 border-t border-gray-100 dark:border-gray-700">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="justify-center"
+                    leftIcon={<Plus size={16} />}
                     onClick={() => {
                       setSaveAsNew(true);
                       setShowSaveModal(true);
                       setShowLayoutDropdown(false);
                     }}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-cyan-600 hover:bg-cyan-50 rounded-lg"
                   >
-                    <Plus size={16} />
                     Create New Layout
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
           </div>
 
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-gray-500 dark:text-gray-400">
             {localWidgets.length} widget
             {hasUnsavedChanges && (
-              <span className="text-amber-600 ml-2">(unsaved)</span>
+              <span className="text-warning-600 dark:text-warning-400 ml-2">(unsaved)</span>
             )}
           </span>
 
           {/* Process Background Selector */}
-          <div className="relative">
+          <div className="relative" ref={processDropdownRef}>
             <button
               onClick={() => setShowProcessDropdown(!showProcessDropdown)}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
                 processBackground.processId
-                  ? 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 hover:bg-info-200 dark:hover:bg-info-800/60'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               <GitFork size={16} />
               <span className="text-sm">
                 {processBackground.processId
-                  ? activeProcesses.find(p => p.id === processBackground.processId)?.name || 'Process BG'
-                  : 'No Background'
-                }
+                  ? activeProcesses.find((p) => p.id === processBackground.processId)?.name ||
+                    'Process BG'
+                  : 'No Background'}
               </span>
               <ChevronDown size={16} />
             </button>
 
             {/* Process Dropdown */}
             {showProcessDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
-                <div className="p-2 border-b border-gray-100">
-                  <span className="text-xs font-medium text-gray-500 uppercase">
+              <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+                <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                     Process Background
                   </span>
                 </div>
                 <div className="max-h-48 overflow-y-auto">
                   <button
                     onClick={() => {
-                      setProcessBackground(prev => ({ ...prev, processId: null }));
+                      setProcessBackground((prev) => ({ ...prev, processId: null }));
                       setShowProcessDropdown(false);
                       setHasUnsavedChanges(true);
                     }}
-                    className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 ${
-                      !processBackground.processId ? 'bg-cyan-50 text-cyan-700' : ''
+                    className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 ${
+                      !processBackground.processId
+                        ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                        : ''
                     }`}
                   >
                     None
                   </button>
-                  {activeProcesses.map(process => (
+                  {activeProcesses.map((process) => (
                     <button
                       key={process.id}
                       onClick={() => {
-                        setProcessBackground(prev => ({ ...prev, processId: process.id }));
+                        setProcessBackground((prev) => ({ ...prev, processId: process.id }));
                         setShowProcessDropdown(false);
                         setHasUnsavedChanges(true);
                       }}
-                      className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 ${
-                        processBackground.processId === process.id ? 'bg-cyan-50 text-cyan-700' : ''
+                      className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 ${
+                        processBackground.processId === process.id
+                          ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                          : ''
                       }`}
                     >
                       {process.name}
                     </button>
                   ))}
                   {activeProcesses.length === 0 && (
-                    <div className="px-3 py-2 text-sm text-gray-500">
+                    <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
                       No processes available
                     </div>
                   )}
@@ -714,8 +740,8 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
 
           {/* Opacity Slider (only shown when process background is selected and in edit mode) */}
           {processBackground.processId && isEditMode && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-lg">
-              <span className="text-xs text-gray-500">Opacity:</span>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg">
+              <span className="text-xs text-gray-500 dark:text-gray-400">Opacity:</span>
               <input
                 type="range"
                 min="0.1"
@@ -723,15 +749,15 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                 step="0.1"
                 value={processBackground.opacity}
                 onChange={(e) => {
-                  setProcessBackground(prev => ({
+                  setProcessBackground((prev) => ({
                     ...prev,
-                    opacity: parseFloat(e.target.value)
+                    opacity: parseFloat(e.target.value),
                   }));
                   setHasUnsavedChanges(true);
                 }}
                 className="w-20 h-1 bg-gray-300 rounded-lg appearance-none cursor-pointer"
               />
-              <span className="text-xs text-gray-600 w-8">
+              <span className="text-xs text-gray-600 dark:text-gray-400 w-8">
                 {Math.round(processBackground.opacity * 100)}%
               </span>
             </div>
@@ -739,51 +765,47 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
 
           {/* Reset Background Position (only in edit mode with background) */}
           {processBackground.processId && isEditMode && (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              aria-label="Reset background position"
               onClick={() => {
-                setProcessBackground(prev => ({
+                setProcessBackground((prev) => ({
                   ...prev,
                   position: { x: 0, y: 0 },
                   scale: 1,
                 }));
                 setHasUnsavedChanges(true);
               }}
-              className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded transition-colors"
               title="Reset background position"
             >
               <RotateCcw size={16} />
-            </button>
+            </Button>
           )}
         </div>
 
         <div className="flex items-center gap-2">
           {isEditMode ? (
             <>
-              <button
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Plus size={16} />}
                 onClick={() => setShowConfigModal(true)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
               >
-                <Plus size={16} />
                 Add Widget
-              </button>
-              <button
-                onClick={handleQuickSave}
-                disabled={saving}
-                className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
-              >
-                {saving ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <Save size={16} />
-                )}
+              </Button>
+              <Button variant="primary" size="sm" onClick={handleQuickSave} disabled={saving}>
+                {saving ? <Spinner size="sm" color="inherit" /> : <Save size={16} />}
                 Save
-              </button>
+              </Button>
               <button
                 onClick={() => {
                   setSaveAsNew(true);
                   setShowSaveModal(true);
                 }}
-                className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               >
                 <Copy size={16} />
                 Save As
@@ -797,7 +819,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                     setHasUnsavedChanges(false);
                   }
                 }}
-                className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               >
                 <Eye size={16} />
                 Cancel
@@ -806,7 +828,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
           ) : (
             <button
               onClick={() => setIsEditMode(true)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
               <Edit2 size={16} />
               Edit
@@ -815,36 +837,22 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
         </div>
       </div>
 
-      {/* Click outside to close dropdowns */}
-      {(showLayoutDropdown || showProcessDropdown) && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => {
-            setShowLayoutDropdown(false);
-            setShowProcessDropdown(false);
-          }}
-        />
-      )}
-
       {/* Grid Container */}
-      <div className="flex-1 overflow-hidden relative bg-gray-50">
+      <div className="flex-1 overflow-hidden relative bg-gray-50 dark:bg-gray-800">
         {/* Process Background Layer */}
         {processBackground.processId && (
-          <div
-            className="absolute inset-0 overflow-hidden"
-            style={{ zIndex: 0 }}
-          >
+          <div className="absolute inset-0 overflow-hidden z-0">
             <ProcessBackgroundLayer
               processId={processBackground.processId}
               position={processBackground.position}
               scale={processBackground.scale}
               opacity={processBackground.opacity}
               onPositionChange={(pos) => {
-                setProcessBackground(prev => ({ ...prev, position: pos }));
+                setProcessBackground((prev) => ({ ...prev, position: pos }));
                 setHasUnsavedChanges(true);
               }}
               onScaleChange={(scale) => {
-                setProcessBackground(prev => ({ ...prev, scale }));
+                setProcessBackground((prev) => ({ ...prev, scale }));
                 setHasUnsavedChanges(true);
               }}
               isEditMode={isEditMode}
@@ -853,71 +861,75 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
         )}
 
         {/* Scrollable Grid Area */}
-        <div className="h-full overflow-auto p-4 relative" style={{ zIndex: 1 }}>
+        <div className="h-full overflow-auto p-4 relative z-[1]">
           {localWidgets.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
               <div className="text-center">
                 <Settings size={48} className="mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-medium mb-2">Dashboard Empty</p>
-                <p className="text-sm mb-4">
-                  Click the "Edit" button to add widgets
-                </p>
-                <button
+                <p className="text-sm mb-4">Click the "Edit" button to add widgets</p>
+                <Button
+                  variant="primary"
+                  leftIcon={<Plus size={16} />}
                   onClick={() => {
                     setIsEditMode(true);
                     setShowConfigModal(true);
                   }}
-                  className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors mx-auto"
                 >
-                  <Plus size={16} />
                   Add First Widget
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
             <div ref={gridRef} className="grid-stack">
               {localWidgets.map((widget) => (
-              <div
-                key={widget.id}
-                className="grid-stack-item"
-                data-widget-id={widget.id}
-                gs-x={widget.gridPosition.x}
-                gs-y={widget.gridPosition.y}
-                gs-w={widget.gridPosition.w}
-                gs-h={widget.gridPosition.h}
-              >
-                <div className="grid-stack-item-content bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                  {/* Widget Header */}
-                  <div className="widget-drag-handle flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200 cursor-move">
-                    <span className="text-sm font-medium text-gray-700 truncate">
-                      {widget.title}
-                    </span>
-                    {isEditMode && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleEditWidget(widget)}
-                          className="p-1 text-gray-500 hover:text-gray-600 rounded"
-                          title="Edit"
-                        >
-                          <Settings size={14} />
-                        </button>
-                        <button
-                          onClick={() => handleRemoveWidget(widget.id)}
-                          className="p-1 text-gray-500 hover:text-red-600 rounded"
-                          title="Remove"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                <div
+                  key={widget.id}
+                  className="grid-stack-item"
+                  data-widget-id={widget.id}
+                  gs-x={widget.gridPosition.x}
+                  gs-y={widget.gridPosition.y}
+                  gs-w={widget.gridPosition.w}
+                  gs-h={widget.gridPosition.h}
+                >
+                  <div className="grid-stack-item-content bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    {/* Widget Header */}
+                    <div className="widget-drag-handle flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 cursor-move">
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+                        {widget.title}
+                      </span>
+                      {isEditMode && (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            iconOnly
+                            aria-label="Edit"
+                            onClick={() => handleEditWidget(widget)}
+                            title="Edit"
+                          >
+                            <Settings size={14} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            iconOnly
+                            aria-label="Remove"
+                            onClick={() => handleRemoveWidget(widget.id)}
+                            title="Remove"
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
 
-                  {/* Widget Content */}
-                  <div className="p-3 h-[calc(100%-40px)]">
-                    <WidgetContent config={widget} />
+                    {/* Widget Content */}
+                    <div className="p-3 h-[calc(100%-40px)]">
+                      <WidgetContent config={widget} />
+                    </div>
                   </div>
                 </div>
-              </div>
               ))}
             </div>
           )}

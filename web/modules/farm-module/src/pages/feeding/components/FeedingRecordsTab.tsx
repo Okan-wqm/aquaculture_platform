@@ -16,8 +16,19 @@ import {
 } from '../../../hooks/useFeedingRecords';
 import { useFeedList, type Feed } from '../../../hooks/useFeeds';
 import { isBlockingError } from '../../../utils/list-view-state';
-import { Modal, useAuth } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useAuth,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import type { Batch } from '../../../hooks/useBatches';
+import { Plus } from 'lucide-react';
 
 // ============================================================================
 // TYPES
@@ -160,7 +171,7 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }
@@ -170,24 +181,123 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
   // the table and surfaces a non-blocking banner below (stale-on-error).
   if (isBlockingError(error, (data?.items?.length ?? 0) > 0)) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <p className="text-red-800">Failed to load feeding records: {(error as Error).message}</p>
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+        <p className="text-error-800 dark:text-error-200">
+          Failed to load feeding records: {(error as Error).message}
+        </p>
       </div>
     );
   }
+
+  type RecordRow = NonNullable<NonNullable<typeof data>['items']>[number];
+  const recordRowColumns: DataTableColumn<RecordRow>[] = [
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, record) => formatDate(record.feedingDate),
+    },
+    {
+      key: 'batch',
+      header: 'Batch',
+      render: (_value, record) => batchMap[record.batchId] || record.batchId.slice(0, 8),
+    },
+    {
+      key: 'feed',
+      header: 'Feed',
+      render: (_value, record) => feedMap[record.feedId] || record.feedId.slice(0, 8),
+    },
+    {
+      key: 'time',
+      header: 'Time',
+      render: (_value, record) => (
+        <>
+          {record.feedingTime} ({record.feedingSequence}/{record.totalMealsToday})
+        </>
+      ),
+    },
+    {
+      key: 'plannedKg',
+      header: 'Planned (kg)',
+      align: 'right',
+      render: (_value, record) => Number(record.plannedAmount).toFixed(1),
+    },
+    {
+      key: 'actualKg',
+      header: 'Actual (kg)',
+      align: 'right',
+      render: (_value, record) => Number(record.actualAmount).toFixed(1),
+    },
+    {
+      key: 'variance',
+      header: 'Variance',
+      align: 'right',
+      render: (_value, record) => (
+        <>
+          <span
+            className={`${
+              record.isVarianceAcceptable
+                ? 'text-success-600 dark:text-success-400'
+                : record.isBelowPlan
+                  ? 'text-error-600 dark:text-error-400'
+                  : 'text-accent-600 dark:text-accent-400'
+            }`}
+          >
+            {Number(record.variancePercent) > 0 ? '+' : ''}
+            {Number(record.variancePercent).toFixed(1)}%
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'method',
+      header: 'Method',
+      render: (_value, record) => feedingMethodLabels[record.feedingMethod] || record.feedingMethod,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, record) => (
+        <>
+          {record.isVarianceAcceptable ? (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
+              OK
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200">
+              Variance
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, record) => (
+        <>
+          <Button variant="ghost" onClick={() => handleEdit(record)}>
+            Edit
+          </Button>
+        </>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-4">
       {/* Non-blocking refresh error — keeps the last-loaded records visible. */}
       {error && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="text-sm text-amber-800">
+        <div className="flex items-center justify-between rounded-lg border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 p-3">
+          <p className="text-sm text-warning-800 dark:text-warning-200">
             Couldn&apos;t refresh feeding records — showing the last loaded data.{' '}
-            <span className="text-amber-700">{(error as Error).message}</span>
+            <span className="text-warning-700 dark:text-warning-300">
+              {(error as Error).message}
+            </span>
           </p>
           <button
             onClick={() => refetch()}
-            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
+            className="ml-3 shrink-0 rounded bg-warning-100 dark:bg-warning-900/40 px-3 py-1 text-sm text-warning-800 dark:text-warning-200 hover:bg-warning-200 dark:hover:bg-warning-800/60"
           >
             Retry
           </button>
@@ -199,170 +309,69 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
         <div className="flex items-center space-x-4">
           {/* Date Range */}
           <div className="flex items-center space-x-2">
-            <input
+            <Input
               type="date"
               value={startDate}
               onChange={(e) => {
                 setStartDate(e.target.value);
                 setPage(1);
               }}
-              className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="Start Date"
             />
-            <span className="text-gray-500">to</span>
-            <input
+            <span className="text-gray-500 dark:text-gray-400">to</span>
+            <Input
               type="date"
               value={endDate}
               onChange={(e) => {
                 setEndDate(e.target.value);
                 setPage(1);
               }}
-              className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="End Date"
             />
           </div>
         </div>
-        <button
-          onClick={handleCreate}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-        >
-          <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
+        <Button variant="primary" onClick={handleCreate}>
+          <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
           New Record
-        </button>
+        </Button>
       </div>
 
       {/* Records Table */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Batch
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Feed
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Time
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Planned (kg)
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actual (kg)
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Variance
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Method
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {data?.items?.length === 0 && (
-                <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
-                    No feeding records found. Click "New Record" to create one.
-                  </td>
-                </tr>
-              )}
-              {data?.items?.map((record) => (
-                <tr key={record.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                    {formatDate(record.feedingDate)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                    {batchMap[record.batchId] || record.batchId.slice(0, 8)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                    {feedMap[record.feedId] || record.feedId.slice(0, 8)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {record.feedingTime} ({record.feedingSequence}/{record.totalMealsToday})
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                    {Number(record.plannedAmount).toFixed(1)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                    {Number(record.actualAmount).toFixed(1)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-right">
-                    <span
-                      className={`${
-                        record.isVarianceAcceptable
-                          ? 'text-green-600'
-                          : record.isBelowPlan
-                            ? 'text-red-600'
-                            : 'text-orange-600'
-                      }`}
-                    >
-                      {Number(record.variancePercent) > 0 ? '+' : ''}
-                      {Number(record.variancePercent).toFixed(1)}%
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {feedingMethodLabels[record.feedingMethod] || record.feedingMethod}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    {record.isVarianceAcceptable ? (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        OK
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                        Variance
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right text-sm">
-                    <button
-                      onClick={() => handleEdit(record)}
-                      className="text-blue-600 hover:text-blue-900"
-                    >
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
+        <DataTable<RecordRow>
+          data={data?.items ?? []}
+          columns={recordRowColumns}
+          keyExtractor={(record) => record.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
 
         {/* Pagination */}
         {data && data.total > 20 && (
-          <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200">
-            <div className="text-sm text-gray-700">
+          <div className="bg-white dark:bg-gray-900 px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
+            <div className="text-sm text-gray-700 dark:text-gray-300">
               Showing {(page - 1) * 20 + 1} to {Math.min(page * 20, data.total)} of {data.total}{' '}
               records
             </div>
             <div className="flex space-x-2">
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
               >
                 Previous
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => setPage((p) => p + 1)}
                 disabled={!data.hasNextPage}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
               >
                 Next
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -467,66 +476,58 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
       size="lg"
     >
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+        <div className="mb-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 text-sm text-error-800 dark:text-error-200">
           {(error as Error).message}
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Batch */}
           {!isEdit && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Batch *</label>
-              <select
-                name="batchId"
-                value={formData.batchId}
-                onChange={handleChange}
-                required
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              >
-                <option value="">Select batch...</option>
-                {batches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.batchNumber} - {b.name || 'Unnamed'}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Batch"
+              required
+              placeholder="Select batch..."
+              name="batchId"
+              value={formData.batchId}
+              onChange={handleChange}
+              options={batches.map((b) => ({
+                value: b.id,
+                label: `${b.batchNumber} - ${b.name || 'Unnamed'}`,
+              }))}
+            />
           )}
 
           {/* Feed */}
           {!isEdit && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Feed *</label>
-              <select
-                name="feedId"
-                value={formData.feedId}
-                onChange={handleChange}
-                required
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              >
-                <option value="">Select feed...</option>
-                {feeds.map((f: any) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name || f.code}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Feed"
+              required
+              placeholder="Select feed..."
+              name="feedId"
+              value={formData.feedId}
+              onChange={handleChange}
+              options={feeds.map((f: { id: string; name?: string; code?: string }) => ({
+                value: f.id,
+                label: f.name || f.code || '',
+              }))}
+            />
           )}
 
           {/* Date */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Feeding Date *</label>
-              <input
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Feeding Date *
+              </label>
+              <Input
+                fullWidth
                 type="date"
                 name="feedingDate"
                 value={formData.feedingDate}
                 onChange={handleChange}
                 required
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               />
             </div>
           )}
@@ -534,14 +535,16 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Time */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Feeding Time *</label>
-              <input
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Feeding Time *
+              </label>
+              <Input
+                fullWidth
                 type="time"
                 name="feedingTime"
                 value={formData.feedingTime}
                 onChange={handleChange}
                 required
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               />
             </div>
           )}
@@ -549,24 +552,24 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Sequence */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Meal #</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Meal #
+              </label>
               <div className="flex items-center space-x-2">
-                <input
+                <Input
                   type="number"
                   name="feedingSequence"
                   value={formData.feedingSequence}
                   onChange={handleChange}
                   min={1}
-                  className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                 />
-                <span className="text-gray-500">of</span>
-                <input
+                <span className="text-gray-500 dark:text-gray-400">of</span>
+                <Input
                   type="number"
                   name="totalMealsToday"
                   value={formData.totalMealsToday}
                   onChange={handleChange}
                   min={1}
-                  className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                 />
               </div>
             </div>
@@ -575,29 +578,33 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Method */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Method</label>
-              <select
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Method
+              </label>
+              <Select
+                fullWidth
+                options={[
+                  { value: 'MANUAL', label: 'Manual' },
+                  { value: 'AUTOMATIC', label: 'Automatic' },
+                  { value: 'DEMAND', label: 'Demand' },
+                  { value: 'BROADCAST', label: 'Broadcast' },
+                  { value: 'SPOT', label: 'Spot' },
+                ]}
                 name="feedingMethod"
                 value={formData.feedingMethod}
                 onChange={handleChange}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              >
-                <option value="MANUAL">Manual</option>
-                <option value="AUTOMATIC">Automatic</option>
-                <option value="DEMAND">Demand</option>
-                <option value="BROADCAST">Broadcast</option>
-                <option value="SPOT">Spot</option>
-              </select>
+              />
             </div>
           )}
 
           {/* Planned Amount */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Planned Amount (kg) *
               </label>
-              <input
+              <Input
+                fullWidth
                 type="number"
                 name="plannedAmount"
                 value={formData.plannedAmount}
@@ -605,17 +612,17 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
                 required
                 step="0.1"
                 min="0"
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               />
             </div>
           )}
 
           {/* Actual Amount */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Actual Amount (kg) *
             </label>
-            <input
+            <Input
+              fullWidth
               type="number"
               name="actualAmount"
               value={formData.actualAmount}
@@ -623,51 +630,52 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
               required
               step="0.1"
               min="0"
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             />
           </div>
 
           {/* Waste Amount */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Waste Amount (kg)
             </label>
-            <input
+            <Input
+              fullWidth
               type="number"
               name="wasteAmount"
               value={formData.wasteAmount}
               onChange={handleChange}
               step="0.1"
               min="0"
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             />
           </div>
 
           {/* Feed Cost */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Feed Cost</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Feed Cost
+              </label>
               <div className="flex items-center space-x-2">
-                <input
+                <Input
+                  fullWidth
                   type="number"
                   name="feedCost"
                   value={formData.feedCost}
                   onChange={handleChange}
                   step="0.01"
                   min="0"
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                 />
-                <select
+                <Select
+                  options={[
+                    { value: 'NOK', label: 'NOK' },
+                    { value: 'EUR', label: 'EUR' },
+                    { value: 'USD', label: 'USD' },
+                    { value: 'TRY', label: 'TRY' },
+                  ]}
                   name="currency"
                   value={formData.currency}
                   onChange={handleChange}
-                  className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                >
-                  <option value="NOK">NOK</option>
-                  <option value="EUR">EUR</option>
-                  <option value="USD">USD</option>
-                  <option value="TRY">TRY</option>
-                </select>
+                />
               </div>
             </div>
           )}
@@ -675,33 +683,27 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
 
         {/* Notes */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-          <textarea
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Notes
+          </label>
+          <Textarea
+            fullWidth
             name="notes"
             value={formData.notes}
             onChange={handleChange}
             rows={2}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             placeholder="Optional notes..."
           />
         </div>
 
         {/* Actions */}
         <div className="flex justify-end space-x-3 pt-4 border-t">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-          >
+          <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
+          </Button>
+          <Button variant="primary" type="submit" disabled={isSubmitting}>
             {isSubmitting ? 'Saving...' : isEdit ? 'Update Record' : 'Create Record'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>

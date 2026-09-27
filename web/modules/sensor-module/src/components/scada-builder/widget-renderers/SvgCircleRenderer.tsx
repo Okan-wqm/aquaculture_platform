@@ -19,11 +19,12 @@ import type { WidgetRendererProps } from '../WidgetRenderer';
 import SvgGradientDefs from '../widget-configs/SvgGradientDefs';
 import type { GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
 import { DEFAULT_GRADIENT, DEFAULT_FILTER, buildGradientId, buildFilterId } from '../../../types/scada-svg-properties.types';
+import { colors } from '@aquaculture/shared-ui';
 
 const SvgCircleRenderer: React.FC<WidgetRendererProps> = ({
   config, width, height, animationState,
 }) => {
-  const stroke = (animationState?.stroke ?? config.stroke ?? '#1d4ed8') as string;
+  const stroke = (animationState?.stroke ?? config.stroke ?? colors.info[700]) as string;
   const strokeWidth = (config.strokeWidth ?? 2) as number;
   const opacity = (config.opacity ?? 1) as number;
   const label = (config.label ?? '') as string;
@@ -36,7 +37,7 @@ const SvgCircleRenderer: React.FC<WidgetRendererProps> = ({
   // Recursive color CSS variable consumption -- higher priority than config, lower than animationState.fill
   const cssVarFill = animationState?.cssVariables?.['--scada-fill'];
   const cssVarStroke = animationState?.cssVariables?.['--scada-stroke'];
-  const flatFill = (animationState?.fill ?? cssVarFill ?? config.fill ?? '#3b82f6') as string;
+  const flatFill = (animationState?.fill ?? cssVarFill ?? config.fill ?? colors.info[500]) as string;
   const effectiveStroke = cssVarStroke ?? stroke;
 
   // Color-alternating blink state

@@ -66,10 +66,10 @@
     },
     "subject": {
       "type": "string",
-      "pattern": "^(events\\.|telemetry\\.|dlq\\.|commands\\.|request\\.|config\\.runtime\\.|config\\.marine_credentials\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX[A-Z_]*\\.)[A-Za-z0-9_.*>-]+$",
+      "pattern": "^(events\\.|telemetry\\.|dlq\\.|commands\\.|request\\.|config\\.runtime\\.|config\\.marine_credentials\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|\\$JS\\.ACK\\.|_INBOX[A-Z_]*\\.)[A-Za-z0-9_.*>-]+$",
       "minLength": 3,
       "maxLength": 120,
-      "description": "NATS subject pattern in a canonical platform namespace. The legacy AQUACULTURE_EVENTS. prefix is structurally rejected because it is a stream name, never a publish subject. Reply inboxes are per-service scoped (SEC-HIGH-098, 2026-08-23 scan №43): every service subscribes `_INBOX<SERVICE>.>` matching the connection factory's inboxPrefix — no cert can subscribe another service's reply stream. The dedicated secret-bearing prefixes `_INBOXBILLINGCFG.` / `_INBOXFARMMARINECFG.` remain additional restrictions inside that scheme."
+      "description": "NATS subject pattern in a canonical platform namespace. `$JS.ACK.>` is the JetStream consumer-ack publish grant (acks are PUBLISHes; without it every durable-consumer ack is a Publish Violation and messages redeliver forever — MSGFIX-FAZ3 live root cause). The legacy AQUACULTURE_EVENTS. prefix is structurally rejected because it is a stream name, never a publish subject. Reply inboxes are per-service scoped (SEC-HIGH-098, 2026-08-23 scan №43): every service subscribes `_INBOX<SERVICE>.>` matching the connection factory's inboxPrefix — no cert can subscribe another service's reply stream. The dedicated secret-bearing prefixes `_INBOXBILLINGCFG.` / `_INBOXFARMMARINECFG.` remain additional restrictions inside that scheme."
     }
   }
 }

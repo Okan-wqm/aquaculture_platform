@@ -12,6 +12,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # The merge queue (main ruleset) builds each group's merge commit and asks
+  # for the same required checks; a workflow that does not listen here
+  # leaves every queued entry waiting until the queue's timeout.
+  merge_group:
+    types: [checks_requested]
 
 # SEC-CI-021: Minimum token permissions — prevents compromised actions from
 # pushing commits, creating releases, or modifying repository settings.
@@ -37,7 +42,7 @@ jobs:
       head_sha: ${{ steps.range.outputs.head_sha }}
       infra_image_changed: ${{ steps.scope.outputs.has_infra }}
       infra_matrix: ${{ steps.scope.outputs.infra_matrix }}
-      is_pr: ${{ github.event_name == 'pull_request' }}
+      is_pr: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
       range_reason: ${{ steps.range.outputs.range_reason }}
       rust_checks_required: ${{ steps.scope.outputs.rust_checks_required }}
       selection_reason: ${{ steps.scope.outputs.selection_reason }}
@@ -73,7 +78,7 @@ jobs:
           node scripts/ci/resolve-affected-range.ts \
             --event-name "${{ github.event_name }}" \
             --ref "${{ github.ref }}" \
-            --pr-base-sha "${{ github.event.pull_request.base.sha }}" \
+            --pr-base-sha "${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}" \
             --head-sha "${{ github.sha }}" \
             --development-ref deployed/development
 
@@ -170,7 +175,7 @@ jobs:
     needs: [install, detect-changes]
     if: >-
       needs.detect-changes.outputs.has_changes == 'true' &&
-      (github.event_name == 'pull_request' ||
+      (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     services:
@@ -264,7 +269,7 @@ jobs:
     needs: [install, detect-changes]
     if: >-
       needs.detect-changes.outputs.has_changes == 'true' &&
-      (github.event_name == 'pull_request' ||
+      (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     services:
@@ -364,8 +369,14 @@ jobs:
     needs: [install, detect-changes]
     if: >-
       needs.detect-changes.outputs.has_changes == 'true' &&
-      (github.event_name == 'pull_request' ||
+      (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    # pull-requests: read — a merge group carries no PR body; the entity-diff
+    # witness reads its waiver from the queued pull request (see the step
+    # "Resolve the queued pull request's body").
+    permissions:
+      contents: read
+      pull-requests: read
     runs-on: ubuntu-latest
     # Raised from 40 to 45 when the integration lane joined this job
     # (FARM-MEDIUM-301). The ceiling catches a runaway; it does not pace the
@@ -495,6 +506,28 @@ jobs:
           NX_NO_CLOUD: 'true'
           NODE_OPTIONS: '--max-old-space-size=4096'
 
+      - name: Resolve the queued pull request's body
+        # In a merge group the event carries no PR body; the entity-diff
+        # witness (tools/gates/entity-diff-witness.ts) reads its waiver line
+        # from PR_BODY, so the body is fetched from the pull request the
+        # queue's head ref names (`gh-readonly-queue/main/pr-<n>-<sha>`).
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        run: |
+          set -euo pipefail
+          number="$(printf '%s' "$HEAD_REF" | sed -n 's#.*/pr-\([0-9][0-9]*\)-.*#\1#p')"
+          if [ -z "$number" ]; then
+            echo "::warning::merge group head ref carries no pull request number: $HEAD_REF"
+            exit 0
+          fi
+          body="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${number}" --jq '.body // ""')"
+          {
+            echo 'MERGE_GROUP_PR_BODY<<ARIA_PR_BODY_EOF'
+            printf '%s\n' "$body"
+            echo 'ARIA_PR_BODY_EOF'
+          } >> "$GITHUB_ENV"
       - name: Run tests (affected only)
         run: |
           BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
@@ -510,7 +543,7 @@ jobs:
           # PR_BODY — without it, any entity edit with no migration (e.g. a
           # read-replica entity's pure-typing change) fails the gate. Mirrors
           # db-migration-check.yml + the quality-gates invariants-fast job.
-          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_BODY: ${{ github.event.pull_request.body || env.MERGE_GROUP_PR_BODY }}
           NODE_OPTIONS: '--max-old-space-size=4096'
           # NATS event bus connectivity for integration tests. The service
           # container exposes nats://localhost:4222 with no auth (dev mode).
@@ -768,7 +801,7 @@ jobs:
     needs: [install, detect-changes]
     if: >-
       needs.detect-changes.outputs.has_changes == 'true' &&
-      (github.event_name == 'pull_request' ||
+      (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     services:
@@ -858,7 +891,7 @@ jobs:
 
   schema-validation:
     needs: [install, detect-changes]
-    if: needs.detect-changes.outputs.has_changes == 'true' && github.event_name == 'pull_request'
+    if: needs.detect-changes.outputs.has_changes == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
     runs-on: ubuntu-latest
     services:
       redis:
@@ -1349,7 +1382,7 @@ jobs:
   # ---------------------------------------------------------------------------
   infra-image-build-check:
     needs: detect-changes
-    if: needs.detect-changes.outputs.infra_image_changed == 'true' && github.event_name == 'pull_request'
+    if: needs.detect-changes.outputs.infra_image_changed == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
     runs-on: ubuntu-latest
     services:
       redis:
@@ -1817,7 +1850,7 @@ jobs:
     steps:
       - name: Fail on skipped, cancelled or failed Sens dependencies
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ "${{ github.event_name }}" != "merge_group" ]; then
             exit 0
           fi
           if [ "${{ needs.detect-changes.outputs.has_changes }}" != "true" ]; then
@@ -1859,7 +1892,7 @@ jobs:
       - sensor-service-gates
       - sens-api-gateway-rust
       - sens-enterprise-validation
-    if: always() && github.event_name == 'pull_request'
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
     runs-on: ubuntu-latest
     services:
       redis:
@@ -1984,7 +2017,7 @@ jobs:
             done
           fi
 
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ] || [ "${{ github.event_name }}" = "merge_group" ]; then
             [ "${{ needs.merge-gate.result }}" = "success" ]
             [ "${{ needs.sens-enterprise-summary.result }}" = "success" ]
             if [ "${{ needs.detect-changes.outputs.has_changes }}" = "true" ]; then

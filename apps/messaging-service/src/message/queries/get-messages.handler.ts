@@ -2,7 +2,7 @@ import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { DataSource, IsNull } from 'typeorm';
 
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { GetMessagesQuery } from './get-messages.query';
 import { Message } from '../entities/message.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
@@ -64,9 +64,7 @@ function decodeCursor(cursor: string): DecodedCursor {
 export class GetMessagesHandler implements IQueryHandler<GetMessagesQuery, MessagePage> {
   private readonly logger = new Logger(GetMessagesHandler.name);
 
-  constructor(
-    private readonly dataSource: DataSource,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   async execute(query: GetMessagesQuery): Promise<MessagePage> {
     const { tenantId, userId, channelId, limit, cursor, before, after } = query;
@@ -76,12 +74,14 @@ export class GetMessagesHandler implements IQueryHandler<GetMessagesQuery, Messa
     // but we assert tenantId presence to catch programming errors where a query
     // is dispatched without proper tenant context.
     if (!tenantId) {
-      throw new BadRequestException(
-        'Tenant context is required for message queries.',
-      );
+      throw new BadRequestException('Tenant context is required for message queries.');
     }
 
-    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+    // MSGFIX-FAZ3 3.5: hot read path uses the READ-ONLY tenant boundary
+    // (same fail-closed search_path pin + RLS GUC assert, but READ ONLY so
+    // this page query cannot contend with write transactions and an
+    // accidental write here fails structurally).
+    return runInTenantRead(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       // Tenant-pinned query path matches the send/edit/delete command path.
       const membership = await queryRunner.manager.findOne(ChannelMember, {
         where: { tenantId, channelId, userId, leftAt: IsNull() },

@@ -5,8 +5,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 // Entities
 import { Configuration, ConfigurationHistory } from './entities/configuration.entity';
 
-// Resolver
+// Resolvers
 import { ConfigurationResolver } from './configuration.resolver';
+import { MarineProviderCredentialResolver } from './marine-provider-credential.resolver';
 
 // Services
 import { ConfigurationService } from './services/configuration.service';
@@ -55,6 +56,7 @@ const QueryHandlers = [
   controllers: [ConfigRuntimeNatsHandler, MarineProviderCredentialsNatsHandler],
   providers: [
     ConfigurationResolver,
+    MarineProviderCredentialResolver,
     ConfigurationService,
     EncryptionService,
     ConfigurationValidationService,

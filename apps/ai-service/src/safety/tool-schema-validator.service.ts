@@ -150,7 +150,15 @@ export class ToolSchemaValidatorService {
       const types = Array.isArray(schema.type) ? schema.type : [schema.type];
       const actualType = this.getJsonType(value);
 
-      if (!types.includes(actualType)) {
+      // JSON Schema: every integer IS a valid number. LLMs routinely emit
+      // whole-number values (temperature: 12, salinity: 0) for number-typed
+      // parameters — rejecting them starved the calculators of valid calls
+      // (live: glm-5.3's calculate_co2_level/ammonia_toxicity attempts were
+      // all blocked with "expected type number, got integer").
+      const typeMatches =
+        types.includes(actualType) ||
+        (actualType === 'integer' && types.includes('number'));
+      if (!typeMatches) {
         errors.push(
           `"${path}": expected type ${types.join('|')}, got ${actualType}`,
         );

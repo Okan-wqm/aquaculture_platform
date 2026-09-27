@@ -3,6 +3,8 @@
  * pH 4.0-9.0 range (hydroponic focused)
  */
 
+import { colors } from '@aquaculture/shared-ui';
+
 import {
   phNbsToFree,
   phLineSlope,
@@ -17,18 +19,30 @@ export interface PHIsoline {
   points: Array<{ CT: number; AT: number }>;
 }
 
-/** Color palette for hydroponic pH range */
+/**
+ * Isoline colour by pH band — a diverging scale on the theme's tokens:
+ * acid bands in the error reds, the approach to neutral in the warning
+ * ambers, the neutral bands in the success greens, alkaline bands in the
+ * info and primary blues. Each band is a step apart from its neighbours,
+ * which is all an isoline needs (its label carries the value); one palette
+ * across charts is what the raw-hex ratchet asks for.
+ */
+const PH_BANDS: ReadonlyArray<readonly [upperBound: number, colour: string]> = [
+  [4.5, colors.error[700]],
+  [5.0, colors.error[600]],
+  [5.5, colors.error[500]],
+  [6.0, colors.warning[600]],
+  [6.5, colors.warning[500]],
+  [7.0, colors.success[500]],
+  [7.5, colors.success[700]],
+  [8.0, colors.info[500]],
+  [8.5, colors.primary[600]],
+];
+const PH_ALKALINE_COLOR = colors.primary[800];
+
 function phIsolineColor(pH: number): string {
-  if (pH < 4.5) return '#991b1b';
-  if (pH < 5.0) return '#dc2626';
-  if (pH < 5.5) return '#ef4444';
-  if (pH < 6.0) return '#f97316';
-  if (pH < 6.5) return '#eab308';
-  if (pH < 7.0) return '#22c55e';
-  if (pH < 7.5) return '#06b6d4';
-  if (pH < 8.0) return '#3b82f6';
-  if (pH < 8.5) return '#6366f1';
-  return '#7c3aed';
+  const band = PH_BANDS.find(([upperBound]) => pH < upperBound);
+  return band ? band[1] : PH_ALKALINE_COLOR;
 }
 
 /**

@@ -12,7 +12,7 @@
 # refused with Permissions Violations. An invariant that does not run is a
 # Potemkin gate; this workflow is the wiring.
 #
-# WHAT it runs (all static file analysis — no broker, no database):
+# WHAT it runs:
 #   - nats-invariants.spec.ts     services.yaml schema + generator fidelity +
 #                                 legacy-scheme ban + publish/RPC coverage
 #                                 against apps/** sources
@@ -20,11 +20,20 @@
 #                                    (ORPHAN-013 regression guard)
 #   - messaging-acl-smoke.test.mjs  parser/envelope adversarial tests for the
 #                                   generated cert-only authorization surface
+#   - boot-path-acl-smoke-harness.sh  a real broker on the generated nats.conf
+#                                     + one minted certificate per identity:
+#                                     every NestJS service runs the event-bus
+#                                     boot sequence (factory inbox prefix →
+#                                     jetstreamManager → stream create/update)
+#                                     inside its own grants. The files and the
+#                                     code were only ever checked apart; the
+#                                     first real identity through the real
+#                                     ACL was production (2026-09-20 outage).
 #
 # Paths: apps/** and libs/event-contracts/** are inputs to the coverage
 # checks (a new createBaseEvent type or @MessagePattern handler must carry
-# its grant), so the job runs on most backend PRs. It is pure static
-# analysis (~1 min after npm ci) — cheap enough to run broadly.
+# its grant), so the job runs on most backend PRs. The static specs take
+# ~1 min after npm ci; the broker smoke adds ~10 s (one nats:2.10 container).
 
 name: NATS SSoT Invariants
 
@@ -32,6 +41,8 @@ on:
   pull_request:
     paths:
       - 'infrastructure/nats/**'
+      - 'libs/backend-common/src/nats/**'
+      - 'tools/scripts/nats-boot-path-acl-smoke.ts'
       - 'infrastructure/docker/nats/**'
       - 'infrastructure/docker/scripts/generate-internal-certs.sh'
       - 'infrastructure/helm/aquaculture/**'
@@ -50,6 +61,8 @@ on:
     branches: [main]
     paths:
       - 'infrastructure/nats/**'
+      - 'libs/backend-common/src/nats/**'
+      - 'tools/scripts/nats-boot-path-acl-smoke.ts'
       - 'infrastructure/docker/nats/**'
       - 'infrastructure/docker/scripts/generate-internal-certs.sh'
       - 'infrastructure/helm/aquaculture/**'
@@ -71,7 +84,8 @@ concurrency:
 jobs:
   nats-invariants:
     runs-on: ubuntu-latest
-    # Static analysis only — generous ceiling, no zombie risk.
+    # Static analysis plus one short-lived broker container — generous
+    # ceiling, no zombie risk (the harness removes its container on exit).
     timeout-minutes: 15
 
     steps:
@@ -103,3 +117,6 @@ jobs:
 
       - name: Run generated authorization parser adversarial tests
         run: node --test scripts/nats/messaging-acl-smoke.test.mjs
+
+      - name: Run every NestJS identity through the event-bus boot path on the generated ACL
+        run: bash scripts/nats/boot-path-acl-smoke-harness.sh

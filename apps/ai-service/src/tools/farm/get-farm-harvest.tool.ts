@@ -42,14 +42,12 @@ interface GetHarvestOutput {
   category: 'farm_query',
   runtime: 'cloud',
   requiredPermissions: ['operator', 'manager', 'expert', 'supervisor'],
-  requiresModule: null,
+  requiresModule: 'farm',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   requiresConfirmation: false,
 })
 export class GetFarmHarvestTool extends BaseTool<GetHarvestInput, GetHarvestOutput> {
-  constructor(
-    @Inject('NATS_SERVICE') private readonly natsClient: Pick<ClientProxy, 'send'>,
-  ) {
+  constructor(@Inject('NATS_SERVICE') private readonly natsClient: Pick<ClientProxy, 'send'>) {
     super();
   }
 

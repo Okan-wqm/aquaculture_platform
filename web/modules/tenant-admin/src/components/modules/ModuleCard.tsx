@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button, Badge } from '@aquaculture/shared-ui';
 import {
   Users,
   CheckCircle,
@@ -51,36 +52,30 @@ export interface ModuleUsageStatLocal {
  * Status badge component.
  */
 const StatusBadge: React.FC<{ status: DisplayModule['status'] }> = ({ status }) => {
+  // FE-HIGH-079: one badge scale — active is success, pending is warning, inactive is neutral.
   const statusConfig = {
     active: {
-      bg: 'bg-green-100',
-      text: 'text-green-700',
+      variant: 'success' as const,
       icon: <CheckCircle className="w-3 h-3" />,
       label: 'Active',
     },
     inactive: {
-      bg: 'bg-gray-100',
-      text: 'text-gray-700',
+      variant: 'default' as const,
       icon: <XCircle className="w-3 h-3" />,
       label: 'Inactive',
     },
     pending: {
-      bg: 'bg-yellow-100',
-      text: 'text-yellow-700',
+      variant: 'warning' as const,
       icon: <Clock className="w-3 h-3" />,
       label: 'Pending Setup',
     },
   };
-
   const config = statusConfig[status];
-
   return (
-    <span
-      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}
-    >
+    <Badge variant={config.variant} size="sm" className="gap-1">
       {config.icon}
       {config.label}
-    </span>
+    </Badge>
   );
 };
 
@@ -110,65 +105,69 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
   const canOpen = !!moduleRoute && module.status === 'active';
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 overflow-hidden hover:shadow-lg transition-shadow">
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-lg transition-shadow">
       {/* Module Header */}
-      <div className="p-6 border-b border-gray-100">
+      <div className="p-6 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-tenant-50 flex items-center justify-center text-2xl">
+            <div className="w-12 h-12 rounded-xl bg-success-50 dark:bg-success-900/20 flex items-center justify-center text-2xl">
               {module.icon}
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900">{module.name}</h3>
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100">{module.name}</h3>
               <StatusBadge status={module.status} />
             </div>
           </div>
-          <button className="p-1.5 rounded-lg text-gray-500 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+          <Button variant="ghost" size="sm" iconOnly aria-label="More actions">
             <MoreVertical className="w-4 h-4" />
-          </button>
+          </Button>
         </div>
-        <p className="text-sm text-gray-500 mt-3 line-clamp-2">
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-3 line-clamp-2">
           {module.description}
         </p>
       </div>
 
       {/* Module Stats */}
-      <div className="px-6 py-4 bg-gray-50 grid grid-cols-2 gap-4">
+      <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="flex items-center gap-2">
-          <Users className="w-4 h-4 text-gray-500" />
-          <span className="text-sm text-gray-600">{module.assignedUsers} users</span>
+          <Users className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+          <span className="text-sm text-gray-600 dark:text-gray-400">
+            {module.assignedUsers} users
+          </span>
         </div>
         <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-gray-500" />
-          <span className="text-sm text-gray-500 truncate">{module.lastActivity}</span>
+          <Calendar className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+          <span className="text-sm text-gray-500 dark:text-gray-400 truncate">
+            {module.lastActivity}
+          </span>
         </div>
       </div>
 
       {/* Usage Statistics */}
       {usageStats && (
-        <div className="px-6 py-3 bg-tenant-50/50 border-t border-gray-100">
+        <div className="px-6 py-3 bg-success-50/50 border-t border-gray-100 dark:border-gray-700">
           <div className="flex items-center gap-2 mb-2">
-            <Activity className="w-3.5 h-3.5 text-tenant-500" />
-            <span className="text-xs font-medium text-tenant-700 uppercase tracking-wider">
+            <Activity className="w-3.5 h-3.5 text-success-500" />
+            <span className="text-xs font-medium text-success-700 dark:text-success-300 uppercase tracking-wider">
               Usage Stats
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <p className="text-xs text-gray-500">Actions this month</p>
-              <p className="text-sm font-semibold text-gray-900">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Actions this month</p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                 {usageStats.actionsThisMonth.toLocaleString()}
               </p>
             </div>
             <div>
-              <p className="text-xs text-gray-500">vs. last month</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">vs. last month</p>
               <div className="flex items-center gap-1">
                 {usageStats.actionsThisMonth >= usageStats.actionsLastMonth ? (
-                  <TrendingUp className="w-3.5 h-3.5 text-green-500" />
+                  <TrendingUp className="w-3.5 h-3.5 text-success-500" />
                 ) : (
-                  <TrendingUp className="w-3.5 h-3.5 text-red-500 rotate-180" />
+                  <TrendingUp className="w-3.5 h-3.5 text-error-500 rotate-180" />
                 )}
-                <p className="text-sm font-semibold text-gray-900">
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                   {usageStats.actionsLastMonth > 0
                     ? `${((usageStats.actionsThisMonth / usageStats.actionsLastMonth - 1) * 100).toFixed(0)}%`
                     : 'N/A'}
@@ -180,11 +179,11 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
       )}
 
       {/* Manager Section */}
-      <div className="p-4 border-t border-gray-100">
+      <div className="p-4 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Shield className="w-4 h-4 text-gray-500" />
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+            <Shield className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               Module Manager
             </span>
           </div>
@@ -193,7 +192,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
         {module.manager ? (
           <div className="flex items-center justify-between mt-3">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white text-xs font-medium">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-success-500 to-success-700 flex items-center justify-center text-white text-xs font-medium">
                 {module.manager.name
                   .split(' ')
                   .map((n) => n[0])
@@ -202,25 +201,25 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
                   .toUpperCase()}
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-900">{module.manager.name}</p>
-                <p className="text-xs text-gray-500">{module.manager.email}</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {module.manager.name}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{module.manager.email}</p>
               </div>
             </div>
-            <button
-              onClick={() => onAssignManager(module)}
-              className="text-xs text-tenant-600 hover:text-tenant-700 font-medium"
-            >
+            <Button variant="ghost" size="xs" onClick={() => onAssignManager(module)}>
               Change
-            </button>
+            </Button>
           </div>
         ) : (
-          <button
+          <Button
+            variant="secondary"
+            className="mt-3 justify-center"
+            leftIcon={<UserPlus className="w-4 h-4" />}
             onClick={() => onAssignManager(module)}
-            className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-lg border-2 border-dashed border-gray-200 text-sm text-gray-500 hover:border-tenant-300 hover:text-tenant-600 transition-colors"
           >
-            <UserPlus className="w-4 h-4" />
             Assign Manager
-          </button>
+          </Button>
         )}
       </div>
 
@@ -230,13 +229,13 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
           {module.features.slice(0, 3).map((feature, idx) => (
             <span
               key={idx}
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600"
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
             >
               {feature}
             </span>
           ))}
           {module.features.length > 3 && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-500">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
               +{module.features.length - 3}
             </span>
           )}
@@ -246,23 +245,26 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
       {/* Actions */}
       <div className="px-4 pb-4 flex items-center gap-2">
         <button
-          className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-tenant-600 bg-tenant-50 rounded-lg hover:bg-tenant-100 transition-colors"
+          className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-success-600 dark:text-success-400 bg-success-50 dark:bg-success-900/20 rounded-lg hover:bg-success-100 dark:hover:bg-success-900/50 transition-colors"
           onClick={() => onViewDetails(module)}
         >
           <BarChart3 className="w-4 h-4" />
           View Details
         </button>
         {canOpen ? (
-          <button
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+          <Button
+            variant="primary"
+            iconOnly
+            aria-label="Open"
+            className="justify-center"
             onClick={() => onOpenModule(module)}
             title={`${module.name} Dashboard'a git`}
           >
             <ExternalLink className="w-4 h-4" />
-          </button>
+          </Button>
         ) : (
           <button
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-500 bg-gray-100 rounded-lg cursor-not-allowed"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 rounded-lg cursor-not-allowed"
             disabled
             title={module.status !== 'active' ? 'Module is not active' : 'Dashboard not available'}
           >

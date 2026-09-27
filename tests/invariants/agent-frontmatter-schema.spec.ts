@@ -155,7 +155,10 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
   // the three reviewers are judge-tier (opus). Fixer is also in
   // ARIA_WRITE_TIER below, which additionally pins its effort.
   const ARIA_ACCEPTANCE_TIER: ReadonlyMap<string, [string, string]> = new Map([
-    ['aria-acceptance-lead', ['fable', 'max']],
+    // Operator decision 2026-09-12: fable is selected by nothing — the lead
+    // runs on opus like every other decision node (python invariant:
+    // aria-kernel/tests/invariants/test_fable_is_selected_by_nothing.py).
+    ['aria-acceptance-lead', ['opus', 'max']],
     ['aria-acceptance-output-validator', ['opus', 'max']],
     ['aria-acceptance-gap-hunter', ['opus', 'max']],
     ['aria-acceptance-gap-fixer', ['opus', 'max']],

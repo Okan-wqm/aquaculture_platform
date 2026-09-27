@@ -32,7 +32,7 @@
  */
 
 import React from 'react';
-import { Card, Badge, KpiCard, BarChart, Button } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, KpiCard, BarChart, PageHeader } from '@aquaculture/shared-ui';
 import { messagingApi } from '../../services/api/messaging';
 import type { MessagingMonitoringStats } from '../../services/types/messaging';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -69,12 +69,14 @@ const OutboxHealthPanel: React.FC<{ stats: MessagingMonitoringStats }> = ({ stat
   const hasFailures = outbox.failedCount > 0;
 
   return (
-    <Card className={hasFailures ? 'border-amber-300' : undefined}>
+    <Card className={hasFailures ? 'border-warning-300 dark:border-warning-700' : undefined}>
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-sm font-semibold text-gray-900">Outbox Health</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              Outbox Health
+            </h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
               Transactional event outbox of the messaging service
             </p>
           </div>
@@ -86,8 +88,8 @@ const OutboxHealthPanel: React.FC<{ stats: MessagingMonitoringStats }> = ({ stat
         </div>
 
         {hasFailures && (
-          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-            <p className="text-sm text-amber-800">
+          <div className="mb-4 p-3 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg">
+            <p className="text-sm text-warning-800 dark:text-warning-200">
               {outbox.failedCount.toLocaleString()} event(s) are dead-lettered and will not be
               retried automatically. Investigate the messaging-service dead-letter queue.
             </p>
@@ -95,23 +97,31 @@ const OutboxHealthPanel: React.FC<{ stats: MessagingMonitoringStats }> = ({ stat
         )}
 
         <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="p-3 rounded-lg bg-gray-50">
-            <dt className="text-xs font-medium text-gray-500">Pending events</dt>
-            <dd className="text-xl font-bold text-gray-900 mt-1">
+          <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
+            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400">Pending events</dt>
+            <dd className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">
               {outbox.pendingCount.toLocaleString()}
             </dd>
           </div>
-          <div className={`p-3 rounded-lg ${hasFailures ? 'bg-red-50' : 'bg-gray-50'}`}>
-            <dt className={`text-xs font-medium ${hasFailures ? 'text-red-600' : 'text-gray-500'}`}>
+          <div
+            className={`p-3 rounded-lg ${hasFailures ? 'bg-error-50 dark:bg-error-900/20' : 'bg-gray-50 dark:bg-gray-800'}`}
+          >
+            <dt
+              className={`text-xs font-medium ${hasFailures ? 'text-error-600 dark:text-error-400' : 'text-gray-500 dark:text-gray-400'}`}
+            >
               Dead-lettered events
             </dt>
-            <dd className={`text-xl font-bold mt-1 ${hasFailures ? 'text-red-700' : 'text-gray-900'}`}>
+            <dd
+              className={`text-xl font-bold mt-1 ${hasFailures ? 'text-error-700 dark:text-error-300' : 'text-gray-900 dark:text-gray-100'}`}
+            >
               {outbox.failedCount.toLocaleString()}
             </dd>
           </div>
-          <div className="p-3 rounded-lg bg-gray-50">
-            <dt className="text-xs font-medium text-gray-500">Oldest pending age</dt>
-            <dd className="text-xl font-bold text-gray-900 mt-1">
+          <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
+            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              Oldest pending age
+            </dt>
+            <dd className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">
               {outbox.oldestPendingAgeSeconds === null
                 ? '—'
                 : formatAge(outbox.oldestPendingAgeSeconds)}
@@ -141,22 +151,20 @@ const MessagingMonitoringPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Messaging Monitoring</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Cross-tenant message volume, channel activity, and outbox health
-          </p>
-        </div>
-        <Button
-          onClick={() => void statsQuery.refetch()}
-          disabled={statsQuery.isFetching}
-          variant="secondary"
-          size="sm"
-        >
-          {statsQuery.isFetching ? 'Refreshing...' : 'Refresh'}
-        </Button>
-      </div>
+      <PageHeader
+        title="Messaging Monitoring"
+        description="Cross-tenant message volume, channel activity, and outbox health"
+        actions={
+          <Button
+            onClick={() => void statsQuery.refetch()}
+            disabled={statsQuery.isFetching}
+            variant="secondary"
+            size="sm"
+          >
+            {statsQuery.isFetching ? 'Refreshing...' : 'Refresh'}
+          </Button>
+        }
+      />
 
       <QueryFailureNotice
         errors={[statsQuery.error]}
@@ -207,10 +215,10 @@ const MessagingMonitoringPage: React.FC = () => {
       {/* Top tenants by 24h volume */}
       <Card>
         <div className="p-6">
-          <h3 className="text-sm font-semibold text-gray-900 mb-1">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
             Top Tenants by 24h Message Volume
           </h3>
-          <p className="text-xs text-gray-500 mb-4">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
             Highest-volume tenants over the last 24 hours (tenant IDs shortened)
           </p>
 
@@ -235,7 +243,7 @@ const MessagingMonitoringPage: React.FC = () => {
               />
             </div>
           ) : (
-            <p className="text-sm text-gray-500 py-8 text-center">
+            <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
               {loading
                 ? 'Loading tenant activity...'
                 : 'No tenant messaging activity recorded yet.'}
@@ -246,7 +254,7 @@ const MessagingMonitoringPage: React.FC = () => {
 
       {/* Freshness note */}
       {stats && (
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-gray-400 dark:text-gray-500">
           Statistics are aggregated by the messaging service and cached for 60 seconds. Last
           computed: {new Date(stats.generatedAt).toLocaleString()}
         </p>

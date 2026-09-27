@@ -95,6 +95,26 @@ def _nearest_heading_anchor(lines: list[str], block_start_index: int) -> str | N
     return None
 
 
+_TABLE_PADDING = re.compile(r" {2,}")
+_TABLE_RULE = re.compile(r"-{3,}")
+
+
+def _normalise_table_row(line: str) -> str:
+    """A markdown table row with its alignment padding collapsed.
+
+    The digest is a TOKEN budget for a judge, not a rendered page: the
+    spaces Prettier inserts to align table columns (and the dashes it pads
+    the rule row with) carry no law and cost tokens. Left verbatim, one
+    `prettier --write` over CONTRACTS.md grew the digest by 1.5 KB and past
+    its hard cap with no contract changed (2026-09-15, run 34910051620).
+    Only rows that ARE table rows are touched; prose keeps its spacing.
+    """
+    if not line.lstrip().startswith("|"):
+        return line
+    cells = [_TABLE_RULE.sub("---", _TABLE_PADDING.sub(" ", cell.strip())) for cell in line.strip().split("|")]
+    return "|".join(cells)
+
+
 def _extract_marked_blocks(text: str, source_rel: str) -> list[tuple[str, str | None]]:
     """Return [(block_text, anchor)] for every marker pair, in file order.
 
@@ -119,7 +139,7 @@ def _extract_marked_blocks(text: str, source_rel: str) -> list[tuple[str, str | 
                 raise ValueError(
                     f"{source_rel}: {END_MARKER} at line {index + 1} without a begin marker"
                 )
-            block_lines = lines[open_index + 1 : index]
+            block_lines = [_normalise_table_row(line) for line in lines[open_index + 1 : index]]
             block = "\n".join(block_lines).strip("\n")
             if not block.strip():
                 raise ValueError(

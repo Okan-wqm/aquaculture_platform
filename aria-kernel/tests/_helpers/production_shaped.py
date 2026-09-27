@@ -5,6 +5,9 @@ survived a fully green suite for one reason: the fixture constructed an input
 production never produces.
 
     ORPHAN-CRITICAL-494  fixture: full clone          production: depth-1 shallow
+                         (until 2026-09-12; every kernel lane now checks out
+                         the whole history and the kernel refuses a shallow
+                         one — tests/invariants/test_kernel_lanes_check_out_full_history.py)
     ORPHAN-CRITICAL-495  fixture: request + target_sha  production: 11 of 17 mint
                                                         paths omit it
     ORPHAN-CRITICAL-495  fixture: request + cycle_id    production: 15 of 17 omit it
@@ -24,7 +27,10 @@ HONEST LABELLING, because overclaiming is how the above survived:
   and carry no literal of their own.
 * :func:`cycle_workspace` is a plain single-sourced fixture, NOT a derived
   value. It exists so the workspace shape lives in one place instead of being
-  re-typed per test file; it does not claim to be what production sees.
+  re-typed per test file; it does not claim to be what production sees — with
+  one exception it shares with production by construction: it is a git
+  repository with history, because a cycle workspace that is not one is an
+  input production never produces (see the function).
 """
 
 from __future__ import annotations
@@ -39,7 +45,7 @@ from aria_kernel.agent_invocations import create_agent_invocation_request
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.workflow_contract_registry import cycle_wall_clock_cap_seconds
 
-from .git_fixtures import make_local_git_repo
+from .git_fixtures import make_repo_with_initial_commit
 
 _ARIA_POC = Path(__file__).resolve().parents[2].parent / "tools" / "aria-poc"
 
@@ -64,30 +70,39 @@ class CycleFixture:
     tools_dir: Path
 
 
-def cycle_workspace(tmp: Path, *, git: bool = False) -> CycleFixture:
+# The minimum ``run_discovery`` needs to produce a non-empty FATES set: one
+# source file, a package manifest and an nx manifest.
+_CYCLE_WORKSPACE_FILES: dict[str, str] = {
+    "src/app.ts": "export const app = true;\n",
+    "package.json": '{"name":"fixture"}\n',
+    "nx.json": '{"affected":{}}\n',
+}
+
+
+def cycle_workspace(tmp: Path) -> CycleFixture:
     """A workspace + tools dir shaped like the one a cycle discovers.
 
-    Single-sourced, not production-derived — see the module docstring. The
-    contents are the minimum ``run_discovery`` needs to produce a non-empty
-    FATES set: one source file, a package manifest and an nx manifest.
+    Single-sourced, not production-derived — see the module docstring.
 
-    ``git=True`` initialises a real repository through
-    :func:`git_fixtures.make_local_git_repo`, which also disables auto-gc so
-    teardown cannot race a detached ``git gc`` (ORPHAN-LOW-301). Reused rather
-    than re-implemented, because a second git-init helper is exactly the
-    duplication this module exists to remove.
+    Always a git repository with the fixture files COMMITTED, never a bare
+    directory. The cycle reads the checkout's history, not only its tree:
+    the ``twin_refresh`` phase derives churn and co-change from ``git log``
+    and refuses a workspace whose history cannot be read
+    (``twin.HISTORY_UNAVAILABLE``) — a refusal that is a failed phase
+    outcome, fails the cycle's runtime status, and skips every later
+    ``halt_sequence`` phase. Until 2026-09-12 this fixture offered a
+    ``git=False`` default that produced exactly that workspace, and the
+    twin silently published an empty map for it; a directory with no
+    history is the input-production-never-produces class this module
+    exists to remove, so the choice is gone rather than defaulted.
+
+    Built through :func:`git_fixtures.make_repo_with_initial_commit`, which
+    also disables auto-gc so teardown cannot race a detached ``git gc``
+    (ORPHAN-LOW-301). Reused rather than re-implemented, because a second
+    git-init helper is exactly the duplication this module exists to
+    remove.
     """
-    if git:
-        workspace = make_local_git_repo(tmp, name="workspace")
-    else:
-        workspace = tmp / "workspace"
-        workspace.mkdir(parents=True, exist_ok=True)
-
-    (workspace / "src").mkdir(parents=True, exist_ok=True)
-    (workspace / "src" / "app.ts").write_text("export const app = true;\n", encoding="utf-8")
-    (workspace / "package.json").write_text('{"name":"fixture"}\n', encoding="utf-8")
-    (workspace / "nx.json").write_text('{"affected":{}}\n', encoding="utf-8")
-
+    workspace = make_repo_with_initial_commit(tmp, _CYCLE_WORKSPACE_FILES, name="workspace")
     return CycleFixture(
         workspace_root=workspace,
         tools_dir=ensure_tools_dir(tmp / "aria-tools"),
@@ -111,6 +126,9 @@ def production_converged_plan(
     plan_id: str = "plan-converged-fixture",
     reviewer: str = "farm-expert",
     affected_paths: list[str] | None = None,
+    evidence_refs: list[str] | None = None,
+    validation_commands: list[dict[str, Any]] | None = None,
+    with_coverage: bool = False,
 ) -> ConvergedPlan:
     """Drive ``plan_convergence`` to CONVERGED the way production does.
 
@@ -122,6 +140,11 @@ def production_converged_plan(
     convergence that the state machine never granted — which is the exact
     class of false evidence ORPHAN-CRITICAL-727's approval ref exists to make
     auditable.
+
+    ``with_coverage=True`` selects schema v2 and runs the default TypeScript/Nx
+    coverage producer before native convergence. It requires an unwaived covered
+    result and records it through the existing coverage event owner. The default
+    retains the original schema v1 fixture flow.
 
     ``reviewer`` must resolve to an agent file under
     ``<workspace_root>/.claude/agents``; the critique path resolves reviewer
@@ -167,17 +190,20 @@ def production_converged_plan(
         # outside the implementer sandbox. A fixture declaring a command the
         # production synthesizer never emits was testing a path production
         # cannot take.
-        "validation_commands": [
+        "validation_commands": [dict(command) for command in validation_commands] if validation_commands is not None else [
             {"cmd": "nx affected --target=lint", "timeout_ms": 600_000},
             {"cmd": "nx affected --target=test", "timeout_ms": 1_800_000},
         ],
-        "evidence_refs": ["docs/aria/SPEC.md"],
+        "evidence_refs": evidence_refs if evidence_refs is not None else ["docs/aria/SPEC.md"],
         # The tier claim staging refuses to invent. Tier 1 ("make it
         # impossible") is the fixture's claim about its own change; the point
         # of the field is that SOMEONE claimed it, and the change ledger
         # records who.
         "architectural_tier": 1,
     }
+    if with_coverage:
+        plan_content["schema_version"] = 2
+        plan_content["coverage"] = {"waivers": []}
     start_plan(
         plan_id=plan_id,
         initial_revision_id="rev-0",
@@ -223,6 +249,19 @@ def production_converged_plan(
         workspace_root=workspace_root,
         base_dir=tools_dir,
     )
+    if with_coverage:
+        from aria_kernel.plan_convergence import record_coverage
+        from aria_kernel.plan_coverage import compute_plan_coverage
+
+        coverage = compute_plan_coverage(
+            plan_content=plan_content, plan_id=plan_id, round_number=1,
+            target_revision_id=latest["revision_id"],
+            target_plan_content_hash=latest["content_hash"],
+            workspace_root=workspace_root, base_dir=tools_dir,
+        )
+        if coverage["verdict"] != "covered":
+            raise AssertionError(f"fixture requires actual unwaived coverage: {coverage}")
+        record_coverage(plan_id=plan_id, coverage=coverage, base_dir=tools_dir)
     evaluated = evaluate_plan(plan_id=plan_id, round_number=1, base_dir=tools_dir)
     terminal = evaluated["event"]["payload"]["terminal_state"]
     if terminal != "CONVERGED":
@@ -234,6 +273,122 @@ def production_converged_plan(
         revision_id=str(final["revision_id"]),
         content_hash=str(final["content_hash"]),
     )
+
+def production_implementation_request(
+    *,
+    tools_dir: Path,
+    workspace_root: Path,
+    plan_id: str,
+    allowed_path: str,
+    cycle_id: str = "cycle-implementation-fixture",
+    base_sha: str | None = None,
+) -> dict[str, Any]:
+    """An implementation envelope minted the way production mints one.
+
+    ARIA-HIGH-104 — ``create_agent_invocation_request`` refuses a bare
+    ``role=implementation`` row: the request contract requires the plan
+    revision it names (for the suite it derives), the cycle that staged it
+    and the commit contract of the plan's origin, and production's one
+    producer (``cycle_phases.implementer`` →
+    ``cross_review_bridge.issue_implementation_envelope``) supplies all three.
+    A fixture that hand-minted the row was testing an input production never
+    produces, so this helper drives a plan to CONVERGED through
+    :func:`production_converged_plan` (scoped to ``allowed_path``) and mints
+    through the real bridge. The staged proposal/change/branch ids are
+    fixture literals (the mint names them, it does not resolve them); the
+    staged base is the workspace's HEAD, as production's staging measures
+    it — ARIA-HIGH-144 made the envelope carry that base as its
+    ``target_sha``, which the submission's evidence-target check resolves
+    against the tree, so a zero base is no longer a row production mints.
+    """
+    import hashlib
+    import subprocess
+
+    from aria_kernel.cross_review_bridge import issue_implementation_envelope
+
+    if base_sha is None:
+        head = subprocess.run(["git", "-C", str(workspace_root), "rev-parse", "HEAD"],
+                              capture_output=True, text=True, check=False)
+        base_sha = head.stdout.strip() if head.returncode == 0 and head.stdout.strip() else "0" * 40
+    plan = production_converged_plan(
+        tools_dir=tools_dir, workspace_root=workspace_root, plan_id=plan_id,
+        affected_paths=[allowed_path],
+    )
+    return issue_implementation_envelope(
+        plan_id=plan.plan_id,
+        cross_review_revision_id=plan.revision_id,
+        cross_review_summary_text="Direct native convergence fixture; no separate expert panel.",
+        proposal_id=f"proposal-{plan_id}",
+        change_id=f"chg-{plan_id}",
+        branch="aria-impl-" + hashlib.sha256(plan_id.encode("utf-8")).hexdigest()[:16],
+        base_sha=base_sha,
+        base_dir=tools_dir,
+        cycle_id=cycle_id,
+    )
+
+
+def production_staged_implementation_request(
+    *,
+    tools_dir: Path,
+    workspace_root: Path,
+    plan_id: str,
+    allowed_path: str,
+    cycle_id: str = "cycle-implementation-fixture",
+    operator_approval_ref: str = "test:staged-implementation-request",
+    extra_allowed_paths: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """An implementation envelope minted by production's one producer, STAGED.
+
+    ``extra_allowed_paths`` are further paths the plan intends (its
+    ``affected_surfaces``): the change ledger's commit row admits a diff
+    that touches only intended files, so a fixture agent that commits more
+    than ``allowed_path`` names them here (ARIA-HIGH-124, round 2).
+
+    ARIA-HIGH-124 — :func:`production_implementation_request` names fixture
+    literal ids (a proposal, a change and a branch nobody staged); an
+    executor that gates, pushes and opens the PR itself needs the rows the
+    ids resolve to. This helper drives the plan to CONVERGED, then runs
+    ``cycle_phases.implementer.AutonomousV9ImplementationRunner`` — the
+    producer the nightly cycle runs — under the ``strict`` profile it
+    requires: ``apply_engine.stage_converged_plan_for_pr`` records the
+    proposal (machine-approved), opens the change chain, mints the
+    ``aria-impl-*`` branch and runs the BASELINE validation at the
+    workspace HEAD (so the caller's checkout must be clean and the suite's
+    executables resolvable on PATH), and the envelope is minted with the
+    staged ids. Returns the request row the executor lane claims.
+    """
+    from aria_kernel.cycle_phases.implementer import AutonomousV9ImplementationRunner
+    from aria_kernel.ledger import load_declared_jsonl
+    from aria_kernel.runtime_profile import set_profile
+
+    set_profile(
+        "strict", operator_approval_ref=operator_approval_ref, base_dir=tools_dir,
+        set_by="operator", scheduler_ceiling="strict",
+    )
+    plan = production_converged_plan(
+        tools_dir=tools_dir, workspace_root=workspace_root, plan_id=plan_id,
+        affected_paths=[allowed_path, *extra_allowed_paths], evidence_refs=[f"{allowed_path}:1"],
+    )
+    result = AutonomousV9ImplementationRunner().run(
+        cycle_id=cycle_id, plan_id=plan.plan_id, workspace_root=workspace_root, base_dir=tools_dir,
+        cross_review_summary={"revision_id": plan.revision_id, "verdict": "converged"}, profile="strict",
+    )
+    if result.terminal_state != "IMPLEMENTATION_DISPATCHED":
+        raise AssertionError(f"fixture plan was not dispatched: {result}")
+    requests = load_declared_jsonl(
+        ensure_tools_dir(tools_dir) / "agent-invocations" / "requests.jsonl",
+        expected_surface="agent_invocation_requests",
+    )
+    row = next(
+        (row for row in reversed(requests)
+         if row.get("row_type") == "request" and row.get("role") == "implementation"
+         and row.get("convergence_id") == plan.plan_id),
+        None,
+    )
+    if row is None:
+        raise AssertionError("the runner dispatched no implementation request")
+    return row
+
 
 def production_request_without_anchor(
     *,

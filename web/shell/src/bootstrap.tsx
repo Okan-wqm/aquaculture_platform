@@ -6,7 +6,7 @@
  * main.tsx does only `import('./bootstrap')` to trigger this asynchronously.
  */
 
-import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider, ToastProvider, registerLogoutCleanup, refetchWhenBackendHealthy } from '@aquaculture/shared-ui';
+import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider, ToastProvider, ConfirmProvider, registerLogoutCleanup, refetchWhenBackendHealthy } from '@aquaculture/shared-ui';
 import { installVisibilityTokenRefresh } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
@@ -161,7 +161,11 @@ ReactDOM.createRoot(root).render(
                   manually-mounted container, so farm-module's 30+ toast()
                   calls rendered nowhere at all. */}
               <ToastProvider>
-                <App />
+                {/* Onay/istem diyaloğu da aynı ilkeyle tek yerde çizilir:
+                    useConfirm()/usePrompt() her remote'tan buraya düşer. */}
+                <ConfirmProvider>
+                  <App />
+                </ConfirmProvider>
               </ToastProvider>
             </TenantProvider>
           </AuthProvider>

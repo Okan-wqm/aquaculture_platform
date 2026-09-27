@@ -48,24 +48,47 @@ class VerifyCommitSignatureBridgeWireTests(unittest.TestCase):
     """Plan ARIA-V3.1-B2 — verify_commit_signature trust boundary."""
 
     def test_i_v31_b2_01_dispatch_implementation_calls_verify(self) -> None:
-        """Plan ARIA-V3.1-B2-01 — _dispatch_implementation source
-        contains the verify_commit_signature invocation + the
-        explicit `commit_signature_unverified` error class."""
+        """Plan ARIA-V3.1-B2-01 — the dispatch verifies the claimed commit
+        before anything is recorded, through the bridge's own boundary
+        (`verify_implementation_commit`, ARIA-HIGH-115), which runs
+        `verify_commit_signature` against the registered key and refuses
+        with the explicit `commit_signature_unverified` error class."""
         from aria_kernel import plan_convergence_bridge
-        src = inspect.getsource(plan_convergence_bridge._dispatch_implementation)
-        self.assertIn("verify_commit_signature", src,
-                      "_dispatch_implementation missing verify_commit_signature call")
-        self.assertIn("commit_signature_unverified", src,
-                      "_dispatch_implementation missing commit_signature_unverified error")
+        dispatch = inspect.getsource(plan_convergence_bridge._dispatch_implementation)
+        self.assertIn("verify_implementation_commit(", dispatch,
+                      "_dispatch_implementation missing the verification boundary call")
+        boundary = inspect.getsource(plan_convergence_bridge.verify_implementation_commit)
+        self.assertIn("verify_commit_signature", boundary,
+                      "verify_implementation_commit missing verify_commit_signature call")
+        self.assertIn("lookup_convention_signer", boundary,
+                      "verify_implementation_commit must resolve the fingerprint in kg_signers")
+        self.assertIn("commit_signature_unverified", boundary,
+                      "verify_implementation_commit missing commit_signature_unverified error")
 
     def test_i_v31_b2_02_dry_run_skips_verify(self) -> None:
-        """Plan ARIA-V3.1-B2-02 — ARIA_DRY_RUN=true short-circuits the
-        verify call so mocked test envs can exercise the dispatch path
-        without a real git-signed commit."""
+        """Plan ARIA-V3.1-B2-02 — ARIA_DRY_RUN=true short-circuits the git
+        step so mocked test envs can exercise the dispatch path without a
+        repository carrying the commit; the registry step is not a git
+        step and always runs."""
+        import ast
+        import textwrap
+
         from aria_kernel import plan_convergence_bridge
-        src = inspect.getsource(plan_convergence_bridge._dispatch_implementation)
+        src = textwrap.dedent(inspect.getsource(plan_convergence_bridge.verify_implementation_commit))
         self.assertIn("ARIA_DRY_RUN", src)
         self.assertIn("commit_signature_verify_skipped_dry_run", src)
+        # Read from the code, not the prose: the registry lookup is called
+        # before the environment is consulted for the bypass.
+        calls = [
+            (node.lineno, node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", None))
+            for node in ast.walk(ast.parse(src)) if isinstance(node, ast.Call)
+        ]
+        lookup = min(line for line, name in calls if name == "lookup_convention_signer")
+        environ = min(
+            node.lineno for node in ast.walk(ast.parse(src))
+            if isinstance(node, ast.Constant) and node.value == "ARIA_DRY_RUN"
+        )
+        self.assertLess(lookup, environ, "the registry lookup precedes the dry-run bypass")
 
 
 class AgentInvocationProvenanceTests(unittest.TestCase):

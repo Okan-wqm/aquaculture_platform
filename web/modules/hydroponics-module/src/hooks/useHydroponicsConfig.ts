@@ -7,8 +7,8 @@
  * - graphqlClient.request() for GraphQL calls
  * - React Query for caching and invalidation
  */
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth, graphqlClient, createTenantQueryKey, useFeedbackMutation } from '@aquaculture/shared-ui';
 import {
   CONFIGURATIONS_QUERY,
   CONFIGURATION_QUERY,
@@ -127,7 +127,8 @@ export function useCreateConfiguration() {
   const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Configuration created' },
     mutationFn: async (input: CreateHydroponicsConfigInput) => {
       if (!token) {
         throw new Error('Authentication required. Please login first.');
@@ -154,7 +155,8 @@ export function useUpdateConfiguration() {
   const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Configuration updated' },
     mutationFn: async (input: UpdateHydroponicsConfigInput) => {
       if (!token) {
         throw new Error('Authentication required. Please login first.');
@@ -181,7 +183,8 @@ export function useDeleteConfiguration() {
   const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: 'Configuration deleted' },
     mutationFn: async (id: string) => {
       if (!token) {
         throw new Error('Authentication required. Please login first.');

@@ -9,7 +9,14 @@
  * replacing the previous mock data implementation.
  */
 import React, { useState } from 'react';
-import { useAuth } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Select,
+} from '@aquaculture/shared-ui';
 import {
   useInventoryCounts,
   InventoryCountStatus,
@@ -17,13 +24,14 @@ import {
 } from '../../../hooks/useInventoryCounts';
 import { StartInventoryCountModal } from './StartInventoryCountModal';
 import { InventoryCountDetailModal } from './InventoryCountDetailModal';
+import { Plus } from 'lucide-react';
 
 /** Badge colors per status — consistent with other tabs in the storage module */
 const statusColors: Record<string, string> = {
-  PLANNED: 'bg-gray-100 text-gray-800',
-  IN_PROGRESS: 'bg-blue-100 text-blue-800',
-  COMPLETED: 'bg-green-100 text-green-800',
-  APPROVED: 'bg-purple-100 text-purple-800',
+  PLANNED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
+  IN_PROGRESS: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  COMPLETED: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  APPROVED: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
 };
 
 /** All available status values for the filter dropdown */
@@ -59,11 +67,17 @@ export const InventoryCountTab: React.FC = () => {
    * - APPROVED: anyone can view the finalized record
    */
   const getActionButton = (ic: InventoryCount) => {
-    if (ic.status === InventoryCountStatus.PLANNED || ic.status === InventoryCountStatus.IN_PROGRESS) {
+    if (
+      ic.status === InventoryCountStatus.PLANNED ||
+      ic.status === InventoryCountStatus.IN_PROGRESS
+    ) {
       return (
         <button
-          onClick={(e) => { e.stopPropagation(); setSelectedCountId(ic.id); }}
-          className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedCountId(ic.id);
+          }}
+          className="text-xs px-2 py-1 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 rounded hover:bg-info-100 dark:hover:bg-info-900/50"
         >
           Count
         </button>
@@ -74,11 +88,14 @@ export const InventoryCountTab: React.FC = () => {
       const isOwnCount = user?.id === ic.performedBy;
       return (
         <button
-          onClick={(e) => { e.stopPropagation(); setSelectedCountId(ic.id); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedCountId(ic.id);
+          }}
           className={`text-xs px-2 py-1 rounded ${
             isOwnCount
-              ? 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-              : 'bg-green-50 text-green-700 hover:bg-green-100'
+              ? 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+              : 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 hover:bg-success-100 dark:hover:bg-success-900/50'
           }`}
         >
           {isOwnCount ? 'View' : 'Approve'}
@@ -88,117 +105,140 @@ export const InventoryCountTab: React.FC = () => {
     /* APPROVED — read-only view */
     return (
       <button
-        onClick={(e) => { e.stopPropagation(); setSelectedCountId(ic.id); }}
-        className="text-xs px-2 py-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100"
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelectedCountId(ic.id);
+        }}
+        className="text-xs px-2 py-1 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
       >
         View
       </button>
     );
   };
 
+  type IcRow = (typeof counts)[number];
+  const icRowColumns: DataTableColumn<IcRow>[] = [
+    {
+      key: 'count',
+      header: 'Count #',
+      render: (_value, ic) => ic.countNumber,
+    },
+    {
+      key: 'location',
+      header: 'Location',
+      render: (_value, ic) => ic.locationName || '-',
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, ic) => (
+        <>{ic.startedAt ? new Date(ic.startedAt).toLocaleDateString('nb-NO') : '-'}</>
+      ),
+    },
+    {
+      key: 'items',
+      header: 'Items',
+      render: (_value, ic) => ic.items.length,
+    },
+    {
+      key: 'totalVariance',
+      header: 'Total Variance',
+      render: (_value, ic) => (
+        <span
+          className={
+            ic.totalVariance !== 0
+              ? 'text-error-600 dark:text-error-400 font-medium'
+              : 'text-success-600 dark:text-success-400'
+          }
+        >
+          {ic.totalVariance > 0 ? '+' : ''}
+          {ic.totalVariance}
+        </span>
+      ),
+    },
+    {
+      key: 'performedBy',
+      header: 'Performed By',
+      render: (_value, ic) => ic.performedByName || ic.performedBy,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, ic) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              statusColors[ic.status] ||
+              'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+            }`}
+          >
+            {ic.status.replace('_', ' ')}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, ic) => getActionButton(ic),
+    },
+  ];
+
   return (
     <div>
       {/* Header: filter + action bar */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div className="flex gap-3">
-          <select
+          <Select
+            aria-label="Status filter"
+            fullWidth={false}
+            size="sm"
             value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-          >
-            <option value="">All Status</option>
-            {STATUS_OPTIONS.map(s => (
-              <option key={s} value={s}>{s.replace('_', ' ')}</option>
-            ))}
-          </select>
+            onChange={(e) => setStatusFilter(e.target.value)}
+            options={[
+              { value: '', label: 'All Status' },
+              ...STATUS_OPTIONS.map((s) => ({ value: s, label: s.replace('_', ' ') })),
+            ]}
+          />
         </div>
-        <button
-          onClick={() => setIsStartModalOpen(true)}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
+        <Button variant="primary" onClick={() => setIsStartModalOpen(true)}>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
           Start Count
-        </button>
+        </Button>
       </div>
 
       {/* Loading spinner */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 
       {/* Error state with retry */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load inventory counts.</p>
-          <button onClick={() => refetch()} className="mt-2 text-blue-600 hover:underline">Retry</button>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">Failed to load inventory counts.</p>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 
       {/* Main table */}
       {!isLoading && !error && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Count #</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Variance</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Performed By</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {counts.map(ic => (
-                <tr
-                  key={ic.id}
-                  className="hover:bg-gray-50 cursor-pointer"
-                  onClick={() => setSelectedCountId(ic.id)}
-                >
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900 font-mono">
-                    {ic.countNumber}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-700">
-                    {ic.locationName || '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {ic.startedAt
-                      ? new Date(ic.startedAt).toLocaleDateString('nb-NO')
-                      : '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {ic.items.length}
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    <span className={ic.totalVariance !== 0 ? 'text-red-600 font-medium' : 'text-green-600'}>
-                      {ic.totalVariance > 0 ? '+' : ''}{ic.totalVariance}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {ic.performedByName || ic.performedBy}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      statusColors[ic.status] || 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {ic.status.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    {getActionButton(ic)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <DataTable<IcRow>
+            data={counts}
+            columns={icRowColumns}
+            keyExtractor={(ic) => ic.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
           {counts.length === 0 && (
-            <div className="text-center py-12 text-gray-500 text-sm">
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">
               No inventory counts found. Start a new count to reconcile your stock.
             </div>
           )}

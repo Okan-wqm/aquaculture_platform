@@ -4,7 +4,7 @@
  * Modal for recording cleaner fish mortality.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button, useToast } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   useRecordCleanerMortality,
   useTankCleanerFish,
@@ -60,12 +60,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
   // Validation
   const maxQuantity = batchDetail?.quantity || 0;
   const isValid =
-    batch &&
-    tankId &&
-    quantity > 0 &&
-    quantity <= maxQuantity &&
-    notes.trim() !== '' &&
-    observedAt;
+    batch && tankId && quantity > 0 && quantity <= maxQuantity && notes.trim() !== '' && observedAt;
 
   // Calculate biomass loss
   const biomassLoss = useMemo(() => {
@@ -95,7 +90,11 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
       onClose();
     } catch (error) {
       if (import.meta.env.DEV) console.error('Failed to record mortality:', error);
-      toast({ title: 'Error', description: 'Failed to record mortality. Please try again.', variant: 'error' });
+      toast({
+        title: 'Error',
+        description: 'Failed to record mortality. Please try again.',
+        variant: 'error',
+      });
     }
   };
 
@@ -110,17 +109,19 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
       <div className="space-y-6">
         {/* Tank & Batch Info */}
         {batchDetail && (
-          <div className="bg-gray-50 rounded-lg p-4">
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
             <div className="flex items-center justify-between">
               <div>
-                <h4 className="font-medium text-gray-900">{tankInfo?.tankName}</h4>
-                <p className="text-sm text-gray-500">
+                <h4 className="font-medium text-gray-900 dark:text-gray-100">
+                  {tankInfo?.tankName}
+                </h4>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   {batchDetail.batchNumber} - {batchDetail.speciesName}
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-sm text-gray-500">Current Stock</p>
-                <p className="text-lg font-semibold text-gray-900">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Current Stock</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {batchDetail.quantity.toLocaleString()}
                 </p>
               </div>
@@ -130,30 +131,35 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
 
         {/* Dead Count */}
         <div>
-          <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">
-            Dead Fish Count <span className="text-red-500">*</span>
+          <label
+            htmlFor="quantity"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
+            Dead Fish Count <span className="text-error-500">*</span>
           </label>
-          <input
+          <Input
+            fullWidth
             type="number"
             id="quantity"
             min="1"
             max={maxQuantity}
             value={quantity || ''}
             onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
             placeholder="Enter number of dead fish"
           />
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Max: {maxQuantity.toLocaleString()}
           </p>
         </div>
 
         {/* Biomass Loss */}
         {quantity > 0 && biomassLoss > 0 && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+          <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-red-800">Biomass Loss</span>
-              <span className="text-lg font-bold text-red-600">
+              <span className="text-sm font-medium text-error-800 dark:text-error-200">
+                Biomass Loss
+              </span>
+              <span className="text-lg font-bold text-error-600 dark:text-error-400">
                 {biomassLoss.toFixed(2)} kg
               </span>
             </div>
@@ -161,74 +167,77 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
         )}
 
         {/* Mortality Reason */}
-        <div>
-          <label htmlFor="reason" className="block text-sm font-medium text-gray-700">
-            Mortality Reason <span className="text-red-500">*</span>
-          </label>
-          <select
-            id="reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value as CleanerMortalityReason)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
-          >
-            {Object.entries(MortalityReasonLabels).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <Select
+          id="reason"
+          label="Mortality Reason"
+          required
+          value={reason}
+          onChange={(e) => setReason(e.target.value as CleanerMortalityReason)}
+          options={Object.entries(MortalityReasonLabels).map(([key, label]) => ({
+            value: key,
+            label,
+          }))}
+        />
 
         {/* Detail */}
         <div>
-          <label htmlFor="detail" className="block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="detail"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Detail / Diagnosis
           </label>
-          <input
+          <Input
+            fullWidth
             type="text"
             id="detail"
             value={detail}
             onChange={(e) => setDetail(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
             placeholder="e.g., Specific disease name..."
           />
         </div>
 
         {/* Observation Date */}
         <div>
-          <label htmlFor="observedAt" className="block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="observedAt"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Observation Date
           </label>
-          <input
+          <Input
+            fullWidth
             type="date"
             id="observedAt"
             value={observedAt}
             max={new Date().toISOString().split('T')[0]}
             onChange={(e) => setObservedAt(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
           />
         </div>
 
         {/* Notes */}
         <div>
-          <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
-            Why did the fish die? <span className="text-red-500">*</span>
+          <label
+            htmlFor="notes"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
+            Why did the fish die? <span className="text-error-500">*</span>
           </label>
-          <textarea
+          <Textarea
+            fullWidth
             id="notes"
             rows={3}
             maxLength={2000}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
             placeholder="Describe the circumstances of the mortality..."
           />
         </div>
 
         {/* Validation Errors */}
         {quantity > maxQuantity && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-            <p className="text-sm text-red-600">
+          <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+            <p className="text-sm text-error-600 dark:text-error-400">
               Quantity exceeds current stock ({maxQuantity.toLocaleString()})
             </p>
           </div>
@@ -243,7 +252,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
             variant="primary"
             onClick={handleSubmit}
             disabled={!isValid || recordMortality.isPending}
-            className="bg-red-600 hover:bg-red-700"
+            className="bg-error-600 hover:bg-error-700"
           >
             {recordMortality.isPending ? 'Recording...' : 'Record Mortality'}
           </Button>

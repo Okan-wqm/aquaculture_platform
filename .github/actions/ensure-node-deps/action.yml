@@ -25,7 +25,21 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        if [ ! -x node_modules/ts-node/dist/bin.js ]; then
+        # The self-hosted runner keeps node_modules between jobs, and "is
+        # ts-node there" was the only freshness question asked; a manifest
+        # whose dependencies arrived with a later lockfile ran against the
+        # older tree and crashed at import (lint-rules-adapter, cycle
+        # cyc-20260921T044120Z-auto, the first cycle after ARIA-MEDIUM-178
+        # merged: `eslint-plugin-sonarjs` absent, tool status `crash`). The
+        # tree is provisioned when ts-node is absent OR when the lockfile
+        # differs from the one the tree was last installed from; the stamp
+        # lives inside node_modules so a fresh tree is always re-stamped.
+        stamp=node_modules/.aria-lockfile-sha256
+        want="$(sha256sum package-lock.json | cut -c1-64)"
+        have="$(cat "$stamp" 2>/dev/null || true)"
+        if [ ! -x node_modules/ts-node/dist/bin.js ] || [ "$want" != "$have" ]; then
           npm ci --ignore-scripts --no-audit --no-fund
+          printf '%s\n' "$want" > "$stamp"
         fi
         test -x node_modules/ts-node/dist/bin.js
+        test "$(cat "$stamp")" = "$want"

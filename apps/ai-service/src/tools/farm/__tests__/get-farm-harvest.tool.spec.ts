@@ -10,11 +10,18 @@ const CTX: ToolExecutionContext = {
   userRoles: ['operator'],
   correlationId: 'corr-1',
   persona: 'operator',
+  personaTier: 'operator',
+  offeredToolNames: [],
   actuationPolicy: 'allowed',
 };
 
 const PLAN = {
-  id: 'h1', planCode: 'HP-2024-001', name: 'Levrek hasat', batchId: 'b1', status: 'scheduled', plannedDate: '2026-07-15',
+  id: 'h1',
+  planCode: 'HP-2024-001',
+  name: 'Levrek hasat',
+  batchId: 'b1',
+  status: 'scheduled',
+  plannedDate: '2026-07-15',
 };
 
 describe('GetFarmHarvestTool', () => {

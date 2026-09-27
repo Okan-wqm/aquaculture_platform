@@ -6,6 +6,7 @@
 
 import { forwardRef, SelectHTMLAttributes, useId } from 'react';
 import type { Size } from '../../types';
+import { ChevronDown } from 'lucide-react';
 
 // ============================================================================
 // Tip Tanımlamaları
@@ -95,7 +96,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
       id: providedId,
       ...props
     },
-    ref
+    ref,
   ) => {
     const generatedId = useId();
     const selectId = providedId || generatedId;
@@ -104,22 +105,25 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
     const safeOptions = options || [];
 
     // Seçenekleri grupla
-    const groupedOptions = safeOptions.reduce((acc, option) => {
-      const group = option.group || '__ungrouped__';
-      if (!acc[group]) acc[group] = [];
-      acc[group].push(option);
-      return acc;
-    }, {} as Record<string, SelectOption[]>);
+    const groupedOptions = safeOptions.reduce(
+      (acc, option) => {
+        const group = option.group || '__ungrouped__';
+        if (!acc[group]) acc[group] = [];
+        acc[group].push(option);
+        return acc;
+      },
+      {} as Record<string, SelectOption[]>,
+    );
 
     const hasGroups = Object.keys(groupedOptions).some((key) => key !== '__ungrouped__');
 
     const inputStateStyles = error
-      ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-      : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500';
+      ? 'border-error-500 focus:ring-error-500 focus:border-error-500'
+      : 'border-gray-300 dark:border-gray-600 focus:ring-primary-500 focus:border-primary-500';
 
     const disabledStyles = disabled
-      ? 'bg-gray-100 cursor-not-allowed text-gray-500'
-      : 'bg-white';
+      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed text-gray-500 dark:text-gray-400'
+      : 'bg-white dark:bg-gray-900';
 
     return (
       <div className={`${fullWidth ? 'w-full' : ''} ${className}`}>
@@ -127,10 +131,10 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
         {label && (
           <label
             htmlFor={selectId}
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
           >
             {label}
-            {required && <span className="text-red-500 ml-1">*</span>}
+            {required && <span className="text-error-500 ml-1">*</span>}
           </label>
         )}
 
@@ -140,6 +144,8 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             ref={ref}
             id={selectId}
             disabled={disabled}
+            required={required}
+            aria-required={required || undefined}
             aria-invalid={!!error}
             aria-describedby={
               error ? `${selectId}-error` : helperText ? `${selectId}-helper` : undefined
@@ -164,81 +170,59 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             )}
 
             {/* Seçenekler */}
-            {hasGroups ? (
-              // Gruplu seçenekler
-              Object.entries(groupedOptions).map(([groupName, groupOptions]) =>
-                groupName === '__ungrouped__' ? (
-                  groupOptions.map((option) => (
-                    <option
-                      key={option.value}
-                      value={option.value}
-                      disabled={option.disabled}
-                    >
-                      {option.label}
-                    </option>
-                  ))
-                ) : (
-                  <optgroup key={groupName} label={groupName}>
-                    {groupOptions.map((option) => (
-                      <option
-                        key={option.value}
-                        value={option.value}
-                        disabled={option.disabled}
-                      >
+            {hasGroups
+              ? // Gruplu seçenekler
+                Object.entries(groupedOptions).map(([groupName, groupOptions]) =>
+                  groupName === '__ungrouped__' ? (
+                    groupOptions.map((option) => (
+                      <option key={option.value} value={option.value} disabled={option.disabled}>
                         {option.label}
                       </option>
-                    ))}
-                  </optgroup>
+                    ))
+                  ) : (
+                    <optgroup key={groupName} label={groupName}>
+                      {groupOptions.map((option) => (
+                        <option key={option.value} value={option.value} disabled={option.disabled}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ),
                 )
-              )
-            ) : (
-              // Gruplu olmayan seçenekler
-              safeOptions.map((option) => (
-                <option
-                  key={option.value}
-                  value={option.value}
-                  disabled={option.disabled}
-                >
-                  {option.label}
-                </option>
-              ))
-            )}
+              : // Gruplu olmayan seçenekler
+                safeOptions.map((option) => (
+                  <option key={option.value} value={option.value} disabled={option.disabled}>
+                    {option.label}
+                  </option>
+                ))}
           </select>
 
           {/* Dropdown ikonu */}
           <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-            <svg
-              className="w-5 h-5 text-gray-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 9l-7 7-7-7"
-              />
-            </svg>
+            <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" aria-hidden="true" />
           </div>
         </div>
 
         {/* Hata mesajı */}
         {error && (
-          <p id={`${selectId}-error`} className="mt-1 text-sm text-red-600" role="alert">
+          <p
+            id={`${selectId}-error`}
+            className="mt-1 text-sm text-error-600 dark:text-error-400"
+            role="alert"
+          >
             {error}
           </p>
         )}
 
         {/* Yardım metni */}
         {!error && helperText && (
-          <p id={`${selectId}-helper`} className="mt-1 text-sm text-gray-500">
+          <p id={`${selectId}-helper`} className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {helperText}
           </p>
         )}
       </div>
     );
-  }
+  },
 );
 
 Select.displayName = 'Select';

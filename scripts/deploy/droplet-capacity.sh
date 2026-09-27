@@ -1274,6 +1274,62 @@ safe_image_gc() {
 }
 
 # =============================================================================
+# safe_build_cache_gc — reclaim Docker's local build cache (INFRA-HIGH-189).
+# =============================================================================
+# WHY THIS EXISTS. From 2026-09-21 every development deploy was refused here:
+# free space 13% against a 20% floor, `safe_image_gc` reclaiming 0 bytes (all
+# 77 images protected) and `safe_tmp_gc` finding little. The space was in a
+# store neither pass may touch — `docker system df` on the droplet reported
+# Build Cache 34.64GB, 19.36GB of it reclaimable. No image reached the
+# development server for six days.
+#
+# WHY IT IS SAFE. The runtime is pull-only (ADR-033): every service image comes
+# from GHCR, and CI builds with registry-backed caches, so local build cache is
+# read by no deploy. It is a cache in the strict sense — regenerable by
+# construction, and losing it costs only a slower next local build.
+#
+# THE POLICY, clause by clause:
+#   * build cache only — `docker builder prune`; no image, container, volume or
+#     network is in scope, and `docker system prune` is never used;
+#   * `--all` so unused non-dangling records count, which is what
+#     `docker system df` reports as reclaimable;
+#   * an age floor (`until=`), so a build that ran recently keeps its layers;
+#     Docker itself refuses to remove cache a running build holds;
+#   * GC_DRY_RUN=true reports the build-cache usage and the command it would
+#     run, and removes nothing.
+#
+# WHY A SEPARATE FUNCTION. `safe_image_gc` states "build-cache untouched" in its
+# banner and `safe_tmp_gc` refuses anything outside TMPDIR; each keeps its own
+# contract, and this one states its own.
+BUILD_CACHE_GC_MIN_AGE="${BUILD_CACHE_GC_MIN_AGE:-24h}"
+
+safe_build_cache_gc() {
+  echo "=== Safe build-cache GC (Docker build cache only) ==="
+  echo "Policy: docker builder prune --all, unused records older than ${BUILD_CACHE_GC_MIN_AGE}; images/containers/volumes/networks untouched."
+  local docker_root_path before_fs before_size before_free before_mount
+  local after_fs after_size after_free after_mount reclaimed_bytes
+  docker_root_path="$(docker_root)"
+  IFS="$(printf '\t')" read -r before_fs before_size before_free before_mount \
+    < <(df_bytes_row "${docker_root_path}") || true
+
+  if [ "${GC_DRY_RUN:-false}" = "true" ]; then
+    docker system df 2>/dev/null | awk 'NR == 1 || /^Build Cache/' || true
+    echo "  [dry-run] would run: docker builder prune --force --all --filter until=${BUILD_CACHE_GC_MIN_AGE}"
+  else
+    docker builder prune --force --all --filter "until=${BUILD_CACHE_GC_MIN_AGE}" 2>&1 || true
+    capacity_gc_target_met || true
+  fi
+
+  IFS="$(printf '\t')" read -r after_fs after_size after_free after_mount \
+    < <(df_bytes_row "${docker_root_path}") || true
+  reclaimed_bytes="unknown"
+  if [[ "${before_free:-}" =~ ^[0-9]+$ ]] && [[ "${after_free:-}" =~ ^[0-9]+$ ]]; then
+    reclaimed_bytes=$((after_free - before_free))
+  fi
+  echo "Safe build-cache GC complete; min_age=${BUILD_CACHE_GC_MIN_AGE} dry_run=${GC_DRY_RUN:-false} before_free_bytes=${before_free:-unknown} after_free_bytes=${after_free:-unknown} reclaimed_bytes=${reclaimed_bytes} capacity_target_met=${CAPACITY_GC_TARGET_MET:-false}"
+}
+
+# =============================================================================
 # safe_tmp_gc — reclaim REGENERABLE build caches from the temp filesystem.
 # =============================================================================
 # WHY THIS EXISTS. On 2026-08-09 the capacity gate blocked with 1.24 GB free
@@ -1362,17 +1418,20 @@ run_gate() {
   set -e
 
   if [ "${rc}" -ne 0 ] && [ "${CAPACITY_GC_MODE}" = "auto" ]; then
-    echo "Capacity preflight: warning/failure before GC; running one safe image-only GC pass."
+    echo "Capacity preflight: warning/failure before GC; running the safe GC passes (images, build cache, temp caches) until the target is met."
     GC_CAPACITY_TARGET_RC=$((rc - 1))
     safe_image_gc
-    unset GC_CAPACITY_TARGET_RC
-    # Images are not always where the space is. On 2026-08-09 every image
-    # backed a running container and the shortfall was entirely regenerable
-    # build caches in TMPDIR, so an image-only response reported "nothing to
-    # reclaim" beside a disk that was 98% full.
+    # Images are not always where the space is. On 2026-09-27 every image was
+    # protected and 19.4 GB sat in Docker's build cache (INFRA-HIGH-189); on
+    # 2026-08-09 the shortfall was regenerable caches in TMPDIR. Each pass runs
+    # only while the capacity target is still unmet.
+    if [ "${CAPACITY_GC_TARGET_MET}" != "true" ]; then
+      safe_build_cache_gc
+    fi
     if [ "${CAPACITY_GC_TARGET_MET}" != "true" ]; then
       safe_tmp_gc
     fi
+    unset GC_CAPACITY_TARGET_RC
     capacity_core_snapshot
     write_capacity_json
     set +e

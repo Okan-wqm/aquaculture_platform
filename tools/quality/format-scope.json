@@ -50710,6 +50710,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/capacity-build-cache-gc.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/capacity-tmp-gc.spec.ts",
       "prettier_managed": true
     },

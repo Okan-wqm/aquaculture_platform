@@ -263,7 +263,12 @@ describe('deploy SSOT contract', () => {
       read('scripts/deploy-do.sh'),
     ].join('\n');
 
-    expect(script).not.toMatch(/docker\s+build/);
+    // Every local build form is banned: `docker build`, `docker buildx build`
+    // and `docker builder build`. `docker builder prune` builds nothing — it is
+    // the capacity gate reclaiming Docker's build cache (INFRA-HIGH-189) — so
+    // the ban names the build verb instead of matching any word that starts
+    // with "build".
+    expect(script).not.toMatch(/docker\s+(?:buildx\s+|builder\s+)?build\b/);
     expect(script).not.toMatch(/docker\s+compose\s+build/);
     expect(script).not.toMatch(/docker-compose\s+build/);
     expect(script).not.toMatch(/up\s+[^#]*--build/);

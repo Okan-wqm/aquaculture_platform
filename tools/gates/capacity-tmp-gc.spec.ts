@@ -148,7 +148,7 @@ void test('dry run reports without removing', () => {
 void test('the capacity gate actually calls it when it is short of space', () => {
   // A sweeper nobody invokes is the defect this session has met four times.
   const body = readFileSync(SCRIPT, 'utf8');
-  const gcBlock = body.slice(body.indexOf('running one safe image-only GC pass'));
+  const gcBlock = body.slice(body.indexOf('running the safe GC passes'));
 
   assert.match(gcBlock.slice(0, 800), /safe_tmp_gc/);
 });

@@ -44,8 +44,14 @@ check_no_latest_tag_fallback() {
 
 check_no_forbidden_deploy_commands() {
   local file="$1"
+  # Every local build form is forbidden: `docker build`, `docker buildx
+  # build` and `docker builder build`. The pattern names the build VERB, so
+  # `docker builder prune` — the capacity gate reclaiming Docker's build
+  # cache (INFRA-HIGH-189) — builds nothing and passes. This list is the one
+  # definition; tests/invariants/deploy-ssot-contract.spec.ts runs this
+  # script instead of keeping a copy.
   local patterns=(
-    'docker[[:space:]]+build'
+    'docker[[:space:]]+(buildx[[:space:]]+|builder[[:space:]]+)?build([^[:alnum:]_-]|$)'
     'docker[[:space:]]+compose[[:space:]]+build'
     'docker-compose[[:space:]]+build'
     'up[[:space:]][^#]*--build'

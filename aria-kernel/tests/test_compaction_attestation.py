@@ -134,18 +134,24 @@ class CompactionStoreTestCase(unittest.TestCase):
         ensure_tools_binding(self.tools, workspace_root=self.source)
         register_tool(_tool(), base_dir=self.tools)
 
-    def _record(self, cycle_id: str, run_id: str, *, findings: int = 2) -> dict:
+    def _record(self, cycle_id: str, run_id: str, *, findings: int = 2, recurring: bool = False) -> dict:
         base = _run(run_id=run_id, cycle_id=cycle_id)
-        # Each row is a distinct finding identity (ARIA-HIGH-185): the
-        # fingerprint hashes rule/path/evidence/message, not the id, so
-        # same-content rows across runs would collapse to one row under
-        # the raw-findings compactor and these attestation counts would
-        # measure the collapse instead of the stripping.
+        # By default each row is a distinct finding identity (ARIA-HIGH-185):
+        # the fingerprint hashes rule/path/evidence/message, not the id, so
+        # same-content rows across runs would collapse under the raw-findings
+        # compactor and these attestation counts would measure the collapse
+        # instead of the stripping. ``recurring`` gives every run the SAME
+        # identities — the live shape, where each cycle re-records the
+        # finding universe — which is what the collapse acts on (ARIA-HIGH-239).
         raw = [
             {
                 **base["raw_findings"][0],
                 "id": f"{run_id}-finding-{index}",
-                "message": f"runtime artifact test {run_id}-{index}",
+                "message": (
+                    f"runtime artifact test recurring-{index}"
+                    if recurring
+                    else f"runtime artifact test {run_id}-{index}"
+                ),
             }
             for index in range(findings)
         ]
@@ -646,6 +652,61 @@ class TheLiveStoreHealsOnItsNextCompaction(CompactionStoreTestCase):
         self.assertTrue(verify_integrity(tools_dir=self.tools, workspace_root=self.source)["valid"])
 
 
+class TheCollapseKeepsEveryRunReachable(CompactionStoreTestCase):
+    """ARIA-HIGH-239 — the kernel's compaction must not produce a tree the
+    kernel's verifier refuses.
+
+    THE LIVE FAILURE (2026-09-21 .. 09-27). Every ``aria-state-maintenance``
+    run since 8028bbb005 (the ARIA-HIGH-185 fingerprint collapse) compacted
+    and was then refused by its own verify step, nothing published. On the
+    2026-09-27 tip (1939ce19b) ``integrity verify`` was valid before
+    ``state compact --retain-days 7`` and invalid after, with 55
+    ``raw_pointer_missing``: runs whose every finding recurred in a newer
+    run lost all their raw rows to the collapse, and the retention prune
+    had already removed the hot artifact that would otherwise carry them.
+    """
+
+    def test_a_run_whose_findings_recur_later_still_verifies_after_compaction(self) -> None:
+        self._record(OLD_CYCLE_A, "run-a0", recurring=True)
+        self._record(OLD_CYCLE_B, "run-b0", recurring=True)
+        self.assertEqual(self._verify()["issues"], [])
+
+        result = compact_state(base_dir=self.tools, retain_days=7)
+
+        # Both old cycles are pruned and attested, and the collapse acted:
+        # run-a0's copy of one recurring identity went to the archive.
+        self.assertEqual(result["hot_artifacts_removed"], 2)
+        self.assertEqual(result["surfaces"]["raw_findings"]["stripped_rows"], 1)
+        verdict = self._verify()
+        self.assertEqual(verdict["issues"], [], verdict["issues"][:5])
+        raw = load_declared_jsonl(self.tools / "raw-findings.jsonl", expected_surface="raw_findings")
+        self.assertEqual(sorted(r["run_id"] for r in raw), ["run-a0", "run-b0", "run-b0"])
+        self.assertTrue(verify_integrity(base_dir=self.tools, workspace_root=self.source)["valid"])
+
+    def test_the_verifier_still_refuses_a_run_left_without_a_pointer(self) -> None:
+        """The negative control: the fix is in the compactor, not a relaxed
+        verifier. A run stripped of its last raw row by anything other than
+        this compactor — here the pre-fix collapse's output, reproduced by
+        rewriting the ledger — is still ``raw_pointer_missing``."""
+        from aria_kernel.ledger import rewrite_declared_jsonl
+
+        self._record(OLD_CYCLE_A, "run-a0", recurring=True)
+        self._record(OLD_CYCLE_B, "run-b0", recurring=True)
+        compact_state(base_dir=self.tools, retain_days=7)
+        path = self.tools / "raw-findings.jsonl"
+        rows = load_declared_jsonl(path, expected_surface="raw_findings")
+        rewrite_declared_jsonl(
+            path, [r for r in rows if r["run_id"] != "run-a0"],
+            expected_surface="raw_findings", migration_id="test_pre_high_240_collapse_output",
+        )
+
+        verdict = self._verify()
+
+        self.assertEqual(_issue_codes(verdict), {"raw_pointer_missing": 1})
+        self.assertEqual(verdict["issues"][0]["run_id"], "run-a0")
+        self.assertFalse(verify_integrity(base_dir=self.tools, workspace_root=self.source)["valid"])
+
+
 class AFullyCompactedIndexIsValid(CompactionStoreTestCase):
     def test_cycle_runtime_status_reads_a_compacted_index_as_its_own_verdict(self) -> None:
         """`cycle._runtime_status` reads `verify_artifacts(...)["valid"]`
@@ -734,6 +795,30 @@ class NoLanePublishesAnUnverifiedStore(unittest.TestCase):
         self.assertIn("runtime_artifact_compactions", committed["surfaces"])
         ledger = _git(self.store.root, "show", f"HEAD:tools/{COMPACTED_LEDGER}")
         self.assertIn(old["artifact_ref"]["artifact_id"], ledger)
+
+    def test_runs_whose_findings_recur_publish_after_compaction(self) -> None:
+        """ARIA-HIGH-239 on the one publish path: two old runs recording the
+        same finding identities (the default ``_run`` content), compaction
+        past the window, then the maintenance lane's publish. Before the
+        per-run floor the collapse emptied the older run and the publish
+        was refused ``state_publish_runtime_artifacts_unverified …
+        raw_pointer_missing``."""
+        self._record(OLD_CYCLE_A, "run-old-a")
+        self._record(OLD_CYCLE_B, "run-old-b")
+        first = self.lane._publish(self.store, "snap-1", "cycle-1")
+        self.assertTrue(first["published"])
+
+        compacted = compact_state(base_dir=self.tools, retain_days=7)
+        # Each run recorded one finding with the same identity; the older
+        # run's row is its only one, so the per-run floor keeps it (before
+        # the floor the collapse removed it — the refusal above).
+        self.assertEqual(compacted["surfaces"]["raw_findings"]["stripped_rows"], 0)
+        raw = load_declared_jsonl(self.tools / "raw-findings.jsonl", expected_surface="raw_findings")
+        self.assertEqual(sorted(r["run_id"] for r in raw), ["run-old-a", "run-old-b"])
+        second = self.lane._publish(self.store, "snap-2", "cycle-2")
+
+        self.assertTrue(second["published"])
+        self.assertEqual(second["runtime_artifacts"]["status"], "ok")
 
     def test_the_cli_verb_the_lane_runs_reports_the_refusal_as_a_verdict(self) -> None:
         from aria_kernel.cli import _handle_state_command

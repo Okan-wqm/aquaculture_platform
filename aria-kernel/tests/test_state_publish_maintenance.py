@@ -203,7 +203,13 @@ class ThePublishBoundsTheCompactableLedgers(MaintenanceLaneTestCase):
         published = _git(store.root, "show", "HEAD:tools/raw-findings.jsonl")
         self.assertLessEqual(len(published.encode("utf-8")), self.CAP)
         rows = [json.loads(line) for line in published.splitlines() if line.strip()]
-        self.assertEqual(len(rows), 20, "one row per fingerprint survives")
+        # One row per fingerprint (the newest run, run-29, holds all 20), and
+        # one row for each of the 29 older runs the collapse would otherwise
+        # empty — ARIA-HIGH-239: a run that reports raw findings keeps a
+        # pointer to them, or the publish's own verifier refuses the store.
+        self.assertEqual(len({row["finding_fingerprint"] for row in rows}), 20)
+        self.assertEqual({row["run_id"] for row in rows}, {f"run-{copy}" for copy in range(30)})
+        self.assertEqual(len(rows), 20 + 29)
         # The compaction that bounded it is inside the commit it bounded.
         self.assertTrue(any(
             row.get("kind") == COMPACTED_EVENT for row in self._committed_governance_rows(store)

@@ -14,7 +14,9 @@ What it does (per surface, all lossless via archives):
   without the collapse the ledger grew one universe per cycle until the
   publish's evidence budget (80MiB across counted surfaces) refused the
   commit; the readers resolve a fingerprint to one row and none of them
-  needs the older copies.
+  needs the older copies. ARIA-HIGH-239: a run the collapse would empty
+  keeps its newest row, so no run that reports raw findings is left with
+  no pointer to them (``raw_pointer_missing``).
 - memory/beliefs.jsonl: collapses to latest row per belief_id
 - memory/learning-events.jsonl: keeps rows newer than --retain-days
 
@@ -749,15 +751,7 @@ def _compact_runs(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tu
 
 def _compact_raw_findings(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tuple[int, int]:
     rows = load_declared_jsonl(path, expected_surface="raw_findings")
-    newest_by_fingerprint: dict[tuple[str, str], int] = {}
-    for index, row in enumerate(rows):
-        key = _raw_finding_key(row)
-        if key is None:
-            continue
-        current = newest_by_fingerprint.get(key)
-        if current is None or _raw_finding_recorded(rows[current]) <= _raw_finding_recorded(row):
-            newest_by_fingerprint[key] = index
-    surviving = set(newest_by_fingerprint.values())
+    surviving = _collapse_survivors(rows)
     kept: list[dict[str, Any]] = []
     archived_rows: list[dict[str, Any]] = []
     removed = 0
@@ -782,6 +776,54 @@ def _compact_raw_findings(path: Path, root: Path, cutoff: datetime, dry_run: boo
     _archive_stripped(root, "raw_findings", archived_rows)
     rewrite_declared_jsonl(path, kept, expected_surface="raw_findings", migration_id=f"compact_raw_findings_{utc_now()}")
     return len(kept), removed
+
+
+def _collapse_survivors(rows: list[dict[str, Any]]) -> set[int]:
+    """Indexes of the fingerprinted raw-finding rows the collapse keeps.
+
+    WHAT: the newest row per (tool_id, finding_fingerprint) — the
+    ARIA-HIGH-185 collapse — plus, for every run the collapse would leave
+    with no raw row at all, that run's newest row. Rows without a
+    fingerprint are not decided here: the caller keeps them untouched.
+
+    WHY the per-run floor (ARIA-HIGH-239). ``verify_runtime_artifacts``
+    refuses a run that reports raw findings (``runner.raw_findings_count``)
+    but has neither a raw row nor a readable artifact carrying them:
+    ``raw_pointer_missing``. The fingerprint collapse alone empties every
+    older run whose findings recur in a newer one, and once an earlier
+    compaction has pruned that run's hot artifact nothing reaches its
+    findings any more. So the kernel's own compaction produced a tree the
+    kernel's own verifier refused — 55 runs on the 2026-09-27 aria/state
+    tip, every ``aria-state-maintenance`` run since 2026-09-21 red, and
+    every publish that bounds its surfaces by compacting refused as
+    unverified. Keeping one row per run makes that output impossible by
+    construction instead of relaxing the verifier: the kept row is a real
+    pointer the run recorded, verified exactly as before, and the
+    collapsed copies go to the archive like every other stripped row. The
+    floor costs one thin row per run, bounded by ``runs.jsonl`` itself,
+    not by how often a finding recurs.
+    """
+    newest_by_fingerprint: dict[tuple[str, str], int] = {}
+    newest_by_run: dict[str, int] = {}
+    for index, row in enumerate(rows):
+        key = _raw_finding_key(row)
+        if key is None:
+            continue
+        current = newest_by_fingerprint.get(key)
+        if current is None or _raw_finding_recorded(rows[current]) <= _raw_finding_recorded(row):
+            newest_by_fingerprint[key] = index
+        run_id = str(row.get("run_id") or "")
+        if run_id:
+            latest = newest_by_run.get(run_id)
+            if latest is None or _raw_finding_recorded(rows[latest]) <= _raw_finding_recorded(row):
+                newest_by_run[run_id] = index
+    surviving = set(newest_by_fingerprint.values())
+    # A run is covered when any row of it stays: a surviving fingerprinted
+    # row, or an unfingerprinted one (kept untouched by the caller).
+    covered = {str(rows[index].get("run_id") or "") for index in surviving}
+    covered.update(str(row.get("run_id") or "") for row in rows if _raw_finding_key(row) is None)
+    surviving.update(index for run_id, index in newest_by_run.items() if run_id not in covered)
+    return surviving
 
 
 def _raw_finding_key(row: dict[str, Any]) -> tuple[str, str] | None:

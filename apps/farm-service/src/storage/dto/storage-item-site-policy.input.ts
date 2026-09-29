@@ -2,10 +2,11 @@
  * Inputs for the per-site stock policy (plan K8 tier 1, FARM-HIGH-336).
  *
  * WHY `minStock` must be positive: a zero minimum is "no policy" and is a
- * delete; the migration's CHECK enforces the same rule in the database.
+ * delete; the migration's CHECK enforces the same rule in the database, and
+ * the input only admits values numeric(15,2) stores as positive.
  */
 import { Field, Float, ID, InputType } from '@nestjs/graphql';
-import { IsEnum, IsOptional, IsPositive, IsUUID, Max } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
 import { StorageItemType } from '../entities/storage-inventory.entity';
 
@@ -26,8 +27,12 @@ export class UpsertStorageItemSitePolicyInput {
   @IsUUID()
   itemId!: string;
 
-  @Field(() => Float, { description: 'Minimum on-hand the site must hold (> 0)' })
-  @IsPositive()
+  // WHY two decimals and >= 0.01: the column is numeric(15,2), so 0.001 would
+  // round to 0.00 in the database and hit the CHECK (min_stock > 0) as a raw
+  // 23514. The input rejects every value the column cannot hold as positive.
+  @Field(() => Float, { description: 'Minimum on-hand the site must hold (>= 0.01, 2 decimals)' })
+  @IsNumber({ maxDecimalPlaces: 2, allowNaN: false, allowInfinity: false })
+  @Min(0.01)
   @Max(MAX_POLICY_MIN_STOCK)
   minStock!: number;
 }

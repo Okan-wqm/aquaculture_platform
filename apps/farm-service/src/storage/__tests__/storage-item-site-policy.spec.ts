@@ -7,6 +7,8 @@ import { createMockDataSource, stub } from '@aquaculture/testing';
 import { Role, ROLES_KEY } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import type { Repository } from 'typeorm';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 
 import { Site } from '../../site/entities/site.entity';
 import { Feed } from '../../feed/entities/feed.entity';
@@ -20,6 +22,8 @@ import { DeleteStorageItemSitePolicyCommand } from '../commands/delete-storage-i
 import { ListStorageItemSitePoliciesQuery } from '../queries/list-storage-item-site-policies.query';
 import { StorageItemSitePolicyResolver } from '../resolvers/storage-item-site-policy.resolver';
 import { MUTATION_ROLES, QUERY_ROLES } from '../../common/authz/permission-matrix';
+import { StockMutationLockAuthority } from '../services/stock-mutation-lock.authority';
+import { UpsertStorageItemSitePolicyInput } from '../dto/storage-item-site-policy.input';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const SITE_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -37,11 +41,25 @@ interface Repos {
 
 function harness(repos: Repos): {
   dataSource: ReturnType<typeof createMockDataSource>['mockDataSource'];
+  locks: StockMutationLockAuthority;
+  acquire: jest.Mock;
+  order: string[];
   policySave: jest.Mock;
   policyRemove: jest.Mock;
   policyFind: jest.Mock;
 } {
   const { mockDataSource, mockManager } = createMockDataSource();
+  // Call log shared by the lock double and the policy read: proves the order.
+  const order: string[] = [];
+  const acquire = jest.fn();
+  acquire.mockImplementation(async () => {
+    order.push('lock');
+  });
+  const policyFindOne = jest.fn();
+  policyFindOne.mockImplementation(async () => {
+    order.push('read');
+    return repos.policy ?? null;
+  });
   const policySave = jest.fn();
   policySave.mockImplementation(async (row: StorageItemSitePolicy) => row);
   const policyRemove = jest.fn().mockResolvedValue(undefined);
@@ -56,7 +74,7 @@ function harness(repos: Repos): {
     [
       StorageItemSitePolicy,
       stub<Repository<StorageItemSitePolicy>>({
-        findOne: jest.fn().mockResolvedValue(repos.policy ?? null),
+        findOne: policyFindOne,
         find: policyFind,
         save: policySave,
         create: policyCreate,
@@ -69,7 +87,15 @@ function harness(repos: Repos): {
     if (!repo) throw new Error(`unexpected repository ${String(entity)}`);
     return repo;
   });
-  return { dataSource: mockDataSource, policySave, policyRemove, policyFind };
+  return {
+    dataSource: mockDataSource,
+    locks: stub<StockMutationLockAuthority>({ acquire }),
+    acquire,
+    order,
+    policySave,
+    policyRemove,
+    policyFind,
+  };
 }
 
 const input = { siteId: SITE_A, itemType: StorageItemType.FEED, itemId: FEED, minStock: 250 };
@@ -78,12 +104,22 @@ const liveFeed = { id: FEED, tenantId: TENANT, name: 'Skretting 3mm', unit: 'kg'
 
 describe('UpsertStorageItemSitePolicyHandler', () => {
   it('creates a policy stamped with its author', async () => {
-    // SCENARIO: no policy yet for (site A, feed). EXPECTS: insert with createdBy = updatedBy = caller.
-    const { dataSource, policySave } = harness({ site: liveSite, feed: liveFeed });
+    // SCENARIO: no policy yet for (site A, feed). EXPECTS: insert with createdBy = updatedBy = caller,
+    // after the item lock (so two concurrent first inserts cannot both read "none").
+    const { dataSource, locks, acquire, order, policySave } = harness({
+      site: liveSite,
+      feed: liveFeed,
+    });
 
-    await new UpsertStorageItemSitePolicyHandler(dataSource).execute(
+    await new UpsertStorageItemSitePolicyHandler(dataSource, locks).execute(
       new UpsertStorageItemSitePolicyCommand(input, TENANT, ADMIN),
     );
+
+    // The first-insert race is closed by the item lock, taken BEFORE the read.
+    expect(acquire).toHaveBeenCalledWith(expect.anything(), TENANT, [
+      { itemType: StorageItemType.FEED, itemId: FEED },
+    ]);
+    expect(order).toEqual(['lock', 'read']);
 
     expect(policySave).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -107,13 +143,13 @@ describe('UpsertStorageItemSitePolicyHandler', () => {
       createdBy: OTHER_ADMIN,
       updatedBy: OTHER_ADMIN,
     });
-    const { dataSource, policySave } = harness({
+    const { dataSource, locks, policySave } = harness({
       site: liveSite,
       feed: liveFeed,
       policy: existing,
     });
 
-    await new UpsertStorageItemSitePolicyHandler(dataSource).execute(
+    await new UpsertStorageItemSitePolicyHandler(dataSource, locks).execute(
       new UpsertStorageItemSitePolicyCommand(input, TENANT, ADMIN),
     );
 
@@ -131,7 +167,7 @@ describe('UpsertStorageItemSitePolicyHandler', () => {
     // SCENARIO: soft-deleted site; then a live site with no such feed. EXPECTS: 400, then 404; nothing saved.
     const deleted = harness({ site: { ...liveSite, isDeleted: true }, feed: liveFeed });
     await expect(
-      new UpsertStorageItemSitePolicyHandler(deleted.dataSource).execute(
+      new UpsertStorageItemSitePolicyHandler(deleted.dataSource, deleted.locks).execute(
         new UpsertStorageItemSitePolicyCommand(input, TENANT, ADMIN),
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -139,7 +175,7 @@ describe('UpsertStorageItemSitePolicyHandler', () => {
 
     const missingItem = harness({ site: liveSite, feed: null });
     await expect(
-      new UpsertStorageItemSitePolicyHandler(missingItem.dataSource).execute(
+      new UpsertStorageItemSitePolicyHandler(missingItem.dataSource, missingItem.locks).execute(
         new UpsertStorageItemSitePolicyCommand(input, TENANT, ADMIN),
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -215,6 +251,24 @@ describe('ListStorageItemSitePoliciesHandler (site-scoped reads)', () => {
       itemId: FEED,
     });
   });
+
+  it('finds a consumable policy when filtered by its HEALTHCARE spelling', async () => {
+    // SCENARIO: the upsert stores a HEALTHCARE policy under the canonical
+    // CONSUMABLE type; a list filtered by HEALTHCARE. EXPECTS: the query asks
+    // for CONSUMABLE, so the stored policy is found instead of silently missed.
+    const { dataSource, policyFind } = harness({});
+    await new ListStorageItemSitePoliciesHandler(dataSource, siteAuth).execute(
+      new ListStorageItemSitePoliciesQuery(
+        TENANT,
+        { sub: 'm', roles: [Role.MODULE_MANAGER] },
+        { itemType: StorageItemType.HEALTHCARE },
+      ),
+    );
+    expect(policyFind.mock.calls[0][0].where).toEqual({
+      tenantId: TENANT,
+      itemType: StorageItemType.CONSUMABLE,
+    });
+  });
 });
 
 describe('StorageItemSitePolicyResolver authorization', () => {
@@ -246,5 +300,23 @@ describe('StorageItemSitePolicyResolver authorization', () => {
     expect([...rolesOf('storageItemSitePolicies')].sort()).toEqual(
       [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN].sort(),
     );
+  });
+});
+
+describe('UpsertStorageItemSitePolicyInput validation', () => {
+  async function errorsFor(minStock: number): Promise<string[]> {
+    const dto = plainToInstance(UpsertStorageItemSitePolicyInput, { ...input, minStock });
+    return (await validate(dto)).map((error) => error.property);
+  }
+
+  it('admits only minimums numeric(15,2) stores as positive', async () => {
+    // SCENARIO: 0.001 rounds to 0.00 in the column; 0 and -1 are "no policy".
+    // EXPECTS: all three rejected at the input (not a raw CHECK 23514); 0.01
+    // and 250.5 accepted.
+    expect(await errorsFor(0.001)).toEqual(['minStock']);
+    expect(await errorsFor(0)).toEqual(['minStock']);
+    expect(await errorsFor(-1)).toEqual(['minStock']);
+    expect(await errorsFor(0.01)).toEqual([]);
+    expect(await errorsFor(250.5)).toEqual([]);
   });
 });

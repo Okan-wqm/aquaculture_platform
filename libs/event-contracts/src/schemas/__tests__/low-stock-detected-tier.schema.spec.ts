@@ -11,10 +11,10 @@ import { validateFarmEvent } from '../validator';
 /**
  * Trust-boundary validation for the two-tier LowStockDetected (plan K8).
  *
- * The gateway validates the RAW wire payload before any upcaster runs, so the
- * one schema must accept v1 (no tier) and v2 (site | pool) while rejecting
- * every mixed shape. The upcaster tests pin the NatsEventBus path, where a v1
- * event reaches typed consumers only after being lifted to v2.
+ * The gateway farm bridge validates the RAW wire payload and never upcasts, so
+ * the one schema must accept v1 (no tier) and v2 (site | pool) while rejecting
+ * every incomplete or mixed v2 shape. The upcaster tests pin the NatsEventBus
+ * path, where a v1 event reaches typed consumers only after being lifted to v2.
  */
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ITEM = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -102,6 +102,33 @@ describe('LowStockDetected tier schema (plan K8)', () => {
     expect(validateFarmEvent('LowStockDetected', { ...poolEvent(), level: 'region' }).valid).toBe(
       false,
     );
+  });
+
+  it('rejects a v2 event that omits its tier or nulls it', () => {
+    // SCENARIO: version 2 with no level, and with level null. EXPECTS: both
+    // rejected — only a v1 event may be tierless.
+    const { level: _level, ...tierless } = poolEvent();
+    expect(validateFarmEvent('LowStockDetected', tierless).valid).toBe(false);
+    expect(validateFarmEvent('LowStockDetected', { ...poolEvent(), level: null }).valid).toBe(
+      false,
+    );
+  });
+
+  it('rejects a site event whose site is null', () => {
+    // SCENARIO: site payload with siteId null (the key is present). EXPECTS: rejected.
+    expect(validateFarmEvent('LowStockDetected', { ...siteEvent(), siteId: null }).valid).toBe(
+      false,
+    );
+  });
+
+  it('rejects a pool event without its open-order remainder, and accepts an unknown one', () => {
+    // SCENARIO: pool payload with onOrderQuantity omitted; then null (a lifted v1).
+    // EXPECTS: omitted → rejected; null → accepted (the contract's "unknown").
+    const { onOrderQuantity: _onOrder, ...withoutOnOrder } = poolEvent();
+    expect(validateFarmEvent('LowStockDetected', withoutOnOrder).valid).toBe(false);
+    expect(
+      validateFarmEvent('LowStockDetected', { ...poolEvent(), onOrderQuantity: null }).valid,
+    ).toBe(true);
   });
 
   it('accepts the spare_part item type (spare parts share the storage ledger)', () => {

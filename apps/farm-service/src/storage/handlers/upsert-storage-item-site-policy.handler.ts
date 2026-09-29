@@ -7,6 +7,10 @@
  * a "policy already exists" failure mode for the same operator intent.
  * WHAT: validates the site (live, same tenant) and the catalog item, then
  * inserts or updates inside one tenant transaction, stamping the author.
+ * INVARIANT: the read-then-write runs under the item's stock mutation lock
+ * (an advisory lock exists before the row does). If violated → two managers
+ * creating the first policy of one (site, item) both read "none" and the
+ * second insert fails on the unique index with a raw 23505.
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -19,12 +23,18 @@ import { StorageItemSitePolicy } from '../entities/storage-item-site-policy.enti
 import { Site } from '../../site/entities/site.entity';
 import { describeStorageItem } from '../services/storage-item-catalog';
 import { canonicalStockItemType } from '../services/low-stock/stock-identity';
+import { StockMutationLockAuthority } from '../services/stock-mutation-lock.authority';
 
 @CommandHandler(UpsertStorageItemSitePolicyCommand)
 export class UpsertStorageItemSitePolicyHandler
   implements ICommandHandler<UpsertStorageItemSitePolicyCommand, StorageItemSitePolicy>
 {
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    // Serialises policy writes with each other and with the item's movements,
+    // so an edge-trigger evaluation never sees a half-applied policy change.
+    private readonly mutationLocks: StockMutationLockAuthority,
+  ) {}
 
   async execute(command: UpsertStorageItemSitePolicyCommand): Promise<StorageItemSitePolicy> {
     const { input, tenantId, userId } = command;
@@ -45,10 +55,10 @@ export class UpsertStorageItemSitePolicyHandler
         throw new NotFoundException(`${input.itemType} "${input.itemId}" not found`);
       }
 
+      await this.mutationLocks.acquire(manager, tenantId, [{ itemType, itemId: input.itemId }]);
       const repo = tenantManagerRepo(manager, StorageItemSitePolicy, tenantId);
       const existing = await repo.findOne({
         where: { tenantId, siteId: input.siteId, itemType, itemId: input.itemId },
-        lock: { mode: 'pessimistic_write' },
       });
       if (existing) {
         existing.minStock = input.minStock;

@@ -131,6 +131,12 @@ export interface DeliveryReceivedEvent extends BaseEvent {
 export const LOW_STOCK_DETECTED_VERSION = 2;
 
 /**
+ * Stock categories a `LowStockDetected` names — the storage ledger's
+ * `item_type` vocabulary (the wire schema enforces the same closed set).
+ */
+export type LowStockItemType = 'feed' | 'chemical' | 'consumable' | 'healthcare' | 'spare_part';
+
+/**
  * Fields every `LowStockDetected` tier carries.
  *
  * The event is EDGE-triggered: the farm ledger emits it only when a movement
@@ -141,8 +147,8 @@ interface LowStockDetectedFields extends BaseEvent {
   /** Literal discriminator for event routing and type narrowing */
   eventType: 'LowStockDetected';
 
-  /** Storage item category: feed, chemical, consumable, healthcare, spare_part */
-  itemType: string;
+  /** Storage item category (closed set, see `LowStockItemType`). */
+  itemType: LowStockItemType;
 
   /** UUID of the specific item that is running low */
   itemId: string;
@@ -184,6 +190,8 @@ export interface SiteLowStockDetectedEvent extends LowStockDetectedFields {
   level: 'site';
   /** Site whose locations were summed. */
   siteId: string;
+  /** Pool-only field: a site event never carries it (the compiler rejects it). */
+  onOrderQuantity?: never;
 }
 
 /**

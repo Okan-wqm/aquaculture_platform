@@ -513,7 +513,8 @@ describe('StockMovementService.recordMovement — single low-stock sink (plan K8
 
   it('enqueues one LowStockDetected per crossed tier, on the caller manager', async () => {
     // SCENARIO: the movement crossed the pool into low and a site into out.
-    // EXPECTS: two v2 events (pool + site) enqueued atomically with the decrement.
+    // EXPECTS: two v2 events (pool + site) enqueued atomically with the decrement,
+    // both caused by the saved movement (mv-1) and aggregated on the stock item.
     const { service, manager, outboxEnqueue } = makeHarness({
       fromLot: inv({ quantity: 500 }),
       crossings: [poolCrossing, siteCrossing],
@@ -537,9 +538,14 @@ describe('StockMovementService.recordMovement — single low-stock sink (plan K8
       minimumThreshold: 100,
       unit: 'kg',
       severity: 'low_stock',
+      causationId: 'mv-1',
+      aggregateId: FEED,
+      aggregateType: 'StorageItem',
     });
     expect(poolEvent).not.toHaveProperty('siteId');
     expect(outboxEnqueue.mock.calls[1][0]).toMatchObject({
+      causationId: 'mv-1',
+      aggregateId: FEED,
       level: 'site',
       siteId: 'site-1',
       currentQuantity: 0,
@@ -600,6 +606,39 @@ describe('StockMovementService.recordMovement — single low-stock sink (plan K8
     await service.recordMovement(manager, outInput(50), ctx);
 
     expect(crossingsForMovement.mock.calls[0][2]).toMatchObject({ fromSiteId: null });
+  });
+
+  it('refuses to book stock INTO a soft-deleted location', async () => {
+    // SCENARIO: IN of 10 kg into a location that was soft-deleted (e.g. a spare
+    // part's home location closed after the part was registered).
+    // EXPECTS: BadRequest before any write — stock in a deleted location is
+    // on-hand for no reader, so accepting it would make the receipt vanish.
+    const deleted = stub<StorageLocation>({
+      id: LOCATION,
+      tenantId: TENANT,
+      siteId: 'site-1',
+      isDeleted: true,
+    });
+    const { service, manager, repos, crossingsForMovement, project } = makeHarness({
+      fromLocation: deleted,
+    });
+
+    await expect(
+      service.recordMovement(
+        manager,
+        {
+          movementType: MovementType.IN,
+          itemType: StorageItemType.FEED,
+          itemId: FEED,
+          quantity: 10,
+          toLocationId: LOCATION,
+        },
+        ctx,
+      ),
+    ).rejects.toThrow(/is deleted; stock cannot be booked into it/);
+    expect(repos.inventorySave).not.toHaveBeenCalled();
+    expect(project).not.toHaveBeenCalled();
+    expect(crossingsForMovement).not.toHaveBeenCalled();
   });
 
   it('re-projects the catalog row through the ONE projector', async () => {

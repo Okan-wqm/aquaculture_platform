@@ -34,6 +34,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 
 import { StorageItemType } from '../entities/storage-inventory.entity';
+import { canonicalStockItemType } from './low-stock/stock-identity';
 
 /** Namespaced so an unrelated advisory-lock user cannot collide with stock. */
 const LOCK_DOMAIN = 'aquaculture.stock-item/v1';
@@ -50,6 +51,15 @@ export interface StockMutationTarget {
 /**
  * Canonical lock key for one physical stock bucket. Lower-cased so two spellings
  * of the same UUID cannot take two different locks.
+ *
+ * WHY the CANONICAL item type (plan K8): HEALTHCARE and CONSUMABLE rows of one
+ * consumable are one stock identity (stock-identity.ts) — the low-stock
+ * evaluator sums both and rebuilds the pre-movement band from the movement's own
+ * delta, which is only sound while nothing else moves the item in between. Two
+ * ledger spellings of one item must therefore take ONE lock.
+ * INVARIANT: every ledger type of one catalog row maps to the same key; if
+ * violated → a HEALTHCARE and a CONSUMABLE movement of one item run
+ * concurrently and a low-stock crossing is missed or emitted twice.
  */
 export function stockMutationLockKey(tenantId: string, target: StockMutationTarget): string {
   if (!UUID.test(tenantId) || !UUID.test(target.itemId)) {
@@ -58,7 +68,8 @@ export function stockMutationLockKey(tenantId: string, target: StockMutationTarg
   if (!Object.values(StorageItemType).includes(target.itemType)) {
     throw new BadRequestException(`Unsupported stock item type: ${String(target.itemType)}`);
   }
-  return `${LOCK_DOMAIN}:${tenantId.toLowerCase()}:${target.itemType}:${target.itemId.toLowerCase()}`;
+  const itemType = canonicalStockItemType(target.itemType);
+  return `${LOCK_DOMAIN}:${tenantId.toLowerCase()}:${itemType}:${target.itemId.toLowerCase()}`;
 }
 
 /** Canonical lock key for one tenant-scoped idempotency key. */

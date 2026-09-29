@@ -13,6 +13,7 @@
  * the row). Both are enforced by the migration's unique index + CHECK.
  */
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -25,9 +26,14 @@ import { DecimalTransformer } from '@aquaculture/backend-common/database';
 
 import { StorageItemType } from './storage-inventory.entity';
 
+// Names match migration 1811100000000 so the entity and the DDL describe the
+// same constraints (schema-drift CHECK count; no drop/re-create on generate).
 @Entity('storage_item_site_policies')
-@Index(['tenantId', 'siteId', 'itemType', 'itemId'], { unique: true })
-@Index(['tenantId', 'itemType', 'itemId'])
+@Index('UQ_storage_item_site_policies_site_item', ['tenantId', 'siteId', 'itemType', 'itemId'], {
+  unique: true,
+})
+@Index('IDX_storage_item_site_policies_item', ['tenantId', 'itemType', 'itemId'])
+@Check('CHK_storage_item_site_policies_min_stock_positive', '"min_stock" > 0')
 export class StorageItemSitePolicy {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

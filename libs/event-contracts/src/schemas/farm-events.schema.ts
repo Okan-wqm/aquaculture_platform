@@ -1042,12 +1042,32 @@ export const lowStockDetectedSchema: JSONSchemaType<WireLowStockDetected> = {
     'unit',
     'severity',
   ],
-  // INVARIANT: a site event names its site and carries no pool-only field; a
-  // pool event (or a v1 event with no tier) never names a site. If violated →
-  // the gateway drops the payload instead of broadcasting an ambiguous alert.
-  if: { properties: { level: { const: 'site' } }, required: ['level'] },
-  then: { required: ['siteId'], not: { required: ['onOrderQuantity'] } },
-  else: { not: { required: ['siteId'] } },
+  // INVARIANT: the tier is complete and unambiguous. If violated → the
+  // gateway drops the payload instead of broadcasting an ambiguous alert.
+  //   1. v2+ names its tier (a non-null `level`); only v1 may omit it.
+  //   2. a site event names a non-null site and carries no pool-only field;
+  //      every other event (pool, or v1 with no tier) never names a site.
+  //   3. a pool event carries its open-order remainder (`null` = unknown,
+  //      which only the v1 → v2 upcaster produces).
+  allOf: [
+    {
+      if: { properties: { version: { type: 'integer', minimum: 2 } }, required: ['version'] },
+      then: { required: ['level'], properties: { level: { type: 'string' } } },
+    },
+    {
+      if: { properties: { level: { const: 'site' } }, required: ['level'] },
+      then: {
+        required: ['siteId'],
+        properties: { siteId: { type: 'string' } },
+        not: { required: ['onOrderQuantity'] },
+      },
+      else: { not: { required: ['siteId'] } },
+    },
+    {
+      if: { properties: { level: { const: 'pool' } }, required: ['level'] },
+      then: { required: ['onOrderQuantity'] },
+    },
+  ],
 };
 
 export const feedingProtocolAssignedSchema: JSONSchemaType<WireFeedingProtocolAssigned> = {

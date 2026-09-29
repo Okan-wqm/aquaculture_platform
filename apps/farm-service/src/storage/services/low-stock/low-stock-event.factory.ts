@@ -25,13 +25,24 @@ export interface LowStockItemLabel {
  * WHY: one event per crossed tier; WHAT: maps the reading onto the v2 contract.
  * `minimumThreshold` is omitted when the pool is not reorder-controlled (the
  * event then reports a physical stock-out only).
+ *
+ * `causationId` is the stock movement that crossed the tier, and the stock item
+ * is the aggregate: one movement may emit a site AND a pool event, and a
+ * consumer links the pair back to that one movement through these fields.
  */
 export function buildLowStockDetectedEvent(
   tenantId: string,
   crossing: LowStockCrossing,
   label: LowStockItemLabel,
+  causingMovementId: string,
 ): LowStockDetectedEvent {
   const { reading, severity } = crossing;
+  const envelope = {
+    version: LOW_STOCK_DETECTED_VERSION,
+    aggregateId: reading.itemId,
+    aggregateType: 'StorageItem',
+    causationId: causingMovementId,
+  };
   const common = {
     itemType: reading.itemType,
     itemId: reading.itemId,
@@ -42,9 +53,7 @@ export function buildLowStockDetectedEvent(
   };
   if (reading.level === 'site') {
     const event: SiteLowStockDetectedEvent = {
-      ...createBaseEvent<SiteLowStockDetectedEvent>('LowStockDetected', tenantId, {
-        version: LOW_STOCK_DETECTED_VERSION,
-      }),
+      ...createBaseEvent<SiteLowStockDetectedEvent>('LowStockDetected', tenantId, envelope),
       ...common,
       level: 'site',
       siteId: reading.siteId,
@@ -53,9 +62,7 @@ export function buildLowStockDetectedEvent(
     return event;
   }
   const event: PoolLowStockDetectedEvent = {
-    ...createBaseEvent<PoolLowStockDetectedEvent>('LowStockDetected', tenantId, {
-      version: LOW_STOCK_DETECTED_VERSION,
-    }),
+    ...createBaseEvent<PoolLowStockDetectedEvent>('LowStockDetected', tenantId, envelope),
     ...common,
     level: 'pool',
     onOrderQuantity: reading.onOrder,

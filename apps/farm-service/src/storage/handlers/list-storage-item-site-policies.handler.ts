@@ -14,6 +14,7 @@ import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 
 import { ListStorageItemSitePoliciesQuery } from '../queries/list-storage-item-site-policies.query';
 import { StorageItemSitePolicy } from '../entities/storage-item-site-policy.entity';
+import { canonicalStockItemType } from '../services/low-stock/stock-identity';
 
 @QueryHandler(ListStorageItemSitePoliciesQuery)
 export class ListStorageItemSitePoliciesHandler
@@ -30,7 +31,9 @@ export class ListStorageItemSitePoliciesHandler
     if (scope.kind === 'ASSIGNED' && scope.siteIds.length === 0) return [];
 
     const where: FindOptionsWhere<StorageItemSitePolicy> = { tenantId };
-    if (filter.itemType) where.itemType = filter.itemType;
+    // Policies are stored under the canonical type (the upsert canonicalises),
+    // so a HEALTHCARE filter must find the consumable's policies.
+    if (filter.itemType) where.itemType = canonicalStockItemType(filter.itemType);
     if (filter.itemId) where.itemId = filter.itemId;
     if (scope.kind === 'ASSIGNED') {
       // Fail-closed: a requested site outside the assignment yields nothing.

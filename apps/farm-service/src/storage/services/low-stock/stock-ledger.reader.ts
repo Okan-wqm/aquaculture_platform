@@ -24,6 +24,7 @@ import { Feed } from '../../../feed/entities/feed.entity';
 import { Chemical } from '../../../chemical/entities/chemical.entity';
 import { Consumable } from '../../../consumable/entities/consumable.entity';
 import { SparePart } from '../../../maintenance/entities/spare-part.entity';
+import { Site } from '../../../site/entities/site.entity';
 import {
   OPEN_PURCHASE_ORDER_STATUSES,
   PURCHASE_ORDER_CATEGORY_ITEM_TYPE,
@@ -220,12 +221,30 @@ export class StockLedgerReader {
               }
             : { tenantId },
     });
-    return policies.map((policy) => ({
-      itemType: policy.itemType,
-      itemId: policy.itemId,
-      siteId: policy.siteId,
-      minStock: Number(policy.minStock),
-    }));
+    if (policies.length === 0) return [];
+
+    // INVARIANT: a soft-deleted site distributes nothing, so its policy is
+    // dormant (kept, because a restored site gets its policy back). If
+    // violated → a closed site reads as permanently out of stock and asks for
+    // transfers nobody can receive.
+    const liveSites = await tenantManagerRepo(manager, Site, tenantId).find({
+      where: {
+        tenantId,
+        isDeleted: false,
+        id: In([...new Set(policies.map((policy) => policy.siteId))]),
+      },
+      select: ['id'],
+    });
+    const liveSiteIds = new Set(liveSites.map((site) => site.id));
+
+    return policies
+      .filter((policy) => liveSiteIds.has(policy.siteId))
+      .map((policy) => ({
+        itemType: policy.itemType,
+        itemId: policy.itemId,
+        siteId: policy.siteId,
+        minStock: Number(policy.minStock),
+      }));
   }
 
   /**

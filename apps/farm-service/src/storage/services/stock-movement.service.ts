@@ -386,13 +386,14 @@ export class StockMovementService {
         itemId,
         quantity,
         fromSiteId: fromLocation && !fromLocation.isDeleted ? fromLocation.siteId : null,
-        toSiteId: toLocation && !toLocation.isDeleted ? toLocation.siteId : null,
+        // A deleted TO location was refused in resolveLocations.
+        toSiteId: toLocation ? toLocation.siteId : null,
       },
       itemDetails.poolReorderThreshold,
     );
     for (const crossing of lowStockCrossings) {
       await this.outboxPublisher.enqueue(
-        buildLowStockDetectedEvent(tenantId, crossing, itemDetails),
+        buildLowStockDetectedEvent(tenantId, crossing, itemDetails, saved.id),
         manager,
       );
     }
@@ -557,6 +558,19 @@ export class StockMovementService {
           throw new NotFoundException(`Storage location "${input.fromLocationId}" not found`);
         }
       }
+    }
+
+    // INVARIANT (plan K8, FARM-MEDIUM-293): stock in a soft-deleted location is
+    // on-hand for no reader — not the tiers, not the catalog projection, not
+    // FEFO. Booking stock INTO one would make it vanish while the audit row says
+    // it arrived (and a PO receipt would shrink on-order with no on-hand gain,
+    // hiding a pool crossing). A deleted location may still be DRAINED (the
+    // from side), never filled. A spare part whose home location was deleted is
+    // stopped here too, instead of silently losing its receipts.
+    if (toLocation !== null && toLocation.isDeleted) {
+      throw new BadRequestException(
+        `Storage location "${toLocation.id}" is deleted; stock cannot be booked into it`,
+      );
     }
 
     return { fromLocation, toLocation };

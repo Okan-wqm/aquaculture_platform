@@ -54,6 +54,7 @@ import { CreateStorageItemSitePolicies1811100000000 } from '../../database/migra
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
 import { Feed, FeedStatus, FeedType, FloatingType } from '../../feed/entities/feed.entity';
 import { SparePart } from '../../maintenance/entities/spare-part.entity';
+import { Site } from '../../site/entities/site.entity';
 import { FarmOutbox } from '../../outbox/farm-outbox.entity';
 import { PurchaseOrderItem } from '../../storage/entities/purchase-order-item.entity';
 import {
@@ -84,20 +85,32 @@ import { Supplier } from '../../supplier/entities/supplier.entity';
 
 import { createFarmOutboxTable } from './helpers/tenant-schema-harness';
 
-const SITE_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-const SITE_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const SITE_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const USER = 'f1b7b266-5e20-4c37-8ab2-b7ef18db3a21';
 
 const FEED = StorageItemType.FEED;
 
-/** One tenant's storage layout: two live locations at site A, one at B, one closed at A. */
+/**
+ * One tenant's layout: live sites A, B and C (C holds no location), two live
+ * locations at A, one at B, one closed at A.
+ */
 interface World {
   tenantId: string;
+  siteA: string;
+  siteB: string;
+  siteC: string;
   locA1: string;
   locA2: string;
   locB1: string;
   locClosedA: string;
+}
+
+/**
+ * A fresh site id whose first segment sorts A < B < C, so per-site results
+ * compare in a stable order while every world owns distinct `sites` rows.
+ */
+function siteIdSorting(letter: 'a' | 'b' | 'c'): string {
+  const hex = randomBytes(6).toString('hex');
+  return `${letter.repeat(8)}-${letter.repeat(4)}-4${letter.repeat(3)}-8${letter.repeat(3)}-${hex}`;
 }
 
 interface LotSeed {
@@ -170,6 +183,8 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
         SparePart,
         Supplier,
         EquipmentType,
+        // `StockLedgerReader.sitePolicies` reads which policy sites are live.
+        Site,
         // Metadata for the sink's outbox write; the table itself is created
         // below because the entity is `synchronize: false`.
         FarmOutbox,
@@ -215,17 +230,29 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
   async function seedWorld(): Promise<World> {
     const world: World = {
       tenantId: randomUUID(),
+      siteA: siteIdSorting('a'),
+      siteB: siteIdSorting('b'),
+      siteC: siteIdSorting('c'),
       locA1: randomUUID(),
       locA2: randomUUID(),
       locB1: randomUUID(),
       locClosedA: randomUUID(),
     };
+    await dataSource.manager.save(
+      Site,
+      [world.siteA, world.siteB, world.siteC].map((id, index) => ({
+        id,
+        tenantId: world.tenantId,
+        name: `Site ${'ABC'[index]}`,
+        code: `SITE-${'ABC'[index]}`,
+      })),
+    );
     // `usedCapacity` is named explicitly, as CreateStorageLocationHandler does.
     await dataSource.manager.save(StorageLocation, [
       {
         id: world.locA1,
         tenantId: world.tenantId,
-        siteId: SITE_A,
+        siteId: world.siteA,
         code: 'A1',
         name: 'Site A store 1',
         usedCapacity: 0,
@@ -233,7 +260,7 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
       {
         id: world.locA2,
         tenantId: world.tenantId,
-        siteId: SITE_A,
+        siteId: world.siteA,
         code: 'A2',
         name: 'Site A store 2',
         usedCapacity: 0,
@@ -241,7 +268,7 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
       {
         id: world.locB1,
         tenantId: world.tenantId,
-        siteId: SITE_B,
+        siteId: world.siteB,
         code: 'B1',
         name: 'Site B store',
         usedCapacity: 0,
@@ -249,7 +276,7 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
       {
         id: world.locClosedA,
         tenantId: world.tenantId,
-        siteId: SITE_A,
+        siteId: world.siteA,
         code: 'A-CLOSED',
         name: 'Closed store',
         usedCapacity: 0,
@@ -406,8 +433,8 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
       );
 
       expect(bySite(rows)).toEqual([
-        { itemType: FEED, itemId: feed, siteId: SITE_A, onHand: 65 },
-        { itemType: FEED, itemId: feed, siteId: SITE_B, onHand: 40 },
+        { itemType: FEED, itemId: feed, siteId: world.siteA, onHand: 65 },
+        { itemType: FEED, itemId: feed, siteId: world.siteB, onHand: 40 },
       ]);
     });
 
@@ -452,19 +479,21 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
         }),
       );
 
-      const feedA = { itemType: FEED, itemId: feed, siteId: SITE_A, onHand: 45 };
-      const feedB = { itemType: FEED, itemId: feed, siteId: SITE_B, onHand: 40 };
-      const otherA = { itemType: FEED, itemId: otherFeed, siteId: SITE_A, onHand: 7 };
+      const feedA = { itemType: FEED, itemId: feed, siteId: world.siteA, onHand: 45 };
+      const feedB = { itemType: FEED, itemId: feed, siteId: world.siteB, onHand: 40 };
+      const otherA = { itemType: FEED, itemId: otherFeed, siteId: world.siteA, onHand: 7 };
       const chemicalB = {
         itemType: StorageItemType.CHEMICAL,
         itemId: feed,
-        siteId: SITE_B,
+        siteId: world.siteB,
         onHand: 9,
       };
       expect(sorted(items)).toEqual(sorted([feedA, feedB, otherA]));
       expect(sorted(tenantWide)).toEqual(sorted([feedA, feedB, otherA, chemicalB]));
       expect(none).toEqual([]);
-      expect(foreignView).toEqual([{ itemType: FEED, itemId: feed, siteId: SITE_B, onHand: 500 }]);
+      expect(foreignView).toEqual([
+        { itemType: FEED, itemId: feed, siteId: foreign.siteB, onHand: 500 },
+      ]);
     });
   });
 
@@ -679,11 +708,11 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
         { locationId: world.locClosedA, itemId: feed, quantity: 100 },
         { locationId: world.locB1, itemId: feed, quantity: 50 },
       ]);
-      await seedPolicy(world.tenantId, SITE_A, feed, 10);
-      await seedPolicy(world.tenantId, SITE_B, feed, 20);
-      await seedPolicy(world.tenantId, SITE_C, feed, 5);
-      await seedPolicy(world.tenantId, SITE_A, randomUUID(), 10);
-      await seedPolicy(foreign.tenantId, SITE_B, feed, 1000);
+      await seedPolicy(world.tenantId, world.siteA, feed, 10);
+      await seedPolicy(world.tenantId, world.siteB, feed, 20);
+      await seedPolicy(world.tenantId, world.siteC, feed, 5);
+      await seedPolicy(world.tenantId, world.siteA, randomUUID(), 10);
+      await seedPolicy(foreign.tenantId, world.siteB, feed, 1000);
 
       const evaluation = await inTx((m) =>
         evaluator.evaluateItem(m, world.tenantId, { itemType: FEED, itemId: feed }, 0),
@@ -700,9 +729,46 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
       });
       const site = { level: 'site', itemType: FEED, itemId: feed };
       expect(bySite(evaluation.sites)).toEqual([
-        { ...site, siteId: SITE_A, onHand: 8, threshold: 10, band: 'low_stock' },
-        { ...site, siteId: SITE_B, onHand: 50, threshold: 20, band: 'ok' },
-        { ...site, siteId: SITE_C, onHand: 0, threshold: 5, band: 'out_of_stock' },
+        { ...site, siteId: world.siteA, onHand: 8, threshold: 10, band: 'low_stock' },
+        { ...site, siteId: world.siteB, onHand: 50, threshold: 20, band: 'ok' },
+        { ...site, siteId: world.siteC, onHand: 0, threshold: 5, band: 'out_of_stock' },
+      ]);
+    });
+
+    it('keeps the policy of a soft-deleted site dormant, and wakes it on restore', async () => {
+      // SCENARIO: policies A = 10 and C = 5 for a feed that holds nothing at C;
+      // site C is soft-deleted (closed), then restored.
+      // EXPECTS: while C is deleted, neither evaluateItem nor the tenant list
+      // reports C (a closed site is not "out of stock"); A still reads. After
+      // the restore, C's out_of_stock reading is back from the same row.
+      const world = await seedWorld();
+      const feed = randomUUID();
+      await seedFeed(world.tenantId, feed, 'Dormant feed', 0);
+      await seedStock(world.tenantId, [{ locationId: world.locA1, itemId: feed, quantity: 4 }]);
+      await seedPolicy(world.tenantId, world.siteA, feed, 10);
+      await seedPolicy(world.tenantId, world.siteC, feed, 5);
+      await dataSource.manager.update(Site, { id: world.siteC }, { isDeleted: true });
+
+      const closed = await inTx((m) =>
+        evaluator.evaluateItem(m, world.tenantId, { itemType: FEED, itemId: feed }, 0),
+      );
+      const listed = await inTx((m) => evaluator.listBelowThreshold(m, world.tenantId));
+
+      expect(closed.sites.map((reading) => reading.siteId)).toEqual([world.siteA]);
+      expect(
+        listed.filter((reading) => reading.itemId === feed).map((reading) => reading.level),
+      ).toEqual(['site']);
+      expect(
+        listed.some((reading) => reading.level === 'site' && reading.siteId === world.siteC),
+      ).toBe(false);
+
+      await dataSource.manager.update(Site, { id: world.siteC }, { isDeleted: false });
+      const restored = await inTx((m) =>
+        evaluator.evaluateItem(m, world.tenantId, { itemType: FEED, itemId: feed }, 0),
+      );
+      expect(bySite(restored.sites).map((reading) => [reading.siteId, reading.band])).toEqual([
+        [world.siteA, 'low_stock'],
+        [world.siteC, 'out_of_stock'],
       ]);
     });
   });
@@ -755,8 +821,8 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
           itemType: StorageItemType.CHEMICAL,
         },
       ]);
-      await seedPolicy(world.tenantId, SITE_A, low, 30);
-      await seedPolicy(world.tenantId, SITE_B, low, 50);
+      await seedPolicy(world.tenantId, world.siteA, low, 30);
+      await seedPolicy(world.tenantId, world.siteB, low, 50);
       await seedOrder(world.tenantId, {
         category: PurchaseOrderCategory.CHEMICAL,
         status: PurchaseOrderStatus.ORDERED,
@@ -781,7 +847,7 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
           level: 'site',
           itemType: FEED,
           itemId: low,
-          siteId: SITE_B,
+          siteId: world.siteB,
           onHand: 10,
           threshold: 50,
           band: 'low_stock',
@@ -877,8 +943,8 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
         { locationId: world.locA1, itemId: feed, quantity: 80 },
         { locationId: world.locB1, itemId: feed, quantity: 60 },
       ]);
-      await seedPolicy(world.tenantId, SITE_A, feed, 50);
-      await seedPolicy(world.tenantId, SITE_B, feed, 10);
+      await seedPolicy(world.tenantId, world.siteA, feed, 50);
+      await seedPolicy(world.tenantId, world.siteB, feed, 10);
       await seedOrder(world.tenantId, {
         category: PurchaseOrderCategory.FEED,
         status: PurchaseOrderStatus.ORDERED,
@@ -906,6 +972,10 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
         itemName: 'Sink feed',
         unit: 'kg',
         severity: 'low_stock',
+        // The pair links back to the ONE movement that crossed both tiers.
+        causationId: first.saved.id,
+        aggregateId: feed,
+        aggregateType: 'StorageItem',
       };
       const siteEvent = afterFirst.find((event) => event['level'] === 'site');
       const poolEvent = afterFirst.find((event) => event['level'] === 'pool');
@@ -913,7 +983,7 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
         expect.objectContaining({
           ...common,
           level: 'site',
-          siteId: SITE_A,
+          siteId: world.siteA,
           currentQuantity: 10,
           minimumThreshold: 50,
         }),
@@ -942,8 +1012,9 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
       expect(afterThird[2]).toEqual(
         expect.objectContaining({
           ...common,
+          causationId: third.saved.id,
           level: 'site',
-          siteId: SITE_A,
+          siteId: world.siteA,
           currentQuantity: 0,
           minimumThreshold: 50,
           severity: 'out_of_stock',
@@ -968,8 +1039,8 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
         { locationId: world.locA1, itemId: feed, quantity: 60 },
         { locationId: world.locB1, itemId: feed, quantity: 50 },
       ]);
-      await seedPolicy(world.tenantId, SITE_A, feed, 40);
-      await seedPolicy(world.tenantId, SITE_B, feed, 70);
+      await seedPolicy(world.tenantId, world.siteA, feed, 40);
+      await seedPolicy(world.tenantId, world.siteB, feed, 70);
 
       const result = await move(world.tenantId, {
         movementType: MovementType.TRANSFER,
@@ -988,7 +1059,7 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
           eventType: 'LowStockDetected',
           version: 2,
           level: 'site',
-          siteId: SITE_A,
+          siteId: world.siteA,
           currentQuantity: 30,
           minimumThreshold: 40,
           severity: 'low_stock',
@@ -1003,8 +1074,8 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
         }),
       );
       expect(bySite(onHand).map((row) => [row.siteId, row.onHand])).toEqual([
-        [SITE_A, 30],
-        [SITE_B, 80],
+        [world.siteA, 30],
+        [world.siteB, 80],
       ]);
       expect(
         await dataSource.manager.count(StockMovement, {

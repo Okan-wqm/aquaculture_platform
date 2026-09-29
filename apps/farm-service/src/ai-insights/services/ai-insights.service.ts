@@ -49,9 +49,18 @@ const CACHE_TTL = {
 } as const;
 
 /*
- * Cache keys come from ../ai-insights-cache-keys.ts (`ai-insights:<kind>:<tenantId>…`,
+ * Cache keys come from ../ai-insights-cache-keys.ts (`ai-insights:v2:<kind>:<tenantId>…`,
  * K10 / MT-HIGH-064) — the tenant is the first variable segment of every key.
  */
+
+/**
+ * The degraded dashboard: the same shape the dashboard returns when the MCP
+ * bridge is down, so an unavailable tenant sees "no AI data" and never another
+ * tenant's figures.
+ */
+function unavailableDashboard(): FarmDashboardInsights {
+  return { overallRiskScore: 0, tankRisks: [], anomalies: [], feedingAdvice: [] };
+}
 
 @Injectable()
 export class AiInsightsService {
@@ -67,6 +76,16 @@ export class AiInsightsService {
     @Optional() private readonly redisService?: RedisService,
   ) {}
 
+  /**
+   * Feature gate (K10 / MT-HIGH-064, V-T1b-7): the MCP session answers for its
+   * own tenant only, so for any other tenant AI insights are simply
+   * unavailable — decided BEFORE the cache and before any MCP call, quietly
+   * (no security event: this is the expected state until plan PR-T2).
+   */
+  private unavailableFor(tenantId: string): boolean {
+    return !this.mcpClient.servesTenant(tenantId);
+  }
+
   // ---------------------------------------------------------------------------
   // Tank Risk Assessment
   // ---------------------------------------------------------------------------
@@ -80,6 +99,7 @@ export class AiInsightsService {
     tankId: string,
     tenantId: string,
   ): Promise<TankRiskAssessment | null> {
+    if (this.unavailableFor(tenantId)) return null;
     const cacheKey = tankRiskCacheKey(tenantId, tankId);
 
     // WHY: Cache-aside pattern — check cache first to avoid expensive MCP call
@@ -137,6 +157,7 @@ export class AiInsightsService {
     batchId: string,
     tenantId: string,
   ): Promise<BatchGrowthPrediction | null> {
+    if (this.unavailableFor(tenantId)) return null;
     const cacheKey = batchGrowthCacheKey(tenantId, batchId);
 
     const cached = await this.getFromCache<BatchGrowthPrediction>(cacheKey);
@@ -205,6 +226,7 @@ export class AiInsightsService {
    * balances freshness with cost.
    */
   async getFarmAnomalies(tenantId: string): Promise<FarmAnomaly[]> {
+    if (this.unavailableFor(tenantId)) return [];
     const cacheKey = farmAnomaliesCacheKey(tenantId);
 
     const cached = await this.getFromCache<FarmAnomaly[]>(cacheKey);
@@ -263,6 +285,7 @@ export class AiInsightsService {
     tankId: string,
     tenantId: string,
   ): Promise<FeedingAdvice | null> {
+    if (this.unavailableFor(tenantId)) return null;
     const cacheKey = tankFeedingCacheKey(tenantId, tankId);
 
     const cached = await this.getFromCache<FeedingAdvice>(cacheKey);
@@ -333,6 +356,7 @@ export class AiInsightsService {
   async getDashboardInsights(
     tenantId: string,
   ): Promise<FarmDashboardInsights> {
+    if (this.unavailableFor(tenantId)) return unavailableDashboard();
     const cacheKey = dashboardCacheKey(tenantId);
 
     const cached = await this.getFromCache<FarmDashboardInsights>(cacheKey);

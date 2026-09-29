@@ -85,6 +85,16 @@ describe('McpClientService tenant binding', () => {
     expect(publishTenantAccessDenied).not.toHaveBeenCalled();
   });
 
+  it('servesTenant names only the credential tenant — the quiet feature gate (V-T1b-7)', () => {
+    // SCENARIO: AiInsightsService asks before the cache and before callTool.
+    // EXPECTS: true for the session tenant only; no security event for asking.
+    const service = build(credentialFor({ sub: 'svc', tenantId: TENANT_A }));
+    expect(service.servesTenant(TENANT_A)).toBe(true);
+    expect(service.servesTenant(TENANT_B)).toBe(false);
+    expect(build(credentialFor({ sub: 'svc' })).servesTenant(TENANT_A)).toBe(false);
+    expect(publishTenantAccessDenied).not.toHaveBeenCalled();
+  });
+
   it('refuses every caller when the credential names no tenant (fail closed)', async () => {
     const service = build(credentialFor({ sub: 'svc' }));
 

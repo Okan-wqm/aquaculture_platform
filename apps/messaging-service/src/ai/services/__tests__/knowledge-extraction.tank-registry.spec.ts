@@ -45,7 +45,7 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
   const publishTenantAccessDenied = jest.fn().mockResolvedValue(undefined);
   /** Content of the one message the sweep reads — tests that exercise tank references override it. */
   let messageContent = 'routine status update';
-  let lastQueryRunner: { manager: { create: jest.Mock } } | undefined;
+  let lastQueryRunner: { manager: { create: jest.Mock }; query: jest.Mock } | undefined;
 
   // A minimal QueryRunner double covering exactly the calls the sweep makes for
   // one tenant schema with a single message and an empty tank registry.
@@ -138,6 +138,23 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
     expect(send).not.toHaveBeenCalledWith('request.farm.getTankRegistry', {
       tenantSchema: TENANT_SCHEMA,
     });
+  });
+
+  it('reads messages inside the asserted tenant transaction with explicit tenant predicates (V-T1b-5)', async () => {
+    // SCENARIO: the hourly sweep reads this tenant's unprocessed messages.
+    // EXPECTS: the boundary pins search_path + RLS and reads them back BEFORE the
+    //          message read, and the read itself filters m."tenantId" and mer."tenantId".
+    await service.processHourlyBatch();
+
+    const calls = lastQueryRunner?.query.mock.calls ?? [];
+    const sql = calls.map(([statement]) => String(statement));
+    const readIndex = sql.findIndex((statement) => statement.includes('FROM "messages"'));
+    const assertIndex = sql.findIndex((statement) => statement.includes('current_schema()'));
+    expect(assertIndex).toBeGreaterThanOrEqual(0);
+    expect(readIndex).toBeGreaterThan(assertIndex);
+    expect(sql[readIndex]).toContain('mer."tenantId" = $2');
+    expect(sql[readIndex]).toContain('WHERE m."tenantId" = $2');
+    expect(calls[readIndex]?.[1]).toEqual([expect.any(Date), TENANT_ID]);
   });
 
   it('links a tank named in a message when the registry reply is bound to this tenant', async () => {

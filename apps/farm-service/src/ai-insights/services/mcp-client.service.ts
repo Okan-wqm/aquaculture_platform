@@ -208,6 +208,21 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * True when this session's credential belongs to `tenantId` — the only
+   * tenant whose MCP answers can be served.
+   *
+   * WHY a public check separate from callTool's refusal (V-T1b-7): until the
+   * per-tenant session pool (plan PR-T2, MT-MEDIUM-065) every other tenant has
+   * no AI insights at all, which is an expected, quiet "feature unavailable".
+   * AiInsightsService asks this BEFORE the cache and before callTool, so
+   * callTool's refusal (security event + error log) fires only when a caller
+   * skipped this check — a real boundary violation, not a routine poll.
+   */
+  servesTenant(tenantId: string): boolean {
+    return this.sessionBinding !== null && this.sessionBinding.admits(tenantId);
+  }
+
+  /**
    * WHY: Single public API for invoking any MCP tool with circuit breaker
    * protection and timeout guard.
    *

@@ -38,9 +38,9 @@ import {
 } from '@aquaculture/backend-common/scheduling';
 import { DataSource, QueryRunner } from 'typeorm';
 import {
-  bindTenantRlsContext,
+  getTenantSchemaName,
   listActiveTenantSchemaIdentities,
-  pinTenantSchemaTransactionSearchPath,
+  runInTenantTransaction,
 } from '@aquaculture/backend-common/database';
 
 import {
@@ -168,14 +168,11 @@ export class KnowledgeExtractionService implements OnModuleInit {
    * Process messages from the last hour for knowledge extraction.
    *
    * SECURITY (C-07): This method iterates over each provisioned tenant schema
-   * and processes messages within that schema's scope. Each tenant's queries
-   * use an explicit transaction-local search_path pin to the tenant schema AND
-   * the RLS tenant GUC (`bindTenantRlsContext` — MSGFIX-FAZ3 3.6/V1 RLS
-   * completion for batch jobs: the search_path pin alone routes the queries,
-   * but leaves the RLS policy GUC unset, so any query that touches an
-   * RLS-protected table inside this transaction would be denied every row by
-   * the policy. Binding the GUC keeps the batch on the sanctioned tenant
-   * identity end-to-end), ensuring:
+   * and processes messages within that schema's scope. Each tenant's batch runs
+   * in its own `runInTenantTransaction` — transaction-local search_path pin,
+   * RLS tenant GUC bound, bypass forced off, and both asserted on the
+   * connection before any query (MSGFIX-FAZ3 3.6 RLS completion, K10 layer 5)
+   * — ensuring:
    *   - No cross-tenant data leakage between batches
    *   - Knowledge entries and entity references are written to the correct
    *     tenant schema
@@ -210,57 +207,54 @@ export class KnowledgeExtractionService implements OnModuleInit {
   /**
    * Process a single tenant schema's messages for knowledge extraction.
    *
-   * SECURITY (C-07): All database operations within this method use a dedicated
-   * QueryRunner with search_path pinned to the tenant's schema AND the RLS
-   * tenant context bound (app.current_tenant set + verified read-back,
-   * app.bypass_rls forced off). This guarantees tenant isolation even though
-   * we're running outside HTTP context.
+   * SECURITY (C-07, K10 layer 5 — V-T1b-5): every read and write of the batch
+   * runs inside `runInTenantTransaction`, which pins the transaction-local
+   * search_path to the tenant's schema, binds the RLS tenant GUC, forces the
+   * RLS bypass off, and ASSERTS `current_schema()` + the GUC on the connection
+   * before any domain query. The message read also carries explicit
+   * `m."tenantId"` / `mer."tenantId"` predicates, so even a connection that
+   * somehow resolved another schema returns no row of another tenant.
    *
-   * @param tenantSchema - Validated tenant schema name (e.g. "tenant_4b529829ea7948da")
+   * @param tenantSchema - Validated tenant schema name from the ledger (e.g. "tenant_4b529829ea7948da")
    * @param tenantId - Canonical tenant UUID resolved from the schema-mapping
    *   ledger (ORPHAN-MEDIUM-336 — authoritative identity for the RLS GUC and
-   *   the farm tank-registry request; previously recovered from message rows
-   *   AFTER the un-GUC'd read had already run).
+   *   the farm tank-registry request).
    */
   private async runBatchForTenantSchema(tenantSchema: string, tenantId: string): Promise<void> {
+    // The ledger pairs schema and tenant; a pair whose schema is not the one the
+    // platform derives from the tenant is refused before any read.
+    if (getTenantSchemaName(tenantId) !== tenantSchema) {
+      this.logger.error({
+        msg: 'Knowledge extraction skipped: ledger schema does not belong to its tenant',
+        tenantSchema,
+      });
+      return;
+    }
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      // Pin search_path to the specific tenant schema for all subsequent queries
-      await pinTenantSchemaTransactionSearchPath(queryRunner, 'messaging', tenantSchema);
-      // MSGFIX-FAZ3 3.6: complete the tenant boundary with the RLS GUC —
-      // search_path-only routing left every RLS-protected table read-denied.
-      await bindTenantRlsContext(queryRunner, tenantId, 'messaging');
-
+    await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       const messages: ProcessableMessage[] = await queryRunner.query(
         `SELECT m."id", m."channelId", m."senderId", m."content", m."createdAt", m."tenantId"
          FROM "messages" m
-         LEFT JOIN "message_entity_references" mer ON mer."messageId" = m."id"
-         WHERE m."createdAt" > $1
+         LEFT JOIN "message_entity_references" mer
+           ON mer."messageId" = m."id" AND mer."tenantId" = $2
+         WHERE m."tenantId" = $2
+           AND m."createdAt" > $1
            AND m."isDeleted" = false
            AND m."content" IS NOT NULL
            AND m."content" != ''
            AND mer."id" IS NULL
          ORDER BY m."createdAt" ASC
          LIMIT 500`,
-        [oneHourAgo],
+        [oneHourAgo, tenantId],
       );
 
-      if (messages.length === 0) {
-        await queryRunner.commitTransaction();
-        return;
-      }
+      if (messages.length === 0) return;
 
       this.logger.debug(`Processing ${messages.length} messages for schema ${tenantSchema}`);
 
-      // Fetch tank registry for this tenant from farm-service using the
-      // canonical tenant UUID from the schema-mapping ledger (the fail-closed,
-      // GUC-asserted responder key — no longer recovered from message rows,
-      // which required reading BEFORE the boundary was fully established).
+      // The canonical tenant UUID from the schema-mapping ledger is the key of
+      // the farm registry responder; the client checks the reply names it (K10).
       const tankRegistry = await this.tankRegistryClient.fetch(tenantId);
 
       for (const msg of messages) {
@@ -273,15 +267,7 @@ export class KnowledgeExtractionService implements OnModuleInit {
           );
         }
       }
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      if (queryRunner.isTransactionActive) {
-        await queryRunner.rollbackTransaction();
-      }
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 
   /**

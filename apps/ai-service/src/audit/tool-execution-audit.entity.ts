@@ -31,8 +31,22 @@ export class ToolExecutionAudit {
   @Column({ type: 'boolean' })
   success!: boolean;
 
+  /**
+   * Legacy payload column — rows written before PR-T1 only. New rows leave it
+   * NULL: this table is cross-tenant (schema `ai`), so it must not hold tenant
+   * business data (K7 / V-T1b-6). It stays mapped because the table is an
+   * append-only protected audit trail: its columns are not dropped.
+   */
   @Column({ type: 'jsonb', nullable: true })
   output?: Record<string, unknown>;
+
+  /** sha256 (hex) of the serialized tool output — proves WHAT was returned without storing it. */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  outputSha256?: string;
+
+  /** UTF-8 byte size of the serialized tool output. */
+  @Column({ type: 'int', nullable: true })
+  outputBytes?: number;
 
   @Column({ type: 'text', nullable: true })
   errorMessage?: string;

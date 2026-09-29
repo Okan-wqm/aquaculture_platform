@@ -3652,6 +3652,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/audit/__tests__/audit.service.output-fingerprint.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/audit/__tests__/audit.service.strict.spec.ts",
       "prettier_managed": true
     },
@@ -3868,6 +3874,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/database/migrations/1803300000001-FarmAiEphemeralTurnColumns.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/database/migrations/1803400000000-ToolAuditOutputFingerprint.ts",
       "prettier_managed": true
     },
     {
@@ -9352,6 +9364,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/ai-insights/ai-insights.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/ai-insights/services/__tests__/ai-insights.service.tenant-gate.spec.ts",
       "prettier_managed": true
     },
     {

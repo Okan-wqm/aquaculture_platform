@@ -6,7 +6,7 @@ import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { TransferStockCommand } from '../commands/transfer-stock.command';
 import { StorageLocation } from '../entities/storage-location.entity';
-import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
+import { StorageInventory } from '../entities/storage-inventory.entity';
 import { StockMovement, MovementType } from '../entities/stock-movement.entity';
 import { describeStorageItem } from '../services/storage-item-catalog';
 
@@ -76,8 +76,8 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
     this.siteAuth.assertSiteAssignment({ caller: siteCaller, siteId: toLocation.siteId });
 
     return this.dataSource.transaction(async (manager) => {
-      // The ONE exhaustive item lookup (storage-item-catalog.ts): healthcare
-      // and spare-part stock are transferable like every other category.
+      // The ONE exhaustive item lookup (storage-item-catalog.ts). The input
+      // type admits feed, chemical and consumable only (TRANSFERABLE_ITEM_TYPES).
       const item = await describeStorageItem(manager, tenantId, input.itemType, input.itemId);
       if (!item) {
         throw new NotFoundException(`${input.itemType} with ID "${input.itemId}" not found`);
@@ -94,7 +94,7 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
         where: {
           tenantId,
           storageLocationId: input.fromLocationId,
-          itemType: input.itemType as StorageItemType,
+          itemType: input.itemType,
           itemId: input.itemId,
           lotNumber: input.lotNumber ?? undefined,
         },
@@ -127,7 +127,7 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
         where: {
           tenantId,
           storageLocationId: input.toLocationId,
-          itemType: input.itemType as StorageItemType,
+          itemType: input.itemType,
           itemId: input.itemId,
           lotNumber: input.lotNumber ?? undefined,
         },
@@ -141,7 +141,7 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
         destInventory = inventoryRepo.create({
           tenantId,
           storageLocationId: input.toLocationId,
-          itemType: input.itemType as StorageItemType,
+          itemType: input.itemType,
           itemId: input.itemId,
           quantity: input.quantity,
           unit,

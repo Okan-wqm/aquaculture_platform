@@ -17294,6 +17294,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/transfer-stock-input.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/storage/commands/approve-inventory-count.command.ts",
       "prettier_managed": true
     },

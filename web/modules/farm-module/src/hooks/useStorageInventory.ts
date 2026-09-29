@@ -153,8 +153,24 @@ export interface RecordStockMovementInput {
   idempotencyKey?: string;
 }
 
+/**
+ * The item types `transferStock` accepts — mirror of the backend
+ * `TRANSFERABLE_ITEM_TYPES` (farm-service transfer-stock.input.ts). Spare parts
+ * relocate through `recordSparePartStockMovement` (transfer); healthcare
+ * bookings are refused until the transfer handler writes through the ledger
+ * sink (FARM-HIGH-239).
+ */
+export const TRANSFERABLE_ITEM_TYPES = [
+  StorageItemType.FEED,
+  StorageItemType.CHEMICAL,
+  StorageItemType.CONSUMABLE,
+] as const;
+
+/** A storage item type the transfer form may send. */
+export type TransferableItemType = (typeof TRANSFERABLE_ITEM_TYPES)[number];
+
 export interface TransferStockInput {
-  itemType: StorageItemType;
+  itemType: TransferableItemType;
   itemId: string;
   quantity: number;
   fromLocationId: string;

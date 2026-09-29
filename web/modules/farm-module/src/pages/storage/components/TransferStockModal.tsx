@@ -22,18 +22,22 @@ import {
   useTransferStock,
   StorageItemType,
   TransferStockInput,
+  type TransferableItemType,
 } from '../../../hooks/useStorageInventory';
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
 import { useFeedList } from '../../../hooks/useFeeds';
 import { useChemicalList } from '../../../hooks/useChemicals';
 import { useConsumableList } from '../../../hooks/useConsumables';
 
-/** Item type metadata for the select dropdown */
-const ITEM_TYPE_OPTIONS: { value: StorageItemType; label: string }[] = [
+/**
+ * Item type metadata for the select dropdown — only the types `transferStock`
+ * accepts (TRANSFERABLE_ITEM_TYPES); the type makes a spare-part or healthcare
+ * option a compile error.
+ */
+const ITEM_TYPE_OPTIONS: { value: TransferableItemType; label: string }[] = [
   { value: StorageItemType.FEED, label: 'Feed' },
   { value: StorageItemType.CHEMICAL, label: 'Chemical' },
   { value: StorageItemType.CONSUMABLE, label: 'Consumable' },
-  { value: StorageItemType.HEALTHCARE, label: 'Healthcare' },
 ];
 
 /** Represents a selectable item from the feed/chemical/consumable lists */
@@ -51,7 +55,7 @@ interface Props {
 
 export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
   // Form state
-  const [itemType, setItemType] = useState<StorageItemType>(StorageItemType.FEED);
+  const [itemType, setItemType] = useState<TransferableItemType>(StorageItemType.FEED);
   const [selectedItemId, setSelectedItemId] = useState('');
   const [quantity, setQuantity] = useState('');
   const [fromLocationId, setFromLocationId] = useState('');
@@ -87,10 +91,7 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
     }
   }, [isOpen]);
 
-  /**
-   * Dynamically populate item options based on the selected item type.
-   * Same logic as RecordStockMovementModal — HEALTHCARE shares the chemicals list.
-   */
+  /** Dynamically populate item options based on the selected item type. */
   const itemOptions: ItemOption[] = useMemo(() => {
     switch (itemType) {
       case StorageItemType.FEED:
@@ -101,7 +102,6 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
           unit: f.unit || 'kg',
         }));
       case StorageItemType.CHEMICAL:
-      case StorageItemType.HEALTHCARE:
         return (chemicalsData?.items ?? []).map((c) => ({
           id: c.id,
           name: c.name,
@@ -115,8 +115,6 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
           code: c.code,
           unit: c.unit || 'pcs',
         }));
-      default:
-        return [];
     }
   }, [itemType, feedsData, chemicalsData, consumablesData]);
 
@@ -144,7 +142,7 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
    * Clear item selection when item type changes, because feed items are not
    * valid chemical items and vice versa.
    */
-  const handleItemTypeChange = useCallback((newType: StorageItemType) => {
+  const handleItemTypeChange = useCallback((newType: TransferableItemType) => {
     setItemType(newType);
     setSelectedItemId('');
   }, []);

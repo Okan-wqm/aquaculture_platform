@@ -11,7 +11,9 @@
  *   - a positive opening stock without a location never reaches the backend;
  *   - update sends neither `quantity` nor `status` and re-homes the location;
  *   - the stock-movement modal calls `recordSparePartStockMovement` (not the
- *     storage module's `recordStockMovement`) with an explicit location.
+ *     storage module's `recordStockMovement`) with an explicit location;
+ *   - relocation is a `transfer` movement through that same door (never the
+ *     storage `transferStock`, which refuses spare parts).
  */
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -303,5 +305,62 @@ describe('SparePartsPage', () => {
     expect(
       requestMock.mock.calls.some(([q]) => /\brecordStockMovement\(/.test(q as string)),
     ).toBe(false);
+  });
+
+  it('relocates stock as a ledger transfer through recordSparePartStockMovement', async () => {
+    // SCENARIO: the manager moves 2 parts from the home location A to B.
+    // EXPECTS: one recordSparePartStockMovement with movementType transfer, the
+    // source and the receiving location; transferStock is never called.
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Impeller seal kit');
+
+    await user.click(screen.getByRole('button', { name: 'Stok' }));
+    const dialog = await screen.findByRole('dialog');
+    await waitForLocationOptions(dialog);
+    await user.selectOptions(within(dialog).getByLabelText(/Hareket Tipi/), 'transfer');
+    const destination = within(dialog).getByLabelText(/Alıcı lokasyon/);
+    // The source location is not offered as its own destination.
+    expect(within(destination).queryByRole('option', { name: /Main store/ })).toBeNull();
+    await user.selectOptions(destination, LOC_B);
+    const quantity = within(dialog).getByLabelText(/Miktar/);
+    await user.clear(quantity);
+    await user.type(quantity, '2');
+    await user.click(within(dialog).getByRole('button', { name: 'Kaydet' }));
+
+    await waitFor(() => expect(inputsOf('recordSparePartStockMovement(')).toHaveLength(1));
+    expect(inputsOf('recordSparePartStockMovement(')[0]).toEqual({
+      sparePartId: 'sp-1',
+      quantity: 2,
+      movementType: 'transfer',
+      storageLocationId: LOC_A,
+      toStorageLocationId: LOC_B,
+    });
+    expect(requestMock.mock.calls.some(([q]) => /\btransferStock\(/.test(q as string))).toBe(
+      false,
+    );
+  });
+
+  it('keeps a transfer without a receiving location from reaching the backend', async () => {
+    // SCENARIO: transfer chosen, no destination picked. EXPECTS: a field error, no mutation.
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Impeller seal kit');
+
+    await user.click(screen.getByRole('button', { name: 'Stok' }));
+    const dialog = await screen.findByRole('dialog');
+    await waitForLocationOptions(dialog);
+    await user.selectOptions(within(dialog).getByLabelText(/Hareket Tipi/), 'transfer');
+    const quantity = within(dialog).getByLabelText(/Miktar/);
+    await user.clear(quantity);
+    await user.type(quantity, '2');
+    // Submit the form directly: the modal's own guard, not only the browser's
+    // `required` constraint, must stop the request.
+    const form = within(dialog).getByRole('button', { name: 'Kaydet' }).closest('form');
+    expect(form).not.toBeNull();
+    if (form) fireEvent.submit(form);
+
+    expect(await within(dialog).findByText('Stoğu alacak lokasyonu seçin.')).toBeInTheDocument();
+    expect(inputsOf('recordSparePartStockMovement(')).toHaveLength(0);
   });
 });

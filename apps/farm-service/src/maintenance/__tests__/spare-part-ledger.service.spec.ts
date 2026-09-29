@@ -176,6 +176,52 @@ describe('SparePartLedgerService — every writer produces a ledger movement', (
     expect(sparePart.lastUsedDate).toBeInstanceOf(Date);
   });
 
+  it('relocates stock as ONE ledger TRANSFER movement with the operator site scope', async () => {
+    // SCENARIO: a manager moves 2 of part-1 from its home LOC to OTHER_LOC through the
+    // spare-part door (transferStock refuses SPARE_PART). EXPECTS: one TRANSFER movement,
+    // both legs named, the operator's site scope handed to the sink (it checks both legs).
+    const { ledger, manager, recordMovement } = harness();
+    const siteAuthorization = { sub: USER, roles: [], assignedSiteIds: ['site-1'] };
+    await ledger.recordMovement(
+      manager,
+      TENANT,
+      part(),
+      movement({ movementType: 'transfer', quantity: 2, toStorageLocationId: OTHER_LOC }),
+      { userId: USER, siteAuthorization },
+    );
+
+    expect(recordMovement).toHaveBeenCalledTimes(1);
+    expect(recordMovement).toHaveBeenCalledWith(
+      manager,
+      expect.objectContaining({
+        movementType: MovementType.TRANSFER,
+        itemType: StorageItemType.SPARE_PART,
+        quantity: 2,
+        fromLocationId: LOC,
+        toLocationId: OTHER_LOC,
+      }),
+      { tenantId: TENANT, userId: USER, siteAuthorization },
+    );
+  });
+
+  it('refuses a transfer without a destination or quantity', async () => {
+    // SCENARIO: transfer with no toStorageLocationId; transfer of 0. EXPECTS: 400, no movement.
+    const { ledger, manager, recordMovement } = harness();
+    await expect(
+      ledger.recordMovement(manager, TENANT, part(), movement({ movementType: 'transfer' }), actor),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      ledger.recordMovement(
+        manager,
+        TENANT,
+        part(),
+        movement({ movementType: 'transfer', quantity: 0, toStorageLocationId: OTHER_LOC }),
+        actor,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(recordMovement).not.toHaveBeenCalled();
+  });
+
   it('turns a counted adjustment into the signed difference at that location', async () => {
     // SCENARIO: 4 on the shelf, counted 7 → +3 IN side; counted 1 → −3 OUT side; counted 4 → nothing.
     // EXPECTS: the signed difference, with the baseline read under the item lock.
@@ -340,7 +386,7 @@ describe('SparePartLedgerService.assertRelocatable — stock never stranded by a
     // EXPECTS: BadRequest (transfer first), the baseline read taken after the item lock.
     const { ledger, manager, acquire, order } = harness({ atLocation: '4' });
     await expect(ledger.assertRelocatable(manager, TENANT, part(), OTHER_LOC)).rejects.toThrow(
-      /transfer that stock before changing the location/,
+      /transfer that stock \(spare-part movement type "transfer"\) before changing the location/,
     );
     expect(acquire).toHaveBeenCalledWith(manager, TENANT, [
       { itemType: StorageItemType.SPARE_PART, itemId: 'part-1' },

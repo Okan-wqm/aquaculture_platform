@@ -1678,14 +1678,23 @@ export function useStockSummary() {
  */
 export interface SparePartStockMovementInput {
   sparePartId: string;
-  /** in/out: the amount moved (> 0). adjustment: the counted on-hand AT the location (>= 0). Int. */
-  quantity: number;
-  movementType: 'in' | 'out' | 'adjustment';
   /**
-   * The ledger location the movement acts at. The backend defaults it to the
-   * part's own `storageLocationId`; one of the two must exist.
+   * in/out/transfer: the amount moved (> 0). adjustment: the counted on-hand AT
+   * the location (>= 0). Int.
+   */
+  quantity: number;
+  movementType: 'in' | 'out' | 'adjustment' | 'transfer';
+  /**
+   * The ledger location the movement acts at (the SOURCE of a transfer). The
+   * backend defaults it to the part's own `storageLocationId`; one of the two
+   * must exist.
    */
   storageLocationId?: string;
+  /**
+   * transfer only: the location that receives the stock. Spare parts relocate
+   * through this manager-gated door, never through `transferStock`.
+   */
+  toStorageLocationId?: string;
   reason?: string;
   workOrderId?: string;
   notes?: string;

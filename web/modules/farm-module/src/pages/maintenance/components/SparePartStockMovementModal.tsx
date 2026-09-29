@@ -9,6 +9,9 @@
  * WHAT it sends: `recordSparePartStockMovement` with an explicit
  * `storageLocationId` every time — the operator sees, and can change, where
  * the stock moves instead of relying on a server-side default they cannot see.
+ * A `transfer` adds the receiving `toStorageLocationId`: relocation is one
+ * ledger TRANSFER through this manager-gated door (`transferStock` refuses
+ * spare parts).
  *
  * The form buttons render through shared-ui message keys (useI18n, FE-HIGH-089).
  */
@@ -38,8 +41,11 @@ const MOVEMENT_TYPE_OPTIONS: { value: MovementType; label: string }[] = [
   { value: 'adjustment', label: 'Düzeltme (sayım)' },
 ];
 
+/** Every movement type the form can send, the ledger `transfer` included. */
+const MOVEMENT_TYPES: readonly MovementType[] = ['in', 'out', 'adjustment', 'transfer'];
+
 function isMovementType(value: string): value is MovementType {
-  return MOVEMENT_TYPE_OPTIONS.some((option) => option.value === value);
+  return MOVEMENT_TYPES.some((movementType) => movementType === value);
 }
 
 /**
@@ -84,6 +90,25 @@ export const SparePartStockMovementModal: React.FC<SparePartStockMovementModalPr
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
   const [locationError, setLocationError] = useState<string | undefined>(undefined);
+  const [toStorageLocationId, setToStorageLocationId] = useState('');
+  const [destinationError, setDestinationError] = useState<string | undefined>(undefined);
+  const isTransfer = movementType === 'transfer';
+
+  // The ledger TRANSFER (FARM-HIGH-338): the one way a spare part changes
+  // location, through the same manager-gated mutation as every other movement.
+  const movementTypeOptions: SelectOption[] = [
+    ...MOVEMENT_TYPE_OPTIONS,
+    { value: 'transfer', label: t('maintenance.sparePartMovement.transfer') },
+  ];
+  // A transfer's destination is any other active location.
+  const destinationOptions: SelectOption[] = [
+    ...(toStorageLocationId
+      ? []
+      : [{ value: '', label: t('maintenance.sparePartMovement.destinationPlaceholder') }]),
+    ...buildStorageLocationOptions(locations).filter(
+      (option) => option.value !== storageLocationId,
+    ),
+  ];
 
   // The empty entry exists only while nothing is chosen: a part without a home
   // location must pick one, and the backend needs either this or the part's own.
@@ -98,6 +123,10 @@ export const SparePartStockMovementModal: React.FC<SparePartStockMovementModalPr
       setLocationError('Hareketin yapılacağı depolama lokasyonunu seçin.');
       return;
     }
+    if (isTransfer && !toStorageLocationId) {
+      setDestinationError(t('maintenance.sparePartMovement.destinationRequired'));
+      return;
+    }
 
     try {
       await movementMutation.mutateAsync({
@@ -105,6 +134,7 @@ export const SparePartStockMovementModal: React.FC<SparePartStockMovementModalPr
         quantity,
         movementType,
         storageLocationId,
+        ...(isTransfer ? { toStorageLocationId } : {}),
         reason: reason || undefined,
         notes: notes || undefined,
       });
@@ -151,8 +181,21 @@ export const SparePartStockMovementModal: React.FC<SparePartStockMovementModalPr
           onChange={(e) => {
             if (isMovementType(e.target.value)) setMovementType(e.target.value);
           }}
-          options={MOVEMENT_TYPE_OPTIONS}
+          options={movementTypeOptions}
         />
+        {isTransfer && (
+          <Select
+            label={t('maintenance.sparePartMovement.destination')}
+            value={toStorageLocationId}
+            onChange={(e) => {
+              setToStorageLocationId(e.target.value);
+              setDestinationError(undefined);
+            }}
+            options={destinationOptions}
+            error={destinationError}
+            required
+          />
+        )}
         <Input
           label="Miktar"
           type="number"

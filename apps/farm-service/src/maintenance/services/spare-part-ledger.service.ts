@@ -77,8 +77,8 @@ export class SparePartLedgerService {
    * stock.
    * WHY: the home is where every later movement defaults to; re-pointing it
    * while stock still sits at the old home strands that stock — a count at the
-   * new home reads 0 and books a phantom IN. The stock moves first
-   * (`transferStock`), then the home.
+   * new home reads 0 and books a phantom IN. The stock moves first (a
+   * `transfer` movement through this ledger), then the home.
    * INVARIANT: read under the item lock, so no concurrent receipt lands at the
    * old home between the check and the re-home.
    */
@@ -97,7 +97,7 @@ export class SparePartLedgerService {
     if (onHand > 0) {
       throw new BadRequestException(
         `Spare part ${part.code} still holds ${onHand} ${part.unit} at its storage location; ` +
-          'transfer that stock before changing the location',
+          'transfer that stock (spare-part movement type "transfer") before changing the location',
       );
     }
   }
@@ -126,9 +126,12 @@ export class SparePartLedgerService {
   }
 
   /**
-   * An operator's in / out / adjustment. Adjustment carries the COUNTED on-hand
-   * at the location; the ledger records the signed difference as one
-   * ADJUSTMENT movement (none when the count matches).
+   * An operator's in / out / adjustment / transfer. Adjustment carries the
+   * COUNTED on-hand at the location; the ledger records the signed difference as
+   * one ADJUSTMENT movement (none when the count matches). Transfer moves stock
+   * from the location to `toStorageLocationId` as ONE ledger TRANSFER movement:
+   * the sink locks the item, checks the caller's site on both legs, refuses a
+   * deleted destination and reports the source site's tier crossing.
    */
   async recordMovement(
     manager: EntityManager,
@@ -172,6 +175,24 @@ export class SparePartLedgerService {
         );
         part.lastUsedDate = new Date();
         return;
+      case 'transfer': {
+        this.requirePositive(input.quantity);
+        if (!input.toStorageLocationId) {
+          throw new BadRequestException('A transfer needs the receiving toStorageLocationId');
+        }
+        await this.stockMovements.recordMovement(
+          manager,
+          {
+            ...base,
+            movementType: MovementType.TRANSFER,
+            quantity: input.quantity,
+            fromLocationId: locationId,
+            toLocationId: input.toStorageLocationId,
+          },
+          ctx,
+        );
+        return;
+      }
       case 'adjustment': {
         // INVARIANT: the counted delta is computed under the item's mutation
         // lock (the same advisory lock the sink re-takes; xact locks stack).

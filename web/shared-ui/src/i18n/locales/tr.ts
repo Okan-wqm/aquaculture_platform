@@ -346,6 +346,12 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.mealBoard.save': 'Kaydet',
   'feedingV2.mealBoard.cancel': 'Vazgeç',
 
+  // ── Spare-part stock movement: ledger transfer (FARM-HIGH-338) ──
+  'maintenance.sparePartMovement.transfer': 'Başka lokasyona transfer',
+  'maintenance.sparePartMovement.destination': 'Alıcı lokasyon',
+  'maintenance.sparePartMovement.destinationRequired': 'Stoğu alacak lokasyonu seçin.',
+  'maintenance.sparePartMovement.destinationPlaceholder': 'Alıcı lokasyon seçin',
+
   // ── Storage low-stock tiers (farm-module, plan K8) ──
   'storage.lowStock.siteTier': 'Site: {site}',
   'storage.lowStock.poolTier': 'Tüm siteler (havuz)',

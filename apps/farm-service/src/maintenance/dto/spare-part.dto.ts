@@ -15,6 +15,7 @@ import {
   IsIn,
   Min,
   MaxLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -279,6 +280,13 @@ export class UpdateSparePartInput {
 }
 
 /**
+ * The operator movements of one spare part. `transfer` relocates stock between
+ * two storage locations (FARM-HIGH-338: the ledger's TRANSFER movement).
+ */
+export const SPARE_PART_MOVEMENT_TYPES = ['in', 'out', 'adjustment', 'transfer'] as const;
+export type SparePartMovementType = (typeof SPARE_PART_MOVEMENT_TYPES)[number];
+
+/**
  * Stok hareketi input
  */
 @InputType()
@@ -287,24 +295,38 @@ export class StockMovementInput {
   @IsUUID()
   sparePartId!: string;
 
-  /** in/out: the amount moved (> 0). adjustment: the counted on-hand at the location (>= 0). */
+  /**
+   * in/out/transfer: the amount moved (> 0). adjustment: the counted on-hand at
+   * the location (>= 0).
+   */
   @Field(() => Int)
   @IsNumber()
   @Min(0)
   quantity!: number;
 
-  @Field({ description: 'in | out | adjustment' })
-  @IsIn(['in', 'out', 'adjustment'])
-  movementType!: 'in' | 'out' | 'adjustment';
+  @Field({ description: 'in | out | adjustment | transfer' })
+  @IsIn(SPARE_PART_MOVEMENT_TYPES)
+  movementType!: SparePartMovementType;
 
   /**
-   * The storage location the movement acts at. Defaults to the part's own
-   * `storageLocationId`; one of the two is required.
+   * The storage location the movement acts at (the SOURCE of a transfer).
+   * Defaults to the part's own `storageLocationId`; one of the two is required.
    */
   @Field(() => ID, { nullable: true })
   @IsOptional()
   @IsUUID()
   storageLocationId?: string;
+
+  /**
+   * transfer only: the storage location that receives the stock. WHY here and
+   * not on `transferStock`: spare-part stock moves only through this
+   * manager-gated door, into the one ledger sink (lock, site checks on both
+   * legs, low-stock tiers) — see TRANSFERABLE_ITEM_TYPES.
+   */
+  @Field(() => ID, { nullable: true })
+  @ValidateIf((input: StockMovementInput) => input.movementType === 'transfer')
+  @IsUUID()
+  toStorageLocationId?: string;
 
   @Field({ nullable: true })
   @IsOptional()

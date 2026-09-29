@@ -741,6 +741,17 @@ def build_parser() -> argparse.ArgumentParser:
     fb_batch = add_subparser(feedback_sub, "record-batch")
     fb_batch.add_argument("--sample-id", required=True)
     fb_batch.add_argument("--file", required=True)
+    # V9.5 check 12 — the operator's channel for a plan-request row. The
+    # kernel signs what it records; a row appended any other way is dropped
+    # at ingestion with an unsigned_operator_feedback governance event, so
+    # this verb is the ONLY way a request reaches the synthesizer.
+    fb_request = add_subparser(feedback_sub, "request")
+    fb_request.add_argument("--request", required=True, help="What the operator wants planned")
+    fb_request.add_argument("--priority", default="medium", choices=["low", "medium", "high"])
+    fb_request.add_argument("--authored-by", required=True, help="Operator identity recorded on the row")
+    fb_request.add_argument("--request-id", default=None, help="Optional stable id (default OP-<uuid4>)")
+    fb_rotate = add_subparser(feedback_sub, "rotate-signing-key")
+    fb_rotate.add_argument("--reason", required=True, type=_validate_reason)
 
     add_parser = add_subparser(feedback_sub, "add")
     add_workspace_args(add_parser)
@@ -3205,6 +3216,24 @@ def _main(argv: list[str] | None = None) -> int:
             note=args.note,
             finding_fingerprint=args.finding_fingerprint,
             base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "feedback" and args.feedback_command == "request":
+        from aria_kernel.operator_feedback_signature import record_operator_request
+        print(json.dumps(record_operator_request(
+            request=args.request,
+            priority=args.priority,
+            authored_by=args.authored_by,
+            request_id=args.request_id,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "feedback" and args.feedback_command == "rotate-signing-key":
+        from aria_kernel.operator_feedback_signature import rotate_signing_key
+        print(json.dumps(rotate_signing_key(
+            base_dir=args.tools_dir, reason=args.reason,
         ), indent=2, sort_keys=True))
         return 0
 

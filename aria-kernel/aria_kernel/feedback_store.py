@@ -607,8 +607,18 @@ def record_operator_feedback(
             for o in (observers or [])
         ] or None,
     }
-    append_jsonl(feedback_path(base_dir), row)
+    # The stored row carries the signature the signer added; return that
+    # so callers (judge lanes, the CLI) see the row exactly as recorded.
+    row = _append_signed_feedback_row(feedback_path(base_dir), row)
     return row
+
+
+def _append_signed_feedback_row(path: Path, row: dict[str, Any]) -> dict[str, Any]:
+    from .operator_feedback_signature import append_signed_operator_feedback_row
+
+    stored = append_signed_operator_feedback_row(row, base_dir=path.parent)
+    return {key: value for key, value in stored.items()
+            if key not in ("ledger_hash", "previous_ledger_hash")}
 
 
 def record_operator_feedback_batch(
@@ -1550,6 +1560,16 @@ _DECLARED_SURFACE_BY_FILENAME: dict[str, str] = {
 
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
     surface = _DECLARED_SURFACE_BY_FILENAME.get(path.name)
+    if surface == "operator_feedback":
+        # V9.5 check 12 — the kernel signs every operator-feedback row it
+        # records. Routing by filename here (the same map that picks the
+        # declared surface) is what makes an unsigned kernel-written verdict
+        # row impossible rather than merely unusual: there is no second
+        # append primitive for this ledger in the store.
+        from .operator_feedback_signature import append_signed_operator_feedback_row
+
+        append_signed_operator_feedback_row(payload, base_dir=path.parent)
+        return
     if surface is not None:
         append_declared_jsonl(path, payload, expected_surface=surface)
         return

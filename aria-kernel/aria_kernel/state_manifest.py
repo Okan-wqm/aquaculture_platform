@@ -570,6 +570,14 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("judgment_samples", "judgment-samples.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("feedback_consensus_uncertainties", "feedback-consensus-uncertainties.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("operator_feedback_seeding", "operator-feedback-seeding/*/*.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # V9.5 hard-fail check 12 (operator_feedback_signature) — what the plan
+    # synthesizer admitted and dropped from operator-feedback.jsonl on each
+    # scan, and which synthesized plan_content each scan fed. strict_read
+    # True and write_driving True because the pre-merge perimeter reads
+    # this ledger as AUTHORITY: a broken chain here is a refused merge, not
+    # a tolerated read. profile_surface observation: the row records what
+    # the synthesizer verified, it enacts nothing by itself.
+    StateSurface("operator_feedback_ingestion", "operator-feedback-ingestion.jsonl", "ledger", "feedback", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("calibration_judge", "calibration/judge-calibration.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("calibration_adapter_reports", "calibration/adapter-calibration-reports.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("calibration_recommendations", "calibration/recommendations.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),

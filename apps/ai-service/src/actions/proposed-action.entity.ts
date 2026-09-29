@@ -72,12 +72,25 @@ export class ProposedAction {
   @Column({ type: 'uuid', nullable: true })
   confirmedBy?: string;
 
-  @Column({ type: 'timestamp', nullable: true })
+  /**
+   * ORPHAN-HIGH-408 (DATA-MEDIUM half): `timestamptz`, not naive `timestamp`.
+   *
+   * The DDL that actually created this table in every schema —
+   * `1803100000000-HealAiProposedActionsUnqualified` — declares these three
+   * columns `timestamptz` (and type-guard-converts the source schema's
+   * pre-existing naive columns), matching the sibling `conversation_turns`.
+   * A bare `@CreateDateColumn()` / `type: 'timestamp'` resolves to `timestamp
+   * without time zone`, so the entity was claiming a naive column over an
+   * aware one: TypeORM would strip the offset from the actuation audit trail
+   * and SchemaDriftValidator has a real divergence to report. The entity is
+   * the side that was wrong — no new DDL is owed.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
   executedAt?: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }

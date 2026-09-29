@@ -1,3 +1,4 @@
+import { withTenantContext } from '@aquaculture/backend-common/context';
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
@@ -75,6 +76,21 @@ export class FeedingDailySummaryEventHandler
       return;
     }
 
+    // ORPHAN-HIGH-413 — everything below runs inside the tenant frame.
+    //
+    // This handler is subscribed through `eventBus.subscribeWildcard`, not as
+    // a Nest `@MessagePattern`, so `TenantExecutionContextModule`'s global
+    // interceptor never sees it and nothing seeds AsyncLocalStorage.
+    // `RlsConnectionBootstrap` then hands the pool the deny-by-default GUC
+    // pair, and `resolveRecipients`' query against the RLS-armed
+    // `device_tokens` returns zero rows — indistinguishable from a tenant with
+    // no registered devices, so the digest is dropped without an error. The
+    // tenantId was validated as a UUID above, so the frame opens safely here.
+    await withTenantContext(event.tenantId, () => this.publishDailySummary(event));
+  }
+
+  /** The body of {@link handle}, always executed inside the tenant frame. */
+  private async publishDailySummary(event: FeedingDailySummaryEvent): Promise<void> {
     const recipients = await this.resolveRecipients(event.tenantId);
     if (recipients.length === 0) {
       this.logger.debug(

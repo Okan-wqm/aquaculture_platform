@@ -8,8 +8,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, DataSource } from 'typeorm';
+import { Repository, In, DataSource, EntityManager } from 'typeorm';
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
+import { withTenantContext } from '@aquaculture/backend-common/context';
+import { bindTenantRlsContext } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import {
   CircuitBreakerService,
@@ -73,6 +75,42 @@ function decryptWebhookUrl(blob: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The schema this service's tables live in (ORPHAN-HIGH-413).
+ *
+ * notification is a platform-level, tenant-COLUMN service: every tenant's
+ * rows share one set of tables in `notification`, isolated by RLS rather than
+ * by a per-tenant schema. `bindTenantRlsContext` takes it to name the schema
+ * in a `TenantContextError` when a GUC binding fails to apply — it never
+ * routes a search_path, so this is a label, not a second source of truth for
+ * `MODULE_SCHEMAS['notification'].sourceSchema`.
+ */
+const NOTIFICATION_SOURCE_SCHEMA = 'notification';
+
+/**
+ * One command-notification delivery: a single tenant, a single channel, an
+ * idempotency key (`requestReference`) and the rendered content.
+ *
+ * Named rather than inlined because ORPHAN-HIGH-413 split the public entry
+ * point (which establishes the tenant frame) from the body that runs inside
+ * it — two signatures that must never drift apart.
+ */
+export interface CommandNotificationInput {
+  tenantId: string;
+  channel: NotificationChannel;
+  recipient: string;
+  recipientLogRef?: string;
+  deliveryId: string;
+  requestReference: string;
+  source: string;
+  commandPayloadHash?: string;
+  subject: string;
+  message: string;
+  pushData?: Record<string, string | number | boolean | null>;
+  badge?: number;
+  dataOnly?: boolean;
 }
 
 // Concurrency limit for parallel notification dispatch
@@ -380,21 +418,28 @@ export class NotificationDispatcherService implements OnModuleInit {
     );
   }
 
-  async dispatchCommandNotification(input: {
-    tenantId: string;
-    channel: NotificationChannel;
-    recipient: string;
-    recipientLogRef?: string;
-    deliveryId: string;
-    requestReference: string;
-    source: string;
-    commandPayloadHash?: string;
-    subject: string;
-    message: string;
-    pushData?: Record<string, string | number | boolean | null>;
-    badge?: number;
-    dataOnly?: boolean;
-  }): Promise<{ externalId?: string; replayed: boolean }> {
+  async dispatchCommandNotification(
+    input: CommandNotificationInput,
+  ): Promise<{ externalId?: string; replayed: boolean }> {
+    // ORPHAN-HIGH-413 — the whole dispatch runs inside the tenant frame, not
+    // just the receipt statements.
+    //
+    // `bindTenantRlsContext` below covers the SQL this service writes by hand.
+    // It cannot cover `sendNotification`'s `notification_logs` write, which
+    // goes through a TypeORM repository and takes its GUCs from
+    // `RlsConnectionBootstrap` at pool checkout — and that reads
+    // AsyncLocalStorage. `TenantExecutionContextModule` seeds that frame for
+    // the SEND_* @MessagePattern handlers, but this method is ALSO the funnel
+    // for the eventBus subscribers (feeding-daily-summary, task-event), which
+    // Nest interceptors never see. Establishing the frame HERE means every
+    // caller of the command path is covered by construction, whatever door it
+    // came through.
+    return withTenantContext(input.tenantId, () => this.runCommandDispatch(input));
+  }
+
+  private async runCommandDispatch(
+    input: CommandNotificationInput,
+  ): Promise<{ externalId?: string; replayed: boolean }> {
     const payloadHash = input.commandPayloadHash ?? this.hashCommandPayload(input);
     const receipt = await this.claimCommandReceipt(input, payloadHash);
     if (receipt.replayed) {
@@ -449,6 +494,28 @@ export class NotificationDispatcherService implements OnModuleInit {
     payloadHash: string,
   ): Promise<{ replayed: boolean; externalId?: string }> {
     return this.dataSource.transaction(async (manager) => {
+      // ORPHAN-HIGH-413 — bind the RLS tenant context before the FIRST
+      // statement that touches `notification.command_receipts`.
+      //
+      // The table carries the canonical `tenant_isolation_policy` (it is a
+      // tenant-column table in MODULE_SCHEMAS['notification'].tables and is
+      // NOT one of that module's `infrastructureTables`, so the service's RLS
+      // exclude set never covers it). The SEND_* commands arrive over NATS
+      // with no HTTP frame, so `TenantContextMiddleware` never ran and
+      // `RlsConnectionBootstrap` seeded the deny-by-default pair at checkout:
+      // this `FOR UPDATE` probe silently returned nothing (a replay looked
+      // like a first delivery) and the INSERT below was refused outright.
+      //
+      // Tenant-SCOPED, not a bypass: the receipt belongs to exactly this
+      // tenant, so the policy is satisfied honestly rather than switched off
+      // (billing needs the audited bypass only because it also reads the
+      // cross-tenant `billing.plans` catalog — notification touches no such
+      // table). `bindTenantRlsContext` sets both GUCs transaction-locally and
+      // READS THEM BACK, so a setting that failed to apply raises a named
+      // TenantContextError instead of an RLS refusal that names a table and
+      // not a cause.
+      await bindTenantRlsContext(manager, input.tenantId, NOTIFICATION_SOURCE_SCHEMA);
+
       const existingRows: unknown = await manager.query(
         `SELECT "payloadHash", status, "externalId", "updatedAt"
            FROM notification.command_receipts
@@ -525,24 +592,49 @@ export class NotificationDispatcherService implements OnModuleInit {
     });
   }
 
+  /**
+   * Run a terminal receipt write inside its own tenant-bound transaction.
+   *
+   * ORPHAN-HIGH-413 — `markCommandReceipt{Succeeded,Failed}` run AFTER the
+   * claim transaction has committed, so the transaction-local binding taken
+   * there is already gone. A raw `dataSource.query` here executes on a pooled
+   * session whose GUCs are still the deny-by-default pair a NATS checkout
+   * leaves behind: the UPDATE is refused, the receipt stays `STARTED` forever,
+   * and every later delivery on the same `requestReference` is wedged behind
+   * an in-progress lease that nothing will ever clear. Owning a transaction is
+   * what gives `set_config(..., true)` a scope to be local TO — which is the
+   * only shape that cannot leak this tenant into the next caller's query.
+   */
+  private async runInTenantReceiptContext(
+    tenantId: string,
+    write: (manager: EntityManager) => Promise<void>,
+  ): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      await bindTenantRlsContext(manager, tenantId, NOTIFICATION_SOURCE_SCHEMA);
+      await write(manager);
+    });
+  }
+
   private async markCommandReceiptSucceeded(
     input: { tenantId: string; channel: NotificationChannel; requestReference: string },
     payloadHash: string,
     externalId: string | undefined,
   ): Promise<void> {
-    await this.dataSource.query(
-      `UPDATE notification.command_receipts
-          SET status = 'SUCCEEDED',
-              "externalId" = $4,
-              error = NULL,
-              "completedAt" = NOW(),
-              "updatedAt" = NOW()
-        WHERE "tenantId" = $1
-          AND channel = $2
-          AND "requestReference" = $3
-          AND "payloadHash" = $5`,
-      [input.tenantId, input.channel, input.requestReference, externalId ?? null, payloadHash],
-    );
+    await this.runInTenantReceiptContext(input.tenantId, async (manager) => {
+      await manager.query(
+        `UPDATE notification.command_receipts
+            SET status = 'SUCCEEDED',
+                "externalId" = $4,
+                error = NULL,
+                "completedAt" = NOW(),
+                "updatedAt" = NOW()
+          WHERE "tenantId" = $1
+            AND channel = $2
+            AND "requestReference" = $3
+            AND "payloadHash" = $5`,
+        [input.tenantId, input.channel, input.requestReference, externalId ?? null, payloadHash],
+      );
+    });
   }
 
   private async markCommandReceiptFailed(
@@ -550,18 +642,20 @@ export class NotificationDispatcherService implements OnModuleInit {
     payloadHash: string,
     error: string,
   ): Promise<void> {
-    await this.dataSource.query(
-      `UPDATE notification.command_receipts
-          SET status = 'FAILED',
-              error = $4,
-              "completedAt" = NOW(),
-              "updatedAt" = NOW()
-        WHERE "tenantId" = $1
-          AND channel = $2
-          AND "requestReference" = $3
-          AND "payloadHash" = $5`,
-      [input.tenantId, input.channel, input.requestReference, error.slice(0, 2000), payloadHash],
-    );
+    await this.runInTenantReceiptContext(input.tenantId, async (manager) => {
+      await manager.query(
+        `UPDATE notification.command_receipts
+            SET status = 'FAILED',
+                error = $4,
+                "completedAt" = NOW(),
+                "updatedAt" = NOW()
+          WHERE "tenantId" = $1
+            AND channel = $2
+            AND "requestReference" = $3
+            AND "payloadHash" = $5`,
+        [input.tenantId, input.channel, input.requestReference, error.slice(0, 2000), payloadHash],
+      );
+    });
   }
 
   private hashCommandPayload(input: {

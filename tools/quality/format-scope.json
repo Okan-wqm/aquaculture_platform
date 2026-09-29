@@ -3059,6 +3059,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/__tests__/e2e/tenant-schema-routing.architecture.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/__tests__/outbox-entity-registration.architecture.spec.ts",
       "prettier_managed": true
     },
@@ -23239,6 +23245,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/notification/__tests__/nats-command-tenant-context.contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/__tests__/notification-command-receipt-rls.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/notification/entities/device-token.entity.ts",
       "prettier_managed": true
     },
@@ -23246,6 +23264,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/notification-service/src/notification/entities/notification-log.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/event-handlers/__tests__/event-subscriber-tenant-context.spec.ts",
       "prettier_managed": true
     },
     {

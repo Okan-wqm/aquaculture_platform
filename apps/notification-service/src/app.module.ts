@@ -13,6 +13,7 @@ import {
   AuditedOperationModule,
 } from '@aquaculture/backend-common/audit';
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
+import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import {
   AuditColumnsModule,
   createSchemaVersionGate,
@@ -189,6 +190,25 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     }),
     NotificationOutboxModule,
     TenantErasureTargetModule.forService('notification-service'),
+
+    /**
+     * ORPHAN-HIGH-413: bind the RLS tenant context for NATS-originated work.
+     *
+     * The SEND_EMAIL / SEND_PUSH commands arrive over NATS with no HTTP frame,
+     * so the middleware chain below never runs for them and
+     * `RlsConnectionBootstrap` seeded the deny-by-default GUC pair at pool
+     * checkout. Every repository query on the command path then ran against
+     * `tenant_isolation_policy` with no tenant: the `device_tokens` lookup
+     * returned zero rows silently ("No active push device token found") and
+     * the `notification_logs` write was refused.
+     *
+     * The interceptor's RPC arm reads `tenantId` off the message payload and
+     * re-enters `withTenantContext(...)` around handler execution, so the
+     * checkout patch has a tenant to propagate. Registering the SSoT module
+     * (never a hand-copied APP_INTERCEPTOR block) is what makes this hold for
+     * every FUTURE @MessagePattern handler too, not just today's three.
+     */
+    TenantExecutionContextModule,
 
     // Redis Module (global – used for distributed rate limiting, etc.)
     RedisModule.forRootAsync({

@@ -27,6 +27,7 @@ result.
 
 from __future__ import annotations
 
+import ast as _ast
 import json
 import re
 import subprocess
@@ -35,6 +36,10 @@ from typing import Any
 
 from .impact_graph import _project_for_path, _project_graph, build_service_analysis_order
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .snapshot import (
+    _ScopedSourceBudget, _read_scoped_source_bytes, _read_scoped_working_file,
+    _read_scoped_membership, _scoped_input_digest, _sha256,
+)
 
 TWIN_MAP_RELPATH = "twin/map.json"
 TWIN_SCHEMA_VERSION = 1
@@ -70,6 +75,7 @@ def build_twin_map(
     base_dir: str | Path | None = None,
     nx_graph_file: str | Path | None = None,
     history_limit: int = HISTORY_COMMIT_LIMIT,
+    discovery: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Full build of the twin map from the repository at HEAD."""
     root = _existing_root(workspace_root)
@@ -106,6 +112,8 @@ def build_twin_map(
             "history_commits": history["commit_count"],
         },
     }
+    if discovery is not None:
+        twin["self_features"] = _self_feature_projection(root, discovery)
     _write_map(ensure_tools_dir(base_dir), twin)
     return twin
 
@@ -116,14 +124,16 @@ def refresh_twin_map(
     base_dir: str | Path | None = None,
     nx_graph_file: str | Path | None = None,
     history_limit: int = HISTORY_COMMIT_LIMIT,
+    discovery: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Incremental refresh: re-parse only what changed since ``indexed_sha``.
 
     Falls back to a full build — and says so in ``refresh`` — when there is no
     prior map or its anchor commit is unknown to this clone. The project graph
     is re-read only when a changed file can alter it (project files or the
-    tsconfig alias SSoT); test↔source edges are recomputed for changed test
-    files only; churn/co-change absorb exactly the commits in
+    tsconfig alias SSoT); test↔source edges are recomputed for changed tests,
+    or for all tests when source membership changes their resolution.
+    Churn/co-change absorb exactly the commits in
     ``indexed_sha..HEAD``.
     """
     root = _existing_root(workspace_root)
@@ -132,7 +142,8 @@ def refresh_twin_map(
     head = _head_sha(root)
     if prior is None or not _commit_known(root, str(prior.get("indexed_sha") or "")):
         twin = build_twin_map(
-            workspace_root=root, base_dir=tools, nx_graph_file=nx_graph_file, history_limit=history_limit
+            workspace_root=root, base_dir=tools, nx_graph_file=nx_graph_file, history_limit=history_limit,
+            discovery=discovery,
         )
         twin["refresh"] = {"mode": "full", "reason": "no_prior_map" if prior is None else "unknown_anchor"}
         _write_map(tools, twin)
@@ -140,6 +151,11 @@ def refresh_twin_map(
     anchor = str(prior["indexed_sha"])
     if anchor == head:
         prior["refresh"] = {"mode": "noop", "changed_files": 0}
+        if discovery is not None:
+            # HEAD alone cannot qualify a working-tree observation. The
+            # captured pilot view is independent of the history refresh.
+            prior["self_features"] = _self_feature_projection(root, discovery)
+            _write_map(tools, prior)
         return prior
 
     changed = _changed_files(root, anchor, head)
@@ -169,10 +185,25 @@ def refresh_twin_map(
 
     tested_by = dict(prior.get("tested_by") or {})
     changed_tests = [p for p in changed if _is_test_file(p)]
-    if changed_tests:
-        # Deleted test files leave their edges; re-derive from survivors only.
+    reparsed_tests = len(changed_tests)
+    if _source_membership_changed(root, anchor, head):
+        # A new/deleted source can change an unchanged test's import or
+        # filename-convention resolution. Prior resolved edges cannot name
+        # all those dependencies (including previously unresolved imports).
+        # Rebuild this association layer through its existing extractor.
+        # This is cycle scan work, not bounded per-request qualification.
+        test_files = _iter_test_files(root)
+        tested_by = _tested_by_edges(root, test_files)
+        reparsed_tests = len(test_files)
+    elif changed_tests:
+        changed_test_set = set(changed_tests)
+        # Replace surviving changed tests' associations as well as removing
+        # deleted tests; unioning with their old imports leaves stale edges.
         for source_rel in list(tested_by):
-            tested_by[source_rel] = [t for t in tested_by[source_rel] if (root / t).exists()]
+            tested_by[source_rel] = [
+                t for t in tested_by[source_rel]
+                if t not in changed_test_set and (root / t).exists()
+            ]
             if not tested_by[source_rel]:
                 del tested_by[source_rel]
         fresh = _tested_by_edges(root, [root / p for p in changed_tests if (root / p).exists()])
@@ -206,10 +237,304 @@ def refresh_twin_map(
             "co_change_pairs": len(history["co_change"]),
             "history_commits": history["commit_count"],
         },
-        "refresh": {"mode": "incremental", "changed_files": len(changed), "reparsed_tests": len(changed_tests)},
+        "refresh": {"mode": "incremental", "changed_files": len(changed), "reparsed_tests": reparsed_tests},
     }
+    if discovery is not None:
+        twin["self_features"] = _self_feature_projection(root, discovery)
     _write_map(tools, twin)
     return twin
+
+
+def _pilot_input_roles() -> dict[str, list[str]]:
+    """Named scope of this two-feature extractor, not another feature registry."""
+    modules = (
+        "runtime_artifacts", "knowledge_graph", "cycle_phases/memory", "cli", "autonomy_orchestrator",
+        "reflection_inputs", "reflection", "report", "snapshot", "discovery", "twin", "convergence_drainer",
+        "convergent_planning_bridge", "cross_review_bridge", "plan_convergence", "runtime_profile",
+        "agent_surface", "agent_network", "capability_gap", "state_manifest", "tool_registry", "agent_invocations",
+    )
+    tests = ("test_runtime_artifacts", "test_autonomy_orchestrator", "test_learned_context_and_intent",
+             "test_twin_map", "test_phase2_fates_snapshot", "test_prompt_render_versioning", "test_convergence_resumable_step")
+    return {
+        "source": sorted(f"aria-kernel/aria_kernel/{name}.py" for name in modules),
+        "test": sorted(f"aria-kernel/tests/{name}.py" for name in tests),
+        "config": ["aria-kernel/pyproject.toml"], "dependency": ["aria-kernel/pyproject.toml"],
+    }
+
+
+def _static_pilot_callers(module: str, symbol: str, trees: dict[str, Any], budget: _ScopedSourceBudget) -> list[dict[str, Any]]:
+    callers = []
+    for path, tree in trees.items():
+        aliases = set()
+        for node in _ast.walk(tree):
+            if budget.expired():
+                return callers
+            if isinstance(node, _ast.ImportFrom) and node.module in (module, "aria_kernel." + module):
+                aliases.update(alias.asname or alias.name for alias in node.names if alias.name == symbol)
+        if not aliases:
+            continue
+        stack = [(tree, "<module>")]
+        while stack and len(callers) < 8:
+            if budget.expired():
+                return callers
+            node, owner = stack.pop()
+            if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                owner = node.name
+            if isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name) and node.func.id in aliases:
+                callers.append({"path": path, "symbol": owner, "line": node.lineno,
+                                "evidence_ref": f"{path}:{node.lineno}", "method": "static_import_and_call"})
+            stack.extend((child, owner) for child in _ast.iter_child_nodes(node))
+    return sorted(callers, key=lambda item: (item["path"], item["line"]))
+
+
+def _pilot_test_refs(module: str, trees: dict[str, Any], observed: dict[str, Any]) -> list[dict[str, Any]]:
+    if module == "runtime_artifacts":
+        named = [("test_autonomy_orchestrator", "AutonomyOrchestratorTests", name) for name in (
+            "test_pending_memory_reaches_real_operator_summary",
+            "test_pending_memory_reaches_persisted_reflection_and_daily_report",
+            "test_memory_projection_survives_persisted_reflection_to_local_anchor",
+        )]
+    else:
+        named = [("test_learned_context_and_intent", "ConventionsForPathsTest", "test_only_related_confident_conventions_surface"),
+                 ("test_learned_context_and_intent", "EstablishedKnowledgeAtMintTest", "test_beliefs_and_conventions_land_in_the_envelope_and_the_prompt"),
+                 ("test_learned_context_and_intent", "EstablishedKnowledgeAtMintTest", "test_explicit_tools_root_excludes_checkout_shadow_knowledge")]
+    refs = []
+    for test_module, cls, method in named:
+        path = f"aria-kernel/tests/{test_module}.py"
+        tree = trees.get(path)
+        if tree is None:
+            continue
+        for node in tree.body:
+            if isinstance(node, _ast.ClassDef) and node.name == cls:
+                definition = next((item for item in node.body if isinstance(item, _ast.FunctionDef) and item.name == method), None)
+                if definition is not None:
+                    refs.append({"test_id": f"tests/{test_module}.py::{cls}::{method}", "path": path,
+                                 "content_hash": observed[path]["content_hash"], "evidence_ref": f"{path}:{definition.lineno}"})
+    return refs
+
+
+def _self_feature_projection(root: Path, discovery: dict[str, Any]) -> dict[str, Any]:
+    """Two source observations from the existing discovery, never execution proof.
+
+    The whole discovery/history/project scans belong to cycle maintenance.
+    Only the pilot byte reads share this scoped allowance; a later mint must
+    independently qualify its applicable source view before using these facts.
+    """
+    started = utc_now()
+    budget = _ScopedSourceBudget()
+    snapshot = discovery.get("snapshot") or {}
+    proof = discovery.get("completion_proof") or {}
+    pilots = ("runtime_artifacts.autonomy_output_summary", "knowledge_graph.conventions_for_paths")
+    roles = _pilot_input_roles()
+    scope = sorted(set(path for paths in roles.values() for path in paths))
+    # This consumes the already materialized cycle result, not another
+    # filesystem/Git enumeration or a per-request FATES reload.
+    fates = {row["path"]: row for row in discovery.get("fates", []) if row.get("path") in scope}
+    features = {}
+    observed_by_path, bytes_by_path = {}, {}
+    owner_paths = [f"aria-kernel/aria_kernel/{key.split('.')[0]}.py" for key in pilots]
+    for path in owner_paths + [path for path in scope if path not in owner_paths]:
+        observed_by_path[path], data = _read_scoped_source_bytes(
+            root, fates.get(path, {"path": path}), snapshot_mode=snapshot.get("snapshot_mode"),
+            base_commit_sha=snapshot.get("base_commit_sha"), budget=budget,
+        )
+        if data is not None:
+            bytes_by_path[path] = data
+    trees = {}
+    for key in pilots:
+        module, symbol = key.split(".")
+        relative = f"aria-kernel/aria_kernel/{module}.py"
+        observed, data = observed_by_path[relative], bytes_by_path.get(relative)
+        feature = {
+            "owner": {"path": relative, "symbol": symbol, "content_hash": observed.get("content_hash")},
+            "implemented": {"status": "unknown", "reason": observed["reason"]},
+            "reachable": {"status": "unknown", "reason": "caller_scope_not_observed"},
+            "configured": {"status": "unknown", "reason": "effective_configuration_uncaptured"},
+            "demonstrated": {"status": "unknown", "reason": "applicable_execution_proof_unavailable"},
+            "runtime": {"status": "unknown", "reason": "dated_runtime_observation_unavailable"},
+        }
+        if data is not None and not budget.expired():
+            definition = None
+            try:
+                tree = _ast.parse(data, filename=relative)
+                trees[relative] = tree
+                definition = next((node for node in tree.body if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+                                   and node.name == symbol), None)
+                if definition is None:
+                    feature["implemented"]["reason"] = "selected_symbol_not_observed"
+                else:
+                    feature["owner"]["line"] = definition.lineno
+                    feature["implemented"] = {"status": "available", "reason": "selected_source_definition",
+                                              "evidence_refs": [f"{relative}:{definition.lineno}"]}
+            except (SyntaxError, ValueError, RecursionError):
+                feature["implemented"] = {"status": "unknown", "reason": "source_parse_unavailable"}
+            if definition is not None and not budget.expired():
+                # Optional display extraction cannot turn a known definition
+                # into an inconsistent available/parse-failed observation.
+                feature["inputs"] = [arg.arg for arg in (*definition.args.posonlyargs, *definition.args.args,
+                                                        *definition.args.kwonlyargs)]
+                try:
+                    feature["purpose"] = {"kind": "source_inferred", "text": (_ast.get_docstring(definition) or "")[:600]}
+                    feature["output"] = {"kind": "source_annotation", "status": "available" if definition.returns else "unknown",
+                                         "reason": "selected_source_annotation" if definition.returns else "annotation_absent",
+                                         "text": _ast.unparse(definition.returns)[:300] if definition.returns else None}
+                except (ValueError, RecursionError):
+                    feature["output"] = {"kind": "source_annotation", "status": "unknown",
+                                         "reason": "source_display_unavailable", "text": None}
+            if budget.expired():
+                feature["implemented"] = {"status": "unknown", "reason": "qualification_deadline"}
+        features[key] = feature
+    # Only the named direct callers and named test modules need additional
+    # ASTs. Other declared source dependencies are byte observations; dynamic
+    # closure and execution remain explicitly unknown.
+    for path in ("aria-kernel/aria_kernel/cli.py", "aria-kernel/aria_kernel/agent_invocations.py", *roles["test"]):
+        if budget.expired():
+            break
+        if path not in bytes_by_path:
+            continue
+        try:
+            trees[path] = _ast.parse(bytes_by_path[path], filename=path)
+        except (SyntaxError, ValueError, RecursionError):
+            continue
+    caller_trees = {path: tree for path, tree in trees.items() if path in (
+        "aria-kernel/aria_kernel/cli.py", "aria-kernel/aria_kernel/agent_invocations.py",
+    )}
+    for key, feature in features.items():
+        module, symbol = key.split(".")
+        feature["callers"] = _static_pilot_callers(module, symbol, caller_trees, budget)
+        if feature["callers"] and not budget.expired():
+            feature["reachable"] = {"status": "available", "reason": "static_call_observed"}
+        feature["tests"] = {"method": "named_behavioral_test_scope_not_execution",
+                            "refs": _pilot_test_refs(module, trees, observed_by_path)}
+        feature["configuration_refs"] = roles["config"]
+        feature["dependency_refs"] = roles["source"] + roles["dependency"]
+        feature["state_refs"] = ["aria-kernel/aria_kernel/state_manifest.py", "aria-kernel/aria_kernel/tool_registry.py"]
+    availability = {name: {"status": "unknown", "reason": "not_observed"} for name in (
+        "repo_identity", "source", "test_selection", "test_content", "config", "dependency",
+        "runner_environment", "selection_closure", "configuration_closure",
+    )}
+    digests = {}
+    for role, dimension in (("source", "source"), ("test", "test_content"), ("config", "config"), ("dependency", "dependency")):
+        digests[dimension + "_digest"] = _scoped_input_digest([observed_by_path[path] for path in roles[role]])
+        availability[dimension] = {"status": "available" if digests[dimension + "_digest"] is not None else "unknown",
+                                   "reason": "named_file_scope_only"}
+    availability["dependency"] = {"status": "unknown", "reason": "installed_dependency_closure_uncaptured"}
+    binding = {
+        "schema_version": 1, "repo_identity": None, "snapshot_mode": snapshot.get("snapshot_mode"),
+        "scope_paths": scope, **digests,
+        "test_selection_digest": None, "runner_environment_digest": None, "source_stability": "unknown",
+        "capture_started_at": started, "capture_completed_at": utc_now(), "availability": availability,
+    }
+    for field in ("base_commit_sha", "snapshot_hash", "repo_state_id"):
+        binding[field] = snapshot.get(field)
+        availability[field] = {"status": "available" if binding[field] is not None else "unknown",
+                               "reason": "existing_discovery_observation"}
+    membership_scopes = ["aria-kernel/aria_kernel", "aria-kernel/tests", "aria-kernel/pyproject.toml"]
+    members = sorted(row["path"] for row in discovery.get("fates", []) if any(
+        row["path"] == prefix or row["path"].startswith(prefix + "/") for prefix in membership_scopes))
+    membership = {"scopes": membership_scopes, "paths": members[:4096],
+                  "status": "available" if len(members) < 4096 else "unknown",
+                  "reason": "existing_discovery_membership" if len(members) < 4096 else "membership_scope_limit"}
+    if budget.expired():
+        for feature in features.values():
+            for dimension in ("implemented", "reachable"):
+                feature[dimension] = {"status": "unknown", "reason": "qualification_deadline"}
+    return {
+        "schema_version": 1, "extractor": "twin.self_features.python_ast.v2", "source_root": root.as_posix(),
+        "discovery": {"cycle_id": proof.get("cycle_id"), "complete": proof.get("complete")},
+        "input_binding": binding, "features": features,
+        "coverage": {"status": "partial", "reason": "named_pilot_scope_only", "scope_paths": scope,
+                     "static_hops": 1, "dynamic_closure": "unknown"},
+        "input_roles": roles, "selected_fates": [fates.get(path, {"path": path, "fate": "unknown"}) for path in scope],
+        "membership": membership,
+        "work": {"paths_attempted": budget.paths_attempted,
+                 "known_source_bytes": budget.source_bytes_read,
+                 "transport_bytes_reserved_including_source": budget.transport_bytes_reserved,
+                 "remaining_byte_allowance": budget.remaining_bytes,
+                 "discovery_fates_previously_materialized": len(discovery.get("fates", []))},
+    }
+
+
+def _qualified_twin_context(
+    *, base_dir: Path, files: list[str], workspace_root: str | Path | None,
+    cycle_id: str | None, target_sha: str | None,
+) -> dict[str, Any] | None:
+    """Bounded local qualification of an existing index; never refresh at mint."""
+    budget = _ScopedSourceBudget()
+    observation, data, projection_bytes = _read_scoped_working_file(
+        base_dir, TWIN_MAP_RELPATH, byte_budget=2 * 1024 * 1024,
+        deadline_monotonic=budget.deadline_monotonic,
+    )
+    context: dict[str, Any] = {}
+    inventory: dict[str, Any] = {}
+
+    def qualified(status: str, reason: str, changed_paths: list[str] | None = None,
+                  details: dict[str, Any] | None = None) -> dict[str, Any]:
+        view = {key: inventory[key] for key in ("input_binding", "discovery", "coverage") if key in inventory}
+        view.update(qualification={"status": status, "reason": reason}, qualification_cycle_id=cycle_id,
+                    features=inventory.get("features", {}) if status == "available" else {},
+                    historical_feature_keys=sorted(inventory.get("features", {})),
+                    changed_paths=changed_paths or [], qualification_details=details or {})
+        view["work"] = {"projection_bytes_read": projection_bytes, "paths_attempted": budget.paths_attempted,
+                        "known_source_bytes": budget.source_bytes_read,
+                        "transport_bytes_reserved_including_source": budget.transport_bytes_reserved,
+                        "known_emitted_membership_records": budget.known_membership_records,
+                        "remaining_membership_record_allowance": budget.remaining_membership_records}
+        return {**context, "self_features": view}
+
+    if data is None:
+        return qualified("unknown", observation["reason"]) if workspace_root is not None else None
+    try:
+        twin = json.loads(data)
+        if not isinstance(twin, dict):
+            return qualified("unknown", "projection_shape_unavailable") if workspace_root is not None else None
+        if budget.expired():
+            return qualified("unknown", "qualification_deadline")
+        context = twin_context_for_files(twin, files[:256])
+        if workspace_root is None:
+            return context
+        candidate = twin.get("self_features")
+        if not isinstance(candidate, dict):
+            return qualified("unknown", "legacy_projection_has_no_source_binding")
+        inventory = candidate
+        if inventory.get("extractor") != "twin.self_features.python_ast.v2":
+            return qualified("unknown", "extractor_changed_or_unavailable")
+        root = Path(workspace_root).resolve()
+        if inventory.get("source_root") != root.as_posix():
+            return qualified("unknown", "explicit_source_root_mismatch")
+        binding = inventory.get("input_binding") or {}
+        mode, commit = binding.get("snapshot_mode"), binding.get("base_commit_sha")
+        if mode == "committed" and (not target_sha or target_sha != commit):
+            return qualified("unknown", "target_revision_changed_or_unavailable")
+        membership = inventory.get("membership") or {}
+        if membership.get("status") != "available":
+            return qualified("unknown", "scoped_membership_changed_or_unavailable", details={
+                "membership": {key: membership.get(key) for key in ("status", "reason")}})
+        current_membership = _read_scoped_membership(
+            root, membership["scopes"], snapshot_mode=mode, base_commit_sha=commit, budget=budget,
+        )
+        if current_membership["status"] != "available" or current_membership["paths"] != membership.get("paths"):
+            return qualified("unknown", "scoped_membership_changed_or_unavailable", details={
+                "membership": {key: current_membership[key] for key in ("status", "reason")}})
+        fates = inventory.get("selected_fates")
+        if not isinstance(fates, list) or not fates or len(fates) > 256:
+            return qualified("unknown", "selected_source_scope_unavailable")
+        changed = []
+        unavailable = []
+        for fate in fates:
+            observed, _data = _read_scoped_source_bytes(
+                root, fate, snapshot_mode=mode, base_commit_sha=commit, budget=budget,
+            )
+            if observed["status"] != "available":
+                changed.append(fate.get("path"))
+                unavailable.append({key: observed[key] for key in ("path", "status", "reason")})
+        if budget.expired():
+            return qualified("unknown", "qualification_deadline", changed, {"unavailable_sources": unavailable})
+        if changed:
+            return qualified("unknown", "scoped_content_changed_or_unavailable", changed, {"unavailable_sources": unavailable})
+        return qualified("available", "selected_local_source_view_reobserved")
+    except (OSError, RuntimeError, ValueError, TypeError, KeyError, RecursionError):
+        return qualified("unknown", "projection_or_source_unavailable") if workspace_root is not None else None
 
 
 def read_twin_map(*, base_dir: str | Path | None = None) -> dict[str, Any] | None:
@@ -472,6 +797,14 @@ def _commit_known(root: Path, sha: str) -> bool:
 def _changed_files(root: Path, base: str, head: str) -> list[str]:
     output = _git(root, "diff", "--name-only", f"{base}..{head}")
     return sorted({line.strip() for line in output.splitlines() if line.strip()})
+
+
+def _source_membership_changed(root: Path, base: str, head: str) -> bool:
+    # Resolve renames as deletion+addition regardless of repository config.
+    # The extractor permits exact-file imports, so any non-test path can
+    # alter resolution; an extension-only filter would miss that contract.
+    paths = _git(root, "diff", "--name-only", "--no-renames", "--diff-filter=AD", "-z", f"{base}..{head}")
+    return any(path and not _is_test_file(path) for path in paths.split("\0"))
 
 
 def _rev_list(root: Path, rev_range: str) -> list[str]:

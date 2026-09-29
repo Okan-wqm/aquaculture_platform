@@ -68,6 +68,9 @@ def issue_challenger_envelope(
     base_dir: str | Path | None = None,
     plan_revision_hash: str | None = None,
     target_sha: str | None = None,
+    context_repo_root: str | Path | None = None,
+    cycle_id: str | None = None,
+    context_source_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     """Issue the challenger planner envelope for a given convergence round.
 
@@ -99,4 +102,7 @@ def issue_challenger_envelope(
         base_dir=base_dir,
         plan_revision_hash=plan_revision_hash,
         target_sha=target_sha,
+        context_repo_root=context_repo_root,
+        cycle_id=cycle_id,
+        context_source_paths=context_source_paths,
     )

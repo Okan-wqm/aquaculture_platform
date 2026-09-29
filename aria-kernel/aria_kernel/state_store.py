@@ -5397,8 +5397,22 @@ def _run_git_bytes_bounded(
     stdout_limit: int,
     stderr_limit: int,
     budget_error: str,
+    deadline_monotonic: float | None = None,
+    strict_read_limits: bool = False,
+    stdout_records_limit: int | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
-    """Run Git while bounding both output pipes and reaping on every exit."""
+    """Run Git while bounding both output pipes and reaping on every exit.
+
+    Strict callers reserve both pipe allowances within their shared budget.
+    Reads cannot consume beyond those allowances, including an EOF probe:
+    an exhausted stream is unavailable unless EOF was already observed.
+    Legacy callers retain their existing exact-output-cap behavior.
+    Optional NUL-record accounting bounds membership consumption before a
+    read: each new byte can finish at most one record. Exact exhaustion is
+    conservatively unknown without an extra EOF read.
+    """
+    if deadline_monotonic is not None and deadline_monotonic <= time.monotonic():
+        raise StateStoreError(f"state_store_git_timeout: git {' '.join(args)}")
     try:
         process = subprocess.Popen(
             ["git", "-C", str(cwd), *args],
@@ -5421,7 +5435,10 @@ def _run_git_bytes_bounded(
     output = {"stdout": bytearray(), "stderr": bytearray()}
     limits = {"stdout": stdout_limit, "stderr": stderr_limit}
     deadline = time.monotonic() + GIT_TIMEOUT_SECONDS
+    if deadline_monotonic is not None:
+        deadline = min(deadline, deadline_monotonic)
     completed = False
+    stdout_records = 0
     try:
         while selector.get_map():
             remaining = deadline - time.monotonic()
@@ -5435,12 +5452,25 @@ def _run_git_bytes_bounded(
                     f"state_store_git_timeout: git {' '.join(args)}",
                 )
             for key, _mask in events:
-                chunk = os.read(key.fileobj.fileno(), 64 * 1024)
+                stream = str(key.data)
+                read_size = 64 * 1024
+                if strict_read_limits:
+                    if time.monotonic() >= deadline:
+                        raise StateStoreError(f"state_store_git_timeout: git {' '.join(args)}")
+                    read_size = min(read_size, limits[stream] - len(output[stream]))
+                    if read_size <= 0:
+                        raise StateStoreError(budget_error)
+                if stream == "stdout" and stdout_records_limit is not None:
+                    read_size = min(read_size, stdout_records_limit - stdout_records)
+                    if read_size <= 0:
+                        raise StateStoreError(budget_error)
+                chunk = os.read(key.fileobj.fileno(), read_size)
                 if not chunk:
                     selector.unregister(key.fileobj)
                     continue
-                stream = str(key.data)
                 output[stream].extend(chunk)
+                if stream == "stdout" and stdout_records_limit is not None:
+                    stdout_records += chunk.count(b"\0")
                 if len(output[stream]) > limits[stream]:
                     raise StateStoreError(budget_error)
         try:

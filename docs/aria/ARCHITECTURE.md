@@ -7,6 +7,12 @@ Current authority: `docs/aria/CURRENT_STATE.md` + executable contracts
 Runtime status: Claude Code CLI mainline
 Historical scope: snowball/Claude-era references are non-normative unless reaffirmed by current executable contracts
 
+## Source catalogue and current review boundary
+
+The [runtime evidence and retention catalogue](./catalogue-runtime-retention.md) gives four source-digest-bound entries, actual caller/state/test connections and retained-reference diagrams. The [change outcome catalogue](./catalogue-change-outcome.md) adds the first-outcome and hot assessment owner plus its test file, including the absent runtime assessment caller. These six entries are bounded shards of the requested per-file inventory; wider catalogue completeness remains open. Changed source and its affected catalogue entries/diagrams must be reviewed in the same work item. The existing documentation authority owner remains unchanged.
+
+The diagrams below describe existing source contracts and historical runtime architecture, not a dated observation of deployed services. Current S4 work separately implements adaptive provider admission. The latest user-required policy keeps Codex and Claude Code on their actual CLIs with managed subscription sessions and no API-key/direct-API fallback. Z.ai alone may use a distinct authenticated API transport; its credentials and endpoint must never be redirected into either managed CLI. This supersedes the earlier blanket no-key policy for Z.ai only. No complete path or live provider is established by this architecture update: CLI status exit zero, file presence and environment-key removal alone do not prove effective managed authentication. Supervisory engineering agents remain Astra Ultra. Source presence, offline fixtures, native unavailable-admission results and actual model execution are separate evidence levels. See [the dated execution-policy boundary](./CURRENT_STATE.md#execution-policy-amendment-2026-09-11) for the unresolved provisioning and account-plan conditions.
+
 ## Authority Chain / Yetki Zinciri
 
 ### EN

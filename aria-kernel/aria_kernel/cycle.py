@@ -1048,12 +1048,14 @@ def _phase_twin_refresh(context: PhaseContext) -> dict[str, Any]:
 
     The refresh re-parses only what changed since ``indexed_sha`` and falls
     back to a full build when there is no prior map or its anchor commit is
-    unknown to this clone — and it SAYS WHICH in ``refresh.mode``, so "the
-    cycle did no full scan" is an observation rather than an assumption.
+    unknown to this clone. ``refresh.mode`` describes the overall strategy;
+    source membership changes can still rebuild the whole test-association
+    layer. The separate pilot projection consumes the existing discovery.
     """
     from .twin import refresh_twin_map
 
-    return refresh_twin_map(workspace_root=context.workspace_root, base_dir=context.base_dir)
+    return refresh_twin_map(workspace_root=context.workspace_root, base_dir=context.base_dir,
+                            discovery=context.result("discovery"))
 
 
 def _phase_experiment_author(context: PhaseContext) -> dict[str, Any]:

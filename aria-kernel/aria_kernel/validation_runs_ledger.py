@@ -24,7 +24,8 @@ A planner submitting an attestation could fabricate a
    that the runner == planner is a self-attestation and rejected.
 
 3. **`verify_validation_run(run_id, base_dir)`** — re-reads the log
-   file at the stored log_path, recomputes the sha256, asserts
+   through its root-relative log_ref when present, otherwise the
+   stored log_path, recomputes the sha256, asserts
    equality with the stored log_hash. Mismatch raises
    ``GovernanceError`` so a tampered log file surfaces at gate time
    rather than silently passing the matrix gate.
@@ -74,6 +75,8 @@ from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import parse_utc_stamp as _parse_utc_stamp
+from .snapshot import _scoped_input_path
 
 
 VALIDATION_RUNS_FILENAME = "validation-runs.jsonl"
@@ -193,6 +196,7 @@ def record_validation_run(
     completed_at: str,
     timed_out: bool = False,
     base_dir: str | Path | None = None,
+    input_binding: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Plan 026R §D.1 — record an executed validation command on the
     append-only ``validation-runs.jsonl`` ledger.
@@ -277,6 +281,7 @@ def record_validation_run(
             f"change_planned)"
         )
     log = Path(log_path)
+    binding = _validated_input_binding(input_binding) if input_binding is not None else None
     log_hash = _hash_log_file(log)
     row = {
         "$schema": VALIDATION_RUN_SCHEMA,
@@ -298,11 +303,114 @@ def record_validation_run(
         "completed_at": completed_at,
         "recorded_at": utc_now(),
     }
+    if input_binding is not None:
+        from .runtime_artifacts import ArtifactRefV2 as _ArtifactRefV2
+        from .state_manifest import surface_for_relative_path as _surface_for_relative_path
+
+        tools_root = ensure_tools_dir(base_dir).resolve()
+        try:
+            relative = log.resolve().relative_to(tools_root)
+        except ValueError as exc:
+            raise GovernanceError("validation_input_binding_requires_declared_log") from exc
+        surface = _surface_for_relative_path(relative, root_kind="tools")
+        if surface is None or surface.name != "validation_run_logs":
+            raise GovernanceError("validation_input_binding_requires_declared_log")
+        row["input_binding"] = binding
+        ref = {
+            "schema_version": 2, "artifact_id": "validation-log:" + row["validation_run_id"],
+            "uri": relative.as_posix(), "sha256": log_hash,
+            "content_type": "text/plain; charset=utf-8",
+            "produced_by_workflow_run_id": row["validation_run_id"],
+            "source_surface": "validation_run_logs",
+        }
+        _ArtifactRefV2.from_dict(ref)
+        row["log_ref"] = ref
     return append_declared_jsonl(
         _runs_path(ensure_tools_dir(base_dir)),
         row,
         expected_surface="validation_runs",
     )
+
+
+def _validated_input_binding(value: dict[str, Any]) -> dict[str, Any]:
+    """Admit bounded v1 metadata before ledger JSON serialization.
+
+    Shape validation does not attest execution, relevance or caller authority.
+    Every mutable child is copied only after its fixed-depth bounds are checked.
+    """
+    digest_keys = ("source_digest", "test_selection_digest", "test_content_digest", "config_digest",
+                   "dependency_digest", "runner_environment_digest", "snapshot_hash")
+    keys = {"schema_version", "repo_identity", "snapshot_mode", "base_commit_sha", "repo_state_id",
+            "scope_paths", "source_stability", "capture_started_at", "capture_completed_at", "availability", *digest_keys}
+
+    def invalid() -> None:
+        raise GovernanceError("validation_input_binding_invalid")
+
+    def text(item: Any, limit: int) -> bool:
+        if type(item) is not str or not 0 < len(item) <= limit:
+            return False
+        try:
+            return len(item.encode("utf-8")) <= limit
+        except UnicodeEncodeError:
+            return False
+
+    if type(value) is not dict or len(value) != len(keys) or set(value) != keys:
+        invalid()
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        invalid()
+    result = {"schema_version": 1}
+    for key in digest_keys:
+        item = value[key]
+        if item is not None and (not text(item, 71) or re.fullmatch(r"sha256:[0-9a-f]{64}", item) is None):
+            invalid()
+        result[key] = item
+    for key, limit, pattern in (("repo_identity", 16, r"[0-9a-f]{16}"),
+                                ("base_commit_sha", 64, r"(?:[0-9a-f]{40}|[0-9a-f]{64})"),
+                                ("repo_state_id", 75, r"repo-state:[0-9a-f]{64}")):
+        item = value[key]
+        if item is not None and (not text(item, limit) or re.fullmatch(pattern, item) is None):
+            invalid()
+        result[key] = item
+    for key, allowed in (("snapshot_mode", ("committed", "working_tree")),
+                         ("source_stability", ("unchanged", "changed", "unknown"))):
+        if type(value[key]) is not str or value[key] not in allowed:
+            invalid()
+        result[key] = value[key]
+    for key in ("capture_started_at", "capture_completed_at"):
+        if not text(value[key], 64) or _parse_utc_stamp(value[key]) is None:
+            invalid()
+        result[key] = value[key]
+    paths = value["scope_paths"]
+    if type(paths) is not list or len(paths) > 256:
+        invalid()
+    for path in paths:
+        if _scoped_input_path(path, canonical=True) is None:
+            invalid()
+    if paths != sorted(set(paths)):
+        invalid()
+    result["scope_paths"] = list(paths)
+    available = value["availability"]
+    if type(available) is not dict or len(available) > 16:
+        invalid()
+    dimensions = {"source", "test_selection", "test_content", "config", "dependency", "runner_environment",
+                  "snapshot_hash", "repo_state_id", "repo_identity", "base_commit_sha", "source_stability",
+                  "selection_closure", "configuration_closure"}
+    if not dimensions - {"source_stability"} <= set(available):
+        invalid()
+    copied = {}
+    for dimension, entry in available.items():
+        if not text(dimension, 32) or dimension not in dimensions or type(entry) is not dict or len(entry) != 2 or set(entry) != {"status", "reason"}:
+            invalid()
+        if type(entry["status"]) is not str or entry["status"] not in ("available", "unknown") or not text(entry["reason"], 128):
+            invalid()
+        copied[dimension] = {"status": entry["status"], "reason": entry["reason"]}
+    for dimension in ("source", "test_selection", "test_content", "config", "dependency", "runner_environment",
+                      "snapshot_hash", "repo_state_id", "repo_identity", "base_commit_sha"):
+        field = dimension + "_digest" if dimension + "_digest" in result else dimension
+        if copied[dimension]["status"] == "available" and result[field] is None:
+            invalid()
+    result["availability"] = copied
+    return result
 
 
 def list_validation_runs(
@@ -325,6 +433,41 @@ def find_validation_run_by_id(
     return None
 
 
+def _validation_log_path(
+    row: dict[str, Any], *, base_dir: str | Path | None,
+) -> Path:
+    """Resolve the native log reference at this tools root, preserving legacy paths."""
+    if "log_ref" not in row:
+        return Path(row.get("log_path") or "")
+
+    from .runtime_artifacts import ArtifactRefV2 as _ArtifactRefV2
+    from .state_manifest import surface_for_relative_path as _surface_for_relative_path
+
+    raw_ref = row["log_ref"]
+    if not isinstance(raw_ref, dict):
+        raise GovernanceError("validation_run_log_ref_invalid")
+    ref = _ArtifactRefV2.from_dict(raw_ref)
+    run_id = row.get("validation_run_id")
+    if (
+        ref.artifact_id != f"validation-log:{run_id}"
+        or ref.produced_by_workflow_run_id != run_id
+        or ref.sha256 != row.get("log_hash")
+        or ref.content_type != "text/plain; charset=utf-8"
+        or ref.source_surface != "validation_run_logs"
+    ):
+        raise GovernanceError("validation_run_log_ref_identity_mismatch")
+    surface = _surface_for_relative_path(ref.uri, root_kind="tools")
+    if surface is None or surface.name != "validation_run_logs":
+        raise GovernanceError("validation_run_log_ref_requires_declared_log")
+    root = ensure_tools_dir(base_dir).resolve()
+    log_path = (root / ref.uri).resolve()
+    try:
+        log_path.relative_to(root)
+    except ValueError as exc:
+        raise GovernanceError("validation_run_log_ref_requires_declared_log") from exc
+    return log_path
+
+
 def verify_validation_run(
     validation_run_id: str,
     *,
@@ -332,6 +475,8 @@ def verify_validation_run(
 ) -> dict[str, Any]:
     """Re-hash the log file + assert equality with the stored log_hash.
 
+    Existing log_ref rows use the supplied tools root's current hot log;
+    legacy rows retain their recorded path. Neither row is rewritten.
     Returns the verified row on success. Raises ``GovernanceError``
     on any of: row not found, log file missing, hash mismatch.
     """
@@ -341,7 +486,7 @@ def verify_validation_run(
             f"validation_run_not_found: {validation_run_id!r}"
         )
     stored_hash = row.get("log_hash")
-    log_path = Path(row.get("log_path") or "")
+    log_path = _validation_log_path(row, base_dir=base_dir)
     actual_hash = _hash_log_file(log_path)
     if actual_hash != stored_hash:
         raise GovernanceError(

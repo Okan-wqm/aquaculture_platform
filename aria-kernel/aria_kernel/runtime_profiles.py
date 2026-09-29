@@ -78,9 +78,9 @@ EXTERNAL_WRITE_DENY_RULES: tuple[str, ...] = (
 _PROFILE_KEYS: frozenset[str] = frozenset({
     "description", "model", "effort", "tools", "write_scope", "env_passthrough",
     "external_writes", "budget_usd_per_run", "max_concurrent",
-    "mcp_servers",
+    "mcp_servers", "runtime",
 })
-_OPTIONAL_KEYS: frozenset[str] = frozenset({"description", "mcp_servers"})
+_OPTIONAL_KEYS: frozenset[str] = frozenset({"description", "mcp_servers", "runtime"})
 
 
 @dataclass(frozen=True)
@@ -97,6 +97,7 @@ class RuntimeProfile:
     description: str = ""
     # Plan 032 Faz 032g — MCP servers (registry names) this profile may load.
     mcp_servers: tuple[str, ...] = ()
+    runtime: str = "claude"
 
     @property
     def write_capable(self) -> bool:
@@ -116,10 +117,19 @@ def _validate_profile(profile_id: str, raw: dict[str, Any]) -> RuntimeProfile:
         raise GovernanceError(
             f"runtime_profile_shape:{profile_id}:unknown={unknown}:missing={missing}"
         )
-    if raw["model"] not in VALID_MODELS:
-        raise GovernanceError(f"runtime_profile_model:{profile_id}:{raw['model']!r}")
-    if raw["effort"] not in VALID_EFFORTS:
-        raise GovernanceError(f"runtime_profile_effort:{profile_id}:{raw['effort']!r}")
+    runtime = raw.get("runtime", "claude")
+    if runtime not in ("claude", "codex"):
+        raise GovernanceError(f"runtime_profile_runtime:{profile_id}:{runtime!r}")
+    if runtime == "codex":
+        if raw["model"] != "gpt-6-astra":
+            raise GovernanceError(f"runtime_profile_model:{profile_id}:{raw['model']!r}")
+        if raw["effort"] != "ultra":
+            raise GovernanceError(f"runtime_profile_effort:{profile_id}:{raw['effort']!r}")
+    else:
+        if raw["model"] not in VALID_MODELS:
+            raise GovernanceError(f"runtime_profile_model:{profile_id}:{raw['model']!r}")
+        if raw["effort"] not in VALID_EFFORTS:
+            raise GovernanceError(f"runtime_profile_effort:{profile_id}:{raw['effort']!r}")
     tools = tuple(str(t) for t in raw["tools"])
     bad_tools = sorted(set(tools) - set(CLAUDE_TOOL_UNIVERSE))
     if not tools or bad_tools or len(set(tools)) != len(tools):
@@ -158,6 +168,7 @@ def _validate_profile(profile_id: str, raw: dict[str, Any]) -> RuntimeProfile:
         max_concurrent=int(concurrency),
         description=str(raw.get("description") or ""),
         mcp_servers=mcp_servers,
+        runtime=runtime,
     )
 
 

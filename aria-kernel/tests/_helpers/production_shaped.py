@@ -111,6 +111,8 @@ def production_converged_plan(
     plan_id: str = "plan-converged-fixture",
     reviewer: str = "farm-expert",
     affected_paths: list[str] | None = None,
+    evidence_refs: list[str] | None = None,
+    validation_commands: list[dict[str, Any]] | None = None,
 ) -> ConvergedPlan:
     """Drive ``plan_convergence`` to CONVERGED the way production does.
 
@@ -167,11 +169,11 @@ def production_converged_plan(
         # outside the implementer sandbox. A fixture declaring a command the
         # production synthesizer never emits was testing a path production
         # cannot take.
-        "validation_commands": [
+        "validation_commands": [dict(command) for command in validation_commands] if validation_commands is not None else [
             {"cmd": "nx affected --target=lint", "timeout_ms": 600_000},
             {"cmd": "nx affected --target=test", "timeout_ms": 1_800_000},
         ],
-        "evidence_refs": ["docs/aria/SPEC.md"],
+        "evidence_refs": evidence_refs if evidence_refs is not None else ["docs/aria/SPEC.md"],
         # The tier claim staging refuses to invent. Tier 1 ("make it
         # impossible") is the fixture's claim about its own change; the point
         # of the field is that SOMEONE claimed it, and the change ledger

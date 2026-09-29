@@ -77,6 +77,7 @@ def build_codex_argv(
     sandbox: str = "read-only",
     output_last_message: Path | None = None,
     cwd: Path | None = None,
+    effort: str | None = None,
 ) -> list[str]:
     """The exact argv for one bounded Codex dispatch.
 
@@ -94,6 +95,8 @@ def build_codex_argv(
     ]
     # ARIA scope discipline — network is OFF, pinned, not trusted to defaults
     argv += codex_network_off_config()
+    if effort is not None:
+        argv += ["-c", f"model_reasoning_effort={json.dumps(effort)}"]
     if output_last_message is not None:
         argv += ["--output-last-message", str(output_last_message)]
     if cwd is not None:
@@ -133,6 +136,7 @@ def run_codex_exec(
     cwd: Path | None = None,
     timeout_seconds: int = DEFAULT_CODEX_TIMEOUT_SECONDS,
     env: dict[str, str] | None = None,
+    effort: str | None = None,
 ) -> CodexRunResult:
     """One bounded production Codex dispatch. No mock path exists here.
 
@@ -144,7 +148,7 @@ def run_codex_exec(
         last_message_path = Path(tmp) / "last-message.txt"
         argv = build_codex_argv(
             prompt, model=model, sandbox=sandbox,
-            output_last_message=last_message_path, cwd=cwd,
+            output_last_message=last_message_path, cwd=cwd, effort=effort,
         )
         run_env = {**os.environ, **(env or {})}
         proc = subprocess.run(
@@ -184,7 +188,10 @@ def codex_dispatch(
     sandbox: str = "read-only",
     cwd: Path | None = None,
     run: Callable[..., CodexRunResult] = run_codex_exec,
+    effort: str | None = None,
     **run_kwargs: Any,
 ) -> CodexRunResult:
     """Dispatch seam: production callers go through here; tests inject `run`."""
+    if effort is not None:
+        run_kwargs["effort"] = effort
     return run(prompt, model=model, sandbox=sandbox, cwd=cwd, **run_kwargs)

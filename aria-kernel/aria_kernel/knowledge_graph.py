@@ -37,10 +37,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import MISSING, asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
+
+if TYPE_CHECKING:
+    from .ledger import StateTransaction
 
 
 # Plan ARIA-V9.0-F — schema versioning. Per-row schema_version
@@ -83,6 +86,10 @@ class KnowledgeGraphSignatureMissing(Exception):
 
 class KnowledgeGraphSchemaError(Exception):
     """Raised when a record violates the schema-frozen field set."""
+
+
+class KnowledgeGraphObservationConflict(KnowledgeGraphSchemaError):
+    """An existing Pattern identity has different immutable content."""
 
 
 # ============================================================================
@@ -215,73 +222,126 @@ def _quarantine(path: Path, *, reason: str) -> None:
 # Append-only writers
 # ============================================================================
 
-def _append_row(path: Path, row: dict[str, Any]) -> None:
-    """Append a single row to ``path``, computing prev_row_hash from
-    the existing tail (or GENESIS_PREV_HASH on empty).
-
-    The read-tail→derive-native-link→declared-append sequence owns the
-    declared ledger's state-transaction lock.  Recovery and contention replay
-    use that same lock domain, so neither can replace the ledger after this
-    writer has observed a tail but before it appends the derived link.
-    """
-    # M11/E12-b — the declared-surface resolver refuses a tools root that
-    # lacks the repo-identity binding (`/tmp/rogue/aria-tools` must never
-    # resolve as canonical state). The kg writers used to mkdir their way
-    # to an identity-less root; ensure_tools_dir is idempotent and stamps
-    # the binding the resolver requires.
+def _prepare_append(path: Path) -> str:
+    """Bind the tools root and resolve the canonical append surface."""
     from .tool_registry import ensure_tools_dir
+    from .state_manifest import surface_for_relative_path
 
     if path.parent.name == "knowledge-graph":
         ensure_tools_dir(path.parent.parent)
     path.parent.mkdir(parents=True, exist_ok=True)
-    from .ledger import state_transaction
-    from .state_manifest import surface_for_relative_path
-
-    rel = Path("knowledge-graph") / path.name
-    surface = surface_for_relative_path(rel)
+    surface = surface_for_relative_path(Path("knowledge-graph") / path.name)
     if surface is None:
-        # A knowledge-graph file with no declared surface is a NEW file
-        # someone forgot to roster — refuse rather than silently re-opening
-        # the durability hole this migration closed.
         raise KnowledgeGraphSchemaError(
             f"knowledge-graph file has no declared surface: {path.name}"
         )
+    return surface.name
+
+
+def _append_row_locked(
+    transaction: StateTransaction,
+    path: Path,
+    row: dict[str, Any],
+    surface: str,
+    previous: dict[str, Any] | None,
+) -> None:
+    """Continue the native chain through the declared writer under its lock."""
+    transaction.append_declared_jsonl(
+        path,
+        {**row, "prev_row_hash": _row_hash(previous) if previous else GENESIS_PREV_HASH},
+        expected_surface=surface,
+    )
+
+
+def _append_row(path: Path, row: dict[str, Any]) -> None:
+    """Intentionally append, sharing replay/recovery's state-transaction lock."""
+    from .ledger import state_transaction
+
+    surface = _prepare_append(path)
     with state_transaction([path]) as transaction:
-        if path.exists() and path.stat().st_size > 0:
-            # Find the last non-empty line + compute its hash
-            last_row: dict[str, Any] | None = None
-            for parsed in _read_jsonl_strict(path):
-                last_row = parsed
-            prev = _row_hash(last_row) if last_row else GENESIS_PREV_HASH
-        else:
-            prev = GENESIS_PREV_HASH
-        row_with_chain = {**row, "prev_row_hash": prev}
-        # M11/E12-b — the append goes through the declared-surface writer,
-        # not a raw file handle. The raw open("a") bypassed the ledger
-        # discipline AND kept these files out of the aria/state publish
-        # allowlist, so every night's learning evaporated at job teardown.
-        # prev_row_hash stays IN the payload: the knowledge-graph's own
-        # chain (verify_chain_or_quarantine) is unchanged and still spans
-        # pre-migration rows; new rows carry both chains.
-        transaction.append_declared_jsonl(
-            path,
-            row_with_chain,
-            expected_surface=surface.name,
-        )
+        previous = None
+        for parsed in _read_jsonl_strict(path):
+            previous = parsed
+        _append_row_locked(transaction, path, row, surface, previous)
+
+
+def _observation_rows(path: Path) -> list[dict[str, Any]]:
+    """Verify both chains before an observation decision, including a no-op.
+
+    read_jsonl verifies transport envelopes, but plain dual-chain rows need
+    explicit outer verification. Native-only history remains valid; any outer
+    links present must follow the stored predecessor, including replay wrappers.
+    No quarantine/rewrite is performed by this writer.
+    """
+    from .ledger import LedgerIntegrityError, _read_jsonl_stored, _record_hash
+
+    rows = list(_read_jsonl_strict(path))
+    previous_native = GENESIS_PREV_HASH
+    for row in rows:
+        if not isinstance(row, dict) or row.get("prev_row_hash") != previous_native:
+            raise KnowledgeGraphTamper("observation native chain mismatch")
+        previous_native = _row_hash(row)
+    try:
+        previous_outer = None
+        for row in _read_jsonl_stored(path):
+            if "ledger_hash" in row or "previous_ledger_hash" in row:
+                if (row.get("previous_ledger_hash") != previous_outer
+                        or row.get("ledger_hash") != _record_hash(row, previous_outer)):
+                    raise KnowledgeGraphTamper("observation outer chain mismatch")
+            elif previous_outer is not None:
+                raise KnowledgeGraphTamper("observation outer chain missing")
+            previous_outer = row.get("ledger_hash")
+    except (LedgerIntegrityError, OSError, UnicodeError) as exc:
+        raise KnowledgeGraphTamper(str(exc)) from exc
+    return rows
+
+
+def _observation_content(row: dict[str, Any]) -> dict[str, Any]:
+    """Project immutable Pattern fields using schema defaults, never wildcards."""
+    content = {}
+    for definition in fields(Pattern):
+        if definition.name in {"observed_at", "signer_key_fp"}:
+            continue
+        value = row.get(definition.name, definition.default)
+        if value is MISSING:
+            raise KnowledgeGraphObservationConflict(
+                f"observation conflict: missing {definition.name}"
+            )
+        if definition.name == "evidence_refs" and isinstance(value, (tuple, list)):
+            value = list(value)
+        content[definition.name] = value
+    return content
 
 
 # ============================================================================
 # Public API
 # ============================================================================
 
+def _knowledge_tools_root(
+    *, base_dir: str | Path | None, workspace_root: str | Path | None,
+) -> Path:
+    """Select storage through its owner, preserving workspace-only callers."""
+    from .tool_registry import tools_dir
+
+    if base_dir is not None:
+        return tools_dir(base_dir)
+    if workspace_root is not None:
+        return tools_dir(Path(workspace_root) / "aria-tools")
+    return tools_dir()
+
+
 def record_convention(
     pattern: Pattern,
     *,
-    workspace_root: str | Path,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
     signer_key_fp: str,
 ) -> Path:
-    """Append a convention row to
-    ``aria-tools/knowledge-graph/conventions.jsonl``.
+    """Record a persisted Pattern observation, or return its path on exact retry.
+
+    Identity is pattern_id; immutable Pattern content must match every existing
+    row with that ID. Timestamp and signer metadata retain their first values.
+    Signer validation checks the fingerprint format, not authentication.
 
     Validates:
       * pattern.pattern_type is non-empty string
@@ -299,17 +359,64 @@ def record_convention(
         raise KnowledgeGraphSchemaError(
             f"signer_key_fp must be SHA256:<base64> got {signer_key_fp!r}"
         )
-    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "conventions.jsonl"
+    path = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/conventions.jsonl"
     row = asdict(pattern)
     row["signer_key_fp"] = signer_key_fp
-    _append_row(path, row)
+    from .ledger import state_transaction
+
+    surface = _prepare_append(path)
+    with state_transaction([path]) as transaction:
+        rows = _observation_rows(path)
+        content = _observation_content(row)
+        found = False
+        for existing in rows:
+            if existing.get("pattern_id") != pattern.pattern_id:
+                continue
+            if _observation_content(existing) != content:
+                raise KnowledgeGraphObservationConflict(
+                    f"observation conflict: {pattern.pattern_id}"
+                )
+            found = True
+        if not found:
+            _append_row_locked(transaction, path, row, surface, rows[-1] if rows else None)
     return path
+
+
+def _has_recorded_convention(
+    pattern: Pattern, *, base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
+) -> bool:
+    """Verify an immutable original observation, regardless of serving status.
+
+    This lookup cannot reserve an append; record_convention remains the
+    serialized check-and-append owner if another callback wins the race.
+    """
+    _validate_pattern(pattern)
+    path = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/conventions.jsonl"
+    try:
+        path.stat()
+    except FileNotFoundError:
+        return False
+    from .ledger import state_transaction
+
+    with state_transaction([path]):
+        rows = _observation_rows(path)
+        content = _observation_content(asdict(pattern))
+        found = False
+        for row in rows:
+            if row.get("pattern_id") != pattern.pattern_id:
+                continue
+            if _observation_content(row) != content:
+                raise KnowledgeGraphObservationConflict(f"observation conflict: {pattern.pattern_id}")
+            found = True
+        return found
 
 
 def record_anti_pattern(
     pattern: Pattern,
     *,
-    workspace_root: str | Path,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
     reason_class: str,
     operator_signature: str,
 ) -> Path:
@@ -341,10 +448,11 @@ def record_anti_pattern(
     # ack-env:<VAR>); a plausible-looking bare string refuses.
     from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval_ref
 
+    root = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root)
     try:
         verify_operator_approval_ref(
             operator_signature,
-            base_dir=Path(workspace_root) / "aria-tools",
+            base_dir=root,
             surface="knowledge_graph_anti_pattern",
         )
     except OperatorApprovalUnrecorded as exc:
@@ -354,7 +462,7 @@ def record_anti_pattern(
             f"anti-pattern pattern_type MUST be 'anti_pattern', got {pattern.pattern_type!r}"
         )
     _validate_pattern(pattern)
-    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "anti-patterns.jsonl"
+    path = root / "knowledge-graph/anti-patterns.jsonl"
     row = asdict(pattern)
     row["reason_class"] = reason_class
     row["operator_signature"] = operator_signature
@@ -365,7 +473,8 @@ def record_anti_pattern(
 def lookup_pattern(
     pattern_id: str,
     *,
-    workspace_root: str | Path,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
     min_confidence: float = MIN_PATTERN_CONFIDENCE,
 ) -> dict[str, Any] | None:
     """Return the latest convention row matching ``pattern_id`` with
@@ -380,7 +489,7 @@ def lookup_pattern(
     is correct at any size; index is a perf optimization deferred to
     the dedicated invariant gate in Phase 10.1 / 10.5.
     """
-    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "conventions.jsonl"
+    path = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/conventions.jsonl"
     ok, _ = verify_chain_or_quarantine(path)
     if not ok:
         return None
@@ -418,7 +527,8 @@ def _paths_related(a: str, b: str) -> bool:
 
 def anti_patterns_for_paths(
     *,
-    workspace_root: str | Path,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
     paths: list[str],
     limit: int = 5,
 ) -> list[dict[str, Any]]:
@@ -435,7 +545,7 @@ def anti_patterns_for_paths(
     wanted = [p for p in wanted if p]
     if not wanted:
         return []
-    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "anti-patterns.jsonl"
+    path = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/anti-patterns.jsonl"
     ok, _ = verify_chain_or_quarantine(path)
     if not ok or not path.exists():
         return []
@@ -464,7 +574,8 @@ def anti_patterns_for_paths(
 
 def conventions_for_paths(
     *,
-    workspace_root: str | Path,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
     paths: list[str],
     min_confidence: float = MIN_PATTERN_CONFIDENCE,
     limit: int = 5,
@@ -483,7 +594,7 @@ def conventions_for_paths(
     wanted = [p for p in wanted if p]
     if not wanted:
         return []
-    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "conventions.jsonl"
+    path = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/conventions.jsonl"
     ok, _ = verify_chain_or_quarantine(path)
     if not ok or not path.exists():
         return []
@@ -566,51 +677,83 @@ def record_pressure_source_outcome(
 VERIFIED_CONVENTION_CONFIDENCE = 0.75  # above MIN_PATTERN_CONFIDENCE: served
 
 
+def reconcile_convention_promotion(
+    *,
+    plan_id: str,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
+    promoted_by_cycle_id: str | None = None,
+) -> dict[str, Any]:
+    """Reconcile a convention after the caller verifies the plan's merge.
+
+    Promotion records merge-backed evidence, not measured improvement.
+    It appends a superseding row with outcome_status="verified" and
+    confidence 0.75. History validation, the existing-success check and
+    append share one transaction so concurrent retries cannot duplicate
+    promotion. Missing hypotheses remain retryable on a later cycle.
+
+    Returns status "promoted", "already_verified" or "no_hypothesis".
+    Only "promoted" includes the appended convention row.
+    """
+    from .ledger import state_transaction
+
+    path = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/conventions.jsonl"
+    if not path.exists():
+        return {"status": "no_hypothesis"}
+    surface = _prepare_append(path)
+    with state_transaction([path]) as transaction:
+        rows = _observation_rows(path)
+        hypothesis: dict[str, Any] | None = None
+        verified: dict[str, Any] | None = None
+        pattern_fields = {item.name for item in fields(Pattern)}
+        for parsed in rows:
+            if parsed.get("plan_id") != plan_id:
+                continue
+            values = {key: value for key, value in parsed.items() if key in pattern_fields}
+            if isinstance(values.get("evidence_refs"), list):
+                values["evidence_refs"] = tuple(values["evidence_refs"])
+            try:
+                pattern = Pattern(**values)
+            except TypeError as exc:
+                raise KnowledgeGraphSchemaError(f"invalid convention Pattern: {exc}") from exc
+            _validate_pattern(pattern)
+            if parsed.get("outcome_status") == "verified" and verified is None:
+                verified = parsed
+            hypothesis = parsed
+        # Validate every matching row before acknowledging an earlier success.
+        if verified is not None:
+            return {"status": "already_verified", "pattern_id": verified["pattern_id"]}
+        if hypothesis is None:
+            return {"status": "no_hypothesis"}
+        promoted = dict(hypothesis)
+        promoted.pop("prev_row_hash", None)
+        promoted.update({
+            "pattern_id": f"{hypothesis['pattern_id']}-verified",
+            "supersedes_pattern_id": hypothesis["pattern_id"],
+            "outcome_status": "verified",
+            "confidence": VERIFIED_CONVENTION_CONFIDENCE,
+            "observed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "promoted_by_cycle_id": promoted_by_cycle_id,
+        })
+        _append_row_locked(transaction, path, promoted, surface, rows[-1] if rows else None)
+        return {"status": "promoted", "pattern_id": promoted["pattern_id"], "convention": promoted}
+
+
 def promote_convention_for_plan(
     *,
     plan_id: str,
-    workspace_root: str | Path,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
     promoted_by_cycle_id: str | None = None,
 ) -> dict[str, Any] | None:
-    """M2/E12 — the promotion producer the hypothesis rows waited for.
-
-    A convention is recorded at CONVERGENCE with confidence 0.5 and
-    outcome_status="hypothesis" — deliberately below the 0.7 serving
-    floor, so ARIA does not teach itself its own predictions as facts.
-    The comment at the write site promised "promotion on a VERIFIED
-    outcome"; nothing ever delivered it, so no convention could EVER be
-    served: the ledger was write-only in effect. The verified outcome IS
-    the plan's merge, so the merge reconciler calls this with the plan
-    id the row now carries.
-
-    Appends a NEW row (append-only ledger) superseding the hypothesis:
-    outcome_status="verified", confidence above the serving floor.
-    Idempotent: an already-verified row for the plan is a no-op.
-    """
-    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "conventions.jsonl"
-    if not path.exists():
-        return None
-    hypothesis: dict[str, Any] | None = None
-    for parsed in _read_jsonl_strict(path):
-        if parsed.get("plan_id") != plan_id:
-            continue
-        if parsed.get("outcome_status") == "verified":
-            return None  # already promoted
-        hypothesis = parsed
-    if hypothesis is None:
-        return None
-    promoted = dict(hypothesis)
-    promoted.pop("prev_row_hash", None)
-    promoted.update({
-        "pattern_id": f"{hypothesis.get('pattern_id')}-verified",
-        "supersedes_pattern_id": hypothesis.get("pattern_id"),
-        "outcome_status": "verified",
-        "confidence": VERIFIED_CONVENTION_CONFIDENCE,
-        "observed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "promoted_by_cycle_id": promoted_by_cycle_id,
-    })
-    _append_row(path, promoted)
-    return promoted
+    """Return the newly appended convention, or None when no append was needed."""
+    result = reconcile_convention_promotion(
+        plan_id=plan_id,
+        workspace_root=workspace_root,
+        base_dir=base_dir,
+        promoted_by_cycle_id=promoted_by_cycle_id,
+    )
+    return result.get("convention")
 
 
 def rank_pressure_sources(
@@ -695,6 +838,7 @@ __all__ = (
     "KnowledgeGraphTamper",
     "KnowledgeGraphSignatureMissing",
     "KnowledgeGraphSchemaError",
+    "KnowledgeGraphObservationConflict",
     "verify_chain_or_quarantine",
     "record_convention",
     "record_anti_pattern",

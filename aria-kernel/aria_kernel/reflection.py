@@ -26,6 +26,7 @@ def run_reflection(
     proactive_result: dict[str, Any] | None = None,
     cycle_runner_result: dict[str, Any] | None = None,
     judge_replay_result: dict[str, Any] | None = None,
+    memory_learning_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3f v2 — reflection schema v1 → v2 additive bump.
     # Three optional kwargs let the autonomy orchestrator inject its
@@ -178,6 +179,8 @@ def run_reflection(
             for item in top_pressures
         ],
     }
+    if memory_learning_result is not None:
+        reflection["memory_learning"] = memory_learning_result
     append_declared_jsonl(root / "reflections.jsonl", reflection, expected_surface="reflections")
     _write_daily_report(root, reflection)
     # Plan 026R §F.2 — also enqueue next_cycle_plan items into the
@@ -1399,6 +1402,19 @@ def _render_own_pr_ci_section(root: Path) -> list[str]:
     return lines
 
 
+def _render_memory_learning_section(reflection: dict[str, Any]) -> list[str]:
+    memory = reflection.get("memory_learning")
+    if not isinstance(memory, dict):
+        return []
+    # Render only the bounded projection supplied by the existing producer.
+    # Batch completion is not evidence that each observation was recorded.
+    return [
+        "## Memory Learning", "",
+        "Initial observations and completion receipts are separate; receipt counts are not new writes or measured gain.",
+        "", "```json", json.dumps(memory, indent=2, sort_keys=True), "```", "",
+    ]
+
+
 def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
     day = str(reflection["recorded_at"])[:10]
     path = root / "reports" / "daily" / f"{day}.md"
@@ -1509,6 +1525,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         # supplied verdicts. Direct CLI path emits null sub-objects so
         # the sections appear empty / are skipped entirely.
         *_render_convergence_section(reflection),
+        *_render_memory_learning_section(reflection),
         *_render_pedagogy_section(reflection),
         *_render_calibration_section(reflection),
         *_render_calibration_recommendation_section(reflection),

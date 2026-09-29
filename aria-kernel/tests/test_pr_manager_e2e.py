@@ -379,6 +379,383 @@ class StagedConvergedPlanChainTests(unittest.TestCase):
         import shutil
         shutil.rmtree(self.repo, ignore_errors=True)
 
+    def _ordinary_scoped_stage(self):
+        import os
+        from aria_kernel.experiment import register_recipe
+        from aria_kernel.tool_registry import ensure_tools_binding
+
+        external = tempfile.TemporaryDirectory(prefix="aria-stage-inputs-")
+        self.addCleanup(external.cleanup)
+        outside = Path(external.name)
+        self.tools = outside / "store" / "tools"
+        set_profile("strict", operator_approval_ref="test:stage-inputs", base_dir=self.tools)
+        ensure_tools_binding(self.tools, workspace_root=self.repo)
+        installed = Path("/var/aqua-saas/node_modules")
+        for name in ("nx", "typescript", "eslint"):
+            self.assertTrue((installed / name / "package.json").is_file(), f"offline fixture requires installed {name}")
+        (self.repo / "node_modules").symlink_to(installed, target_is_directory=True)
+        self.scoped_prefix = "apps/farm-service/env/"
+        self.scoped_selector = "test_paths.PathTests.test_normalized_case_sensitive_deduplication"
+        self.scoped_command = "PYTHONPATH=" + self.scoped_prefix.rstrip("/") + " python3 -m unittest -v " + self.scoped_selector
+        files = {
+            ".gitignore": "aria-tools/\nnode_modules/\n.nx/\n__pycache__/\n",
+            "package.json": json.dumps({"name": "ordinary-env-fixture", "private": True,
+                                       "scripts": {"type-check": "tsc --noEmit --pretty false --listFiles -p tsconfig.json"}}),
+            "nx.json": json.dumps({"neverConnectToCloud": True, "plugins": []}),
+            "apps/farm-service/project.json": json.dumps({
+                "name": "env-fixture", "root": "apps/farm-service",
+                "targets": {
+                    "test": {"executor": "nx:run-commands", "cache": False,
+                             "options": {"command": self.scoped_command}},
+                    "lint": {"executor": "nx:run-commands", "cache": False,
+                             "options": {"command": "eslint apps/farm-service/env/checked.js --format json"}},
+                },
+            }),
+            "eslint.config.cjs": (
+                "module.exports = [{files: ['apps/**/*.js'], languageOptions: {ecmaVersion: 2022, "
+                "sourceType: 'module'}, rules: {'no-unused-vars': 'error'}}];\n"
+            ),
+            "tsconfig.json": json.dumps({"compilerOptions": {"strict": True, "types": []},
+                                        "files": [self.scoped_prefix + "typed.ts"]}),
+            self.scoped_prefix + "checked.js": "export const distinctPaths = ['src/A.py', 'src/a.py'];\n",
+            self.scoped_prefix + "typed.ts": "export const distinctPaths: string[] = ['src/A.py', 'src/a.py'];\n",
+            self.scoped_prefix + "paths.py": (
+                "import json\nfrom pathlib import Path\nfrom path_helper import canonical_path\n"
+                "def unique_paths(paths):\n"
+                "    config = json.loads(Path(__file__).with_name('path-config.json').read_text())\n"
+                "    values = [canonical_path(p) for p in paths]\n"
+                "    if not config['case_sensitive']:\n"
+                "        values = [p.lower() for p in values]\n"
+                "    return sorted(set(values))\n"
+            ),
+            self.scoped_prefix + "path_helper.py": "def canonical_path(value):\n    return value.removeprefix('./')\n",
+            self.scoped_prefix + "path-config.json": '{"case_sensitive": true}\n',
+            self.scoped_prefix + "test_paths.py": (
+                "import os, unittest\nfrom paths import unique_paths\n"
+                "class PathTests(unittest.TestCase):\n"
+                "    def test_normalized_case_sensitive_deduplication(self):\n"
+                "        print('STAGE_CHILD:' + str(os.getpid()))\n"
+                "        self.assertEqual(unique_paths(['./src/A.py', 'src/a.py', 'src/A.py']),\n"
+                "                         ['src/A.py', 'src/a.py'])\n"
+            ),
+        }
+        for name, content in files.items():
+            path = self.repo / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        self._commit_all("ordinary local Nx and configured-path fixture")
+        affected_base = _rev_parse(self.repo, "HEAD")
+        environment = {key: value for key, value in os.environ.items()
+                       if not key.startswith("NX_") and not key.lower().startswith("npm_config_")
+                       and key not in ("NODE_OPTIONS", "NODE_PATH")}
+        for name in ("npm-user.conf", "npm-global.conf"):
+            (outside / name).write_text("")
+        environment.update({
+            "NX_BASE": affected_base, "NX_HEAD": "HEAD", "NX_DAEMON": "false", "NX_NO_CLOUD": "true",
+            "NX_SKIP_REMOTE_CACHE": "true", "NX_SKIP_NX_CACHE": "true", "NX_PARALLEL": "1",
+            "NX_TASKS_RUNNER_DYNAMIC_OUTPUT": "false", "CI": "true",
+            "NX_WORKSPACE_DATA_DIRECTORY": str(outside / "nx-workspace"), "NX_CACHE_DIRECTORY": str(outside / "nx-cache"),
+            "npm_config_offline": "true", "npm_config_cache": str(outside / "npm-cache"),
+            "npm_config_userconfig": str(outside / "npm-user.conf"),
+            "npm_config_globalconfig": str(outside / "npm-global.conf"), "npm_config_update_notifier": "false",
+        })
+        env_patch = patch.dict(os.environ, environment, clear=True)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        self.scoped_descriptor = {
+            "schema_version": 2,
+            "files": {role: [self.scoped_prefix + path] for role, path in (
+                ("source", "paths.py"), ("test", "test_paths.py"),
+                ("config", "path-config.json"), ("dependency", "path_helper.py"))},
+            "execution_profile": {"kind": "python_unittest_public_v1", "modules": ["path_helper"]},
+        }
+        self.scoped_recipe = register_recipe(
+            recipe_id="recipe-stage-paths", command=self.scoped_command, timeout_ms=60_000,
+            deterministic=True, input_scope=self.scoped_descriptor, base_dir=self.tools,
+        )
+        plan = production_converged_plan(
+            tools_dir=self.tools, workspace_root=self.repo,
+            affected_paths=[self.scoped_prefix + "path_helper.py"],
+            evidence_refs=[self.scoped_prefix + "path_helper.py:2"],
+            validation_commands=[{"recipe_id": self.scoped_recipe["recipe_id"], "cmd": self.scoped_command, "timeout_ms": 60_000}],
+        )
+        # A real project input changes after the fixed Nx base. Both the
+        # clean baseline and the later candidate must select this project.
+        (self.repo / (self.scoped_prefix + "checked.js")).write_text("export const distinctPaths = ['src/A.py', 'src/a.py', 'src/B.py'];\n")
+        self._commit_all("declare the reviewed scope and affected project input")
+        staged = stage_converged_plan_for_pr(plan_id=plan.plan_id, workspace_root=self.repo, base_dir=self.tools)
+        self.assertNotEqual(staged["base_sha"], affected_base)
+        return plan, staged
+
+    def _native_stage_group(self, reference, expected_sha):
+        from aria_kernel.validation import list_validation_plans
+        from aria_kernel.validation_runs_ledger import verify_validation_run
+
+        group = next(row for row in list_validation_plans(base_dir=self.tools) if row["ledger_hash"] == reference)
+        rows = [verify_validation_run(run_id, base_dir=self.tools) for run_id in group["validation_run_ids"]]
+        self.assertEqual([row["cmd"] for row in rows], [*CANONICAL_VALIDATION_COMMANDS_EXECUTABLE, self.scoped_command])
+        logs = {}
+        for row in rows:
+            text = Path(row["log_path"]).read_text()
+            self.assertEqual((row["exit_code"], row["timed_out"], row["commit_sha"]), (0, False, expected_sha), text)
+            logs[row["cmd"]] = text
+        nx_test = logs["npx nx affected --target=test"]
+        self.assertIn("env-fixture:test", nx_test)
+        self.assertIn(self.scoped_selector.rsplit(".", 1)[1], nx_test)
+        self.assertIn("Ran 1 test", nx_test)
+        self.assertIn("\nOK", nx_test)
+        lint = logs["npx nx affected --target=lint"]
+        self.assertIn("env-fixture:lint", lint)
+        eslint_rows = json.loads(next(line for line in lint.splitlines() if line.startswith('[{"filePath":')))
+        checked = str(self.repo / self.scoped_prefix / "checked.js")
+        self.assertEqual([(row["filePath"], row["errorCount"], row["warningCount"]) for row in eslint_rows], [(checked, 0, 0)])
+        self.assertIn(str(self.repo / self.scoped_prefix / "typed.ts"), logs["npm run type-check"])
+        direct = logs[self.scoped_command]
+        self.assertIn("Ran 1 test", direct)
+        self.assertIn("STAGE_CHILD:", direct)
+        return group, rows, logs
+
+    def _assert_stage_selection(self, action, group, rows, logs, plan):
+        import hashlib
+        from aria_kernel.plan_convergence import fold_plan_state, plan_body_from_state
+
+        direct = rows[-1]
+        self.assertIn("input_binding", direct, "real staged validation omitted the recipe-selected descriptor")
+        current = plan_body_from_state(fold_plan_state(plan_id=plan.plan_id, base_dir=self.tools))
+        selection = action["validation_input_selection"]
+        self.assertEqual(selection, {
+            "schema_version": 1, "status": "selected", "input_scope": self.scoped_descriptor,
+            "recipe_sources": [{"recipe_id": self.scoped_recipe["recipe_id"],
+                                "ledger_hash": self.scoped_recipe["ledger_hash"], "command": self.scoped_command}],
+            "plan_content_hash": current["content_hash"], "reason": None,
+        })
+        self.assertEqual(group["change_id"], action["change_id"])
+        manifests = {}
+        for row in rows:
+            manifest = json.loads(next(line.removeprefix("input_manifest: ") for line in logs[row["cmd"]].splitlines()
+                                       if line.startswith("input_manifest: ")))
+            self.assertEqual(manifest["roles"], self.scoped_descriptor["files"])
+            manifests[row["cmd"]] = manifest
+        env = manifests[self.scoped_command]["environment"]
+        pid = int(next(line.split(":", 1)[1] for line in logs[self.scoped_command].splitlines() if line.startswith("STAGE_CHILD:")))
+        self.assertEqual(env["observation"]["child_pid"], pid)
+        self.assertEqual(set(env["stable"]["modules"]), {"path_helper"})
+        self.assertEqual(env["stable"]["modules"]["path_helper"]["executed_content_binding"]["status"], "unknown")
+        expected = "sha256:" + hashlib.sha256(json.dumps(env["stable"], sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
+        self.assertEqual(direct["input_binding"]["runner_environment_digest"], expected)
+        for row in rows:
+            for dimension in ("dependency", "runner_environment", "selection_closure", "configuration_closure"):
+                self.assertEqual(row["input_binding"]["availability"][dimension]["status"], "unknown")
+        for command in CANONICAL_VALIDATION_COMMANDS_EXECUTABLE:
+            self.assertEqual(manifests[command]["environment"]["observation"]["reason"], "unsupported_command_profile")
+        return manifests[self.scoped_command]
+
+    def test_staging_recipe_scope_reaches_real_baseline_receipt(self):
+        plan, staged = self._ordinary_scoped_stage()
+        group, rows, logs = self._native_stage_group(staged["baseline_ref"], staged["base_sha"])
+        action = _latest_staged_action(self.tools, staged["proposal_id"])
+        self.assertEqual(action["status"], "staged_for_implementation")
+        self._assert_stage_selection(action, group, rows, logs, plan)
+
+    def test_same_command_scope_unknown_reason_uses_source_order(self):
+        from aria_kernel.apply_engine import _staged_validation_inputs
+        from aria_kernel.experiment import register_recipe
+
+        command = "python3 -m unittest -v test_paths.PathTests.test_normalized_case_sensitive_deduplication"
+        scopes = {
+            "recipe-aaa": {"schema_version": 1, "files": {}},
+            "recipe-bbb": {"schema_version": 2, "files": {}, "execution_profile": {
+                "kind": "python_unittest_public_v1", "modules": [f"declared_module_{n}" for n in range(8)]}},
+            "recipe-ccc": {"schema_version": 2, "files": {}, "execution_profile": {
+                "kind": "python_unittest_public_v1", "modules": ["another_declared_module"]}},
+        }
+        for recipe_id, scope in scopes.items():
+            register_recipe(recipe_id=recipe_id, command=command, timeout_ms=60_000,
+                            deterministic=True, input_scope=scope, base_dir=self.tools)
+        expected = {"schema_version": 1, "status": "unknown", "input_scope": None,
+                    "recipe_sources": [], "plan_content_hash": None, "reason": "selection_incompatible_scope"}
+        for order in (("recipe-aaa", "recipe-bbb", "recipe-ccc"), ("recipe-bbb", "recipe-ccc", "recipe-aaa")):
+            commands, timeout_ms, selection = _staged_validation_inputs(
+                {"validation_commands": [{"recipe_id": key, "cmd": command} for key in order]}, base_dir=self.tools)
+            self.assertEqual(commands, [*CANONICAL_VALIDATION_COMMANDS_EXECUTABLE, command])
+            self.assertEqual(timeout_ms, CANONICAL_VALIDATION_TIMEOUT_MS)
+            self.assertEqual(selection, expected, f"declaration order {order} must not choose the diagnostic")
+
+    def test_scoped_recipe_union_uses_exact_rows_and_execution_order(self):
+        from aria_kernel.apply_engine import _staged_validation_commands, _staged_validation_inputs
+        from aria_kernel.experiment import register_recipe
+
+        def register(recipe_id, command, files, timeout=60_000):
+            return register_recipe(recipe_id=recipe_id, command=command, timeout_ms=timeout,
+                                   deterministic=True, input_scope={"schema_version": 1, "files": files}, base_dir=self.tools)
+        canonical = CANONICAL_VALIDATION_COMMANDS_EXECUTABLE[0]
+        old_command = "python3 -m unittest test_existing.TestPaths.test_paths"
+        old = register("recipe-history", old_command, {"source": ["history.py"]})
+        register("recipe-history", "python3 -m unittest test_new.TestPaths.test_paths", {"source": ["new.py"]})
+        alpha = register("recipe-alpha", canonical, {"source": ["src/A.py"], "test": ["src/A.py"]}, CANONICAL_VALIDATION_TIMEOUT_MS + 1)
+        beta = register("recipe-beta", canonical, {"source": ["src/a.py"], "test": ["src/A.py"]})
+        body = {"validation_commands": [{"cmd": old_command}, {"recipe_id": "recipe-beta"},
+                                         {"recipe_id": "recipe-alpha"}, {"cmd": old_command}, {"cmd": canonical}]}
+        commands, timeout, selection = _staged_validation_inputs(body, base_dir=self.tools)
+        self.assertEqual(commands, [*CANONICAL_VALIDATION_COMMANDS_EXECUTABLE, old_command])
+        self.assertEqual(timeout, CANONICAL_VALIDATION_TIMEOUT_MS + 1)
+        self.assertEqual(_staged_validation_commands(body, base_dir=self.tools), (commands, timeout))
+        self.assertEqual(selection["status"], "selected")
+        self.assertEqual(selection["input_scope"], {"schema_version": 1, "files": {
+            "source": ["history.py", "src/A.py", "src/a.py"], "test": ["src/A.py"], "config": [], "dependency": []}})
+        self.assertEqual(selection["recipe_sources"], [
+            {"recipe_id": row["recipe_id"], "ledger_hash": row["ledger_hash"], "command": row["command"]}
+            for row in (alpha, beta, old)])
+
+    def test_scope_union_limits_drop_all_contributors(self):
+        from aria_kernel.apply_engine import _staged_validation_inputs
+        from aria_kernel.experiment import register_recipe
+
+        command = "python3 -m unittest test_paths.TestPaths.test_paths"
+        cases = {
+            "paths": [{"schema_version": 1, "files": {"source": [f"src/file_{n}.py" for n in range(256)]}},
+                      {"schema_version": 1, "files": {"source": ["src/one_more.py"]}}],
+            "modules": [{"schema_version": 2, "files": {}, "execution_profile": {
+                            "kind": "python_unittest_public_v1", "modules": [f"module_{n}" for n in range(8)]}},
+                        {"schema_version": 2, "files": {}, "execution_profile": {
+                            "kind": "python_unittest_public_v1", "modules": ["one_more_module"]}}],
+            "rows": [{"schema_version": 1, "files": {"source": ["src/shared.py"]}} for _ in range(9)],
+        }
+        for kind, scopes in cases.items():
+            with self.subTest(bound=kind):
+                declarations = []
+                for index, scope in enumerate(scopes):
+                    row = register_recipe(recipe_id=f"recipe-{kind}-{index}", command=command, timeout_ms=60_000,
+                                          deterministic=True, input_scope=scope, base_dir=self.tools)
+                    declarations.append({"recipe_id": row["recipe_id"]})
+                at_limit = declarations[:8] if kind == "rows" else declarations[:1]
+                _commands, _timeout, selected = _staged_validation_inputs({"validation_commands": at_limit}, base_dir=self.tools)
+                self.assertEqual(selected["status"], "selected")
+                if kind == "paths":
+                    self.assertEqual(len({path for paths in selected["input_scope"]["files"].values() for path in paths}), 256)
+                elif kind == "modules":
+                    self.assertEqual(len(selected["input_scope"]["execution_profile"]["modules"]), 8)
+                else:
+                    self.assertEqual(len(selected["recipe_sources"]), 8)
+                for order in (declarations, list(reversed(declarations))):
+                    commands, timeout, selection = _staged_validation_inputs({"validation_commands": order}, base_dir=self.tools)
+                    self.assertEqual((commands, timeout), ([*CANONICAL_VALIDATION_COMMANDS_EXECUTABLE, command], CANONICAL_VALIDATION_TIMEOUT_MS))
+                    self.assertEqual(selection, {"schema_version": 1, "status": "unknown", "input_scope": None,
+                                                "recipe_sources": [], "plan_content_hash": None, "reason": "selection_input_limit"})
+
+    def test_selection_metadata_overflow_is_compact_and_order_independent(self):
+        from aria_kernel.apply_engine import _staged_validation_inputs
+        from aria_kernel.experiment import register_recipe
+
+        declarations, expected_sources = [], []
+        for index in range(8):
+            command = "python3  -m  unittest  target_" + str(index) + "x" * 4000
+            row = register_recipe(recipe_id=f"recipe-metadata-{index}", command=command, timeout_ms=60_000,
+                                  deterministic=True, input_scope={"schema_version": 1, "files": {}}, base_dir=self.tools)
+            normalized = " ".join(command.split())
+            self.assertLessEqual(len(command.encode()), 4096)
+            declarations.extend([{"cmd": command}, {"recipe_id": row["recipe_id"]}])
+            expected_sources.extend([{"recipe_id": row["recipe_id"], "ledger_hash": row["ledger_hash"], "command": spelling}
+                                     for spelling in (normalized, command)])
+        encoded = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+        self.assertGreater(len(encoded({"recipe_sources": expected_sources})), 65_536)
+        for order in (declarations, list(reversed(declarations))):
+            commands, timeout, selection = _staged_validation_inputs({"validation_commands": order}, base_dir=self.tools)
+            self.assertEqual(commands[:3], list(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE))
+            self.assertEqual(len(commands), 19)
+            self.assertEqual(timeout, CANONICAL_VALIDATION_TIMEOUT_MS)
+            self.assertEqual(selection, {"schema_version": 1, "status": "unknown", "input_scope": None,
+                                        "recipe_sources": [], "plan_content_hash": None, "reason": "selection_metadata_limit"})
+            self.assertLessEqual(len(encoded(selection)), 1024)
+
+        # The same aggregate overflow plus a ninth distinct native row has
+        # the documented row-cardinality precedence in either input order.
+        ninth = register_recipe(recipe_id="recipe-metadata-ninth", command="python3 -m unittest ninth_test",
+                                timeout_ms=60_000, deterministic=True,
+                                input_scope={"schema_version": 1, "files": {}}, base_dir=self.tools)
+        both_limits = [*declarations, {"recipe_id": ninth["recipe_id"]}]
+        for order in (both_limits, list(reversed(both_limits))):
+            commands, timeout, selection = _staged_validation_inputs({"validation_commands": order}, base_dir=self.tools)
+            self.assertEqual(len(commands), 20)
+            self.assertEqual(timeout, CANONICAL_VALIDATION_TIMEOUT_MS)
+            self.assertEqual(selection, {"schema_version": 1, "status": "unknown", "input_scope": None,
+                                        "recipe_sources": [], "plan_content_hash": None, "reason": "selection_input_limit"})
+
+    def test_complete_selection_metadata_limit_includes_recipe_sources(self):
+        from aria_kernel.apply_engine import _staged_validation_inputs
+        from aria_kernel.experiment import register_recipe
+
+        descriptor = {"schema_version": 1, "files": {
+            "source": ["s/" + "a" * 250 + "/" + f"{index:03d}" + "/" + "b" * 250 for index in range(128)],
+            "test": [], "config": [], "dependency": [],
+        }}
+        encode = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+        self.assertLessEqual(len(encode(descriptor)), 65_536)
+        command = "python3 -m unittest test_" + "method" * 80
+        row = register_recipe(recipe_id="recipe-complete-cap", command=command, timeout_ms=60_000,
+                              deterministic=True, input_scope=descriptor, base_dir=self.tools)
+        self.assertEqual(row["input_scope"], descriptor)
+        sources = [{"recipe_id": row["recipe_id"], "ledger_hash": row["ledger_hash"], "command": command}]
+        self.assertLessEqual(len(encode({"recipe_sources": sources})), 65_536)
+        full = {"schema_version": 1, "status": "selected", "input_scope": descriptor,
+                "recipe_sources": sources, "plan_content_hash": None, "reason": None}
+        self.assertGreater(len(encode(full)), 65_536)
+        commands, timeout, selection = _staged_validation_inputs(
+            {"validation_commands": [{"recipe_id": row["recipe_id"]}]}, base_dir=self.tools)
+        self.assertEqual((commands, timeout), ([*CANONICAL_VALIDATION_COMMANDS_EXECUTABLE, command], CANONICAL_VALIDATION_TIMEOUT_MS))
+        self.assertEqual(selection, {"schema_version": 1, "status": "unknown", "input_scope": None,
+                                    "recipe_sources": [], "plan_content_hash": None, "reason": "selection_metadata_limit"})
+        self.assertLessEqual(len(encode(selection)), 1024)
+
+    def test_candidate_uses_staged_scope_after_recipe_reregistration(self):
+        import subprocess as sp
+        from aria_kernel.change_ledger import emit_change_committed
+        from aria_kernel.experiment import get_recipe, register_recipe
+        from aria_kernel.validation import list_validation_comparisons
+        from aria_kernel.validation_runs_ledger import validation_runs_path, verify_validation_run
+
+        plan, staged = self._ordinary_scoped_stage()
+        baseline, old_rows, _logs = self._native_stage_group(staged["baseline_ref"], staged["base_sha"])
+        old_action = _latest_staged_action(self.tools, staged["proposal_id"])
+        native_path = validation_runs_path(self.tools)
+        native_prefix = native_path.read_bytes()
+        old_logs = {Path(row["log_path"]): Path(row["log_path"]).read_bytes() for row in old_rows}
+        sp.run(["git", "checkout", "-q", "-b", staged["branch"]], cwd=self.repo, check=True)
+        helper_path = self.scoped_prefix + "path_helper.py"
+        (self.repo / helper_path).write_text("def canonical_path(value):\n    return value.removeprefix('./').removeprefix('./')\n")
+        self._commit_all("normalize a second relative prefix without changing case")
+        candidate_sha = _rev_parse(self.repo, "HEAD")
+        emit_change_committed(change_id=staged["change_id"], commit_sha=candidate_sha,
+                              actual_affected_files=[helper_path], base_dir=self.tools)
+        newer_scope = json.loads(json.dumps(self.scoped_descriptor))
+        newer_scope["files"]["test"] = []
+        newer_scope["execution_profile"]["modules"] = []
+        newer = register_recipe(recipe_id=self.scoped_recipe["recipe_id"], command=self.scoped_command,
+                                timeout_ms=120_000, deterministic=True, input_scope=newer_scope, base_dir=self.tools)
+        self.assertEqual(get_recipe(newer["recipe_id"], base_dir=self.tools), newer)
+        self.assertNotEqual(newer["ledger_hash"], self.scoped_recipe["ledger_hash"])
+        gated = run_apply_gate(proposal_id=staged["proposal_id"], change_id=staged["change_id"],
+                               base_dir=self.tools, workspace_root=self.repo, runner_identity="ci-executor:stage-inputs")
+        self.assertEqual(gated["status"], "ready_for_pr")
+        comparison = next(row for row in list_validation_comparisons(base_dir=self.tools)
+                          if row["ledger_hash"] == gated["validation_comparison_ref"])
+        self.assertEqual(comparison["baseline_ref"], staged["baseline_ref"])
+        candidate, rows, logs = self._native_stage_group(comparison["worktree_ref"], candidate_sha)
+        self.assertTrue(native_path.read_bytes().startswith(native_prefix))
+        for old_row in old_rows:
+            self.assertEqual(verify_validation_run(old_row["validation_run_id"], base_dir=self.tools), old_row)
+        for path, content in old_logs.items():
+            self.assertEqual(path.read_bytes(), content)
+        manifest = self._assert_stage_selection(gated, candidate, rows, logs, plan)
+        self.assertEqual(gated["validation_input_selection"], old_action["validation_input_selection"])
+        self.assertEqual(gated["validation_timeout_ms"], old_action["validation_timeout_ms"])
+        self.assertEqual(baseline["validation_run_ids"], [row["validation_run_id"] for row in old_rows])
+        old_manifest = json.loads(next(line.removeprefix("input_manifest: ") for line in _logs[self.scoped_command].splitlines()
+                                      if line.startswith("input_manifest: ")))
+        old_helper = next(item for item in old_manifest["before"]["files"] if item["path"] == helper_path)
+        new_helper = next(item for item in manifest["before"]["files"] if item["path"] == helper_path)
+        self.assertNotEqual(old_helper["content_hash"], new_helper["content_hash"])
+
     def _stage(self):
         from aria_kernel import validation as validation_module
 

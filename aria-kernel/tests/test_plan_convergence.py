@@ -6,6 +6,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from aria_kernel import plan_convergence as plan_convergence_module
 from aria_kernel.agent_priors import reviewer_names
 from aria_kernel.ledger import LedgerIntegrityError, load_jsonl
 from aria_kernel.plan_convergence import (
@@ -372,6 +373,176 @@ class PlanConvergenceTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(GovernanceError, "plan content"):
             fold_plan_state(plan_id="invalid-plan", base_dir=self.tools_dir)
+
+    def _historical_observation_fixture(self) -> dict:
+        """Rev-0 is reviewed but only the genuine revised body converges."""
+        started = self.start()
+        original_hash = started["event"]["payload"]["content_hash"]
+        self.request_round(1, "farm-expert")
+        self.critique("farm-expert", [])
+        revised_body = self.plan()
+        revised_body["title"] = "Reviewed historical revision"
+        revised_body["summary"] = "Recover exactly this reviewed body after implementation dispatch."
+        revised_body["affected_surfaces"] = [{"paths": ["apps/farm-service/src/farm.service.ts"]}]
+        revised_hash = content_hash(revised_body)
+        revision = record_revision(
+            plan_id="plan-1",
+            revision={
+                "revision_id": "rev-1", "round": 1,
+                "content_hash": revised_hash, "parent_revision_hash": original_hash,
+                "content": json.dumps(revised_body, sort_keys=True),
+                "addresses_review_risk_ids": [],
+            },
+            base_dir=self.tools_dir,
+        )
+        self.assertTrue(revision["event_appended"])
+        self.request_round(2, "farm-expert")
+        self.critique("farm-expert", [])
+        evaluated = evaluate_plan(plan_id="plan-1", round_number=2, base_dir=self.tools_dir)
+        self.assertEqual(evaluated["event"]["payload"]["terminal_state"], "CONVERGED")
+        dispatched = plan_convergence_module.request_implementation(
+            plan_id="plan-1", implementer_agent="aria-implementer",
+            converged_plan_revision_id="rev-1",
+            converged_plan_content_hash=revised_hash, base_dir=self.tools_dir,
+        )
+        self.assertTrue(dispatched["event_appended"])
+        self.assertEqual(
+            fold_plan_state(plan_id="plan-1", base_dir=self.tools_dir)["state"],
+            "IMPLEMENTATION_REQUESTED",
+        )
+        return {
+            "original_hash": original_hash, "revised_body": revised_body,
+            "revised_hash": revised_hash, "convergence_event": evaluated["event"],
+        }
+
+    def _historical_ledger_bytes(self) -> dict[str, bytes]:
+        return {
+            path.relative_to(self.tools_dir).as_posix(): path.read_bytes()
+            for path in self.tools_dir.rglob("*.jsonl")
+        }
+
+    def test_historical_observation_resolves_revised_body_after_dispatch(self) -> None:
+        fixture = self._historical_observation_fixture()
+        before = self._historical_ledger_bytes()
+        observation = plan_convergence_module.resolve_converged_plan_observation(
+            plan_id="plan-1", revision_id="rev-1",
+            expected_content_hash=fixture["revised_hash"], base_dir=self.tools_dir,
+        )
+        self.assertEqual(observation["plan_content"], fixture["revised_body"])
+        self.assertEqual(observation["revision_id"], "rev-1")
+        self.assertEqual(observation["content_hash"], fixture["revised_hash"])
+        self.assertEqual(observation["convergence_event_id"], fixture["convergence_event"]["event_id"])
+        self.assertEqual(observation["convergence_event_hash"], fixture["convergence_event"]["ledger_hash"])
+        self.assertEqual(self._historical_ledger_bytes(), before)
+        self.assertEqual(
+            fold_plan_state(plan_id="plan-1", base_dir=self.tools_dir)["state"],
+            "IMPLEMENTATION_REQUESTED",
+        )
+
+    def test_historical_observation_refuses_revision_without_matching_convergence(self) -> None:
+        fixture = self._historical_observation_fixture()
+        before = self._historical_ledger_bytes()
+        for revision_id, expected_hash in (
+            ("rev-0", fixture["original_hash"]),
+            ("rev-1", "sha256:" + "0" * 64),
+        ):
+            with self.subTest(revision_id=revision_id, expected_hash=expected_hash):
+                with self.assertRaises(GovernanceError):
+                    plan_convergence_module.resolve_converged_plan_observation(
+                        plan_id="plan-1", revision_id=revision_id,
+                        expected_content_hash=expected_hash, base_dir=self.tools_dir,
+                    )
+                self.assertEqual(self._historical_ledger_bytes(), before)
+
+    def test_historical_observation_rechecks_same_size_tamper_after_cached_fold(self) -> None:
+        fixture = self._historical_observation_fixture()
+        self.assertEqual(
+            fold_plan_state(plan_id="plan-1", base_dir=self.tools_dir)["state"],
+            "IMPLEMENTATION_REQUESTED",
+        )
+        path = events_path(self.tools_dir)
+        original = path.read_bytes()
+        lines = original.splitlines(keepends=True)
+        tail_hash = json.loads(lines[-1])["ledger_hash"].encode("ascii")
+        replacement = tail_hash[:-1] + (b"0" if tail_hash[-1:] != b"0" else b"1")
+        lines[-1] = lines[-1].replace(tail_hash, replacement, 1)
+        damaged = b"".join(lines)
+        self.assertNotEqual(damaged, original)
+        self.assertEqual(len(damaged), len(original), "retain the size-keyed fold cache entry")
+        path.write_bytes(damaged)
+        before = self._historical_ledger_bytes()
+        with self.assertRaises((LedgerIntegrityError, GovernanceError)):
+            plan_convergence_module.resolve_converged_plan_observation(
+                plan_id="plan-1", revision_id="rev-1",
+                expected_content_hash=fixture["revised_hash"], base_dir=self.tools_dir,
+            )
+        self.assertEqual(self._historical_ledger_bytes(), before)
+
+    def test_historical_observation_refuses_corrupt_suffix_after_convergence(self) -> None:
+        fixture = self._historical_observation_fixture()
+        path = events_path(self.tools_dir)
+        path.write_bytes(path.read_bytes() + b'{"truncated_suffix":')
+        before = self._historical_ledger_bytes()
+        with self.assertRaises((LedgerIntegrityError, GovernanceError)):
+            plan_convergence_module.resolve_converged_plan_observation(
+                plan_id="plan-1", revision_id="rev-1",
+                expected_content_hash=fixture["revised_hash"], base_dir=self.tools_dir,
+            )
+        self.assertEqual(self._historical_ledger_bytes(), before)
+
+    def test_historical_observation_refuses_invalid_transition_in_verified_suffix(self) -> None:
+        fixture = self._historical_observation_fixture()
+        # The declared fixture writer makes a valid chain. The event is still
+        # illegal: IMPLEMENTATION_REQUESTED cannot jump directly to MERGED.
+        append_declared_fixture(
+            events_path(self.tools_dir),
+            {
+                "schema_version": 1, "event_id": "evt-invalid-merge-suffix",
+                "event_type": "implementation_merged", "plan_id": "plan-1",
+                "recorded_at": self.deadline(0),
+                "idempotency_key": content_hash({"fixture": "invalid-merge-suffix"}),
+                "payload": {
+                    "merge_sha": "f" * 40, "merged_at": self.deadline(0),
+                    "idempotency_key_hash": content_hash({"fixture": "invalid-merge"}),
+                },
+            },
+            expected_surface="plan_convergence_events",
+        )
+        before = self._historical_ledger_bytes()
+        with self.assertRaisesRegex(GovernanceError, "invalid_transition"):
+            plan_convergence_module.resolve_converged_plan_observation(
+                plan_id="plan-1", revision_id="rev-1",
+                expected_content_hash=fixture["revised_hash"], base_dir=self.tools_dir,
+            )
+        self.assertEqual(self._historical_ledger_bytes(), before)
+
+    def test_historical_observation_refuses_evaluation_without_reviewed_prefix(self) -> None:
+        started = self.start()
+        expected_hash = started["event"]["payload"]["content_hash"]
+        # A schema-valid, hash-chained terminal-state claim cannot substitute
+        # for the evaluation producer's CRITIQUED/CROSS_REVIEWED precondition.
+        append_declared_fixture(
+            events_path(self.tools_dir),
+            {
+                "schema_version": 1, "event_id": "evt-unreviewed-convergence",
+                "event_type": "plan_evaluated", "plan_id": "plan-1",
+                "recorded_at": self.deadline(0),
+                "idempotency_key": content_hash({"fixture": "unreviewed-convergence"}),
+                "payload": {
+                    "round_number": 1, "terminal_state": "CONVERGED",
+                    "risks_rollup_summary": {}, "gate_decisions": [],
+                    "reason_codes": ["fixture-forged-convergence"],
+                },
+            },
+            expected_surface="plan_convergence_events",
+        )
+        before = self._historical_ledger_bytes()
+        with self.assertRaises(GovernanceError):
+            plan_convergence_module.resolve_converged_plan_observation(
+                plan_id="plan-1", revision_id="rev-0",
+                expected_content_hash=expected_hash, base_dir=self.tools_dir,
+            )
+        self.assertEqual(self._historical_ledger_bytes(), before)
 
     def start(self):
         return start_plan(

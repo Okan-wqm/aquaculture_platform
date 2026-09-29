@@ -113,6 +113,94 @@ class TwinMapTests(unittest.TestCase):
         twin = refresh_twin_map(workspace_root=self.repo, base_dir=self.tools)
         self.assertEqual(twin["refresh"], {"mode": "full", "reason": "no_prior_map"})
 
+    def test_changed_surviving_test_replaces_previous_source_association(self) -> None:
+        source_a = "apps/alpha/src/main.ts"
+        source_b = "apps/alpha/src/other.ts"
+        test_rel = "apps/alpha/src/routing.spec.ts"
+        (self.repo / source_b).write_text("export const other = 2;\n", encoding="utf-8")
+        (self.repo / test_rel).write_text(
+            "import { main } from './main';\nexport const spec = main;\n", encoding="utf-8"
+        )
+        _commit_all(self.repo, "fixture: neutral spec initially imports main")
+        initial = build_twin_map(workspace_root=self.repo, base_dir=self.tools)
+        self.assertIn(test_rel, initial["tested_by"][source_a])
+        self.assertNotIn(test_rel, initial["tested_by"].get(source_b, []))
+
+        (self.repo / test_rel).write_text(
+            "import { other } from './other';\nexport const spec = other;\n", encoding="utf-8"
+        )
+        _commit_all(self.repo, "fixture: surviving spec switches its source import")
+        incremental = refresh_twin_map(workspace_root=self.repo, base_dir=self.tools)
+        persisted = read_twin_map(base_dir=self.tools)
+        rebuilt = build_twin_map(
+            workspace_root=self.repo, base_dir=Path(self._tmpdir.name) / "clean-tools"
+        )
+        self.assertEqual(incremental["refresh"]["mode"], "incremental")
+        self.assertEqual(incremental["tested_by"][source_b], [test_rel])
+        self.assertIn("apps/alpha/src/main.spec.ts", incremental["tested_by"][source_a])
+        self.assertNotIn(test_rel, incremental["tested_by"][source_a])
+        self.assertEqual(persisted, incremental)
+        self.assertEqual(_comparable(incremental), _comparable(rebuilt))
+
+    def test_source_addition_re_resolves_an_unchanged_importing_test(self) -> None:
+        test_rel = "apps/alpha/src/routing.spec.ts"
+        old_source = "apps/alpha/src/target.tsx"
+        new_source = "apps/alpha/src/target.ts"
+        test_body = "import { target } from './target';\nexport const spec = target;\n"
+        (self.repo / old_source).write_text("export const target = 1;\n", encoding="utf-8")
+        (self.repo / test_rel).write_text(test_body, encoding="utf-8")
+        _commit_all(self.repo, "fixture: import resolves to existing tsx source")
+        initial = build_twin_map(workspace_root=self.repo, base_dir=self.tools)
+        self.assertEqual(initial["tested_by"][old_source], [test_rel])
+
+        (self.repo / new_source).write_text("export const target = 2;\n", encoding="utf-8")
+        _commit_all(self.repo, "fixture: add higher precedence ts source")
+        incremental = refresh_twin_map(workspace_root=self.repo, base_dir=self.tools)
+        persisted = read_twin_map(base_dir=self.tools)
+        rebuilt = build_twin_map(
+            workspace_root=self.repo, base_dir=Path(self._tmpdir.name) / "clean-tools"
+        )
+        self.assertEqual((self.repo / test_rel).read_text(encoding="utf-8"), test_body)
+        self.assertEqual(incremental["refresh"]["changed_files"], 1)
+        self.assertEqual(rebuilt["tested_by"].get(new_source), [test_rel])
+        self.assertNotIn(test_rel, rebuilt["tested_by"].get(old_source, []))
+        self.assertEqual(incremental["tested_by"].get(new_source), [test_rel])
+        self.assertNotIn(test_rel, incremental["tested_by"].get(old_source, []))
+        self.assertEqual(incremental["tested_by"]["apps/alpha/src/main.ts"],
+                         ["apps/alpha/src/main.spec.ts"])
+        self.assertEqual(persisted, incremental)
+        self.assertEqual(_comparable(incremental), _comparable(rebuilt))
+
+    def test_source_deletion_re_resolves_an_unchanged_importing_test(self) -> None:
+        test_rel = "apps/alpha/src/routing.spec.ts"
+        old_source = "apps/alpha/src/target.ts"
+        surviving_source = "apps/alpha/src/target.tsx"
+        test_body = "import { target } from './target';\nexport const spec = target;\n"
+        for rel in (old_source, surviving_source):
+            (self.repo / rel).write_text("export const target = 1;\n", encoding="utf-8")
+        (self.repo / test_rel).write_text(test_body, encoding="utf-8")
+        _commit_all(self.repo, "fixture: import has two resolvable source candidates")
+        initial = build_twin_map(workspace_root=self.repo, base_dir=self.tools)
+        self.assertEqual(initial["tested_by"][old_source], [test_rel])
+
+        (self.repo / old_source).unlink()
+        _commit_all(self.repo, "fixture: remove higher precedence ts source")
+        incremental = refresh_twin_map(workspace_root=self.repo, base_dir=self.tools)
+        persisted = read_twin_map(base_dir=self.tools)
+        rebuilt = build_twin_map(
+            workspace_root=self.repo, base_dir=Path(self._tmpdir.name) / "clean-tools"
+        )
+        self.assertEqual((self.repo / test_rel).read_text(encoding="utf-8"), test_body)
+        self.assertEqual(incremental["refresh"]["changed_files"], 1)
+        self.assertEqual(rebuilt["tested_by"].get(surviving_source), [test_rel])
+        self.assertNotIn(old_source, rebuilt["tested_by"])
+        self.assertEqual(incremental["tested_by"].get(surviving_source), [test_rel])
+        self.assertNotIn(old_source, incremental["tested_by"])
+        self.assertEqual(incremental["tested_by"]["apps/alpha/src/main.ts"],
+                         ["apps/alpha/src/main.spec.ts"])
+        self.assertEqual(persisted, incremental)
+        self.assertEqual(_comparable(incremental), _comparable(rebuilt))
+
     def test_refresh_at_head_is_a_noop(self) -> None:
         build_twin_map(workspace_root=self.repo, base_dir=self.tools)
         twin = refresh_twin_map(workspace_root=self.repo, base_dir=self.tools)

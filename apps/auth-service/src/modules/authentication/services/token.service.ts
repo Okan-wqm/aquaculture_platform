@@ -20,7 +20,7 @@ import {
   type PlatformCapability,
 } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { parseHashRefreshTokens } from '../../../config/hash-refresh-tokens';
 import { parseAccessTokenLifetimeSeconds } from '../../../config/jwt-lifetime';
@@ -37,6 +37,8 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { UserSiteAssignment } from '../entities/user-site-assignment.entity';
 import { User } from '../entities/user.entity';
+
+import { CredentialProof } from './credential-proof';
 import { readEffectiveUserSiteAssignments } from './user-site-assignment-reader';
 
 /**
@@ -142,6 +144,27 @@ interface LockedGenerateTokensOptions extends GenerateTokensOptions {
 }
 
 /**
+ * The issuance fence: the user row the proof names, locked `FOR UPDATE`, if and
+ * only if it is still active and still at the proven `credentialVersion` —
+ * otherwise `null`. One definition, so the real-Postgres contract spec
+ * (`credential-issuance.postgres.spec.ts`) exercises the exact predicate the
+ * mint uses rather than a copy of it.
+ */
+export function lockProvenPrincipal(
+  userRepository: Repository<User>,
+  proof: CredentialProof,
+): Promise<User | null> {
+  return userRepository.findOne({
+    where: {
+      id: proof.userId,
+      isActive: true,
+      credentialVersion: proof.credentialVersion,
+    },
+    lock: { mode: 'pessimistic_write' },
+  });
+}
+
+/**
  * Parse a time-duration string (e.g. '15m', '1h', '7d') into seconds.
  */
 export function parseExpiresIn(expiresIn: string): number {
@@ -201,24 +224,29 @@ export class TokenService {
   }
 
   /**
-   * Generate JWT access token + refresh token for an authenticated user.
+   * Generate JWT access token + refresh token for a proven principal.
    *
    * Enforces session limits, creates DB-persisted refresh token, and
    * returns a full AuthPayload ready for the client.
+   *
+   * The caller hands over a {@link CredentialProof}, never a `User`: the
+   * claims are built from the row this method locks, and the proof is what
+   * that row must still match (ORPHAN-HIGH-811).
    */
   async generateTokens(
-    user: User,
+    proof: CredentialProof,
     ipAddress?: string,
     userAgent?: string,
     options?: GenerateTokensOptions,
   ): Promise<AuthPayload> {
     const mintUnderUserFence = async (manager: EntityManager): Promise<AuthPayload> => {
       // Canonical credential lock order: every RefreshToken INSERT takes the
-      // stable User row first. The predicate is the authorization state the
-      // caller authenticated against — role, tenant, active flag and the
-      // database-owned `credentialVersion` — so a password/role/tenant/
-      // deactivation mutation that committed after authentication makes this
-      // mint fail closed instead of issuing a token from stale state.
+      // stable User row first. The predicate is the credential version the
+      // proof observed; the database trigger advances it on every password,
+      // role, tenant or active-flag change, so a mutation that committed after
+      // the proof makes this mint fail closed instead of issuing a token from
+      // stale state. `isActive` stays explicit so a deactivated row can never
+      // mint even if its version were somehow unchanged.
       //
       // WHY `credentialVersion` and not `updatedAt` (ORPHAN-CRITICAL-808):
       // `@UpdateDateColumn` is written by Postgres (`SET "updatedAt" =
@@ -230,28 +258,24 @@ export class TokenService {
       // trigger-maintained integer moves only on credential columns and cannot
       // lose precision crossing the driver.
       //
-      // A principal that reaches this point without the anchor was loaded with
-      // a partial select; minting from it would silently disable the fence, so
-      // it is refused rather than tolerated.
-      const credentialVersion: number | undefined = user.credentialVersion;
-      if (typeof credentialVersion !== 'number') {
-        throw new ForbiddenException('Cannot issue a token for an unfenced principal');
-      }
-      const lockedPrincipal = await manager.withRepository(this.userRepository).findOne({
-        select: { id: true },
-        where: {
-          id: user.id,
-          role: user.role,
-          tenantId: user.tenantId ?? IsNull(),
-          isActive: true,
-          credentialVersion,
-        },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!lockedPrincipal) {
+      // WHY the claims come from the locked row (ORPHAN-HIGH-811): a caller's
+      // entity may predate a write the caller itself made (reset, invitation);
+      // the locked row is, by the predicate, exactly the proven credential.
+      const principal = await lockProvenPrincipal(
+        manager.withRepository(this.userRepository),
+        proof,
+      );
+      if (!principal) {
+        this.logger.warn(
+          JSON.stringify({
+            event: 'token_issuance_fence_refused',
+            userId: proof.userId,
+            proofOrigin: proof.provenance,
+          }),
+        );
         throw new ForbiddenException('User credentials changed during token issuance');
       }
-      return this.generateTokensUnderUserFence(user, ipAddress, userAgent, {
+      return this.generateTokensUnderUserFence(principal, ipAddress, userAgent, {
         ...options,
         manager,
       });

@@ -95,7 +95,10 @@ export class MfaResolver {
    * is the credential (MfaService positively requires type === 'mfa_setup').
    * These two mutations are the ONLY consumers of the setup token.
    */
-  private resolveMfaSubject(context: GqlContext, mfaSetupToken?: string | null): string {
+  private async resolveMfaSubject(
+    context: GqlContext,
+    mfaSetupToken?: string | null,
+  ): Promise<string> {
     const authenticatedUserId = context.req?.user?.sub;
     if (authenticatedUserId) {
       return authenticatedUserId;
@@ -138,7 +141,7 @@ export class MfaResolver {
     })
     mfaSetupToken?: string,
   ): Promise<SetupMfaResponse> {
-    return this.mfaService.setupMfa(this.resolveMfaSubject(context, mfaSetupToken));
+    return this.mfaService.setupMfa(await this.resolveMfaSubject(context, mfaSetupToken));
   }
 
   /**
@@ -166,7 +169,7 @@ export class MfaResolver {
     @Args('input') input: VerifyMfaSetupInput,
   ): Promise<VerifyMfaSetupResponse> {
     return this.mfaService.verifyMfaSetup(
-      this.resolveMfaSubject(context, input.mfaSetupToken),
+      await this.resolveMfaSubject(context, input.mfaSetupToken),
       input.code,
     );
   }
@@ -175,7 +178,9 @@ export class MfaResolver {
    * Disable MFA — requires password and TOTP code for security.
    */
   @SkipTenantGuard()
-  @Mutation(() => DisableMfaResponse, { description: 'Disable MFA (requires password + TOTP code)' })
+  @Mutation(() => DisableMfaResponse, {
+    description: 'Disable MFA (requires password + TOTP code)',
+  })
   async disableMfa(
     @CurrentUser('sub') userId: string,
     @Args('input') input: DisableMfaInput,
@@ -188,7 +193,9 @@ export class MfaResolver {
    * Invalidates all previous recovery codes.
    */
   @SkipTenantGuard()
-  @Mutation(() => RegenerateMfaRecoveryCodesResponse, { description: 'Regenerate MFA recovery codes (invalidates previous)' })
+  @Mutation(() => RegenerateMfaRecoveryCodesResponse, {
+    description: 'Regenerate MFA recovery codes (invalidates previous)',
+  })
   async regenerateMfaRecoveryCodes(
     @CurrentUser('sub') userId: string,
     @Args('code') code: string,
@@ -211,7 +218,9 @@ export class MfaResolver {
    * The TOTP code is verified against the user's MFA secret.
    */
   @SkipTenantGuard()
-  @Mutation(() => AuthPayload, { description: 'MFA step-up: re-verify identity for elevated operations' })
+  @Mutation(() => AuthPayload, {
+    description: 'MFA step-up: re-verify identity for elevated operations',
+  })
   async mfaStepUp(
     @CurrentUser('sub') userId: string,
     @Args('input') input: MfaStepUpInput,
@@ -221,12 +230,7 @@ export class MfaResolver {
     const ipAddress = context.req?.ip || (Array.isArray(forwarded) ? forwarded[0] : forwarded);
     const userAgent = context.req?.headers?.['user-agent'] as string | undefined;
 
-    const result = await this.mfaService.verifyStepUp(
-      userId,
-      input.code,
-      ipAddress,
-      userAgent,
-    );
+    const result = await this.mfaService.verifyStepUp(userId, input.code, ipAddress, userAgent);
 
     // Step-up elevates an already-authenticated session; it is not a "remember
     // me" login → session cookie.

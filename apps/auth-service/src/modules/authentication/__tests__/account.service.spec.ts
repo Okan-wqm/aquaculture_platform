@@ -12,6 +12,11 @@ import { User } from '../entities/user.entity';
 import { AccountService } from '../services/account.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
+import { UserAccountStore } from '../services/user-account.store';
+import { makeUserAccountStoreDouble } from './support/auth-store.doubles';
+
+// ORPHAN-HIGH-811/812: the column-scoped writers, as London-school doubles.
+const userAccountStore = makeUserAccountStoreDouble();
 
 const createUser = (overrides: Partial<User> = {}): User => {
   const user = new User();
@@ -23,6 +28,8 @@ const createUser = (overrides: Partial<User> = {}): User => {
     role: Role.MODULE_USER,
     tenantId: '11111111-1111-4111-8111-111111111111',
     isActive: true,
+    // Real rows carry the trigger-maintained anchor (NOT NULL DEFAULT 1).
+    credentialVersion: 1,
     isEmailVerified: true,
     mfaEnabled: false,
     failedLoginAttempts: 0,
@@ -83,6 +90,11 @@ describe('AccountService', () => {
     mfaService.isMfaAvailable.mockReturnValue(true);
     mfaService.getMfaUnavailableReason.mockReturnValue(null);
     userRepository.save.mockImplementation((user: User) => Promise.resolve(user));
+    // The store returns the row as committed; the double applies the patch to
+    // the fixture the suite registered as that row.
+    userAccountStore.updateProfile.mockImplementation((_userId, patch) =>
+      userRepository.findOne().then((row: User) => Object.assign(row, patch)),
+    );
     refreshTokenRepository.update.mockResolvedValue({ affected: 1 });
     durableUserTokenInvalidation.enqueue.mockResolvedValue(undefined);
     durableUserTokenInvalidation.applyImmediately.mockResolvedValue(undefined);
@@ -90,6 +102,7 @@ describe('AccountService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: UserAccountStore, useValue: userAccountStore },
         AccountService,
         { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: getRepositoryToken(RefreshToken), useValue: refreshTokenRepository },
@@ -120,7 +133,12 @@ describe('AccountService', () => {
     expect(result.firstName).toBe('Grace');
     expect(result.lastName).toBe('Hopper');
     expect(result.email).toBe('user@example.com');
-    expect(userRepository.save).toHaveBeenCalledWith(user);
+    // ORPHAN-HIGH-812: only the profile columns are written, trimmed.
+    expect(userAccountStore.updateProfile).toHaveBeenCalledWith('user-1', {
+      firstName: 'Grace',
+      lastName: 'Hopper',
+    });
+    expect(userRepository.save).not.toHaveBeenCalled();
   });
 
   it('stores the preferred UI language on the account', async () => {
@@ -131,7 +149,9 @@ describe('AccountService', () => {
 
     expect(result.preferredLanguage).toBe('en');
     expect(result.firstName).toBe(user.firstName);
-    expect(userRepository.save).toHaveBeenCalledWith(user);
+    expect(userAccountStore.updateProfile).toHaveBeenCalledWith('user-1', {
+      preferredLanguage: 'en',
+    });
   });
 
   it('rejects blank profile names', async () => {
@@ -159,7 +179,14 @@ describe('AccountService', () => {
       newPassword: 'NewPass1!',
     });
 
-    expect(user.password).toBe('NewPass1!');
+    // ORPHAN-HIGH-812: the password is a column-scoped credential write in the
+    // same transaction as the revocations (hashing is the store's contract).
+    expect(userAccountStore.changePassword).toHaveBeenCalledWith(
+      transactionManager,
+      'user-1',
+      'NewPass1!',
+    );
+    expect(userRepository.save).not.toHaveBeenCalled();
     expect(refreshTokenRepository.update).toHaveBeenCalledWith(
       { userId: 'user-1', isRevoked: false },
       expect.objectContaining({ isRevoked: true, revokedReason: 'Password changed' }),

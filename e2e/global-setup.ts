@@ -27,65 +27,16 @@ export default async function globalSetup(): Promise<void> {
     }
     console.log('[global-setup] Database connection verified');
 
-    // ── 2. Ensure auth schema exists ─────────────────────────
-    const schemas = await db.listSchemas();
-    if (!schemas.includes('auth')) {
-      // In CI, the auth schema must be created by migrations or service bootstrap.
-      // Create it here only as a fallback for local development.
-      await db.query('CREATE SCHEMA IF NOT EXISTS auth');
-      console.log('[global-setup] Created auth schema (fallback)');
-    }
-
-    // Verify the tenants table exists
-    const tenantsTableExists = await db.tableExists('auth', 'tenants');
-    if (!tenantsTableExists) {
-      // Create minimal tenants table for test isolation
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS auth.tenants (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          name VARCHAR(255) NOT NULL,
-          slug VARCHAR(100) UNIQUE NOT NULL,
-          status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-          plan VARCHAR(20) NOT NULL DEFAULT 'starter',
-          "maxUsers" INT NOT NULL DEFAULT 5,
-          "maxStorage" INT NOT NULL DEFAULT -1,
-          "contactEmail" VARCHAR(255),
-          "userCount" INT NOT NULL DEFAULT 0,
-          "farmCount" INT NOT NULL DEFAULT 0,
-          "sensorCount" INT NOT NULL DEFAULT 0,
-          "isTrialActive" BOOLEAN NOT NULL DEFAULT false,
-          version INT NOT NULL DEFAULT 1,
-          "createdAt" TIMESTAMP DEFAULT NOW(),
-          "updatedAt" TIMESTAMP DEFAULT NOW()
-        )
-      `);
-      console.log('[global-setup] Created auth.tenants table (fallback)');
-    }
-
-    // Verify the users table exists
-    const usersTableExists = await db.tableExists('auth', 'users');
-    if (!usersTableExists) {
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS auth.users (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          email VARCHAR(255) UNIQUE NOT NULL,
-          password VARCHAR(255),
-          role VARCHAR(50) NOT NULL DEFAULT 'MODULE_USER',
-          "tenantId" UUID,
-          "firstName" VARCHAR(100),
-          "lastName" VARCHAR(100),
-          "isActive" BOOLEAN NOT NULL DEFAULT true,
-          "isEmailVerified" BOOLEAN NOT NULL DEFAULT false,
-          "mfaEnabled" BOOLEAN NOT NULL DEFAULT false,
-          "failedLoginAttempts" INT NOT NULL DEFAULT 0,
-          "mfaFailedAttempts" INT NOT NULL DEFAULT 0,
-          "credentialVersion" INT NOT NULL DEFAULT 1,
-          "createdAt" TIMESTAMP DEFAULT NOW(),
-          "updatedAt" TIMESTAMP DEFAULT NOW()
-        )
-      `);
-      console.log('[global-setup] Created auth.users table (fallback)');
-    }
+    // ── 2. Require the authoritative auth schema ─────────────
+    //
+    // ORPHAN-MEDIUM-814: this used to CREATE the auth schema and hand-written
+    // copies of auth.tenants / auth.users when they were missing. The copies
+    // carried a `credentialVersion` column but not the trigger that owns it
+    // (migration 1819200000000-AddUserCredentialVersion), so a suite run on
+    // them exercised a token-issuance fence that production does not have.
+    // The migration runner is the only author of this schema: an environment
+    // it has not migrated is refused here, by name, instead of being faked.
+    await requireMigratedAuthSchema(db);
 
     // ── 3. Create shared test tenant and users ───────────────
     const tenant = await createTestTenant(db, {
@@ -128,4 +79,38 @@ export default async function globalSetup(): Promise<void> {
   } finally {
     await db.close();
   }
+}
+
+/**
+ * The auth tables and the credential-version trigger exist only when the
+ * auth-service migrations ran; each missing piece is named in the error.
+ */
+async function requireMigratedAuthSchema(db: TestDatabase): Promise<void> {
+  const missing: string[] = [];
+  for (const table of ['tenants', 'users']) {
+    if (!(await db.tableExists('auth', table))) {
+      missing.push(`table auth.${table}`);
+    }
+  }
+  const trigger = await db.query<{ present: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM pg_trigger t
+         JOIN pg_class c ON c.oid = t.tgrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'auth' AND c.relname = 'users'
+          AND t.tgname = 'trg_users_bump_credential_version'
+          AND NOT t.tgisinternal
+     ) AS present`,
+  );
+  if (!trigger.rows[0]?.present) {
+    missing.push('trigger auth.users.trg_users_bump_credential_version');
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `[global-setup] The database is not migrated (missing: ${missing.join(', ')}). ` +
+        'Run the auth-service migrations (db-migrate) before the E2E suite; ' +
+        'the suite never fabricates schema.',
+    );
+  }
+  console.log('[global-setup] Auth schema verified against its migrations');
 }

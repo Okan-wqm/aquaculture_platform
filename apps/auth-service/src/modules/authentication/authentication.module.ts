@@ -28,6 +28,8 @@ import { ActionTokenResolver } from './services/action-token-resolver.service';
 import { AuthenticationService } from './services/authentication.service';
 import { MfaService } from './services/mfa.service';
 import { TokenService } from './services/token.service';
+import { UserAccountStore } from './services/user-account.store';
+import { UserMfaStateStore } from './services/user-mfa-state.store';
 import { WebAuthnService } from './services/webauthn.service';
 
 @Module({
@@ -59,6 +61,8 @@ import { WebAuthnService } from './services/webauthn.service';
     AccountService,
     ActionTokenResolver,
     TokenService,
+    UserAccountStore,
+    UserMfaStateStore,
     MfaService,
     WebAuthnService,
     AuthenticationService,

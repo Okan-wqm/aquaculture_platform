@@ -45,6 +45,11 @@ import { DurableAccessTokenInvalidationService } from '../services/durable-acces
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
+import { UserAccountStore } from '../services/user-account.store';
+import { makeUserAccountStoreDouble } from './support/auth-store.doubles';
+
+// ORPHAN-HIGH-811/812: the column-scoped writers, as London-school doubles.
+const userAccountStore = makeUserAccountStoreDouble();
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
@@ -90,6 +95,8 @@ function user(overrides: Partial<User> = {}): User {
     role: Role.MODULE_USER,
     tenantId: TENANT_ID,
     isActive: true,
+    // Real rows carry the trigger-maintained anchor (NOT NULL DEFAULT 1).
+    credentialVersion: 1,
     invitationToken: TOKEN_HASH,
     ...overrides,
   });
@@ -152,6 +159,7 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', 
     jest.clearAllMocks();
     const module = await Test.createTestingModule({
       providers: [
+        { provide: UserAccountStore, useValue: userAccountStore },
         AuthenticationService,
         { provide: ActionTokenResolver, useValue: resolver },
         { provide: getRepositoryToken(User), useValue: userRepository },

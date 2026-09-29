@@ -43,6 +43,11 @@ import { DurableAccessTokenInvalidationService } from '../services/durable-acces
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
+import { UserAccountStore } from '../services/user-account.store';
+import { makeUserAccountStoreDouble } from './support/auth-store.doubles';
+
+// ORPHAN-HIGH-811/812: the column-scoped writers, as London-school doubles.
+const userAccountStore = makeUserAccountStoreDouble();
 
 // bcryptjs sealed-namespace → spy-able wrappers (same pattern as the sibling specs).
 jest.mock('bcryptjs', () => {
@@ -135,6 +140,7 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: UserAccountStore, useValue: userAccountStore },
         AuthenticationService,
         ActionTokenResolver,
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
@@ -207,7 +213,7 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
   const presentedToken = `${USER_ID}:${'a'.repeat(128)}`;
 
   function tenantUser(tenantId: string | null): Record<string, unknown> {
-    return { id: USER_ID, email: 'user@farm.test', isActive: true, tenantId };
+    return { id: USER_ID, email: 'user@farm.test', isActive: true, tenantId, credentialVersion: 1 };
   }
 
   it.each([

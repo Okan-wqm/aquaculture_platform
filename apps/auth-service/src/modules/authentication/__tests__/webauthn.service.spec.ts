@@ -2,6 +2,7 @@ import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { verifyAuthenticationResponse, verifyRegistrationResponse } from '@simplewebauthn/server';
 import { RedisService } from '@aquaculture/backend-common/redis';
 
@@ -13,6 +14,11 @@ import { User } from '../entities/user.entity';
 import { WebAuthnRegisterCredentialInput, WebAuthnVerifyLoginInput } from '../dto/webauthn.dto';
 import { TokenService } from '../services/token.service';
 import { WebAuthnService } from '../services/webauthn.service';
+import { UserAccountStore } from '../services/user-account.store';
+import { makeUserAccountStoreDouble } from './support/auth-store.doubles';
+
+// ORPHAN-HIGH-811/812: the column-scoped writers, as London-school doubles.
+const userAccountStore = makeUserAccountStoreDouble();
 
 jest.mock('@simplewebauthn/server', () => ({
   verifyRegistrationResponse: jest.fn(),
@@ -32,6 +38,8 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
     email: 'user@example.com',
     tenantId: 'tenant-uuid-1',
     isActive: true,
+    // Real rows carry the trigger-maintained anchor (NOT NULL DEFAULT 1).
+    credentialVersion: 1,
     failedLoginAttempts: 0,
     lockedUntil: null,
     lastLoginAt: null,
@@ -123,6 +131,17 @@ const mockRedis = {
   del: jest.fn(),
 };
 
+// The counter advance is a compare-and-set UPDATE on the minting transaction
+// (ORPHAN-HIGH-812 class): affected=1 advanced it, affected=0 means the passkey
+// was deleted or already advanced by a concurrent login.
+const counterAdvance = {
+  update: jest.fn().mockReturnThis(),
+  set: jest.fn().mockReturnThis(),
+  where: jest.fn().mockReturnThis(),
+  execute: jest.fn().mockResolvedValue({ affected: 1 }),
+};
+const mockTransactionManager = { createQueryBuilder: jest.fn(() => counterAdvance) };
+
 const mockAuditLog = { log: jest.fn().mockResolvedValue(undefined) };
 const mockGenerateTokens = jest.fn().mockResolvedValue({ accessToken: 'at', refreshToken: 'rt' });
 
@@ -149,9 +168,19 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
     mockTenantRepository.findOne.mockResolvedValue(createMockTenant(TenantStatus.ACTIVE));
     mockRedis.getdel.mockResolvedValue(storedChallenge('registration'));
     mockAuditLog.log.mockResolvedValue(undefined);
+    counterAdvance.execute.mockResolvedValue({ affected: 1 });
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: UserAccountStore, useValue: userAccountStore },
+        {
+          provide: DataSource,
+          useValue: {
+            transaction: jest.fn(<T>(work: (manager: object) => Promise<T>) =>
+              work(mockTransactionManager),
+            ),
+          },
+        },
         WebAuthnService,
         { provide: getRepositoryToken(WebAuthnCredential), useValue: mockCredentialRepository },
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
@@ -409,10 +438,64 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
     it('issues tokens and advances the counter on a successful assertion', async () => {
       const result = await service.verifyLogin(loginInput(), '10.0.0.1', 'jest');
 
-      expect(mockGenerateTokens).toHaveBeenCalledWith(user, '10.0.0.1', 'jest');
+      // Fenced on the credential the passkey authenticated (ORPHAN-HIGH-811),
+      // minted in the transaction that records the sign-in (ORPHAN-HIGH-812).
+      expect(mockGenerateTokens).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: user.id, credentialVersion: 1 }),
+        '10.0.0.1',
+        'jest',
+        { manager: expect.anything() },
+      );
+      expect(userAccountStore.recordSignInCompleted).toHaveBeenCalledWith(
+        expect.anything(),
+        user.id,
+        '10.0.0.1',
+      );
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
       expect(result).toEqual({ accessToken: 'at', refreshToken: 'rt' });
-      expect(mockCredentialRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({ counter: 4 }),
+      // Compare-and-set on the counter the assertion was verified against —
+      // never save(), which re-INSERTs a passkey a concurrent reset deleted.
+      expect(counterAdvance.update).toHaveBeenCalledWith(WebAuthnCredential);
+      expect(counterAdvance.set).toHaveBeenCalledWith({
+        counter: 4,
+        lastUsedAt: expect.any(Function),
+      });
+      expect(counterAdvance.where).toHaveBeenCalledWith({ id: credential.id, counter: 3 });
+      expect(mockCredentialRepository.save).not.toHaveBeenCalled();
+      // User row first (bookkeeping), then the credential, then the fenced mint.
+      const [bookkeeping] = userAccountStore.recordSignInCompleted.mock.invocationCallOrder;
+      const [advance] = counterAdvance.execute.mock.invocationCallOrder;
+      const [mint] = mockGenerateTokens.mock.invocationCallOrder;
+      if (bookkeeping === undefined || advance === undefined || mint === undefined) {
+        throw new Error('expected bookkeeping, a counter advance and a mint');
+      }
+      expect(bookkeeping).toBeLessThan(advance);
+      expect(advance).toBeLessThan(mint);
+    });
+
+    it('reads the principal it fences on BEFORE the assertion is verified (ORPHAN-HIGH-811)', async () => {
+      await service.verifyLogin(loginInput(), '10.0.0.1', 'jest');
+
+      const [principalRead] = mockUserRepository.findOne.mock.invocationCallOrder;
+      const [verification] = jest.mocked(verifyAuthenticationResponse).mock.invocationCallOrder;
+      if (principalRead === undefined || verification === undefined) {
+        throw new Error('expected one principal read and one assertion verification');
+      }
+      expect(principalRead).toBeLessThan(verification);
+    });
+
+    it('mints nothing when the passkey was revoked or advanced concurrently (counter CAS lost)', async () => {
+      // A password reset deleted every passkey (SEC-CRITICAL-002) between the
+      // assertion and the mint, or a concurrent login used the same assertion.
+      counterAdvance.execute.mockResolvedValueOnce({ affected: 0 });
+
+      await expect(service.verifyLogin(loginInput(), '10.0.0.1')).rejects.toThrow(
+        'Biometric verification failed',
+      );
+      expect(mockGenerateTokens).not.toHaveBeenCalled();
+      expect(mockCredentialRepository.save).not.toHaveBeenCalled();
+      expect(mockAuditLog.log).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'WEBAUTHN_LOGIN_SUCCESS' }),
       );
     });
 

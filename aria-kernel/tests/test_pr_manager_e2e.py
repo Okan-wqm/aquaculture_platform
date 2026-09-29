@@ -45,6 +45,7 @@ from aria_kernel.proposal import approve_proposal, record_proposal
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 from tests._helpers.production_shaped import production_converged_plan
 from tests._helpers.node_modules import installed_node_modules
 from tests._gh_mock import (
@@ -238,6 +239,10 @@ class OpenPRForActionTests(unittest.TestCase):
         self.tools = _seed_tools()
         self.repo = self.tools.parent
         reset_recorded()
+        # The lane opens the PR on its installation token (ARIA-CRITICAL-246).
+        credential = patch.dict("os.environ", LANE_CREDENTIAL_ENV)
+        credential.start()
+        self.addCleanup(credential.stop)
 
     def tearDown(self) -> None:
         import shutil

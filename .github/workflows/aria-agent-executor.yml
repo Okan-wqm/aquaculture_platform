@@ -85,6 +85,11 @@ permissions:
   # The queue bridge between the 01:00 producer and this 02:00 consumer is the
   # aria/state branch now, not an artifact.
   actions: read
+  # ARIA-CRITICAL-246 — the drain's one ambient gh read: the recovery
+  # classifier asks whether a PR exists for an unresolved pr_create intent
+  # (recovery.gh_remote_reader, `gh pr list --head`). It read with the
+  # operator's PAT; it now reads with the job token, which needs this.
+  pull-requests: read
 
 jobs:
   # B8 (2026-09-12) — a run that cannot get its runner fails by name. The
@@ -572,6 +577,9 @@ jobs:
         id: executor
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         env:
+          # ARIA-CRITICAL-246 — the lane's ambient gh identity is the job
+          # token (a Bot); a delivery mints its own App token below.
+          GH_TOKEN: ${{ github.token }}
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'
@@ -663,14 +671,11 @@ jobs:
           # installation token where it is consumed and revokes it after;
           # ARIA_REQUIRE_MODE_A (env above) makes that mint refuse by name
           # when the App is not configured, instead of falling back.
-          # The ambient GH_TOKEN below authors no PR: it serves the lane's
-          # own gh reads, from the machine PAT (runner .env) when present.
-          if [ -n "${ARIA_GH_TOKEN:-}" ]; then
-            export GH_TOKEN="$ARIA_GH_TOKEN"
-            echo "ambient gh identity (reads): machine PAT (ARIA_GH_TOKEN)"
-          else
-            echo "ambient gh identity (reads): job token"
-          fi
+          # ARIA-CRITICAL-246 — the ambient GH_TOKEN (env above) is the job
+          # token and nothing else. The runner .env's operator PAT
+          # (ARIA_GH_TOKEN) is never exported: a write made with it is
+          # authored by the operator, and an operator act is what an
+          # ARIA-APPROVE line is verified against.
           set -euo pipefail
           # The App key, from the secret into a private file in RUNNER_TEMP:
           # outside the workspace every sandbox binds, removed on any exit.

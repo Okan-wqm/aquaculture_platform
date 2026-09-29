@@ -38,6 +38,7 @@ from aria_kernel.self_merge_freeze import (
     unfreeze_self_merge,
 )
 from aria_kernel.tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
+from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 from tests._helpers.operator_acts import github_operator_acts
 
 MERGE_SHA = "a" * 40
@@ -365,6 +366,10 @@ class GhCliIssueWriterTests(unittest.TestCase):
         self.issues: list[dict] = []
         self.labels = ["aria"]
         self.fail_on: str | None = None
+        # The lane writes on its installation token (ARIA-CRITICAL-246).
+        credential = mock.patch.dict("os.environ", LANE_CREDENTIAL_ENV)
+        credential.start()
+        self.addCleanup(credential.stop)
 
     def _gh(self, argv: list[str], *args: object, **kwargs: object) -> object:
         import json
@@ -424,6 +429,17 @@ class GhCliIssueWriterTests(unittest.TestCase):
             result = self._writer().upsert_issue(title="T: freeze-1", body="one", labels=FREEZE_NOTICE_LABELS)
         self.assertEqual(result["outcome"], "failed")
         self.assertIn("HTTP 403", result["reason"])
+
+    def test_a_write_on_a_user_credential_is_a_failed_outcome_and_never_runs(self) -> None:
+        # ARIA-CRITICAL-246 — the operator's PAT would author the issue as the
+        # operator. The writer reads (the list) but runs no write, and says why.
+        with mock.patch.dict("os.environ", {"GH_TOKEN": "ghp_operator_pat"}), \
+                mock.patch("aria_kernel.github_adapters.subprocess.run", side_effect=self._gh):
+            result = self._writer().upsert_issue(title="T: freeze-1", body="one", labels=FREEZE_NOTICE_LABELS)
+        self.assertEqual(result["outcome"], "failed")
+        self.assertIn("github_write_requires_installation_token:personal_access_token", result["reason"])
+        self.assertEqual([call[1:3] for call in self.calls if call[2] not in ("list", "view")], [])
+        self.assertEqual(self.issues, [])
 
     def test_an_unreadable_issue_list_creates_nothing(self) -> None:
         self.fail_on = "issue list"

@@ -304,7 +304,9 @@ export class StockMovementInput {
   @Min(0)
   quantity!: number;
 
-  @Field({ description: 'in | out | adjustment | transfer' })
+  // Explicit String: the field's TypeScript type is a literal union derived from
+  // SPARE_PART_MOVEMENT_TYPES, which reflection cannot name for GraphQL.
+  @Field(() => String, { description: 'in | out | adjustment | transfer' })
   @IsIn(SPARE_PART_MOVEMENT_TYPES)
   movementType!: SparePartMovementType;
 

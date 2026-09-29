@@ -15,7 +15,15 @@
 # gate passes its mechanically-selected affected set here. Scoped runs
 # include the native-pytest partition for the SAME paths, so a scoped run
 # never silently drops the pytest-owned half of a selected module. Without
-# arguments the full suite runs (CI lanes, release pushes).
+# arguments the full suite runs (release pushes, the operational proof).
+#
+# SHARDED MODE (ARIA-HIGH-136): the single interpreter outgrew the kernel
+# lane's 110-minute cap (7,387 tests; runs 36386654289 and 36358071953 were
+# cancelled green). `--shard K/N REPORT` runs the unittest half's shard K of N
+# (aria-kernel/tests/_helpers/suite_shards.py — measured, deterministic, and
+# proven complete by that module's `verify`), and `--pytest-native` runs the
+# pytest half whole. aria-kernel.yml runs every shard plus the pytest half
+# once, which is the two-collector partition above, split across runners.
 #
 # Consumers: aria-kernel.yml, `npm run aria:test:unit`,
 # and scripts/ci/aria-suite-changed.mjs (pre-push). Change the suite HERE,
@@ -27,7 +35,25 @@ cd "$(dirname "$0")/../.."
 export PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH="aria-kernel:.${PYTHONPATH:+:$PYTHONPATH}"
 
-if [ "$#" -gt 0 ]; then
+# The pytest-owned half of the partition, whole — one definition for the full
+# run and for the sharded lane.
+pytest_native() {
+  python3 -m pytest -q -p aria_kernel.pytest_native_only aria-kernel
+}
+
+if [ "${1:-}" = "--shard" ]; then
+  if [ "$#" -ne 3 ]; then
+    echo "usage: $0 --shard K/N REPORT_PATH" >&2
+    exit 2
+  fi
+  python3 aria-kernel/tests/_helpers/suite_shards.py run --shard "$2" --report "$3"
+elif [ "${1:-}" = "--pytest-native" ]; then
+  if [ "$#" -ne 1 ]; then
+    echo "usage: $0 --pytest-native" >&2
+    exit 2
+  fi
+  pytest_native
+elif [ "$#" -gt 0 ]; then
   # Dots for unittest module names, slashes for pytest paths — both derive
   # from the same argument list, so the two collectors cannot disagree about
   # what was selected. unittest resolves `tests.*` from aria-kernel/ (the
@@ -54,5 +80,5 @@ if [ "$#" -gt 0 ]; then
   fi
 else
   python3 -m unittest discover aria-kernel -p '*test*.py'
-  python3 -m pytest -q -p aria_kernel.pytest_native_only aria-kernel
+  pytest_native
 fi

@@ -52,7 +52,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  aria-kernel:
+  # ARIA-HIGH-136 — the suite outgrew one interpreter inside a lane budget:
+  # 7,387 tests, and runs 36386654289 (PR) and 36358071953 (main) were
+  # cancelled at the 110-minute cap with nothing red. Three jobs replace the
+  # one that ran everything in sequence:
+  #   suite       — the unittest half, split into measured, deterministic
+  #                 shards that run in parallel
+  #                 (aria-kernel/tests/_helpers/suite_shards.py);
+  #   lane        — the pytest half whole, plus every non-suite step;
+  #   aria-kernel — the check a reader looks for: green only when every shard
+  #                 and the lane are green AND the shard reports prove the
+  #                 shards ran the whole suite exactly once.
+  suite:
+    name: suite (${{ matrix.shard }})
     # ARIA-MEDIUM-134/139 — the suite proves the REAL sandbox, and the
     # hosted 24.04 image cannot host it: bubblewrap installs cleanly there
     # and every invocation dies `loopback: Failed RTM_NEWADDR: Operation not
@@ -66,23 +78,26 @@ jobs:
     # production (ARIA-MEDIUM-139), and `ensure-sandbox-backend` still
     # fails closed by name if this image stops confining.
     runs-on: ubuntu-22.04
-    # 75, not 60: the suite step measured 40.9 min on run 34578152903, and
-    # ARIA-HIGH-098's registry pin (tests/test_adapter_fixture_evidence_contract.py)
-    # now runs every shipped adapter's fixture suite through the evidence
-    # validator inside it — ~8 min on a quiet host (trial eleven: tenant-scoping
-    # 285 s, test-gap 99 s, the other eight under 30 s each). 60 would have
-    # left ~11 min of margin for the two adapters whose runtime this very
-    # finding recorded as weather-sensitive; the lane must not be timed out
-    # by the class of miss it exists to price correctly. Pinned by
-    # tests/invariants/aria-doc-runtime-ssot.spec.ts.
-    # 110, not 75, since the lane moved to the 22.04 image (ARIA-MEDIUM-134):
-    # measured on run 34902506329 — the suite's last stage marker sat at
-    # t=3539 s where the 24.04 run's sat at t=2236 s (77% of its 2902 s), so
-    # the same suite needs ~77 min here and the 75-minute cap killed it at
-    # the finish line. The budget follows the measurement, with the margin
-    # the previous cap carried (~1.4×); it comes down with ARIA-HIGH-136,
-    # never ahead of a measurement.
-    timeout-minutes: 110
+    # 30 (ARIA-HIGH-136): a shard carries ~1/8 of the unittest half by measured
+    # weight — aria-kernel/tests/_helpers/suite_shard_weights.json, 711 modules
+    # summing to 124.1 min on the droplet (2026-09-28, four timers in
+    # parallel). Hosted, the whole suite step took 83 min on run 36386654289
+    # attempt 2 and passed 108 min on attempt 1 (cancelled green), so a shard's
+    # share is ~10.4 min on the quick attempt and ~13.6 min on the slow one,
+    # plus ~1.5 min of checkout and setup. 30 is twice the slow case because
+    # the weights come from a contended host, not from this image; the shard
+    # reports' seconds replace them (`suite_shards.py weights`) and the cap
+    # comes down with that measurement, never ahead of it.
+    timeout-minutes: 30
+    strategy:
+      # One red shard must not cancel the others: the aggregation job reports
+      # every shard's result, and a cancelled shard hides the rest of the run.
+      fail-fast: false
+      matrix:
+        # Labels only. The partition takes its index and its count from
+        # strategy.job-index / strategy.job-total, so adding or removing a
+        # label re-partitions the suite; it cannot drop a slice of it.
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -117,8 +132,56 @@ jobs:
       # package directly writes aria_kernel.egg-info into the checkout,
       # which violates the post-run clean-worktree contract.
       - name: Run aria-kernel unit + invariant tests
-        # Single semantic partition authority for the whole Python suite.
-        run: bash scripts/ci/aria-suite-run.sh
+        # The unittest half's shard of this matrix job. The report names what
+        # the shard discovered and ran; the aria-kernel job verifies all of
+        # them together.
+        env:
+          SHARD_INDEX: ${{ strategy.job-index }}
+          SHARD_TOTAL: ${{ strategy.job-total }}
+        run: bash scripts/ci/aria-suite-run.sh --shard "$((SHARD_INDEX + 1))/${SHARD_TOTAL}" "${RUNNER_TEMP}/aria-suite-shards/shard-$((SHARD_INDEX + 1)).json"
+      - name: Upload shard report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-kernel-suite-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/aria-suite-shards/
+          # A shard that died before writing its report is named by the
+          # aria-kernel job's verify step, not by this upload.
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Verify post-run clean worktree
+        run: |
+          status="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$status" ]; then
+            printf '%s\n' "$status"
+            exit 1
+          fi
+
+  lane:
+    # Same image and sandbox backend as `suite` (ARIA-MEDIUM-134/139): the
+    # pytest half and the discovery run spawn through the same wrapper.
+    runs-on: ubuntu-22.04
+    # 15 (ARIA-HIGH-136): everything the one kernel job ran besides the unittest
+    # half — 1.4 min after the suite step on run 36386654289 attempt 2 — plus
+    # the pytest half (91 tests, 43 s on the droplet) and ~1.5 min of setup:
+    # ~4 min measured. The cap is a hang guard at ~4x that, not a squeeze.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # A kernel workspace is a whole clone (see `suite`).
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-aria-kernel
+      - uses: ./.github/actions/ensure-sandbox-backend
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
+      - name: Run aria-kernel pytest-native tests
+        # The pytest-owned half of the suite partition, whole (91 tests).
+        run: bash scripts/ci/aria-suite-run.sh --pytest-native
       # Plan ARIA-V2 §3.6 + CRITICAL-013 — tests under tools/aria-poc/invariants
       # and tools/shared/invariants are first-class invariants (I-19..I-22, I-39).
       # Discovery must run them on every kernel-touching PR/push, otherwise
@@ -237,3 +300,34 @@ jobs:
             printf '%s\n' "$status"
             exit 1
           fi
+
+  aria-kernel:
+    # The kernel lane's verdict. `!cancelled()` rather than `always()`: a
+    # superseded run (concurrency cancel-in-progress) stays cancelled instead
+    # of reporting a missing shard as a failure.
+    needs: [suite, lane]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      # Runs no kernel code — the verifier reads shard reports with the
+      # standard library — so a depth-1 checkout is the honest one.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: aria-kernel-suite-shard-*
+          path: ${{ runner.temp }}/aria-suite-shards
+          merge-multiple: true
+      - name: Verify the shards ran the whole suite once
+        run: python3 aria-kernel/tests/_helpers/suite_shards.py verify --reports-dir "${RUNNER_TEMP}/aria-suite-shards"
+      - name: Require every kernel job
+        if: ${{ !cancelled() }}
+        env:
+          SUITE_RESULT: ${{ needs.suite.result }}
+          LANE_RESULT: ${{ needs.lane.result }}
+        run: |
+          echo "suite=${SUITE_RESULT} lane=${LANE_RESULT}"
+          test "${SUITE_RESULT}" = success
+          test "${LANE_RESULT}" = success

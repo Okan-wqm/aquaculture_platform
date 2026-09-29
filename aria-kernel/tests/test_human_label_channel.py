@@ -98,11 +98,19 @@ class FinalizeWritesTheCanonicalVocabularyTest(unittest.TestCase):
     def test_judge_calibration_accepts_the_new_rows(self) -> None:
         # The point of the whole change: the ground-truth filter that used to
         # skip every finalized label must now admit them.
-        from aria_kernel.judge_calibration import GROUND_TRUTH_SOURCES
+        #
+        # JJ-1 (ORPHAN-HIGH-731) REWROTE this pin. It read a source_type
+        # ALLOW-LIST that judge_calibration owned privately; that list was one
+        # of five copies of "what counts as ground truth", and the copies are
+        # exactly why tightening the rule used to miss readers. The successor
+        # is the shared predicate, which is also strictly stronger: it asserts
+        # the finalized label is USABLE as ground truth, not merely that its
+        # source string appears in a tuple.
+        from aria_kernel.feedback_store import is_ground_truth_row
 
         _, corpus = self._finalize("tp")
 
-        self.assertIn(corpus[-1]["source_type"], GROUND_TRUTH_SOURCES)
+        self.assertTrue(is_ground_truth_row(corpus[-1]))
 
 
 class SeedingHasAProducerTest(unittest.TestCase):

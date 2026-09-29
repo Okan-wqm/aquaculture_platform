@@ -750,14 +750,19 @@ def _judged_judges_series(root: Path) -> list[int]:
 
 def _labelled_tool_series(root: Path) -> list[int]:
     # Same eligibility as goldset.propose_goldsets_for_labelled_tools: a
-    # tool counts once it has any labelled ground truth.
-    from .feedback_store import load_feedback
+    # tool counts once it has any labelled ground truth. JJ-1 — the SAME
+    # predicate, not a hand-copied source_type tuple. The copy that used to
+    # stand here still admitted 2-judge consensus after the producer stopped
+    # accepting it, so this sentinel would have reported labelled_tool_count
+    # healthy while the goldset producer starved: the "sentinel that thinks
+    # it measures and doesn't" failure this very file warns about above.
+    from .feedback_store import is_ground_truth_row, load_feedback
 
     labelled = {
         str(row.get("tool_id"))
         for row in load_feedback(base_dir=root)
         if row.get("verdict") in ("true_positive", "false_positive")
-        and row.get("source_type") in ("human", "ai_consensus", None)
+        and is_ground_truth_row(row)
     }
     return [len(labelled)]
 

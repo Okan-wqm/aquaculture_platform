@@ -281,7 +281,12 @@ class IncrementalLearningTests(unittest.TestCase):
 
         report = generate_adapter_calibration_report(tool_ids=["learning-adapter"], cycle_id="cal-zero", base_dir=self.tools_dir)
         self.assertEqual(report["reports"][0]["precision_status"], "no_findings_to_judge")
-        self.assertNotIn("operator_precision_unjudged", report["reports"][0]["blocked_by"])
+        # JJ-2a (ORPHAN-HIGH-732) — the blocker this asserts the absence of
+        # was renamed with its meaning ("has a person judged it?" became
+        # "is there anchor-grade evidence?"). Asserting the OLD name would
+        # be a pin that can never fail; the zero-finding lane bypasses the
+        # judged-precision question entirely, which is what is pinned here.
+        self.assertNotIn("precision_not_anchor_judged", report["reports"][0]["blocked_by"])
         promoted = promote_tool(
             "learning-adapter",
             "ACTIVE",

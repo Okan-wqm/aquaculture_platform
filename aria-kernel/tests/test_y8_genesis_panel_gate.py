@@ -258,8 +258,65 @@ class PanelApprovalChainTests(_GapStoreCase):
             (self.tools / "human-required" / f"{escalation_id}.json").read_text(encoding="utf-8"),
         )
         self.assertEqual(record["status"], "resolved")
+        # The refusal is ON the record, not merely implied by the absence of
+        # a draft: a refused record closes with the same status/resolved_by
+        # pair as an approved one, so the decision has to be readable.
+        self.assertEqual(record["panel_outcome"], hra.OUTCOME_REFUSED)
         self.assertIn("genesis_candidate_refused", self._governance_kinds())
         self.assertFalse((self.tools / "agent-genesis" / "drafts.jsonl").exists())
+
+    def test_a_refused_candidate_cannot_be_replayed_as_an_approval(self) -> None:
+        """The tool-promotion lane's defect, in the lane that shares its
+        resolver. A refusal and an approval both CLOSE the genesis record
+        (that is what stops the sweep re-asking), so
+        ``status=resolved, resolved_by=agent_panel`` proved only that the
+        panel had answered — and ``_resolve_panel_adjudication_proof`` read
+        that as approval. One clause in the shared resolver covers both
+        lanes; this pins the genesis half of it.
+        """
+        from aria_kernel.agent_genesis import approve_agent_pr
+        from aria_kernel.genesis_lifecycle import _resolve_panel_adjudication_proof
+
+        escalation_id = self._escalate_one_gap()
+        self._panel_resolve(escalation_id, hra.REFUSE_VERDICT)
+        hra.adjudicate_human_required(
+            escalation_request_id=escalation_id, base_dir=self.tools,
+        )
+        record = json.loads(
+            (self.tools / "human-required" / f"{escalation_id}.json").read_text(encoding="utf-8"),
+        )
+        gap_key = str((record.get("context") or {}).get("capability_gap_key") or "")
+        self.assertTrue(gap_key)
+        with self.assertRaisesRegex(GovernanceError, "not_approved:panel_outcome='refused'"):
+            _resolve_panel_adjudication_proof(
+                adjudication_ref=escalation_id, capability_gap_key=gap_key,
+                base_dir=self.tools,
+            )
+        with self.assertRaisesRegex(GovernanceError, "not_approved"):
+            approve_agent_pr(
+                draft_id="d-1", adjudication_ref=escalation_id, base_dir=self.tools,
+            )
+        self.assertFalse((self.tools / "agent-genesis" / "drafts.jsonl").exists())
+
+    def test_a_resolved_candidate_carries_its_approval(self) -> None:
+        """The positive twin: the approval lane still proves an approval."""
+        from aria_kernel.genesis_lifecycle import _resolve_panel_adjudication_proof
+
+        escalation_id = self._escalate_one_gap()
+        self._panel_resolve(escalation_id, hra.RESOLVE_VERDICT)
+        hra.adjudicate_human_required(
+            escalation_request_id=escalation_id, base_dir=self.tools,
+        )
+        record = json.loads(
+            (self.tools / "human-required" / f"{escalation_id}.json").read_text(encoding="utf-8"),
+        )
+        self.assertEqual(record["panel_outcome"], hra.OUTCOME_RESOLVED)
+        proof = _resolve_panel_adjudication_proof(
+            adjudication_ref=escalation_id,
+            capability_gap_key=str((record.get("context") or {})["capability_gap_key"]),
+            base_dir=self.tools,
+        )
+        self.assertEqual(proof["panel_outcome"], hra.OUTCOME_RESOLVED)
 
     def test_forged_adjudication_ref_cannot_validate(self) -> None:
         from aria_kernel.genesis_lifecycle import _resolve_panel_adjudication_proof

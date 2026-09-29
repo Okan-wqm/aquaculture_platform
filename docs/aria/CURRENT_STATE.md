@@ -76,7 +76,7 @@ the candidate is deployed. The current user-required adaptive design has these d
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | OpenAI    | Actual Codex CLI with managed ChatGPT/subscription login; request Astra Ultra. No API key or direct API fallback.                              | Integrated offline profile/argv and filesystem-probe controls; effective managed authentication and native dispatch remain open.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Anthropic | Actual Claude Code CLI with managed subscription login. No Console/API-key/cloud or direct API fallback.                                       | Natively admitted since 2026-09-11 on `claude auth status --json` (claude.ai = subscription; API-key/console logins refused by name) and executed through the existing containment spawn with attempt/finished evidence (`_invoke_native_claude`, `test_ci_executor_native_claude`).                                                                                                                                                                                                                                                                                                                         |
-| Z.ai      | Separate API transport with its own scoped credential and explicit product/endpoint/model identity. Never redirect either managed CLI to Z.ai. | `tools/aria-poc/zai_runtime.py` (OpenAI-compatible chat completions over `urllib`) is wired into fleet availability, native admission (`observe_status` probe), native execution (`_invoke_native_zai`) and the legacy ladder (`_run_zai_as_claude_result`); proven end to end against a local stand-in vendor (`test_ci_executor_native_zai`). Live on 2026-09-11: Coding-Plan probe HTTP 200 (general route 429/1113 — wallet, not plan); the first ACCEPTED native planner result in ARIA ran on this route (trial six, `AIR-aria-challenger-planner-b82f89291809`, glm-5.3, state `CHALLENGER_DRAFTED`). |
+| Z.ai      | Separate API transport with its own scoped credential and explicit product/endpoint/model identity. Never redirect either managed CLI to Z.ai. | `tools/aria-poc/zai_runtime.py` (OpenAI-compatible chat completions over `urllib`) is wired into fleet availability, native admission (`observe_status` probe), native execution (`_invoke_native_zai`) and the legacy auth failover rung (`_run_zai_as_claude_result`); proven end to end against a local stand-in vendor (`test_ci_executor_native_zai`). Live on 2026-09-11: Coding-Plan probe HTTP 200 (general route 429/1113 — wallet, not plan); the first ACCEPTED native planner result in ARIA ran on this route (trial six, `AIR-aria-challenger-planner-b82f89291809`, glm-5.3, state `CHALLENGER_DRAFTED`). |
 
 The user's Z.ai credential has not been provisioned to the reviewed runtime. Its boundary is
 `ARIA_ZAI_API_KEY_FILE`: an absolute path to a regular file readable by its owner only
@@ -120,6 +120,70 @@ supervising-assistant observation is recorded under SHA256
 `8bc63e68f25b782e965ca992d3b005e8f6e2936aaa1d50abcd0911e999c4f7b6`.
 Timer liveness does not establish gateway routing or candidate deployment. No activation
 follows from this record.
+
+## Quota Exhaustion Policy Amendment (2026-09-12)
+
+Operator decision 2026-09-12 ("sadece opus", and the same day's delegation): ARIA never
+downgrades a decision or an implementation to a weaker tier. A credit/quota exhaustion is a
+PROVIDER-level fact and is answered by the queue, never by a model swap:
+
+- `claude_runtime.run_with_model_fallback` has no in-vendor credit rung. The former
+  `MODEL_FALLBACK_TIER` (`fable → opus`, `opus → sonnet`, retried at `CREDIT_FALLBACK_EFFORT`)
+  and that constant are deleted; `AUTH_FAILOVER_TIER` (`opus ↔ glm-5.3`) is the one map left
+  and serves AUTH failures only (ARIA-HIGH-023). An exhausted run on any tier fires the
+  executor's `model_credit_exhausted` audit and raises `ClaudeCreditExhausted`, which names the
+  exhausted `provider` and `model`. A refusal rides the result and is escalated to
+  HUMAN_REQUIRED as before; it is not retried on another tier.
+- The auth failover is role-conditioned in code: `run_with_model_fallback` takes the profile's
+  `write_capable` fact and `_cross_provider_auth_fallback` skips a rung whose provider does not
+  admit writes (`model_fleet.Provider.admits_writes`: anthropic yes; zai and openai no — the
+  Codex read-only sandbox and the Z.ai chat completion cannot edit a workspace). A write-scope
+  profile (implementer, worker) therefore has no cross-vendor rung at all.
+- `ci_executor._main` has a dedicated `except ClaudeCreditExhausted` arm: on the native lane it
+  records a `provider_quota_cooldown` governance row (`aria_kernel.provider_cooldown`; provider,
+  model, `quota_unavailable`, the policy's `provider_cooldown_seconds`, `until`, request/claim
+  ids, the detection record), then releases the claim under
+  `provider_quota_unavailable:<provider>` — a harness-fault reason
+  (`HARNESS_FAULT_RELEASE_REASON_PREFIXES`, `release_reason` code
+  `PROVIDER_QUOTA_UNAVAILABLE`), so the request derives REQUEUED with its requeue budget intact
+  and is retried when the provider is back. Nothing is submitted. On the legacy (non-adaptive)
+  lane the arm records no cooldown, because that lane's admission reads none: an opus
+  exhaustion there is a `credit_exhausted` drain failure and therefore an
+  `executor_environment_failure` breaker row (threshold 3 in 96 h) — an operator running the
+  legacy lane sees quota exhaustion trip the breaker like any other environment failure.
+- The worker lane requeues under the same cooldown. `worker_executor.main` has its own
+  `except ClaudeCreditExhausted` arm: it records the `provider_quota_cooldown` row under the
+  `--claim-id` the dispatch hook minted (a required, public argv identifier; the duration comes
+  from `provider_cooldown.provider_cooldown_seconds`) and exits non-zero (its release
+  protocol). `worker_dispatch_hook` honours `active_provider_cooldowns` BEFORE claiming — a
+  pending assignment whose provider is cooled is skipped by name (`provider_cooldown`,
+  governance `worker_dispatch_provider_cooldown`, no claim, no spawn) — and after a non-zero
+  exit reads the row this claim wrote (`provider_cooldown_for_claim`) to release under
+  `provider_quota_unavailable:<provider>` instead of a generic `worker_executor_failed`.
+  `autonomous_worker_scheduler` backs off on `provider_cooldown` (sleeps the poll interval,
+  records provider and `cooldown_until` on the iteration row); it used to sleep only on
+  `no_pending`, so an exhausted opus was re-claimed and re-spawned every iteration. `ClaudeAuthFailure`
+  stays a classified non-zero exit. Pinned by `test_worker_lane_provider_cooldown`.
+- One row contract for the cooldown: every field a reader indexes is validated by
+  `provider_cooldown`, and a malformed `provider_quota_cooldown` row is refused by name
+  (`provider_cooldown_row_malformed:<field>`), never skipped — the native admission refuses
+  by name before claiming (`adaptive_runtime_admission_failed`), the worker hook propagates it
+  and the daemon stops.
+- `model_fleet._native_runtime_admission` now takes `cooled_providers` (read by the executor
+  from `active_provider_cooldowns(tools_dir)`) and refuses a cooled provider without a probe
+  (`provider_quota_cooldown`, `quota_observation` unavailable, the cooldown's `until` on the
+  row) — `claude auth status` cannot see quota, so the ledger row is the only evidence — and
+  refuses every read-only runtime for a write-capable profile (`provider_readonly_runtime`).
+  The next vendor in fleet order is admitted for the roles it can serve; a writer whose
+  provider is cooled has no route and waits. `provider_cooldown_seconds` (900) had no reader
+  before this amendment.
+- Proven offline with the real executor child, real kernel claim/release and a fake CLI that
+  answers the usage-limit notice (`test_ci_executor_native_claude`): one opus spawn, no sonnet
+  row in `context-usage.jsonl`, REQUEUED under the provider-naming reason, the cooldown row,
+  and a second run that refuses anthropic by name without claiming or spawning. Unit pins:
+  `test_credit_fallback`, `test_provider_quota_cooldown`, `test_worker_lane_provider_cooldown`,
+  `test_claude_auth_failure_classification`. No live provider evidence is claimed for this
+  amendment.
 
 ## Selected Source And Planning Evidence
 

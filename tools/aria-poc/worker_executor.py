@@ -1,7 +1,8 @@
 """ARIA worker executor (Plan 025 §E).
 
 Per-assignment counterpart to tools/aria-poc/ci_executor.py
-(planner). Receives ``assignment_id`` + ``target_agent`` on argv;
+(planner). Receives ``assignment_id`` + ``target_agent`` and the
+``--claim-id`` the dispatch hook minted on argv (public identifiers);
 lease token via ``ARIA_LEASE_TOKEN`` env var (NEVER argv). Mock
 mode (CLAUDE_CLI_MOCK=1) makes a deterministic no-op modification
 + commit in the worktree + submits the worker result via the kernel
@@ -38,11 +39,11 @@ from pathlib import Path
 from typing import Any
 
 from claude_runtime import (
-    CREDIT_FALLBACK_EFFORT,
-    MODEL_FALLBACK_TIER,
     CLAUDE_MOCK_ENV_VAR,
+    ClaudeAuthFailure,
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
+    ClaudeCreditExhausted,
     ClaudePolicyViolation,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
@@ -191,6 +192,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("assignment_id")
     parser.add_argument("target_agent", nargs="?", default="aria-worker")
+    # The claim this run executes under, minted by the dispatch hook (the
+    # only production caller). A public identifier, so argv is the right
+    # channel; required because the one row this process writes on its own
+    # authority — the provider cooldown on a quota exhaustion — is keyed on
+    # it, and a cooldown that names no claim could not be told apart from
+    # a crash by the hook that owns the claim.
+    parser.add_argument("--claim-id", required=True, dest="claim_id")
     parsed = parser.parse_args(args)
 
     assignment_id = parsed.assignment_id
@@ -274,9 +282,13 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError) as summary_exc:
             sys.stderr.write(f"dispatch_summary_unwritable: {summary_exc}\n")
     try:
-        # Model dispatch with the fable→opus fallback policy (credit +
-        # refusal), applied by the claude_runtime SSoT helper — identical
-        # policy to ci_executor, stderr as this path's audit channel.
+        # Model dispatch through the claude_runtime SSoT helper — identical
+        # policy to ci_executor, stderr as this path's audit channel. The
+        # worker is a WRITE-scope profile, so the helper has no rung for it
+        # at all: a credit exhaustion or an auth failure is terminal for the
+        # attempt and this process exits non-zero, which is the whole release
+        # protocol here (see the except arms below). A credit exhaustion
+        # additionally cools the provider under this claim before exiting.
         def _dispatch_attempt(model: str, effort: str) -> ClaudeRunResult:
             return run_claude_exec(
                 prompt_text=prompt_text,
@@ -300,35 +312,22 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             )
 
-        # ORPHAN-HIGH-478 — derived from the ladder, not the literal
-        # fable->opus@xhigh hop, which stopped being true when the write tier
-        # moved to opus and the ladder gained its opus->sonnet rung.
-        # profile.model, NOT `model`: `model` exists only as a parameter of the
-        # nested _dispatch_attempt above, so referencing it here raised
-        # NameError at runtime. 2905 passing tests did not catch it because
-        # nothing covers this callsite — the defect class this branch is about.
-        _fallback_target = MODEL_FALLBACK_TIER.get(profile.model, "(none)")
-
-        def _on_credit(marker: dict[str, Any]) -> None:
+        # ORPHAN-HIGH-478 — the audit line states what happened and names no
+        # hop: there is none (operator decision 2026-09-12). The tier is the
+        # helper's argument, bound here — ORPHAN-CRITICAL-479 was a `model`
+        # read from a scope that never bound it.
+        def _on_credit(model: str, marker: dict[str, Any]) -> None:
             sys.stderr.write(
-                f"model_credit_fallback assignment={assignment_id} "
-                f"marker={marker.get('matched_marker')!r} "
-                f"{profile.model}->{_fallback_target}@{CREDIT_FALLBACK_EFFORT}\n"
-            )
-
-        def _on_refusal(refusal: dict[str, Any]) -> None:
-            sys.stderr.write(
-                f"model_refusal_fallback assignment={assignment_id} "
-                f"category={refusal.get('category')!r} "
-                f"{profile.model}->{_fallback_target}\n"
+                f"model_credit_exhausted assignment={assignment_id} "
+                f"marker={marker.get('matched_marker')!r} model={model}\n"
             )
 
         completed = run_with_model_fallback(
             run=_dispatch_attempt,
             model=profile.model,
             effort=profile.effort,
+            write_capable=profile.write_capable,
             on_credit=_on_credit,
-            on_refusal=_on_refusal,
         )
         if completed.refusal is not None:
             # ARIA-HIGH-002 — a refusal is not a build failure.
@@ -341,13 +340,54 @@ def main(argv: list[str] | None = None) -> int:
                 f"{completed.refusal.get('category')!r}); operator triage required\n"
             )
             return 1
-    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation, ClaudeUsageUnavailable) as exc:
+    except ClaudeCreditExhausted as exc:
+        # Operator decision 2026-09-12 — a quota exhaustion is a PROVIDER
+        # fact, answered by the queue, never by a weaker tier. The worker is
+        # a write-scope role that only the managed Claude route can run, so
+        # the exhausted provider is COOLED here, under the claim the hook
+        # minted (`--claim-id`), through the same owner the planner lane
+        # uses (aria_kernel.provider_cooldown): the hook's next tick refuses
+        # to claim any worker assignment for that provider until `until`
+        # and the scheduler backs off, instead of re-claiming and re-spawning
+        # the same exhausted provider every iteration. The hook reads the
+        # row this claim wrote (`provider_cooldown_for_claim`) and releases
+        # under `provider_quota_unavailable:<provider>` — the assignment goes
+        # back to `pending` with its retry budget intact and is retried when
+        # the provider is back. Non-zero exit is still the whole release
+        # protocol for this process (see the next arm); the cooldown row is
+        # the one thing it records on its own authority. ORPHAN-HIGH-475
+        # still applies: nothing is submitted, because a usage-limit notice
+        # is not an answer.
+        from aria_kernel.provider_cooldown import provider_cooldown_seconds, record_provider_cooldown
+
+        _emit_summary(
+            outcome="failed",
+            failure=classify_dispatch_failure(exception=exc, phase="spawn"),
+            exit_code=None,
+        )
+        record_provider_cooldown(
+            tools_dir, provider=exc.provider, model=exc.model,
+            cooldown_seconds=provider_cooldown_seconds(repo),
+            request_id=assignment_id, claim_id=parsed.claim_id, detection=exc.detail,
+        )
+        sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
+        return 1
+    except (
+        ClaudeAuthFailure, ClaudeAuthUnavailable, ClaudeCliUnavailable,
+        ClaudePolicyViolation, ClaudeUsageUnavailable,
+    ) as exc:
         # ORPHAN-HIGH-470 follow-through — this arm now also receives a
         # refused spawn (`ResourceLimitsUnavailable` / `SandboxUnavailable`,
         # translated to ClaudePolicyViolation at the
         # `claude_runtime._apply_resource_limits` / `_apply_write_containment`
-        # boundary). Unlike ci_executor.main, this process owns NONE of the
-        # in-flight state, so `return 1` releases everything it holds:
+        # boundary), and — operator decision 2026-09-12 — the terminal
+        # credential fact the helper raises for a write-scope profile: a
+        # dead credential (ClaudeAuthFailure; no read-only vendor can run a
+        # worker). It used to escape main() as a traceback with no classified
+        # summary; the sibling ClaudeCreditExhausted has its own arm above
+        # because it also cools the provider. Unlike ci_executor.main, this
+        # process owns NONE of the in-flight state, so `return 1` releases
+        # everything it holds:
         #
         #   * claim — minted by `worker_dispatch_hook.
         #     dispatch_one_pending_worker_assignment` (step 3), never by this

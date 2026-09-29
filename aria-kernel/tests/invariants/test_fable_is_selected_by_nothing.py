@@ -2,9 +2,10 @@
 
 Decision nodes ran on fable since the K5 tier flip; the operator moved every
 selection to opus ("fable'ı kullanmasın, sadece opus"). The tier NAME stays:
-`MODEL_TIER_ORDER` orders it for the write-protection rule, the pricing table
-prices its old rows, and the fallback ladder still knows where a fable run
-would land. What must never come back is a SELECTION: a kernel profile, an
+`MODEL_TIER_ORDER` orders it for the write-protection rule and the pricing
+table prices its old rows; the auth failover ladder has no fable entry (and
+no in-vendor credit rung of any kind — an exhausted provider is requeued,
+never downgraded). What must never come back is a SELECTION: a kernel profile, an
 agent frontmatter mirror, a code default or the dispatcher configuration
 naming fable as the model to run.
 """

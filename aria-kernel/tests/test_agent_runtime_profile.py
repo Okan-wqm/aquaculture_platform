@@ -189,10 +189,12 @@ class ModelTierInvariantTests(unittest.TestCase):
 
     def test_write_tier_agents_never_downgraded_below_opus(self) -> None:
         # Writers (Edit/Write/Bash) and governance-artifact authors run the
-        # IMPLEMENTATION tier (operator decision): opus, with sonnet as its
-        # credit fallback. The invariant's purpose is unchanged — a frontmatter
-        # edit must never quietly drop a writer below its assigned tier — only
-        # the tier it names has moved. Planning agents keep fable.
+        # IMPLEMENTATION tier: opus, a credit LEAF (operator decision
+        # 2026-09-12 — an exhausted provider is requeued under its cooldown,
+        # never retried on sonnet or any weaker tier). The invariant's
+        # purpose is unchanged — a frontmatter edit must never quietly drop a
+        # writer below its assigned tier. Planning agents run opus too;
+        # fable is selected by nothing (tests/invariants).
         for name in WRITE_TIER_AGENTS:
             prof = read_agent_runtime_profile(name)
             self.assertEqual(

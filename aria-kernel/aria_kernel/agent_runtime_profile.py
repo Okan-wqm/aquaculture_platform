@@ -19,9 +19,12 @@ frontmatter. Fail-safe by design: an unknown agent or a missing/invalid field
 resolves to the strongest SELECTED tier (``opus`` / ``max``). A silent cost
 downgrade can therefore never be introduced by omission — only by an explicit,
 reviewable frontmatter edit. Operator decision 2026-09-12: ``fable`` stays a
-named tier (ordering, pricing, the fallback ladder) and is selected by
-nothing — no profile, no frontmatter, no default; ``tests/invariants`` pins
-it.
+named tier (ordering, pricing) and is selected by nothing — no profile, no
+frontmatter, no default; ``tests/invariants`` pins it. The same decision
+made every tier a credit LEAF: an exhausted provider is requeued under its
+cooldown (``provider_cooldown``), never retried on a weaker tier, and the
+only ladder left (``claude_runtime.AUTH_FAILOVER_TIER``) serves AUTH
+failures across vendors.
 """
 from __future__ import annotations
 

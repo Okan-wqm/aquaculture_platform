@@ -228,7 +228,9 @@ class RefusalDetectionTests(unittest.TestCase):
 
 
 class CreditExhaustionDetectionTests(unittest.TestCase):
-    """Credit/quota-exhaustion detection — the fable→opus fallback trigger."""
+    """Credit/quota-exhaustion detection — the trigger of the terminal
+    ClaudeCreditExhausted (requeue under a provider cooldown, never a weaker
+    tier — operator decision 2026-09-12)."""
 
     # The LIVE managed-session failure mode (proven 2026-07-03: ARIA's Fable
     # pool ran dry). The CLI returns its limit notice as ASSISTANT CONTENT on

@@ -88,6 +88,9 @@ class _Fixture(unittest.TestCase):
             return _native_runtime_admission(
                 repo_root=self.repo, profile=self.profile, policy=self.policy,
                 environ=self.environ, observe_status=observe,
+                # No provider is cooled here: every member must be PROBED for
+                # the budget arithmetic to be measured at all.
+                cooled_providers={},
             )
 
 

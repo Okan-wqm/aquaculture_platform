@@ -16,7 +16,8 @@ dependency-light shape of the previous Codex contract so both
   runner) ``--dangerously-skip-permissions`` so the agent can edit its
   assigned worktree autonomously, the way ``codex exec`` did.
 * The per-agent model comes from the agent frontmatter (resolved by
-  ``aria_kernel.agent_runtime_profile``); ARIA's fail-safe default is Fable.
+  ``aria_kernel.agent_runtime_profile``); ARIA's fail-safe default is opus
+  (operator decision 2026-09-12 — fable is selected by nothing).
 * Raw stream-json stays in memory; callers persist only sanitized envelopes.
 """
 from __future__ import annotations
@@ -37,9 +38,10 @@ from typing import Any, Callable, Mapping, Sequence
 CLAUDE_BINARY_ENV_VAR = "CLAUDE_CLI_BINARY"
 CLAUDE_MOCK_ENV_VAR = "CLAUDE_CLI_MOCK"
 # ARIA's default model tier. The Claude Code CLI accepts a model alias
-# ("fable") or a full id; the alias resolves to Claude Fable 5 on the
-# runner, keeping ARIA's fail-safe on the most capable tier (K5 tier
-# flip, operator policy 2026-07-01). Per-agent overrides flow in via
+# ("opus") or a full id; the alias resolves on the runner. Operator decision
+# 2026-09-12 ("sadece opus"): every selection is opus — the K5-era fable
+# default is gone, and `tests/invariants/test_fable_is_selected_by_nothing`
+# pins this constant. Per-agent overrides flow in via
 # build_claude_exec_argv(model=...).
 CLAUDE_DEFAULT_MODEL = "opus"
 # The Claude Code CLI selects capability by model alias AND, since CLI 2.1.x,
@@ -70,35 +72,29 @@ def __getattr__(name: str):  # noqa: ANN202 - PEP 562 module hook
 
 VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 
-# ORPHAN-HIGH-473 — the fallback topology, as data rather than a literal string
-# test. The policy was `if model != "fable": return completed`, so moving the
-# primary tier off fable would have silently disabled the whole credit and
-# refusal fallback with nothing failing. Expressed as a map, adding or moving a
-# tier is an edit to the topology, not an invisible behaviour change.
+# Operator decision 2026-09-12 ("sadece opus", and the same day's delegation):
+# ARIA never downgrades a decision or an implementation to a weaker tier. A
+# credit exhaustion is a PROVIDER-level fact, not a tier-level one, so the
+# in-vendor credit rungs that used to live here (``fable -> opus``,
+# ``opus -> sonnet``, retried at CREDIT_FALLBACK_EFFORT) are gone: every tier
+# is a credit LEAF, and an exhausted run RAISES ClaudeCreditExhausted. What
+# the executors do with that is a queue decision, not a model decision — the
+# claim is released for retry (REQUEUED) and, on the native lane, the
+# provider is cooled (aria_kernel.provider_cooldown) so the next admission
+# skips it for `provider_cooldown_seconds` and admits the next vendor for the
+# roles it can serve. Nothing here ever selects sonnet, haiku or fable.
 #
-# The value is the tier that owns a SEPARATE credit pool, which is the entire
-# reason a credit fallback can work at all.
-MODEL_FALLBACK_TIER: dict[str, str] = {
-    # Planning tier: fable is the most capable and most expensive pool.
-    "fable": "opus",
-    # Implementation tier (operator decision): opus, falling back to sonnet.
-    # Before this entry opus was a LEAF — an implementer that exhausted its
-    # quota had nowhere to go, and since ORPHAN-HIGH-475 that raises terminally
-    # rather than silently returning the usage-limit notice as an answer. The
-    # ladder is what makes running the write tier on opus safe.
-    "opus": "sonnet",
-    # ARIA-HIGH-023 — cross-provider rungs. Every Anthropic tier's chain now
-    # terminates at a DIFFERENT vendor: an absent subscription is a
-    # credential-level failure no same-vendor rung can cure, so auth failures
-    # walk the ladder to the first cross-provider tier (see
-    # run_with_model_fallback). Bidirectional: a dead Z.ai key falls glm-5.3
-    # back to the Anthropic pool at the strongest authoring tier.
-    "sonnet": "glm-5.3",
+# What survives is the cross-vendor AUTH failover (ARIA-HIGH-023): a dead
+# credential is a fact about the vendor, so the first tier authenticating
+# through a DIFFERENT vendor is a genuinely different attempt. Bidirectional
+# on purpose — a dead Z.ai key falls glm-5.3 back to the Anthropic pool.
+# The walk is role-conditioned IN CODE (see _cross_provider_auth_fallback):
+# the fleet row says which providers admit writes, and a write-scope profile
+# is never retried on a provider whose runtime is read-only.
+AUTH_FAILOVER_TIER: dict[str, str] = {
+    "opus": "glm-5.3",
     "glm-5.3": "opus",
 }
-
-# The effort a credit retry escalates to ("ultra code" retry).
-CREDIT_FALLBACK_EFFORT: str = "max"
 
 
 def _model_provider(model: str | None) -> str:
@@ -109,41 +105,53 @@ def _model_provider(model: str | None) -> str:
     business, not this module's. The provider, not the tier name, is what an
     auth failure is a fact ABOUT: a dead credential cannot be cured by any
     rung inside the same vendor, and can be by the first rung outside it.
-    Unlisted models are the managed Anthropic session's.
+    Unlisted models are the managed Anthropic session's — the fleet's
+    `dispatching_provider_for_model` states that convention once.
     """
-    from aria_kernel.model_fleet import provider_for_model
+    from aria_kernel.model_fleet import dispatching_provider_for_model
 
-    return provider_for_model(str(model or "")) or "anthropic"
+    return dispatching_provider_for_model(model)
 
 
-def _cross_provider_auth_fallback(model: str | None) -> str | None:
+def _provider_admits_writes(provider: str) -> bool:
+    """Whether a provider's runtime can host a write-scope spawn (fleet fact).
+
+    Read from the fleet row rather than restated here: the managed Claude CLI
+    runs under the write-containment sandbox, while the Codex read-only
+    sandbox and the Z.ai HTTP transport cannot edit a workspace at all. An
+    unlisted provider admits nothing — the fail-closed direction.
+    """
+    from aria_kernel.model_fleet import provider_admits_writes
+
+    return provider_admits_writes(provider)
+
+
+def _cross_provider_auth_fallback(model: str | None, *, write_capable: bool) -> str | None:
     """First ladder tier authenticating through a DIFFERENT vendor (ARIA-HIGH-023).
 
-    Walks ``MODEL_FALLBACK_TIER`` from ``model``, skipping same-vendor rungs
-    (they share the dead credential), and returns the first cross-vendor tier.
-    Cycle-bounded: the cross-provider rungs make the ladder cyclic
-    (``opus -> sonnet -> glm-5.3 -> opus``), so the walk tracks visited tiers
-    and gives up at the first repeat. Returns ``None`` when no cross-vendor
-    tier is reachable — the caller then treats the auth failure as terminal.
+    Walks ``AUTH_FAILOVER_TIER`` from ``model``, skipping same-vendor rungs
+    (they share the dead credential), and returns the first cross-vendor tier
+    whose provider can serve THIS role: ``write_capable`` is the profile's
+    own fact (``AgentRuntimeProfile.write_capable``), and a rung whose
+    provider is a read-only runtime is skipped for a write-scope profile
+    rather than handed a request it cannot execute. Cycle-bounded: the map
+    is cyclic (``opus -> glm-5.3 -> opus``), so the walk tracks visited tiers
+    and gives up at the first repeat. Returns ``None`` when no admissible
+    cross-vendor tier is reachable — the caller then treats the auth failure
+    as terminal.
     """
     origin_provider = _model_provider(model)
     visited: set[str] = set()
-    current = MODEL_FALLBACK_TIER.get(str(model or ""))
+    current = AUTH_FAILOVER_TIER.get(str(model or ""))
     while current is not None and current not in visited:
         visited.add(current)
-        if _model_provider(current) != origin_provider:
+        provider = _model_provider(current)
+        if provider != origin_provider and (not write_capable or _provider_admits_writes(provider)):
             return current
-        current = MODEL_FALLBACK_TIER.get(current)
+        current = AUTH_FAILOVER_TIER.get(current)
     return None
 
 
-# NOTE: a `has_fallback_tier(model)` predicate was added here alongside the
-# ladder and removed in the same branch (ORPHAN-HIGH-481). It had zero
-# production callers — run_with_model_fallback does its own
-# `MODEL_FALLBACK_TIER.get(model)` because it needs the TARGET, not a boolean —
-# so the predicate was speculative API in the one branch whose whole purpose is
-# deleting controls that are written, tested and never called. The map is the
-# SSoT; read it directly.
 ALLOW_API_KEY_MODE_ENV_VAR = "ARIA_ALLOW_CLAUDE_API_KEY_MODE"
 REQUIRE_USAGE_ENV_VAR = "ARIA_CLAUDE_REQUIRE_USAGE"
 AUTH_PREFLIGHT_SKIP_ENV_VAR = "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP"
@@ -199,7 +207,7 @@ class ClaudeAuthFailure(RuntimeError):
 
 
 class ClaudeCreditExhausted(RuntimeError):
-    """A quota/credit exhaustion that no fallback tier can recover.
+    """A quota/credit exhaustion of one PROVIDER — terminal for this attempt.
 
     ORPHAN-HIGH-473 — raised instead of returning the run result. Per
     extract_credit_exhaustion, the CLI delivers its usage-limit notice as
@@ -209,7 +217,21 @@ class ClaudeCreditExhausted(RuntimeError):
     limit. Run /usage-credits..." was flowing downstream as the agent's answer
     and being persisted as a real envelope. A result that cannot be told apart
     from an answer must not be returned at all.
+
+    Operator decision 2026-09-12: there is no weaker tier to retry on. The
+    exception names the exhausted ``provider`` and ``model`` because the
+    executor's release and the provider cooldown are keyed on the PROVIDER —
+    a run that failed over to another vendor for auth and then hit that
+    vendor's quota names that vendor, not the primary. ``detail`` is the
+    detection record (which marker matched, on which stream), carried so the
+    audit row is written once, at the release site, with the claim identity.
     """
+
+    def __init__(self, message: str, *, provider: str, model: str, detail: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.model = model
+        self.detail = detail
 
 
 class ClaudePolicyViolation(RuntimeError):
@@ -225,11 +247,13 @@ class ClaudeRunResult:
     usage: dict[str, Any] | None
     events: tuple[dict[str, Any], ...]
     # K2 (ORPHAN-HIGH-284) — model-safety refusal record extracted from the
-    # stream-json events, or None. Callers own the fallback policy; the
-    # runtime only detects and reports.
+    # stream-json events, or None. The runtime only detects and reports;
+    # run_with_model_fallback returns it on the result and the executors
+    # escalate it (`model_safety_refusal_unresolved`) — no tier retries it.
     refusal: dict[str, Any] | None = None
-    # Credit/quota-exhaustion record (fable primary → opus fallback sibling of
-    # the K2 refusal path), or None. Detection only; executors own the policy.
+    # Credit/quota-exhaustion record (sibling of the K2 refusal detection), or
+    # None. Detection only; run_with_model_fallback turns it into the terminal
+    # ClaudeCreditExhausted — no tier retries it (operator decision 2026-09-12).
     credit_exhaustion: dict[str, Any] | None = None
     # Authentication failure record, or None. Detection only; executors own the
     # policy. Not recoverable by any SAME-vendor rung — ARIA-HIGH-023 lets
@@ -1400,9 +1424,13 @@ def extract_refusal(events: tuple[dict[str, Any], ...]) -> dict[str, Any] | None
 
     Returns a record naming which shape fired (``source``) plus the
     ``category``/``explanation`` from ``stop_details`` when present, or
-    ``None`` when no refusal marker exists. Detection only — the fallback
-    policy (single audited retry on the fallback tier, HUMAN_REQUIRED on a
-    second refusal) lives in the executors.
+    ``None`` when no refusal marker exists. Detection only — what happens
+    next is fixed by the operator decision of 2026-09-12: a refusal is never
+    retried on another tier. ``run_with_model_fallback`` returns it on the
+    result and each executor escalates it to HUMAN_REQUIRED under
+    ``model_safety_refusal_unresolved`` (ci_executor writes the
+    unresolved-result row; worker_executor exits non-zero with that line on
+    stderr).
     """
     for event in events:
         if event.get("type") == "assistant":
@@ -1449,8 +1477,9 @@ USAGE_LIMIT_MARKERS: tuple[str, ...] = (
 # Transient signals ("overloaded", a bare per-minute rate limit / HTTP 429,
 # network/timeout) are in NEITHER set — they stay on the EXTERNAL_OUTAGE
 # requeue path (retry on the SAME model clears them), whereas credit exhaustion
-# is deterministic and model-pool specific (only a different tier's pool
-# resolves it), exactly like a refusal.
+# is deterministic and provider-wide: it clears only when the provider's
+# quota comes back, which is why the executors requeue the request under a
+# provider cooldown instead of retrying it on any tier.
 CREDIT_ERROR_MARKERS: tuple[str, ...] = (
     "credit balance",          # "Your credit balance is too low"
     "insufficient credit",
@@ -1465,17 +1494,22 @@ CREDIT_ERROR_MARKERS: tuple[str, ...] = (
     "usage limit reached",
 )
 # Union kept under the original name for external/test references. The operator
-# tunes these from production: every credit fallback emits a governance row
-# carrying the real matched marker.
+# tunes these from production evidence: every exhaustion is audited with the
+# real matched marker — the executor's `model_credit_exhausted` row (ci) or
+# stderr line (worker) at detection, and the `provider_quota_cooldown`
+# governance row (`aria_kernel.provider_cooldown`), whose `detection` field
+# carries the same record, when the provider is cooled.
 CREDIT_EXHAUSTION_MARKERS: tuple[str, ...] = USAGE_LIMIT_MARKERS + CREDIT_ERROR_MARKERS
 
 # (3) AUTHENTICATION FAILURE — the runtime cannot start at all.
 #
 # Distinct from both sets above, and the distinction is not cosmetic. A credit
-# exhaustion is model-pool specific, so dropping a tier can clear it; a refusal
-# is content specific, so a different model can clear it. An expired session
-# clears on NEITHER — every tier authenticates through the same credential, so
-# the fallback ladder just burns two attempts and reports the second failure.
+# exhaustion is a quota fact about one provider and clears with time (the
+# request waits it out under the provider cooldown); a refusal is content
+# specific and is escalated to a human. An expired session is a CREDENTIAL
+# fact: every tier of the same vendor shares it, so the only honest retry is
+# on another vendor (ARIA-HIGH-023), and only for a role that vendor's
+# read-only runtime can serve.
 #
 # This class cost five silent nights of autonomy (2026-08-04 → 08): the CI
 # executor claimed a request, the CLI exited 1 with
@@ -1525,115 +1559,86 @@ def run_with_model_fallback(
     run: Callable[[str, str], ClaudeRunResult],
     model: str,
     effort: str,
-    on_credit: Callable[[dict[str, Any]], None] | None = None,
-    on_refusal: Callable[[dict[str, Any]], None] | None = None,
+    write_capable: bool,
+    on_credit: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> ClaudeRunResult:
-    """Run one dispatch and apply the model fallback ladder.
+    """Run one dispatch and apply the cross-vendor auth failover.
 
     ``run(model, effort)`` executes a single attempt. This is the SSoT for the
-    fallback behaviour both executors share (extracted so it is unit-testable
-    without a full lease/dispatch environment).
+    failover behaviour both executors share (extracted so it is unit-testable
+    without a full lease/dispatch environment). ``write_capable`` is the
+    profile's own fact (``AgentRuntimeProfile.write_capable``) and is what
+    conditions the failover on the role, in code rather than prose.
 
-    ORPHAN-HIGH-480 — this docstring described the pre-ladder single-hop policy
-    on five counts after the code had moved on, which is the same stale-prose
-    defect as the jest tier comments (ORPHAN-MEDIUM-477). Corrected to match:
+    Operator decision 2026-09-12 — what this helper does and does NOT do:
 
-    * Fallback fires for any tier present in ``MODEL_FALLBACK_TIER`` — the
-      in-vendor credit ladder (``fable -> opus``, ``opus -> sonnet``) plus the
-      cross-provider rungs (``sonnet -> glm-5.3``, ``glm-5.3 -> opus``). It is
-      NOT keyed to one model name.
-    * A credit/quota exhaustion retries once on the mapped tier at
-      ``CREDIT_FALLBACK_EFFORT`` — a separate credit pool at ultracode depth.
-    * A refusal retries once on the mapped tier at the ORIGINAL effort (K2).
-    * ARIA-HIGH-023 — an AUTH failure walks the ladder (same-vendor rungs
-      skipped, cycle-bounded) to the first CROSS-provider tier and retries
-      there at the original effort: a dead credential is a vendor-level fact,
-      and the other vendor's credential is genuinely different. Both vendors
-      failing auth raises :class:`ClaudeAuthFailure`; no mock verdict is ever
-      produced on this path.
-    * Credit and refusal retries are bounded to exactly ONE rung per call,
-      never chained. Credit takes precedence over refusal.
-    * A credit exhaustion that cannot be recovered — the tier has no mapped
-      fallback, or the fallback tier is ALSO exhausted — RAISES
-      :class:`ClaudeCreditExhausted`. It is not returned. The earlier claim that
-      the caller escalates such a result was false: no caller inspects
-      ``credit_exhaustion`` on the returned value, so returning it silently
-      published a usage-limit notice as the agent's answer (ORPHAN-HIGH-475).
-
-    The ``on_credit`` / ``on_refusal`` hooks receive the detection record so the
-    caller can emit its own audit (ci_executor: governance rows; worker_executor:
-    stderr). Hooks never alter control flow, and on_credit fires BEFORE a raise
-    so an unrecoverable exhaustion is still recorded.
+    * A CREDIT/QUOTA exhaustion is terminal for the attempt on EVERY tier:
+      ``on_credit(model, record)`` fires with the tier that ran out and the
+      detection record (the executor's audit — the tier is passed because
+      it may be the failover rung, not the primary), then
+      :class:`ClaudeCreditExhausted` is raised naming the exhausted provider
+      and model. There is no in-vendor downgrade rung any more —
+      ``opus`` is a leaf, and sonnet/haiku/fable are selected by nothing.
+      The executor releases the claim as REQUEUED and, on the native lane,
+      cools the provider so the next admission skips it; the request is
+      retried when the provider is back, never on a weaker tier.
+    * A REFUSAL is returned on the result (``.refusal``), not retried: the
+      executors escalate it to HUMAN_REQUIRED (``model_safety_refusal_unresolved``).
+    * ARIA-HIGH-023 — an AUTH failure walks ``AUTH_FAILOVER_TIER`` (same-vendor
+      rungs skipped, cycle-bounded) to the first CROSS-provider tier whose
+      runtime can serve this role and retries there at the original effort:
+      a dead credential is a vendor-level fact, and the other vendor's
+      credential is genuinely different. A write-scope profile has no such
+      rung — the other vendors' runtimes are read-only — so its auth failure
+      is terminal at once. Both vendors failing auth raises
+      :class:`ClaudeAuthFailure`; no mock verdict is ever produced here. The
+      failover attempt's own credit exhaustion is the same terminal raise,
+      naming the vendor that ran out.
+    * Exactly ONE retry per call, never chained.
     """
     completed = run(model, effort)
-    # Checked FIRST and never retried: a different tier authenticates through
-    # the same credential, so the ladder would burn a second attempt to learn
-    # the same thing, and then report the second failure as if it were the
-    # cause.
     if completed.auth_failure is not None:
-        # ARIA-HIGH-023 — an auth failure is a fact about the PROVIDER's
-        # credential, not the tier: every same-vendor rung would burn a spawn
-        # to relearn the same dead credential. Walk the ladder (cycle-bounded)
-        # to the first CROSS-provider tier and retry there at the original
-        # effort; only when that also fails auth — both vendors unavailable —
-        # is the failure terminal. This is what lets the lane keep working
-        # with real providers while one subscription is absent; there is no
-        # mock verdict anywhere on this path.
-        cross = _cross_provider_auth_fallback(model)
+        cross = _cross_provider_auth_fallback(model, write_capable=write_capable)
         if cross is not None:
             retried = run(cross, effort)
-            if retried.auth_failure is None:
-                return retried
-            raise ClaudeAuthFailure(
-                f"claude_auth_failure: {completed.auth_failure.get('marker')} on "
-                f"{model!r}, and the cross-provider rung {cross!r} failed auth "
-                f"too ({retried.auth_failure.get('marker')}) — both providers "
-                f"are unavailable; remedy: {completed.auth_failure.get('remedy')}"
-            )
+            if retried.auth_failure is not None:
+                raise ClaudeAuthFailure(
+                    f"claude_auth_failure: {completed.auth_failure.get('marker')} on "
+                    f"{model!r}, and the cross-provider rung {cross!r} failed auth "
+                    f"too ({retried.auth_failure.get('marker')}) — both providers "
+                    f"are unavailable; remedy: {completed.auth_failure.get('remedy')}"
+                )
+            return _raise_if_exhausted(retried, model=cross, on_credit=on_credit)
         raise ClaudeAuthFailure(
-            f"claude_auth_failure: {completed.auth_failure.get('marker')} — "
-            f"{completed.auth_failure.get('remedy')}"
+            f"claude_auth_failure: {completed.auth_failure.get('marker')} on {model!r}"
+            + (" — a write-scope profile has no cross-vendor rung (the other "
+               "runtimes are read-only)" if write_capable else " — no cross-vendor rung")
+            + f"; {completed.auth_failure.get('remedy')}"
         )
-    fallback_model = MODEL_FALLBACK_TIER.get(model)
-    if fallback_model is None:
-        # No alternate credit pool. A credit exhaustion here is TERMINAL, and
-        # returning it would hand the caller a usage-limit notice shaped like
-        # an answer — see ClaudeCreditExhausted. The hook still fires so the
-        # audit records the exhaustion before we refuse.
-        if completed.credit_exhaustion is not None:
-            if on_credit is not None:
-                on_credit(completed.credit_exhaustion)
-            raise ClaudeCreditExhausted(
-                f"claude_credit_exhausted: model={model!r} has no fallback tier "
-                f"({completed.credit_exhaustion})"
-            )
-        return completed
-    if completed.credit_exhaustion is not None:
-        if on_credit is not None:
-            on_credit(completed.credit_exhaustion)
-        return _reject_exhausted(run(fallback_model, CREDIT_FALLBACK_EFFORT), fallback_model)
-    if completed.refusal is not None:
-        if on_refusal is not None:
-            on_refusal(completed.refusal)
-        return _reject_exhausted(run(fallback_model, effort), fallback_model)
-    return completed
+    return _raise_if_exhausted(completed, model=model, on_credit=on_credit)
 
 
-def _reject_exhausted(result: ClaudeRunResult, model: str) -> ClaudeRunResult:
-    """ORPHAN-HIGH-473 — the retry's own exhaustion is terminal too.
+def _raise_if_exhausted(
+    result: ClaudeRunResult, *, model: str, on_credit: Callable[[str, dict[str, Any]], None] | None,
+) -> ClaudeRunResult:
+    """A credit-exhausted result is never returned (ORPHAN-HIGH-473/475).
 
-    The single-retry budget is deliberate, but the pre-fix docstring claimed the
-    caller escalates a credit signal on the retry result. It does not: neither
-    executor reads ``.credit_exhaustion`` off the value it gets back. So an
-    exhausted retry was the same silent-answer path as an exhausted primary,
-    one call further down.
+    The audit hook fires BEFORE the raise so the exhaustion is recorded even
+    though the attempt ends here. The exception carries the provider the
+    fleet binds the model to: that is the key the executor's release reason
+    and the native cooldown are written under.
     """
-    if result.credit_exhaustion is not None:
-        raise ClaudeCreditExhausted(
-            f"claude_credit_exhausted: fallback tier {model!r} is also exhausted "
-            f"({result.credit_exhaustion})"
-        )
-    return result
+    if result.credit_exhaustion is None:
+        return result
+    if on_credit is not None:
+        on_credit(model, result.credit_exhaustion)
+    provider = _model_provider(model)
+    raise ClaudeCreditExhausted(
+        f"claude_credit_exhausted: provider={provider!r} model={model!r} — no tier "
+        f"retries a quota exhaustion; the request is requeued for when the provider "
+        f"is back ({result.credit_exhaustion})",
+        provider=provider, model=model, detail=dict(result.credit_exhaustion),
+    )
 
 
 def extract_credit_exhaustion(
@@ -1644,8 +1649,8 @@ def extract_credit_exhaustion(
     final_message: str = "",
 ) -> dict[str, Any] | None:
     """Detect a credit/quota-exhaustion failure (detection only — sibling of
-    :func:`extract_refusal`; the fable→opus fallback policy lives in the
-    executors).
+    :func:`extract_refusal`; what happens next is run_with_model_fallback's
+    terminal raise and the executors' requeue-under-cooldown).
 
     Two shapes are matched over the FULL response text (stderr + final message
     + assistant content + the terminal ``result`` event):

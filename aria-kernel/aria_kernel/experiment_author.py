@@ -56,7 +56,11 @@ def author_night_experiments(
         register_recipe,
     )
     from .finding import _replay_findings
-    from .service_dimension import finding_dimension_paths, service_for_path
+    from .service_dimension import (
+        finding_dimension_paths,
+        is_product_service,
+        service_for_path,
+    )
     from .validation import parse_allowed_command
 
     repo_path = Path(repo_root).resolve()
@@ -81,12 +85,21 @@ def author_night_experiments(
         if finding_id in bound_findings:
             deduped.append(finding_id)
             continue
+        # Only a product microservice under ``apps/`` is a target this lane
+        # may build a command from, and ``is_product_service`` is where that
+        # rule lives (H-2). The predicate replaced a local
+        # ``startswith(("shared:", "web:"))`` list: since the dimension
+        # vocabulary grew every surface the routing SSoT names — edge, infra,
+        # test and the READONLY kernel among them — a list of the two
+        # prefixes that existed when it was written would have handed
+        # ``kernel:aria_kernel`` to ``nx run-many --projects=`` as if it were
+        # a service.
         services = sorted({
             service
             for service in (
                 service_for_path(path) for path in finding_dimension_paths(doc)
             )
-            if service and not service.startswith(("shared:", "web:"))
+            if is_product_service(service)
         })
         if not services:
             unauthorable.append({

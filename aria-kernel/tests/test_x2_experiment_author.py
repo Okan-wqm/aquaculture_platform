@@ -146,5 +146,66 @@ class SeederSchemaTests(unittest.TestCase):
         self.assertGreaterEqual(len(red), 1)
 
 
+class KernelFindingIsUnauthorableTests(unittest.TestCase):
+    """H-2 — a kernel-pathed finding must never become a product nx target.
+
+    Before H-2 this passed for the wrong reason: ``aria-kernel/**`` had no
+    dimension at all, so the author refused it as path-less. Now the kernel
+    surface HAS a dimension (``kernel:aria_kernel``) and the refusal has to
+    come from the vocabulary itself — ``is_product_service`` — rather than
+    from a local list of the two prefixes (``shared:``/``web:``) that
+    happened to exist when this filter was written.
+    """
+
+    def setUp(self) -> None:
+        self.repo = Path(tempfile.mkdtemp(prefix="aria-h2-"))
+        for i in (1, 2, 3):
+            path = self.repo / "aria-kernel" / "aria_kernel" / f"mod{i}.py"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                "\n".join(f"line {n}" for n in range(1, 45)) + "\n", encoding="utf-8"
+            )
+        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "t@example.invalid"], cwd=self.repo, check=True
+        )
+        subprocess.run(["git", "config", "user.name", "T"], cwd=self.repo, check=True)
+        subprocess.run(["git", "add", "aria-kernel"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=self.repo, check=True)
+        ensure_workspace(workspace_paths(self.repo, self.repo / "workspaces"))
+        self.tools = ensure_tools_dir(self.repo / "aria-tools")
+
+    def tearDown(self) -> None:
+        import shutil
+
+        shutil.rmtree(self.repo, ignore_errors=True)
+
+    def test_a_kernel_pathed_finding_is_disclosed_not_targeted(self) -> None:
+        record = emit_finding(
+            repo_root=self.repo,
+            base_dir=self.tools,
+            claim_type="wrong_code",
+            claim_summary="The cycle phase drops a surface it measured",
+            severity="HIGH",
+            evidences=[
+                {"ref": f"aria-kernel/aria_kernel/mod{i}.py:10", "summary": f"evidence {i}"}
+                for i in (1, 2, 3)
+            ],
+            facts=["fact a", "fact b", "fact c"],
+            scope_files=["aria-kernel/aria_kernel/mod1.py"],
+        )
+        self.assertEqual(record["services"], ["kernel:aria_kernel"])
+
+        payload = author_night_experiments(self.repo, cycle_id="cyc-h2", base_dir=self.tools)
+        self.assertEqual(payload["authored"], [])
+        reasons = {
+            row["finding_id"]: row["reason"] for row in payload["unauthorable"]
+        }
+        self.assertEqual(reasons.get(record["finding_id"]), "no_service_scoped_paths")
+        # and nothing reached the recipe ledger with a kernel "project"
+        self.assertEqual(
+            [r for r in list_recipes(base_dir=self.tools) if "kernel" in r["command"]], []
+        )
+
 if __name__ == "__main__":
     unittest.main()

@@ -27,21 +27,48 @@ def _clean_agents(cell: str) -> list[str]:
     return agents
 
 
-def _pattern_prefix(glob: str) -> str:
-    """The literal path prefix of a routing glob, up to the first wildcard/brace
-    (``apps/farm-service/**`` → ``apps/farm-service``; ``apps/*/src/...`` → ``apps``)."""
+# The three shapes a routing glob takes — and therefore the three ways a path
+# can belong to the surface it names. The mode is not decoration: it is the
+# difference between ``infra`` owning ``infra/terraform/main.tf`` (dir) and
+# ``infra`` wrongly swallowing ``infrastructure/nats/nats.conf`` (raw string
+# prefix). Emitted next to the literal because only the glob knows which it is.
+#   dir   — ``tests/**`` / ``apps/*/src/**``: the literal ends at a ``/``, so it
+#           names a DIRECTORY; a path belongs when it is that directory or lives
+#           under it.
+#   stem  — ``docker-compose*`` / ``.env*``: the wildcard opens straight off the
+#           literal, so the literal is a FILENAME STEM; a sibling file whose
+#           name starts with it belongs, a sibling directory tree does not.
+#   exact — ``Cargo.toml`` / ``CLAUDE.md``: no wildcard at all; that one path.
+
+
+def pattern_surface(glob: str) -> tuple[str, str]:
+    """``(literal prefix, match mode)`` for one routing glob.
+
+    THE glob parser for this table — ``_pattern_prefix`` is this function
+    with the mode dropped, so a second reader of the same column cannot
+    disagree with the first about where the literal ends.
+    """
     cleaned = glob.strip().strip("`").strip()
     cut = len(cleaned)
+    mode = "exact"
     for i, ch in enumerate(cleaned):
         if ch in "*{":
             cut = i
+            mode = "dir" if cleaned[:i].endswith("/") else "stem"
             break
-    return cleaned[:cut].rstrip("/")
+    return cleaned[:cut].rstrip("/"), mode
+
+
+def _pattern_prefix(glob: str) -> str:
+    """The literal path prefix of a routing glob, up to the first wildcard/brace
+    (``apps/farm-service/**`` → ``apps/farm-service``; ``apps/*/src/...`` → ``apps``)."""
+    return pattern_surface(glob)[0]
 
 
 def load_routing_table(repo_root: str | Path) -> list[dict[str, Any]]:
     """Parse the orchestrator routing table into rows of
-    ``{prefixes, primary, also_notify}``. Returns ``[]`` when the file is absent."""
+    ``{globs, prefixes, primary, also_notify}``. Returns ``[]`` when the file is
+    absent."""
     path = Path(repo_root) / ROUTING_TABLE_REL
     if not path.exists():
         return []
@@ -55,11 +82,22 @@ def load_routing_table(repo_root: str | Path) -> list[dict[str, Any]]:
         cells = [c.strip() for c in stripped.strip("|").split("|")]
         if len(cells) < 2:
             continue
-        prefixes = [p for p in (_pattern_prefix(g) for g in cells[0].split(",")) if p]
+        # The raw globs travel with the row because the literal prefix alone
+        # cannot say HOW to match (see ``pattern_surface``): a reader that
+        # needs the mode would otherwise have to re-split this cell itself,
+        # and two splitters of one column is one too many.
+        globs = [g.strip().strip("`").strip() for g in cells[0].split(",")]
+        globs = [g for g in globs if g]
+        prefixes = [p for p in (_pattern_prefix(g) for g in globs) if p]
         primary = _clean_agents(cells[1])
         also_notify = _clean_agents(cells[2]) if len(cells) > 2 else []
         if prefixes and (primary or also_notify):
-            rows.append({"prefixes": prefixes, "primary": primary, "also_notify": also_notify})
+            rows.append({
+                "globs": globs,
+                "prefixes": prefixes,
+                "primary": primary,
+                "also_notify": also_notify,
+            })
     return rows
 
 
@@ -124,6 +162,7 @@ def unowned_projects(
 __all__ = [
     "ROUTING_TABLE_REL",
     "load_routing_table",
+    "pattern_surface",
     "recommended_agents_for_project",
     "unowned_projects",
 ]

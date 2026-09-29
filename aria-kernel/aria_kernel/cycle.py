@@ -16,6 +16,7 @@ from .ledger import verify_index_hashes, write_index
 from .learning import run_learning_pass, run_learning_post_evidence_closure, run_learning_pre_cycle
 from .github_adapters import select_github_adapter
 from .mission import adopt_task_candidates, assert_cycle_closure
+from .mission_retired_sources import supersede_retired_source_missions
 from .mission_reconcile import reconcile_missions
 from .worker_dispatch import reap_expired_assignment_claims
 from .workspace import WorkspacePaths, ensure_workspace, repo_hash, workspace_paths
@@ -1476,12 +1477,27 @@ def _phase_mission_ingest(context: PhaseContext) -> dict[str, Any]:
     action is refused and disclosed, and re-adoption HEALS the rows this phase
     wrote before the rule existed. The result reports ``healed`` because a
     night that repaired a stuck mission did real work.
+
+    Missions of a RETIRED producer are superseded first
+    (`mission_retired_sources`): re-adoption is the only heal path and a
+    retired producer never re-adopts, so without this step the six
+    ``shadow_run_summary`` rows on the live store would stay open,
+    contract-less and un-schedulable forever. ``retired_superseded`` reports
+    how many closed tonight — zero on every night after the first — and
+    ``retired_declined`` how many the sweep left alone because closing them
+    would abandon something (a branch, a human's question, a wake path).
     """
-    return adopt_task_candidates(
+    retired = supersede_retired_source_missions(base_dir=context.base_dir)
+    adoption = adopt_task_candidates(
         cycle_id=context.cycle_id,
         repo_hash=repo_hash(context.workspace_root),
         base_dir=context.base_dir,
     )
+    return {
+        **adoption,
+        "retired_superseded": retired["superseded"],
+        "retired_declined": retired["declined"],
+    }
 
 
 def _phase_agent_claim_reap(context: PhaseContext) -> dict[str, Any]:

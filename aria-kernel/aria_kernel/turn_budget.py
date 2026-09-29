@@ -28,14 +28,17 @@ WHAT this module owns — the two caps that DO bind, and their vocabulary:
   ``cycle.py``'s between-phases skip delegates to the same predicate so the
   phase loop and the hook cannot disagree on the margin.
 
-* the TURN cap is :data:`IMPLEMENTER_TURN_BUDGET` = 10 Edit+Write+Bash turns
-  per implementer request (the profile's write scope is what marks a spawn
-  as budgeted, :func:`turn_budget_for`). The count is derived from the
-  ``hook_decisions`` ledger — one row per PreToolUse verdict, appended by
-  ``hooks.run_hook`` inside the same state transaction that counted, so two
-  parallel tool calls cannot both read nine and both be admitted. The
-  eleventh budgeted turn is refused with ``implementer_turn_budget_exhausted``
-  at the boundary; a policy-denied turn never ran, so it never counts.
+* the TURN cap is the policy's ``implementer_turn_budget.budgeted_turns``
+  (kernel default 60; ``turn_budget_policy`` owns the block, its ceiling and
+  its validation) Edit+Write+Bash turns per implementer request. The
+  profile's write scope is what marks a spawn as budgeted and the store the
+  spawn is bound to is whose policy the cap is read from
+  (:func:`turn_budget_for`). The count is derived from the ``hook_decisions``
+  ledger — one row per PreToolUse verdict, appended by ``hooks.run_hook``
+  inside the same state transaction that counted, so two parallel tool calls
+  cannot both read cap-1 and both be admitted. The turn after the cap is
+  refused with ``implementer_turn_budget_exhausted`` at the boundary; a
+  policy-denied turn never ran, so it never counts.
 
 * the EVIDENCE the pre-merge predicate reads. Every budgeted verdict carries
   a ``turn_budget`` observation (cap, turns used before it, the deadline it
@@ -43,21 +46,23 @@ WHAT this module owns — the two caps that DO bind, and their vocabulary:
   the request's rows to :func:`turn_budget_evidence`, and
   ``implementation_safety._check_cycle_and_turn_budget_cap`` fails when a
   refusal of either class was recorded, when more turns were admitted than
-  the cap allows, or when the rows are absent — an implementation that ran
-  without the hook has no proof its caps held.
+  the cap allows, when the rows were recorded under a cap other than the one
+  the merged store's policy says NOW, or when the rows are absent — an
+  implementation that ran without the hook has no proof its caps held.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from os import PathLike
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 if TYPE_CHECKING:  # the hook imports this module on every tool call; keep it light
     from .runtime_profiles import RuntimeProfile
 
-# N=10 per implementer request (policy §14). One literal; the hook receives it
-# through the spawn settings the kernel compiles, and the predicate rejects
-# evidence recorded under any other cap.
-IMPLEMENTER_TURN_BUDGET: int = 10
+# The cap itself is NOT a literal here: ``turn_budget_policy`` resolves it from
+# the policy of the workspace a store is bound to, the hook receives it through
+# the spawn settings the kernel compiles (``--turn-budget``), and the predicate
+# rejects evidence recorded under any other cap than that policy's.
 # The tools whose PreToolUse verdicts the budget counts, in the order the
 # settings matcher spells them. ``claude_settings`` derives its PreToolUse
 # matcher from this tuple, so a tool cannot be budgeted without being
@@ -80,14 +85,26 @@ JOB_DEADLINE_CLOSE_OUT_MARGIN_SECONDS: int = 120
 OBSERVATION_KEY: str = "turn_budget"
 
 
-def turn_budget_for(profile: "RuntimeProfile") -> int | None:
-    """The cap for a spawn under ``profile``; None when the spawn is not budgeted.
+def turn_budget_for(profile: "RuntimeProfile", *, base_dir: str | PathLike[str]) -> int | None:
+    """The cap for a spawn under ``profile`` bound to the store at ``base_dir``.
 
-    A profile with a write scope is one that can produce an implementation
-    diff, which is what the policy's "implementer" means; a read-only judge
-    or a Bash-only validator has no diff to bound.
+    None when the spawn is not budgeted: a profile with a write scope is one
+    that can produce an implementation diff, which is what the policy's
+    "implementer" means; a read-only judge or a Bash-only validator has no
+    diff to bound, so its policy is never read. A budgeted spawn's cap is the
+    ``implementer_turn_budget.budgeted_turns`` of the workspace the store is
+    bound to (``turn_budget_policy.implementer_turn_budget_for_store``) —
+    the same read the pre-merge capture makes for the store being merged, so
+    the recorded cap and the compared cap come from one policy. ``base_dir``
+    is the store the spawn journals into and is required: the cap is never
+    resolved from the process cwd or ``ARIA_TOOLS_DIR`` (an explicit ``None``
+    is refused by the policy reader — ARIA-HIGH-079's class).
     """
-    return IMPLEMENTER_TURN_BUDGET if profile.write_scope else None
+    if not profile.write_scope:
+        return None
+    from .turn_budget_policy import implementer_turn_budget_for_store
+
+    return implementer_turn_budget_for_store(base_dir)
 
 
 def parse_deadline_epoch(raw: str | None) -> float | None:
@@ -198,15 +215,22 @@ def refusal_class(reason: str | None) -> str | None:
 
 
 def turn_budget_evidence(
-    rows: Sequence[Mapping[str, Any]], *, request_id: str,
+    rows: Sequence[Mapping[str, Any]], *, request_id: str, policy_cap: int,
 ) -> dict[str, Any]:
     """The pre-merge observation over ``request_id``'s budgeted verdicts.
 
-    Keys are the ``_PreMergeEvidence`` fields the predicate reads. Absence
-    and malformation are named reasons, never an empty pass: no rows means
-    the implementation ran without the hook, and a budgeted verdict without
-    its observation (or under a cap other than the kernel's) means the hook
-    that recorded it was not the one this kernel compiles.
+    ``policy_cap`` is the cap the merged store's policy says NOW
+    (``turn_budget_policy.implementer_turn_budget_for_store``); the caller
+    resolves it because this reduction is pure. Keys are the
+    ``_PreMergeEvidence`` fields the predicate reads. Absence and
+    malformation are named reasons, never an empty pass: no rows means the
+    implementation ran without the hook; a budgeted verdict without its
+    observation means the hook that recorded it was not the one this kernel
+    compiles; rows recorded under a cap other than ``policy_cap`` — a spawn
+    compiled against another workspace's policy, or a policy the operator
+    changed since the spawn — are ``native_turn_budget_cap_mismatch``, so
+    the cap an implementation actually ran under is always the one it is
+    judged against.
     """
     bound = [
         row for row in rows
@@ -224,15 +248,20 @@ def turn_budget_evidence(
         ):
             return {"turn_budget_unavailable_reason": "native_turn_budget_observation_unavailable"}
         caps.add(observation["cap"])
-    if caps != {IMPLEMENTER_TURN_BUDGET}:
+    if caps != {policy_cap}:
         return {"turn_budget_unavailable_reason": "native_turn_budget_cap_mismatch"}
+    recorded_cap = next(iter(caps))
     refusal = next(
         (row.get("reason") for row in bound
          if row.get("decision") == "deny" and refusal_class(row.get("reason")) in BUDGET_REFUSAL_REASONS),
         None,
     )
     return {
-        "turn_budget_cap": IMPLEMENTER_TURN_BUDGET,
+        # Both caps are carried so the predicate can re-check the equality
+        # itself: a hand-assembled evidence that names a recorded cap but no
+        # policy cap is unbound, not respected.
+        "turn_budget_cap": recorded_cap,
+        "turn_budget_policy_cap": policy_cap,
         "turn_budget_used": budgeted_turns_used(bound, request_id=request_id),
         "turn_budget_refusal_reason": refusal,
         "turn_budget_ledger_tip": bound[-1].get("ledger_hash"),
@@ -242,7 +271,6 @@ def turn_budget_evidence(
 __all__ = [
     "BUDGETED_TOOL_NAMES",
     "BUDGET_REFUSAL_REASONS",
-    "IMPLEMENTER_TURN_BUDGET",
     "JOB_DEADLINE_CLOSE_OUT_MARGIN_SECONDS",
     "JOB_DEADLINE_EPOCH_ENV",
     "OBSERVATION_KEY",

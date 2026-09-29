@@ -158,6 +158,13 @@ class GenesisPolicyTests(unittest.TestCase):
                 # consumed via source_qualification_policy. Was a literal
                 # in snapshot._ScopedSourceBudget.
                 "source_qualification",
+                # Operator decision 2026-09-12 —
+                # implementer_turn_budget.budgeted_turns: the implementer
+                # turn cap (cycle_and_turn_budget_cap), consumed via
+                # turn_budget_policy.implementer_turn_budget_for_store by
+                # the spawn settings and the pre-merge capture. Was the
+                # literal 10 in turn_budget.IMPLEMENTER_TURN_BUDGET.
+                "implementer_turn_budget",
             },
         )
 

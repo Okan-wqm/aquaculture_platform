@@ -1093,6 +1093,12 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}budget.py",
             f"{_KERNEL}cost_budget.py",
             f"{_KERNEL}turn_budget.py",
+            # The implementer turn cap the seventh predicate compares evidence
+            # against is resolved here (the policy block's ceiling, its
+            # validation and the store-bound read); a change to it changes
+            # what the perimeter admits, exactly as cost_budget.py does for
+            # the dollar caps it resolves from the same policy.
+            f"{_KERNEL}turn_budget_policy.py",
             f"{_KERNEL}state_manifest.py",
             ".github/workflows/aria-merge-authority.yml",
         ),
@@ -1108,6 +1114,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}budget.py",
             f"{_KERNEL}cost_budget.py",
             f"{_KERNEL}turn_budget.py",
+            f"{_KERNEL}turn_budget_policy.py",
             ".github/workflows/aria-merge-authority.yml",
         ),
         authorizing_consumer_paths=(

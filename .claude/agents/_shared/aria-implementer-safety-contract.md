@@ -138,9 +138,11 @@ accepts. The agent-emitted subset includes:
   deadline's close-out margin at a turn boundary (SSoT:
   `turn_budget.job_deadline_reached`; dollars are telemetry, not admission)
 - `implementer_turn_budget_exhausted` — per-implementer-request cap of
-  `turn_budget.IMPLEMENTER_TURN_BUDGET` = 10 budgeted turns hit
-  (Edit + Write + Bash + MultiEdit + NotebookEdit combined, counted from
-  `hooks/decisions.jsonl`)
+  the policy's `implementer_turn_budget.budgeted_turns` budgeted turns hit
+  (kernel default 60, overridable in `<workspace>/aria-config/genesis_policy.json`,
+  bounded to [1, 400] by `turn_budget_policy`; Edit + Write + Bash +
+  MultiEdit + NotebookEdit combined, counted from `hooks/decisions.jsonl`;
+  the number your spawn runs under is the one compiled into its settings)
 - `content_hash_mismatch` — content_hash recheck on CONVERGED plan
   drift between envelope mint and implementation start
 - `branch_tip_drift` — pre-merge `gh pr view --json headRefOid` no

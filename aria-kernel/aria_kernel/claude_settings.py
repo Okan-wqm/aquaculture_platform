@@ -19,9 +19,14 @@ Hook commands invoke the kernel CLI (``python3 -m aria_kernel hook ...``)
 with the tools dir and request id spelled out — the hook runs inside the
 agent's sandbox, where nothing but argv tells it who it is working for. A
 profile with a write scope also gets ``--turn-budget N`` on its PreToolUse
-command (cycle_and_turn_budget_cap, :mod:`turn_budget`): the cap is compiled
-into the settings document, so it is part of the session fingerprint and not
-something the agent's own instructions could omit.
+command (cycle_and_turn_budget_cap, :mod:`turn_budget`): N is the
+``implementer_turn_budget.budgeted_turns`` of the policy of the workspace the
+spawn's store (``hook_context["tools_dir"]``) is bound to
+(:mod:`turn_budget_policy`), compiled into the settings document, so it is
+part of the session fingerprint and not something the agent's own
+instructions could omit — and the sandboxed hook, which cannot trust a policy
+file the agent could have edited in its tree, admits turns against exactly
+the number the kernel compiled.
 """
 from __future__ import annotations
 
@@ -85,11 +90,19 @@ def build_settings(
 
     ``hook_context`` = {python, kernel_root, tools_dir, workspace_root,
     request_id}; when None the document carries permission rules only (a
-    read-only preview spawn with no ledger to journal into).
+    read-only preview spawn with no ledger to journal into). Raises
+    ``GovernanceError`` when the bound workspace's policy carries an invalid
+    turn cap: a write-scope spawn is not compiled under a number the policy
+    refuses.
     """
     allow, deny = claude_permission_rules(external_writes=profile.external_writes)
     deny_tools = [rule for rule in disallowed_tools_for(profile)]
-    turn_budget = turn_budget_for(profile)
+    # The cap is read from the policy of the store this spawn journals into;
+    # a document without hooks compiles no cap, because nothing would admit
+    # turns against it (such a spawn is refused upstream when write-capable).
+    turn_budget = (
+        turn_budget_for(profile, base_dir=hook_context["tools_dir"]) if hook_context is not None else None
+    )
     settings: dict[str, Any] = {
         "_aria": {
             "schema": SETTINGS_SCHEMA_NOTE,

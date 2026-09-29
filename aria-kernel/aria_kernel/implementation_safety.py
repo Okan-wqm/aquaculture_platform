@@ -1220,12 +1220,18 @@ class _PreMergeEvidence:
     operator_feedback_unavailable_reason: str | None = None
     # Seventh predicate (cycle_and_turn_budget_cap): the hook_decisions rows
     # bound to THIS implementation's request, reduced by
-    # turn_budget.turn_budget_evidence at capture time. ``used`` is the number
-    # of admitted Edit/Write/Bash turns, ``refusal_reason`` the first
-    # cycle_budget_exhausted / implementer_turn_budget_exhausted verdict if
-    # the hook ever had to refuse, ``ledger_tip`` the hash of the last bound
-    # row. No rows, no observation or another cap is a named reason.
+    # turn_budget.turn_budget_evidence at capture time. ``cap`` is the cap
+    # every bound verdict was admitted under, ``policy_cap`` the
+    # implementer_turn_budget.budgeted_turns the merged store's policy says
+    # at capture time (turn_budget_policy.implementer_turn_budget_for_store),
+    # ``used`` the number of admitted Edit/Write/Bash turns,
+    # ``refusal_reason`` the first cycle_budget_exhausted /
+    # implementer_turn_budget_exhausted verdict if the hook ever had to
+    # refuse, ``ledger_tip`` the hash of the last bound row. No rows, no
+    # observation, an invalid policy, or a recorded cap other than the
+    # policy's is a named reason.
     turn_budget_cap: int | None = None
+    turn_budget_policy_cap: int | None = None
     turn_budget_used: int | None = None
     turn_budget_refusal_reason: str | None = None
     turn_budget_ledger_tip: str | None = None
@@ -1518,14 +1524,16 @@ def _check_operator_feedback_signature(context: HardFailContext) -> HardFailResu
 def _check_cycle_and_turn_budget_cap(context: HardFailContext) -> HardFailResult:
     """Both caps held at every turn boundary of the implementation's run.
 
-    The cycle cap is the run-scoped job deadline and the turn cap is
-    turn_budget.IMPLEMENTER_TURN_BUDGET; the hook admitted each Edit/Write/
-    Bash turn against both and recorded the verdict. Dollars are not read
-    here: under managed_subscription they are telemetry, under metered they
-    are cost_budget.assert_within_budget's own admission (ORPHAN-HIGH-472,
-    ARIA-HIGH-074/079).
+    The cycle cap is the run-scoped job deadline and the turn cap is the
+    policy's ``implementer_turn_budget.budgeted_turns`` for the workspace the
+    merged store is bound to (``turn_budget_policy``); the hook admitted each
+    Edit/Write/Bash turn against both and recorded the verdict, and the
+    capture resolved the policy cap the same way the spawn did. Dollars are
+    not read here: under managed_subscription they are telemetry, under
+    metered they are cost_budget.assert_within_budget's own admission
+    (ORPHAN-HIGH-472, ARIA-HIGH-074/079).
     """
-    from .turn_budget import IMPLEMENTER_TURN_BUDGET, refusal_class
+    from .turn_budget import refusal_class
 
     name = "cycle_and_turn_budget_cap"
     evidence = context.pre_merge_evidence
@@ -1534,11 +1542,19 @@ def _check_cycle_and_turn_budget_cap(context: HardFailContext) -> HardFailResult
     if evidence.turn_budget_unavailable_reason:
         return _failed(name, evidence.turn_budget_unavailable_reason)
     if (
-        evidence.turn_budget_cap != IMPLEMENTER_TURN_BUDGET
+        type(evidence.turn_budget_cap) is not int
+        or type(evidence.turn_budget_policy_cap) is not int
         or type(evidence.turn_budget_used) is not int
         or not evidence.turn_budget_ledger_tip
     ):
         return _failed(name, "native_turn_budget_binding_unavailable")
+    if evidence.turn_budget_cap != evidence.turn_budget_policy_cap:
+        # The verdicts were admitted under one number and the policy of the
+        # store being merged says another — a spawn compiled against a
+        # different workspace's policy, or a policy changed since the spawn.
+        # The capture refuses this by name too; re-checking here keeps a
+        # hand-assembled evidence from passing on the recorded cap alone.
+        return _failed(name, "native_turn_budget_cap_mismatch")
     refusal = refusal_class(evidence.turn_budget_refusal_reason)
     if refusal is not None:
         # The hook's own vocabulary: cycle_budget_exhausted or
@@ -2277,8 +2293,9 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
     # Policy §14 as amended by ORPHAN-HIGH-472 and ARIA-HIGH-074/079: the
     # per-cycle cap is WALL CLOCK (the run-scoped job deadline,
     # cycle.job_deadline_epoch, read at the turn boundary by the hook), the
-    # per-implementer cap is N=10 Edit+Write+Bash turns
-    # (turn_budget.IMPLEMENTER_TURN_BUDGET, counted and refused inside the
+    # per-implementer cap is the policy's implementer_turn_budget.budgeted_turns
+    # Edit+Write+Bash turns (kernel default 60, operator decision 2026-09-12;
+    # turn_budget_policy owns the block, counted and refused inside the
     # hook_decisions transaction), and dollars are telemetry under the
     # managed-subscription policy — cost_budget keeps them as admission under
     # metered. Refusals: cycle_budget_exhausted / implementer_turn_budget_
@@ -2287,11 +2304,13 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         name="cycle_and_turn_budget_cap",
         description=(
             "hooks.admit_budgeted_turn admits each Edit/Write/Bash turn against "
-            "the job deadline (ARIA_JOB_DEADLINE_EPOCH) and "
-            "turn_budget.IMPLEMENTER_TURN_BUDGET=10; pre-merge reads the "
+            "the job deadline (ARIA_JOB_DEADLINE_EPOCH) and the policy's "
+            "implementer_turn_budget.budgeted_turns for the store's bound "
+            "workspace (turn_budget_policy, default 60); pre-merge reads the "
             "request's hook_decisions rows and fails on any "
             "cycle_budget_exhausted / implementer_turn_budget_exhausted "
-            "refusal, on more admitted turns than the cap, or on absent evidence"
+            "refusal, on more admitted turns than the cap, on a recorded cap "
+            "other than the policy's, or on absent evidence"
         ),
         closes_findings=("ai-HIGH-013", "perf-CRIT-001"),
         check=_check_cycle_and_turn_budget_cap,

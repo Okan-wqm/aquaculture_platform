@@ -165,6 +165,7 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         f"{KERNEL}budget.py",
         f"{KERNEL}cost_budget.py",
         f"{KERNEL}turn_budget.py",
+        f"{KERNEL}turn_budget_policy.py",
         f"{KERNEL}state_manifest.py",
         ".github/workflows/aria-merge-authority.yml",
     ),
@@ -232,7 +233,7 @@ EXPECTED_PRODUCERS = {
         f"{KERNEL}file_claims.py", f"{KERNEL}operator_feedback_signature.py",
         f"{KERNEL}expert_review_gate.py", f"{KERNEL}plan_coverage.py",
         f"{KERNEL}budget.py", f"{KERNEL}cost_budget.py",
-        f"{KERNEL}turn_budget.py",
+        f"{KERNEL}turn_budget.py", f"{KERNEL}turn_budget_policy.py",
         ".github/workflows/aria-merge-authority.yml",
     ),
     "enterprise_readiness": (

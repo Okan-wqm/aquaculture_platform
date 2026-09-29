@@ -77,6 +77,14 @@ POLICY_KEYS = {
     # decided what the map answered and neither an operator override nor
     # a fixture could widen it. Consumed via source_qualification_policy.
     "source_qualification",
+    # Operator decision 2026-09-12 — the implementer turn cap
+    # (cycle_and_turn_budget_cap, policy §14) is a policy value, not the
+    # literal 10 that turn_budget.IMPLEMENTER_TURN_BUDGET carried. Defaults,
+    # ceiling, validation and the store-bound accessor live in
+    # ``turn_budget_policy`` (implementer_turn_budget_policy /
+    # implementer_turn_budget_for_store); the key joins the contract here so
+    # an operator override is merged rather than silently dropped.
+    "implementer_turn_budget",
 }
 
 JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {

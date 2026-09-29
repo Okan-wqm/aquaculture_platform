@@ -21,6 +21,13 @@ Invariants:
   (behavioral test with patched scanner).
 * I-V31-B3-03 — implementation_orphans_reaped_summary governance
   event emitted when ≥1 orphan reaped.
+* I-B7-04/05/06 — the startup hook also runs
+  gh_token_factory.prune_stale_signing_keys next to the reaper: a key a
+  crashed cycle left behind is pruned, its git signing config snapshot
+  (kept in `.git/`, where the lane's pre-clean cannot wipe it) is
+  unwound, and a `keys_pruned` governance row names what went — also
+  when the pre-clean has already taken the key and only the snapshot is
+  left to unwind.
 * I-V31-B3-DISPATCH (K6, ORPHAN-CRITICAL-727) — REPLACES the MERGED /
   REJECTED / TIMEOUT path tests. Those three drove a poll loop that no
   longer exists, and they only ever passed because they patched
@@ -154,6 +161,175 @@ class OrchestratorOrphanReaperHookTests(unittest.TestCase):
             )
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+    def test_i_b7_04_orchestrator_invokes_the_signing_key_reaper(self) -> None:
+        """B7 — source-substring: the startup hook calls
+        prune_stale_signing_keys next to the implementation reaper and
+        names the row it emits."""
+        from aria_kernel import autonomy_orchestrator
+        src = inspect.getsource(autonomy_orchestrator.run_autonomy_orchestrator)
+        self.assertIn("prune_stale_signing_keys(", src)
+        self.assertIn('"keys_pruned"', src)
+        self.assertLess(src.find("implementation_orphans_reaped_summary"), src.find("prune_stale_signing_keys("))
+        self.assertLess(src.find("prune_stale_signing_keys("), src.find("for cycle_n in range(max_cycles):"))
+
+    def test_i_b7_05_startup_prunes_orphan_keys_and_restores_the_operators_git_config(self) -> None:
+        """B7 — behavioral: a key a crashed cycle left behind (older than
+        the grace window) is pruned at the next startup, the git signing
+        config snapshot the mint took is unwound, and a `keys_pruned`
+        governance row names what went; a recent key is spared and, when
+        nothing is pruned, nothing is said."""
+        import os
+        import subprocess
+        import time
+
+        from aria_kernel.autonomy_orchestrator import run_autonomy_orchestrator
+        from aria_kernel.gh_token_factory import mint_signing_key
+        from aria_kernel.ledger import load_jsonl
+        from aria_kernel.runtime_profile import set_profile
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+
+        tmp = Path(tempfile.mkdtemp(prefix="v31b3-keys-")).resolve()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        base = tmp / "aria-tools"
+        workspace = make_repo_with_initial_commit(tmp, name="checkout", files={"f.txt": "x\n"})
+        operator_key = tmp / "operator-signing-key"
+        subprocess.run(
+            ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "operator", "-f", str(operator_key)],
+            check=True, capture_output=True, timeout=30,
+        )
+        _git(["config", "--local", "commit.gpgsign", "true"], cwd=workspace)
+        _git(["config", "--local", "gpg.format", "ssh"], cwd=workspace)
+        _git(["config", "--local", "user.signingkey", str(operator_key)], cwd=workspace)
+        config = workspace / ".git" / "config"
+        operator_config = config.read_bytes()
+        set_profile("standard", operator_approval_ref="v31b3-keys", base_dir=base)
+
+        # A crashed cycle: minted 48h ago, never revoked, config still installed.
+        mint_signing_key(cycle_id="cyc-crashed", workspace_root=workspace)
+        keys_dir = workspace / "aria-debts" / "keys"
+        old_ts = time.time() - 48 * 3600
+        for entry in keys_dir.iterdir():
+            os.utime(entry, (old_ts, old_ts))
+        self.assertNotEqual(config.read_bytes(), operator_config)
+        # A cycle still within the window (another process may hold it).
+        (keys_dir / "cyc-recent").write_text("fixture-only-private-placeholder", encoding="utf-8")
+
+        def startup() -> None:
+            run_autonomy_orchestrator(
+                base_dir=base, workspace_root=str(workspace), profile="standard", max_cycles=0,
+                auto_merge_runner=lambda **kw: {"status": "skipped"},
+                github_adapter=object(),
+                convergence_runner=lambda **kw: {"arbiter_verdict": "split"},
+                review_runner=lambda **kw: {"review_verdict": "gaps_open"},
+                specialist_review_runner=lambda **kw: {"consolidated_verdict": "specialists_unavailable"},
+                plan_synthesizer=lambda **kw: None,
+                skill_genesis_drainer=lambda **kw: {"aggregate_verdict": "no_requests"},
+                cycle_runner=lambda **kw: {"status": "ok"},
+                planner_drainer=lambda **kw: {"claims_dispatched": 0},
+                worker_drainer=lambda **kw: {"assignments_dispatched": 0},
+                bridge_drainer=lambda **kw: {"status": "ok"},
+            )
+
+        snapshots_dir = workspace / ".git" / "aria-signing-config-snapshots"
+        self.assertEqual(sorted(p.name for p in snapshots_dir.iterdir()), ["cyc-crashed.json"])
+
+        startup()
+        self.assertEqual(sorted(p.name for p in keys_dir.iterdir()), ["cyc-recent"])
+        self.assertEqual(sorted(p.name for p in snapshots_dir.iterdir()), [])
+        self.assertEqual(config.read_bytes(), operator_config, "the crashed cycle's config must be unwound")
+        self.assertFalse((workspace / ".git" / "aria-allowed-signers").exists())
+        pruned = [row["details"] for row in load_jsonl(base / "governance.jsonl") if row.get("kind") == "keys_pruned"]
+        self.assertEqual(len(pruned), 1)
+        self.assertEqual(sorted(pruned[0]["pruned"]), ["cyc-crashed", "cyc-crashed.pub"])
+        self.assertEqual(pruned[0]["snapshots_unwound"], ["cyc-crashed"])
+        self.assertEqual(pruned[0]["git_signing_config_restored"], ["cyc-crashed"])
+        self.assertEqual(pruned[0]["errors"], [])
+        self.assertEqual(pruned[0]["scanned_count"], 4)
+        self.assertFalse(any(row.get("kind") == "keys_prune_failed" for row in load_jsonl(base / "governance.jsonl")))
+
+        # Nothing left to prune: no second row.
+        startup()
+        rows = [row for row in load_jsonl(base / "governance.jsonl") if row.get("kind") == "keys_pruned"]
+        self.assertEqual(len(rows), 1)
+        self.assertTrue((keys_dir / "cyc-recent").exists())
+
+    def test_i_b7_06_startup_unwinds_a_snapshot_whose_key_the_lanes_pre_clean_wiped(self) -> None:
+        """B7 — the production sequence, end to end through the orchestrator:
+        a cycle mints and is killed mid-window; the next run's pre-clean
+        (`git reset --hard && git clean -ffdx -e node_modules`, per
+        `.github/workflows/aria-auto-cycle.yml`) wipes the gitignored keys
+        dir but not `.git/`; startup finds no key files at all and still
+        unwinds the crashed cycle's snapshot, minutes old, because a
+        snapshot without its key is an orphan by definition. The operator's
+        config is back byte-for-byte, a plain commit succeeds, and the
+        `keys_pruned` row says a snapshot was unwound even though nothing
+        in the keys dir was there to prune."""
+        import subprocess
+
+        from aria_kernel.autonomy_orchestrator import run_autonomy_orchestrator
+        from aria_kernel.gh_token_factory import mint_signing_key
+        from aria_kernel.ledger import load_jsonl
+        from aria_kernel.runtime_profile import set_profile
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+
+        tmp = Path(tempfile.mkdtemp(prefix="v31b3-preclean-")).resolve()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        base = tmp / "aria-tools"
+        workspace = make_repo_with_initial_commit(tmp, name="checkout", files={"f.txt": "x\n"})
+        operator_key = tmp / "operator-signing-key"
+        subprocess.run(
+            ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "operator", "-f", str(operator_key)],
+            check=True, capture_output=True, timeout=30,
+        )
+        _git(["config", "--local", "commit.gpgsign", "true"], cwd=workspace)
+        _git(["config", "--local", "gpg.format", "ssh"], cwd=workspace)
+        _git(["config", "--local", "user.signingkey", str(operator_key)], cwd=workspace)
+        config = workspace / ".git" / "config"
+        operator_config = config.read_bytes()
+        set_profile("standard", operator_approval_ref="v31b3-preclean", base_dir=base)
+
+        mint_signing_key(cycle_id="cyc-killed", workspace_root=workspace)
+        # Killed here. The next run's pre-clean, verbatim from the workflow:
+        subprocess.run(["git", "-C", str(workspace), "reset", "--hard"], check=True, capture_output=True, timeout=30)
+        subprocess.run(["git", "-C", str(workspace), "clean", "-ffdx", "-e", "node_modules"],
+                       check=True, capture_output=True, timeout=30)
+        keys_dir = workspace / "aria-debts" / "keys"
+        self.assertFalse(keys_dir.exists())
+        self.assertNotEqual(config.read_bytes(), operator_config, "the config still names the wiped key")
+        # Outside any mint window, a plain commit is broken right now.
+        (workspace / "f.txt").write_text("broken\n", encoding="utf-8")
+        _git(["add", "f.txt"], cwd=workspace)
+        self.assertEqual(_git(["commit", "-q", "-m", "before startup"], cwd=workspace, check=False).returncode, 128)
+
+        run_autonomy_orchestrator(
+            base_dir=base, workspace_root=str(workspace), profile="standard", max_cycles=0,
+            auto_merge_runner=lambda **kw: {"status": "skipped"},
+            github_adapter=object(),
+            convergence_runner=lambda **kw: {"arbiter_verdict": "split"},
+            review_runner=lambda **kw: {"review_verdict": "gaps_open"},
+            specialist_review_runner=lambda **kw: {"consolidated_verdict": "specialists_unavailable"},
+            plan_synthesizer=lambda **kw: None,
+            skill_genesis_drainer=lambda **kw: {"aggregate_verdict": "no_requests"},
+            cycle_runner=lambda **kw: {"status": "ok"},
+            planner_drainer=lambda **kw: {"claims_dispatched": 0},
+            worker_drainer=lambda **kw: {"assignments_dispatched": 0},
+            bridge_drainer=lambda **kw: {"status": "ok"},
+        )
+
+        self.assertEqual(config.read_bytes(), operator_config, "the operator's config, byte-for-byte")
+        self.assertEqual(sorted(p.name for p in (workspace / ".git" / "aria-signing-config-snapshots").iterdir()), [])
+        self.assertFalse((workspace / ".git" / "aria-allowed-signers").exists())
+        self.assertEqual(_git(["commit", "-q", "-m", "after startup"], cwd=workspace, check=False).returncode, 0,
+                         "a plain commit succeeds again")
+        pruned = [row["details"] for row in load_jsonl(base / "governance.jsonl") if row.get("kind") == "keys_pruned"]
+        self.assertEqual(len(pruned), 1)
+        self.assertEqual(pruned[0]["pruned"], [])
+        self.assertEqual(pruned[0]["snapshots_unwound"], ["cyc-killed"])
+        self.assertEqual(pruned[0]["git_signing_config_restored"], ["cyc-killed"])
+        self.assertEqual(pruned[0]["scanned_count"], 1)
+        self.assertEqual(pruned[0]["errors"], [])
 
 
 class AutonomousRunnerDispatchPathTests(unittest.TestCase):
@@ -333,8 +509,16 @@ class AutonomousRunnerDispatchPathTests(unittest.TestCase):
         )
 
 
-class SignerReadyCallbackTests(unittest.TestCase):
-    """The runner lends public provenance without transferring key ownership."""
+class RunnerResourceLifecycleTests(unittest.TestCase):
+    """The runner releases exactly the credentials it acquired, on every path.
+
+    This class carried the `on_signer_ready` callback pins while the runner
+    lent its signer to the memory hook. B7 moved the signer and the replay
+    into the orchestrator's knowledge seam; the callback had no production
+    caller left (ORPHAN-694 class) and is deleted. What survives here is
+    what the callback tests were REALLY pinning underneath: key and token
+    cleanup on success, on refusal, on a raised fault and on cancellation.
+    """
 
     def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="v31b3-signer-")
@@ -352,19 +536,19 @@ class SignerReadyCallbackTests(unittest.TestCase):
         failure_at: str | None = None,
         failure: BaseException | None = None,
         runner: Any = None,
-        **kwargs: Any,
+        at_stage: Any = None,
     ) -> Any:
         from aria_kernel import gh_token_factory
         from aria_kernel.cycle_phases.implementer import AutonomousV9ImplementationRunner
 
         self.events.clear()
-        cycle_id = "cyc-callback"
+        cycle_id = "cyc-lifecycle"
         private_path = self.workspace / "aria-debts/keys" / cycle_id
         public_path = private_path.with_suffix(".pub")
         token_path = private_path.with_suffix(".token")
         key = gh_token_factory.SigningKey(
             cycle_id=cycle_id, private_key_path=private_path,
-            public_key_path=public_path, fingerprint="SHA256:fixture-callback-key",
+            public_key_path=public_path, fingerprint="SHA256:fixture-lifecycle-key",
         )
         lease = gh_token_factory.InstallationTokenLease(
             cycle_id=cycle_id, token_file=token_path, ttl_seconds=300,
@@ -381,7 +565,7 @@ class SignerReadyCallbackTests(unittest.TestCase):
                 raise failure
 
         def mint_key(*, cycle_id: str, workspace_root: Path) -> Any:
-            self.assertEqual((cycle_id, workspace_root), ("cyc-callback", self.workspace))
+            self.assertEqual((cycle_id, workspace_root), ("cyc-lifecycle", self.workspace))
             enter("mint_key")
             if real_key:
                 self.key = real_mint(cycle_id=cycle_id, workspace_root=workspace_root)
@@ -394,7 +578,7 @@ class SignerReadyCallbackTests(unittest.TestCase):
             return self.key
 
         def mint_token(*, cycle_id: str, workspace_root: Path) -> Any:
-            self.assertEqual((cycle_id, workspace_root), ("cyc-callback", self.workspace))
+            self.assertEqual((cycle_id, workspace_root), ("cyc-lifecycle", self.workspace))
             enter("mint_token")
             token_path.write_text("fixture-only-invalid-token", encoding="utf-8")
             self.owned.add("token")
@@ -402,14 +586,17 @@ class SignerReadyCallbackTests(unittest.TestCase):
 
         def stage(**stage_kwargs: Any) -> dict[str, str]:
             enter("stage")
+            if at_stage is not None:
+                # The one step that runs while BOTH credentials are held.
+                at_stage()
             return dict(AutonomousRunnerDispatchPathTests.STAGED)
 
         def envelope(**envelope_kwargs: Any) -> dict[str, str]:
             enter("envelope")
-            return {"request_id": "AIR-callback-001"}
+            return {"request_id": "AIR-lifecycle-001"}
 
         def revoke_key(*, cycle_id: str, workspace_root: Path) -> dict[str, list]:
-            self.assertEqual((cycle_id, workspace_root), ("cyc-callback", self.workspace))
+            self.assertEqual((cycle_id, workspace_root), ("cyc-lifecycle", self.workspace))
             enter("revoke_key")
             if real_key:
                 real_revoke(cycle_id=cycle_id, workspace_root=workspace_root)
@@ -440,125 +627,62 @@ class SignerReadyCallbackTests(unittest.TestCase):
             stack.enter_context(patch("aria_kernel.tool_registry.append_tools_governance", return_value={}))
             selected = AutonomousV9ImplementationRunner() if runner is None else runner
             return selected.run(
-                cycle_id=cycle_id, plan_id="plan-callback", workspace_root=self.workspace,
+                cycle_id=cycle_id, plan_id="plan-lifecycle", workspace_root=self.workspace,
                 base_dir=self.root / "aria-tools", cross_review_summary={"verdict": "agreed"},
-                profile="autonomous", **kwargs,
+                profile="autonomous",
             )
 
     def _assert_released(self) -> None:
         self.assertEqual(self.owned, set())
         for suffix in ("", ".pub", ".token"):
-            self.assertFalse((self.workspace / "aria-debts/keys" / f"cyc-callback{suffix}").exists())
+            self.assertFalse((self.workspace / "aria-debts/keys" / f"cyc-lifecycle{suffix}").exists())
 
-    def test_callback_receives_only_public_fields_while_real_key_is_owned(self) -> None:
+    def test_run_takes_no_signer_callback(self) -> None:
+        """ORPHAN-694 class — a parameter with no production caller is not
+        an extension seam, it is drift. The runner contract names the six
+        inputs the orchestrator supplies and nothing else, on the Protocol
+        and on both variants."""
+        from aria_kernel.cycle_phases.implementer import (
+            AutonomousV9ImplementationRunner, NoOpV9ImplementationRunner, V9ImplementationRunner,
+        )
+        expected = ["self", "cycle_id", "plan_id", "workspace_root", "base_dir", "cross_review_summary", "profile"]
+        for owner in (V9ImplementationRunner, NoOpV9ImplementationRunner, AutonomousV9ImplementationRunner):
+            with self.subTest(owner=owner.__name__):
+                self.assertEqual(list(inspect.signature(owner.run).parameters), expected)
+        from aria_kernel.cycle_phases import implementer
+        self.assertFalse(hasattr(implementer, "_validate_signer_ready_callback"))
+
+    def test_real_key_is_owned_for_the_run_and_released_after_it(self) -> None:
         from dataclasses import asdict
         from tests._helpers.git_fixtures import make_repo_with_initial_commit
 
         self.workspace = make_repo_with_initial_commit(
             self.root, name="checkout", files={"fixture.txt": "signer owner fixture\n"},
         )
-        report = {"original": "preserved"}
-        received: list[dict] = []
+        seen: dict[str, bool] = {}
 
-        def complete(**public: Any) -> dict[str, Any]:
-            self.events.append("callback")
-            self.assertEqual(self.owned, {"key"})
-            self.assertTrue(self.key.private_key_path.is_file())
-            self.assertTrue(self.key.public_key_path.is_file())
-            received.append(public)
-            return {"status": "completed", "attempted": 1}
+        def observe_key() -> None:
+            seen["owned"] = self.owned == {"key", "token"}
+            seen["private"] = self.key.private_key_path.is_file()
+            seen["public"] = self.key.public_key_path.is_file()
 
-        result = self._run(real_key=True, on_signer_ready=complete, observation_completion_report=report)
-        self.assertEqual(received, [{"signer_cycle_id": "cyc-callback", "signer_key_fp": self.key.fingerprint}])
-        self.assertEqual(report, {"original": "preserved", "status": "completed", "attempted": 1})
-        self.assertEqual(self.events, ["mint_key", "callback", "mint_token", "stage", "envelope", "revoke_key", "revoke_token"])
+        result = self._run(real_key=True, at_stage=observe_key)
+        self.assertEqual(seen, {"owned": True, "private": True, "public": True})
+        self.assertTrue(str(self.key.fingerprint).startswith("SHA256:"))
+        self.assertEqual(self.events, ["mint_key", "mint_token", "stage", "envelope", "revoke_key", "revoke_token"])
         self.assertEqual(asdict(result), {
             "terminal_state": "IMPLEMENTATION_DISPATCHED", "pr_url": None,
             "rejection_class": None, "specialist_review_signal": "review_converged_plan",
         })
         self._assert_released()
 
-    def test_noop_leaves_optional_callback_report_and_credentials_untouched(self) -> None:
+    def test_noop_acquires_nothing(self) -> None:
         from aria_kernel.cycle_phases.implementer import NoOpV9ImplementationRunner
 
-        report = {"status": "not_started"}
-
-        def forbidden(**public: Any) -> dict[str, Any]:
-            self.fail("NoOp must not invoke the observation callback")
-
-        result = self._run(runner=NoOpV9ImplementationRunner(), on_signer_ready=forbidden,
-                           observation_completion_report=report)
+        result = self._run(runner=NoOpV9ImplementationRunner())
         self.assertEqual(result.rejection_class, "no_op_v9_runner")
         self.assertEqual(result.specialist_review_signal, "review_converged_plan")
-        self.assertEqual(report, {"status": "not_started"})
         self.assertEqual(self.events, [])
-        self._assert_released()
-
-    def test_invalid_callback_report_pair_is_rejected_before_acquisition(self) -> None:
-        for case, kwargs in (
-            ("missing_report", {"on_signer_ready": lambda **public: {}}),
-            ("missing_callback", {"observation_completion_report": {}}),
-            ("non_dictionary_report", {"on_signer_ready": lambda **public: {}, "observation_completion_report": []}),
-            ("non_callable", {"on_signer_ready": 42, "observation_completion_report": {}}),
-        ):
-            with self.subTest(case=case):
-                with self.assertRaises((TypeError, ValueError)):
-                    self._run(**kwargs)
-                self.assertEqual(self.events, [], "invalid callback contracts must not acquire credentials")
-                self._assert_released()
-
-    def test_dictionary_subclass_is_rejected_before_acquisition(self) -> None:
-        class UnwritableReport(dict):
-            def update(self, *args: Any, **kwargs: Any) -> None:
-                raise OSError("fixture report cannot retain callback errors")
-
-        report = UnwritableReport(status="not_started")
-        with self.assertRaises(TypeError):
-            self._run(on_signer_ready=lambda **public: {"status": "completed"},
-                      observation_completion_report=report)
-        self.assertEqual(report, {"status": "not_started"})
-        self.assertEqual(self.events, [])
-        self._assert_released()
-
-    def test_noop_rejects_report_without_callback(self) -> None:
-        from aria_kernel.cycle_phases.implementer import NoOpV9ImplementationRunner
-
-        report = {"status": "not_started"}
-        with self.assertRaises(ValueError):
-            self._run(runner=NoOpV9ImplementationRunner(), observation_completion_report=report)
-        self.assertEqual(report, {"status": "not_started"})
-        self.assertEqual(self.events, [])
-        self._assert_released()
-
-    def test_callback_errors_remain_public_without_blocking_dispatch_or_cleanup(self) -> None:
-        sentinel = "private-fixture-diagnostic-903"
-        for error_type in (RuntimeError, OSError):
-            with self.subTest(error_type=error_type.__name__):
-                report = {"original": "preserved"}
-
-                def fail_callback(**public: Any) -> dict[str, Any]:
-                    self.events.append("callback")
-                    raise error_type(sentinel)
-
-                result = self._run(on_signer_ready=fail_callback, observation_completion_report=report)
-                self.assertEqual(result.terminal_state, "IMPLEMENTATION_DISPATCHED")
-                self.assertEqual(report, {"original": "preserved", "status": "callback_error", "error_class": error_type.__name__})
-                self.assertNotIn(sentinel, json.dumps(report))
-                self.assertEqual(self.events, ["mint_key", "callback", "mint_token", "stage", "envelope", "revoke_key", "revoke_token"])
-                self._assert_released()
-
-    def test_callback_error_report_survives_later_token_failure(self) -> None:
-        report: dict[str, Any] = {}
-
-        def fail_callback(**public: Any) -> dict[str, Any]:
-            self.events.append("callback")
-            raise OSError("fixture callback audit unavailable")
-
-        with self.assertRaisesRegex(RuntimeError, "fixture token unavailable"):
-            self._run(on_signer_ready=fail_callback, observation_completion_report=report,
-                      failure_at="mint_token", failure=RuntimeError("fixture token unavailable"))
-        self.assertEqual(report, {"status": "callback_error", "error_class": "OSError"})
-        self.assertEqual(self.events, ["mint_key", "callback", "mint_token", "revoke_key"])
         self._assert_released()
 
     def test_pipeline_failure_releases_only_acquired_resources(self) -> None:
@@ -567,54 +691,34 @@ class SignerReadyCallbackTests(unittest.TestCase):
 
         for phase, error, refusal, expected_events in (
             ("mint_token", RuntimeError("fixture token failure"), None,
-             ["mint_key", "callback", "mint_token", "revoke_key"]),
+             ["mint_key", "mint_token", "revoke_key"]),
             ("stage", GovernanceError("fixture staging refusal"), "staging_governance_error",
-             ["mint_key", "callback", "mint_token", "stage", "revoke_key", "revoke_token"]),
+             ["mint_key", "mint_token", "stage", "revoke_key", "revoke_token"]),
             ("envelope", GovernanceError("fixture envelope refusal"), "envelope_governance_error",
-             ["mint_key", "callback", "mint_token", "stage", "envelope", "revoke_key", "revoke_token"]),
+             ["mint_key", "mint_token", "stage", "envelope", "revoke_key", "revoke_token"]),
             ("envelope", BridgeContractViolation("fixture envelope violation"), None,
-             ["mint_key", "callback", "mint_token", "stage", "envelope", "revoke_key", "revoke_token"]),
+             ["mint_key", "mint_token", "stage", "envelope", "revoke_key", "revoke_token"]),
         ):
             with self.subTest(phase=phase, error_type=type(error).__name__):
-                report: dict[str, Any] = {}
-
-                def complete(**public: Any) -> dict[str, Any]:
-                    self.events.append("callback")
-                    return {"status": "completed"}
-
-                kwargs = dict(on_signer_ready=complete, observation_completion_report=report,
-                              failure_at=phase, failure=error)
                 if refusal is None:
                     with self.assertRaises(type(error)):
-                        self._run(**kwargs)
+                        self._run(failure_at=phase, failure=error)
                 else:
-                    result = self._run(**kwargs)
+                    result = self._run(failure_at=phase, failure=error)
                     self.assertEqual(result.terminal_state, "IMPLEMENTATION_REQUEST_REFUSED")
                     self.assertEqual(result.rejection_class, refusal)
-                self.assertEqual(report, {"status": "completed"})
                 self.assertEqual(self.events, expected_events)
                 self._assert_released()
 
-    def test_callback_keyboard_interrupt_unwinds_key_cleanup(self) -> None:
-        report = {"status": "not_started"}
-
-        def interrupted(**public: Any) -> dict[str, Any]:
-            self.events.append("callback")
-            raise KeyboardInterrupt("fixture cancellation")
-
+    def test_token_keyboard_interrupt_unwinds_key_cleanup(self) -> None:
         with self.assertRaises(KeyboardInterrupt):
-            self._run(on_signer_ready=interrupted, observation_completion_report=report)
-        self.assertEqual(report, {"status": "not_started"})
-        self.assertEqual(self.events, ["mint_key", "callback", "revoke_key"])
+            self._run(failure_at="mint_token", failure=KeyboardInterrupt("fixture cancellation"))
+        self.assertEqual(self.events, ["mint_key", "mint_token", "revoke_key"])
         self._assert_released()
 
     def test_envelope_keyboard_interrupt_unwinds_both_resources(self) -> None:
-        report: dict[str, Any] = {}
         with self.assertRaises(KeyboardInterrupt):
-            self._run(on_signer_ready=lambda **public: {"status": "completed"},
-                      observation_completion_report=report, failure_at="envelope",
-                      failure=KeyboardInterrupt("fixture cancellation"))
-        self.assertEqual(report, {"status": "completed"})
+            self._run(failure_at="envelope", failure=KeyboardInterrupt("fixture cancellation"))
         self.assertEqual(self.events, ["mint_key", "mint_token", "stage", "envelope", "revoke_key", "revoke_token"])
         self._assert_released()
 

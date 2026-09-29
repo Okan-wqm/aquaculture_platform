@@ -259,6 +259,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # ORPHAN-HIGH-409: the NATS factory refuses boot when the broker is
+      # unreachable, so an unwaited cold `up -d` crash-loops this container.
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
@@ -417,6 +421,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # ORPHAN-HIGH-409: the NATS factory refuses boot when the broker is
+      # unreachable, so an unwaited cold `up -d` crash-loops this container.
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
@@ -502,6 +510,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # ORPHAN-HIGH-409: the NATS factory refuses boot when the broker is
+      # unreachable, so an unwaited cold `up -d` crash-loops this container.
+      nats:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
@@ -548,6 +560,10 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      # ORPHAN-HIGH-409: the NATS factory refuses boot when the broker is
+      # unreachable, so an unwaited cold `up -d` crash-loops this container.
+      nats:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:

@@ -76,10 +76,16 @@ services:
     volumes:
       - nats_data:/data
     healthcheck:
-      test: ['CMD-SHELL', 'nc -z 127.0.0.1 4222 || exit 1']
+      # ORPHAN-HIGH-409: readiness, not TCP accept. `nc -z 4222` went healthy on
+      # the first accepted socket — before JetStream serves — so dependents
+      # gated on service_healthy could still boot into a broker that refuses
+      # their pull consumer. /healthz on the monitoring port (8222, enabled by
+      # this service's own command) reports ok only once JetStream is serving.
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:8222/healthz']
       interval: 10s
       timeout: 5s
-      retries: 5
+      start_period: 15s
+      retries: 6
     networks:
       - aqua-network
 

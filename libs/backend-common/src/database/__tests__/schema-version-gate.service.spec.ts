@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
+import { createMockDataSource } from '@platform/testing';
 import { DataSource } from 'typeorm';
 
-import { createMockDataSource } from '../../../../testing/src/factories/mock-datasource.factory';
 import { createSchemaVersionGate } from '../schema-version-gate.service';
 
 function mockConfig(): ConfigService {
@@ -189,6 +189,110 @@ describe('SchemaVersionGate release-ledger lifecycle', () => {
     await expect(
       new Gate(mockDataSource, mockConfig()).onApplicationBootstrap(),
     ).resolves.toBeUndefined();
+  });
+
+  it('ORPHAN-410 — skips a tenant schema the newest release does not declare when its ledger table does not exist yet', async () => {
+    // The runtime provisioner CREATEs (and commits) the tenant schema before it
+    // replays a single migration into it, so between those two facts the schema
+    // is visible to the gate with no `migrations_<source>` table at all. Under
+    // the old contract that probe failure refused boot — fleet-wide, for every
+    // tenant-aware service, for the whole provisioning window and forever after
+    // a provisioning that failed and left its partial schema behind.
+    const tenantSchema = 'tenant_4b529829ea7948da';
+    const head = '1800300000000';
+    const headName = 'AlignEquipmentTypesRuntimeContract1800300000000';
+    const { mockDataSource } = createMockDataSource();
+    mockDataSource.query
+      .mockReset()
+      .mockResolvedValueOnce(bootstrapRow())
+      .mockResolvedValueOnce([{ last_ts: head, last_name: headName, row_count: '4' }])
+      .mockResolvedValueOnce([
+        { release_id: 'release-1', expected_ts: head, expected_name: headName },
+      ])
+      .mockResolvedValueOnce([{ schema_name: tenantSchema }])
+      // Ledger table not created yet — postgres raises, as it does mid-provisioning.
+      .mockRejectedValueOnce(new Error('relation "migrations_farm" does not exist'))
+      // The newest release does not declare this tenant → it was onboarded after
+      // the release, so the deployment SSoT has nothing to hold it to.
+      .mockResolvedValueOnce([{ declared: false }]);
+
+    const Gate = createSchemaVersionGate('farm', { mode: 'gate', tenantAware: true });
+    await expect(
+      new Gate(mockDataSource, mockConfig()).onApplicationBootstrap(),
+    ).resolves.toBeUndefined();
+  });
+
+  it('ORPHAN-410 — still refuses boot when a tenant the release DECLARED has no ledger table', async () => {
+    const tenantSchema = 'tenant_4b529829ea7948da';
+    const head = '1800300000000';
+    const headName = 'AlignEquipmentTypesRuntimeContract1800300000000';
+    const { mockDataSource } = createMockDataSource();
+    mockDataSource.query
+      .mockReset()
+      .mockResolvedValueOnce(bootstrapRow())
+      .mockResolvedValueOnce([{ last_ts: head, last_name: headName, row_count: '4' }])
+      .mockResolvedValueOnce([
+        { release_id: 'release-1', expected_ts: head, expected_name: headName },
+      ])
+      .mockResolvedValueOnce([{ schema_name: tenantSchema }])
+      .mockRejectedValueOnce(new Error('relation "migrations_farm" does not exist'))
+      // Declared by the release: db-migrate DID fan out to this tenant, so a
+      // missing ledger is genuine mid-fan-out damage and must still fail closed.
+      .mockResolvedValueOnce([{ declared: true }]);
+
+    const Gate = createSchemaVersionGate('farm', { mode: 'gate', tenantAware: true });
+    await expect(new Gate(mockDataSource, mockConfig()).onApplicationBootstrap()).rejects.toThrow(
+      /Ledger probe FAILED/,
+    );
+  });
+
+  it('ORPHAN-410 — skips an EMPTY ledger in an undeclared tenant schema, refuses when the release row is unreadable', async () => {
+    const tenantSchema = 'tenant_4b529829ea7948da';
+    const head = '1800300000000';
+    const headName = 'AlignEquipmentTypesRuntimeContract1800300000000';
+    const { mockDataSource } = createMockDataSource();
+    mockDataSource.query
+      .mockReset()
+      .mockResolvedValueOnce(bootstrapRow())
+      .mockResolvedValueOnce([{ last_ts: head, last_name: headName, row_count: '4' }])
+      .mockResolvedValueOnce([
+        { release_id: 'release-1', expected_ts: head, expected_name: headName },
+      ])
+      .mockResolvedValueOnce([{ schema_name: tenantSchema }])
+      // Ledger table exists but carries no row — the provisioner created it and
+      // has not committed a migration into it yet.
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ declared: false }]);
+
+    const Gate = createSchemaVersionGate('farm', { mode: 'gate', tenantAware: true });
+    await expect(
+      new Gate(mockDataSource, mockConfig()).onApplicationBootstrap(),
+    ).resolves.toBeUndefined();
+  });
+
+  it('ORPHAN-410 — refuses boot when NO release row exists to classify an unprobeable tenant schema', async () => {
+    // Absence of evidence is not evidence of a post-release tenant: with no
+    // release row at all the gate cannot tell a fresh database from a tenant
+    // onboarded since the last deploy, so it keeps refusing.
+    const tenantSchema = 'tenant_4b529829ea7948da';
+    const head = '1800300000000';
+    const headName = 'AlignEquipmentTypesRuntimeContract1800300000000';
+    const { mockDataSource } = createMockDataSource();
+    mockDataSource.query
+      .mockReset()
+      .mockResolvedValueOnce(bootstrapRow())
+      .mockResolvedValueOnce([{ last_ts: head, last_name: headName, row_count: '4' }])
+      .mockResolvedValueOnce([
+        { release_id: 'release-1', expected_ts: head, expected_name: headName },
+      ])
+      .mockResolvedValueOnce([{ schema_name: tenantSchema }])
+      .mockRejectedValueOnce(new Error('relation "migrations_farm" does not exist'))
+      .mockResolvedValueOnce([]);
+
+    const Gate = createSchemaVersionGate('farm', { mode: 'gate', tenantAware: true });
+    await expect(new Gate(mockDataSource, mockConfig()).onApplicationBootstrap()).rejects.toThrow(
+      /Ledger probe FAILED/,
+    );
   });
 
   it('ORPHAN-410 — still refuses a post-release tenant whose head is BEHIND the release source head', async () => {

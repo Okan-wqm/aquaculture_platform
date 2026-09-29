@@ -70,7 +70,7 @@ services:
       redis:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
     develop:
       watch:
         - action: sync
@@ -117,7 +117,7 @@ services:
       redis:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
     develop:
       watch:
         - action: sync
@@ -162,7 +162,7 @@ services:
       redis:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
       config-service:
         condition: service_healthy
     develop:
@@ -200,7 +200,7 @@ services:
       redis:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
     develop:
       watch:
         - action: sync
@@ -233,7 +233,7 @@ services:
       postgres:
         condition: service_healthy
       nats:
-        condition: service_started
+        condition: service_healthy
     develop:
       watch:
         - action: sync
@@ -263,15 +263,27 @@ services:
       - SENSOR_SERVICE_URL=http://sensor-service:3000/graphql
       - HR_SERVICE_URL=http://hr-service:3000/graphql
       - REDIS_URL=redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      - NATS_URL=nats://nats:4222
       - PORT=3000
     ports:
       - '3000:3000'
     depends_on:
-      - auth-service
-      - farm-service
-      - config-service
-      - sensor-service
-      - hr-service
+      auth-service:
+        condition: service_started
+      farm-service:
+        condition: service_started
+      config-service:
+        condition: service_started
+      sensor-service:
+        condition: service_started
+      hr-service:
+        condition: service_started
+      # ORPHAN-HIGH-409: the gateway subscribes core-NATS subjects (events.>,
+      # st.language.>) at boot, so it waits for a HEALTHY broker like every
+      # other NATS application in infrastructure/nats/services.yaml. The
+      # short-list form this block replaces granted no broker dependency at all.
+      nats:
+        condition: service_healthy
     develop:
       watch:
         - action: sync

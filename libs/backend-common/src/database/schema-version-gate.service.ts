@@ -383,6 +383,10 @@ export function createSchemaVersionGate(
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        if (tenantSchema !== undefined && !(await this.releaseDeclaresTenant(tenantSchema))) {
+          this.logUnprobeablePostReleaseTenant(tenantSchema, `ledger probe failed: ${msg}`);
+          return;
+        }
         throw new Error(
           `[SchemaVersionGate:${sourceSchema}] Ledger probe FAILED on "${schema}": ${msg}. ` +
             `Likely cause: aqua-db-migrate has not run yet, or the ` +
@@ -398,6 +402,10 @@ export function createSchemaVersionGate(
       const rowCount = parseInt(row?.row_count ?? '0', 10);
 
       if (lastTs === null || lastName === null || rowCount === 0) {
+        if (tenantSchema !== undefined && !(await this.releaseDeclaresTenant(tenantSchema))) {
+          this.logUnprobeablePostReleaseTenant(tenantSchema, `ledger is empty (rows=${rowCount})`);
+          return;
+        }
         throw new Error(
           `[SchemaVersionGate:${sourceSchema}] Ledger "${schema}"."${ledgerTable}" is EMPTY (rows=${rowCount}). ` +
             `aqua-db-migrate has not finalised the baseline. Service boot refused — ` +
@@ -416,6 +424,61 @@ export function createSchemaVersionGate(
 
       this.logger.log(
         `Ledger probe on "${schema}"."${ledgerTable}": ${rowCount} migration(s) applied, last=${lastName}@${lastTs}`,
+      );
+    }
+
+    /**
+     * Does the newest DB-complete release row hold this tenant schema?
+     *
+     * ORPHAN-HIGH-410 (second window). The release ledger is written by
+     * `aqua-db-migrate` only AFTER every source schema AND every tenant in that
+     * release's fan-out reached head — a mid-fan-out failure aborts the deploy
+     * before any row is written, so a tenant that EXISTED at release time is
+     * always declared by the newest row. The complement is therefore exact: an
+     * undeclared tenant schema came into existence after that release, i.e. from
+     * the runtime tenant-schema-provisioner, and the deployment SSoT holds no
+     * expectation for it at all.
+     *
+     * Absence of a release row is NOT evidence of a post-release tenant (it also
+     * describes a fresh database), so an unreadable/absent row answers `true`
+     * and every caller keeps failing closed.
+     */
+    private async releaseDeclaresTenant(tenantSchema: string): Promise<boolean> {
+      const rows: Array<{ declared: boolean }> = await this.dataSource.query(
+        `SELECT (expected_heads #> ARRAY['tenants', $1]) IS NOT NULL AS declared
+           FROM platform.release_ledger
+          WHERE status = ANY($2::text[])
+            AND expected_heads ? 'tenants'
+          ORDER BY updated_at DESC, started_at DESC
+          LIMIT 1`,
+        [tenantSchema, RELEASE_LEDGER_DB_COMPLETE_STATUSES],
+      );
+      const row = rows[0];
+      if (row === undefined) return true;
+      return row.declared === true;
+    }
+
+    /**
+     * A tenant schema that exists physically, that no release declares, and
+     * whose ledger cannot be read is a provisioning that is still running or
+     * that failed and left its partial schema behind: `CREATE SCHEMA` commits
+     * immediately, the migration replay follows over the next seconds-to-minutes
+     * (`apps/db-migrate/src/tenant-schema-provisioner.ts`), and the failure path
+     * writes FAILED evidence without dropping the schema.
+     *
+     * Refusing boot on it takes down every tenant-aware service, fleet-wide,
+     * over one tenant that is not live yet — the ORPHAN-HIGH-410 crash-loop with
+     * a different trigger. Skipping costs nothing the platform relies on: the
+     * tenant has no committed `admin.tenant_schemas` row, so no request routes
+     * into it, and the provisioner's job evidence plus the tenant-isolation
+     * watchdog own the alerting for a provisioning that never finished.
+     */
+    private logUnprobeablePostReleaseTenant(tenantSchema: string, reason: string): void {
+      this.logger.warn(
+        `Tenant schema "${tenantSchema}" is not declared by any release and is not probeable ` +
+          `(${reason}). Treating it as provisioning-in-flight (or a failed provisioning that ` +
+          `left its schema behind) and SKIPPING it — refusing boot over it would crash-loop ` +
+          `every tenant-aware service. Check platform.tenant_schema_jobs for this schema.`,
       );
     }
 

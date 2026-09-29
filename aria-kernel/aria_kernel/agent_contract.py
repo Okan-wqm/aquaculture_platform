@@ -513,6 +513,7 @@ def render_response_validator_contract() -> str:
     kernel "reads `id` + `verdict` only". Rendered from the constants and
     the checks themselves — edit the validator and this text follows.
     """
+    from .judgment_bridge import render_judge_verdict_rules
     from .plan_contract import render_plan_contract_rules
 
     verdicts = " | ".join(SATISFACTION_VERDICTS)
@@ -542,6 +543,10 @@ def render_response_validator_contract() -> str:
         "`plan_contract_complete` gate at CONVERGED and staging all read:",
         "",
         *render_plan_contract_rules(),
+        "",
+        "### Judge verdict contract (judge roles; ARIA-HIGH-242)",
+        "",
+        *render_judge_verdict_rules(),
     )) + "\n"
 
 

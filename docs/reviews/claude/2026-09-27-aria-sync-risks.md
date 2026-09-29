@@ -45,3 +45,34 @@ that run's newest row. The verifier is unchanged. The collapsed copies go to the
 as before. On the same data the fixed compactor leaves a verified tree: 0 issues, raw-findings
 66.9 MB / 40,361 rows to 13.4 MB / 8,259 rows (8,199 fingerprints plus 60 per-run rows across 80
 runs).
+
+## ARIA-HIGH-240
+
+No lane that runs before a merge compacts the real `aria/state`. `aria-kernel.yml` runs the kernel
+suite over fixtures only, so a kernel change that breaks compaction on the real tree merges green and
+is first exercised by the next scheduled `aria-state-maintenance` run on main. ARIA-HIGH-185's
+compaction change (8028bbb005, 2026-09-21) did exactly that and produced trees the kernel's own
+`integrity verify` refuses (ARIA-HIGH-239). The maintenance lane then stayed red from 2026-09-21 to
+2026-09-29, and publish-time compaction would have refused every cycle publish in the same way.
+
+Evidence:
+
+- `aria-state-maintenance` was red on every run from 35648185798 (09-21) until #1687 landed. The
+  kernel lane was green on 8028bbb005 and on every PR in between.
+- Reproduced on the live tip `d61dc79e5` (2026-09-29), through the restore action's binding
+  (`state checkout` layout + `integrity bind-tools-root` + the four `ARIA_*` roots):
+  `state compact --retain-days 7` with the kernel from before HIGH-239's fix (62fb94b66) leaves
+  `integrity verify` invalid with 60 `raw_pointer_missing`. With main's kernel (dae95efb3) it is valid,
+  with 0 issues.
+- On maintenance run 36527583572 the whole path costs under 20 s: restore 4 s, compact 8 s,
+  verify 6 s.
+
+Rule: A kernel change that the maintenance lane would turn into an unpublishable tree must fail
+before it merges, on the real state and not only on fixtures.
+
+Fix: `aria-kernel.yml` gains a `state` job. It restores the live tip through the one restore action,
+read-only (`contents: read`, no bootstrap-ack), then runs the maintenance lane's own compact and
+verify steps with the change's kernel. It publishes nothing and fails when the verdict is not
+valid. The lane's `aria-kernel` verdict job requires it. `aria-kernel/tests/test_state_compaction_gate.py`
+pins the two steps to the maintenance lane's byte for byte (name, id, env, run), so the gate cannot
+drift from the path it stands in for.

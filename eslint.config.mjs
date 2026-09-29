@@ -249,6 +249,7 @@ const NON_PROVENANCE_TS_PROJECTS = [
   'libs/shared-contracts',
   'platform/libs/service-catalog',
   'tools/executors/cargo',
+  'tools/new-aria-admission',
 ];
 
 const nonProvenanceParserBlocks = NON_PROVENANCE_TS_PROJECTS.map((dir) => ({

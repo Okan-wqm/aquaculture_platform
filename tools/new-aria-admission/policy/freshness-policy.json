@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "new-aria-freshness-policy-v1",
+  "max_clock_skew_seconds": 30,
+  "proof_max_age_seconds": {
+    "BACKUP_RESTORE_RECOVERY": 2592000,
+    "BURN_IN_OUTCOME": 604800,
+    "COMPROMISE_OUTAGE_ROLLBACK_DRILL": 2592000,
+    "GITHUB_PERMISSION_RULE_CHECK_REVIEW": 300,
+    "HOST_CAPACITY_HEADROOM": 86400,
+    "IDENTITY_KEY_ISSUER": 86400,
+    "OPERATOR_ATTESTATION": 7776000,
+    "PROVIDER_CAPABILITY_QUOTA": 300,
+    "SOURCE_CODE_ORACLE": 2592000
+  },
+  "required_invalidation_keys": {
+    "BACKUP_RESTORE_RECOVERY": [
+      "account",
+      "authority",
+      "key",
+      "object_generation",
+      "policy",
+      "recovery_epoch",
+      "region",
+      "timeline_lsn"
+    ],
+    "BURN_IN_OUTCOME": [
+      "cohort",
+      "deployed_sha",
+      "host_topology",
+      "policy",
+      "provider_topology",
+      "sample",
+      "stop_incident",
+      "workload_digest"
+    ],
+    "COMPROMISE_OUTAGE_ROLLBACK_DRILL": [
+      "credential",
+      "image",
+      "policy",
+      "provider",
+      "recovery_epoch",
+      "topology"
+    ],
+    "GITHUB_PERMISSION_RULE_CHECK_REVIEW": [
+      "app",
+      "base",
+      "bypass",
+      "check",
+      "head",
+      "installation",
+      "repo",
+      "review",
+      "ruleset",
+      "token"
+    ],
+    "HOST_CAPACITY_HEADROOM": [
+      "competing_load",
+      "config",
+      "host_topology",
+      "image",
+      "incident",
+      "limit",
+      "policy",
+      "queue",
+      "workload"
+    ],
+    "IDENTITY_KEY_ISSUER": [
+      "attestation",
+      "cert",
+      "credential_epoch",
+      "issuer",
+      "key",
+      "policy",
+      "revoke",
+      "rotation",
+      "subject",
+      "uid"
+    ],
+    "OPERATOR_ATTESTATION": [
+      "authority",
+      "key",
+      "owner",
+      "policy",
+      "prerequisite",
+      "revoke",
+      "role"
+    ],
+    "PROVIDER_CAPABILITY_QUOTA": [
+      "account",
+      "cli",
+      "model",
+      "outage",
+      "policy",
+      "quota_epoch",
+      "quota_limit",
+      "subscription"
+    ],
+    "SOURCE_CODE_ORACLE": [
+      "authority",
+      "dependency",
+      "policy",
+      "source_head",
+      "toolchain",
+      "verifier"
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "name": "new-aria-admission",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "tools/new-aria-admission/src",
+  "projectType": "library",
+  "tags": ["scope:tools", "type:lib"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": ["{workspaceRoot}/dist/tools/new-aria-admission"],
+      "options": {
+        "commands": [
+          "npx tsc -p tools/new-aria-admission/tsconfig.lib.json",
+          "npx esbuild tools/new-aria-admission/src/verifier/admission-verifier.ts --bundle --platform=node --format=cjs --outfile=dist/tools/new-aria-admission/verifier/admission-verifier.cjs"
+        ],
+        "parallel": false
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/tools/new-aria-admission"],
+      "dependsOn": ["build"],
+      "options": {
+        "jestConfig": "tools/new-aria-admission/jest.config.ts"
+      }
+    },
+    "cli": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "dependsOn": ["build"],
+      "options": {
+        "command": "node dist/tools/new-aria-admission/runtime/cli.js"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "options": {
+        "lintFilePatterns": ["tools/new-aria-admission/{src,test}/**/*.ts"]
+      }
+    }
+  }
+}

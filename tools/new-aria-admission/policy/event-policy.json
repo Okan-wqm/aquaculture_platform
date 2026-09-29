@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "new-aria-progress-event-policy-v1",
+  "event_contract_id": "aria-event-cjson-v1",
+  "states": ["PLANNED", "READY", "IN_PROGRESS", "VERIFYING", "DONE", "BLOCKED", "SUPERSEDED"],
+  "transitions": {
+    "PLANNED": ["READY", "BLOCKED", "SUPERSEDED"],
+    "READY": ["IN_PROGRESS", "BLOCKED", "SUPERSEDED"],
+    "IN_PROGRESS": ["VERIFYING", "BLOCKED", "SUPERSEDED"],
+    "VERIFYING": ["DONE", "BLOCKED", "SUPERSEDED"],
+    "DONE": [],
+    "BLOCKED": ["READY", "SUPERSEDED"],
+    "SUPERSEDED": []
+  }
+}

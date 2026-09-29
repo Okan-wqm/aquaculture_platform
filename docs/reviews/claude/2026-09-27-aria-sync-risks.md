@@ -89,8 +89,8 @@ which refuses every member with rows[0]'s anchor). The refusal is released harne
 unanchored judge request burned drain budget and was re-queued without running. The 2026-09-27 audit
 counted 103 such rows and 27 `harness_failed` per drain.
 
-Rule: A request the claim gate admits is bound, not refused, by the executor. When the request names no
-anchor, the executor binds it at the observed HEAD and records that choice.
+Rule: A request the claim gate admits is bound, not refused, by the executor. When the request names
+no anchor, the executor binds it at the observed HEAD and records that choice.
 
 Fix: the binding treats a missing anchor the way the claim gate does. It binds at the HEAD the probe
 observed, refuses only on a mismatch against an anchor that exists, and records the choice as

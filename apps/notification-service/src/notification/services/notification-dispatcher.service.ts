@@ -23,7 +23,9 @@ import {
 import { EmailService, AlertEmailData } from './email.service';
 import { SmsService } from './sms.service';
 import { PushService } from './push.service';
+import { NotificationRateLimitedError } from './notification-rate-limited.error';
 import { SsrfValidatorService } from '@aquaculture/backend-common/ai-safety';
+import type { AlertSeverityLevel } from '@platform/event-contracts';
 
 /**
  * Redact sensitive parts from webhook URL for safe logging/storage
@@ -394,6 +396,12 @@ export class NotificationDispatcherService implements OnModuleInit {
     pushData?: Record<string, string | number | boolean | null>;
     badge?: number;
     dataOnly?: boolean;
+    /**
+     * Severity stamped on the delivery (subject prefix, email/push rendering,
+     * notification_logs metadata). Commands are informational by default; an
+     * escalated alarm passes its own severity (ALERT-CRITICAL-004).
+     */
+    severity?: AlertSeverityLevel;
   }): Promise<{ externalId?: string; replayed: boolean }> {
     const payloadHash = input.commandPayloadHash ?? this.hashCommandPayload(input);
     const receipt = await this.claimCommandReceipt(input, payloadHash);
@@ -403,7 +411,9 @@ export class NotificationDispatcherService implements OnModuleInit {
 
     if (!(await this.checkRateLimit(input.tenantId, 1))) {
       await this.markCommandReceiptFailed(input, payloadHash, 'Rate limit exceeded');
-      throw new BadRequestException('Rate limit exceeded. Please try again later.');
+      // Typed so a caller that must not lose the send can re-drive it; the
+      // FAILED receipt is re-claimed on that retry.
+      throw new NotificationRateLimitedError();
     }
 
     try {
@@ -415,7 +425,7 @@ export class NotificationDispatcherService implements OnModuleInit {
           alertId: input.deliveryId,
           ruleId: input.source,
           ruleName: input.subject,
-          severity: 'info',
+          severity: input.severity ?? 'info',
           message: input.message,
           timestamp: new Date(),
           pushTitle: input.subject,

@@ -25,6 +25,7 @@ import { WebAuthnResolver } from './resolvers/webauthn.resolver';
 import { PublicUserProfileFederationResolver } from './resolvers/user-federation.resolver';
 import { AccountService } from './services/account.service';
 import { ActionTokenResolver } from './services/action-token-resolver.service';
+import { AlertRecipientDirectoryService } from './services/alert-recipient-directory.service';
 import { AuthenticationService } from './services/authentication.service';
 import { MfaService } from './services/mfa.service';
 import { TokenService } from './services/token.service';
@@ -58,6 +59,8 @@ import { WebAuthnService } from './services/webauthn.service';
   providers: [
     AccountService,
     ActionTokenResolver,
+    // ALERT-CRITICAL-004: alarm recipient expansion for notification-service.
+    AlertRecipientDirectoryService,
     TokenService,
     MfaService,
     WebAuthnService,

@@ -6,7 +6,7 @@
  * and that only notification-service with a tenant binding may ask.
  */
 import type { TenantRequest, VerifiedServiceIdentity } from '@aquaculture/backend-common/types';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -22,6 +22,7 @@ import { Role } from '@aquaculture/backend-common/decorators';
 
 import { User } from '../../entities/user.entity';
 import { ActionTokenResolver } from '../../services/action-token-resolver.service';
+import { AlertRecipientDirectoryService } from '../../services/alert-recipient-directory.service';
 import { InternalAuthController } from '../internal-auth.controller';
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
@@ -63,6 +64,7 @@ describe('InternalAuthController', () => {
   const userRepository = { findOne: jest.fn() };
   const tenantRepository = { findOne: jest.fn() };
   const actionTokenRepository = { findOne: jest.fn() };
+  const alertRecipients = { resolve: jest.fn() };
   let controller: InternalAuthController;
 
   beforeEach(async () => {
@@ -74,6 +76,7 @@ describe('InternalAuthController', () => {
         { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: getRepositoryToken(Tenant), useValue: tenantRepository },
         { provide: getRepositoryToken(ActionToken), useValue: actionTokenRepository },
+        { provide: AlertRecipientDirectoryService, useValue: alertRecipients },
         {
           provide: ConfigService,
           useValue: new ConfigService({ FRONTEND_URL: 'https://app.example.com/' }),
@@ -81,6 +84,59 @@ describe('InternalAuthController', () => {
       ],
     }).compile();
     controller = module.get(InternalAuthController);
+  });
+
+  describe('POST internal/tenants/:tenantId/alert-recipients (ALERT-CRITICAL-004)', () => {
+    const query = {
+      tenantWideRoles: ['TENANT_ADMIN'],
+      siteRoles: ['MODULE_MANAGER'],
+      siteId: '44444444-4444-4444-8444-444444444444',
+      userIds: [],
+    };
+
+    it('expands the targets for notification-service bound to exactly this tenant', async () => {
+      // SCENARIO: notification-service asks who the alarm's roles are right now.
+      // EXPECTS: the validated query reaches the directory; its id list is returned.
+      alertRecipients.resolve.mockResolvedValue({ userIds: ['u1'], truncated: false });
+
+      await expect(
+        controller.resolveAlertRecipients(TENANT_ID, query, request(identity())),
+      ).resolves.toEqual({ userIds: ['u1'], truncated: false });
+      expect(alertRecipients.resolve).toHaveBeenCalledWith(TENANT_ID, query);
+    });
+
+    it('refuses a caller bound to another tenant (no cross-tenant directory reads)', async () => {
+      // SCENARIO: a signed call whose tenant binding differs from the path.
+      // EXPECTS: 403 before any lookup.
+      await expect(
+        controller.resolveAlertRecipients(OTHER_TENANT_ID, query, request(identity())),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(alertRecipients.resolve).not.toHaveBeenCalled();
+    });
+
+    it('refuses any service other than notification-service', async () => {
+      await expect(
+        controller.resolveAlertRecipients(
+          TENANT_ID,
+          query,
+          request(identity({ serviceName: 'farm-service' })),
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(alertRecipients.resolve).not.toHaveBeenCalled();
+    });
+
+    it('rejects a body outside the contract schema (unknown role, extra keys)', async () => {
+      // SCENARIO: SUPER_ADMIN smuggled in as a target.
+      // EXPECTS: 400 — a platform operator is never a tenant alarm recipient.
+      await expect(
+        controller.resolveAlertRecipients(
+          TENANT_ID,
+          { ...query, tenantWideRoles: ['SUPER_ADMIN'] },
+          request(identity()),
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(alertRecipients.resolve).not.toHaveBeenCalled();
+    });
   });
 
   describe('GET internal/action-tokens/:id/url', () => {

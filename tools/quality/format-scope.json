@@ -6448,6 +6448,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/services/__tests__/alert-recipient-directory.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/services/account.service.ts",
       "prettier_managed": true
     },
@@ -6455,6 +6461,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/services/action-token-resolver.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/services/alert-recipient-directory.service.ts",
       "prettier_managed": true
     },
     {
@@ -25370,6 +25382,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/jest.integration.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/jest.setup.ts",
       "prettier_managed": true
     },
@@ -25389,6 +25407,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/notification-service/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/__tests__/integration/alert-escalated-delivery.postgres.spec.ts",
       "prettier_managed": true
     },
     {
@@ -25500,7 +25524,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/notification/event-handlers/__tests__/alert-escalated.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/notification/event-handlers/__tests__/harvest-regulatory.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/event-handlers/alert-escalated.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/event-handlers/alert-escalated.template.ts",
       "prettier_managed": true
     },
     {
@@ -25644,6 +25686,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/notification/services/__tests__/user-contact-directory.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/notification/services/dead-letter-queue.service.ts",
       "prettier_managed": true
     },
@@ -25680,6 +25728,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/notification/services/notification-rate-limited.error.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/notification/services/notification-retention.service.ts",
       "prettier_managed": true
     },
@@ -25699,6 +25753,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/notification-service/src/notification/services/sms.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/services/user-contact-directory.service.ts",
       "prettier_managed": true
     },
     {

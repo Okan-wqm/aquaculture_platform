@@ -1,12 +1,25 @@
 import { Public } from '@aquaculture/backend-common/decorators';
 import type { TenantRequest } from '@aquaculture/backend-common/types';
-import { Controller, ForbiddenException, Get, NotFoundException, Param, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  HttpCode,
+  NotFoundException,
+  Param,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   InvalidEventTenantScopeError,
   PLATFORM_SCOPE,
+  checkAlertRecipientQuery,
   tenantScopeOf,
+  type AlertRecipientResult,
   type EventTenantScope,
 } from '@platform/event-contracts';
 import { IsNull, Repository } from 'typeorm';
@@ -16,6 +29,7 @@ import { Tenant } from '../../tenant/entities/tenant.entity';
 import { ActionToken, ActionTokenStatus } from '../entities/action-token.entity';
 import { User } from '../entities/user.entity';
 import { ActionTokenResolver } from '../services/action-token-resolver.service';
+import { AlertRecipientDirectoryService } from '../services/alert-recipient-directory.service';
 
 @Public()
 @Controller('internal')
@@ -35,6 +49,7 @@ export class InternalAuthController {
     private readonly actionTokenRepository: Repository<ActionToken>,
     configService: ConfigService,
     private readonly actionTokenResolver: ActionTokenResolver,
+    private readonly alertRecipients: AlertRecipientDirectoryService,
   ) {
     // DEPLOY-HIGH-016: resolved once, at boot. Reading it per request meant a
     // misconfigured deployment surfaced as a wrong link in somebody's inbox
@@ -80,6 +95,28 @@ export class InternalAuthController {
       throw new NotFoundException('Tenant not found');
     }
     return { name: tenant.name };
+  }
+
+  /**
+   * ALERT-CRITICAL-004: expand an escalated alarm's role/site/user targets into
+   * this tenant's active user ids. Same identity gate as the PII route — only
+   * notification-service, bound to exactly this tenant — and the body is
+   * validated against the shared contract schema before any query runs. The
+   * answer carries ids only; contact details stay behind `users/:id/pii`.
+   */
+  @Post('tenants/:tenantId/alert-recipients')
+  @HttpCode(200)
+  async resolveAlertRecipients(
+    @Param('tenantId') tenantId: string,
+    @Body() body: unknown,
+    @Req() request: TenantRequest,
+  ): Promise<AlertRecipientResult> {
+    this.requireNotificationService(request, tenantId);
+    const query = checkAlertRecipientQuery(body);
+    if (!query.ok) {
+      throw new BadRequestException(`Invalid alert recipient query: ${query.reason}`);
+    }
+    return this.alertRecipients.resolve(tenantId, query.value);
   }
 
   @Get('action-tokens/:actionTokenId/url')

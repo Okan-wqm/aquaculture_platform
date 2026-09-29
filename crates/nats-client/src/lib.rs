@@ -101,6 +101,74 @@ pub enum NatsClientError {
     /// Request-side errors (no responder, timeout).
     #[error("NATS request error")]
     Request(#[source] async_nats::RequestError),
+
+    /// The client certificate path does not name a NATS identity, so
+    /// this client has no reply inbox to own (ORPHAN-CRITICAL-402).
+    #[error(
+        "NATS client certificate path {path} does not follow the \
+         <identity>-cert.pem naming the certificate generator mints, so the \
+         per-identity reply-inbox prefix cannot be derived"
+    )]
+    InboxIdentity {
+        /// The offending `client_cert_pem` path.
+        path: PathBuf,
+    },
+}
+
+/// First-token namespace root for per-identity reply inboxes. Mirrors
+/// `PLATFORM_INBOX_PREFIX_ROOT` in `libs/event-contracts/src/nats-inbox.ts`;
+/// `e2e/tests/integration/nats-invariants.spec.ts` pins both sides against
+/// `infrastructure/nats/services.yaml`.
+const INBOX_PREFIX_ROOT: &str = "_INBOX_";
+
+/// Suffix `infrastructure/docker/scripts/generate-internal-certs.sh` gives
+/// every client certificate it mints.
+const CLIENT_CERT_SUFFIX: &str = "-cert.pem";
+
+/// Derive this client's reply-inbox prefix from its mTLS certificate path.
+///
+/// # Why the path and not the certificate's own CN
+///
+/// The identity that matters is the certificate CN — that is what
+/// `verify_and_map: true` turns into the broker's user entry, and the ACL
+/// grants `_INBOX_<CN>.>` to that user alone. Reading the CN back out of the
+/// DER would need an ASN.1 parser (a new supply-chain dependency for one
+/// string), so this derivation uses the file name instead, which the platform
+/// already binds to the CN in two enforced places:
+///
+///   - `generate-internal-certs.sh` writes `<svc_user>-cert.pem` and then
+///     ASSERTS `subject=CN=<svc_user>` on the file it just wrote;
+///   - `nats-invariants.spec.ts` asserts every compose service's
+///     `NATS_TLS_CERT` ends in `/<identity>-cert.pem` for its services.yaml
+///     identity.
+///
+/// A mismatch therefore cannot reach a deploy, and if one somehow did the
+/// failure is loud (the broker refuses the inbox subscription) rather than
+/// silent.
+///
+/// # Errors
+/// - [`NatsClientError::InboxIdentity`] — the path does not end in
+///   `<identity>-cert.pem`, or the identity is not a single NATS token.
+pub fn inbox_prefix_from_cert_path(cert_path: &Path) -> Result<String, NatsClientError> {
+    let reject = || NatsClientError::InboxIdentity {
+        path: cert_path.to_path_buf(),
+    };
+    let identity = cert_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_suffix(CLIENT_CERT_SUFFIX))
+        .ok_or_else(reject)?;
+    // A dot would split the prefix into two NATS tokens and silently widen the
+    // inbox namespace; anything else non-token would be rejected by the broker.
+    let is_token = !identity.is_empty()
+        && identity.starts_with(|c: char| c.is_ascii_alphabetic())
+        && identity
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if !is_token {
+        return Err(reject());
+    }
+    Ok(format!("{INBOX_PREFIX_ROOT}{identity}"))
 }
 
 /// mTLS configuration for [`NatsClient::connect`]. Constructable only
@@ -189,10 +257,17 @@ impl NatsClient {
         //   * NO add_user_password / token / nkey calls — the absence
         //     is the architectural enforcement of ADR-014/015.
         //   * connection_timeout from config.
+        //   * custom_inbox_prefix so request-reply responses land on THIS
+        //     identity's own first subject token. async-nats defaults to the
+        //     fleet-shared `_INBOX`, which every certificate could subscribe —
+        //     the ORPHAN-CRITICAL-402 confidentiality hole. The broker grants
+        //     `_INBOX_<CN>.>` to this CN alone, so a default prefix would now
+        //     also be refused outright.
         let opts = async_nats::ConnectOptions::new()
             .require_tls(true)
             .add_root_certificates(cfg.server_ca_cert_pem.clone())
             .add_client_certificate(cfg.client_cert_pem.clone(), cfg.client_key_pem.clone())
+            .custom_inbox_prefix(inbox_prefix_from_cert_path(&cfg.client_cert_pem)?)
             .connection_timeout(cfg.connect_timeout);
 
         let inner = opts
@@ -299,13 +374,18 @@ impl NatsClient {
     /// - [`NatsClientError::Transport`] — async-nats failed to
     ///   connect.
     #[cfg(feature = "test-utils")]
-    pub async fn connect_plaintext(url: &str) -> Result<Self, NatsClientError> {
+    pub async fn connect_plaintext(url: &str, identity: &str) -> Result<Self, NatsClientError> {
         validate_url_scheme(url)?;
         // No `require_tls`, no cert/key material — the plaintext
         // path is the OPPOSITE of production's identity posture.
         // The feature-gate above is the only guard against this
         // path shipping outside tests.
-        let opts = async_nats::ConnectOptions::new();
+        //
+        // `identity` is still required: no connection this crate builds may
+        // fall back to async-nats' shared `_INBOX` default, so the test path
+        // names its inbox the same way production does.
+        let opts = async_nats::ConnectOptions::new()
+            .custom_inbox_prefix(format!("{INBOX_PREFIX_ROOT}{identity}"));
         let inner = opts
             .connect(url)
             .await
@@ -342,7 +422,49 @@ mod tests {
 
     use tempfile::NamedTempFile;
 
-    use super::{MtlsConfig, NatsClient, NatsClientError, validate_url_scheme};
+    use super::{
+        MtlsConfig, NatsClient, NatsClientError, inbox_prefix_from_cert_path, validate_url_scheme,
+    };
+
+    // ── Per-identity reply inbox (ORPHAN-CRITICAL-402) ──────────────────────
+
+    #[test]
+    fn inbox_prefix_names_the_certificate_identity() {
+        let prefix =
+            inbox_prefix_from_cert_path(std::path::Path::new("/etc/ssl/nats/clients/farm_service-cert.pem"))
+                .unwrap();
+        assert_eq!(prefix, "_INBOX_farm_service");
+    }
+
+    #[test]
+    fn inbox_prefix_is_never_the_shared_default() {
+        for name in ["sensor-ingestion", "sensor_service", "gateway_service"] {
+            let prefix =
+                inbox_prefix_from_cert_path(std::path::Path::new(&format!("/c/{name}-cert.pem")))
+                    .unwrap();
+            // First-token distinctness is the whole cure: `_INBOX.>` matches
+            // only subjects whose first token is exactly `_INBOX`.
+            assert_ne!(prefix, "_INBOX");
+            assert_ne!(prefix.split('.').next().unwrap(), "_INBOX");
+            assert!(prefix.starts_with("_INBOX_"));
+        }
+    }
+
+    #[test]
+    fn inbox_prefix_rejects_a_path_that_names_no_identity() {
+        for path in [
+            "/etc/ssl/nats/clients/farm_service.pem",
+            "/etc/ssl/nats/clients/-cert.pem",
+            "/etc/ssl/nats/clients/farm.service-cert.pem",
+            "/etc/ssl/nats/clients/9farm-cert.pem",
+            "/etc/ssl/nats/clients/",
+        ] {
+            match inbox_prefix_from_cert_path(std::path::Path::new(path)) {
+                Err(NatsClientError::InboxIdentity { .. }) => {}
+                other => panic!("expected InboxIdentity for {path}, got {other:?}"),
+            }
+        }
+    }
 
     fn dummy_pem_file() -> NamedTempFile {
         let f = NamedTempFile::new().unwrap();

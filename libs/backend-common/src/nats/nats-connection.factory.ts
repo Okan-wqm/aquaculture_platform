@@ -1,4 +1,7 @@
 import { readFileSync } from 'fs';
+import { X509Certificate } from 'node:crypto';
+
+import { serviceInboxPrefix } from '@platform/event-contracts';
 
 /**
  * Canonical NATS server URL default — the SINGLE source for the localhost
@@ -119,6 +122,35 @@ interface NatsTlsOptions {
 }
 
 /**
+ * Extract the Common Name from a PEM client certificate.
+ *
+ * ADR-015 makes the certificate the identity: `verify_and_map: true` maps the
+ * presented DN to the `authorization.users[]` entry named `CN=<cn>`. Reading
+ * the CN back out of the very bytes we are about to hand to the TLS handshake
+ * is therefore the ONLY derivation of "who am I on this broker" that cannot
+ * disagree with the broker's own answer — an env var or a hand-passed service
+ * name could.
+ *
+ * `subject` is the OpenSSL one-line-per-RDN form (`CN=farm_service` on its own
+ * line, possibly followed by `O=...`).
+ */
+function certificateCommonName(certPem: string, certPath: string): string {
+  const subject = new X509Certificate(certPem).subject;
+  const match = /(?:^|\n)\s*CN\s*=\s*(.+?)\s*(?:\n|$)/.exec(subject);
+  const commonName = match === null ? '' : match[1];
+  if (commonName === undefined || commonName === '') {
+    throw new Error(
+      `[nats-connection.factory] NATS_TLS_CERT at "${certPath}" has no CN in its ` +
+        `subject ("${subject}"). The NATS server maps the certificate CN to a user ` +
+        'entry (verify_and_map), so a CN-less certificate can neither authenticate ' +
+        'nor own a reply inbox. Regenerate via ' +
+        'infrastructure/docker/scripts/generate-internal-certs.sh.',
+    );
+  }
+  return commonName;
+}
+
+/**
  * Build NATS connection options from environment variables.
  *
  * Works with both the `nats` npm package's ConnectionOptions and
@@ -145,7 +177,11 @@ interface NatsTlsOptions {
  */
 export type NatsAuthMode = 'mtls-cert' | 'token' | 'user-pass' | 'none';
 
-export function buildNatsConnectionOptions(serviceName?: string): {
+/**
+ * Fully-formed nats.js `ConnectionOptions` plus the two platform fields the
+ * factory resolves on the caller's behalf (`authMode`, `inboxPrefix`).
+ */
+export interface NatsConnectionOptions {
   servers: string[];
   user?: string;
   pass?: string;
@@ -156,7 +192,18 @@ export function buildNatsConnectionOptions(serviceName?: string): {
   reconnectTimeWait: number;
   tls?: NatsTlsOptions;
   authMode: NatsAuthMode;
-} {
+  /**
+   * Per-identity reply-inbox prefix (ORPHAN-CRITICAL-402). nats.js mints every
+   * request's reply subject and every JetStream pull-consumer delivery subject
+   * from this prefix; its default (`_INBOX`) was shared by the whole fleet and
+   * granted to every certificate, so any service could read any other's
+   * request-reply responses. Always set, never `_INBOX` — see
+   * {@link serviceInboxPrefix}.
+   */
+  inboxPrefix: string;
+}
+
+export function buildNatsConnectionOptions(serviceName?: string): NatsConnectionOptions {
   const natsUrl = process.env['NATS_URL'] || DEFAULT_NATS_URL;
   const authUser = process.env['NATS_AUTH_USER'];
   const authPass = process.env['NATS_AUTH_PASS'];
@@ -212,7 +259,10 @@ export function buildNatsConnectionOptions(serviceName?: string): {
     authMode = 'none';
   }
 
-  const options: ReturnType<typeof buildNatsConnectionOptions> = {
+  // The inbox prefix is derived from the certificate that has not been read
+  // yet, so the draft carries every other field and the prefix is appended
+  // once the TLS material below has resolved the identity.
+  const options: Omit<NatsConnectionOptions, 'inboxPrefix'> = {
     servers,
     reconnect: true,
     maxReconnectAttempts: parseInt(process.env['NATS_MAX_RECONNECT_ATTEMPTS'] || '50', 10),
@@ -267,6 +317,11 @@ export function buildNatsConnectionOptions(serviceName?: string): {
     );
   }
 
+  // Retained beyond the TLS block: the certificate's CN is the broker identity
+  // the reply-inbox prefix is derived from (see the return statement).
+  let clientCertPem: string | undefined;
+  let clientCertPath: string | undefined;
+
   if (usesTls) {
     const caPath = process.env['NATS_TLS_CA'];
     const insecureAllow = process.env['NATS_TLS_INSECURE_ALLOW'] === 'true';
@@ -297,54 +352,6 @@ export function buildNatsConnectionOptions(serviceName?: string): {
         );
       }
       options.tls = { ca: caPem };
-
-      // SECURITY (HIGH-002): mTLS — load client cert + key if provided.
-      // Required when the NATS server runs with `verify: true` (production
-      // default after IP-1 hardening). If only one of CERT/KEY is set, throw
-      // — partial config would produce a confusing "handshake failed" at
-      // runtime with no hint that a pair is needed.
-      // certPath + keyPath already declared at line ~156 (auth-mode decision); reuse.
-      if (certPath && !keyPath) {
-        throw new Error(
-          '[nats-connection.factory] NATS_TLS_CERT is set but NATS_TLS_KEY is not. ' +
-            'Provide both for mTLS, or unset both to fall back to one-way TLS.',
-        );
-      }
-      if (keyPath && !certPath) {
-        throw new Error(
-          '[nats-connection.factory] NATS_TLS_KEY is set but NATS_TLS_CERT is not. ' +
-            'Provide both for mTLS, or unset both to fall back to one-way TLS.',
-        );
-      }
-      if (certPath && keyPath) {
-        let certPem: string;
-        let keyPem: string;
-        try {
-          certPem = readFileSync(certPath, 'utf-8');
-          keyPem = readFileSync(keyPath, 'utf-8');
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          throw new Error(
-            `[nats-connection.factory] mTLS client cert/key could not be read: ${msg}. ` +
-              "Check that only this runtime identity's certs/nats/clients/<identity>-cert.pem " +
-              'and <identity>-key.pem are mounted and match NATS_TLS_CERT / NATS_TLS_KEY.',
-          );
-        }
-        if (!certPem.includes('BEGIN CERTIFICATE')) {
-          throw new Error(
-            `[nats-connection.factory] NATS_TLS_CERT at "${certPath}" is not a valid PEM ` +
-              'certificate. Regenerate via infrastructure/docker/scripts/generate-internal-certs.sh.',
-          );
-        }
-        if (!keyPem.includes('BEGIN') || !keyPem.includes('PRIVATE KEY')) {
-          throw new Error(
-            `[nats-connection.factory] NATS_TLS_KEY at "${keyPath}" is not a valid PEM key. ` +
-              'Regenerate via infrastructure/docker/scripts/generate-internal-certs.sh.',
-          );
-        }
-        options.tls.cert = certPem;
-        options.tls.key = keyPem;
-      }
     } else if (!insecureAllow) {
       // No CA and no explicit opt-in to insecure mode — refuse to
       // produce a connection that would fail at handshake time with
@@ -358,13 +365,117 @@ export function buildNatsConnectionOptions(serviceName?: string): {
           'flag in any environment that talks to a real NATS broker.',
       );
     }
-    // insecureAllow && !caPath → leave options.tls unset, which tells
-    // nats.js to use Node's default trust store (system CAs). That's
-    // the only situation in which the client can connect to a TLS NATS
-    // without an explicit CA, and it only works against commercially-
-    // signed certs — useless for this platform's self-signed setup, so
-    // treat it as a deliberate local-dev escape hatch.
+    // insecureAllow && !caPath → no `ca` field, which tells nats.js to use
+    // Node's default trust store (system CAs). That's the only situation in
+    // which the client can connect to a TLS NATS without an explicit CA, and
+    // it only works against commercially-signed certs — useless for this
+    // platform's self-signed setup, so treat it as a deliberate local-dev
+    // escape hatch.
+
+    // SECURITY (HIGH-002): mTLS — load client cert + key whenever they are
+    // configured. This deliberately sits OUTSIDE the `caPath` branch: the
+    // client certificate is what the SERVER verifies (and what this process's
+    // identity is), while the CA is what THIS process verifies. Nesting the
+    // cert load inside the CA branch meant the `NATS_TLS_INSECURE_ALLOW=true`
+    // path reported authMode 'mtls-cert' while handing nats.js no certificate
+    // at all — an unauthenticated connection wearing the mTLS label.
+    // If only one of CERT/KEY is set, throw — partial config would produce a
+    // confusing "handshake failed" with no hint that a pair is needed.
+    if (certPath && !keyPath) {
+      throw new Error(
+        '[nats-connection.factory] NATS_TLS_CERT is set but NATS_TLS_KEY is not. ' +
+          'Provide both for mTLS, or unset both to fall back to one-way TLS.',
+      );
+    }
+    if (keyPath && !certPath) {
+      throw new Error(
+        '[nats-connection.factory] NATS_TLS_KEY is set but NATS_TLS_CERT is not. ' +
+          'Provide both for mTLS, or unset both to fall back to one-way TLS.',
+      );
+    }
+    if (certPath && keyPath) {
+      let certPem: string;
+      let keyPem: string;
+      try {
+        certPem = readFileSync(certPath, 'utf-8');
+        keyPem = readFileSync(keyPath, 'utf-8');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(
+          `[nats-connection.factory] mTLS client cert/key could not be read: ${msg}. ` +
+            "Check that only this runtime identity's certs/nats/clients/<identity>-cert.pem " +
+            'and <identity>-key.pem are mounted and match NATS_TLS_CERT / NATS_TLS_KEY.',
+        );
+      }
+      if (!certPem.includes('BEGIN CERTIFICATE')) {
+        throw new Error(
+          `[nats-connection.factory] NATS_TLS_CERT at "${certPath}" is not a valid PEM ` +
+            'certificate. Regenerate via infrastructure/docker/scripts/generate-internal-certs.sh.',
+        );
+      }
+      if (!keyPem.includes('BEGIN') || !keyPem.includes('PRIVATE KEY')) {
+        throw new Error(
+          `[nats-connection.factory] NATS_TLS_KEY at "${keyPath}" is not a valid PEM key. ` +
+            'Regenerate via infrastructure/docker/scripts/generate-internal-certs.sh.',
+        );
+      }
+      options.tls = { ...options.tls, cert: certPem, key: keyPem };
+      clientCertPem = certPem;
+      clientCertPath = certPath;
+    }
   }
 
-  return options;
+  return {
+    ...options,
+    inboxPrefix: resolveInboxPrefix(
+      options.authMode,
+      serviceName,
+      authUser,
+      clientCertPem,
+      clientCertPath,
+    ),
+  };
+}
+
+/**
+ * Resolve the per-identity reply-inbox prefix (ORPHAN-CRITICAL-402).
+ *
+ * The prefix MUST name the same principal the broker's ACL is written
+ * against, because the broker grants `_INBOX_<principal>.>` to that principal
+ * alone. Precedence therefore mirrors the auth-mode decision exactly:
+ *
+ *   1. `mtls-cert` — the certificate CN (verify_and_map maps it to the user).
+ *   2. `user-pass` — the CONNECT-frame user (the authenticated user entry).
+ *   3. `token` / `none` — no broker-side principal name exists, so the client
+ *      identity supplied by the caller is used. These modes only occur outside
+ *      production (production without mTLS/token/user-pass throws above), where
+ *      the dev broker carries no per-user ACLs.
+ *
+ * There is no fallback to nats.js's shared `_INBOX` default: a connection with
+ * no derivable identity throws rather than silently rejoining the fleet-wide
+ * inbox namespace that this whole mechanism exists to abolish.
+ */
+function resolveInboxPrefix(
+  authMode: NatsAuthMode,
+  serviceName: string | undefined,
+  authUser: string | undefined,
+  clientCertPem: string | undefined,
+  clientCertPath: string | undefined,
+): string {
+  if (authMode === 'mtls-cert' && clientCertPem && clientCertPath) {
+    return serviceInboxPrefix(certificateCommonName(clientCertPem, clientCertPath));
+  }
+  if (authMode === 'user-pass' && authUser) {
+    return serviceInboxPrefix(authUser);
+  }
+  if (serviceName) {
+    return serviceInboxPrefix(serviceName);
+  }
+  throw new Error(
+    '[nats-connection.factory] cannot derive a reply-inbox prefix: no mTLS ' +
+      'certificate CN, no NATS_AUTH_USER, and no service name was passed to ' +
+      'buildNatsConnectionOptions(). Every NATS connection needs its own inbox ' +
+      'namespace — the shared `_INBOX` default let any service certificate read ' +
+      "every other service's request-reply responses (ORPHAN-CRITICAL-402).",
+  );
 }

@@ -52,7 +52,7 @@
           "items": {
             "$ref": "#/definitions/subject"
           },
-          "description": "Subjects this service is permitted to publish to. Must include $JS.API.> and _INBOX.> for JetStream + request-reply."
+          "description": "Subjects this service is permitted to publish to. Must include $JS.API.> for JetStream. NO inbox grant belongs here: responders reply through the broker's allow_responses permission (ORPHAN-CRITICAL-402), which the generator emits for every user."
         },
         "subscribe": {
           "type": "array",
@@ -60,16 +60,16 @@
           "items": {
             "$ref": "#/definitions/subject"
           },
-          "description": "Subjects this service is permitted to subscribe to. Must include $JS.API.> and _INBOX.> for JetStream + request-reply."
+          "description": "Subjects this service is permitted to subscribe to. Must include $JS.API.> for JetStream and _INBOX_<name>.> — this identity's OWN reply inbox (ORPHAN-CRITICAL-402). The shared _INBOX.> is structurally rejected below."
         }
       }
     },
     "subject": {
       "type": "string",
-      "pattern": "^(events\\.|commands\\.|request\\.|config\\.runtime\\.|config\\.marine_credentials\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX\\.|_INBOXBILLINGCFG\\.|_INBOXFARMMARINECFG\\.)[A-Za-z0-9_.*>-]+$",
+      "pattern": "^(events\\.|commands\\.|request\\.|config\\.runtime\\.|config\\.marine_credentials\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX_[a-z][a-z0-9_-]*\\.|_INBOXBILLINGCFG\\.|_INBOXFARMMARINECFG\\.)[A-Za-z0-9_.*>-]+$",
       "minLength": 3,
       "maxLength": 120,
-      "description": "NATS subject pattern in a canonical platform namespace. The legacy AQUACULTURE_EVENTS. prefix is structurally rejected because it is a stream name, never a publish subject. Secret-bearing request/reply paths use distinct first-token inboxes: `_INBOXBILLINGCFG.` is restricted to billing_service and config_service, while `_INBOXFARMMARINECFG.` is restricted to farm_service and config_service, so the platform-wide `_INBOX.>` grant cannot read either reply stream."
+      "description": "NATS subject pattern in a canonical platform namespace. The legacy AQUACULTURE_EVENTS. prefix is structurally rejected because it is a stream name, never a publish subject. The shared `_INBOX.` prefix is ALSO structurally rejected (ORPHAN-CRITICAL-402): every identity's reply inbox is its own first token, `_INBOX_<name>.`, so no certificate can subscribe another's request-reply responses. Secret-bearing exchanges narrow further onto their own first token — `_INBOXBILLINGCFG.` (billing_service ↔ config_service) and `_INBOXFARMMARINECFG.` (farm_service ↔ config_service)."
     }
   }
 }

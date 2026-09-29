@@ -45,6 +45,9 @@ function list(values, style, indent) {
   return values.map((value) => `${indent}- ${scalar(value, style)}`).join('\n');
 }
 
+// Per-identity reply inboxes (ORPHAN-CRITICAL-402): the shared `_INBOX.>`
+// grant these fixtures used to carry is now structurally rejected by
+// services.schema.json, and each identity subscribes only its own token.
 function servicesYaml(style) {
   return `version: 1
 services:
@@ -52,13 +55,9 @@ services:
     application: messaging-service
     description: Messaging service test identity
     publish:
-${list(
-  ['events.*.MessageSent', 'commands.notification.sendPush', '$JS.API.>', '_INBOX.>'],
-  style,
-  '      ',
-)}
+${list(['events.*.MessageSent', 'commands.notification.sendPush', '$JS.API.>'], style, '      ')}
     subscribe:
-${list(['$JS.API.>', '_INBOX.>'], style, '      ')}
+${list(['$JS.API.>', '_INBOX_messaging_service.>'], style, '      ')}
   - name: gateway_service
     application: gateway-api
     description: Gateway service test identity
@@ -69,41 +68,35 @@ ${list(
     'request.messaging.resolveNotificationRef',
     'commands.notification.sendEmail',
     '$JS.API.>',
-    '_INBOX.>',
   ],
   style,
   '      ',
 )}
     subscribe:
-${list(['$JS.API.>', '_INBOX.>'], style, '      ')}
+${list(['$JS.API.>', '_INBOX_gateway_service.>'], style, '      ')}
   - name: farm_service
     application: farm-service
     description: Farm service marine credential test identity
     publish:
 ${list(
-  [
-    'config.marine_credentials.resolve',
-    'config.marine_credentials.upsert',
-    '$JS.API.>',
-    '_INBOX.>',
-  ],
+  ['config.marine_credentials.resolve', 'config.marine_credentials.upsert', '$JS.API.>'],
   style,
   '      ',
 )}
     subscribe:
-${list(['_INBOXFARMMARINECFG.>', '$JS.API.>', '_INBOX.>'], style, '      ')}
+${list(['_INBOXFARMMARINECFG.>', '$JS.API.>', '_INBOX_farm_service.>'], style, '      ')}
   - name: config_service
     application: config-service
     description: Configuration service marine credential test identity
     publish:
-${list(['_INBOXFARMMARINECFG.>', '$JS.API.>', '_INBOX.>'], style, '      ')}
+${list(['events.*.ConfigurationChanged', '_INBOXFARMMARINECFG.>', '$JS.API.>'], style, '      ')}
     subscribe:
 ${list(
   [
     'config.marine_credentials.resolve',
     'config.marine_credentials.upsert',
     '$JS.API.>',
-    '_INBOX.>',
+    '_INBOX_config_service.>',
   ],
   style,
   '      ',
@@ -154,7 +147,7 @@ for (const style of ['double', 'single', 'unquoted']) {
 test('fails closed when the YAML registry has an unexpected ACL shape', () => {
   const malformed = servicesYaml('single').replace(
     `    publish:\n${list(
-      ['events.*.MessageSent', 'commands.notification.sendPush', '$JS.API.>', '_INBOX.>'],
+      ['events.*.MessageSent', 'commands.notification.sendPush', '$JS.API.>'],
       'single',
       '      ',
     )}`,

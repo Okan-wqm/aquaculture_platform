@@ -105,6 +105,13 @@ function renderSubjectList(subjects) {
   return [...subjects].map((subject) => `            ${JSON.stringify(subject)}`).join(',\n');
 }
 
+// Mirrors ALLOW_RESPONSES_MAX / ALLOW_RESPONSES_EXPIRES in
+// scripts/nats/generate-nats-conf.py. `allow_responses` is what replaced the
+// static `_INBOX.>` publish grant (ORPHAN-CRITICAL-402): the broker mints a
+// short-lived publish permission on the reply subject of a request the client
+// actually received, so no service can inject into another's inbox unprompted.
+const ALLOW_RESPONSES_CLAUSE = 'allow_responses: { max: 4, expires: "2m" }';
+
 function renderServiceAuthorization(name, service) {
   return `    # ── ${name}: ${service.description} ──
     {
@@ -120,6 +127,7 @@ ${renderSubjectList(service.publish)}
 ${renderSubjectList(service.subscribe)}
           ]
         }
+        ${ALLOW_RESPONSES_CLAUSE}
       }
     }`;
 }

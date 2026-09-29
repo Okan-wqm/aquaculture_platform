@@ -116,7 +116,9 @@ async fn start_nats_broker() -> (
         .expect("NATS exposed port");
     let url = format!("nats://127.0.0.1:{port}");
 
-    let client = NatsClient::connect_plaintext(&url)
+    // Same identity the sidecar carries in infrastructure/nats/services.yaml,
+    // so the reply inbox is `_INBOX_sensor-ingestion.*` here too.
+    let client = NatsClient::connect_plaintext(&url, "sensor-ingestion")
         .await
         .expect("connect plaintext NATS");
     (container, Arc::new(client))

@@ -50,7 +50,17 @@
  *     ClientProxy call without a publish grant → add the grant.
  */
 
-import { readdirSync, readFileSync, statSync } from 'fs';
+import { execFileSync } from 'node:child_process';
+import {
+  cpSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
+import { tmpdir } from 'node:os';
 import { join } from 'path';
 
 import {
@@ -61,6 +71,10 @@ import {
   MARINE_PROVIDER_CREDENTIAL_ALLOWLIST,
   MARINE_PROVIDER_CREDENTIAL_INBOX_PREFIX,
   MARINE_PROVIDER_CREDENTIAL_SUBJECTS,
+  PLATFORM_INBOX_PREFIX_ROOT,
+  serviceInboxGrant,
+  serviceInboxPrefix,
+  SHARED_INBOX_GRANT,
   TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET,
   TENANT_ERASURE_OUTCOME_KINDS,
   TENANT_ERASURE_TARGET_SERVICES,
@@ -992,6 +1006,206 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
         );
         expect(leaks).toEqual([]);
       }
+    });
+  });
+
+  /**
+   * Reply-inbox isolation (ORPHAN-CRITICAL-402).
+   *
+   * Core NATS returns a request's response on the requester's reply subject.
+   * While every identity used the nats.js default inbox prefix AND held
+   * `subscribe: "_INBOX.>"`, that reply stream was readable by every service
+   * certificate on the broker. The cure is first-token distinctness: each
+   * identity owns `_INBOX_<name>`, nobody holds the shared token, and nobody
+   * holds a static publish grant on any inbox (responders answer through the
+   * broker's `allow_responses` permission, which is scoped to requests they
+   * actually received).
+   */
+  describe('reply-inbox isolation (ORPHAN-CRITICAL-402)', () => {
+    // Per-EXCHANGE inboxes (SEC-CRITICAL-001) are a tighter, deliberate
+    // narrowing of a single secret-bearing reply stream — not per-identity
+    // inboxes, so the ownership rules below do not apply to them.
+    const scopedExchangeInboxes = [
+      CONFIG_RUNTIME_INBOX_PREFIX,
+      MARINE_PROVIDER_CREDENTIAL_INBOX_PREFIX,
+    ];
+    const isScopedExchangeInbox = (grant: string): boolean =>
+      scopedExchangeInboxes.some((prefix) => grant.startsWith(`${prefix}.`));
+
+    it('gives every identity its own inbox grant, exactly once, in subscribe only', () => {
+      for (const svc of servicesDoc.services) {
+        expect(svc.subscribe.filter((g) => g === serviceInboxGrant(svc.name))).toEqual([
+          serviceInboxGrant(svc.name),
+        ]);
+      }
+    });
+
+    it('grants the shared `_INBOX` token to nobody, in either direction', () => {
+      const offenders: string[] = [];
+      for (const svc of servicesDoc.services) {
+        for (const [section, grants] of [
+          ['publish', svc.publish],
+          ['subscribe', svc.subscribe],
+        ] as const) {
+          for (const grant of grants) {
+            if (grant === '_INBOX' || grant.startsWith('_INBOX.')) {
+              offenders.push(`${svc.name}.${section}: ${grant}`);
+            }
+          }
+        }
+      }
+      // Named literal kept in the assertion so a grep for the defect lands here.
+      expect(SHARED_INBOX_GRANT).toBe('_INBOX.>');
+      expect(offenders).toEqual([]);
+    });
+
+    it('never grants one identity a reply inbox belonging to another', () => {
+      const offenders: string[] = [];
+      for (const svc of servicesDoc.services) {
+        for (const grant of svc.publish) {
+          if (isScopedExchangeInbox(grant)) continue;
+          if (grant.startsWith(PLATFORM_INBOX_PREFIX_ROOT)) {
+            // A publish grant on ANY per-identity inbox — including its own —
+            // is the forgeable capability `allow_responses` exists to replace.
+            offenders.push(`${svc.name}.publish: ${grant}`);
+          }
+        }
+        for (const grant of svc.subscribe) {
+          if (isScopedExchangeInbox(grant)) continue;
+          if (!grant.startsWith(PLATFORM_INBOX_PREFIX_ROOT)) continue;
+          if (grant !== serviceInboxGrant(svc.name)) {
+            offenders.push(`${svc.name}.subscribe: ${grant}`);
+          }
+        }
+      }
+      expect(offenders).toEqual([]);
+    });
+
+    it('cannot cover any other identity’s reply subject with any grant it holds', () => {
+      const leaks: string[] = [];
+      for (const owner of servicesDoc.services) {
+        // The subject shape nats.js actually mints: `<prefix>.<nuid>.<sid>`.
+        const replySubject = `${serviceInboxPrefix(owner.name)}.mXk2s0Zq.7f`;
+        for (const other of servicesDoc.services) {
+          if (other.name === owner.name) continue;
+          for (const grant of other.subscribe) {
+            if (natsMatch(replySubject, grant)) {
+              leaks.push(`${other.name} can subscribe ${owner.name}'s replies via ${grant}`);
+            }
+          }
+        }
+      }
+      expect(leaks).toEqual([]);
+    });
+
+    it('binds the ACL grants to the runtime prefix SSoT', () => {
+      // The client derives its prefix from serviceInboxPrefix(cert CN); the
+      // broker grants what services.yaml says. Same function, same CN → the
+      // two cannot drift.
+      for (const svc of servicesDoc.services) {
+        expect(svc.subscribe).toContain(`${serviceInboxPrefix(svc.name)}.>`);
+      }
+    });
+
+    it('emits allow_responses for every generated user (replies work without a static grant)', () => {
+      // Without this the ACL would be self-consistent AND totally broken: no
+      // responder could publish to a caller's inbox at all.
+      const users = [...authBlock.matchAll(/user:\s*"CN=([A-Za-z0-9_-]+)"/g)].map((m) => m[1]);
+      expect(users.sort()).toEqual(servicesDoc.services.map((s) => s.name).sort());
+      const responsePerms = authBlock.match(/allow_responses:\s*\{[^}]*\}/g) ?? [];
+      expect(responsePerms).toHaveLength(servicesDoc.services.length);
+      for (const perm of responsePerms) {
+        expect(perm).toMatch(/max:\s*\d+/);
+        expect(perm).toMatch(/expires:\s*"\d+[smh]"/);
+      }
+    });
+
+    it('generated nats.conf carries no shared-inbox grant', () => {
+      expect(authBlock).not.toContain('"_INBOX.>"');
+    });
+
+    describe('the generator refuses to write a leaking ACL', () => {
+      let sandbox: string;
+      const servicesPath = (): string => join(sandbox, 'infrastructure', 'nats', 'services.yaml');
+
+      beforeEach(() => {
+        sandbox = mkdtempSync(join(tmpdir(), 'nats-acl-gate-'));
+        for (const rel of [
+          ['scripts', 'nats', 'generate-nats-conf.py'],
+          ['infrastructure', 'nats', 'services.yaml'],
+          ['infrastructure', 'nats', 'services.schema.json'],
+          ['infrastructure', 'docker', 'nats', 'nats.conf'],
+        ]) {
+          cpSync(join(REPO_ROOT, ...rel), join(sandbox, ...rel), {
+            recursive: true,
+            force: true,
+            // parents are created by cpSync's recursive mode on the dest path
+          });
+        }
+      });
+
+      afterEach(() => rmSync(sandbox, { recursive: true, force: true }));
+
+      const runGenerator = (): { status: number; stderr: string } => {
+        try {
+          execFileSync('python3', [join(sandbox, 'scripts', 'nats', 'generate-nats-conf.py')], {
+            encoding: 'utf-8',
+            stdio: 'pipe',
+          });
+          return { status: 0, stderr: '' };
+        } catch (err) {
+          const failure = err as { status?: number; stderr?: string };
+          return { status: failure.status ?? -1, stderr: failure.stderr ?? '' };
+        }
+      };
+
+      it('accepts the committed registry unchanged (control)', () => {
+        expect(runGenerator().status).toBe(0);
+      });
+
+      it('rejects a service that re-adds the shared `_INBOX.>` grant', () => {
+        const yaml = readFileSync(servicesPath(), 'utf-8').replace(
+          "      - '_INBOX_auth_service.>'",
+          "      - '_INBOX_auth_service.>'\n      - '_INBOX.>'",
+        );
+        writeFileSync(servicesPath(), yaml);
+        const result = runGenerator();
+        expect(result.status).toBe(1);
+        expect(result.stderr).toMatch(/shared inbox/);
+      });
+
+      it("rejects a service that subscribes another identity's reply inbox", () => {
+        const yaml = readFileSync(servicesPath(), 'utf-8').replace(
+          "      - '_INBOX_auth_service.>'",
+          "      - '_INBOX_auth_service.>'\n      - '_INBOX_billing_service.>'",
+        );
+        writeFileSync(servicesPath(), yaml);
+        const result = runGenerator();
+        expect(result.status).toBe(1);
+        expect(result.stderr).toMatch(/billing_service's reply inbox/);
+      });
+
+      it('rejects a service with no reply inbox of its own', () => {
+        const yaml = readFileSync(servicesPath(), 'utf-8').replace(
+          "      - '_INBOX_auth_service.>'\n",
+          '',
+        );
+        writeFileSync(servicesPath(), yaml);
+        const result = runGenerator();
+        expect(result.status).toBe(1);
+        expect(result.stderr).toMatch(/must subscribe its own reply inbox/);
+      });
+
+      it('rejects a static publish grant on a reply inbox', () => {
+        const yaml = readFileSync(servicesPath(), 'utf-8').replace(
+          "      - 'request.farm.validateSiteAssignment'\n      - '$JS.API.>'\n    subscribe:\n      - 'request.auth.user.validateTenantMembership'",
+          "      - 'request.farm.validateSiteAssignment'\n      - '_INBOX_farm_service.>'\n      - '$JS.API.>'\n    subscribe:\n      - 'request.auth.user.validateTenantMembership'",
+        );
+        writeFileSync(servicesPath(), yaml);
+        const result = runGenerator();
+        expect(result.status).toBe(1);
+        expect(result.stderr).toMatch(/No service holds a static publish grant on a reply inbox/);
+      });
     });
   });
 });

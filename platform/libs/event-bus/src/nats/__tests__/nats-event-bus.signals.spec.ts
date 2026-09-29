@@ -107,6 +107,9 @@ describe('NatsEventBus boot invariant signals', () => {
       maxReconnectAttempts: 1,
       reconnectTimeWait: 1,
       authMode: 'mtls-cert',
+      // Per-identity reply inbox (ORPHAN-CRITICAL-402): the factory always
+      // resolves one, so the mock must too.
+      inboxPrefix: '_INBOX_farm_service',
     });
   });
 
@@ -153,6 +156,9 @@ describe('NatsEventBus boot invariant signals', () => {
       maxReconnectAttempts: -1,
       reconnectTimeWait: 3,
       authMode: 'mtls-cert',
+      // Per-identity reply inbox (ORPHAN-CRITICAL-402): the factory always
+      // resolves one, so the mock must too.
+      inboxPrefix: '_INBOX_farm_service',
     });
     jest.mocked(connect).mockResolvedValue(successfulConnection());
     jest.mocked(jetstream).mockReturnValue({} as ReturnType<typeof jetstream>);
@@ -182,6 +188,9 @@ describe('NatsEventBus boot invariant signals', () => {
       maxReconnectAttempts: 0,
       reconnectTimeWait: 1,
       authMode: 'mtls-cert',
+      // Per-identity reply inbox (ORPHAN-CRITICAL-402): the factory always
+      // resolves one, so the mock must too.
+      inboxPrefix: '_INBOX_farm_service',
     });
 
     await expect(new NatsEventBus(config()).connect()).rejects.toThrow(
@@ -195,6 +204,9 @@ describe('NatsEventBus boot invariant signals', () => {
       maxReconnectAttempts: 1,
       reconnectTimeWait: 0,
       authMode: 'mtls-cert',
+      // Per-identity reply inbox (ORPHAN-CRITICAL-402): the factory always
+      // resolves one, so the mock must too.
+      inboxPrefix: '_INBOX_farm_service',
     });
 
     await expect(new NatsEventBus(config()).connect()).rejects.toThrow(
@@ -211,6 +223,9 @@ describe('NatsEventBus boot invariant signals', () => {
       maxReconnectAttempts: 0,
       reconnectTimeWait: 1,
       authMode: 'mtls-cert',
+      // Per-identity reply inbox (ORPHAN-CRITICAL-402): the factory always
+      // resolves one, so the mock must too.
+      inboxPrefix: '_INBOX_farm_service',
     });
     const eventBus = new NatsEventBus(config());
 

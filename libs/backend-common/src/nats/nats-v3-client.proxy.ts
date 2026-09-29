@@ -18,19 +18,21 @@
 import type { ConnectionOptions, Msg, NatsConnection } from '@nats-io/nats-core';
 import { createInbox } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
-import {
-  ClientProxy,
-  IncomingResponse,
-  ReadPacket,
-  WritePacket,
-} from '@nestjs/microservices';
+import { ClientProxy, IncomingResponse, ReadPacket, WritePacket } from '@nestjs/microservices';
 
 import { buildNatsConnectionOptions } from './nats-connection.factory';
 import { NatsV3RequestSerializer, NatsV3ResponseDeserializer } from './nats-v3-codec';
 
 /**
  * Client options. `serviceName` selects the mTLS client cert through
- * {@link buildNatsConnectionOptions} (ADR-015); `inboxPrefix` scopes the reply inbox.
+ * {@link buildNatsConnectionOptions} (ADR-015).
+ *
+ * `inboxPrefix` is an OPTIONAL NARROWING of the reply inbox. The factory
+ * already returns a per-identity prefix (`_INBOX_<cert CN>`,
+ * ORPHAN-CRITICAL-402) that no other certificate may subscribe, so a
+ * registration site sets this only when a single exchange needs a tighter
+ * grant than "everything this service receives" — today the two secret-bearing
+ * config-runtime paths (`_INBOXBILLINGCFG`, `_INBOXFARMMARINECFG`).
  */
 export interface NatsV3ClientOptions {
   serviceName?: string;
@@ -40,6 +42,13 @@ export interface NatsV3ClientOptions {
 export class NatsV3Client extends ClientProxy {
   private natsConnection: NatsConnection | null = null;
   private connectionPromise: Promise<NatsConnection> | null = null;
+  /**
+   * Reply-inbox prefix in force for this proxy. Defaults to the per-identity
+   * prefix the factory derives from the mTLS certificate CN
+   * (ORPHAN-CRITICAL-402); a registration-site `inboxPrefix` narrows it
+   * further for a single secret-bearing exchange (SEC-CRITICAL-001).
+   */
+  private resolvedInboxPrefix: string | null = null;
 
   constructor(private readonly options: NatsV3ClientOptions = {}) {
     super();
@@ -55,6 +64,7 @@ export class NatsV3Client extends ClientProxy {
     // is an excess field connect() ignores), mirroring the PR-A event-bus pattern.
     const factoryOptions = buildNatsConnectionOptions(this.options.serviceName);
     const connectionOptions: ConnectionOptions = { ...factoryOptions };
+    this.resolvedInboxPrefix = this.options.inboxPrefix ?? factoryOptions.inboxPrefix;
     this.connectionPromise = connect(connectionOptions);
     try {
       this.natsConnection = await this.connectionPromise;
@@ -69,6 +79,7 @@ export class NatsV3Client extends ClientProxy {
     await this.natsConnection?.close();
     this.natsConnection = null;
     this.connectionPromise = null;
+    this.resolvedInboxPrefix = null;
   }
 
   /**
@@ -93,7 +104,12 @@ export class NatsV3Client extends ClientProxy {
       const packet = this.assignPacketId(partialPacket);
       const channel = this.normalizePattern(partialPacket.pattern);
       const serialized = this.serializer.serialize(packet);
-      const inbox = createInbox(this.options.inboxPrefix);
+      // `assertConnection()` above guarantees connect() ran, which is what sets
+      // the resolved prefix. Passing `undefined` to createInbox would fall back
+      // to nats.js's shared `_INBOX` namespace — the exact grant the broker no
+      // longer issues — so an unresolved prefix is a programming error, not a
+      // default to paper over.
+      const inbox = createInbox(this.assertInboxPrefix());
       // Inline non-async callback (contextually typed by @nats-io MsgCallback) that
       // fire-and-forgets the async reply handling — mirrors the server strategy's
       // subscribe pattern and avoids the Promise<void>-vs-void mismatch a returned
@@ -156,6 +172,13 @@ export class NatsV3Client extends ClientProxy {
       response,
       isDisposed: Boolean(isDisposed) || Boolean(responseErr),
     });
+  }
+
+  private assertInboxPrefix(): string {
+    if (this.resolvedInboxPrefix === null) {
+      throw new Error('NatsV3Client has no resolved inbox prefix — call connect() first.');
+    }
+    return this.resolvedInboxPrefix;
   }
 
   private assertConnection(): NatsConnection {

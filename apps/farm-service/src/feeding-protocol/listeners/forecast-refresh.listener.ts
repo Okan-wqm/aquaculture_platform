@@ -14,7 +14,7 @@
  * her öğünde tam yeniden hesap demek olurdu.
  *
  * ACL notu (ADR-015): kendi subject'lerimize JetStream aboneliği mevcut
- * farm_service izinleriyle ($JS.API.> + _INBOX.>) çalışır —
+ * farm_service izinleriyle ($JS.API.> + _INBOX_farm_service.>) çalışır —
  * sensor-temperature-projection.listener emsali; services.yaml değişmez.
  *
  * @module FeedingProtocol/Listeners

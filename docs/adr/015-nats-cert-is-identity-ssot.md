@@ -87,6 +87,22 @@ Specifically:
    doesn't use the generated production nats.conf — dev mounts a
    different config.
 
+5. **The certificate CN also names the reply inbox** (added 2026-08-19,
+   ORPHAN-CRITICAL-402). Core-NATS request-reply returns a response on the
+   requester's inbox subject. While every client used the library default
+   (`_INBOX`) and every user entry granted `subscribe: "_INBOX.>"`, one
+   compromised certificate could read EVERY request-reply response on the
+   broker. Because NATS matches the first subject token exactly, the cure is
+   to make that token the identity: each user subscribes `_INBOX_<CN>.>` and
+   nothing else, and `buildNatsConnectionOptions()` / `crates/nats-client`
+   derive the client-side prefix from the certificate itself — so "who may
+   read this reply" is answered by the same string that answers "who is
+   this", with no second registry to drift. No user holds a publish grant on
+   any inbox; responders reply through the broker's `allow_responses`
+   permission, which is scoped to requests they actually received.
+   `services.schema.json` structurally rejects the shared `_INBOX.` prefix
+   and the generator refuses to write an ACL that violates the rule.
+
 ## Rationale
 
 ### Why remove passwords entirely (not keep as defense-in-depth)

@@ -75,6 +75,39 @@ HELM_IDENTITIES = (
 BEGIN_MARKER = "    # BEGIN GENERATED — DO NOT EDIT BY HAND (scripts/nats/generate-nats-conf.py)"
 END_MARKER = "    # END GENERATED"
 
+# ── Reply-inbox isolation (ORPHAN-CRITICAL-402) ─────────────────────────────
+#
+# Every identity owns its own first subject token for reply inboxes, so no
+# certificate can subscribe another's request-reply responses. These constants
+# mirror libs/event-contracts/src/nats-inbox.ts (the runtime SSoT); the CI
+# invariant e2e/tests/integration/nats-invariants.spec.ts asserts both sides
+# agree.
+INBOX_PREFIX_ROOT = "_INBOX_"
+SHARED_INBOX_TOKEN = "_INBOX"
+
+# Per-EXCHANGE inboxes that predate (and are tighter than) the per-identity
+# scheme: they isolate a single secret-bearing reply stream from the rest of
+# the owning service's traffic. They are NOT per-identity inboxes, so the
+# ownership rules below skip them.
+SCOPED_EXCHANGE_INBOX_PREFIXES = ("_INBOXBILLINGCFG.", "_INBOXFARMMARINECFG.")
+
+# `allow_responses` replaces the static `_INBOX.>` PUBLISH grant every service
+# used to hold. The broker mints a publish permission on the reply subject of a
+# request the client ACTUALLY received, so a responder can answer what it was
+# asked and can never inject into an inbox unprompted. Verified against
+# nats-server 2.10.24: reply delivered with no static grant; a spontaneous
+# publish to another identity's inbox is refused with a Publish Violation.
+#
+#   max     — replies permitted per received request. Every @MessagePattern
+#             handler on this platform resolves a single value (Nest coalesces
+#             the value and the completion packet into one message); the small
+#             allowance covers a handler that returns a multi-emission
+#             observable without leaving the grant unbounded.
+#   expires — lifetime of the minted grant. Far longer than any RPC on the
+#             platform, short enough that a stale grant cannot be replayed.
+ALLOW_RESPONSES_MAX = 4
+ALLOW_RESPONSES_EXPIRES = "2m"
+
 
 def load_services() -> list[dict[str, Any]]:
     """Load and validate services.yaml against services.schema.json."""
@@ -140,7 +173,82 @@ def load_services() -> list[dict[str, Any]]:
         )
         sys.exit(1)
 
+    validate_inbox_ownership(services)
+
     return services
+
+
+def validate_inbox_ownership(services: list[dict[str, Any]]) -> None:
+    """
+    Refuse to generate an authorization block that leaks reply inboxes.
+
+    Three rules, all of them the ORPHAN-CRITICAL-402 cure expressed as a
+    write-time gate (the generator is the only writer of nats.conf, so a
+    violation can never reach the broker):
+
+      1. Every service subscribes its OWN `_INBOX_<name>.>` — without it the
+         service cannot receive a single reply and would fail closed at boot.
+      2. Nobody references the shared `_INBOX` token. That grant was the
+         defect: one first token shared by the fleet meant every certificate
+         could read every request-reply response.
+      3. Nobody references ANOTHER identity's inbox, in either direction — a
+         subscribe grant would read that service's replies, a publish grant
+         would let it forge them. Replies travel on `allow_responses` instead.
+    """
+    names = {svc["name"] for svc in services}
+    for svc in services:
+        name = svc["name"]
+        own_grant = f"{INBOX_PREFIX_ROOT}{name}.>"
+
+        if svc["subscribe"].count(own_grant) != 1:
+            sys.stderr.write(
+                f"error: {name} must subscribe its own reply inbox exactly once "
+                f"({own_grant}). Every NATS identity owns a distinct first subject "
+                "token so no certificate can read another's request-reply "
+                "responses (ORPHAN-CRITICAL-402).\n"
+            )
+            sys.exit(1)
+
+        for section in ("publish", "subscribe"):
+            for subject in svc[section]:
+                if subject.startswith(SCOPED_EXCHANGE_INBOX_PREFIXES):
+                    continue
+                if subject == SHARED_INBOX_TOKEN or subject.startswith(
+                    f"{SHARED_INBOX_TOKEN}."
+                ):
+                    sys.stderr.write(
+                        f"error: {name}.{section} grants the shared inbox "
+                        f"{subject!r}. That single fleet-wide token let any "
+                        "service certificate read every other service's "
+                        f"request-reply responses — use {own_grant} "
+                        "(ORPHAN-CRITICAL-402).\n"
+                    )
+                    sys.exit(1)
+                if not subject.startswith(INBOX_PREFIX_ROOT):
+                    continue
+                owner = subject[len(INBOX_PREFIX_ROOT) :].split(".", 1)[0]
+                if section == "publish":
+                    sys.stderr.write(
+                        f"error: {name}.publish grants {subject!r}. No service "
+                        "holds a static publish grant on a reply inbox; replies "
+                        "travel on the broker's allow_responses permission, "
+                        "which is scoped to requests the responder actually "
+                        "received.\n"
+                    )
+                    sys.exit(1)
+                if owner != name:
+                    sys.stderr.write(
+                        f"error: {name}.subscribe grants {subject!r}, which is "
+                        f"{owner}'s reply inbox — it would read that service's "
+                        "request-reply responses (ORPHAN-CRITICAL-402).\n"
+                    )
+                    sys.exit(1)
+                if owner not in names:
+                    sys.stderr.write(
+                        f"error: {name}.subscribe grants {subject!r} for unknown "
+                        "identity {owner!r}\n"
+                    )
+                    sys.exit(1)
 
 
 def render_subject_list(subjects: list[str], indent: str) -> str:
@@ -158,6 +266,11 @@ def render_user_entry(svc: dict[str, Any]) -> str:
     full DN string "CN=<name>" (not just the bare CN value), so the user
     field must include the "CN=" prefix to match.
     No `password:` field — cert IS the identity.
+
+    `allow_responses` is emitted for EVERY user, unconditionally: reply
+    permission is a property of the request-reply protocol, not a per-service
+    choice, and making it a knob would invite a service to be granted a static
+    inbox publish grant instead (ORPHAN-CRITICAL-402).
     """
     name = svc["name"]
     description = svc["description"].strip().replace("\n", " ")
@@ -179,6 +292,8 @@ def render_user_entry(svc: dict[str, Any]) -> str:
         f"{subscribe}\n"
         f"          ]\n"
         f"        }}\n"
+        f"        allow_responses: {{ max: {ALLOW_RESPONSES_MAX}, "
+        f'expires: "{ALLOW_RESPONSES_EXPIRES}" }}\n'
         f"      }}\n"
         f"    }}"
     )

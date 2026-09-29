@@ -18,26 +18,36 @@ entry under `services:`:
 
 ```yaml
   - name: <service_name>         # lowercase snake_case, matches cert CN
+    application: <apps-dir-name> # the single runtime that owns this cert
     description: <one-line domain summary>
     publish:
-      - "AQUACULTURE_EVENTS.<Aggregate>*.>"
+      - "events.*.<EventType>"
       # ... other publish subjects
       - "$JS.API.>"
-      - "_INBOX.>"
     subscribe:
-      - "AQUACULTURE_EVENTS.>"
+      - "request.<service>.<rpc>"
       # ... other subscribe subjects
       - "$JS.API.>"
-      - "_INBOX.>"
+      - "_INBOX_<service_name>.>"
 ```
 
 **Naming:**
 
 - `<service_name>` MUST match the mTLS client cert's `CN=` value (see
   Step 2). This is how `verify_and_map: true` maps handshake → user.
-- Subject namespace: use `AQUACULTURE_EVENTS.<Aggregate>*.>` for
-  platform events. Never use bare wildcards like `>` or `*.>` —
-  platform convention is event-family scoped.
+- Subject namespace: domain events are `events.*.<EventType>` — the single
+  `*` matches every tenantId and the literal `system` segment. The legacy
+  `AQUACULTURE_EVENTS.` scheme is BANNED (that string is the JetStream
+  stream NAME, never a subject) and `services.schema.json` rejects it.
+  Never use bare wildcards like `>` or `*.>`.
+- **Reply inbox (ORPHAN-CRITICAL-402):** every identity subscribes exactly
+  one inbox grant — its OWN `_INBOX_<service_name>.>`. The shared `_INBOX.>`
+  is structurally rejected: one token for the whole fleet meant any
+  certificate could read every other service's request-reply responses.
+  Never add an inbox grant to `publish`, not even your own — responders
+  reply through the broker's `allow_responses` permission, which the
+  generator emits for every user. The client side needs no configuration:
+  `buildNatsConnectionOptions()` derives the prefix from the certificate CN.
 
 ## Step 2 — Add to `generate-internal-certs.sh`
 
@@ -122,6 +132,10 @@ Should pass. If it fails:
   generated nats.conf. Run Step 3 again.
 - **"CN list mismatch: only in services.yaml: [...]"** — you forgot
   Step 2.
+- **"must subscribe its own reply inbox exactly once"** / **"grants the
+  shared inbox"** — the generator refused to write the ACL. Add
+  `_INBOX_<service_name>.>` to `subscribe` and remove any `_INBOX.>` or
+  foreign `_INBOX_*` grant (ORPHAN-CRITICAL-402).
 
 ## Step 6 — Commit
 
@@ -138,6 +152,29 @@ git commit -m "feat(nats): wire <service-name> for NATS per-service auth"
 
 All six files must land in the same commit so the CI invariant stays
 green on every intermediate commit.
+
+## Deploying a reply-inbox change (ORPHAN-CRITICAL-402)
+
+The broker's inbox grants and the client's inbox prefix are two halves of one
+contract, so they must go out together:
+
+- The broker grants `_INBOX_<CN>.>` and nothing else. A service image that
+  still uses the old shared `_INBOX` default has its inbox subscription
+  REFUSED (`Permissions Violation for Subscription to "_INBOX.*"` in the NATS
+  log) and every request-reply call it makes times out.
+- A new service image pointed at an old broker fails the mirror image of that.
+
+`docker compose -f docker-compose.droplet.yml up -d` recreates the NATS
+container and the service containers in one pass, so the exposure is the
+reconnect window, not a sustained outage. During it:
+
+- JetStream domain events are unaffected — they are durable and redelivered.
+- Core-NATS request-reply (the `request.*` subjects) fails fast and the caller
+  retries once its container is recreated.
+
+If a partial deploy leaves the two halves out of step, roll the remaining
+containers forward (never pin the broker back to a shared-inbox ACL — that
+re-opens the confidentiality hole for every service at once).
 
 ## Removing a service
 

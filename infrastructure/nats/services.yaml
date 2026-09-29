@@ -25,7 +25,30 @@
 #   - sensor.lookup.by-topic               Rust sidecar cache-miss RPC (ADR-029)
 #   - st.language.>                        ST Language IDE bridge
 #   - policy.ingest_backend.>              dynamic policy fan-out (ADR-027/031)
-#   - $JS.API.> + _INBOX.>                 JetStream API + request-reply inboxes
+#   - $JS.API.>                            JetStream API (pull consumers, mgmt)
+#   - _INBOX_{identity}.>                  THIS identity's reply inbox — see below
+#
+# # Reply inboxes are per-identity (ORPHAN-CRITICAL-402)
+#
+#   The shared `_INBOX.>` grant every service used to hold was a fleet-wide
+#   read permission on every OTHER service's request-reply responses: core
+#   NATS returns a reply on the requester's inbox subject, and with one shared
+#   first token every certificate could subscribe every reply stream (auth
+#   password-reset payloads, admin RPC results, decrypted secrets). NATS
+#   matches the first subject token exactly, so each identity now owns its own
+#   first token — `_INBOX_<name>.>`, granted to that CN and to nobody else.
+#   `_INBOX.>` is structurally rejected by services.schema.json.
+#
+#   Nothing carries a PUBLISH grant on anyone's inbox. Responders reply through
+#   the broker's `allow_responses` permission, which the generator emits for
+#   every user: it mints a short-lived publish grant on the reply subject of a
+#   request the responder ACTUALLY received, so a service can answer what it
+#   was asked and can never inject into an inbox unprompted.
+#
+#   `libs/event-contracts/src/nats-inbox.ts` is the prefix SSoT; the client
+#   side is derived from the mTLS certificate CN in
+#   `libs/backend-common/src/nats/nats-connection.factory.ts` (TS) and
+#   `crates/nats-client` (Rust sidecar).
 #
 # The legacy `AQUACULTURE_EVENTS.<Type>.>` grant scheme is BANNED (and
 # structurally rejected by services.schema.json): AQUACULTURE_EVENTS is the
@@ -38,7 +61,7 @@
 #
 #   Domain-event consumption goes through JetStream PULL consumers
 #   (NatsEventBus.createSubscription): the client only needs $JS.API.> +
-#   _INBOX.> — per-subject subscribe grants are NOT consulted for pull
+#   its own _INBOX_<name>.> — per-subject subscribe grants are NOT consulted for pull
 #   consumers. Subject-level subscribe grants are therefore listed ONLY for
 #   CORE NATS subscriptions: @MessagePattern/@EventPattern handlers
 #   (request.*, events.> bridges), st.language.>, policy snapshots and the
@@ -71,12 +94,11 @@ services:
       - 'events.security.events.>'
       - 'request.farm.validateSiteAssignment'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - 'request.auth.user.validateTenantMembership'
       - 'request.auth.>'
       - '$JS.API.>'
-      - '_INBOX.>'
+      - '_INBOX_auth_service.>'
 
   # ---------------------------------------------------------------------------
   # farm-service: batch / pond / feeding / equipment / water quality
@@ -185,7 +207,6 @@ services:
       - 'events.security.events.>'
       - 'request.farm.validateSiteAssignment'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       # ai-service create_task actuation tool (request-reply responder)
       - 'request.farm.createTask'
@@ -195,11 +216,11 @@ services:
       - 'request.farm.getHarvestOverview'
       - 'request.farm.getFeedingOverview'
       - 'request.farm.validateSiteAssignment'
-      # Dedicated first-token inbox: generic `_INBOX.>` grants cannot read
-      # decrypted marine-provider credential replies.
+      # Dedicated per-EXCHANGE first-token inbox: isolates decrypted
+      # marine-provider credential replies from farm's other reply traffic.
       - '_INBOXFARMMARINECFG.>'
       - '$JS.API.>'
-      - '_INBOX.>'
+      - '_INBOX_farm_service.>'
 
   # ---------------------------------------------------------------------------
   # sensor-service: IoT/edge device readings, VFDs, LoRa, automation
@@ -237,13 +258,12 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - 'request.sensor.>'
       - 'sensor.lookup.by-topic'
       - 'st.language.>'
       - '$JS.API.>'
-      - '_INBOX.>'
+      - '_INBOX_sensor_service.>'
 
   # ---------------------------------------------------------------------------
   # sensor-ingestion: Rust sidecar (ADR-025 / ADR-027) — co-equal producer of
@@ -258,10 +278,9 @@ services:
       - 'events.*.SensorReading'
       - 'sensor.lookup.by-topic'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - 'policy.ingest_backend.>'
-      - '_INBOX.>'
+      - '_INBOX_sensor-ingestion.>'
       - '$JS.API.>'
 
   # ---------------------------------------------------------------------------
@@ -329,12 +348,11 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - 'events.*.TenantOnboardingAck'
       - 'events.*.TenantOnboardingFailed'
       - 'policy.ingest_backend.snapshot'
-      - '_INBOX.>'
+      - '_INBOX_admin_api_service.>'
       - '$JS.API.>'
 
   # ---------------------------------------------------------------------------
@@ -353,11 +371,10 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - 'events.>'
       - 'st.language.>'
-      - '_INBOX.>'
+      - '_INBOX_gateway_service.>'
       - '$JS.API.>'
 
   # ---------------------------------------------------------------------------
@@ -377,12 +394,11 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - 'commands.notification.sendEmail'
       - 'commands.notification.sendPush'
       - '$JS.API.>'
-      - '_INBOX.>'
+      - '_INBOX_notification_service.>'
 
   # ---------------------------------------------------------------------------
   # ai-service: AI chat, tool execution, conversations
@@ -404,7 +420,6 @@ services:
       - 'request.farm.getHarvestOverview'
       - 'request.farm.getFeedingOverview'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - 'request.ai.chat'
       - 'request.ai.executeAction'
@@ -415,7 +430,7 @@ services:
       # under the sensor-service service principal). ai-service HANDLES it (subscribe).
       - 'request.ai.sensor.detectChannels'
       - '$JS.API.>'
-      - '_INBOX.>'
+      - '_INBOX_ai_service.>'
 
   # ---------------------------------------------------------------------------
   # billing-service: subscriptions, invoices, payments, Stripe webhooks
@@ -442,21 +457,20 @@ services:
       - 'events.security.events.>'
       # Faz C (D6): billing is the ONLY CN allowed to PUBLISH the config-runtime
       # read subjects — the get_secret grant is the cert-CN half of the
-      # defense-in-depth around the plaintext Stripe secret. Reply arrives on
-      # billing's own _INBOX.> (already granted).
+      # defense-in-depth around the plaintext Stripe secret. The non-secret
+      # reply arrives on billing's own _INBOX_billing_service.> (already granted).
       - 'config.runtime.get'
       - 'config.runtime.get_secret'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - 'request.billing.admin.>'
       - 'request.billing.tenant.>'
-      # Faz C (SEC-CRITICAL-001): SCOPED reply inbox for the config-runtime secret
-      # read — billing is the ONLY CN that subscribes this token, so the decrypted
-      # Stripe secret never returns on the platform-wide `_INBOX.>` every cert holds.
+      # Faz C (SEC-CRITICAL-001): per-EXCHANGE reply inbox for the config-runtime
+      # secret read — tighter than billing's per-identity inbox because it isolates
+      # the decrypted Stripe secret from billing's own other request-reply traffic.
       - '_INBOXBILLINGCFG.>'
       - '$JS.API.>'
-      - '_INBOX.>'
+      - '_INBOX_billing_service.>'
 
   # ---------------------------------------------------------------------------
   # alert-engine: rule-based alerting from sensor readings
@@ -477,10 +491,9 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - '$JS.API.>'
-      - '_INBOX.>'
+      - '_INBOX_alert_engine.>'
 
   # ---------------------------------------------------------------------------
   # hr-service: employees, leave, attendance, certifications, payroll
@@ -518,10 +531,9 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - '$JS.API.>'
-      - '_INBOX.>'
+      - '_INBOX_hr_service.>'
 
   # ---------------------------------------------------------------------------
   # messaging-service: channels, messages, retention, compliance
@@ -572,7 +584,6 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - 'request.messaging.verifyMembership'
       - 'request.messaging.getChannelMembers'
@@ -590,7 +601,7 @@ services:
       - 'request.messaging.admin.getPersonas'
       - 'events.>'
       - '$JS.API.>'
-      - '_INBOX.>'
+      - '_INBOX_messaging_service.>'
 
   # ---------------------------------------------------------------------------
   # hydroponics-service: grow cycles, hydroponics operations
@@ -605,10 +616,9 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - '$JS.API.>'
-      - '_INBOX.>'
+      - '_INBOX_hydroponics_service.>'
 
   # ---------------------------------------------------------------------------
   # observability-service: migration audit sink + security events sink
@@ -622,19 +632,18 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
-      - '_INBOX.>'
+      - '_INBOX_observability_service.>'
 
   # ---------------------------------------------------------------------------
   # config-service: dynamic per-tenant configuration
   # ---------------------------------------------------------------------------
   # Onboarded to the event backbone 2026-07-12 (DB-INFRA-HIGH-003) solely to be
   # a GDPR tenant-erasure target: it consumes TenantErasureRequested via a
-  # JetStream pull consumer ($JS.API.> + _INBOX.>) and publishes the erasure
+  # JetStream pull consumer ($JS.API.> + _INBOX_config_service.>) and publishes the erasure
   # proof events via its own outbox worker (own cert). No domain events.
   - name: config_service
     application: config-service
@@ -654,7 +663,6 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       # Faz C (D6): config-runtime request-reply responder subjects. The secret
       # reply is published back on the caller's SCOPED `_INBOXBILLINGCFG.>` inbox.
@@ -663,7 +671,7 @@ services:
       - 'config.marine_credentials.resolve'
       - 'config.marine_credentials.upsert'
       - '$JS.API.>'
-      - '_INBOX.>'
+      - '_INBOX_config_service.>'
 
   # ---------------------------------------------------------------------------
   # event-store-service: event persistence + projections
@@ -682,7 +690,6 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
-      - '_INBOX.>'
     subscribe:
       - '$JS.API.>'
-      - '_INBOX.>'
+      - '_INBOX_event_store_service.>'

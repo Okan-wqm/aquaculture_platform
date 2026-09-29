@@ -166,7 +166,7 @@ function replyMsg(bodyJson: string): Msg {
     string: () => bodyJson,
     json: <T>() => JSON.parse(bodyJson) as T,
     subject: 'unused',
-    reply: '_INBOX.unused',
+    reply: '_INBOX_gateway_service.unused',
     respond: jest.fn(),
     headers: undefined,
     sid: 0,
@@ -686,7 +686,7 @@ describe('NatsRequestReply — responder', () => {
         }),
       ),
       subject,
-      reply: '_INBOX.site-assignment',
+      reply: '_INBOX_auth_service.site-assignment',
       headers: forgedHeaders,
       respond: jest.fn(() => {
         resolveResponse();

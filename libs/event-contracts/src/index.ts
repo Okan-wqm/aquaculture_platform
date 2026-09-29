@@ -18,6 +18,8 @@ export * from './enums/tenant-status.machine';
 export * from './tenant-erasure-targets';
 // Config-runtime RPC subjects + ConfigurationChanged signal (Billing Revival Faz C).
 export * from './config-runtime';
+// Per-service NATS reply-inbox namespace (ORPHAN-CRITICAL-402).
+export * from './nats-inbox';
 
 // Domain events by module
 export * from './auth-events';

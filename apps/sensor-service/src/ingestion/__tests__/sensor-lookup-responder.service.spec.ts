@@ -108,7 +108,7 @@ function makeMsg(body: unknown, hasReply = true): Msg & { _replies: string[] } {
   const text = typeof body === 'string' ? body : JSON.stringify(body);
   return {
     string: jest.fn(() => text),
-    reply: hasReply ? '_INBOX.test.0' : '',
+    reply: hasReply ? '_INBOX_sensor-ingestion.test.0' : '',
     respond: jest.fn((payload: string) => {
       replies.push(payload);
       return true;

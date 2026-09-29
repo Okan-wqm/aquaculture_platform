@@ -34,6 +34,7 @@
 import 'reflect-metadata';
 import { randomBytes, randomUUID } from 'crypto';
 
+import { Role } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import {
   bootPostgresContainer,
@@ -81,8 +82,11 @@ import {
   StockMovementService,
 } from '../../storage/services/stock-movement.service';
 import { StockMutationLockAuthority } from '../../storage/services/stock-mutation-lock.authority';
+import { TransferStockCommand } from '../../storage/commands/transfer-stock.command';
+import type { TransferStockInput } from '../../storage/dto/transfer-stock.input';
 import { Supplier } from '../../supplier/entities/supplier.entity';
 
+import { createTransferStockHandler } from './helpers/storage-handler-fixture';
 import { createFarmOutboxTable } from './helpers/tenant-schema-harness';
 
 const USER = 'f1b7b266-5e20-4c37-8ab2-b7ef18db3a21';
@@ -1082,6 +1086,97 @@ describe('Two-tier low-stock ledger — real Postgres (plan K8)', () => {
           where: { tenantId: world.tenantId, itemId: feed, movementType: MovementType.TRANSFER },
         }),
       ).toBe(1);
+    });
+
+    it('PINS THE FARM-HIGH-239 GAP: the transferStock handler emits no edge event', async () => {
+      // SCENARIO: the same world as the sink transfer above (pool threshold
+      // 120; 60 at A1, 50 at B1; policies A = 40, B = 70), but the 30 kg move
+      // goes through TransferStockHandler — the `transferStock` mutation's
+      // handler, which still hand-writes both inventory legs instead of calling
+      // StockMovementService.recordMovement (FARM-HIGH-239, docs/reviews/
+      // farm-expert/2026-07-15-enterprise-closure-orphans.md).
+      // EXPECTS (TODAY'S KNOWN GAP): the ledger moves (A = 30, B = 80, one
+      // TRANSFER row) but NO LowStockDetected row is written, although site A
+      // crossed below its 40 minimum. The level-based surfaces (evaluator
+      // listing, warehouse hub, storage overview) do see site A as low.
+      // Lane B's next PR (B1a-1b) routes the handler through the sink and MUST
+      // flip this test to expect exactly the site A event — do not delete it.
+      const world = await seedWorld();
+      const feed = randomUUID();
+      await seedFeed(world.tenantId, feed, 'Handler transfer feed', 120);
+      await seedStock(world.tenantId, [
+        { locationId: world.locA1, itemId: feed, quantity: 60 },
+        { locationId: world.locB1, itemId: feed, quantity: 50 },
+      ]);
+      await seedPolicy(world.tenantId, world.siteA, feed, 40);
+      await seedPolicy(world.tenantId, world.siteB, feed, 70);
+      const handler = createTransferStockHandler(dataSource);
+      const input: TransferStockInput = {
+        itemType: FEED,
+        itemId: feed,
+        quantity: 30,
+        fromLocationId: world.locA1,
+        toLocationId: world.locB1,
+      };
+
+      await handler.execute(
+        new TransferStockCommand(input, world.tenantId, USER, 'Operator', [Role.MODULE_MANAGER]),
+      );
+
+      const onHand = await inTx((m) =>
+        reader.onHandBySite(m, world.tenantId, {
+          kind: 'item',
+          key: { itemType: FEED, itemId: feed },
+        }),
+      );
+      expect(bySite(onHand).map((row) => [row.siteId, row.onHand])).toEqual([
+        [world.siteA, 30],
+        [world.siteB, 80],
+      ]);
+      expect(await lowStockEvents(world.tenantId, feed)).toEqual([]);
+      const listed = await inTx((m) => evaluator.listBelowThreshold(m, world.tenantId));
+      expect(
+        listed.some(
+          (reading) =>
+            reading.itemId === feed && reading.level === 'site' && reading.siteId === world.siteA,
+        ),
+      ).toBe(true);
+    });
+
+    it('PINS THE FARM-HIGH-239 GAP: the transferStock handler books into a soft-deleted location', async () => {
+      // SCENARIO: 50 kg at B1; the transferStock handler moves 20 kg INTO the
+      // soft-deleted location of site A (the sink refuses that destination,
+      // see stock-movement.service.spec "refuses to book stock INTO a
+      // soft-deleted location").
+      // EXPECTS (TODAY'S KNOWN GAP): the handler accepts it and the 20 kg
+      // leave every reader — B drops to 30, site A gains nothing, because
+      // stock in a deleted location is on-hand for no reader (plan K8).
+      // B1a-1b routes the handler through the sink and MUST flip this test to
+      // expect the refusal (BadRequest, ledger untouched) — do not delete it.
+      const world = await seedWorld();
+      const feed = randomUUID();
+      await seedFeed(world.tenantId, feed, 'Handler closed-location feed', 0);
+      await seedStock(world.tenantId, [{ locationId: world.locB1, itemId: feed, quantity: 50 }]);
+      const handler = createTransferStockHandler(dataSource);
+      const input: TransferStockInput = {
+        itemType: FEED,
+        itemId: feed,
+        quantity: 20,
+        fromLocationId: world.locB1,
+        toLocationId: world.locClosedA,
+      };
+
+      await handler.execute(
+        new TransferStockCommand(input, world.tenantId, USER, 'Operator', [Role.MODULE_MANAGER]),
+      );
+
+      const onHand = await inTx((m) =>
+        reader.onHandBySite(m, world.tenantId, {
+          kind: 'item',
+          key: { itemType: FEED, itemId: feed },
+        }),
+      );
+      expect(bySite(onHand).map((row) => [row.siteId, row.onHand])).toEqual([[world.siteB, 30]]);
     });
   });
 });

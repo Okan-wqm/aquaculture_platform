@@ -25,11 +25,11 @@ when a fresh build differs from the committed one:
 - `rust-toolchain-manifest.json` (`authority: rust-toolchain.toml`) stored
   `cargo_lock_sha256`.
 
-A dependency bot rewrites the lockfile and cannot rerun `quality.mjs`, so
+A dependency bot rewrites the lockfile and cannot rerun `quality.mjs`. So
 every npm bump failed with `tools/quality/format-scope.json is stale;
-regenerate it` (PR #1685) and every cargo bump failed sens lint/build/test with
-`tools/quality/rust-toolchain-manifest.json is stale; regenerate it` (PR
-#1686).
+regenerate it` (PR #1685), and every cargo bump failed sens lint/build/test
+with `tools/quality/rust-toolchain-manifest.json is stale; regenerate it` (in
+PR #1686).
 
 Neither digest was a control. Apart from `checkManifest`'s equality test,
 nothing reads either one, and the only remedy that test offers is to

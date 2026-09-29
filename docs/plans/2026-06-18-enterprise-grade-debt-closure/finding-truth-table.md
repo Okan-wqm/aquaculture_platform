@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `b28a7fc182e6cc92fc5cb26e6278317742499bab46f643e58ed98cb083f9d6a4`
+Registry tip: `c348d3746936fcd5ea0614742fe8221eb957adecc1eda1302c5d0b8d12a409b7`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -283,6 +283,8 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
 | `ARIA-CRITICAL-214` | OPEN | 2026-09-26 | claude | real-open |
 | `ARIA-CRITICAL-215` | OPEN | 2026-09-26 | claude | real-open |
 | `ARIA-CRITICAL-216` | OPEN | 2026-09-26 | claude | real-open |
+| `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
+| `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 
 ## Mutation Rules
 
@@ -423,6 +425,17 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
   merges (units L and O carry the `Closes:` lines); owner claude (registry owner_user okan),
   deadline 2026-10-31
   (`docs/reviews/claude/2026-09-26-aria-merge-lane-review.md`).
+
+- `ALERT-CRITICAL-004` (2026-09-29, ai-service program plan review): farm-signal incidents (critical
+  water quality, mortality, low stock, feed stockout) reach nobody — no tenant has an escalation
+  policy (live DB: 0) and nothing consumes `AlertEscalated`. Real open work, owner
+  alert-engine-expert (registry owner_user okan), deadline 2026-10-15; closed by plan PR-S1
+  (`docs/reviews/alert-engine-expert/2026-09-29-ai-tracking-program.md`).
+- `ALERT-CRITICAL-009` (2026-09-29, found by the PR-S1 implementer): every farm-signal incident
+  insert fails because `alert_incidents.rule_id` is a uuid NOT NULL foreign key to `alert_rules`
+  while farm signals use synthetic keys — the likely reason the live DB holds 0 incidents. Real open
+  work, owner alert-engine-expert (registry owner_user okan), deadline 2026-10-15; closed by plan
+  PR-S1 (`docs/reviews/alert-engine-expert/2026-09-29-ai-tracking-program.md`).
 
 - `SENSOR-CRITICAL-127`, `BILLING-CRITICAL-019`, `FARM-CRITICAL-331`, `SEC-CRITICAL-169` (2026-09-20,
   the boot-path outage): a re-provided sensor MQTT auth service, a type-only import of an injected

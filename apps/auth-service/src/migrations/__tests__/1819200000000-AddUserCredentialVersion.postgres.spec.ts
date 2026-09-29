@@ -22,6 +22,7 @@ jest.setTimeout(120_000);
 describe('AddUserCredentialVersion1819200000000 on real Postgres', () => {
   let harness: HarnessContext | undefined;
   const userId = '8025339a-e6c7-46df-b65a-dcf4f010b861';
+  const preexistingUserId = '3c1f2b9e-5a4d-4c6e-9f0a-7b8d2e1c4a60';
 
   beforeAll(async () => {
     harness = await bootPostgresContainer({ startTimeoutMs: 90_000 });
@@ -42,6 +43,13 @@ describe('AddUserCredentialVersion1819200000000 on real Postgres', () => {
         "updatedAt" timestamptz NOT NULL DEFAULT now()
       )
     `);
+    // ORPHAN-MEDIUM-814: production ran this migration over a populated table,
+    // so an account that existed BEFORE it is the case that matters most.
+    await requireAdmin().query(
+      `INSERT INTO auth.users (id, email, password, role, "tenantId")
+       VALUES ($1, 'existing@example.test', 'p0:$2b$hash-legacy', 'MODULE_USER', '7f6b08ab-90e2-46d3-a260-cb985f1fd897')`,
+      [preexistingUserId],
+    );
     await withQueryRunner(async (queryRunner) => {
       const migration = new AddUserCredentialVersion1819200000000();
       await migration.up(queryRunner);
@@ -68,6 +76,20 @@ describe('AddUserCredentialVersion1819200000000 on real Postgres', () => {
         WHERE n.nspname = 'auth' AND c.relname = 'users' AND NOT t.tgisinternal`,
     );
     expect(triggers).toEqual([{ tgname: 'trg_users_bump_credential_version' }]);
+  });
+
+  it('upgrades an account that existed before the migration: version 1, then fenced like any other', async () => {
+    expect(await readVersion(preexistingUserId)).toBe(1);
+    await requireAdmin().query(
+      `UPDATE auth.users SET "lastLoginAt" = now(), "failedLoginAttempts" = 0 WHERE id = $1`,
+      [preexistingUserId],
+    );
+    expect(await readVersion(preexistingUserId)).toBe(1);
+    await requireAdmin().query(
+      `UPDATE auth.users SET password = 'p1:$2b$hash-rotated' WHERE id = $1`,
+      [preexistingUserId],
+    );
+    expect(await readVersion(preexistingUserId)).toBe(2);
   });
 
   it('leaves the version untouched on the login bookkeeping write that precedes minting', async () => {
@@ -134,10 +156,10 @@ describe('AddUserCredentialVersion1819200000000 on real Postgres', () => {
     expect(functions).toEqual([]);
   });
 
-  async function readVersion(): Promise<number> {
+  async function readVersion(id: string = userId): Promise<number> {
     const rows = await requireAdmin().query<VersionRow[]>(
       `SELECT "credentialVersion" FROM auth.users WHERE id = $1`,
-      [userId],
+      [id],
     );
     const row = rows[0];
     if (!row) {

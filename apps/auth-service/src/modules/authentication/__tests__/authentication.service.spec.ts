@@ -55,6 +55,11 @@ import { DurableAccessTokenInvalidationService } from '../services/durable-acces
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
+import { UserAccountStore } from '../services/user-account.store';
+import { makeUserAccountStoreDouble } from './support/auth-store.doubles';
+
+// ORPHAN-HIGH-811/812: the column-scoped writers, as London-school doubles.
+const userAccountStore = makeUserAccountStoreDouble();
 
 // WHY: bcryptjs publishes a sealed module namespace under the current
 // toolchain — jest.spyOn(bcrypt, 'compare') throws "Cannot redefine
@@ -110,6 +115,8 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
     role: Role.MODULE_USER,
     tenantId: '11111111-1111-4111-8111-111111111111',
     isActive: true,
+    // Real rows carry the trigger-maintained anchor (NOT NULL DEFAULT 1).
+    credentialVersion: 1,
     isEmailVerified: true,
     failedLoginAttempts: 0,
     lockedUntil: null,
@@ -406,6 +413,7 @@ describe('AuthenticationService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: UserAccountStore, useValue: userAccountStore },
         AuthenticationService,
         ActionTokenResolver,
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
@@ -488,61 +496,126 @@ describe('AuthenticationService', () => {
 
       expect(result).toHaveProperty('accessToken');
       expect(result).toHaveProperty('refreshToken');
-      expect(mockUserRepository.save).toHaveBeenCalled();
+      // ORPHAN-HIGH-812: the completed sign-in is a column-scoped bookkeeping
+      // write inside the minting transaction — never a whole-User save.
+      expect(userAccountStore.recordSignInCompleted).toHaveBeenCalledWith(
+        mockTransactionManager,
+        user.id,
+        '127.0.0.1',
+      );
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
     });
 
-    it('ORPHAN-CRITICAL-808: mints against the verified hash and runs the legacy-hash migration only AFTER issuance', async () => {
-      // WHY: the re-hash is a credential write, so the database advances
-      // `credentialVersion` on it. Saving it before generateTokens would move
-      // the row past the anchor the issuance fence compares and refuse the
-      // login that just verified the password. Bookkeeping (lastLoginAt) is
-      // not a credential write and stays before the mint.
-      const legacyHash = '$2a$12$legacy-unpeppered-hash';
+    it('ORPHAN-HIGH-812: the legacy-hash upgrade, the mint and the bookkeeping commit as one boundary, fenced on the upgrade proof', async () => {
+      // WHY: the re-hash is a credential write — the database advances
+      // `credentialVersion` on it. It is compare-and-set on the version the
+      // password was verified against, and the mint is fenced on the version
+      // the upgrade returned, all in one transaction: a refused mint leaves
+      // neither an upgraded hash nor a recorded login behind. The bookkeeping
+      // precedes the mint so the principal the mint returns already carries
+      // this sign-in's lastLoginAt.
       const user = createMockUser({
-        password: legacyHash,
+        password: '$2a$12$legacy-unpeppered-hash',
+        credentialVersion: 1,
         verifyPasswordAndSignalMigration: () =>
           Promise.resolve({ matched: true, shouldMigrate: true }),
       });
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
-      mockUserRepository.save.mockResolvedValue(user);
-      const passwordAtSave: (string | undefined)[] = [];
-      mockUserRepository.save.mockImplementation((saved: User) => {
-        passwordAtSave.push(saved.password);
-        return Promise.resolve(saved);
-      });
-      let passwordAtMint: string | undefined;
-      mockTokenService.generateTokens.mockImplementationOnce((minted: User) => {
-        passwordAtMint = minted.password;
-        return Promise.resolve({
-          accessToken: 'mock-access-token',
-          refreshToken: 'mock-refresh-token',
-          user: minted,
-          expiresIn: 900,
-          tokenType: 'Bearer',
-          redirectUrl: '/dashboard',
-        });
-      });
 
       await service.login(validInput, '127.0.0.1', 'test-agent');
 
-      // Save #1 is bookkeeping (hash untouched); the mint sees that same hash;
-      // save #2 carries the plaintext for the @BeforeUpdate re-hash.
-      expect(passwordAtSave).toEqual([legacyHash, validInput.password]);
-      expect(passwordAtMint).toBe(legacyHash);
-      const mintOrder = mockTokenService.generateTokens.mock.invocationCallOrder[0];
-      const [bookkeepingOrder, migrationOrder] = mockUserRepository.save.mock.invocationCallOrder;
-      // noUncheckedIndexedAccess: an absent invocation is a failed expectation,
-      // not an undefined operand.
-      if (
-        mintOrder === undefined ||
-        bookkeepingOrder === undefined ||
-        migrationOrder === undefined
-      ) {
-        throw new Error('expected one generateTokens() and two save() invocations');
+      expect(userAccountStore.upgradeLegacyPasswordHash).toHaveBeenCalledWith(
+        mockTransactionManager,
+        expect.objectContaining({ userId: user.id, credentialVersion: 1 }),
+        validInput.password,
+      );
+      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: user.id, credentialVersion: 2 }),
+        '127.0.0.1',
+        'test-agent',
+        { rememberMe: false, manager: mockTransactionManager },
+      );
+      const [upgradeOrder] = userAccountStore.upgradeLegacyPasswordHash.mock.invocationCallOrder;
+      const [mintOrder] = mockTokenService.generateTokens.mock.invocationCallOrder;
+      const [bookkeepingOrder] = userAccountStore.recordSignInCompleted.mock.invocationCallOrder;
+      if (upgradeOrder === undefined || mintOrder === undefined || bookkeepingOrder === undefined) {
+        throw new Error('expected one upgrade, one mint and one bookkeeping write');
       }
+      expect(upgradeOrder).toBeLessThan(bookkeepingOrder);
       expect(bookkeepingOrder).toBeLessThan(mintOrder);
-      expect(mintOrder).toBeLessThan(migrationOrder);
+      expect(mockDataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('ORPHAN-HIGH-812: a credential change that commits between verification and upgrade refuses the sign-in', async () => {
+      const user = createMockUser({
+        credentialVersion: 1,
+        verifyPasswordAndSignalMigration: () =>
+          Promise.resolve({ matched: true, shouldMigrate: true }),
+      });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
+      // Compare-and-set lost: the row is no longer at the verified version.
+      userAccountStore.upgradeLegacyPasswordHash.mockResolvedValueOnce(null);
+
+      await expect(service.login(validInput, '127.0.0.1')).rejects.toThrow(
+        'User credentials changed during token issuance',
+      );
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+      expect(userAccountStore.recordSignInCompleted).not.toHaveBeenCalled();
+    });
+
+    it('ORPHAN-MEDIUM-813: a refused mint leaves no LOGIN_SUCCESS audit row and no UserLoggedIn event', async () => {
+      // The 2026-09-05 incident: the audit trail recorded LOGIN_SUCCESS for
+      // every request the client received as FORBIDDEN.
+      const user = createMockUser();
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
+      mockBcryptCompare.mockResolvedValue(true);
+      mockTokenService.generateTokens.mockRejectedValueOnce(
+        new ForbiddenException('User credentials changed during token issuance'),
+      );
+
+      await expect(service.login(validInput, '127.0.0.1')).rejects.toThrow(ForbiddenException);
+
+      expect(mockAuditLogService.log).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'LOGIN_SUCCESS' }),
+      );
+      expect(mockEventBus.publish).not.toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'UserLoggedIn' }),
+      );
+      // The bookkeeping ran on the minting transaction, so the refused mint
+      // rolls it back with everything else (proved on real Postgres in
+      // credential-issuance.postgres.spec.ts).
+      expect(userAccountStore.recordSignInCompleted).toHaveBeenCalledWith(
+        mockTransactionManager,
+        user.id,
+        '127.0.0.1',
+      );
+    });
+
+    it('ORPHAN-MEDIUM-813: a completed sign-in is announced once, after the session exists', async () => {
+      const user = createMockUser();
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
+      mockBcryptCompare.mockResolvedValue(true);
+
+      await service.login(validInput, '127.0.0.1');
+
+      const successAudits = mockAuditLogService.log.mock.calls.filter(
+        ([entry]: [{ action?: string }]) => entry.action === 'LOGIN_SUCCESS',
+      );
+      expect(successAudits).toHaveLength(1);
+      const [mintOrder] = mockTokenService.generateTokens.mock.invocationCallOrder;
+      const auditIndex = mockAuditLogService.log.mock.calls.findIndex(
+        ([entry]: [{ action?: string }]) => entry.action === 'LOGIN_SUCCESS',
+      );
+      const auditOrder = mockAuditLogService.log.mock.invocationCallOrder[auditIndex];
+      if (mintOrder === undefined || auditOrder === undefined) {
+        throw new Error('expected a mint and a LOGIN_SUCCESS audit');
+      }
+      expect(mintOrder).toBeLessThan(auditOrder);
     });
 
     it('throws UnauthorizedException and performs dummy hash check when user not found', async () => {
@@ -562,13 +635,14 @@ describe('AuthenticationService', () => {
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
 
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
-      // WHY: failed-attempt accounting moved to a single atomic
-      // UPDATE ... RETURNING (race-safe under concurrent login failures) —
-      // assert the SQL contract instead of the read-modify-write save that
-      // production no longer performs. Params: [userId, maxAttempts, lockout].
-      expect(mockDataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('"failedLoginAttempts" = "failedLoginAttempts" + 1'),
-        ['user-uuid-123', 5, expect.any(Date)],
+      // WHY: failed-attempt accounting is one atomic UPDATE ... RETURNING in
+      // the account store (race-safe under concurrent login failures; its SQL
+      // contract is pinned in user-stores.spec.ts), never a read-modify-write
+      // save. Arguments: userId, maxAttempts, the absolute lockout deadline.
+      expect(userAccountStore.recordFailedPasswordAttempt).toHaveBeenCalledWith(
+        'user-uuid-123',
+        5,
+        expect.any(Date),
       );
     });
 
@@ -578,7 +652,10 @@ describe('AuthenticationService', () => {
       mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
       // Below threshold: attempts 3 of 5, no lock set.
-      mockDataSource.query.mockResolvedValue([[{ failedLoginAttempts: 3, lockedUntil: null }], 1]);
+      userAccountStore.recordFailedPasswordAttempt.mockResolvedValueOnce({
+        failedLoginAttempts: 3,
+        lockedUntil: null,
+      });
 
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
 
@@ -604,10 +681,10 @@ describe('AuthenticationService', () => {
       mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
       // Threshold crossed: attempts 5 of 5, lockedUntil set by the CASE arm.
-      mockDataSource.query.mockResolvedValue([
-        [{ failedLoginAttempts: 5, lockedUntil: new Date(Date.now() + 30 * 60 * 1000) }],
-        1,
-      ]);
+      userAccountStore.recordFailedPasswordAttempt.mockResolvedValueOnce({
+        failedLoginAttempts: 5,
+        lockedUntil: new Date(Date.now() + 30 * 60 * 1000),
+      });
 
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
 
@@ -647,7 +724,10 @@ describe('AuthenticationService', () => {
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
-      mockDataSource.query.mockResolvedValue([[{ failedLoginAttempts: 2, lockedUntil: null }], 1]);
+      userAccountStore.recordFailedPasswordAttempt.mockResolvedValueOnce({
+        failedLoginAttempts: 2,
+        lockedUntil: null,
+      });
 
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
 
@@ -656,29 +736,23 @@ describe('AuthenticationService', () => {
       );
     });
 
-    it('SEC-LOW-001(c): casts the lockout deadline to timestamptz (not tz-stripping timestamp)', async () => {
+    it('SEC-LOW-001(c): hands the store the lockout deadline as an absolute instant', async () => {
       const user = createMockUser({ failedLoginAttempts: 2 });
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
+      const before = Date.now();
 
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
 
-      // WHY: users.lockedUntil is TIMESTAMP WITH TIME ZONE and $3 is a JS Date
-      // (an absolute instant). ::timestamp (without tz) drops the offset and
-      // reinterprets the lockout deadline under the DB session TimeZone, drifting
-      // the lockout window on non-UTC sessions. The cast MUST be ::timestamptz.
-      const lockoutQueryCall = mockDataSource.query.mock.calls.find(
-        (call: unknown[]) =>
-          typeof call[0] === 'string' &&
-          (call[0] as string).includes('"failedLoginAttempts" = "failedLoginAttempts" + 1'),
-      );
-      expect(lockoutQueryCall).toBeDefined();
-      const sql = lockoutQueryCall![0] as string;
-      expect(sql).toMatch(/\$3::timestamptz/);
-      // Reject a tz-stripping ::timestamp cast (negative lookahead so the legit
-      // ::timestamptz match does not satisfy this assertion).
-      expect(sql).not.toMatch(/\$3::timestamp(?!tz)/);
+      // The store casts it to timestamptz (pinned in user-stores.spec.ts); the
+      // service's part is to pass a Date `lockoutDurationMinutes` ahead.
+      const [call] = userAccountStore.recordFailedPasswordAttempt.mock.calls;
+      const deadline = call?.[2];
+      if (!(deadline instanceof Date)) {
+        throw new Error('expected the store to receive the lockout deadline as a Date');
+      }
+      expect(deadline.getTime()).toBeGreaterThanOrEqual(before + 30 * 60 * 1000);
     });
 
     it('throws UnauthorizedException when account is locked (isLocked returns true)', async () => {
@@ -694,12 +768,15 @@ describe('AuthenticationService', () => {
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(tenant);
       mockBcryptCompare.mockResolvedValue(true);
-      mockUserRepository.save.mockResolvedValue({ ...user, failedLoginAttempts: 0 });
 
       await service.login(validInput);
 
-      expect(mockUserRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({ failedLoginAttempts: 0 }),
+      // The store's sign-in write clears failedLoginAttempts/lockedUntil by
+      // contract (pinned against real Postgres in the store's integration spec).
+      expect(userAccountStore.recordSignInCompleted).toHaveBeenCalledWith(
+        mockTransactionManager,
+        user.id,
+        null,
       );
     });
 
@@ -861,12 +938,11 @@ describe('AuthenticationService', () => {
       expect(result.accessToken).toBe('mock-access-token');
       // ORPHAN-LOW-135: login threads the rememberMe choice (default false) into issuance.
       expect(mockTokenService.generateTokens).toHaveBeenCalledWith(
-        user,
+        // ORPHAN-HIGH-811: fenced on the credential the password was verified against.
+        expect.objectContaining({ userId: user.id, credentialVersion: 1 }),
         '127.0.0.1',
         'test-agent',
-        {
-          rememberMe: false,
-        },
+        { rememberMe: false, manager: mockTransactionManager },
       );
     });
 

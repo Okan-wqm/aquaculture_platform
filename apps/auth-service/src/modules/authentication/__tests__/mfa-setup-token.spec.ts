@@ -6,12 +6,24 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../entities/user.entity';
 import { MfaResolver } from '../resolvers/mfa.resolver';
+import { CredentialProof } from '../services/credential-proof';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
+import { UserAccountStore } from '../services/user-account.store';
+import { UserMfaStateStore } from '../services/user-mfa-state.store';
+import {
+  makeUserAccountStoreDouble,
+  makeUserMfaStateStoreDouble,
+} from './support/auth-store.doubles';
+
+// ORPHAN-HIGH-811/812: the column-scoped writers, as London-school doubles.
+const userAccountStore = makeUserAccountStoreDouble();
+const mfaStateStore = makeUserMfaStateStoreDouble();
 
 /**
  * ADR-046 — the `mfa_setup` (pre-session enrollment) token.
@@ -27,7 +39,18 @@ describe('MFA setup token (ADR-046)', () => {
   const OTHER_USER_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
   const buildUser = (): User =>
-    Object.assign(new User(), { id: USER_ID, email: 'enrollee@example.com' });
+    Object.assign(new User(), {
+      id: USER_ID,
+      email: 'enrollee@example.com',
+      credentialVersion: 1,
+      isActive: true,
+    });
+  const proofOf = (user: User): CredentialProof => CredentialProof.ofAuthenticatedPrincipal(user);
+
+  // The row the setup-token consumer re-reads: by default still at the
+  // version the token was minted on.
+  let storedRow: Pick<User, 'id' | 'isActive' | 'credentialVersion'> | null;
+  const userRepository = { findOne: jest.fn(() => Promise.resolve(storedRow)), save: jest.fn() };
 
   let mfaService: MfaService;
   let jwtService: JwtService;
@@ -40,12 +63,16 @@ describe('MFA setup token (ADR-046)', () => {
   };
 
   beforeEach(async () => {
+    storedRow = { id: USER_ID, isActive: true, credentialVersion: 1 };
     jwtService = new JwtService({ secret: configValues['JWT_SECRET'] as string });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: UserAccountStore, useValue: userAccountStore },
+        { provide: UserMfaStateStore, useValue: mfaStateStore },
+        { provide: DataSource, useValue: { transaction: jest.fn() } },
         MfaService,
-        { provide: getRepositoryToken(User), useValue: { findOne: jest.fn(), save: jest.fn() } },
+        { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: JwtService, useValue: jwtService },
         {
           provide: ConfigService,
@@ -64,13 +91,13 @@ describe('MFA setup token (ADR-046)', () => {
   });
 
   describe('mint → consume round trip', () => {
-    it('resolves the minting user back out of its own token', () => {
-      const token = mfaService.generateMfaSetupToken(buildUser());
-      expect(mfaService.resolveSetupTokenUserId(token)).toBe(USER_ID);
+    it('resolves the minting user back out of its own token', async () => {
+      const token = mfaService.generateMfaSetupToken(proofOf(buildUser()));
+      await expect(mfaService.resolveSetupTokenUserId(token)).resolves.toBe(USER_ID);
     });
 
     it('stamps type=mfa_setup and purpose=mfa_enrollment', () => {
-      const token = mfaService.generateMfaSetupToken(buildUser());
+      const token = mfaService.generateMfaSetupToken(proofOf(buildUser()));
       const decoded = jwtService.verify<{ type: string; purpose: string; sub: string }>(token);
       expect(decoded.type).toBe('mfa_setup');
       expect(decoded.purpose).toBe('mfa_enrollment');
@@ -78,15 +105,64 @@ describe('MFA setup token (ADR-046)', () => {
     });
 
     it('expires in 10 minutes, not an access-token lifetime', () => {
-      const token = mfaService.generateMfaSetupToken(buildUser());
+      const token = mfaService.generateMfaSetupToken(proofOf(buildUser()));
       const decoded = jwtService.verify<{ iat: number; exp: number }>(token);
       expect(decoded.exp - decoded.iat).toBe(600);
     });
   });
 
+  // ORPHAN-HIGH-811 class: enrolling a second factor is a credential decision,
+  // so the setup token must die with the credential that earned it.
+  describe('the setup token is bound to the credential that earned it', () => {
+    it('signs the proven credential version into the token', () => {
+      const token = mfaService.generateMfaSetupToken(
+        CredentialProof.ofCredentialWrite({ id: USER_ID, credentialVersion: 7 }),
+      );
+      expect(jwtService.verify<{ credentialVersion: number }>(token).credentialVersion).toBe(7);
+    });
+
+    it('is refused once the credential moved on (a password reset after it was issued)', async () => {
+      const token = mfaService.generateMfaSetupToken(proofOf(buildUser()));
+      storedRow = { id: USER_ID, isActive: true, credentialVersion: 2 };
+
+      await expect(mfaService.resolveSetupTokenUserId(token)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it('is refused for a deactivated or deleted account', async () => {
+      const token = mfaService.generateMfaSetupToken(proofOf(buildUser()));
+
+      storedRow = { id: USER_ID, isActive: false, credentialVersion: 1 };
+      await expect(mfaService.resolveSetupTokenUserId(token)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+
+      storedRow = null;
+      await expect(mfaService.resolveSetupTokenUserId(token)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it('is refused when it carries no version (a token of the older shape), without a lookup', async () => {
+      userRepository.findOne.mockClear();
+      const unversioned = jwtService.sign({
+        sub: `mfa_setup:${USER_ID}`,
+        type: 'mfa_setup',
+        purpose: 'mfa_enrollment',
+        userId: USER_ID,
+      });
+
+      await expect(mfaService.resolveSetupTokenUserId(unversioned)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(userRepository.findOne).not.toHaveBeenCalled();
+    });
+  });
+
   describe('the setup token is inert everywhere it is not positively required', () => {
     it('is rejected as a bearer credential by enforceAccessTokenType', () => {
-      const token = mfaService.generateMfaSetupToken(buildUser());
+      const token = mfaService.generateMfaSetupToken(proofOf(buildUser()));
       const payload = jwtService.verify<{ type: string; sub: string; jti: string }>(token);
 
       expect(() => enforceAccessTokenType(payload, new Logger('spec'), true)).toThrow(
@@ -95,37 +171,44 @@ describe('MFA setup token (ADR-046)', () => {
     });
 
     it('is rejected by the MFA-challenge consumer (type mismatch)', async () => {
-      const setupToken = mfaService.generateMfaSetupToken(buildUser());
+      const setupToken = mfaService.generateMfaSetupToken(proofOf(buildUser()));
       await expect(mfaService.verifyMfaLogin(setupToken, '123456')).rejects.toBeInstanceOf(
         UnauthorizedException,
       );
     });
 
-    it('refuses an MFA CHALLENGE token at the enrollment consumer', () => {
-      const challenge = mfaService.generateMfaChallenge(buildUser(), false);
-      expect(() => mfaService.resolveSetupTokenUserId(challenge.mfaToken)).toThrow(
+    it('refuses an MFA CHALLENGE token at the enrollment consumer', async () => {
+      const challenge = mfaService.generateMfaChallenge(
+        CredentialProof.ofAuthenticatedPrincipal(buildUser()),
+        false,
+      );
+      await expect(mfaService.resolveSetupTokenUserId(challenge.mfaToken)).rejects.toBeInstanceOf(
         UnauthorizedException,
       );
     });
 
-    it('refuses a token signed with a foreign key', () => {
+    it('refuses a token signed with a foreign key', async () => {
       const foreign = new JwtService({ secret: 'not-the-platform-secret' }).sign({
         sub: `mfa_setup:${USER_ID}`,
         type: 'mfa_setup',
         purpose: 'mfa_enrollment',
         userId: USER_ID,
       });
-      expect(() => mfaService.resolveSetupTokenUserId(foreign)).toThrow(UnauthorizedException);
+      await expect(mfaService.resolveSetupTokenUserId(foreign)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
     });
 
-    it('refuses a correctly-signed token whose purpose was tampered', () => {
+    it('refuses a correctly-signed token whose purpose was tampered', async () => {
       const wrongPurpose = jwtService.sign({
         sub: `mfa_setup:${USER_ID}`,
         type: 'mfa_setup',
         purpose: 'something_else',
         userId: USER_ID,
       });
-      expect(() => mfaService.resolveSetupTokenUserId(wrongPurpose)).toThrow(UnauthorizedException);
+      await expect(mfaService.resolveSetupTokenUserId(wrongPurpose)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
     });
   });
 
@@ -147,7 +230,8 @@ describe('MFA setup token (ADR-046)', () => {
             useValue: {
               setupMfa,
               verifyMfaSetup,
-              generateMfaSetupToken: (user: User) => mfaService.generateMfaSetupToken(user),
+              generateMfaSetupToken: (proof: CredentialProof) =>
+                mfaService.generateMfaSetupToken(proof),
               resolveSetupTokenUserId: (token: string) => mfaService.resolveSetupTokenUserId(token),
             },
           },
@@ -174,7 +258,7 @@ describe('MFA setup token (ADR-046)', () => {
     });
 
     it('uses the AUTHENTICATED identity and IGNORES a supplied setup token', async () => {
-      const foreignSetupToken = mfaService.generateMfaSetupToken(buildUser());
+      const foreignSetupToken = mfaService.generateMfaSetupToken(proofOf(buildUser()));
 
       await resolver.setupMfa(contextWith({ sub: OTHER_USER_ID }), foreignSetupToken);
 
@@ -184,7 +268,7 @@ describe('MFA setup token (ADR-046)', () => {
     });
 
     it('falls back to the setup token when there is no session', async () => {
-      const token = mfaService.generateMfaSetupToken(buildUser());
+      const token = mfaService.generateMfaSetupToken(proofOf(buildUser()));
 
       await resolver.setupMfa(contextWith(), token);
 
@@ -197,7 +281,7 @@ describe('MFA setup token (ADR-046)', () => {
     });
 
     it('routes verifyMfaSetup through the same subject resolution', async () => {
-      const token = mfaService.generateMfaSetupToken(buildUser());
+      const token = mfaService.generateMfaSetupToken(proofOf(buildUser()));
 
       await resolver.verifyMfaSetup(contextWith(), { code: '123456', mfaSetupToken: token });
 

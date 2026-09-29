@@ -31,6 +31,11 @@ import { DurableAccessTokenInvalidationService } from '../services/durable-acces
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
+import { UserAccountStore } from '../services/user-account.store';
+import { makeUserAccountStoreDouble } from './support/auth-store.doubles';
+
+// ORPHAN-HIGH-811/812: the column-scoped writers, as London-school doubles.
+const userAccountStore = makeUserAccountStoreDouble();
 
 interface PasswordResetRequestedEvent {
   eventType: string;
@@ -85,6 +90,8 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
     role: Role.MODULE_USER,
     tenantId: '11111111-1111-4111-8111-111111111111',
     isActive: true,
+    // Real rows carry the trigger-maintained anchor (NOT NULL DEFAULT 1).
+    credentialVersion: 1,
     isEmailVerified: true,
     failedLoginAttempts: 0,
     lockedUntil: null,
@@ -270,6 +277,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: UserAccountStore, useValue: userAccountStore },
         AuthenticationService,
         ActionTokenResolver,
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
@@ -339,15 +347,13 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.initiatePasswordReset('test@example.com');
 
-      // Verify save was called with hashed token (SHA-256 hex = 64 chars)
-      expect(mockUserRepository.save).toHaveBeenCalledTimes(1);
-      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
-      expect(savedUser.passwordResetToken).toBeDefined();
-      expect(savedUser.passwordResetToken).toHaveLength(64); // SHA-256 hex digest
-      const resetExpires = savedUser.passwordResetExpires;
-      if (!(resetExpires instanceof Date)) {
-        throw new Error('passwordResetExpires was not persisted as a Date');
-      }
+      // ORPHAN-HIGH-812: the two reset columns only, never a whole-User save.
+      expect(userAccountStore.issuePasswordResetToken).toHaveBeenCalledTimes(1);
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
+      const [, userId, storedHash, resetExpires] =
+        userAccountStore.issuePasswordResetToken.mock.calls[0]!;
+      expect(userId).toBe(user.id);
+      expect(storedHash).toHaveLength(64); // SHA-256 hex digest
       expect(resetExpires.getTime()).toBeGreaterThan(Date.now());
     });
 
@@ -360,12 +366,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.initiatePasswordReset('test@example.com');
       const after = Date.now();
 
-      const saveCalls = mockUserRepository.save.mock.calls as readonly (readonly unknown[])[];
-      const savedUser = saveCalls[0]?.[0] as User;
-      const resetExpires = savedUser.passwordResetExpires;
-      if (!(resetExpires instanceof Date)) {
-        throw new Error('passwordResetExpires was not persisted as a Date');
-      }
+      const resetExpires = userAccountStore.issuePasswordResetToken.mock.calls[0]![3];
       const expiresAt = resetExpires.getTime();
       // Expiry should be approximately 1 hour from now (within 5 second tolerance)
       expect(expiresAt ?? 0).toBeGreaterThanOrEqual(before + 60 * 60 * 1000 - 5000);
@@ -533,7 +534,20 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       expect(result).toBeDefined();
       expect(result.accessToken).toBe('mock-access-token');
-      expect(result.user).toBe(user);
+      // ORPHAN-HIGH-811: the post-reset mint is fenced on the version the
+      // reset write returned (the store double advances 1 → 2), never on the
+      // entity loaded before the write — the regression that refused every
+      // legitimate reset after its one-time token was consumed.
+      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: user.id, credentialVersion: 2 }),
+        undefined,
+        undefined,
+      );
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalledWith(
+        expect.objectContaining({ credentialVersion: 1 }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it('should hash token with SHA-256 before database lookup', async () => {
@@ -576,9 +590,15 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
-      expect(savedUser.passwordResetToken).toBeNull();
-      expect(savedUser.passwordResetExpires).toBeNull();
+      // One credential write: new password (hashed by the store), reset token
+      // cleared (single-use) and lockout counters reset — the column set is
+      // pinned against real Postgres in user-account.store.postgres.spec.ts.
+      expect(userAccountStore.completePasswordReset).toHaveBeenCalledWith(
+        expect.anything(),
+        user.id,
+        'NewPass123!',
+      );
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
     });
 
     it('should reset account lockout on password reset', async () => {
@@ -597,9 +617,15 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
-      expect(savedUser.failedLoginAttempts).toBe(0);
-      expect(savedUser.lockedUntil).toBeNull();
+      // One credential write: new password (hashed by the store), reset token
+      // cleared (single-use) and lockout counters reset — the column set is
+      // pinned against real Postgres in user-account.store.postgres.spec.ts.
+      expect(userAccountStore.completePasswordReset).toHaveBeenCalledWith(
+        expect.anything(),
+        user.id,
+        'NewPass123!',
+      );
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
     });
 
     it('should revoke all refresh tokens after password reset', async () => {
@@ -813,8 +839,15 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.resetPassword(plainToken, 'NewPass123!');
 
-      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
-      expect(savedUser.password).toBe('NewPass123!');
+      // One credential write: new password (hashed by the store), reset token
+      // cleared (single-use) and lockout counters reset — the column set is
+      // pinned against real Postgres in user-account.store.postgres.spec.ts.
+      expect(userAccountStore.completePasswordReset).toHaveBeenCalledWith(
+        expect.anything(),
+        user.id,
+        'NewPass123!',
+      );
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
     });
   });
 });

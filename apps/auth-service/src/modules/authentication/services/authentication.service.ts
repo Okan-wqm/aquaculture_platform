@@ -6,7 +6,7 @@ import {
   enforceAccessTokenType,
   getJwtVerifyOptions,
 } from '@aquaculture/backend-common/auth';
-import { BypassRlsService, updateReturningRows } from '@aquaculture/backend-common/database';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { requestContextStorage, getRequestContext } from '@aquaculture/backend-common/logging';
 import {
@@ -66,6 +66,7 @@ import { ActionTokenResolver, type ActionLinkLock } from './action-token-resolve
 import { User } from '../entities/user.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 
+import { CredentialProof } from './credential-proof';
 import { MfaService } from './mfa.service';
 import { DurableAccessTokenInvalidationService } from './durable-access-token-invalidation.service';
 import {
@@ -78,6 +79,7 @@ import {
 } from './post-commit-security-effects';
 import { TokenService } from './token.service';
 import type { JwtPayload } from './token.service';
+import { UserAccountStore } from './user-account.store';
 
 // Re-export JwtPayload from its canonical location for backward compatibility
 export type { JwtPayload } from './token.service';
@@ -226,6 +228,9 @@ export class AuthenticationService {
     private readonly actionTokenResolver: ActionTokenResolver,
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
+    // ORPHAN-HIGH-811/812: the single column-scoped writer of auth.users for
+    // these flows; credential writes return the proof the mint is fenced on.
+    private readonly userAccountStore: UserAccountStore,
     private readonly durableAccessTokenInvalidation: DurableAccessTokenInvalidationService,
     private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
     private readonly mfaService: MfaService,
@@ -510,8 +515,14 @@ export class AuthenticationService {
 
     const { matched, shouldMigrate } = await user.verifyPasswordAndSignalMigration(password);
     if (matched && shouldMigrate) {
-      user.password = await hashPassword(password);
-      await this.userRepository.save(user);
+      // Compare-and-set on the version this password was verified against: a
+      // credential change that committed meanwhile wins, and the upgrade
+      // waits for the next verification (a null result is not an error here).
+      await this.userAccountStore.upgradeLegacyPasswordHash(
+        this.dataSource.manager,
+        CredentialProof.ofAuthenticatedPrincipal(user),
+        password,
+      );
     }
     await this.ensureMinDuration(startTime);
     return matched;
@@ -666,10 +677,12 @@ export class AuthenticationService {
         throw new UnauthorizedException(INVALID_CREDENTIALS_MSG);
       }
 
-      // Reset failed login attempts on successful password validation
-      user.failedLoginAttempts = 0;
-      user.lockedUntil = null;
-      user.lastLoginIp = ipAddress ?? null;
+      // ORPHAN-HIGH-811: the credential this password was verified against.
+      // Every continuation below — the MFA challenge, the legacy-hash
+      // upgrade, the mint — is fenced on exactly this version, so a password,
+      // role, tenant or deactivation change that commits meanwhile refuses
+      // the sign-in instead of completing it against a superseded credential.
+      const authenticated = CredentialProof.ofAuthenticatedPrincipal(user);
 
       // ----------------------------------------------------------------
       // MFA Check: If user has MFA enabled, return MFA challenge
@@ -695,13 +708,17 @@ export class AuthenticationService {
       }
 
       if (user.mfaEnabled && this.mfaService?.isMfaAvailable()) {
-        // Save login attempt state but DON'T set lastLoginAt yet
-        // (it will be set after MFA verification succeeds)
-        await this.userRepository.save(user);
+        // First factor passed: clear the failed-attempt counters but DON'T set
+        // lastLoginAt yet (it is set when the second factor completes).
+        await this.userAccountStore.recordFirstFactorVerified(user.id, ipAddress ?? null);
 
-        // Carry the rememberMe choice into the signed mfaToken so it survives the
-        // challenge → verify round-trip (the client does not re-send it).
-        const mfaChallenge = this.mfaService.generateMfaChallenge(user, input.rememberMe ?? false);
+        // Carry the rememberMe choice and the authenticated credential version
+        // into the signed mfaToken so both survive the challenge → verify
+        // round-trip (the client does not re-send either).
+        const mfaChallenge = this.mfaService.generateMfaChallenge(
+          authenticated,
+          input.rememberMe ?? false,
+        );
 
         await this.logSecurityEvent('LOGIN_MFA_REQUIRED', {
           userId: user.id,
@@ -741,51 +758,19 @@ export class AuthenticationService {
       // satisfies enforcement (TOTP above, or a WebAuthn passkey) returns null
       // here and proceeds to a full session.
       // ----------------------------------------------------------------
-      const enrollmentGate = await this.resolveMfaEnrollmentGate(user, tenant, {
+      const enrollmentGate = await this.resolveMfaEnrollmentGate(user, tenant, authenticated, {
         ipAddress,
         userAgent,
       });
       if (enrollmentGate) {
         // Persist the reset failed-attempt counters, but NOT lastLoginAt —
         // like the MFA-challenge branch, this is not yet a completed login.
-        await this.userRepository.save(user);
+        await this.userAccountStore.recordFirstFactorVerified(user.id, ipAddress ?? null);
         await this.ensureMinDuration(startTime);
         return enrollmentGate;
       }
 
       // No MFA — proceed with full login.
-      //
-      // Login bookkeeping only (lastLoginAt/lastLoginIp/failedLoginAttempts):
-      // none of these are credential columns, so the database leaves
-      // `credentialVersion` untouched and the value loaded above remains the
-      // issuance-fence anchor. The legacy-hash migration is a credential write
-      // and therefore happens AFTER the mint (see migrateLegacyPasswordHash).
-      user.lastLoginAt = new Date();
-      await this.userRepository.save(user);
-
-      // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-      this.logger.log(`User logged in: userId=${user.id} (role: ${user.role})`);
-
-      // PERF: Parallelize audit log + event publish — both are independent
-      // fire-and-monitor operations (HIGH-08)
-      await Promise.allSettled([
-        this.logSecurityEvent('LOGIN_SUCCESS', {
-          userId: user.id,
-          email: user.email,
-          tenantId: user.tenantId,
-          ipAddress,
-          userAgent,
-          success: true,
-        }),
-        this.bestEffort.publish(
-          createBaseEvent('UserLoggedIn', tenantScopeOf(user.tenantId), {
-            aggregateId: user.id,
-            aggregateType: 'User',
-            userId: user.id,
-          }),
-        ),
-      ]);
-
       await this.ensureMinDuration(startTime);
 
       // ────────────────────────────────────────────────────────────────────
@@ -841,50 +826,74 @@ export class AuthenticationService {
       // nested frame that AsyncLocalStorage unwinds automatically on
       // callback return (success or throw). No manual cleanup, no leakage
       // between concurrent requests.
+      //
+      // # One persistence boundary (ORPHAN-HIGH-812)
+      //
+      // The legacy-hash upgrade, the mint and the login bookkeeping commit or
+      // roll back together. The upgrade is a credential write — it advances
+      // the version — so it is compare-and-set on the authenticated version
+      // and the mint is fenced on the version the upgrade returned; a refused
+      // mint leaves neither an upgraded hash nor a recorded login behind. The
+      // bookkeeping precedes the mint so the principal the mint locks — the
+      // `user` in the payload — already carries this sign-in's lastLoginAt; it
+      // moves no credential column, so the fence still compares the proof.
+      const completeSignIn = (): Promise<AuthPayload> =>
+        this.dataSource.transaction(async (manager) => {
+          const proof = shouldMigratePasswordHash
+            ? await this.userAccountStore.upgradeLegacyPasswordHash(
+                manager,
+                authenticated,
+                input.password,
+              )
+            : authenticated;
+          if (!proof) {
+            throw new ForbiddenException('User credentials changed during token issuance');
+          }
+          await this.userAccountStore.recordSignInCompleted(manager, user.id, ipAddress ?? null);
+          return this.tokenService.generateTokens(proof, ipAddress, userAgent, {
+            rememberMe: input.rememberMe ?? false,
+            manager,
+          });
+        });
       const payload = user.tenantId
         ? await requestContextStorage.run(
             { ...getRequestContext(), tenantId: user.tenantId, userId: user.id },
-            () =>
-              this.tokenService.generateTokens(user, ipAddress, userAgent, {
-                rememberMe: input.rememberMe ?? false,
-              }),
+            completeSignIn,
           )
         : // SUPER_ADMIN: audited bypass for platform-level session creation.
-          await this.bypassRls.withBypass('auth-service:super-admin-login-tokens', () =>
-            this.tokenService.generateTokens(user, ipAddress, userAgent, {
-              rememberMe: input.rememberMe ?? false,
-            }),
-          );
+          await this.bypassRls.withBypass('auth-service:super-admin-login-tokens', completeSignIn);
 
-      if (shouldMigratePasswordHash) {
-        await this.migrateLegacyPasswordHash(user, input.password);
-      }
+      // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
+      this.logger.log(`User logged in: userId=${user.id} (role: ${user.role})`);
+
+      // ORPHAN-MEDIUM-813: success is announced only once the session exists.
+      // A refused mint (the ORPHAN-CRITICAL-808 incident) used to leave a
+      // LOGIN_SUCCESS row and a UserLoggedIn event for a request the client
+      // received as FORBIDDEN. Audit + publish are independent, so they run
+      // in parallel (HIGH-08).
+      await Promise.allSettled([
+        this.logSecurityEvent('LOGIN_SUCCESS', {
+          userId: user.id,
+          email: user.email,
+          tenantId: user.tenantId,
+          ipAddress,
+          userAgent,
+          success: true,
+        }),
+        this.bestEffort.publish(
+          createBaseEvent('UserLoggedIn', tenantScopeOf(user.tenantId), {
+            aggregateId: user.id,
+            aggregateType: 'User',
+            userId: user.id,
+          }),
+        ),
+      ]);
+
       return payload;
     } catch (error) {
       await this.ensureMinDuration(startTime);
       throw error;
     }
-  }
-
-  /**
-   * SECURITY (HIGH-006): lazy password-hash migration.
-   *
-   * WHAT: if the stored hash was a legacy (unpeppered) bcrypt AND a pepper is
-   * now configured, re-hash the verified plaintext in the peppered format and
-   * persist it. The entity already holds a hash, so the plaintext is set back
-   * onto the field and the @BeforeUpdate hook produces the new hash on save().
-   *
-   * WHY after issuance (ORPHAN-CRITICAL-808): the re-hash is a credential
-   * write, so the database advances `credentialVersion` on it. Running it
-   * before `generateTokens` would move the row past the anchor the fence
-   * compares and refuse the very login that just verified the password. The
-   * token is minted against the hash that was actually verified; the storage
-   * format upgrade is independent of that proof and follows it.
-   */
-  private async migrateLegacyPasswordHash(user: User, plaintext: string): Promise<void> {
-    user.password = plaintext;
-    this.logger.debug(`Migrating legacy password hash to peppered format: userId=${user.id}`);
-    await this.userRepository.save(user);
   }
 
   /**
@@ -918,7 +927,7 @@ export class AuthenticationService {
     ipAddress?: string,
   ): Promise<AuthPayload> {
     // Execute all reads + validation + writes inside a single transaction
-    const result = await this.dataSource.transaction(async (manager) => {
+    const accepted = await this.dataSource.transaction(async (manager) => {
       // SEC-HIGH-158: the URL segment is resolved through the ONE resolver
       // (ActionToken row id first, legacy raw token second) — the same path
       // validateInvitation reads, so the two can no longer disagree.
@@ -957,16 +966,13 @@ export class AuthenticationService {
         throw new BadRequestException('Invalid or expired invitation');
       }
 
-      // Update user with password and clear invitation token
-      user.password = password; // Will be hashed by BeforeUpdate hook
-      user.invitationToken = null;
-      user.invitationExpiresAt = null;
-      user.isEmailVerified = true;
-
-      if (firstName) user.firstName = firstName;
-      if (lastName) user.lastName = lastName;
-
-      await manager.save(User, user);
+      // Set the password and clear the invitation in one column-scoped write.
+      // The trigger advances credentialVersion on it; the RETURNING proof is
+      // what the mint below is fenced on (ORPHAN-HIGH-811).
+      const proof = await this.userAccountStore.completeInvitation(manager, user.id, password, {
+        firstName,
+        lastName,
+      });
 
       // Update invitation status
       invitation.status = InvitationStatus.ACCEPTED;
@@ -981,8 +987,9 @@ export class AuthenticationService {
         await manager.save(ActionToken, actionToken);
       }
 
-      return user;
+      return { user, proof };
     });
+    const { user: result, proof: invitationProof } = accepted;
 
     // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
     this.logger.log(`Invitation accepted: userId=${result.id} (role: ${result.role})`);
@@ -1015,14 +1022,17 @@ export class AuthenticationService {
     // a user who satisfies enforcement mints normally (the session-TTL clamp
     // is applied inside generateTokens either way).
     const invitationTenant = await this.resolveTenantForUser(result.tenantId);
-    const invitationEnrollmentGate = await this.resolveMfaEnrollmentGate(result, invitationTenant, {
-      ipAddress,
-    });
+    const invitationEnrollmentGate = await this.resolveMfaEnrollmentGate(
+      result,
+      invitationTenant,
+      invitationProof,
+      { ipAddress },
+    );
     if (invitationEnrollmentGate) {
       return invitationEnrollmentGate;
     }
 
-    return this.tokenService.generateTokens(result, ipAddress);
+    return this.tokenService.generateTokens(invitationProof, ipAddress);
   }
 
   /**
@@ -1200,7 +1210,8 @@ export class AuthenticationService {
         // Preserve the rememberMe choice across rotation so a remembered session
         // stays persistent (the resolver re-issues a persistent vs session cookie).
         return this.tokenService.generateTokens(
-          user,
+          // The row was locked FOR UPDATE earlier in this transaction.
+          CredentialProof.ofLockedPrincipal(user),
           refreshToken.ipAddress ?? undefined,
           refreshToken.userAgent ?? undefined,
           {
@@ -1372,7 +1383,8 @@ export class AuthenticationService {
           }
           await this.assertTenantOperationalForRefresh(manager, user);
           const payload = await this.tokenService.generateTokens(
-            user,
+            // The row was locked FOR UPDATE earlier in this transaction.
+            CredentialProof.ofLockedPrincipal(user),
             token.ipAddress ?? undefined,
             token.userAgent ?? undefined,
             {
@@ -1402,7 +1414,8 @@ export class AuthenticationService {
     token.revokedReason = 'Token refreshed';
     await this.preTenantAuthRepository(manager, RefreshToken).save(token);
     const payload = await this.tokenService.generateTokens(
-      user,
+      // The row was locked FOR UPDATE earlier in this transaction.
+      CredentialProof.ofLockedPrincipal(user),
       token.ipAddress ?? undefined,
       token.userAgent ?? undefined,
       {
@@ -1712,45 +1725,17 @@ export class AuthenticationService {
   private async handleFailedLogin(user: User): Promise<number> {
     const lockoutUntil = new Date(Date.now() + this.lockoutDurationMinutes * 60 * 1000);
 
-    // Single atomic query: increment + conditional lockout + return updated values (MED-01)
-    //
-    // ORPHAN-HIGH-318 — WHY updateReturningRows instead of a hand-written
-    // type annotation: the postgres driver returns `[rows, affectedCount]`
-    // for UPDATE statements, NOT the rows array. The previous
-    // `Array<{...}>` annotation asserted the wrong shape, so `result[0]`
-    // was the rows ARRAY: every audit event recorded "attempt 0" and the
-    // CRITICAL ACCOUNT_LOCKED emission below never fired in production
-    // (0 >= maxFailedAttempts is always false). The helper runtime-asserts
-    // the tuple shape before any field access.
-    const raw: unknown = await this.dataSource.query(
-      // SEC-LOW-001(c) — WHY $3::timestamptz (not ::timestamp): users.lockedUntil
-      // is a TIMESTAMP WITH TIME ZONE column and $3 is bound to a JS Date (an
-      // absolute instant). Casting to ::timestamp (without tz) drops the offset
-      // and reinterprets the lockout deadline under the DB session TimeZone,
-      // drifting the lockout window on any non-UTC session. ::timestamptz
-      // round-trips the instant losslessly.
-      `UPDATE auth.users
-       SET "failedLoginAttempts" = "failedLoginAttempts" + 1,
-           "lockedUntil" = CASE
-             WHEN "failedLoginAttempts" + 1 >= $2 THEN $3::timestamptz
-             ELSE "lockedUntil"
-           END
-       WHERE id = $1
-       RETURNING "failedLoginAttempts", "lockedUntil"`,
-      [user.id, this.maxFailedAttempts, lockoutUntil],
+    // Single atomic statement in the account store: increment + conditional
+    // lockout + the committed values (MED-01). The store runtime-asserts the
+    // RETURNING row (ORPHAN-HIGH-318) and casts the deadline to timestamptz
+    // (SEC-LOW-001(c)).
+    const failure = await this.userAccountStore.recordFailedPasswordAttempt(
+      user.id,
+      this.maxFailedAttempts,
+      lockoutUntil,
     );
-    // lockedUntil arrives as Date (pg parses timestamptz) — typed as
-    // Date | string | null defensively is WRONG per repo rules; the pg
-    // driver contract is Date | null for timestamptz. `!= null` (not
-    // `!== null`) also rejects undefined, which would indicate a
-    // RETURNING-clause drift rather than an unlocked account.
-    const result = updateReturningRows<{
-      failedLoginAttempts: number;
-      lockedUntil: Date | null;
-    }>(raw);
-
-    const updatedAttempts = result[0]?.failedLoginAttempts ?? 0;
-    const isNowLocked = result[0]?.lockedUntil != null && updatedAttempts >= this.maxFailedAttempts;
+    const updatedAttempts = failure.failedLoginAttempts;
+    const isNowLocked = failure.lockedUntil !== null && updatedAttempts >= this.maxFailedAttempts;
 
     if (isNowLocked) {
       // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
@@ -1850,10 +1835,14 @@ export class AuthenticationService {
       // platform principal) rather than the lossy best-effort path — a lost
       // event here is a user locked out of their own account, not telemetry.
       await this.dataSource.transaction(async (manager) => {
-        // Set token and expiry (1 hour)
-        user.passwordResetToken = resetTokenHash;
-        user.passwordResetExpires = expiresAt;
-        await this.preTenantAuthRepository(manager, User).save(user);
+        // Set token and expiry (1 hour) — the two reset columns only, so a
+        // concurrent account change is never overwritten (ORPHAN-HIGH-812).
+        await this.userAccountStore.issuePasswordResetToken(
+          manager,
+          user.id,
+          resetTokenHash,
+          expiresAt,
+        );
 
         const actionTokens = this.preTenantAuthRepository(manager, ActionToken);
         const actionToken = await actionTokens.save(
@@ -1966,12 +1955,13 @@ export class AuthenticationService {
         throw new BadRequestException('Invalid or expired password reset token');
       }
 
-      user.password = newPassword;
-      user.passwordResetToken = null;
-      user.passwordResetExpires = null;
-      user.failedLoginAttempts = 0;
-      user.lockedUntil = null;
-      await userRepository.save(user);
+      // The trigger advances credentialVersion on this write; the RETURNING
+      // proof is what the post-reset mint is fenced on (ORPHAN-HIGH-811).
+      const proof = await this.userAccountStore.completePasswordReset(
+        manager,
+        user.id,
+        newPassword,
+      );
 
       if (actionToken) {
         actionToken.status = ActionTokenStatus.CONSUMED;
@@ -2000,7 +1990,7 @@ export class AuthenticationService {
         idempotencyKey: `password-reset:${actionToken?.id ?? tokenHash}`,
       };
       await this.durableUserTokenInvalidation.enqueue(manager, intent);
-      return { user, intent };
+      return { user, intent, proof };
     });
 
     const effects: PostCommitSecurityEffect[] = [
@@ -2053,16 +2043,19 @@ export class AuthenticationService {
     // self-serve a reset back into an MFA-free session, durably defeating the
     // revocation-on-flip.
     const resetTenant = await this.resolveTenantForUser(user.tenantId);
-    const resetEnrollmentGate = await this.resolveMfaEnrollmentGate(user, resetTenant, {
-      ipAddress,
-      userAgent,
-    });
+    const resetEnrollmentGate = await this.resolveMfaEnrollmentGate(
+      user,
+      resetTenant,
+      transactionResult.proof,
+      { ipAddress, userAgent },
+    );
     if (resetEnrollmentGate) {
       return resetEnrollmentGate;
     }
 
-    // Generate new tokens so user is immediately logged in
-    return this.tokenService.generateTokens(user, ipAddress, userAgent);
+    // Generate new tokens so user is immediately logged in — fenced on the
+    // version the reset write returned, not on the pre-reset entity.
+    return this.tokenService.generateTokens(transactionResult.proof, ipAddress, userAgent);
   }
 
   // ==========================================================================
@@ -2128,10 +2121,16 @@ export class AuthenticationService {
    * enforcement is one shared, greppable helper rather than an in-chokepoint
    * throw. The session-TTL clamp — which needs no MfaService — DOES live in
    * the chokepoint.
+   *
+   * `proof` is the credential that earned this outcome — the authenticated
+   * password, or the RETURNING of the reset/invitation write. The setup token
+   * is bound to it, so it dies with that credential (ORPHAN-HIGH-811 class);
+   * `user` is read here only for enrollment state and audit fields.
    */
   private async resolveMfaEnrollmentGate(
     user: User,
     tenant: Tenant | null,
+    proof: CredentialProof,
     audit: { ipAddress?: string; userAgent?: string },
   ): Promise<AuthPayload | null> {
     if (!tenant || tenant.enforceMfa !== true) {
@@ -2162,7 +2161,7 @@ export class AuthenticationService {
       throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
     }
 
-    const mfaSetupToken = this.mfaService.generateMfaSetupToken(user);
+    const mfaSetupToken = this.mfaService.generateMfaSetupToken(proof);
 
     await this.logSecurityEvent('LOGIN_MFA_SETUP_REQUIRED', {
       userId: user.id,

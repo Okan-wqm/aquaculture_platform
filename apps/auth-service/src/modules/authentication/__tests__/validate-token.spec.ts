@@ -29,6 +29,11 @@ import { DurableAccessTokenInvalidationService } from '../services/durable-acces
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
+import { UserAccountStore } from '../services/user-account.store';
+import { makeUserAccountStoreDouble } from './support/auth-store.doubles';
+
+// ORPHAN-HIGH-811/812: the column-scoped writers, as London-school doubles.
+const userAccountStore = makeUserAccountStoreDouble();
 
 /**
  * validateToken type-discipline — SEC-MEDIUM-004 regression guard.
@@ -105,6 +110,7 @@ describe('AuthenticationService.validateToken (SEC-MEDIUM-004)', () => {
     mockUserTokenRevocation.isTokenValid.mockResolvedValue(true);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: UserAccountStore, useValue: userAccountStore },
         AuthenticationService,
         ActionTokenResolver,
         { provide: getRepositoryToken(User), useValue: { findOne: jest.fn() } },

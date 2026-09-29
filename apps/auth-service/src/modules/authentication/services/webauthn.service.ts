@@ -11,7 +11,7 @@ import { RedisService } from '@aquaculture/backend-common/redis';
 import { isLoginAllowed } from '@platform/event-contracts';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
@@ -30,7 +30,9 @@ import {
   type WebAuthnTransport,
 } from '../dto/webauthn.dto';
 import { AuthPayload } from '../dto/auth-response.dto';
+import { CredentialProof } from './credential-proof';
 import { TokenService } from './token.service';
+import { UserAccountStore } from './user-account.store';
 
 /**
  * WebAuthn ceremony implementation.
@@ -62,6 +64,29 @@ interface StoredChallenge {
 const CHALLENGE_TTL_SECONDS = 300;
 const MAX_CREDENTIALS_PER_USER = 10;
 
+/**
+ * Advance a passkey's signature counter by compare-and-set on the counter the
+ * assertion was verified against; `false` when no row matched — the passkey
+ * was deleted (a password reset revokes every passkey, SEC-CRITICAL-002) or a
+ * concurrent login advanced it first. An UPDATE, never a `save()`: `save()` of
+ * a credential a reset had deleted re-INSERTed it and undid the revocation.
+ * One definition, so the real-Postgres spec exercises the exact statement the
+ * login runs.
+ */
+export async function advanceCredentialCounter(
+  manager: EntityManager,
+  credential: Pick<WebAuthnCredential, 'id' | 'counter'>,
+  newCounter: number,
+): Promise<boolean> {
+  const result = await manager
+    .createQueryBuilder()
+    .update(WebAuthnCredential)
+    .set({ counter: newCounter, lastUsedAt: () => 'CURRENT_TIMESTAMP' })
+    .where({ id: credential.id, counter: credential.counter })
+    .execute();
+  return result.affected === 1;
+}
+
 @Injectable()
 export class WebAuthnService {
   private readonly logger = new Logger(WebAuthnService.name);
@@ -80,6 +105,10 @@ export class WebAuthnService {
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
     private readonly redisService: RedisService,
+    private readonly dataSource: DataSource,
+    // ORPHAN-HIGH-812: login bookkeeping is a column-scoped write, never a
+    // whole-User save of the row read before the assertion was verified.
+    private readonly userAccountStore: UserAccountStore,
   ) {
     // RP ID is the domain without protocol or port
     this.rpId = this.configService.get<string>('WEBAUTHN_RP_ID', 'localhost');
@@ -340,6 +369,15 @@ export class WebAuthnService {
       throw new UnauthorizedException('Credential does not match user');
     }
 
+    // The principal is read BEFORE the assertion is verified, so the version
+    // the mint is fenced on is the one the passkey was checked against
+    // (ORPHAN-HIGH-811). A password reset that commits during verification —
+    // it deletes every passkey and advances the version (SEC-CRITICAL-002) —
+    // then refuses this mint instead of becoming its anchor. Account-state
+    // checks still run only after the assertion, so a caller without the key
+    // learns nothing about the account.
+    const user = await this.userRepository.findOne({ where: { id: credential.userId } });
+
     const authenticationResponse: AuthenticationResponseJSON = {
       id: input.credentialId,
       rawId: input.credentialId,
@@ -404,11 +442,6 @@ export class WebAuthnService {
       throw new UnauthorizedException('Authenticator security check failed');
     }
 
-    credential.counter = newCounter;
-    credential.lastUsedAt = new Date();
-    await this.credentialRepository.save(credential);
-
-    const user = await this.userRepository.findOne({ where: { id: credential.userId } });
     if (!user || !user.isActive) {
       throw new UnauthorizedException('Account not available');
     }
@@ -435,11 +468,25 @@ export class WebAuthnService {
       }
     }
 
-    user.lastLoginAt = new Date();
-    user.lastLoginIp = ipAddress ?? null;
-    user.failedLoginAttempts = 0;
-    user.lockedUntil = null;
-    await this.userRepository.save(user);
+    // The passkey authenticated the row read before the assertion; the mint is
+    // fenced on that credential (ORPHAN-HIGH-811) and commits with the login
+    // bookkeeping and the counter advance, and success is recorded only for a
+    // session that exists (ORPHAN-MEDIUM-813).
+    //
+    // Lock order is the canonical User -> credential one (the reset takes the
+    // same): the bookkeeping UPDATE locks the user row, then the counter
+    // advance is a compare-and-set on the counter the assertion was verified
+    // against (advanceCredentialCounter). If the passkey is gone, or another
+    // login advanced its counter first (a replayed or cloned assertion),
+    // nothing is minted and nothing commits.
+    const proof = CredentialProof.ofAuthenticatedPrincipal(user);
+    const issued = await this.dataSource.transaction(async (manager) => {
+      await this.userAccountStore.recordSignInCompleted(manager, user.id, ipAddress ?? null);
+      if (!(await advanceCredentialCounter(manager, credential, newCounter))) {
+        throw new UnauthorizedException('Biometric verification failed');
+      }
+      return this.tokenService.generateTokens(proof, ipAddress, userAgent, { manager });
+    });
 
     this.logger.log(`WebAuthn login successful for user ${user.id}`);
 
@@ -449,7 +496,7 @@ export class WebAuthnService {
       ipAddress,
     });
 
-    return this.tokenService.generateTokens(user, ipAddress, userAgent);
+    return issued;
   }
 
   // ==========================================================================

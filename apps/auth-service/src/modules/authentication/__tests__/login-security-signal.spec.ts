@@ -44,6 +44,11 @@ import { DurableAccessTokenInvalidationService } from '../services/durable-acces
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
+import { UserAccountStore } from '../services/user-account.store';
+import { makeUserAccountStoreDouble } from './support/auth-store.doubles';
+
+// ORPHAN-HIGH-811/812: the column-scoped writers, as London-school doubles.
+const userAccountStore = makeUserAccountStoreDouble();
 
 jest.mock('bcryptjs', () => {
   const actual = jest.requireActual<typeof bcrypt>('bcryptjs');
@@ -81,6 +86,8 @@ function activeUser(overrides: Partial<User> = {}): User {
     tenantId: TENANT_ID,
     role: 'TENANT_ADMIN',
     isActive: true,
+    // Real rows carry the trigger-maintained anchor (NOT NULL DEFAULT 1).
+    credentialVersion: 1,
     mfaEnabled: false,
     failedLoginAttempts: 0,
     lockedUntil: null,
@@ -117,6 +124,7 @@ async function build(user: User | null): Promise<Harness> {
 
   const module: TestingModule = await Test.createTestingModule({
     providers: [
+      { provide: UserAccountStore, useValue: userAccountStore },
       AuthenticationService,
       { provide: getRepositoryToken(User), useValue: userRepository },
       { provide: getRepositoryToken(RefreshToken), useValue: {} },

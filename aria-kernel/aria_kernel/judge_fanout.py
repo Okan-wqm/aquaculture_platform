@@ -364,8 +364,9 @@ def _render_arbiter_prompt(split: dict[str, Any]) -> str:
         "Aggregate the supplied verdicts under the consensus gate (>=2 unique "
         "judges, agreement, mean confidence >=0.80). Return details.consensus "
         "with verdict true_positive|false_positive, confidence, and the "
-        "evidence you relied on; return the uncertainty reason instead when "
-        "the gate cannot be met. Do not re-judge the finding from scratch."
+        "evidence you relied on; when the gate cannot be met, omit verdict and "
+        "set details.consensus.uncertainty_reason as the Judge verdict "
+        "contract states. Do not re-judge the finding from scratch."
     )
     return "\n".join(lines)
 

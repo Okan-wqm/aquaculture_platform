@@ -98,3 +98,29 @@ observed, refuses only on a mismatch against an anchor that exists, and records 
 mints an unanchored judge request with the kernel's own mint and runs the executor's native entry on
 real git. The binding holds and the fleet refuses by its own name. Without the fix the same test fails
 on the `runtime_task_binding_unavailable` row.
+
+## ARIA-HIGH-242
+
+The judge and arbiter contracts named their verdict values in hand-written prose, and the arbiter's
+was wrong in three ways. It told the model to "emit an `uncertainty` result", a value
+`judgment_bridge.validate_judge_response` accepts nowhere. It put the reason at
+`details.uncertainty_reason`, a path the bridge never reads (the bridge reads the verdict block:
+`details.verdict` or `details.consensus`). And it listed three reasons out of the eight in
+`feedback_store.CONSENSUS_UNCERTAINTY_REASONS`. The live arbiter obeyed, and every such answer was
+refused as `judge_verdict.verdict:invalid:'uncertainty'`: six per drain in the 2026-09-27 audit. The
+same wording sat in `docs/aria/PIPELINES.md` (and so in the generated `JUDGE-DIGEST.md`) and in
+the fan-out prompt (`judge_fanout`). The validator's own rules were already rendered from code into
+every delivered agent contract (`render_response_validator_contract`), but the judge verdict law
+was not part of that rendering.
+
+Rule: A judge reads the verdict law the bridge enforces, rendered from the tuples the check uses.
+No agent file carries a hand-written copy of the vocabulary.
+
+Fix: `judgment_bridge.render_judge_verdict_rules` renders the roles, both verdict-block paths,
+`FEEDBACK_VERDICTS`, and the arbiter's one non-verdict answer (omit `verdict`, set
+`uncertainty_reason` from `CONSENSUS_UNCERTAINTY_REASONS`). The delivered contract carries it as a
+section. The arbiter file, `PIPELINES.md`, the digest and the fan-out prompt point at it instead of
+restating it. `test_judge_verdict_contract_delivery` pins four things: that the delivered text
+carries every role, verdict and reason; that each judge agent receives it; that the answer it
+describes passes the bridge for every reason while the old shape is refused; and that no judge
+agent file names a reason.

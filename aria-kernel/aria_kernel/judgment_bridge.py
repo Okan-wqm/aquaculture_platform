@@ -60,6 +60,37 @@ def is_supporting_role(role: str | None) -> bool:
     return role in SUPPORTING_ROLES
 
 
+def render_judge_verdict_rules() -> list[str]:
+    """The verdict law ``judge_response_contract_errors`` enforces, as prose.
+
+    ARIA-HIGH-242 — the judge and arbiter contracts named their verdict
+    values in hand-written prose, and the arbiter's told the model to "emit
+    an `uncertainty` result" with the reason at ``details.uncertainty_reason``:
+    a value no check accepts, at a path no check reads, from a list three
+    reasons short of the closed vocabulary. Every such answer was refused
+    ``judge_verdict.verdict:invalid:'uncertainty'`` (six per drain on
+    2026-09-27). Rendered from the tuples and the paths the check itself
+    uses, and delivered as the tail of every agent contract, so the words a
+    judge reads cannot promise what the bridge refuses.
+    """
+    roles = ", ".join(f"`{role}`" for role in JUDGE_ROLES)
+    verdicts = " | ".join(FEEDBACK_VERDICTS)
+    reasons = " | ".join(CONSENSUS_UNCERTAINTY_REASONS)
+    return [
+        f"Applies to the judge roles {roles}; enforced by aria_kernel.judgment_bridge.",
+        "",
+        "- The verdict block is `details.verdict` (evidence and adversarial judges) or",
+        "  `details.consensus` (the consensus arbiter).",
+        f"- Its `verdict` ∈ {{{verdicts}}}. No other value is accepted, in any spelling.",
+        "- `consensus_arbitration` alone may answer that the consensus gate cannot be met: it",
+        "  OMITS `verdict` and sets `uncertainty_reason` in the same block to a member of",
+        f"  {{{reasons}}}.",
+        "  `\"verdict\": \"uncertainty\"` is not that answer; it is refused as an invalid verdict.",
+        "- A typed answer (the block names `primitive`) carries `value` instead of `verdict`",
+        "  and is validated by the typed-judgment law the request's own prompt states.",
+    ]
+
+
 def _coerce_severity(value: Any, *, fallback: str = "medium") -> str:
     """feedback_store accepts {low, medium, high, critical}; agent envelope
     may use uppercase per finding schema. Normalize without rejecting."""

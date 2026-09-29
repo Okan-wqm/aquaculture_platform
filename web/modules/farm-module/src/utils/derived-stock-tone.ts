@@ -2,12 +2,13 @@
  * Stock-cell tone from a backend-DERIVED stock status (FARM-HIGH-335 / FARM-HIGH-338).
  *
  * WHY: the backend derives every stock status from the storage ledger with ONE
- * rule — the catalog projection for feed, chemicals and consumables
- * (CatalogStockProjector) and `deriveSparePartStatus` for spare parts (reorder
- * point vs on-hand + open orders). A table that re-compares `quantity` with
- * `minStock` or `reorderPoint` on the client is a second rule, and it
- * disagrees with the first (open orders, lifecycle statuses). Tables colour
- * stock from the status alone.
+ * rule, `poolStockBand` over on-hand + open purchase-order remainder: the
+ * catalog projection for feed, chemicals and consumables compares that
+ * position with `minStock` (CatalogStockProjector), `deriveSparePartStatus`
+ * with the reorder point. A table that re-compares `quantity` with `minStock`
+ * or `reorderPoint` on the client is a second rule, and it disagrees with the
+ * first (open orders, lifecycle statuses). Tables colour stock from the status
+ * alone.
  * WHAT: OUT_OF_STOCK → out, LOW_STOCK → low, every other status → neutral.
  */
 

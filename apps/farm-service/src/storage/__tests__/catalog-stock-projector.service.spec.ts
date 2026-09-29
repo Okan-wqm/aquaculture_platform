@@ -12,6 +12,7 @@ import {
   CatalogStockProjector,
   deriveCatalogStockStatus,
 } from '../services/catalog-stock-projector.service';
+import { poolStockBand } from '../services/low-stock/stock-band';
 import { StockLedgerReader } from '../services/low-stock/stock-ledger.reader';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -26,23 +27,47 @@ const CHEM = {
 
 describe('deriveCatalogStockStatus', () => {
   it.each([
-    // SCENARIO: stock bands from ledger on-hand vs minStock. EXPECTS: derived band.
-    [ChemicalStatus.AVAILABLE, 0, 10, ChemicalStatus.OUT_OF_STOCK],
-    [ChemicalStatus.AVAILABLE, 10, 10, ChemicalStatus.LOW_STOCK],
-    [ChemicalStatus.LOW_STOCK, 11, 10, ChemicalStatus.AVAILABLE],
-    [ChemicalStatus.OUT_OF_STOCK, 5, 0, ChemicalStatus.AVAILABLE],
-  ] as const)('%p with on-hand %p, min %p → %p', (current, onHand, min, expected) => {
-    expect(deriveCatalogStockStatus(current, onHand, min, CHEM)).toBe(expected);
+    // SCENARIO: stock bands from ledger on-hand + open orders vs minStock.
+    // EXPECTS: the poolStockBand of the same facts.
+    [ChemicalStatus.AVAILABLE, 0, 0, 10, ChemicalStatus.OUT_OF_STOCK],
+    [ChemicalStatus.AVAILABLE, 10, 0, 10, ChemicalStatus.LOW_STOCK],
+    [ChemicalStatus.LOW_STOCK, 11, 0, 10, ChemicalStatus.AVAILABLE],
+    [ChemicalStatus.OUT_OF_STOCK, 5, 0, 0, ChemicalStatus.AVAILABLE],
+    // An open order that lifts the position above minStock covers the shortfall…
+    [ChemicalStatus.LOW_STOCK, 4, 20, 10, ChemicalStatus.AVAILABLE],
+    // …one that does not leaves it LOW, and no order hides a physical stock-out.
+    [ChemicalStatus.AVAILABLE, 4, 6, 10, ChemicalStatus.LOW_STOCK],
+    [ChemicalStatus.AVAILABLE, 0, 500, 10, ChemicalStatus.OUT_OF_STOCK],
+  ] as const)(
+    '%p with on-hand %p, on-order %p, min %p → %p',
+    (current, onHand, onOrder, min, expected) => {
+      expect(deriveCatalogStockStatus(current, { onHand, onOrder }, min, CHEM)).toBe(expected);
+    },
+  );
+
+  it('agrees with the pool band on every cell of the grid (one rule, V-B1-4)', () => {
+    // SCENARIO: on-hand × on-order × minStock grid. EXPECTS: the catalog status is
+    // exactly the band the LowStockDetected pool tier and the evaluator read.
+    const toStatus = { ok: CHEM.available, low_stock: CHEM.low, out_of_stock: CHEM.out } as const;
+    for (const onHand of [0, 3, 10, 11]) {
+      for (const onOrder of [0, 1, 8]) {
+        for (const min of [0, 10]) {
+          expect(
+            deriveCatalogStockStatus(ChemicalStatus.AVAILABLE, { onHand, onOrder }, min, CHEM),
+          ).toBe(toStatus[poolStockBand(onHand, onOrder, min)]);
+        }
+      }
+    }
   });
 
   it('keeps an operator lifecycle status (DISCONTINUED / EXPIRED) across projections', () => {
     // SCENARIO: a discontinued chemical still holding stock. EXPECTS: stays DISCONTINUED.
-    expect(deriveCatalogStockStatus(ChemicalStatus.DISCONTINUED, 50, 10, CHEM)).toBe(
-      ChemicalStatus.DISCONTINUED,
-    );
-    expect(deriveCatalogStockStatus(ChemicalStatus.EXPIRED, 0, 10, CHEM)).toBe(
-      ChemicalStatus.EXPIRED,
-    );
+    expect(
+      deriveCatalogStockStatus(ChemicalStatus.DISCONTINUED, { onHand: 50, onOrder: 0 }, 10, CHEM),
+    ).toBe(ChemicalStatus.DISCONTINUED);
+    expect(
+      deriveCatalogStockStatus(ChemicalStatus.EXPIRED, { onHand: 0, onOrder: 0 }, 10, CHEM),
+    ).toBe(ChemicalStatus.EXPIRED);
   });
 });
 
@@ -64,6 +89,7 @@ function harness(feed: Feed | null): {
   feedSave: jest.Mock;
   getRepository: jest.Mock;
   onHandBySite: jest.Mock;
+  onOrder: jest.Mock;
 } {
   const feedFindOne = jest.fn().mockResolvedValue(feed);
   const feedSave = jest.fn();
@@ -85,7 +111,8 @@ function harness(feed: Feed | null): {
     { itemType: StorageItemType.FEED, itemId: FEED, siteId: 's1', onHand: 30 },
     { itemType: StorageItemType.FEED, itemId: FEED, siteId: 's2', onHand: 20 },
   ]);
-  const projector = new CatalogStockProjector(stub<StockLedgerReader>({ onHandBySite }));
+  const onOrder = jest.fn().mockResolvedValue([]);
+  const projector = new CatalogStockProjector(stub<StockLedgerReader>({ onHandBySite, onOrder }));
   return {
     projector,
     manager: stub<EntityManager>({ getRepository }),
@@ -93,6 +120,7 @@ function harness(feed: Feed | null): {
     feedSave,
     getRepository,
     onHandBySite,
+    onOrder,
   };
 }
 
@@ -120,6 +148,31 @@ describe('CatalogStockProjector.project', () => {
     });
     expect(feedSave).toHaveBeenCalledWith(
       expect.objectContaining({ quantity: 50, status: FeedStatus.LOW_STOCK }),
+    );
+  });
+
+  it('counts the open-order remainder: a covered shortfall projects AVAILABLE (V-B1-4)', async () => {
+    // SCENARIO: 50 on hand, minStock 60, 25 on an open order (position 75).
+    // EXPECTS: AVAILABLE — the same answer the storage overview's pool tier gives;
+    // the old on-hand-only rule projected LOW_STOCK here.
+    const feed = stub<Feed>({
+      id: FEED,
+      tenantId: TENANT,
+      quantity: 0,
+      minStock: 60,
+      status: FeedStatus.LOW_STOCK,
+    });
+    const { projector, manager, feedSave, onOrder } = harness(feed);
+    onOrder.mockResolvedValueOnce([{ itemType: StorageItemType.FEED, itemId: FEED, onOrder: 25 }]);
+
+    await projector.project(manager, TENANT, StorageItemType.FEED, FEED);
+
+    expect(onOrder).toHaveBeenCalledWith(manager, TENANT, {
+      kind: 'item',
+      key: { itemType: StorageItemType.FEED, itemId: FEED },
+    });
+    expect(feedSave).toHaveBeenCalledWith(
+      expect.objectContaining({ quantity: 50, status: FeedStatus.AVAILABLE }),
     );
   });
 

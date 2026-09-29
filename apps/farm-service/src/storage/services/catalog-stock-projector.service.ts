@@ -8,10 +8,21 @@
  * `status` stale. Now only the ledger decides quantity, and status is derived
  * from it whenever either input changes.
  *
- * WHAT: `project()` reads the pool on-hand from the ledger (same SUM as every
- * low-stock decision) and writes quantity + derived status. Spare parts have
- * no projection: their quantity/status are derived at read time (FARM-HIGH-338),
- * so nothing is written for them.
+ * WHAT: `project()` reads the pool on-hand AND the open purchase-order
+ * remainder from the ledger (the same reads every low-stock decision makes)
+ * and writes quantity + the status of `poolStockBand` — the ONE band rule the
+ * LowStockDetected pool tier, the evaluator's listing and the spare-part status
+ * use (V-B1-4 of the B1a-1 verifier round: the projection compared on-hand
+ * alone with minStock, so a setup table showed LOW for an item the overview
+ * reported covered by an order). Spare parts have no projection: their
+ * quantity/status are derived at read time (FARM-HIGH-338), so nothing is
+ * written for them.
+ *
+ * WHY a column at all (not derived at read time like spare parts): the feed,
+ * chemical and consumable lists filter and sort on `status` in SQL. So every
+ * command that changes one of the rule's inputs re-projects: a stock movement
+ * (StockMovementService) and every threshold, open-order or site change
+ * (StockTierWatch — minStock edits, purchase-order create/status/receipt).
  *
  * INVARIANT: lifecycle statuses (EXPIRED, DISCONTINUED) are operator decisions
  * and survive a projection; only the stock bands are derived.
@@ -32,7 +43,9 @@ import {
   CONSUMABLE_LIFECYCLE_STATUSES,
 } from '../../consumable/entities/consumable.entity';
 import { StorageItemType, assertNeverItemType } from '../entities/storage-inventory.entity';
+import { poolStockBand } from './low-stock/stock-band';
 import { StockLedgerReader } from './low-stock/stock-ledger.reader';
+import { stockQuantityFromUnits, stockQuantityUnits } from './stock-quantity';
 
 /** The stock-band vocabulary each catalog status enum shares. */
 interface StockStatusVocabulary<S extends string> {
@@ -64,20 +77,37 @@ const CONSUMABLE_STATUSES: StockStatusVocabulary<ConsumableStatus> = {
   lifecycle: CONSUMABLE_LIFECYCLE_STATUSES,
 };
 
+/** Pool facts the catalog status is derived from. */
+export interface CatalogStockFacts {
+  /** Ledger on-hand across every live location. */
+  onHand: number;
+  /** Unreceived remainder on open purchase-order lines. */
+  onOrder: number;
+}
+
 /**
- * Derive the catalog status from ledger on-hand and minStock.
- * WHY one function: the roll-up and the minStock-change path must agree;
- * WHAT: lifecycle statuses stick, otherwise out ≤ 0 < low ≤ minStock < available.
+ * Derive the catalog status from the pool facts and minStock.
+ * WHY one function over `poolStockBand`: the projection must read the same
+ * band as the pool tier, so a shortfall an open order already covers is not
+ * LOW on one screen and covered on the next; WHAT: lifecycle statuses stick,
+ * otherwise out when nothing is on hand, low when on-hand + on-order is at or
+ * below minStock, available otherwise.
  */
 export function deriveCatalogStockStatus<S extends string>(
   current: S,
-  onHand: number,
+  facts: CatalogStockFacts,
   minStock: number,
   statuses: StockStatusVocabulary<S>,
 ): S {
   if (statuses.lifecycle.includes(current)) return current;
-  if (onHand <= 0) return statuses.out;
-  return onHand <= minStock ? statuses.low : statuses.available;
+  switch (poolStockBand(facts.onHand, facts.onOrder, minStock)) {
+    case 'out_of_stock':
+      return statuses.out;
+    case 'low_stock':
+      return statuses.low;
+    case 'ok':
+      return statuses.available;
+  }
 }
 
 @Injectable()
@@ -107,10 +137,11 @@ export class CatalogStockProjector {
           lock: { mode: 'pessimistic_write' },
         });
         if (!feed) return;
-        feed.quantity = await this.poolOnHand(manager, tenantId, itemType, itemId);
+        const facts = await this.poolFacts(manager, tenantId, itemType, itemId);
+        feed.quantity = facts.onHand;
         feed.status = deriveCatalogStockStatus(
           feed.status,
-          feed.quantity,
+          facts,
           Number(feed.minStock),
           FEED_STATUSES,
         );
@@ -124,10 +155,11 @@ export class CatalogStockProjector {
           lock: { mode: 'pessimistic_write' },
         });
         if (!chem) return;
-        chem.quantity = await this.poolOnHand(manager, tenantId, itemType, itemId);
+        const facts = await this.poolFacts(manager, tenantId, itemType, itemId);
+        chem.quantity = facts.onHand;
         chem.status = deriveCatalogStockStatus(
           chem.status,
-          chem.quantity,
+          facts,
           Number(chem.minStock),
           CHEMICAL_STATUSES,
         );
@@ -142,10 +174,11 @@ export class CatalogStockProjector {
           lock: { mode: 'pessimistic_write' },
         });
         if (!cons) return;
-        cons.quantity = await this.poolOnHand(manager, tenantId, itemType, itemId);
+        const facts = await this.poolFacts(manager, tenantId, itemType, itemId);
+        cons.quantity = facts.onHand;
         cons.status = deriveCatalogStockStatus(
           cons.status,
-          cons.quantity,
+          facts,
           Number(cons.minStock),
           CONSUMABLE_STATUSES,
         );
@@ -162,16 +195,30 @@ export class CatalogStockProjector {
     }
   }
 
-  private async poolOnHand(
+  /** Pool on-hand + open-order remainder of one item, exact to the hundredth. */
+  private async poolFacts(
     manager: EntityManager,
     tenantId: string,
     itemType: StorageItemType,
     itemId: string,
-  ): Promise<number> {
-    const rows = await this.reader.onHandBySite(manager, tenantId, {
-      kind: 'item',
-      key: { itemType, itemId },
-    });
-    return rows.reduce((sum, row) => sum + row.onHand, 0);
+  ): Promise<CatalogStockFacts> {
+    const scope = { kind: 'item' as const, key: { itemType, itemId } };
+    // Sequential: the caller's transactional connection runs one query at a time.
+    const onHandRows = await this.reader.onHandBySite(manager, tenantId, scope);
+    const onOrderRows = await this.reader.onOrder(manager, tenantId, scope);
+    return {
+      onHand: exactSum(onHandRows.map((row) => row.onHand)),
+      onOrder: exactSum(onOrderRows.map((row) => row.onOrder)),
+    };
   }
+}
+
+/** Sum `numeric(15,2)` quantities in integer hundredths (no double residue). */
+function exactSum(values: readonly number[]): number {
+  return stockQuantityFromUnits(
+    values.reduce(
+      (sum, value) => sum + stockQuantityUnits(value, 'Stock quantity', { allowZero: true }),
+      0,
+    ),
+  );
 }

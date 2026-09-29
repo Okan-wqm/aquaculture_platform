@@ -1,7 +1,17 @@
-import { createBaseEvent, type AlertEscalatedEvent } from '@platform/event-contracts';
+import * as client from 'prom-client';
+import { LIFE_SAFETY_ALARM_DEGRADED_METRIC } from '@aquaculture/backend-common/metrics';
+import {
+  ALERT_ESCALATED_EVENT_VERSION,
+  createBaseEvent,
+  type AlertEscalatedEvent,
+} from '@platform/event-contracts';
 
 import { NotificationChannel, NotificationLog } from '../../entities/notification-log.entity';
 import { NotificationRateLimitedError } from '../../services/notification-rate-limited.error';
+import {
+  NotificationRateLimiterUnavailableError,
+  NotificationReceiptHeldError,
+} from '../../services/notification-delivery.errors';
 import { UserContactLookupError } from '../../services/user-contact-directory.service';
 import { AlertEscalatedEventHandler } from '../alert-escalated.handler';
 
@@ -21,6 +31,7 @@ function escalated(overrides: Partial<AlertEscalatedEvent> = {}): AlertEscalated
     ...createBaseEvent<AlertEscalatedEvent>('AlertEscalated', TENANT_ID, {
       aggregateId: INCIDENT_ID,
       aggregateType: 'AlertIncident',
+      version: ALERT_ESCALATED_EVENT_VERSION,
     }),
     alertId: INCIDENT_ID,
     escalationLevel: 1,
@@ -57,6 +68,19 @@ function build(recipients: string[] = [MANAGER, ADMIN]): {
   const eventBus = { subscribeWildcard: jest.fn(async () => undefined) };
   const handler = new AlertEscalatedEventHandler(dispatcher, inApp, contacts, eventBus);
   return { handler, dispatcher, inApp, contacts };
+}
+
+/** The notification-service count of one life-safety degradation reason. */
+async function degraded(reason: string): Promise<number> {
+  const metric = client.register.getSingleMetric(LIFE_SAFETY_ALARM_DEGRADED_METRIC);
+  if (!metric) return 0;
+  const { values } = await metric.get();
+  return values
+    .filter(
+      (value) =>
+        value.labels['service'] === 'notification-service' && value.labels['reason'] === reason,
+    )
+    .reduce((sum, value) => sum + value.value, 0);
 }
 
 describe('AlertEscalatedEventHandler', () => {
@@ -214,16 +238,107 @@ describe('AlertEscalatedEventHandler', () => {
     expect(outcome).toEqual(expect.objectContaining({ kind: 'ack' }));
   });
 
-  it('acknowledges but reports loudly when the targets resolve to nobody', async () => {
-    // SCENARIO: no active user holds the targeted roles.
-    // EXPECTS: ack with a reason (a retry cannot conjure a recipient); nothing sent.
-    const { handler, dispatcher, inApp } = build([]);
+  it('acknowledges a WARNING alarm whose targets resolve to nobody, reporting it loudly', async () => {
+    // SCENARIO: no active user holds the targeted roles of a non-life-safety alarm.
+    // EXPECTS: ack with a reason; nothing sent; no tenant-admin fallback query.
+    const { handler, dispatcher, inApp, contacts } = build([]);
+
+    const outcome = await handler.handle(escalated({ severity: 'warning' }));
+
+    expect(outcome).toEqual(expect.objectContaining({ kind: 'ack' }));
+    expect(contacts.alertRecipients).toHaveBeenCalledTimes(1);
+    expect(inApp.createNotification).not.toHaveBeenCalled();
+    expect(dispatcher.dispatchCommandNotification).not.toHaveBeenCalled();
+  });
+
+  it("pages every active tenant admin when a CRITICAL alarm's targets resolve to nobody (V-S1a-5)", async () => {
+    // SCENARIO: nobody holds the site/tenant roles the policy names.
+    // EXPECTS: a second expansion for TENANT_ADMIN tenant-wide; the admin is paged;
+    //          the degradation is counted (alertable).
+    const { handler, contacts, inApp } = build();
+    contacts.alertRecipients
+      .mockResolvedValueOnce({ userIds: [], truncated: false })
+      .mockResolvedValueOnce({ userIds: [ADMIN], truncated: false });
+    const before = await degraded('widened_to_tenant_admins');
 
     const outcome = await handler.handle(escalated());
 
     expect(outcome).toEqual(expect.objectContaining({ kind: 'ack' }));
-    expect(inApp.createNotification).not.toHaveBeenCalled();
+    expect(contacts.alertRecipients).toHaveBeenLastCalledWith(TENANT_ID, {
+      tenantWideRoles: ['TENANT_ADMIN'],
+      siteRoles: [],
+      siteId: null,
+      userIds: [],
+    });
+    expect(inApp.createNotification).toHaveBeenCalledWith(
+      TENANT_ID,
+      ADMIN,
+      expect.any(String),
+      expect.any(String),
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(await degraded('widened_to_tenant_admins')).toBe(before + 1);
+  });
+
+  it('dead-letters (never acks) a CRITICAL alarm nobody at all can receive (V-S1a-5)', async () => {
+    // SCENARIO: not even a tenant admin is active.
+    // EXPECTS: terminate — the page lands on the dead-letter stream and the
+    //          no_recipients degradation is counted.
+    const { handler, dispatcher } = build([]);
+    const before = await degraded('no_recipients');
+
+    const outcome = await handler.handle(escalated());
+
+    expect(outcome).toEqual(expect.objectContaining({ kind: 'terminate' }));
     expect(dispatcher.dispatchCommandNotification).not.toHaveBeenCalled();
+    expect(await degraded('no_recipients')).toBe(before + 1);
+  });
+
+  it('exempts CRITICAL/HIGH pages from the tenant rate limit, not WARNING ones (V-S1a-3)', async () => {
+    const critical = build([MANAGER]);
+    await critical.handler.handle(escalated());
+    expect(critical.dispatcher.dispatchCommandNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ lifeSafetyAlarm: true }),
+    );
+
+    const warning = build([MANAGER]);
+    await warning.handler.handle(escalated({ severity: 'warning' }));
+    expect(warning.dispatcher.dispatchCommandNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ lifeSafetyAlarm: false }),
+    );
+  });
+
+  it.each([
+    ['a receipt still held by a crashed send', () => new NotificationReceiptHeldError()],
+    [
+      'a rate limiter that is down',
+      () => new NotificationRateLimiterUnavailableError('redis down'),
+    ],
+  ])('retries (never dead-letters) on %s (V-S1a-6)', async (_label, failure) => {
+    const { handler, dispatcher } = build([MANAGER]);
+    dispatcher.dispatchCommandNotification.mockRejectedValue(failure());
+
+    const outcome = await handler.handle(escalated());
+
+    expect(outcome).toEqual(expect.objectContaining({ kind: 'retry' }));
+  });
+
+  it('dead-letters the legacy (pre-delivery) AlertEscalated shape the terminal upcaster marks', async () => {
+    const { handler, contacts } = build();
+    const legacy: AlertEscalatedEvent = JSON.parse(
+      JSON.stringify({
+        ...escalated(),
+        __legacyShape: 'AlertEscalated<=v2 carries no delivery fields',
+      }),
+    );
+
+    const outcome = await handler.handle(legacy);
+
+    expect(outcome).toEqual(
+      expect.objectContaining({ kind: 'terminate', reason: expect.stringContaining('legacy') }),
+    );
+    expect(contacts.alertRecipients).not.toHaveBeenCalled();
   });
 
   it('retries when every in-app write failed', async () => {

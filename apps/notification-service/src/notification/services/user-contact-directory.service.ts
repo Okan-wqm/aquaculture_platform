@@ -1,8 +1,4 @@
-import {
-  signedFetch,
-  signedFetchJson,
-  type HttpFailureClass,
-} from '@aquaculture/backend-common/http';
+import { signedFetchJson, type HttpFailureClass } from '@aquaculture/backend-common/http';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -65,9 +61,17 @@ export class UserContactDirectory {
     return deviceToken ? deviceToken.token : null;
   }
 
-  /** The user's e-mail from auth-service (tenant-bound PII endpoint). */
+  /**
+   * The user's e-mail from auth-service (tenant-bound PII endpoint).
+   *
+   * V-S1a-6: failures are classified by the platform's HTTP SSoT
+   * (`classifyHttpStatus`): a refused connection, a timeout, 5xx and the
+   * recoverable 401/403/408/429 are TRANSIENT — an auth restart or a key
+   * rotation must not turn an alarm e-mail into a permanent failure. Only a
+   * rejected request (404 unknown user, 400 …) is permanent.
+   */
   async email(tenantId: string, userId: string): Promise<string> {
-    const response = await signedFetch(
+    const result = await signedFetchJson<unknown>(
       `${this.authServiceUrl}/api/v1/internal/users/${encodeURIComponent(userId)}/pii`,
       {
         method: 'GET',
@@ -77,17 +81,20 @@ export class UserContactDirectory {
         headers: { 'content-type': 'application/json' },
       },
     );
-    if (!response.ok) {
+    if (!result.ok) {
       throw new UserContactLookupError(
-        `Unable to resolve user email recipient: HTTP ${response.status}`,
-        response.status >= 500 ? 'transient' : 'permanent',
+        `Unable to resolve user email recipient: ${result.error}`,
+        result.failureClass,
       );
     }
-    const body = (await response.json()) as { email?: string };
-    if (!body.email) {
+    const email: unknown =
+      typeof result.body === 'object' && result.body !== null
+        ? (result.body as { email?: unknown }).email
+        : undefined;
+    if (typeof email !== 'string' || email.length === 0) {
       throw new UserContactLookupError('Resolved user recipient has no email', 'permanent');
     }
-    return body.email;
+    return email;
   }
 
   /**

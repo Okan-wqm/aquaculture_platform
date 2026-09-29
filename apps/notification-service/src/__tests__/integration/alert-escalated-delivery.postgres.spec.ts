@@ -21,6 +21,7 @@
  * contact directory (another service).
  */
 import 'reflect-metadata';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -29,9 +30,12 @@ import { ConfigModule } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
+  ALERT_TRIGGERED_EVENT_VERSION,
   PLATFORM_EVENT_REGISTRY,
   checkAlertEscalatedEvent,
+  createBaseEvent,
   type AlertEscalatedEvent,
+  type AlertTriggeredEvent,
 } from '@platform/event-contracts';
 import {
   bootPostgresContainer,
@@ -47,6 +51,7 @@ import { CreateNotificationInAppDeliveryReceipt1801100000000 } from '../../datab
 import { DeviceToken } from '../../notification/entities/device-token.entity';
 import { NotificationLog } from '../../notification/entities/notification-log.entity';
 import { AlertEscalatedEventHandler } from '../../notification/event-handlers/alert-escalated.handler';
+import { AlertTriggeredEventHandler } from '../../notification/event-handlers/alert-triggered.handler';
 import { EmailService } from '../../notification/services/email.service';
 import { InAppNotificationService } from '../../notification/services/in-app.service';
 import { NotificationDispatcherService } from '../../notification/services/notification-dispatcher.service';
@@ -83,8 +88,10 @@ describe('AlertEscalated delivery on real Postgres (ALERT-CRITICAL-004)', () => 
   let moduleClose: (() => Promise<void>) | undefined;
   let admin: DataSource;
   let handler: AlertEscalatedEventHandler;
+  let triggeredHandler: AlertTriggeredEventHandler;
   const sendAlertEmail = jest.fn(async (to: string) => `email-${to}`);
   const sendPushNotification = jest.fn(async (token: string) => `push-${token}`);
+  const sendAlertSms = jest.fn(async (to: string) => `sms-${to}`);
 
   beforeAll(async () => {
     harness = await bootPostgresContainer({ startTimeoutMs: 90_000 });
@@ -118,12 +125,13 @@ describe('AlertEscalated delivery on real Postgres (ALERT-CRITICAL-004)', () => 
       ],
       providers: [
         AlertEscalatedEventHandler,
+        AlertTriggeredEventHandler,
         NotificationDispatcherService,
         InAppNotificationService,
         UserContactDirectory,
         { provide: EmailService, useValue: { sendAlertEmail } },
         { provide: PushService, useValue: { sendPushNotification } },
-        { provide: SmsService, useValue: {} },
+        { provide: SmsService, useValue: { sendAlertSms } },
         { provide: SsrfValidatorService, useValue: {} },
         { provide: 'EVENT_BUS', useValue: { subscribeWildcard: jest.fn() } },
       ],
@@ -138,6 +146,7 @@ describe('AlertEscalated delivery on real Postgres (ALERT-CRITICAL-004)', () => 
     jest.spyOn(contacts, 'email').mockImplementation(async (_t, userId) => `${userId}@farm.test`);
 
     handler = moduleRef.get(AlertEscalatedEventHandler);
+    triggeredHandler = moduleRef.get(AlertTriggeredEventHandler);
   });
 
   afterAll(async () => {
@@ -192,5 +201,50 @@ describe('AlertEscalated delivery on real Postgres (ALERT-CRITICAL-004)', () => 
     expect(await rowsFor(event.tenantId)).toEqual(expected);
     expect(sendAlertEmail).toHaveBeenCalledTimes(2);
     expect(sendPushNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it("delivers a sensor rule's EXTERNAL targets once per incident and never pages its user id (decision 7)", async () => {
+    // SCENARIO: a CRITICAL sensor rule names a person (user id), an outside e-mail
+    //           and a phone; its incident triggers, then a second reading bumps it
+    //           (new AlertTriggered, same incident) and the bus redelivers it.
+    // EXPECTS: exactly one e-mail row and one SMS row, each provider called once;
+    //          the person gets nothing here (the incident's escalation pages them);
+    //          the bump and the redelivery add no row and call no provider.
+    const tenantId = '9e8d7c6b-5a49-4838-9271-6a5b4c3d2e1f';
+    const incidentId = randomUUID();
+    const triggered = (alertId: string, message: string): AlertTriggeredEvent => ({
+      ...createBaseEvent<AlertTriggeredEvent>('AlertTriggered', tenantId, {
+        version: ALERT_TRIGGERED_EVENT_VERSION,
+      }),
+      alertId,
+      incidentId,
+      ruleId: randomUUID(),
+      ruleName: 'DO crash',
+      severity: 'critical',
+      message,
+      channels: ['email', 'sms'],
+      recipients: [MANAGER, 'ops@partner.test', '+4712345678'],
+    });
+    sendAlertEmail.mockClear();
+    sendAlertSms.mockClear();
+
+    const first = triggered(randomUUID(), 'DO 2.1 mg/L');
+    await expect(triggeredHandler.handle(first)).resolves.toEqual({ kind: 'ack' });
+    await expect(triggeredHandler.handle(triggered(randomUUID(), 'DO 1.9 mg/L'))).resolves.toEqual({
+      kind: 'ack',
+    });
+    await expect(triggeredHandler.handle(first)).resolves.toEqual({ kind: 'ack' });
+
+    expect(await rowsFor(tenantId)).toEqual([
+      { channel: 'email', recipient: 'ops@partner.test' },
+      { channel: 'sms', recipient: '+4712345678' },
+    ]);
+    expect(sendAlertEmail).toHaveBeenCalledTimes(1);
+    expect(sendAlertSms).toHaveBeenCalledTimes(1);
+    const receipts: Array<{ count: string }> = await admin.query(
+      `SELECT COUNT(*)::text AS count FROM notification.command_receipts WHERE "tenantId" = $1`,
+      [tenantId],
+    );
+    expect(receipts[0]?.count).toBe('2');
   });
 });

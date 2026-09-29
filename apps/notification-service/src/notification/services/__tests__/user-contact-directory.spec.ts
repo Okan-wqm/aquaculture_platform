@@ -1,4 +1,4 @@
-import { signedFetch, signedFetchJson } from '@aquaculture/backend-common/http';
+import { signedFetchJson } from '@aquaculture/backend-common/http';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -131,19 +131,56 @@ describe('UserContactDirectory', () => {
     });
   });
 
-  it('classifies an e-mail lookup 5xx as transient and a 404 as permanent', async () => {
-    // SCENARIO: auth's PII endpoint fails in the two ways that matter.
-    // EXPECTS: transient for 5xx (retry), permanent for 4xx (no such user).
+  it.each([
+    [502, 'transient'],
+    [401, 'transient'],
+    [403, 'transient'],
+    [429, 'transient'],
+    [404, 'permanent'],
+  ])(
+    'classifies an e-mail lookup HTTP %i as %s through the platform classifier (V-S1a-6)',
+    async (status, failureClass) => {
+      // SCENARIO: auth's PII endpoint fails; 401/403/429 are an auth restart or a
+      //           key rotation, not a missing user.
+      // EXPECTS: the platform SSoT's class — only a rejected request is permanent.
+      const { directory } = await build();
+      const { classifyHttpStatus } = jest.requireActual<
+        typeof import('@aquaculture/backend-common/http')
+      >('@aquaculture/backend-common/http');
+      (signedFetchJson as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status,
+        failureClass: classifyHttpStatus(status),
+        error: `HTTP ${status}`,
+      });
+
+      await expect(directory.email(TENANT_ID, USER)).rejects.toEqual(
+        expect.objectContaining({ failureClass }),
+      );
+    },
+  );
+
+  it('treats a refused connection to auth as transient (signedFetchJson catches it)', async () => {
     const { directory } = await build();
-    (signedFetch as jest.Mock)
-      .mockResolvedValueOnce({ ok: false, status: 502 })
-      .mockResolvedValueOnce({ ok: false, status: 404 });
+    (signedFetchJson as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      failureClass: 'transient',
+      error: 'connect ECONNREFUSED',
+    });
 
     await expect(directory.email(TENANT_ID, USER)).rejects.toEqual(
       expect.objectContaining({ failureClass: 'transient' }),
     );
-    await expect(directory.email(TENANT_ID, USER)).rejects.toEqual(
-      expect.objectContaining({ failureClass: 'permanent' }),
-    );
+  });
+
+  it('returns the address from a successful lookup', async () => {
+    const { directory } = await build();
+    (signedFetchJson as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      body: { email: 'manager@farm.test' },
+    });
+
+    await expect(directory.email(TENANT_ID, USER)).resolves.toBe('manager@farm.test');
   });
 });

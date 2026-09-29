@@ -1,15 +1,17 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { recordLifeSafetyAlarmDegraded } from '@aquaculture/backend-common/metrics';
 import { HandlerOutcome, IEventBus, IEventHandler, outcomeForError } from '@platform/event-bus';
 import {
   checkAlertEscalatedEvent,
   type AlertDeliveryChannel,
   type AlertEscalatedEvent,
+  type AlertRecipientResult,
 } from '@platform/event-contracts';
 
 import { NotificationChannel } from '../entities/notification-log.entity';
+import { declaresTransient } from '../services/declares-transient';
 import { InAppNotificationService } from '../services/in-app.service';
 import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
-import { NotificationRateLimitedError } from '../services/notification-rate-limited.error';
 import {
   UserContactDirectory,
   UserContactLookupError,
@@ -32,10 +34,19 @@ interface RecipientShortfall {
   retryableChannel: boolean;
 }
 
-/** True when a failed channel send must be re-driven by redelivering the event. */
+/**
+ * True when a failed channel send must be re-driven by redelivering the event:
+ * the failure declared itself transient — a contact lookup that can recover
+ * (network, 5xx, 401/403/429), a rate-limit refusal, an unavailable limiter,
+ * or a receipt still held by a crashed send (V-S1a-6).
+ */
 function isRetryableChannelFailure(error: unknown): boolean {
-  if (error instanceof NotificationRateLimitedError) return true;
-  return error instanceof UserContactLookupError && error.failureClass === 'transient';
+  return declaresTransient(error);
+}
+
+/** Severities that must reach a person (the tenant-admin floor applies). */
+function isLifeSafety(severity: AlertEscalatedEvent['severity']): boolean {
+  return severity === 'critical' || severity === 'high';
 }
 
 /**
@@ -60,11 +71,16 @@ function isRetryableChannelFailure(error: unknown): boolean {
  *
  * FAILURE POLICY: an alarm is `one_shot` (nothing re-raises an escalation), so
  * a failure that a redelivery can fix is RETHROWN: recipient expansion failing
- * transiently, every recipient's in-app write failing, a transient directory
- * lookup for a channel, or a channel send the tenant rate limit refused.
- * Provider failures inside the dispatcher are persisted as FAILED notification
- * rows and retried by its own scheduler. A policy that resolves to nobody is
- * logged at ERROR — retrying cannot conjure a recipient.
+ * transiently, every recipient's in-app write failing, or a channel send that
+ * failed transiently (contact lookup, rate limit, limiter outage, a receipt
+ * still held by a crashed send). The bus re-drives it on the LIFE-SAFETY
+ * budget (an hour of capped backoff, `LIFE_SAFETY_REDELIVERY`) and only then
+ * dead-letters it. Provider failures inside the dispatcher are persisted as
+ * FAILED notification rows and retried by its own scheduler. A CRITICAL/HIGH
+ * alarm whose targets resolve to nobody falls back to the tenant admins; if
+ * even they resolve to nobody it is dead-lettered with the alertable
+ * `life_safety_alarm_degraded_total{reason="no_recipients"}` — never acked.
+ * CRITICAL/HIGH sends are exempt from the tenant rate limit.
  *
  * NATS: consuming the wildcard `events.*.AlertEscalated` needs no services.yaml
  * subscribe row (JetStream consumer via the existing API grants).
@@ -109,13 +125,7 @@ export class AlertEscalatedEventHandler
     const event = checked.value;
 
     try {
-      const recipients = await this.contacts.alertRecipients(event.tenantId, {
-        tenantWideRoles: event.tenantWideRecipientRoles,
-        siteRoles: event.siteRecipientRoles,
-        siteId: event.siteId,
-        // The boundary schema admits only distinct user ids here.
-        userIds: event.escalatedTo,
-      });
+      const recipients = await this.resolveRecipients(event);
       if (recipients.truncated) {
         this.logger.warn(
           `Alarm ${event.alertId}: recipient expansion exceeded the cap; ` +
@@ -127,6 +137,16 @@ export class AlertEscalatedEventHandler
           `Alarm ${event.alertId} (${event.severity}) in tenant ${event.tenantId.substring(0, 8)}... ` +
             'resolved to NO recipient — check the escalation policy targets and site assignments',
         );
+        if (isLifeSafety(event.severity)) {
+          // V-S1a-5: never silent. Nobody — not even a tenant admin — can be
+          // reached: the page is dead-lettered (kept, visible) and pages the
+          // operator through the alertable counter, instead of being acked.
+          recordLifeSafetyAlarmDegraded('notification-service', 'no_recipients', event.severity);
+          return HandlerOutcome.terminate(
+            `AlertEscalated ${event.alertId}: ${event.severity} alarm resolved to no active user, ` +
+              'tenant admins included',
+          );
+        }
         return HandlerOutcome.ack('AlertEscalated: policy targets resolved to no active user');
       }
 
@@ -159,6 +179,43 @@ export class AlertEscalatedEventHandler
       );
       return outcomeForError(`AlertEscalated ${event.alertId} delivery`, error);
     }
+  }
+
+  /**
+   * The people an escalation reaches (V-S1a-5, V-S1b-7). auth-service already
+   * widens a site role with no holder at the site to the whole tenant; when the
+   * policy's targets still resolve to nobody, a CRITICAL/HIGH alarm falls back
+   * to every active TENANT_ADMIN (counted as a degraded delivery).
+   */
+  private async resolveRecipients(event: AlertEscalatedEvent): Promise<AlertRecipientResult> {
+    const recipients = await this.contacts.alertRecipients(event.tenantId, {
+      tenantWideRoles: event.tenantWideRecipientRoles,
+      siteRoles: event.siteRecipientRoles,
+      siteId: event.siteId,
+      // The boundary schema admits only distinct user ids here.
+      userIds: event.escalatedTo,
+    });
+    if (recipients.userIds.length > 0 || !isLifeSafety(event.severity)) {
+      return recipients;
+    }
+    const admins = await this.contacts.alertRecipients(event.tenantId, {
+      tenantWideRoles: ['TENANT_ADMIN'],
+      siteRoles: [],
+      siteId: null,
+      userIds: [],
+    });
+    if (admins.userIds.length > 0) {
+      this.logger.error(
+        `Alarm ${event.alertId} (${event.severity}): policy targets resolved to nobody — ` +
+          `paging ${admins.userIds.length} tenant admin(s) instead`,
+      );
+      recordLifeSafetyAlarmDegraded(
+        'notification-service',
+        'widened_to_tenant_admins',
+        event.severity,
+      );
+    }
+    return admins;
   }
 
   private async deliverTo(event: AlertEscalatedEvent, userId: string): Promise<RecipientShortfall> {
@@ -241,6 +298,8 @@ export class AlertEscalatedEventHandler
       message: rendered.message,
       pushData: channel === 'push' ? rendered.pushData : undefined,
       severity: event.severity,
+      // V-S1a-3: CRITICAL/HIGH pages are exempt from the tenant rate limit.
+      lifeSafetyAlarm: isLifeSafety(event.severity),
     });
   }
 }

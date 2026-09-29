@@ -25668,6 +25668,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/notification/event-handlers/__tests__/alert-triggered.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/notification/event-handlers/__tests__/harvest-regulatory.handler.spec.ts",
       "prettier_managed": true
     },
@@ -25681,6 +25687,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/notification-service/src/notification/event-handlers/alert-escalated.template.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/event-handlers/alert-triggered-targets.ts",
       "prettier_managed": true
     },
     {
@@ -25836,6 +25848,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/notification/services/declares-transient.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/notification/services/email.service.ts",
       "prettier_managed": true
     },
@@ -25843,6 +25861,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/notification-service/src/notification/services/in-app.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/services/notification-delivery.errors.ts",
       "prettier_managed": true
     },
     {

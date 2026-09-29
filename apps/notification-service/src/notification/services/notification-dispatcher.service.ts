@@ -1,11 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  BadRequestException,
-  ConflictException,
-  Optional,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Optional, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
@@ -24,8 +17,13 @@ import { EmailService, AlertEmailData } from './email.service';
 import { SmsService } from './sms.service';
 import { PushService } from './push.service';
 import { NotificationRateLimitedError } from './notification-rate-limited.error';
+import {
+  NotificationRateLimiterUnavailableError,
+  NotificationReceiptHeldError,
+} from './notification-delivery.errors';
 import { SsrfValidatorService } from '@aquaculture/backend-common/ai-safety';
 import type { AlertSeverityLevel } from '@platform/event-contracts';
+import { LIFE_SAFETY_REDELIVERY } from '@platform/event-bus';
 
 /**
  * Redact sensitive parts from webhook URL for safe logging/storage
@@ -137,7 +135,16 @@ function addJitter(baseDelayMs: number): number {
 // Rate limiting constants
 const MAX_NOTIFICATIONS_PER_MINUTE = 100;
 const RATE_LIMIT_WINDOW_SECONDS = 60;
-const DEFAULT_COMMAND_RECEIPT_LEASE_MS = 5 * 60 * 1000;
+/**
+ * How long a STARTED command receipt blocks a concurrent send of the same
+ * delivery. INVARIANT (V-S1a-6): strictly below the life-safety redelivery
+ * backoff cap (`LIFE_SAFETY_REDELIVERY.maxBackoffMs`, 5 min), so after a crash
+ * mid-send the next capped redelivery always finds the receipt released. If
+ * violated → every redelivery inside the budget meets a held receipt and the
+ * page dead-letters. Long enough for the slowest provider call (SMTP/FCM
+ * timeouts are well under a minute).
+ */
+export const DEFAULT_COMMAND_RECEIPT_LEASE_MS = 2 * 60 * 1000;
 
 /**
  * Alert notification data
@@ -242,6 +249,15 @@ export class NotificationDispatcherService implements OnModuleInit {
    * Use REQUIRE_WEBHOOK_ENCRYPTION_KEY=true to enforce the strict check.
    */
   onModuleInit(): void {
+    // V-S1a-6: fail fast on a lease the life-safety redelivery cannot outwait.
+    const leaseMs = this.commandReceiptLeaseMs();
+    if (leaseMs >= LIFE_SAFETY_REDELIVERY.maxBackoffMs) {
+      throw new Error(
+        `NOTIFICATION_COMMAND_RECEIPT_LEASE_MS (${leaseMs}) must stay below the life-safety ` +
+          `redelivery backoff cap (${LIFE_SAFETY_REDELIVERY.maxBackoffMs}); a crashed send would ` +
+          'otherwise hold an alarm receipt past every redelivery',
+      );
+    }
     const envKey = this.configService.get<string>('WEBHOOK_ENCRYPTION_KEY');
     if (envKey && envKey.length >= 32) {
       WEBHOOK_ENCRYPTION_KEY = createHash('sha256').update(envKey).digest();
@@ -269,119 +285,6 @@ export class NotificationDispatcherService implements OnModuleInit {
     );
   }
 
-  /**
-   * Dispatch alert notifications to all specified channels and recipients
-   */
-  async dispatchAlertNotification(
-    tenantId: string,
-    channels: string[],
-    recipients: string[],
-    alertData: AlertNotificationData,
-  ): Promise<void> {
-    // Validate inputs
-    if (!channels || channels.length === 0) {
-      throw new BadRequestException('At least one notification channel is required');
-    }
-    if (!recipients || recipients.length === 0) {
-      throw new BadRequestException('At least one recipient is required');
-    }
-
-    // Rate limiting check (Redis-backed, with in-memory fallback)
-    const totalNotifications = channels.length * recipients.length;
-    if (!(await this.checkRateLimit(tenantId, totalNotifications))) {
-      this.logger.warn(
-        `Rate limit exceeded for tenant ${tenantId}. Dropping ${totalNotifications} notifications.`,
-      );
-      throw new BadRequestException('Rate limit exceeded. Please try again later.');
-    }
-
-    // Validate channel types
-    const validChannels = Object.values(NotificationChannel);
-    for (const channel of channels) {
-      if (!validChannels.includes(channel as NotificationChannel)) {
-        throw new BadRequestException(`Invalid notification channel: ${channel}`);
-      }
-    }
-
-    // Deduplication: skip channel+recipient pairs that already have a
-    // non-failed log entry for this alertId (handles NATS at-least-once redelivery).
-    const existingLogs = await this.logRepository.find({
-      where: channels.flatMap((channel) =>
-        recipients.map((recipient) => ({
-          tenantId,
-          channel: channel as NotificationChannel,
-          recipient:
-            channel === NotificationChannel.WEBHOOK ? redactWebhookUrl(recipient) : recipient,
-          status: In([
-            NotificationStatus.SENT,
-            NotificationStatus.PENDING,
-            NotificationStatus.RETRYING,
-          ]),
-        })),
-      ),
-      select: ['channel', 'recipient', 'metadata'],
-    });
-
-    // Build a set of already-dispatched channel+recipient keys for fast lookup.
-    // Only deduplicate when metadata.alertId matches the current alert to avoid
-    // blocking unrelated notifications to the same recipient.
-    const alreadySent = new Set<string>(
-      existingLogs
-        .filter((log) => {
-          const meta = log.metadata as Record<string, unknown> | undefined;
-          return meta?.['alertId'] === alertData.alertId;
-        })
-        .map((log) => `${log.channel}:${log.recipient}`),
-    );
-
-    if (alreadySent.size > 0) {
-      this.logger.warn(
-        `Alert ${alertData.alertId}: skipping ${alreadySent.size} already-dispatched channel+recipient pair(s) (deduplication)`,
-      );
-    }
-
-    this.logger.log(
-      `Dispatching alert ${alertData.alertId} to ${recipients.length} recipients via ${channels.length} channels`,
-    );
-
-    // Use concurrency limiter to prevent thundering herd
-    const limit = pLimit(MAX_CONCURRENCY);
-    const notifications: Promise<unknown>[] = [];
-
-    for (const channel of channels) {
-      for (const recipient of recipients) {
-        // Determine the stored recipient value (webhook URLs are redacted)
-        const logRecipientKey =
-          channel === NotificationChannel.WEBHOOK ? redactWebhookUrl(recipient) : recipient;
-
-        // Skip if this channel+recipient was already successfully dispatched
-        if (alreadySent.has(`${channel}:${logRecipientKey}`)) {
-          this.logger.debug(
-            `Skipping duplicate notification: channel=${channel}, recipient=[redacted for dedup check]`,
-          );
-          continue;
-        }
-
-        notifications.push(
-          limit(() =>
-            this.sendNotification(channel as NotificationChannel, recipient, tenantId, alertData),
-          ),
-        );
-      }
-    }
-
-    // Send all notifications with bounded concurrency
-    const results = await Promise.allSettled(notifications);
-
-    // Log summary
-    const successful = results.filter((r) => r.status === 'fulfilled').length;
-    const failed = results.filter((r) => r.status === 'rejected').length;
-
-    this.logger.log(
-      `Alert ${alertData.alertId}: ${successful} notifications sent, ${failed} failed`,
-    );
-  }
-
   async dispatchCommandNotification(input: {
     tenantId: string;
     channel: NotificationChannel;
@@ -402,6 +305,14 @@ export class NotificationDispatcherService implements OnModuleInit {
      * escalated alarm passes its own severity (ALERT-CRITICAL-004).
      */
     severity?: AlertSeverityLevel;
+    /**
+     * A CRITICAL/HIGH farm alarm (V-S1a-3). It is exempt from the tenant's
+     * per-minute rate limit: a power failure that crashes dissolved oxygen in
+     * every tank must page everybody at once, not have its pages refused and
+     * retried inside the same 60-second window. Set only by the alarm
+     * handlers, never from a command payload.
+     */
+    lifeSafetyAlarm?: boolean;
   }): Promise<{ externalId?: string; replayed: boolean }> {
     const payloadHash = input.commandPayloadHash ?? this.hashCommandPayload(input);
     const receipt = await this.claimCommandReceipt(input, payloadHash);
@@ -409,7 +320,7 @@ export class NotificationDispatcherService implements OnModuleInit {
       return { externalId: receipt.externalId, replayed: true };
     }
 
-    if (!(await this.checkRateLimit(input.tenantId, 1))) {
+    if (input.lifeSafetyAlarm !== true && !(await this.checkRateLimitOrFail(input, payloadHash))) {
       await this.markCommandReceiptFailed(input, payloadHash, 'Rate limit exceeded');
       // Typed so a caller that must not lose the send can re-drive it; the
       // FAILED receipt is re-claimed on that retry.
@@ -495,7 +406,7 @@ export class NotificationDispatcherService implements OnModuleInit {
         }
         if (existing.status === 'STARTED') {
           if (!this.isCommandReceiptLeaseStale(existing.updatedAt)) {
-            throw new ConflictException('Notification command is already in progress');
+            throw new NotificationReceiptHeldError();
           }
           await manager.query(
             `UPDATE notification.command_receipts
@@ -634,6 +545,24 @@ export class NotificationDispatcherService implements OnModuleInit {
     const configured = this.configService.get<string>('NOTIFICATION_COMMAND_RECEIPT_LEASE_MS');
     const parsed = configured ? Number.parseInt(configured, 10) : NaN;
     return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_COMMAND_RECEIPT_LEASE_MS;
+  }
+
+  /**
+   * The rate-limit check of a command send. A limiter that cannot be consulted
+   * releases the receipt (FAILED, re-claimable) and surfaces as a TRANSIENT
+   * error, so the caller's redelivery retries the send once it is back.
+   */
+  private async checkRateLimitOrFail(
+    input: { tenantId: string; channel: NotificationChannel; requestReference: string },
+    payloadHash: string,
+  ): Promise<boolean> {
+    try {
+      return await this.checkRateLimit(input.tenantId, 1);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await this.markCommandReceiptFailed(input, payloadHash, reason);
+      throw new NotificationRateLimiterUnavailableError(reason);
+    }
   }
 
   /**

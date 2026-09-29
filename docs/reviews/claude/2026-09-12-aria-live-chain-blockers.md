@@ -1568,3 +1568,29 @@ package.json]` and `removed=['.aria-state-store/tools/plans/events.jsonl']`. The
   the lane's `MAX_TIMEOUT_SECONDS=1800` were both measured against an agent that never edited;
   what a real implementation of two files and five specs needs under this policy is the next
   live run's measurement, and the caps move on that number, not on a guess.
+
+## ARIA-HIGH-148 — the repository's own commit hooks ran inside the sandbox and refused every commit
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-22
+- **Evidence (`AIR-aria-implementer-62bd314dcd65`, 2026-09-16 19:22Z — the first spawn under
+  the kernel's contract):** step 1 verified through `mcp__aria__plan_verify` in one call; branch
+  and HEAD confirmed; then, before editing, the agent probed the commit path with
+  `git commit -m probe` on the clean index and the repository's `.husky/pre-commit` exited 1:
+  its gate-spec loop runs `tools/gates/commit-msg-validator.spec.ts`, which `mkdirSync`s a
+  fixture under `aria-debts/` — a `READONLY_PATHS` entry, EROFS in the implementer sandbox. Git
+  runs the hook before its nothing-to-commit check, so no commit could ever leave this sandbox;
+  the two earlier `branch_unadvanced` outcomes had the same wall behind them. The agent refused
+  honestly with the tree clean. The containment bound the effective hooks directory read-only
+  (ARIA-HIGH-123: the agent must not plant a hook) and left git free to RUN what was there.
+- **What is now true:** the effective hooks directory is an empty, read-only mount inside the
+  sandbox whether or not the repository has one (`git_containment.bwrap_flags`, the branch that
+  used to serve only a missing `.husky/`): the agent's git runs no hooks and can plant none; the
+  executor's own git already ran with hooks off (`KERNEL_GIT_NO_HOOKS_ARGS`). The gates that
+  judge the implementation are the executor's apply gate and the PR's CI, outside. Pinned by
+  `test_git_containment` (a repository hook that exits 1 blocks the commit on the host, neither
+  runs nor blocks inside — its marker never appears — the hooks directory is empty and unwritable
+  inside, and the commit publishes; the derivation pin names the tmpfs at the hooks path).
+- **Named, not closed here:** the plan adds spec files, which makes
+  `tools/quality/format-scope.json` stale for the PR's `quality-gates` CI, and that manifest is
+  outside the agent's `allowed_scope`; a delivery-side regeneration (the kernel's, at
+  publication) is the shape, and the PR's CI is where it will show first.

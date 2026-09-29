@@ -215,7 +215,12 @@ class DerivationTests(_Checkout):
         self.assertIn(("--tmpfs", str(self.common / "worktrees")), mounts)
         self.assertIn(("--bind", str(self.replica), str(self.private)), binds)
         self.assertIn(("--ro-bind", str(self.replica / "commondir"), str(self.private / "commondir")), binds)
-        self.assertIn(("--ro-bind", str((self.worktree / ".husky").resolve())), mounts)
+        # ARIA-HIGH-148: the effective hooks dir is an empty read-only mount
+        # inside, never the repository's hooks — the agent's git runs none.
+        hooks = str((self.worktree / ".husky").resolve())
+        self.assertIn(("--tmpfs", hooks), mounts)
+        self.assertNotIn(("--ro-bind", hooks), mounts)
+        self.assertEqual(flags[flags.index("--remount-ro") + 1], hooks)
         self.assertLess(mounts.index(("--tmpfs", str(self.common / "worktrees"))), mounts.index(("--bind", str(self.replica))))
         self.assertLess(mounts.index(("--bind", str(self.replica))), mounts.index(("--ro-bind", str(self.replica / "commondir"))))
         env_index = flags.index("--setenv")
@@ -580,6 +585,30 @@ class UnderRealBwrapTests(_HeldIdentity):
         self.assertEqual(_git(["rev-parse", f"refs/heads/{BRANCH}"], cwd=self.repo).stdout.strip(), head_inside)
         self.assertEqual(_git(["rev-parse", "main"], cwd=self.repo).stdout.strip(), self.base)
         self.assertEqual(_git(["fsck", "--no-dangling"], cwd=self.repo, check=False).returncode, 0)
+
+    def test_the_repositorys_hooks_do_not_run_inside_and_a_failing_hook_cannot_block_the_commit(self) -> None:
+        """ARIA-HIGH-148 — the repository's `.husky/pre-commit` (the
+        developer's gate suite, which writes fixtures under READONLY paths)
+        exited 1 inside the sandbox on a clean index, so no implementation
+        could be committed. The agent's git runs no hooks: the effective
+        hooks dir is an empty read-only mount; a hook that would fail (or
+        record that it ran) is neither run nor writable."""
+        marker = self.worktree / ".husky" / "ran"
+        (self.worktree / ".husky" / "pre-commit").write_text(f"#!/bin/sh\necho ran > {marker}\nexit 1\n", encoding="utf-8")
+        (self.worktree / ".husky" / "pre-commit").chmod(0o755)
+        self.assertNotEqual(_git(["commit", "-q", "--allow-empty", "-m", "host-probe"], cwd=self.worktree, check=False).returncode, 0,
+                            "on the host the hook runs and blocks the commit")
+        marker.unlink(missing_ok=True)
+        containment = gc.stand_on_implementation_branch(self.containment, branch=BRANCH, base_sha=self.base)
+        done = self._run(
+            "ls .husky | wc -l; git commit -q --allow-empty -m probe && echo COMMIT_OK; "
+            "sh -c 'echo x > .husky/pre-commit' 2>/dev/null && echo HOOK_WRITABLE || echo HOOK_REFUSED",
+            containment,
+        )
+        self.assertEqual(done.stdout.split(), ["0", "COMMIT_OK", "HOOK_REFUSED"], done.stderr)
+        self.assertFalse(marker.exists(), "the repository's hook did not run inside")
+        publication = publish_quarantine(containment)
+        self.assertEqual(publication.refs_published, (BRANCH,))
 
     def test_a_missing_hooks_dir_cannot_be_created_by_the_agent(self) -> None:
         shutil.rmtree(self.worktree / ".husky")

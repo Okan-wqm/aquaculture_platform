@@ -389,15 +389,20 @@ class GitContainment:
                 if entry.exists():
                     flags.extend(["--ro-bind", str(entry), str(private / name)])
             if self.hooks_dir is not None:
-                if self.hooks_dir.exists():
-                    flags.extend(["--ro-bind", str(self.hooks_dir), str(self.hooks_dir)])
-                else:
-                    # `core.hooksPath` names a directory that is not there
-                    # (a worktree without its `.husky/`): git runs no hooks,
-                    # and the agent must not be able to create the directory
-                    # inside its writable tree and put hooks in it. An empty,
-                    # read-only mount takes the place.
-                    flags.extend(["--tmpfs", str(self.hooks_dir), "--remount-ro", str(self.hooks_dir)])
+                # ARIA-HIGH-148 — the agent's git runs NO hooks: an empty,
+                # read-only mount stands at the effective hooks directory
+                # whether or not the repository has one. The repository's
+                # own hooks (`.husky/pre-commit`: the gate specs, the format
+                # scope, the authority hash) are the developer's commit
+                # gates and cannot run in this sandbox — one gate spec
+                # writes a fixture under `aria-debts/`, a READONLY path —
+                # so with them bound in, `git commit` exited 1 on a clean
+                # index and no implementation could ever be committed
+                # (trial eleven, 2026-09-16, third live spawn). The gates
+                # that judge the agent's work are the executor's apply gate
+                # and the PR's CI, outside; and the agent must not be able
+                # to put a hook of its own there either.
+                flags.extend(["--tmpfs", str(self.hooks_dir), "--remount-ro", str(self.hooks_dir)])
             flags.extend(["--setenv", GIT_OBJECT_DIRECTORY_ENV, str(private / COMMON_DIR_OBJECTS)])
         else:
             flags.extend(["--ro-bind", str(private), str(private)])

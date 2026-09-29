@@ -20,6 +20,13 @@ plus one ledger writer per surface:
 
 Fail-closed: a PreToolUse handler that raises is a DENY (exit 2) — an
 unreadable policy is not permission.
+
+cycle_and_turn_budget_cap (policy §14): a budgeted spawn — one whose profile
+has a write scope, so the kernel compiled ``--turn-budget N`` into its hook
+command — has every Edit/Write/Bash turn admitted against the job deadline
+and the N=10 turn cap INSIDE the state transaction that appends its verdict,
+so the count and the row are one atomic step. The refusal owner and the
+evidence reader are :mod:`turn_budget`.
 """
 from __future__ import annotations
 
@@ -40,9 +47,18 @@ from .implementation_safety import (
     verify_bash_command_allowed,
     verify_no_path_escape,
 )
-from .ledger import append_declared_jsonl
+from .ledger import append_declared_jsonl, state_transaction
 from .secret_scrub import scrub_text
 from .tool_registry import ensure_tools_dir, utc_now
+from .turn_budget import (
+    BUDGETED_TOOL_NAMES,
+    JOB_DEADLINE_EPOCH_ENV,
+    OBSERVATION_KEY,
+    TurnBudgetObservation,
+    observe_turn_budget,
+    parse_deadline_epoch,
+    turn_budget_refusal,
+)
 
 HOOK_DECISIONS_SURFACE = "hook_decisions"
 WORK_JOURNAL_SURFACE = "agent_work_journal"
@@ -131,6 +147,32 @@ def decide_pre_tool(payload: Mapping[str, Any], *, workspace_root: str | Path) -
         return HookVerdict("deny", f"hook_error:{type(exc).__name__}", tool, EXIT_BLOCK)
 
 
+def _decision_row(
+    verdict: HookVerdict,
+    *,
+    request_id: str,
+    session_id: str,
+    tool_use_id: str,
+    turn_budget: TurnBudgetObservation | None = None,
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "request_id": request_id,
+        "session_id": session_id,
+        "tool_use_id": tool_use_id,
+        "tool_name": verdict.tool_name,
+        "decision": verdict.decision,
+        "reason": verdict.reason,
+    }
+    if turn_budget is not None:
+        # The boundary observation the pre-merge predicate reads back: which
+        # cap this verdict was admitted under, how many turns preceded it and
+        # the deadline it was measured against.
+        row[OBSERVATION_KEY] = turn_budget.to_row()
+    return row
+
+
 def record_decision(
     verdict: HookVerdict,
     *,
@@ -142,18 +184,60 @@ def record_decision(
     root = ensure_tools_dir(base_dir)
     return append_declared_jsonl(
         root.joinpath(*HOOK_DECISIONS_RELPATH),
-        {
-            "schema_version": 1,
-            "recorded_at": utc_now(),
-            "request_id": request_id,
-            "session_id": session_id,
-            "tool_use_id": tool_use_id,
-            "tool_name": verdict.tool_name,
-            "decision": verdict.decision,
-            "reason": verdict.reason,
-        },
+        _decision_row(verdict, request_id=request_id, session_id=session_id, tool_use_id=tool_use_id),
         expected_surface=HOOK_DECISIONS_SURFACE,
     )
+
+
+def admit_budgeted_turn(
+    verdict: HookVerdict,
+    *,
+    base_dir: str | Path | None,
+    request_id: str,
+    session_id: str,
+    tool_use_id: str,
+    cap: int,
+    now: float | None = None,
+) -> HookVerdict:
+    """Count, decide and record ONE budgeted turn under a single ledger lock.
+
+    The policy verdict comes in; the budget verdict goes out, and the row
+    that records it is appended by the same transaction that counted the
+    rows before it. That is what makes the cap a cap: two parallel tool
+    calls serialise on the ledger lock, so the second one sees the first
+    one's row and the eleventh admitted turn cannot exist. A policy deny is
+    recorded with its observation but is never re-decided — a turn that will
+    not run consumes nothing.
+    """
+    import os
+    import time
+
+    root = ensure_tools_dir(base_dir)
+    path = root.joinpath(*HOOK_DECISIONS_RELPATH)
+    at = time.time() if now is None else now
+    # The hook runs inside the agent's sandbox; the deadline reaches it the
+    # way it reaches the spawn clamp — through the built environment
+    # (agent_env.ARIA_RUNTIME_ENV_NAMES), never through argv the agent sees.
+    deadline = parse_deadline_epoch(os.environ.get(JOB_DEADLINE_EPOCH_ENV))
+    with state_transaction([path]) as transaction:
+        rows = (
+            transaction.load_declared_jsonl(path, expected_surface=HOOK_DECISIONS_SURFACE)
+            if path.exists() else []
+        )
+        observation = observe_turn_budget(
+            rows, request_id=request_id, cap=cap, now=at, deadline_epoch=deadline,
+        )
+        if verdict.decision == "allow":
+            refusal = turn_budget_refusal(observation, now=at)
+            if refusal is not None:
+                verdict = HookVerdict("deny", refusal, verdict.tool_name, EXIT_BLOCK)
+        transaction.append_declared_jsonl(
+            path,
+            _decision_row(verdict, request_id=request_id, session_id=session_id,
+                          tool_use_id=tool_use_id, turn_budget=observation),
+            expected_surface=HOOK_DECISIONS_SURFACE,
+        )
+    return verdict
 
 
 def sanitize_journal_entry(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -280,15 +364,28 @@ def run_hook(
     base_dir: str | Path | None,
     workspace_root: str | Path,
     request_id: str,
+    turn_budget: int | None = None,
 ) -> tuple[int, str]:
-    """(exit_code, stdout) for one hook invocation — the CLI's whole body."""
+    """(exit_code, stdout) for one hook invocation — the CLI's whole body.
+
+    ``turn_budget`` is the cap the kernel compiled into this spawn's settings
+    (``claude_settings.build_settings`` → ``--turn-budget``); None means the
+    spawn is not budgeted (no write scope) and verdicts are recorded as
+    before.
+    """
     session_id = str(payload.get("session_id") or "")
     tool_use_id = str(payload.get("tool_use_id") or "")
     if verb == "pre-tool":
         verdict = decide_pre_tool(payload, workspace_root=workspace_root)
         try:
-            record_decision(verdict, base_dir=base_dir, request_id=request_id, session_id=session_id, tool_use_id=tool_use_id)
-        except Exception as exc:  # noqa: BLE001 — a decision that cannot be recorded is a deny
+            if turn_budget is not None and verdict.tool_name in BUDGETED_TOOL_NAMES:
+                verdict = admit_budgeted_turn(
+                    verdict, base_dir=base_dir, request_id=request_id, session_id=session_id,
+                    tool_use_id=tool_use_id, cap=turn_budget,
+                )
+            else:
+                record_decision(verdict, base_dir=base_dir, request_id=request_id, session_id=session_id, tool_use_id=tool_use_id)
+        except Exception as exc:  # noqa: BLE001 — a decision that cannot be recorded (or counted) is a deny
             verdict = HookVerdict("deny", f"decision_unrecordable:{type(exc).__name__}", verdict.tool_name, EXIT_BLOCK)
         if verdict.decision == "allow" and verdict.tool_name in WRITE_TOOL_NAMES:
             # Plan 032 Faz 032c — the safety net BEFORE the first write of a
@@ -332,6 +429,7 @@ __all__ = [
     "WORK_JOURNAL_RELPATH",
     "WORK_JOURNAL_SURFACE",
     "WRITE_TOOL_NAMES",
+    "admit_budgeted_turn",
     "decide_pre_tool",
     "handle_session_event",
     "journal_rows_for",

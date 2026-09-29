@@ -415,6 +415,11 @@ def _capture_pre_merge_context(
             "agent_invocation_contexts": tools / "agent-invocations" / "contexts.jsonl",
             "agent_invocation_prompts": tools / "agent-invocations" / "prompts.jsonl",
             "agent_result_bridge_status": tools / "agent-invocations" / "agent-result-bridge-status.jsonl",
+            # cycle_and_turn_budget_cap — the hook verdicts the seventh
+            # predicate reads. Optional at the file level (an older store
+            # has none) so the join stays available; the budget capture
+            # below names the absence.
+            "hook_decisions": tools / "hooks" / "decisions.jsonl",
         }
         sources.update(optional_sources)
 
@@ -500,6 +505,7 @@ def _capture_pre_merge_context(
         coverage_files: dict[Path, bytes | None] = {}
         expert_observation: dict[str, Any] = {}
         expert_files: dict[Path, bytes | None] = {}
+        budget_observation: dict[str, Any] = {}
         if implementation.get("request_id"):
             coverage_observation, coverage_files = _capture_pre_merge_coverage(
                 tools=tools, workspace=workspace, state=state, body=body,
@@ -508,6 +514,9 @@ def _capture_pre_merge_context(
             expert_observation, expert_files = _capture_pre_merge_expert_consensus(
                 tools=tools, workspace=workspace, rows=rows, implementation=implementation,
                 plan_id=plan_id, body=body, head_sha=head_sha,
+            )
+            budget_observation = _capture_pre_merge_turn_budget(
+                rows=rows, implementation=implementation,
             )
 
         scope_observation: dict[str, Any] = {}
@@ -555,7 +564,7 @@ def _capture_pre_merge_context(
                 repo_identity=repo_identity, base_sha=base_sha, head_sha=head_sha,
                 snapshot_hash=snapshot["snapshot_hash"],
                 **implementation, **scope_observation, **coverage_observation,
-                **expert_observation,
+                **expert_observation, **budget_observation,
             ),
         )
     except (OSError, ValueError, KeyError, TypeError, _LedgerIntegrityError, _StateStoreError):
@@ -794,6 +803,24 @@ def _capture_pre_merge_expert_consensus(
     except (OSError, ValueError, KeyError, TypeError, GovernanceError, _StateStoreError):
         observation["expert_unavailable_reason"] = reason
         return observation, files
+
+
+def _capture_pre_merge_turn_budget(
+    *, rows: dict[str, list[dict[str, Any]]], implementation: dict[str, Any],
+) -> dict[str, Any]:
+    """Reduce the hook verdicts bound to THIS implementation's request.
+
+    The producer is the kernel hook (``hooks.admit_budgeted_turn``), invoked
+    by the CLI inside the agent's sandbox with the request id the executor
+    compiled into the spawn settings; the rows are bound to the
+    implementation by that id. The verified prefix was read under the same
+    transaction as every other source, so the final recheck covers it. The
+    reduction (``turn_budget.turn_budget_evidence``) is pure and names
+    absence and malformation; the registry still owns the verdict.
+    """
+    from .turn_budget import turn_budget_evidence
+
+    return turn_budget_evidence(rows["hook_decisions"], request_id=implementation["request_id"])
 
 
 def _join_pre_merge_implementation(

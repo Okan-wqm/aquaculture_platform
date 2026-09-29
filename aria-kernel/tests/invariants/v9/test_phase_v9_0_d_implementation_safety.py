@@ -150,9 +150,9 @@ class TestV9HardFailRegistry(unittest.TestCase):
         # an empty context it fails by name, "native_implementation_binding_
         # unavailable", never by passing and never by pretending to be unbuilt.
         # The rewrite this test's earlier draft demanded when "phase B lands":
-        # five pre-merge predicates are now live (branch tip, per-file
-        # exclusion, content hash, plan coverage, expert consensus); the two
-        # still unbuilt say so.
+        # six pre-merge predicates are now live (branch tip, per-file
+        # exclusion, content hash, plan coverage, expert consensus, cycle and
+        # turn budget); the one still unbuilt says so.
         whole = _is.run_hard_fail_checks(_is.HardFailContext())
         by_name = {c.name: c for c in _is.HARD_FAIL_CHECKS}
         for result in whole.results:
@@ -166,9 +166,9 @@ class TestV9HardFailRegistry(unittest.TestCase):
                     self.assertEqual(by_name[result.name].gate, _is.GATE_PRE_PR_OPEN)
         self.assertEqual(
             {r.name for r in pre_merge.results if r.reason == "check_not_implemented"},
-            {"operator_feedback_signature", "cycle_and_turn_budget_cap"},
-            "the still-unbuilt pre-merge predicates are exactly these two; building "
-            "one means editing this set deliberately",
+            {"operator_feedback_signature"},
+            "the still-unbuilt pre-merge predicate is exactly this one; building "
+            "it means editing this set deliberately",
         )
         # Filtering is a partition, not a sample.
         self.assertEqual(
@@ -857,7 +857,7 @@ class TestPhaseAGateExitCriterion(unittest.TestCase):
 
         The cleanest ACTION is still not a merge: five pre-merge predicates
         answer only from native implementation evidence that a clean action
-        context does not carry, and two are unbuilt. Each failure names which
+        context does not carry, and one is unbuilt. Each failure names which
         of those it is; a pre-merge failure for any other reason here would
         mean a predicate started reading something it should not.
         """

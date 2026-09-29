@@ -428,8 +428,11 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("proposals", "proposals/proposals.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("cycle_incremental_plans", "cycle-state/incremental-plans.jsonl", "ledger", "planning", "runtime", True, "append_fsync", True),
     StateSurface("context_audits", "context-audits.jsonl", "ledger", "context_audits", "runtime", True, "append_fsync", True, profile_surface="context_audits", observe_class="observation"),
-    # Plan 032 Faz 032b-2 — hook verdicts (observation) and the sanitized work journal (write-driving: recovery reads it).
-    StateSurface("hook_decisions", "hooks/decisions.jsonl", "ledger", "hooks", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # Plan 032 Faz 032b-2 — hook verdicts and the sanitized work journal (write-driving: recovery reads it).
+    # hook_decisions became write-driving with cycle_and_turn_budget_cap: the hook counts a
+    # request's admitted turns FROM this ledger before deciding the next one, so losing it
+    # resets the cap, not only the record.
+    StateSurface("hook_decisions", "hooks/decisions.jsonl", "ledger", "hooks", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("agent_work_journal", "agent-invocations/work-journal.jsonl", "ledger", "work_journal", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     # Plan 032 Faz 032c — checkpoints (observation), sessions, external-effect intents/receipts and recovery decisions (write-driving).
     StateSurface("checkpoints_index", "checkpoints/index.jsonl", "ledger", "checkpoints", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),

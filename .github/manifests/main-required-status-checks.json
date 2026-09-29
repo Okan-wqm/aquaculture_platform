@@ -86,6 +86,7 @@
           "requires_jobs": [
             "detect-changes",
             "install",
+            "ai-tenant-redteam",
             "lint",
             "type-check",
             "test",
@@ -94,7 +95,10 @@
             "sens-api-gateway-rust",
             "sens-enterprise-validation"
           ],
-          "required_markers": ["Assert required PR checks"]
+          "required_markers": [
+            "Assert required PR checks",
+            "K10 red-team must pass on every pull request"
+          ]
         },
         {
           "context": "build-status",
@@ -102,6 +106,7 @@
           "requires_jobs": [
             "detect-changes",
             "install",
+            "ai-tenant-redteam",
             "lint",
             "type-check",
             "test",
@@ -118,7 +123,12 @@
             "sens-enterprise-summary",
             "merge-gate"
           ],
-          "required_markers": ["name: build-status", "if: always()", "Affected validation passed"]
+          "required_markers": [
+            "name: build-status",
+            "if: always()",
+            "Affected validation passed",
+            "K10 red-team runs on every event and must pass"
+          ]
         }
       ]
     },

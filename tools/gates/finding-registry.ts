@@ -89,8 +89,14 @@ import {
   type RegistryLockLease,
   withRegistryFileLock,
 } from './finding-registry-store';
+import {
+  FINDING_BIRTH_STATE,
+  FINDING_STATES,
+  type FindingState,
+  isActiveFindingState,
+} from './finding-state';
 import { commitHasFindingCloseTrailer } from './finding-traceability';
-import { commitReachableFrom } from './git-reachability';
+import { commitReachableFrom, repoPinnedEnv } from './git-reachability';
 
 const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).default ?? Ajv2020Mod;
 
@@ -228,7 +234,7 @@ function loadStubValidator(schemaPath = SCHEMA_PATH): ValidateFunction {
 export interface Finding {
   id: string;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-  state: 'OPEN' | 'IN-PROGRESS' | 'RESOLVED' | 'STALE' | 'BLOCKED';
+  state: FindingState;
   title: string;
   layer?: number;
   evidence?: string[];
@@ -508,10 +514,27 @@ function buildFinding(stub: Partial<Finding>, id: string): Finding | null {
     }
   }
 
+  // PROC-HIGH-020 — birth is OPEN, and only OPEN.
+  //
+  // This line used to pass the caller's `state` straight through, which is how
+  // a row could be born already settled: `add-explicit` with
+  // `state: "RESOLVED"` minted a closure with no commit behind it, and
+  // `state: "BLOCKED"` minted an escalation with no owner and no decision
+  // document. Every other state now has exactly one writer that demands its
+  // evidence (close/waive/block/reopen), and a stub cannot go around them.
+  if (stub.state !== FINDING_BIRTH_STATE) {
+    process.stderr.write(
+      `Stub state must be ${FINDING_BIRTH_STATE}; got ${String(stub.state)}. ` +
+        `A finding is born OPEN and leaves that state only through close (a merged ` +
+        `commit), waive/block (an owner plus a decision document), or reopen.\n\n`,
+    );
+    return null;
+  }
+
   return {
     id,
     severity: stub.severity as Finding['severity'],
-    state: stub.state as Finding['state'],
+    state: FINDING_BIRTH_STATE,
     title: stub.title as string,
     ...(stub.layer === undefined || stub.layer === null ? {} : { layer: stub.layer }),
     evidence: stub.evidence ?? [],
@@ -937,6 +960,26 @@ export function appendNarrativeFinding(
   });
 }
 
+/**
+ * The committer date of `sha`, ISO-8601, or null when git cannot read it.
+ *
+ * `%cI` rather than `%aI`: the author date survives a rebase from a branch,
+ * the committer date is when the commit entered the history the registry
+ * cites. Reachability is already established by the caller.
+ */
+function commitCommitterDate(repoRoot: string, sha: string): string | null {
+  try {
+    const out = execFileSync('git', ['-C', repoRoot, 'show', '-s', '--format=%cI', sha], {
+      encoding: 'utf8',
+      env: repoPinnedEnv(),
+    });
+    const trimmed = out.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
 function cmdClose(id: string, shortSha: string, lease: RegistryLockLease): number {
   if (!/^[a-f0-9]{7,40}$/i.test(shortSha)) {
     console.error(`Invalid SHA: ${shortSha} (expected 7-40 hex chars).`);
@@ -987,8 +1030,25 @@ function cmdClose(id: string, shortSha: string, lease: RegistryLockLease): numbe
     return 0;
   }
 
+  // PROC-HIGH-020 — `closed_at` is the CLOSING COMMIT's committer date, not
+  // "now". Two reasons, and the second is the load-bearing one:
+  //   * a backfill that closes hundreds of historical rows would otherwise
+  //     stamp them all with the afternoon it ran, erasing when the work
+  //     actually landed;
+  //   * with this line gone, no state-writing function in the registry reads
+  //     the wall clock at all, so the authority gate is a flat prohibition
+  //     rather than a carve-out that has to distinguish "reads the clock to
+  //     decide" from "reads the clock to record".
+  const closedAt = commitCommitterDate(REPO_ROOT, shortSha);
+  if (!closedAt) {
+    process.stderr.write(
+      `close refused: could not read the committer date of ${shortSha}; ` +
+        `closed_at must come from the closing commit, never from the clock.\n\n`,
+    );
+    return 1;
+  }
   entry.state = 'RESOLVED';
-  entry.closed_at = entry.closed_at ?? new Date().toISOString();
+  entry.closed_at = entry.closed_at ?? closedAt;
   if (!entry.closing_commits.includes(shortSha)) {
     entry.closing_commits = [...entry.closing_commits, shortSha];
   }
@@ -1065,144 +1125,164 @@ function cmdReopen(id: string, lease: RegistryLockLease): number {
   return 0;
 }
 
-interface SweepConfig {
+interface NeglectConfig {
   readonly staleAfterDays: number;
-  readonly dryRun: boolean;
   readonly now: Date;
 }
 
-interface SweepAction {
+/**
+ * One neglected finding, as REPORTED.
+ *
+ * There is deliberately no `toState`/`fromState` here, and the finding's own
+ * state is quoted under `currentState` rather than `state`: a row of this shape
+ * cannot be replayed into a mutation, and the authority gate's flat "no state
+ * writer reads the clock" rule stays flat because this reader owns no property
+ * a writer would own.
+ */
+export interface NeglectRow {
   readonly id: string;
-  readonly fromState: Finding['state'];
-  readonly toState: Finding['state'];
+  readonly severity: Finding['severity'];
+  readonly currentState: FindingState;
   readonly reason: string;
+  readonly owner_user: string | null;
 }
 
 /**
- * Phase 6 state-sweep automation — runs daily in CI, transitions state
- * based on declarative rules:
+ * Neglect, REPORTED — the replacement for the daily state sweep.
  *
- *   * OPEN / IN-PROGRESS finding older than `staleAfterDays`
- *     (default 30) → STALE.
- *   * Any non-RESOLVED finding with `deadline` in the past → BLOCKED.
+ * PROC-HIGH-020. The sweep this function replaces read the clock and wrote
+ * state: any non-RESOLVED row past its `deadline` became BLOCKED, any OPEN row
+ * older than 30 days became STALE. Its inputs were a date string and the time
+ * of day; it read no code, no commit and no human decision, and it mutated
+ * exactly one field. A finding that had been fixed and one that had been
+ * ignored were indistinguishable to it, so it retired both — and because
+ * `cmdReopen` accepts only RESOLVED rows and `findings:list` printed only OPEN
+ * ones, a swept row left the work queue permanently and silently. The last
+ * planned run was 604 transitions, 308 of them BLOCKED including 39 CRITICAL
+ * (the CRITICAL exemption sat after the deadline branch and did not cover
+ * them), and 296 STALE including 140 HIGH.
  *
- * Deterministic ordering: deadline check before staleness check so a
- * past-deadline STALE-candidate lands in BLOCKED (the stronger signal).
+ * The signal it was built on is real: a finding nobody has touched in months
+ * IS worth surfacing. What was wrong was the OUTPUT. So this reports and
+ * returns; it holds no lock, takes no lease, and cannot mutate the registry.
  *
- * --dry-run prints the proposed transitions WITHOUT mutating the
- * registry. The daily workflow opens a PR with the mutations so a
- * human reviews before merge — direct auto-commit would open a
- * tampering surface (bot push to main).
+ * Because it reports rather than retires, the CRITICAL exemption is dropped:
+ * exempting a CRITICAL from a mutation protected it, exempting one from a
+ * report would hide exactly the row that most needs a human.
  */
-export function planSweep(entries: readonly Finding[], config: SweepConfig): SweepAction[] {
-  const actions: SweepAction[] = [];
+export function planNeglect(entries: readonly Finding[], config: NeglectConfig): NeglectRow[] {
+  const rows: NeglectRow[] = [];
   const staleThresholdMs = config.staleAfterDays * 24 * 60 * 60 * 1000;
 
   for (const entry of entries) {
     if (entry.state === 'RESOLVED') continue;
 
-    // Deadline check (stronger signal) runs first.
+    // A waiver is a decision with an expiry, not an exit. Past its review
+    // date it comes back here — which is the whole difference between
+    // WAIVED and the BLOCKED-by-calendar it replaces.
+    if (entry.state === 'WAIVED') {
+      const reviewOn = entry.deadline ? new Date(entry.deadline) : null;
+      if (reviewOn && !Number.isNaN(reviewOn.getTime()) && reviewOn < config.now) {
+        rows.push({
+          id: entry.id,
+          severity: entry.severity,
+          currentState: entry.state,
+          reason: `waiver due for review on ${entry.deadline}`,
+          owner_user: entry.owner_user,
+        });
+      }
+      continue;
+    }
+
     if (entry.deadline) {
       const deadlineDate = new Date(entry.deadline);
       if (!Number.isNaN(deadlineDate.getTime()) && deadlineDate < config.now) {
-        if (entry.state !== 'BLOCKED') {
-          actions.push({
-            id: entry.id,
-            fromState: entry.state,
-            toState: 'BLOCKED',
-            reason: `past deadline ${entry.deadline}`,
-          });
-        }
+        rows.push({
+          id: entry.id,
+          severity: entry.severity,
+          currentState: entry.state,
+          reason: `past deadline ${entry.deadline}`,
+          owner_user: entry.owner_user,
+        });
         continue;
       }
     }
 
-    // Staleness check (OPEN + IN-PROGRESS only, not BLOCKED/STALE).
-    //
-    // CRITICAL findings are EXEMPT from auto-staleness: silence is not
-    // resolution for a critical. The first live sweep staled 29 open
-    // CRITICALs at once and the enterprise-grade debt-plan contract
-    // (tests/invariants/enterprise-grade-debt-plan-contract.spec.ts)
-    // refused the resulting PR — correctly: retiring unfixed critical
-    // debt by timeout is the audit-theater class that contract exists
-    // to stop. A critical leaves OPEN through a fix commit's Closes:,
-    // an explicit operator waiver, or the past-deadline BLOCKED branch
-    // above — never through the calendar.
-    if (entry.severity === 'CRITICAL') continue;
-    if (entry.state === 'OPEN' || entry.state === 'IN-PROGRESS') {
-      const created = new Date(entry.created_at);
-      if (Number.isNaN(created.getTime())) continue;
-      const ageMs = config.now.getTime() - created.getTime();
-      if (ageMs >= staleThresholdMs) {
-        actions.push({
-          id: entry.id,
-          fromState: entry.state,
-          toState: 'STALE',
-          reason: `${Math.floor(ageMs / 86400000)} days old (threshold ${config.staleAfterDays})`,
-        });
-      }
+    const created = new Date(entry.created_at);
+    if (Number.isNaN(created.getTime())) continue;
+    const ageMs = config.now.getTime() - created.getTime();
+    if (ageMs >= staleThresholdMs) {
+      rows.push({
+        id: entry.id,
+        severity: entry.severity,
+        currentState: entry.state,
+        reason: `${Math.floor(ageMs / 86400000)} days old (threshold ${config.staleAfterDays})`,
+        owner_user: entry.owner_user,
+      });
     }
   }
-  return actions;
+  return rows;
 }
 
-function cmdSweep(args: string[], lease: RegistryLockLease): number {
-  const dryRun = args.includes('--dry-run');
+/**
+ * Print the neglect report. Reads the registry; writes nothing.
+ *
+ * It takes no `RegistryLockLease` and is dispatched as a bare call rather than
+ * through `runRegistryMutation`, so the reporter does not hold the write
+ * capability at all — the authority spec asserts both, because a reporter that
+ * *could* write is one refactor away from being a sweep again.
+ */
+function cmdNeglect(args: readonly string[]): number {
   const staleArg = args.find((a) => a.startsWith('--stale-after='));
-  // Use Number.isFinite + explicit null check so `--stale-after=0` is NOT
-  // coerced back to 30 by an || fallback (0 is falsy). The 0-threshold is
-  // useful for dry-run debugging and should round-trip.
+  // Number.isFinite + an explicit check so `--stale-after=0` round-trips
+  // instead of being coerced back to 30 by an `||` fallback.
   let staleAfterDays = 30;
   if (staleArg) {
     const parsed = parseInt(staleArg.replace('--stale-after=', ''), 10);
     if (Number.isFinite(parsed) && parsed >= 0) staleAfterDays = parsed;
   }
+  const formatArg = args.find((a) => a.startsWith('--format='));
+  const format = formatArg ? formatArg.replace('--format=', '') : 'text';
 
   const entries = loadRegistry();
-  const actions = planSweep(entries, {
-    staleAfterDays,
-    dryRun,
-    now: new Date(),
-  });
+  const rows = planNeglect(entries, { staleAfterDays, now: new Date() });
 
-  if (actions.length === 0) {
-    console.log(`Sweep clean: 0 transitions needed (${entries.length} entries scanned).`);
+  if (format === 'json') {
+    process.stdout.write(`${JSON.stringify({ scanned: entries.length, rows }, null, 2)}\n`);
     return 0;
   }
 
-  console.log(`Sweep plan (${actions.length} transitions):`);
-  for (const a of actions) {
-    console.log(`  ${a.id}: ${a.fromState} → ${a.toState}  (${a.reason})`);
-  }
-
-  if (dryRun) {
-    console.log('');
-    console.log('--dry-run: no mutations written.');
+  if (format === 'markdown') {
+    process.stdout.write(`### Neglected findings (${rows.length} of ${entries.length} scanned)\n\n`);
+    if (rows.length === 0) {
+      process.stdout.write('None. Every active finding is inside its deadline and its age budget.\n');
+      return 0;
+    }
+    process.stdout.write('| id | severity | state | owner | why |\n|---|---|---|---|---|\n');
+    for (const row of rows) {
+      process.stdout.write(
+        `| ${row.id} | ${row.severity} | ${row.currentState} | ${row.owner_user ?? '—'} | ${row.reason} |\n`,
+      );
+    }
+    process.stdout.write(
+      '\nNo state changed. A row leaves this list by being fixed (`findings:close`), ' +
+        'waived with a decision document (`findings:waive`), or escalated (`findings:block`).\n',
+    );
     return 0;
   }
 
-  // Apply transitions; earliest mutated entry anchors rechain scope.
-  let minIndex = entries.length;
-  for (const a of actions) {
-    const i = entries.findIndex((e) => e.id === a.id);
-    if (i === -1) continue;
-    const entry = entries[i];
-    if (!entry) continue;
-    entry.state = a.toState;
-    if (i < minIndex) minIndex = i;
+  process.stdout.write(
+    `Neglect report: ${rows.length} finding(s) need a human (${entries.length} scanned).\n`,
+  );
+  for (const row of rows) {
+    process.stdout.write(
+      `  ${row.id} [${row.severity}/${row.currentState}] ${row.reason}` +
+        `${row.owner_user ? ` — owner ${row.owner_user}` : ''}\n`,
+    );
   }
-  rechain(entries, minIndex);
-
-  const post = verify(entries);
-  if (!post.ok) {
-    console.error(`Post-sweep integrity check FAILED: ${post.reason}`);
-    return 1;
+  if (rows.length > 0) {
+    process.stdout.write('\nNo state changed: this is a report, not a transition.\n');
   }
-
-  writeRegistry(entries, lease);
-  const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
-  console.log('');
-  console.log(`Applied ${actions.length} transitions. Chain tip: ${tip}`);
   return 0;
 }
 
@@ -1249,7 +1329,13 @@ function cmdExport(format: string): number {
  * hashes. When no flags are passed, prints every entry.
  *
  * Flags:
- *   --state <CSV>    OPEN,IN-PROGRESS,RESOLVED,STALE,BLOCKED
+ *   --state <CSV>    OPEN,IN-PROGRESS,RESOLVED,BLOCKED,WAIVED
+ *   --active         everything not settled — i.e. not RESOLVED and not WAIVED.
+ *                    PROC-HIGH-020: `findings:list` used to hardcode
+ *                    `--state OPEN`, so IN-PROGRESS and BLOCKED rows were
+ *                    invisible in the daily view and a state change could drop
+ *                    a finding out of the work queue unnoticed. The set is
+ *                    derived from FINDING_SETTLED_STATES, not re-listed here.
  *   --severity <CSV> CRITICAL,HIGH,MEDIUM,LOW
  *   --owner <name>   owner_agent substring match
  *   --format <fmt>   table (default) | id-only | json
@@ -1275,10 +1361,12 @@ function cmdList(args: readonly string[]): number {
   }
   const entries = loadRegistry();
   const stateFilter =
-    flags['state']
-      ?.split(',')
-      .map((s) => s.trim())
-      .filter(Boolean) ?? null;
+    flags['active'] === 'true'
+      ? FINDING_STATES.filter(isActiveFindingState)
+      : (flags['state']
+          ?.split(',')
+          .map((s) => s.trim())
+          .filter(Boolean) ?? null);
   const sevFilter =
     flags['severity']
       ?.split(',')
@@ -1511,7 +1599,7 @@ function main(): void {
   const [, , sub, ...args] = process.argv;
   if (!sub) {
     console.error(
-      'Usage: finding-registry <verify|add|add-explicit|import-narrative|close|sweep|export|list|rechain-from|dedupe> [args]',
+      'Usage: finding-registry <verify|add|add-explicit|import-narrative|close|reopen|neglect|export|list|rechain-from|dedupe> [args]',
     );
     console.error('  verify');
     console.error('  add <domain> <stub.json>  — atomically allocate id + append');
@@ -1520,10 +1608,12 @@ function main(): void {
       '  import-narrative <stub.json>  — import one exact ORPHAN heading as OPEN\n',
     );
     console.error('  close <finding-id> <short-sha>');
-    console.error('  sweep [--dry-run] [--stale-after=<days>]');
+    process.stderr.write(
+      '  neglect [--stale-after=<days>] [--format=text|markdown|json]  — REPORT only, changes nothing\n',
+    );
     console.error('  export <json-array|csv>');
     console.error(
-      '  list [--state <CSV>] [--severity <CSV>] [--owner <name>] [--format table|id-only|json]',
+      '  list [--active] [--state <CSV>] [--severity <CSV>] [--owner <name>] [--format table|id-only|json]',
     );
     console.error('  rechain-from <N>   — post-merge integrity repair (see docblock)');
     console.error('  dedupe [--dry-run] — one-time duplicate-id cleanup (see docblock)');
@@ -1585,8 +1675,19 @@ function main(): void {
       process.exit(2);
     }
     exitCode = cmdExport(format);
+  } else if (sub === 'neglect') {
+    // Deliberately NOT wrapped in runRegistryMutation: the reporter must not
+    // hold the registry write capability (PROC-HIGH-020).
+    exitCode = cmdNeglect(args);
   } else if (sub === 'sweep') {
-    exitCode = runRegistryMutation((lease) => cmdSweep(args, lease));
+    process.stderr.write(
+      'sweep was removed: it transitioned finding state from the clock alone ' +
+        '(past deadline → BLOCKED, 30 days old → STALE), which cannot tell a fixed ' +
+        'defect from an ignored one. Use `neglect` to report the same rows without ' +
+        'changing any state, `close` to record a merged fix, or `waive`/`block` to ' +
+        'record a human decision with an owner and a decision document.\n',
+    );
+    process.exit(2);
   } else if (sub === 'list') {
     exitCode = cmdList(args);
   } else if (sub === 'rechain-from') {

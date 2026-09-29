@@ -38,8 +38,10 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 
@@ -91,6 +93,41 @@ class InstallationTokenLease:
 
 
 _CYCLE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
+
+# The permission set a Mode A installation token is minted with when the
+# caller names none: the implementer's delivery scope (pull_requests:write +
+# contents:write on its own branch) plus administration:read, which the
+# readiness claim's branch-protection probe needs (ARIA-MEDIUM-021) and which
+# doubles as the tripwire that the operator ticked Administration: read-only
+# on the App (a permission the App was not granted fails the mint, HTTP 422).
+DEFAULT_INSTALLATION_TOKEN_PERMISSIONS: Mapping[str, str] = MappingProxyType({
+    "pull_requests": "write",
+    "contents": "write",
+    "administration": "read",
+})
+# A token that may only READ the repository's runner roster
+# (GET /repos/{owner}/{repo}/actions/runners): what the hosted runner
+# preflight mints. A GitHub-hosted job never holds a write scope on the
+# repository it merely asks about.
+RUNNER_STATUS_PERMISSIONS: Mapping[str, str] = MappingProxyType({"administration": "read"})
+_PERMISSION_LEVELS: frozenset[str] = frozenset({"read", "write"})
+
+
+def _validate_permissions(permissions: Mapping[str, str]) -> dict[str, str]:
+    """The exact permission object the mint sends — never empty, every
+    level one GitHub defines. A typo here would mint a token with a
+    permission GitHub rejects (HTTP 422) or, worse, none at all."""
+    if not isinstance(permissions, Mapping) or not permissions:
+        raise ValueError("mint_installation_token: permissions must name at least one scope")
+    for scope, level in permissions.items():
+        if not isinstance(scope, str) or not scope.strip():
+            raise ValueError("mint_installation_token: permission scope must be a non-empty string")
+        if level not in _PERMISSION_LEVELS:
+            raise ValueError(
+                f"mint_installation_token: permission level for {scope!r} must be one of "
+                f"{sorted(_PERMISSION_LEVELS)}, got {level!r}"
+            )
+    return dict(permissions)
 
 
 def _validate_cycle_id(cycle_id: str) -> None:
@@ -299,6 +336,7 @@ def mint_installation_token(
     cycle_id: str,
     workspace_root: str | Path,
     ttl_seconds: int = 300,
+    permissions: Mapping[str, str] = DEFAULT_INSTALLATION_TOKEN_PERMISSIONS,
 ) -> InstallationTokenLease:
     """Plan ARIA-V9.0-C code-only — installation-token factory.
 
@@ -306,11 +344,13 @@ def mint_installation_token(
 
     Mode A (GH App configured, production-correct):
         ``$ARIA_GH_APP_INSTALLATION_ID`` set → mints a 5-min TTL
-        scoped installation token via ``gh api`` POST to
-        ``/app/installations/{id}/access_tokens`` with
-        permissions={pull_requests:write, contents:write} and
-        repositories=[<repo>]. Token written to
-        ``aria-debts/keys/<cycle_id>.token`` mode 0600.
+        scoped installation token via a direct POST to
+        ``/app/installations/{id}/access_tokens`` with exactly
+        ``permissions`` (``DEFAULT_INSTALLATION_TOKEN_PERMISSIONS`` unless
+        the caller narrows it — the hosted runner preflight passes
+        ``RUNNER_STATUS_PERMISSIONS`` so a GitHub-hosted job never holds a
+        write scope). Token written to ``aria-debts/keys/<cycle_id>.token``
+        mode 0600.
 
     Mode B (operator-PAT fallback, V9.0-C SHIM):
         ``$ARIA_GH_APP_INSTALLATION_ID`` absent → copies the operator
@@ -327,6 +367,7 @@ def mint_installation_token(
     the operator runbook is complete.
     """
     _validate_cycle_id(cycle_id)
+    requested_permissions = _validate_permissions(permissions)
     keys_dir = _keys_dir(workspace_root)
     token_path = keys_dir / f"{cycle_id}.token"
 
@@ -419,17 +460,10 @@ def mint_installation_token(
                 # the local lease claims; without it the default 1h token
                 # outlives (or undershoots) the lease metadata.
                 "expires_in": max(60, int(ttl_seconds)),
-                "permissions": {
-                    "pull_requests": "write",
-                    "contents": "write",
-                    # ARIA-MEDIUM-021 — the readiness claim's branch-protection
-                    # probe reads GET /repos/.../protection, which the API gates
-                    # behind administration:read. Requesting a permission the
-                    # App was not granted fails the mint loudly (HTTP 422), so
-                    # this line is also the tripwire that says the operator
-                    # ticked Administration: read-only on the App.
-                    "administration": "read",
-                },
+                # Exactly what the caller asked for (see the constants at the
+                # top of this module for the two named sets and why each
+                # permission is there).
+                "permissions": requested_permissions,
             }).encode("utf-8"),
         )
         try:

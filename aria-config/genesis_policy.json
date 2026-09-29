@@ -1,7 +1,7 @@
 {
   "$schema": "aria/genesis-policy/v1",
   "schema_version": 1,
-  "_comment": "Operator override (X1, 2026-08-16). cost_caps_usd raised for the revived judgment chain: ARIA runs on Claude Code CLI subscription auth, so the USD figures are internal accounting weights, not billable spend — the operator confirmed raising them has no real cost. daily 5->25 sizes one full autonomous night (cycle + 64 judge envelopes + experiments); monthly scales accordingly; per_run stays at the default so a single runaway spawn still trips the breaker. Plan 032 Faz 032a (2026-09-02): agent_request_anchor.max_age_seconds 3d->7d because a plan needs at least three executor→cycle turns (challenger → cross_review → evaluate) and 528/528 anchor refusals on the live store were age expiries, never unreachable commits; rhythm.min_interval_hours 6->2 so those turns can chain inside one evening (the code default stays 6h, the ceiling is 12 cycles/day).",
+  "_comment": "Operator override (X1, 2026-08-16). cost_caps_usd raised for the revived judgment chain: ARIA runs on Claude Code CLI subscription auth, so the USD figures are internal accounting weights, not billable spend — the operator confirmed raising them has no real cost. daily 5->25 sizes one full autonomous night (cycle + 64 judge envelopes + experiments); monthly scales accordingly; per_run stays at the default so a single runaway spawn still trips the breaker. Plan 032 Faz 032a (2026-09-02): agent_request_anchor.max_age_seconds 3d->7d because a plan needs at least three executor→cycle turns (challenger → cross_review → evaluate) and 528/528 anchor refusals on the live store were age expiries, never unreachable commits; rhythm.min_interval_hours 6->2 so those turns can chain inside one evening (the code default stays 6h, the ceiling is 12 cycles/day). B8 (2026-09-12): executor.adaptive_runtime declares what this comment already stated — monetary_admission managed_subscription: the notional USD estimates are telemetry on the attempt row, not admission. Without the block the executor read the metered default and its spawn gate refused all 82 requests of 2026-09-04 before invoking any CLI — but not by price for the Anthropic tiers: the gate looked the profile's raw CLI alias (opus, fable) up in the exact-id and family rate tables, which are keyed by resolved id, found no rate, and denied both as pricing_unknown (unknown cost is deny); only glm-5.3, whose alias IS its priced id, was actually priced (0.8416 at the 400k/64k reservation ceiling) and refused by the per_run 0.5 cap. budget.price_spawn_reservation now prices the alias through the ledger's alias map (opus 3.6, fable 7.2), and this block makes the executor's price telemetry rather than admission. The block is validated field-by-field by genesis_policy._adaptive_runtime_policy; tests/test_spawn_budget_gate.py fails when a metered configuration can admit no model.",
   "cost_caps_usd": {
     "daily": 25.0,
     "monthly": 300.0,
@@ -12,5 +12,20 @@
   },
   "rhythm": {
     "min_interval_hours": 2.0
+  },
+  "executor": {
+    "_comment": "B8 (2026-09-12) operator decision: worktree_per_request on. Under managed_subscription the native admission binds request.target_sha == the checkout's HEAD, so a request can only be served from a tree at its own target_sha; the shared checkout is main, which moves nightly, and refused every request minted before its last advance (target_revision_mismatch — now a NAMED refusal in the child's dispatch summary, never a drained success). Each request is drained in its own git worktree at its target_sha (tools/aria-poc/ci_executor_drain.py, REQUEST_WORKTREES_DIR), inside the checkout so node resolution walks up to its node_modules, git-ignored so the persistent workspace never sees it. max_concurrent stays 1: one-way door 16 is about concurrency above one, not about per-request worktrees.",
+    "max_concurrent": 1,
+    "worktree_per_request": true,
+    "adaptive_runtime": {
+      "schema_version": 1,
+      "enabled": true,
+      "policy_id": "aria/adaptive-runtime/v1",
+      "provider_cooldown_seconds": 900,
+      "recheck_timeout_seconds": 20,
+      "max_attempts_per_dispatch": 2,
+      "scarcity_judgment_mode": "independent_sessions",
+      "monetary_admission": "managed_subscription"
+    }
   }
 }

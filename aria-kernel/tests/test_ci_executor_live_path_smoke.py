@@ -451,14 +451,39 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             "max_attempts_per_dispatch": 2, "scarcity_judgment_mode": "independent_sessions",
         }}}) + "\n", encoding="utf-8")
 
-    def _run_native_entry(self) -> int:
+    def _run_native_entry(self, *, cwd: Path | None = None) -> int:
         from contextlib import chdir
 
         # The caller and kernel are the reviewed source checkout; the bound
         # workspace supplies real request evidence/configuration. These cases
         # must stop before claim, kernel child dispatch, or model transport.
-        with patch.dict(os.environ, {"PATH": str(self.binary_dir)}), chdir(self.repo):
+        # RUNNER_TEMP / GITHUB_OUTPUT are the drain's summary channel: what
+        # the child writes there is what the drain classifies (B8).
+        self.runner_temp = self.root / "runner-temp"
+        self.runner_temp.mkdir(exist_ok=True)
+        self.github_output = self.runner_temp / "github-output.txt"
+        workspace = cwd or self.repo
+        environment = {"PATH": str(self.binary_dir), "RUNNER_TEMP": str(self.runner_temp),
+                       "GITHUB_OUTPUT": str(self.github_output), "ARIA_WORKSPACE_ROOT": str(workspace)}
+        with patch.dict(os.environ, environment), chdir(workspace):
             return ci_executor.main([self.request["request_id"], "aria-evidence-judge"])
+
+    def _assert_refused_summary(self, detail_code: str) -> dict:
+        """B8 — a by-design non-dispatch is NAMED in the child's summary: the
+        drain counts nothing but a `succeeded` summary as drained, so a
+        refusal that wrote no summary would now read as a failure, and one
+        that wrote none before this fix read as a success."""
+        summary_path = self.runner_temp / f"dispatch-result-{self.request['request_id']}.json"
+        self.assertTrue(summary_path.is_file(), "the refusal must write the dispatch summary")
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        self.assertEqual(summary["outcome"], "refused")
+        self.assertEqual(summary["failure_class"], "policy_violation")
+        self.assertEqual(summary["failure_detail_code"], detail_code)
+        self.assertEqual(summary["exit_code"], 0)
+        self.assertEqual((summary["target_agent"], summary["role"]), ("aria-evidence-judge", "evidence_judgment"))
+        published = self.github_output.read_text(encoding="utf-8")
+        self.assertIn(f"dispatch_summary_path={summary_path.resolve().as_posix()}", published)
+        return summary
 
     def _assert_native_request_untouched(self) -> list[dict]:
         from aria_kernel.ledger import load_declared_jsonl
@@ -739,6 +764,47 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertEqual(refused[0]["observed_head_sha"], current_sha)
         self.assertEqual(exit_code, 0)
         self.assertFalse(any(row["kind"] == "runtime_admission_unavailable" for row in rows))
+        self._assert_refused_summary("target_revision_mismatch")
+
+    def test_a_worktree_at_the_target_sha_passes_the_task_binding(self) -> None:
+        """The operator's B8 decision (worktree_per_request): the drain serves
+        each request from a worktree at its own target_sha. The binding
+        compares git common directories, so the worktree IS the bound task
+        root, and its HEAD is the target — the refusal that emptied the
+        nights after main moved on does not fire. What refuses instead is the
+        fleet (no CLI on this PATH), by its own name."""
+        import shutil
+        import ci_executor_drain
+        from tests._helpers.git_fixtures import _git
+        from aria_kernel.ledger import load_declared_jsonl
+
+        self._enable_adaptive_policy()
+        policy_path = self.repo / "aria-config/genesis_policy.json"
+        configured = json.loads(policy_path.read_text())
+        configured["executor"]["adaptive_runtime"]["monetary_admission"] = "managed_subscription"
+        policy_path.write_text(json.dumps(configured) + "\n")
+        git_binary = shutil.which("git")
+        self.assertIsNotNone(git_binary)
+        (self.binary_dir / "git").symlink_to(git_binary)
+        source = self.repo / "src/model_fleet.py"
+        source.write_text(source.read_text() + "\n# ordinary new source revision\n")
+        _git(["add", "src/model_fleet.py"], cwd=self.repo)
+        _git(["commit", "-m", "test: move task source after sealed request"], cwd=self.repo)
+        self.assertNotEqual(_git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip(), self.request["target_sha"])
+        worktree = ci_executor_drain._add_request_worktree(self.repo, self.request["request_id"], self.request["target_sha"])
+        self.assertIsNotNone(worktree)
+        assert worktree is not None
+        self.addCleanup(ci_executor_drain._remove_request_worktree, self.repo, worktree)
+        self.assertEqual(_git(["rev-parse", "HEAD"], cwd=worktree).stdout.strip(), self.request["target_sha"])
+        exit_code = self._run_native_entry(cwd=worktree)
+        rows = self._assert_native_request_untouched()
+        self.assertFalse(any(row["kind"] == "runtime_task_binding_unavailable" for row in rows),
+                         "the worktree at target_sha is the bound task root")
+        decisions = [row for row in rows if row["kind"] == "runtime_admission_unavailable"]
+        self.assertEqual(len(decisions), 1)
+        self.assertEqual(decisions[0]["details"]["reason"], "no_eligible_provider")
+        self.assertEqual(exit_code, 0)
+        self._assert_refused_summary("no_eligible_provider")
 
     def test_adaptive_zero_eligible_keeps_native_request_pending(self) -> None:
         self._enable_adaptive_policy()
@@ -753,6 +819,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertEqual(details["policy_id"], "aria/adaptive-runtime/v1")
         self.assertEqual(details["eligible_routes"], [])
         self.assertEqual(details["reason"], "no_eligible_provider")
+        self._assert_refused_summary("no_eligible_provider")
 
     def test_native_codex_status_without_auth_file_preserves_price_admission(self) -> None:
         self._enable_adaptive_policy()

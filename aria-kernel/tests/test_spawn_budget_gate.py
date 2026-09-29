@@ -135,5 +135,163 @@ class SpawnBudgetGateTests(unittest.TestCase):
         self.assertIn("_assert_budget_before_spawn()", source)
 
 
+class _SpawnAdmitted(Exception):
+    """Raised by the fake model runner: the gate let the dispatch through."""
+
+
+class TheExecutorReservationPricesLikeTheLedger(unittest.TestCase):
+    """ARIA-AUDIT-021 gate, measured 2026-09-04: 82 requests, 0 results.
+
+    The gate in `invoke_claude_cli` priced the profile's raw alias (`opus`)
+    against tables keyed by resolved id and family, found nothing, and
+    refused every dispatch as `cost_reservation_refused_pricing_unknown`
+    before any CLI ran. These drive the REAL gate (non-mock, a metered
+    workspace policy, the real summary writer) and pin that `opus` is now
+    the claude-opus row: refused by the CAP when the cap is below the
+    ceiling, admitted when it is not, and an unknown model still denied.
+    """
+
+    def setUp(self) -> None:
+        import shutil
+
+        import ci_executor
+
+        scratch = tempfile.TemporaryDirectory(prefix="aria-spawn-reservation-")
+        self.addCleanup(scratch.cleanup)
+        root = Path(scratch.name)
+        self.repo = root / "workspace"
+        agent = _POC.parents[1] / ".claude" / "agents" / "aria-evidence-judge.md"
+        (self.repo / ".claude" / "agents").mkdir(parents=True)
+        shutil.copy2(agent, self.repo / ".claude" / "agents" / agent.name)
+        (self.repo / "aria-config").mkdir()
+        self.tools = ensure_tools_dir(self.repo / "aria-tools")
+        self.runner_temp = root / "runner-temp"
+        self.runner_temp.mkdir()
+        self.prompt = root / "prompt.md"
+        self.prompt.write_text("# request\n", encoding="utf-8")
+        self.output = self.tools / "agent-invocations" / "outputs" / "REQ-reservation-1.json"
+        environment = patch.dict(os.environ, {"RUNNER_TEMP": str(self.runner_temp)})
+        environment.start()
+        self.addCleanup(environment.stop)
+        for name in ("GITHUB_OUTPUT", "ARIA_COST_UNKNOWN_ACK"):
+            os.environ.pop(name, None)
+        # The gate reads the workspace policy through the module's root and
+        # the frozen mock sentinel; both are set the way `_main` sets them.
+        for name, value in (("_REPO_ROOT", self.repo), ("_MOCK_MODE_AT_ENTRY", False)):
+            patcher = patch.object(ci_executor, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        # Past the gate, the model runner is the next call; a sentinel there
+        # is the proof of admission — nothing is spawned.
+        runner = patch.object(ci_executor, "run_with_model_fallback", side_effect=_SpawnAdmitted())
+        runner.start()
+        self.addCleanup(runner.stop)
+        self.executor = ci_executor
+
+    def _metered_policy(self, *, per_run: float) -> None:
+        import json
+
+        (self.repo / "aria-config" / "genesis_policy.json").write_text(json.dumps({
+            "cost_caps_usd": {"daily": 100.0, "monthly": 1000.0, "per_run": per_run},
+        }) + "\n", encoding="utf-8")
+
+    def _invoke(self) -> int:
+        return self.executor.invoke_claude_cli(
+            request_id="REQ-reservation-1", subagent_type="aria-evidence-judge",
+            prompt_file=self.prompt, output_path=self.output, timeout_seconds=60,
+            claim_id="claim_reservation_1", agent_id="ci-executor:gha-test",
+            role="evidence_judgment", must_satisfy=[],
+            request_envelope={"role": "evidence_judgment", "target_agent": "aria-evidence-judge"},
+            tools_dir=self.tools,
+        )
+
+    def _summary(self) -> dict:
+        import json
+
+        return json.loads((self.runner_temp / "dispatch-result-REQ-reservation-1.json").read_text(encoding="utf-8"))
+
+    def test_opus_is_refused_by_the_cap_not_as_an_unknown_price(self) -> None:
+        import json
+
+        from aria_kernel.budget import price_spawn_reservation
+
+        self._metered_policy(per_run=0.5)  # the live cap
+        self.assertEqual(self._invoke(), 1)
+        summary = self._summary()
+        self.assertEqual(summary["failure_class"], "policy_violation")
+        self.assertEqual(summary["failure_detail_code"], "cost_reservation_refused")
+        breaker = json.loads((self.tools / "budget" / "breaker_state.json").read_text(encoding="utf-8"))
+        self.assertEqual(breaker["cap_name"], "per_run")
+        self.assertAlmostEqual(breaker["amount"], price_spawn_reservation(model="opus").usd)
+        self.assertAlmostEqual(breaker["amount"], 3.6)
+
+    def test_a_cap_at_the_ceiling_admits_opus_to_the_spawn(self) -> None:
+        from aria_kernel.budget import price_spawn_reservation
+
+        self._metered_policy(per_run=price_spawn_reservation(model="opus").usd)
+        with self.assertRaises(_SpawnAdmitted):
+            self._invoke()
+        self.assertFalse((self.runner_temp / "dispatch-result-REQ-reservation-1.json").exists())
+        self.assertFalse((self.tools / "budget" / "breaker_state.json").exists())
+
+    def test_an_unknown_model_is_still_denied_by_name(self) -> None:
+        from aria_kernel import agent_runtime_profile as profiles
+
+        unknown = profiles.AgentRuntimeProfile("aria-evidence-judge", "gpt-9-nebula", "high", "frontmatter")
+        self._metered_policy(per_run=1000.0)
+        with patch.object(profiles, "read_agent_runtime_profile", return_value=unknown):
+            self.assertEqual(self._invoke(), 1)
+        self.assertEqual(self._summary()["failure_detail_code"], "cost_reservation_refused_pricing_unknown")
+
+
+class TheLivePolicyCanAdmitADispatch(unittest.TestCase):
+    """A metered configuration that admits no model is a red test, not a
+    silent nightly refusal.
+
+    The live override declared `per_run: 0.5` and no `executor.adaptive_runtime`
+    block, so the executor read the metered default and every profile model
+    priced above the cap at the reservation ceiling (opus 3.6, fable 7.2,
+    glm-5.3 0.8416). Under `managed_subscription` the estimates are telemetry
+    and the cap is not the admission; under `metered` at least one
+    dispatchable profile model must fit under it, or nothing can ever run.
+    """
+
+    _REPO_ROOT = _POC.parents[1]
+
+    def test_the_repository_policy_validates_and_names_its_admission_mode(self) -> None:
+        # The mode is the operator's to choose (managed_subscription since
+        # 2026-09-12); what may not happen is silence — an absent block is
+        # the metered default nobody chose, and it refused every dispatch.
+        from aria_kernel.genesis_policy import _adaptive_runtime_policy
+
+        policy = _adaptive_runtime_policy(self._REPO_ROOT)
+        self.assertIsNotNone(policy, "the live override declares no executor.adaptive_runtime block: "
+                                     "the executor falls back to the metered default")
+        self.assertIn(policy.monetary_admission, ("metered", "managed_subscription"))
+
+    def test_a_metered_policy_admits_at_least_one_dispatchable_profile_model(self) -> None:
+        from aria_kernel.budget import price_spawn_reservation
+        from aria_kernel.cost_budget import _load_caps
+        from aria_kernel.genesis_policy import _adaptive_runtime_policy
+        from aria_kernel.runtime_profiles import load_runtime_profiles
+
+        policy = _adaptive_runtime_policy(self._REPO_ROOT)
+        if policy is not None and policy.monetary_admission == "managed_subscription":
+            return  # the dollar cap is telemetry; nothing to admit against
+        # `_load_caps` resolves the workspace from a store; a legacy store at
+        # <workspace>/aria-tools reads the workspace's own override.
+        caps = _load_caps(self._REPO_ROOT / "aria-tools")
+        models = sorted({profile.model for profile in load_runtime_profiles().values()})
+        self.assertTrue(models)
+        reservations = {model: price_spawn_reservation(model=model).usd for model in models}
+        admissible = [model for model, usd in reservations.items() if usd <= caps["per_run"]]
+        self.assertTrue(
+            admissible,
+            f"metered admission with per_run={caps['per_run']} admits no profile model; "
+            f"reservation ceilings: {reservations}. Raise the cap or declare "
+            "executor.adaptive_runtime.monetary_admission=managed_subscription.",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

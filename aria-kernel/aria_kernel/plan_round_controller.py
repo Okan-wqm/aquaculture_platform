@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request, list_agent_invocation_requests
+from .plan_contract import render_plan_contract
 from .plan_convergence import (
     content_hash,
     _planning_source_context,
@@ -165,6 +166,7 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
         target_sha=target_sha,
         remint_of=remint_of,
         base_dir=root,
+        plan_contract=render_plan_contract(root),
     )
     kind = "planner_request_reminted" if remint_of else "planner_request_created"
     return {"kind": kind, "role": role, "request_id": request.get("request_id"), "remint_of": remint_of}
@@ -226,6 +228,7 @@ def _ensure_cross_review_round(root: Path, state: dict[str, Any], *,
             context_repo_root=workspace_root,
             target_sha=target_sha,
             base_dir=root,
+            plan_contract=render_plan_contract(root),
         )
         actions.append({
             "kind": "cross_review_request_created",
@@ -256,10 +259,13 @@ def submit_synthetic_challenger_for_tests(
             "summary": "synthetic challenger for controller tests",
             "affected_surfaces": [{"paths": ["aria-kernel/**"]}],
             "key_changes": ["challenge primary assumptions"],
+            # A body the plan contract accepts: a declared command and a
+            # tier claim, as `submit_challenger_plan` now requires.
             "validation_commands": [
-                {"cmd": "python3 -m compileall -q aria-kernel/aria_kernel", "expected_exit": 0, "timeout_ms": 60000}
+                {"cmd": "npx nx affected --target=test", "expected_exit": 0, "timeout_ms": 1_800_000}
             ],
             "evidence_refs": ["aria-kernel/aria_kernel/plan_round_controller.py"],
+            "architectural_tier": 3,
             "risks": [],
         },
     }

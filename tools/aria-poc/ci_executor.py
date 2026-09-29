@@ -485,6 +485,7 @@ def _canonicalize_cross_review(
 
 def _pre_submit_validate_envelope(
     envelope: dict[str, Any], role: str, request: dict[str, Any] | None = None,
+    tools_dir: str | Path | None = None,
 ) -> list[str]:
     """Plan ARIA-V8.1 Phase 3 — fail-fast canonical schema gate.
 
@@ -572,6 +573,18 @@ def _pre_submit_validate_envelope(
             plan_content["evidence_refs"], list
         ):
             errors.append("plan_content.evidence_refs:not_list")
+        # The plan contract (architectural_tier + admissible validation
+        # commands), read through the KERNEL's own check so this gate, the
+        # submit refusal and the CONVERGED gate judge one truth. Released
+        # here as `plan_content_invalid:plan_architectural_tier_missing`
+        # (request fault, retried under the Y1 budget) instead of accepted
+        # and then bridged into a dead envelope.
+        if not errors:
+            from aria_kernel.plan_contract import plan_contract_violations
+
+            errors.extend(plan_contract_violations(
+                plan_content, base_dir=tools_dir or os.environ.get("ARIA_TOOLS_DIR") or None,
+            ))
     elif role == "cross_review":
         # Plan ARIA-V8.1 — accept cross_review at top-level OR inside
         # details.cross_review OR details.review. The aria-cross-reviewer
@@ -3538,6 +3551,7 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             _envelope_for_validation,
             role=_role_for_validation,
             request=request_envelope,
+            tools_dir=tools_dir,
         )
         if validation_errors:
             _stage(f"pre_submit_validation_FAILED errors={validation_errors}")

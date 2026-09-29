@@ -73,7 +73,8 @@ class PlanConvergenceTests(unittest.TestCase):
         first = self.start()
         equivalent_plan = {
             "evidence_refs": ["docs/aria/SPEC.md"],
-            "validation_commands": [{"cmd": "python3 -m unittest discover aria-kernel -p '*test*.py'"}],
+            "validation_commands": [{"cmd": "nx affected --target=test"}],
+            "architectural_tier": 2,
             "key_changes": ["add ledger"],
             "affected_surfaces": [{"paths": ["aria-kernel/aria_kernel/plan_convergence.py"]}],
             "summary": "Plan convergence.",
@@ -652,15 +653,37 @@ class PlanConvergenceTests(unittest.TestCase):
         )
 
     def plan(self):
+        # Production-shaped: the tier claim staging refuses to invent and the
+        # canonical suite in the spelling plan_synthesizer emits. A fixture
+        # declaring a command no operator registered was seeding a plan the
+        # plan contract now refuses to converge.
         return {
             "schema_version": 1,
             "title": "ARIA Plan Convergence",
             "summary": "Plan convergence.",
             "affected_surfaces": [{"paths": ["aria-kernel/aria_kernel/plan_convergence.py"]}],
             "key_changes": ["add ledger"],
-            "validation_commands": [{"cmd": "python3 -m unittest discover aria-kernel -p '*test*.py'"}],
+            "validation_commands": [{"cmd": "nx affected --target=test"}],
             "evidence_refs": ["docs/aria/SPEC.md"],
+            "architectural_tier": 2,
         }
+
+    def structured_revision(self, revision_id: str, **overrides):
+        """A revision whose content IS a plan body — the shape that can converge."""
+        state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
+        body = {**self.plan(), **overrides}
+        return record_revision(
+            plan_id="plan-1",
+            revision={
+                "revision_id": revision_id,
+                "round": state["current_round"],
+                "content_hash": content_hash(body),
+                "parent_revision_hash": state["latest_revision"]["content_hash"],
+                "content": json.dumps(body, sort_keys=True),
+                "addresses_review_risk_ids": [],
+            },
+            base_dir=self.tools_dir,
+        )
 
     def task(self, task_id: str, reviewer: str, revision_id: str, plan_hash: str, *, deadline: str | None = None):
         return {
@@ -888,7 +911,9 @@ class PlanConvergenceTests(unittest.TestCase):
         self.assertEqual(failed["regression_count"], 1)
         first = evaluate_plan(plan_id="plan-1", round_number=1, base_dir=self.tools_dir)
         self.assertEqual(first["status"], "next_round_required")
-        revision = self.revision("rev-1", "Restore the existing event schema and validate the same obligation.")
+        revision = self.structured_revision(
+            "rev-1", summary="Restore the existing event schema and validate the same obligation.",
+        )
         state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
         self.assertEqual(state["state"], "REVISED")
         self.assertEqual(revision["event"]["payload"]["parent_revision_hash"], original_plan_hash)
@@ -1029,6 +1054,178 @@ class PlanConvergenceTests(unittest.TestCase):
         self.assertTrue(again["resumed_from_persistence"])
         self.assertEqual((self.tools_dir / "agent-invocations/requests.jsonl").read_bytes(), request_bytes)
         self.assertEqual((self.tools_dir / "plans/events.jsonl").read_bytes(), before_plan)
+
+    # ------------------------------------------------------------------
+    # The plan contract at submission and at the CONVERGED gate.
+    #
+    # Trial ten (2026-09-12, plan flow-85199a4b5051d7b27f16): the first plan
+    # the native chain drove to CONVERGED could not be staged — no
+    # architectural_tier, and a plan-authored `npx nx run shell:test` no
+    # operator had declared. Nothing before staging had asked for either.
+    # ------------------------------------------------------------------
+
+    def _challenger_with(self, **overrides):
+        state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
+        plan = {**self.plan(), "title": "Challenger Plan", **overrides}
+        for key in [key for key, value in overrides.items() if value is None]:
+            plan.pop(key)
+        return submit_challenger_plan(
+            plan_id="plan-1",
+            challenger={
+                "challenger_agent": "access-boundary-auditor",
+                "challenger_revision_id": "challenger-rev-0",
+                "source_revision_id": state["latest_revision"]["revision_id"],
+                "source_plan_content_hash": state["latest_revision"]["content_hash"],
+                "plan_content": plan,
+            },
+            base_dir=self.tools_dir,
+        )
+
+    def test_submission_refuses_a_challenger_without_an_architectural_tier(self):
+        self.start()
+        before = len(load_jsonl(events_path(self.tools_dir)))
+        with self.assertRaisesRegex(GovernanceError, "plan_architectural_tier_missing"):
+            self._challenger_with(architectural_tier=None)
+        self.assertEqual(len(load_jsonl(events_path(self.tools_dir))), before)
+
+    def test_submission_refuses_a_tier_outside_the_change_ledger_vocabulary(self):
+        self.start()
+        with self.assertRaisesRegex(GovernanceError, "plan_architectural_tier_invalid:5"):
+            self._challenger_with(architectural_tier=5)
+
+    def test_submission_refuses_an_undeclared_validation_command_by_name(self):
+        self.start()
+        with self.assertRaisesRegex(
+            GovernanceError, "plan_validation_command_not_declared:npx nx run shell:test",
+        ):
+            self._challenger_with(validation_commands=[{"cmd": "npx nx run shell:test"}])
+
+    def test_submission_accepts_tier_two_with_canonical_and_recipe_commands(self):
+        from aria_kernel.experiment import register_recipe
+
+        register_recipe(
+            recipe_id="kernel-unit-suite",
+            command="python3 -m unittest discover aria-kernel -p '*test*.py'",
+            timeout_ms=1_500_000, deterministic=True, base_dir=self.tools_dir,
+        )
+        self.start()
+        submitted = self._challenger_with(
+            architectural_tier=2,
+            validation_commands=[
+                {"cmd": "npx nx affected --target=lint"},
+                {"cmd": "nx affected --target=test"},
+                {"recipe_id": "kernel-unit-suite"},
+                # A registered recipe may also be declared by its exact command.
+                {"cmd": "python3 -m unittest discover aria-kernel -p '*test*.py'"},
+            ],
+        )
+        self.assertTrue(submitted["event_appended"])
+        self.assertEqual(plan_status(plan_id="plan-1", base_dir=self.tools_dir)["state"], "CHALLENGER_DRAFTED")
+
+    def test_a_structured_revision_is_judged_by_the_plan_contract(self):
+        # The primary's round-2+ body is the one that converges; before this
+        # it was never validated as a plan at all (only `content` non-empty).
+        self.start()
+        self.request_round(1, "farm-expert")
+        self.critique("farm-expert", [self.risk("schema", "MEDIUM")])
+        with self.assertRaisesRegex(GovernanceError, "plan_architectural_tier_missing"):
+            body = self.plan()
+            body.pop("architectural_tier")
+            state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
+            record_revision(
+                plan_id="plan-1",
+                revision={
+                    "revision_id": "rev-1", "round": state["current_round"],
+                    "content_hash": content_hash(body),
+                    "parent_revision_hash": state["latest_revision"]["content_hash"],
+                    "content": json.dumps(body, sort_keys=True), "addresses_review_risk_ids": [],
+                },
+                base_dir=self.tools_dir,
+            )
+        with self.assertRaisesRegex(GovernanceError, "plan content missing required field"):
+            record_revision(
+                plan_id="plan-1",
+                revision={
+                    "revision_id": "rev-1", "round": 1,
+                    "content_hash": content_hash({"title": "not a plan"}),
+                    "parent_revision_hash": plan_status(plan_id="plan-1", base_dir=self.tools_dir)["latest_revision"]["content_hash"],
+                    "content": json.dumps({"title": "not a plan"}), "addresses_review_risk_ids": [],
+                },
+                base_dir=self.tools_dir,
+            )
+        self.assertTrue(self.structured_revision("rev-1", summary="revised")["event_appended"])
+
+    def test_a_historical_tierless_plan_started_still_folds(self):
+        # The fold re-validates every recorded plan_started; the contract
+        # binds the COMMAND path only, so recorded history keeps replaying.
+        from aria_kernel.plan_convergence import _idempotency_key
+
+        legacy = {**self.plan(), "validation_commands": [{"cmd": "python3 -m unittest discover"}]}
+        legacy.pop("architectural_tier")
+        append_declared_fixture(
+            events_path(self.tools_dir),
+            {
+                "schema_version": 1, "event_id": "evt-legacy-1", "event_type": "plan_started",
+                "plan_id": "plan-1", "recorded_at": "2026-05-01T00:00:00+00:00",
+                "idempotency_key": _idempotency_key("plan-1", "start", legacy),
+                "payload": {"plan_content": legacy, "content_hash": content_hash(legacy),
+                            "initial_revision_id": "rev-0"},
+            },
+            expected_surface="plan_convergence_events",
+        )
+        state = fold_plan_state(plan_id="plan-1", base_dir=self.tools_dir)
+        self.assertEqual(state["state"], "DRAFT")
+        self.assertEqual(state["plan_started"]["plan_content"], legacy)
+
+    def test_evaluate_plan_records_the_plan_contract_gate_row(self):
+        # A kernel seed carries no tier: round one cannot converge on it, and
+        # the gate row names why; the primary's structured revision with the
+        # claim converges, and the row records that it passed.
+        seed = self.plan()
+        seed.pop("architectural_tier")
+        seed["validation_commands"] = [{"cmd": "npx nx run shell:test"}]
+        start_plan(plan_id="plan-1", initial_revision_id="rev-0", plan_content=seed, base_dir=self.tools_dir)
+        self.request_round(1, "farm-expert")
+        self.critique("farm-expert", [])
+        first = evaluate_plan(plan_id="plan-1", round_number=1, base_dir=self.tools_dir)
+        self.assertEqual(first["status"], "next_round_required")
+        self.assertIn("plan_contract_incomplete", first["reason_codes"])
+        gate = next(item for item in first["gate_decisions"] if item["gate"] == "plan_contract_complete")
+        self.assertFalse(gate["passed"])
+        self.assertEqual(
+            [reason.split(":", 1)[0] for reason in gate["reasons"]],
+            ["plan_architectural_tier_missing", "plan_validation_command_not_declared"],
+        )
+        self.assertTrue(self.structured_revision("rev-1", summary="the primary claims tier 2")["event_appended"])
+        self.request_round(2, "farm-expert")
+        self.critique("farm-expert", [])
+        second = evaluate_plan(plan_id="plan-1", round_number=2, base_dir=self.tools_dir)
+        self.assertEqual(second["event"]["payload"]["terminal_state"], "CONVERGED")
+        recorded = next(item for item in second["event"]["payload"]["gate_decisions"] if item["gate"] == "plan_contract_complete")
+        self.assertEqual(recorded, {"gate": "plan_contract_complete", "passed": True, "reasons": []})
+
+    def test_a_prose_revision_cannot_converge_because_no_body_can_be_staged(self):
+        self.start()
+        self.request_round(1, "farm-expert")
+        self.critique("farm-expert", [self.risk("schema", "MEDIUM")])
+        self.revision("rev-1", "round one revision in prose")
+        self.request_round(2, "farm-expert")
+        self.critique("farm-expert", [])
+        result = evaluate_plan(plan_id="plan-1", round_number=2, base_dir=self.tools_dir)
+        self.assertEqual(result["status"], "next_round_required")
+        gate = next(item for item in result["gate_decisions"] if item["gate"] == "plan_contract_complete")
+        self.assertEqual(gate["reasons"], ["plan_body_unavailable:plan_body_unavailable_for_revision"])
+
+    def test_the_gate_at_the_round_cap_escalates_to_human_required(self):
+        seed = self.plan()
+        seed.pop("architectural_tier")
+        start_plan(plan_id="plan-1", initial_revision_id="rev-0", plan_content=seed, base_dir=self.tools_dir)
+        self.request_round(1, "farm-expert")
+        self.critique("farm-expert", [])
+        result = evaluate_plan(plan_id="plan-1", round_number=1, max_rounds=1, base_dir=self.tools_dir)
+        payload = result["event"]["payload"]
+        self.assertEqual(payload["terminal_state"], "HUMAN_REQUIRED")
+        self.assertEqual(sorted(payload["reason_codes"]), ["max_rounds_reached", "plan_contract_incomplete"])
 
 
 if __name__ == "__main__":

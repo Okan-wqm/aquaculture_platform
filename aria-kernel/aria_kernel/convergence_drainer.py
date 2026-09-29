@@ -323,6 +323,22 @@ def _resolve_workspace_head_sha(workspace_root: str | Path | None) -> str | None
     return sha if proc.returncode == 0 and sha else None
 
 
+def _plan_contract_gate_reasons(eval_result: dict[str, Any]) -> list[str]:
+    """The reasons the ``plan_contract_complete`` row recorded, deduplicated
+    by reason code so the carried obligations have unique ids."""
+    from .plan_contract import PLAN_CONTRACT_GATE
+
+    seen: dict[str, str] = {}
+    for row in eval_result.get("gate_decisions") or []:
+        if isinstance(row, dict) and row.get("gate") == PLAN_CONTRACT_GATE and not row.get("passed"):
+            for reason in row.get("reasons") or []:
+                # The tail of a reason can be a plan-authored command string;
+                # it is bounded here because it lands in an obligation the
+                # next prompt renders outside the untrusted tags.
+                seen.setdefault(str(reason).split(":", 1)[0], str(reason)[:200])
+    return list(seen.values())
+
+
 def _structured_revision_content(state: dict[str, Any]) -> dict[str, Any] | None:
     """Latest revision's content as a structured plan dict, or None.
 
@@ -1147,12 +1163,30 @@ def run_convergence_drainer(
                 "description": "Resolve the native comparison obligation: " + json.dumps(spine, sort_keys=True),
                 "source": "architecture-spine-native-postcheck",
             }] if isinstance(spine, dict) and spine.get("status") == "regression" else [])
+            # The plan-contract gate row names exactly what the body that
+            # would have converged lacks; the primary's satisfaction matrix
+            # answers each reason, and the envelope's plan_contract block
+            # says what "fixed" means.
+            contract_carry = [
+                {
+                    "id": "plan_contract:" + reason.split(":", 1)[0],
+                    "kind": "plan_contract_violation",
+                    "description": (
+                        f"{reason} — make plan_content satisfy the Plan contract section of "
+                        "this request (architectural_tier claim; validation_commands from the "
+                        "admissible set)"
+                    ),
+                    "source": "plan-contract-gate",
+                }
+                for reason in _plan_contract_gate_reasons(eval_result)
+            ]
             persistence.write_text(
                 json.dumps({
                     "plan_id": plan_id,
                     "round": current_round + 1,
                     "coverage_must_satisfy": coverage_carry,
                     **({"architecture_spine_must_satisfy": spine_carry} if spine_carry else {}),
+                    **({"plan_contract_must_satisfy": contract_carry} if contract_carry else {}),
                 }),
                 encoding="utf-8",
             )
@@ -1164,7 +1198,7 @@ def run_convergence_drainer(
                     lambda: issue_primary_envelope(
                         plan_id=plan_id,
                         round_number=next_round,
-                        must_satisfy=[*base_ms, *coverage_carry, *spine_carry],
+                        must_satisfy=[*base_ms, *coverage_carry, *spine_carry, *contract_carry],
                         evidence_refs=current_refs,
                         plan_revision_hash=current_revision_hash,
                         context_source_paths=current_context_paths,

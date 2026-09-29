@@ -66,6 +66,7 @@ REQUEST_OPTIONAL_FIELDS = (
     "separation_of_duties",
     "round_number",
     "created_at",
+    "plan_contract",
 )
 
 RESPONSE_REQUIRED_FIELDS = (
@@ -245,6 +246,13 @@ def validate_request(
         envelope["separation_of_duties"], dict
     ):
         raise GovernanceError("agent-request.separation_of_duties must be an object")
+    # The plan contract block a planning envelope carries (rendered by
+    # `plan_contract.render_plan_contract`); an empty or non-object block is a
+    # request that claims to state the rules and states none.
+    if "plan_contract" in envelope and (
+        not isinstance(envelope["plan_contract"], dict) or not envelope["plan_contract"]
+    ):
+        raise GovernanceError("agent-request.plan_contract must be a non-empty object")
 
 
 def validate_response(
@@ -400,6 +408,8 @@ def render_response_validator_contract() -> str:
     kernel "reads `id` + `verdict` only". Rendered from the constants and
     the checks themselves — edit the validator and this text follows.
     """
+    from .plan_contract import render_plan_contract_rules
+
     verdicts = " | ".join(SATISFACTION_VERDICTS)
     statuses = " | ".join(RESPONSE_STATUSES)
     reasons = " | ".join(REASON_CLASSES)
@@ -420,6 +430,13 @@ def render_response_validator_contract() -> str:
         f"- Banned phrases anywhere in `note` or `rationale` reject the envelope: {banned}.",
         f"- A refusal is a separate `{REFUSAL_SCHEMA}` envelope with `reason_class` ∈ {{{reasons}}}.",
         "- `output_path`, when present, must equal the request's `expected_output_path`.",
+        "",
+        "### Plan contract (roles `primary_plan` and `challenger_plan`; `cross_review` verifies it)",
+        "",
+        "Rendered from aria_kernel.plan_contract, which is what the submit refusal, the",
+        "`plan_contract_complete` gate at CONVERGED and staging all read:",
+        "",
+        *render_plan_contract_rules(),
     )) + "\n"
 
 

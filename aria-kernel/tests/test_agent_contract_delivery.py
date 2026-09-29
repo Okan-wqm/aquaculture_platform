@@ -122,6 +122,29 @@ class TheValidatorSpeaksLast(_Fixture):
             self.assertIn(word, rendered, word)
         self.assertNotIn("id` + `verdict` only", rendered)
 
+    def test_the_delivered_contract_states_the_plan_contract_in_the_refusals_words(self) -> None:
+        """The two staging rules trial ten died on, now in every delivered contract.
+
+        Rendered from `plan_contract`, which is the function the submit
+        refusal and the CONVERGED gate call — so the tier vocabulary, the
+        canonical suite spelling and the reason codes here are the ones the
+        agent reads back on a refusal.
+        """
+        from aria_kernel.change_ledger import ARCHITECTURAL_TIERS
+        from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
+        from aria_kernel.plan_contract import ARCHITECTURAL_TIER_MEANINGS, PLAN_CONTRACT_REASONS
+
+        rendered = render_agent_contract("fixture-agent", repo_root=self.tmp).text
+        self.assertIn("### Plan contract", rendered)
+        self.assertIn("`plan_content.architectural_tier` is REQUIRED", rendered)
+        for tier in ARCHITECTURAL_TIERS:
+            self.assertIn(f"  - {tier}: {ARCHITECTURAL_TIER_MEANINGS[tier]}", rendered)
+        for command in CANONICAL_VALIDATION_COMMANDS_EXECUTABLE:
+            self.assertIn(f"`{command}`", rendered)
+        for reason in PLAN_CONTRACT_REASONS:
+            self.assertIn(f"`{reason}`", rendered)
+        self.assertIn("plan_contract_complete", rendered)
+
     def test_the_rendered_rule_is_the_rule_the_validator_enforces(self) -> None:
         from aria_kernel.agent_contract import validate_response
         from aria_kernel.tool_registry import GovernanceError

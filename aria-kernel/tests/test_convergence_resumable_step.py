@@ -57,16 +57,18 @@ class _StepCase(unittest.TestCase):
 
     @staticmethod
     def plan() -> dict:
+        # Production-shaped body: the canonical suite in the spelling
+        # plan_synthesizer emits and the tier claim the plan contract
+        # requires of every body that converges.
         return {
             "schema_version": 1,
             "title": "T",
             "summary": "S",
             "affected_surfaces": [{"paths": ["aria-kernel/aria_kernel/plan_convergence.py"]}],
             "key_changes": ["x"],
-            "validation_commands": [
-                {"cmd": "python3 -m unittest discover aria-kernel -p '*test*.py'"},
-            ],
+            "validation_commands": [{"cmd": "nx affected --target=test"}],
             "evidence_refs": ["docs/aria/SPEC.md"],
+            "architectural_tier": 2,
         }
 
     def step(self) -> dict:
@@ -87,6 +89,19 @@ class _StepCase(unittest.TestCase):
         if not path.exists():
             return []
         return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+    def _cross_task(self, task_id: str, reviewer: str, direction: str, rev: str, h: str) -> dict:
+        from datetime import datetime, timedelta, timezone
+
+        return {
+            "task_id": task_id,
+            "reviewer_agent": reviewer,
+            "review_direction": direction,
+            "target_revision_id": rev,
+            "target_plan_content_hash": h,
+            "task_packet_hash": content_hash({"t": task_id}),
+            "sla_deadline": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
+        }
 
 
 class AdoptedDraftNeverRestarts(_StepCase):
@@ -574,19 +589,6 @@ class NoStepEverSleeps(_StepCase):
 
 
 class CrossCycleConvergence(_StepCase):
-    def _cross_task(self, task_id: str, reviewer: str, direction: str, rev: str, h: str) -> dict:
-        from datetime import datetime, timedelta, timezone
-
-        return {
-            "task_id": task_id,
-            "reviewer_agent": reviewer,
-            "review_direction": direction,
-            "target_revision_id": rev,
-            "target_plan_content_hash": h,
-            "task_packet_hash": content_hash({"t": task_id}),
-            "sla_deadline": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
-        }
-
     def test_steps_reach_converged_across_cycles_with_zero_polling(self) -> None:
         # Cycle 1: no plan yet → started + challenger minted.
         first = self.step()
@@ -667,6 +669,74 @@ class CrossCycleConvergence(_StepCase):
         gov = gov_path.read_text(encoding="utf-8") if gov_path.exists() else ""
         self.assertNotIn("poll_timeout", gov)
         self.assertIn("convergence_step_advanced", gov)
+
+
+class PlanContractCarriedToThePrimary(_StepCase):
+    def test_a_seed_without_a_tier_cannot_converge_and_the_primary_is_told_why(self) -> None:
+        """The kernel seed is a pressure description, not an architectural claim.
+
+        Round one therefore cannot converge on it: the `plan_contract_complete`
+        row fails, the drainer requests the primary revision, and that
+        envelope carries each violation as a `plan_contract:<reason>`
+        obligation beside the store-rendered `plan_contract` block — so the
+        primary answers exactly what staging would otherwise have refused.
+        """
+        seed = self.plan()
+        seed.pop("architectural_tier")
+        start_plan(plan_id="plan-1", initial_revision_id="rev-0", plan_content=seed, base_dir=self.tools)
+        self.assertEqual(self.step()["arbiter_verdict"], "in_progress")
+        state = plan_status(plan_id="plan-1", base_dir=self.tools)
+        submit_challenger_plan(
+            plan_id="plan-1",
+            challenger={
+                "challenger_agent": "access-boundary-auditor", "challenger_revision_id": "challenger-rev-0",
+                "source_revision_id": state["latest_revision"]["revision_id"],
+                "source_plan_content_hash": state["latest_revision"]["content_hash"],
+                "plan_content": {**self.plan(), "title": "Challenger Plan"},
+            },
+            base_dir=self.tools,
+        )
+        self.assertEqual(self.step()["arbiter_verdict"], "in_progress")
+        latest = plan_status(plan_id="plan-1", base_dir=self.tools)["latest_revision"]
+        request_cross_review(
+            plan_id="plan-1",
+            request={"round_number": 1, "target_revision_id": latest["revision_id"],
+                     "target_plan_content_hash": latest["content_hash"],
+                     "tasks": [self._cross_task("task-p2c-1", "farm-expert", "primary_to_challenger", latest["revision_id"], latest["content_hash"]),
+                               self._cross_task("task-c2p-1", "access-boundary-auditor", "challenger_to_primary", latest["revision_id"], latest["content_hash"])]},
+            base_dir=self.tools,
+        )
+        for task_id, reviewer, direction in (("task-p2c-1", "farm-expert", "primary_to_challenger"),
+                                             ("task-c2p-1", "access-boundary-auditor", "challenger_to_primary")):
+            current = plan_status(plan_id="plan-1", base_dir=self.tools)
+            task = next(t for t in current["cross_reviews"][current["current_round"]]["tasks"].values() if t["task_id"] == task_id)
+            record_cross_review(
+                plan_id="plan-1",
+                review={"task_packet_hash": task["task_packet_hash"], "target_revision_id": task["target_revision_id"],
+                        "target_plan_content_hash": task["target_plan_content_hash"], "reviewer_agent": reviewer,
+                        "review_direction": direction, "risks": [], "review_content_hash": content_hash({"r": reviewer})},
+                workspace_root=self.root, base_dir=self.tools,
+            )
+        self.assertEqual(self.step()["arbiter_verdict"], "in_progress")
+        self.assertEqual(plan_status(plan_id="plan-1", base_dir=self.tools)["state"], "CROSS_REVIEWED")
+        evaluated = [row for row in load_jsonl(events_path(self.tools)) if row["event_type"] == "plan_evaluated"]
+        self.assertEqual(evaluated, [], "a tierless seed must not be recorded as CONVERGED")
+        primary = [row for row in self.requests() if row["role"] == "primary_plan"]
+        self.assertEqual(len(primary), 1)
+        self.assertEqual(primary[0]["round_number"], 2)
+        carried = [item for item in primary[0]["must_satisfy"] if item.get("kind") == "plan_contract_violation"]
+        self.assertEqual([item["id"] for item in carried], ["plan_contract:plan_architectural_tier_missing"])
+        self.assertEqual(carried[0]["source"], "plan-contract-gate")
+        self.assertEqual(primary[0]["plan_contract"]["architectural_tier"]["allowed"], [1, 2, 3, 4])
+        prompt = self.ai_render(primary[0])
+        self.assertIn("## Plan contract", prompt)
+        self.assertIn("plan_contract:plan_architectural_tier_missing", prompt)
+
+    @staticmethod
+    def ai_render(row: dict) -> str:
+        from aria_kernel import agent_invocations as ai
+
+        return ai.render_invocation_prompt(row)
 
 
 class DeadEnvelope(_StepCase):

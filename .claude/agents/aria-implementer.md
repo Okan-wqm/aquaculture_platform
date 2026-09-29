@@ -68,10 +68,10 @@ Each invocation receives:
 
 Your steps:
 
-1. **Verify content_hash**. For each plan referenced in
-   `must_satisfy[].evidence_refs[N].content_hash`, Read the file and
-   compute its SHA256. On mismatch, emit a refusal envelope with
-   `reason_class=evidence` (note: the ref and both hashes) and STOP.
+1. **Verify content_hash**. Decode `<untrusted_converged_plan>`, recompute
+   `plan_convergence.content_hash` over the body and compare it with
+   `must_satisfy[id="authenticity:<plan_id>"].content_hash`. On mismatch, emit
+   a refusal envelope with `reason_class=evidence` (note: both hashes) and STOP.
 2. **Verify scope**. For each `key_changes[].file` in the CONVERGED plan
    body, verify the path is INSIDE `allowed_scope[]` AND outside
    `implementation_safety.READONLY_PATHS`. On violation, emit
@@ -144,9 +144,9 @@ Your steps:
    Raw `gh pr create` is NOT an alternative: the executor lane sets
    `ARIA_EXECUTOR_PR_VIA_KERNEL=1`, under which the allowlist refuses it.
 10. **Submit response envelope**. `aria/agent-response/v1` where:
-   - `details.implementation` carries `{branch, pr_number, diff_hash,
-     branch_tip_sha, validation_results, signer_key_fp, base_branch_sha}`
-   - `details.usage` — Claude Code CLI usage block
+   - `details.implementation` carries `{branch, pr_url, diff_hash ("sha256:"
+     + 64 hex), branch_tip_sha, base_branch_sha, validation_results, signer_key_fp}`
+     — the fields `plan_convergence.record_implementation_outcome` requires
    - `satisfaction_matrix[]` — one entry per `must_satisfy[]` constraint
 
 ## SECURITY CONTRACT

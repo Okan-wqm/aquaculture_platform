@@ -20,7 +20,9 @@ What this pins, one property per test:
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.cross_review_bridge import (
@@ -91,16 +93,21 @@ class TheEnvelopeUsesItByDefault(unittest.TestCase):
             captured.update(kwargs)
             return {"request_id": "AIR-aria-primary-planner-fixture"}
 
-        with patch("aria_kernel.cross_review_bridge.fold_plan_state", return_value=_state()), \
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("aria_kernel.cross_review_bridge.fold_plan_state", return_value=_state()), \
              patch("aria_kernel.cross_review_bridge.create_agent_invocation_request", side_effect=fake_create):
             issue_primary_envelope(
                 plan_id="flow-x", round_number=2, must_satisfy=[{"id": "m1"}], evidence_refs=["a.ts:1"],
-                allowed_scope=["**"], base_dir=None,
+                allowed_scope=["**"], base_dir=Path(tmp) / "aria-tools",
             )
         self.assertEqual(captured["role"], "primary_plan")
         self.assertIn('<untrusted_cross_review_risks round="1">', captured["suggested_prompt"])
         self.assertIn('"risk_id": "CR-001"', captured["suggested_prompt"])
         self.assertIn('<untrusted_challenger_plan revision_id="chal-flow-x-c1">', captured["suggested_prompt"])
+        # The revision prompt names the contract the body is judged by, and
+        # the envelope carries the machine block it points at.
+        self.assertIn("including `architectural_tier` and only admissible `validation_commands`", captured["suggested_prompt"])
+        self.assertEqual(captured["plan_contract"]["architectural_tier"]["allowed"], [1, 2, 3, 4])
 
 
 if __name__ == "__main__":

@@ -83,8 +83,11 @@ def _plan_content(title: str = "E2 plan") -> dict:
         "summary": "E2 continuity test plan.",
         "affected_surfaces": [{"paths": ["aria-kernel/aria_kernel/plan_convergence.py"]}],
         "key_changes": ["change"],
-        "validation_commands": [{"cmd": "true"}],
+        # The plan contract admits the canonical suite and requires the tier
+        # claim of every body that converges through the real gate.
+        "validation_commands": [{"cmd": "nx affected --target=test"}],
         "evidence_refs": ["docs/aria/SPEC.md"],
+        "architectural_tier": 2,
     }
 
 

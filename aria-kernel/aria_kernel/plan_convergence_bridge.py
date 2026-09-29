@@ -75,6 +75,31 @@ def is_planner_bridge_role(role: str | None) -> bool:
     return role in PLANNER_BRIDGE_ROLES
 
 
+# Where each plan-authoring role's canonical wrapper may nest the body. The
+# top-level `plan_content` is the contract; the nested spellings are the
+# ones the bridge has always read back, kept so a wrapper-style envelope
+# still folds. ONE table, read by both canonicalizers and by the submit-time
+# plan-contract check, so the body the kernel judges is the body the bridge
+# would record.
+_PLAN_CONTENT_WRAPPERS: dict[str, tuple[str, ...]] = {
+    "challenger_plan": ("challenger", "plan"),
+    "primary_plan": ("revision", "plan"),
+}
+
+
+def submitted_plan_content(role: str | None, response: dict[str, Any]) -> Any:
+    """The plan body a planner response submits, or ``None`` when it has none."""
+    details = response.get("details")
+    details = details if isinstance(details, dict) else {}
+    for wrapper in _PLAN_CONTENT_WRAPPERS.get(str(role), ()):
+        block = details.get(wrapper)
+        if isinstance(block, dict) and "plan_content" in block:
+            return block.get("plan_content")
+    if response.get("plan_content") is not None:
+        return response.get("plan_content")
+    return details.get("plan_content")
+
+
 def _extract_plan_id(request: dict[str, Any], response: dict[str, Any]) -> str | None:
     """Resolve the convergent-plan id from either the request envelope
     (preferred — the planner request row carries it) or the response
@@ -453,7 +478,11 @@ def _dispatch_implementation(
         base_branch_sha=impl.get("base_branch_sha") or "",
         validation_results=impl.get("validation_results") or [],
         signer_key_fp=_claimed_signer_fp,
-        completed_at=impl.get("completed_at") or "",
+        # When the outcome was recorded is a kernel fact: the bridge runs at
+        # acceptance, and no contract ever asked the agent for a timestamp —
+        # an empty one was refused as "completed_at must be a non-empty
+        # string" on every implementer result that reached this line.
+        completed_at=impl.get("completed_at") or _bridge_utc_now(),
         base_dir=base_dir,
     )
 
@@ -487,18 +516,8 @@ def _canonicalize_challenger_payload(
     """
     from .plan_convergence import fold_plan_state  # local import; avoid cycle
 
-    plan_content: Any = None
     challenger_block = details.get("challenger")
-    if isinstance(challenger_block, dict) and "plan_content" in challenger_block:
-        plan_content = challenger_block.get("plan_content")
-    if plan_content is None:
-        plan_block = details.get("plan")
-        if isinstance(plan_block, dict) and "plan_content" in plan_block:
-            plan_content = plan_block.get("plan_content")
-    if plan_content is None:
-        plan_content = response.get("plan_content")
-    if plan_content is None:
-        plan_content = details.get("plan_content")
+    plan_content = submitted_plan_content("challenger_plan", {**response, "details": details})
 
     state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
     latest = (state.get("latest_revision") or {}) if isinstance(state, dict) else {}
@@ -574,17 +593,11 @@ def _canonicalize_revision_payload(
     )
     import hashlib
 
-    # Extract plan_content from agent response. Mirror challenger
-    # extraction order; the round-2 primary agent emits its plan with
-    # the same top-level shape as the round-1 primary + the challenger.
-    plan_content: Any = None
+    # Extract plan_content from agent response through the shared table;
+    # the round-2 primary agent emits its plan with the same top-level
+    # shape as the round-1 primary + the challenger.
     primary_block = details.get("revision") or details.get("plan")
-    if isinstance(primary_block, dict) and "plan_content" in primary_block:
-        plan_content = primary_block.get("plan_content")
-    if plan_content is None:
-        plan_content = response.get("plan_content")
-    if plan_content is None:
-        plan_content = details.get("plan_content")
+    plan_content = submitted_plan_content("primary_plan", {**response, "details": details})
 
     # Read kernel state. ``fold_plan_state`` is the authoritative
     # source for ``current_round`` and ``latest_revision``; the agent
@@ -637,4 +650,5 @@ __all__ = [
     "PLANNER_BRIDGE_ROLES",
     "is_planner_bridge_role",
     "record_plan_result",
+    "submitted_plan_content",
 ]

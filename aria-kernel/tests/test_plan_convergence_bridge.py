@@ -257,6 +257,66 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
             )
             self.assertIsNone(result, f"role={non_planner!r} should be no-op")
 
+    def test_submitted_plan_content_is_one_table_for_bridge_and_submit_check(self) -> None:
+        """The body the kernel judges at submit is the body the bridge records.
+
+        Both canonicalizers and `submit_claim_result`'s plan-contract check
+        read `submitted_plan_content`; a second extraction order would let
+        the kernel accept one body and bridge another.
+        """
+        from aria_kernel.plan_convergence_bridge import submitted_plan_content
+
+        nested = {"title": "nested"}
+        top = {"title": "top"}
+        self.assertEqual(
+            submitted_plan_content("challenger_plan", {"details": {"challenger": {"plan_content": nested}}, "plan_content": top}),
+            nested,
+        )
+        self.assertEqual(
+            submitted_plan_content("primary_plan", {"details": {"revision": {"plan_content": nested}}, "plan_content": top}),
+            nested,
+        )
+        # A revision wrapper without a body does not shadow the top-level one.
+        self.assertEqual(
+            submitted_plan_content("primary_plan", {"details": {"revision": {"round": 2}}, "plan_content": top}),
+            top,
+        )
+        self.assertEqual(submitted_plan_content("challenger_plan", {"details": {"plan_content": nested}}), nested)
+        self.assertIsNone(submitted_plan_content("challenger_plan", {"details": {}}))
+        # The role-specific wrapper of the OTHER role is not read.
+        self.assertEqual(
+            submitted_plan_content("challenger_plan", {"details": {"revision": {"plan_content": nested}}, "plan_content": top}),
+            top,
+        )
+
+    def test_implementation_completed_at_is_a_kernel_fact_not_an_agent_field(self) -> None:
+        """No contract ever asked the implementer for `completed_at`, and the
+        outcome recorder refuses an empty one — so every result that reached
+        the bridge died on a field nobody was told about. The bridge stamps
+        acceptance time when the agent omits it and keeps the agent's when
+        given."""
+        request = {"plan_id": "plan-impl", "role": "implementation", "request_id": "AIR-impl-1"}
+        implementation = {
+            "pr_url": "https://github.com/o/r/pull/1", "diff_hash": "sha256:" + "c" * 64,
+            "branch_tip_sha": "d" * 40, "base_branch_sha": "e" * 40, "validation_results": [],
+        }
+        for supplied, expected in ((None, None), ("2026-09-12T11:18:24+00:00", "2026-09-12T11:18:24+00:00")):
+            details = {"implementation": {**implementation, **({"completed_at": supplied} if supplied else {})}}
+            with patch(
+                "aria_kernel.plan_convergence.fold_plan_state",
+                return_value={"state": "IMPLEMENTATION_IN_FLIGHT"},
+            ), patch(
+                "aria_kernel.plan_convergence.record_implementation_outcome",
+                return_value={"event_type": "implementation_outcome_recorded"},
+            ) as recorded:
+                record_plan_result(role="implementation", request=request,
+                                   response={"role": "implementation", "details": details}, base_dir=None)
+            stamped = recorded.call_args.kwargs["completed_at"]
+            self.assertTrue(stamped, "completed_at must never reach the recorder empty")
+            if expected is not None:
+                self.assertEqual(stamped, expected)
+            self.assertEqual(recorded.call_args.kwargs["pr_url"], implementation["pr_url"])
+
     def test_missing_plan_id_raises_governance_error(self) -> None:
         with self.assertRaises(GovernanceError) as ctx:
             record_plan_result(

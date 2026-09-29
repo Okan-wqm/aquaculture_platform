@@ -60,6 +60,18 @@ class RequestValidationTests(unittest.TestCase):
     def test_minimal_good_request_passes(self) -> None:
         validate_request(_good_request())
 
+    def test_plan_contract_block_is_an_optional_non_empty_object(self) -> None:
+        from aria_kernel.agent_contract import REQUEST_OPTIONAL_FIELDS
+
+        self.assertIn("plan_contract", REQUEST_OPTIONAL_FIELDS)
+        request = _good_request()
+        request["plan_contract"] = {"schema_version": 1, "architectural_tier": {"allowed": [1, 2, 3, 4]}}
+        validate_request(request)
+        for bad in ({}, [], "rules"):
+            request["plan_contract"] = bad
+            with self.assertRaises(GovernanceError):
+                validate_request(request)
+
     def test_missing_must_satisfy_rejected(self) -> None:
         envelope = _good_request()
         del envelope["must_satisfy"]

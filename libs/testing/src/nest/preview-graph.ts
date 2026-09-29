@@ -4,7 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 // configuration token; ConfigModule only imports and re-exports it. It is not
 // on the package's public index, hence the deep path.
 import { ConfigHostModule } from '@nestjs/config/dist/config-host.module';
-import { NestFactory } from '@nestjs/core';
+import { ModulesContainer, NestFactory } from '@nestjs/core';
 import { InitializeOnPreviewAllowlist } from '@nestjs/core/inspector';
 
 /**
@@ -37,6 +37,26 @@ import { InitializeOnPreviewAllowlist } from '@nestjs/core/inspector';
  * value is a real boot failure and belongs in the test's environment setup.
  */
 export async function assertNestGraphResolves(rootModule: Type<unknown>): Promise<void> {
+  await inspectNestGraph(rootModule, () => undefined);
+}
+
+/**
+ * Build the graph like {@link assertNestGraphResolves} and hand the resolved
+ * module container to `inspect` before closing it.
+ *
+ * WHY: some boot defects are not missing tokens but the SHAPE of the resolved
+ * graph — e.g. a request-scoped provider (a GraphQL DataLoader) silently
+ * turning a cron service or a message controller request-scoped through its
+ * dependency tree, which Nest does not report. Preview mode resolves every
+ * constructor dependency, so each InstanceWrapper can answer
+ * `isDependencyTreeStatic()` without constructing anything.
+ * WHAT: `inspect(modules)` runs against the preview container; its result is
+ * returned.
+ */
+export async function inspectNestGraph<T>(
+  rootModule: Type<unknown>,
+  inspect: (modules: ModulesContainer) => T,
+): Promise<T> {
   // GraphQLModule puts itself on Nest's preview allowlist (it is instantiated
   // even in preview so the schema can be built), and every subgraph's
   // `GraphQLModule.forRootAsync` factory injects ConfigService. A provider
@@ -51,5 +71,9 @@ export async function assertNestGraphResolves(rootModule: Type<unknown>): Promis
     abortOnError: false,
     logger: false,
   });
-  await context.close();
+  try {
+    return inspect(context.get(ModulesContainer));
+  } finally {
+    await context.close();
+  }
 }

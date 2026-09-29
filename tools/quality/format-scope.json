@@ -9141,6 +9141,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/di-request-scope.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/assignment-single-live.postgres.spec.ts",
       "prettier_managed": true
     },
@@ -10972,6 +10978,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/__tests__/1810500000000-RestoreFeedingClockLedgersInSource.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/__tests__/1811300000000-MoveSparePartStockToLedger.db-migrate.postgres.spec.ts",
       "prettier_managed": true
     },
     {

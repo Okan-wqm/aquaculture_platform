@@ -296,18 +296,26 @@ describe('Work-order spare-part draw across the site — real Postgres (V-B1-9)'
 
     await consume({ id: next('WO'), assetType: AssetType.TANK, assetId: tank }, item, 8);
 
+    // The remaining stock proves the order: A1 and A2 drained, A3 cut to 4 —
+    // drawing A3 before A2 would have left A2 holding stock.
     expect(await onHandAt(item)).toEqual({ [a3]: 4, [b1]: 100 });
+    // One OUT movement per slice. The rows share one transaction timestamp, so
+    // they are compared as a set, not in insertion order.
     const movements: Array<{ from: string; quantity: string }> = await dataSource.query(
       `SELECT "from_location_id"::text AS from, "quantity"::text AS quantity
          FROM "${getTenantSchemaName(TENANT)}"."stock_movements"
-        WHERE "item_id" = $1 ORDER BY "created_at", "id"`,
+        WHERE "item_id" = $1`,
       [item],
     );
-    expect(movements.map((row) => [row.from, Number(row.quantity)])).toEqual([
-      [a1, 2],
-      [a2, 5],
-      [a3, 1],
-    ]);
+    const bySlice = (rows: Array<[string, number]>): Array<[string, number]> =>
+      [...rows].sort(([a], [b]) => a.localeCompare(b));
+    expect(bySlice(movements.map((row) => [row.from, Number(row.quantity)]))).toEqual(
+      bySlice([
+        [a1, 2],
+        [a2, 5],
+        [a3, 1],
+      ]),
+    );
   });
 
   it("fails only when the work order's site is short, and moves nothing", async () => {

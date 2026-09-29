@@ -17,6 +17,35 @@ const E2E_SECURITY_FLOORS = {
   'fast-uri': '3.1.8',
 } as const;
 
+/**
+ * The root graph is the production graph: every backend image installs from
+ * the root package-lock.json. SUPPLY-HIGH-014's floors, per package. fast-uri
+ * matters most here: GHSA-hrr3-gc8f-f4qj (fixed in 3.1.8) is not in npm's
+ * advisory feed yet, so `npm audit` would not notice a slide back to 3.1.7 —
+ * this table is the only guard.
+ */
+const ROOT_SECURITY_FLOORS = {
+  // GHSA-qw65-cvwx-89v3, GHSA-58mr-gqgx-xq4g (3.1.7) + GHSA-hrr3-gc8f-f4qj (3.1.8).
+  'fast-uri': '3.1.8',
+  // GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc.
+  'ip-address': '10.5.1',
+  // GHSA-3pph-fpjx-jg34.
+  multer: '2.4.0',
+  // GHSA-6vj9-mwq6-2f5v is fixed in 10.0.2; 10.0.3-10.0.12 add the linear-time
+  // address/reply parsing, bare-CR-to-CRLF and requireTLS fixes the review
+  // file cites, so the adopted release is the floor.
+  nodemailer: '10.0.12',
+} as const;
+
+/** Where the root manifest pins each floored package, and under which field. */
+const ROOT_FLOOR_DECLARATIONS = [
+  { dependency: 'fast-uri', field: 'overrides' },
+  { dependency: 'ip-address', field: 'overrides' },
+  { dependency: 'multer', field: 'overrides' },
+  { dependency: 'multer', field: 'dependencies' },
+  { dependency: 'nodemailer', field: 'dependencies' },
+] as const;
+
 const NX_PACKAGES = [
   'nx',
   '@nx/eslint',
@@ -213,6 +242,43 @@ function gateStepCovers(script: string, graphs: readonly AuditGraph[]): string[]
         ),
     )
     .map((graph) => graph.json);
+}
+
+/**
+ * The gate step must run EVERY leg and only then decide. Under Actions'
+ * `bash -e`, a bare sequence of gate calls stops at the first red leg, so a
+ * run names one failing graph and hides the rest (SUPPLY-HIGH-014: fast-uri
+ * was red in two legs CI never reached). The contract is the exact script:
+ * each leg records its own failure, one final check fails the step.
+ */
+function gateStepReportsEveryLeg(script: string, graphs: readonly AuditGraph[]): boolean {
+  const lines = script
+    .replace(/\\\n\s+/g, ' ')
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/\s+/g, ' '))
+    .filter((line) => line !== '');
+  const expected = [
+    'FAILED_LEGS=""',
+    ...graphs.map(
+      (graph) =>
+        `node scripts/ci/npm-audit-gate.mjs --audit ${graph.json} ` +
+        `--level ${graph.level} --scope ${graph.scope} ` +
+        `--exceptions scripts/ci/npm-audit-exceptions.json ` +
+        `|| FAILED_LEGS="$FAILED_LEGS ${graph.scope}"`,
+    ),
+    'if [ -n "$FAILED_LEGS" ]; then',
+    'echo "::error title=npm audit gate::red leg(s):$FAILED_LEGS"',
+    'exit 1',
+    'fi',
+  ];
+  return lines.length === expected.length && lines.every((line, index) => line === expected[index]);
+}
+
+/** WHAT: the lowest version a `1.2.3`, `^1.2.3` or `~1.2.3` range admits; null otherwise. */
+function rangeFloor(range: unknown): string | null {
+  if (typeof range !== 'string') return null;
+  const match = /^[\^~]?(\d+\.\d+\.\d+)$/.exec(range);
+  return match === null ? null : (match[1] ?? null);
 }
 
 function trackedManifestsDeclaring(dependency: string): readonly string[] {
@@ -542,6 +608,100 @@ describe('JavaScript dependency security floor', () => {
     expect(resolvedVersions(lock, 'brace-expansion')).toEqual(['2.1.4', '5.0.9']);
   });
 
+  test('keeps the root production graph at its SUPPLY-HIGH-014 floors, in the manifest and every lock copy', () => {
+    const manifest = readJson<PackageManifest>('package.json');
+    const lock = readJson<Lockfile>('package-lock.json');
+
+    // The manifest ranges decide what the next `npm install` may resolve.
+    for (const { dependency, field } of ROOT_FLOOR_DECLARATIONS) {
+      const floor = rangeFloor(manifest[field]?.[dependency]);
+      expect({
+        dependency,
+        field,
+        safe: floor !== null && comparable(floor) >= comparable(ROOT_SECURITY_FLOORS[dependency]),
+      }).toEqual({ dependency, field, safe: true });
+    }
+
+    // The lock decides what CI and the images install today — every copy,
+    // nested ones included.
+    for (const [dependency, floor] of Object.entries(ROOT_SECURITY_FLOORS)) {
+      const versions = resolvedVersions(lock, dependency);
+      expect({ dependency, hasResolution: versions.length > 0 }).toEqual({
+        dependency,
+        hasResolution: true,
+      });
+      for (const version of versions) {
+        expect({ dependency, version, safe: comparable(version) >= comparable(floor) }).toEqual({
+          dependency,
+          version,
+          safe: true,
+        });
+      }
+    }
+  });
+
+  test('root floor range parser rejects the shapes it cannot bound from below', () => {
+    expect(['3.1.8', '^3.1.8', '~3.1.8'].map(rangeFloor)).toEqual(['3.1.8', '3.1.8', '3.1.8']);
+    expect(
+      ['*', 'latest', '>=3.1.8', '3.x', undefined, { nested: '3.1.8' }].map(rangeFloor),
+    ).toEqual([null, null, null, null, null, null]);
+  });
+
+  test('gate step contract rejects a stop-at-first-red leg sequence and its partial fixes', () => {
+    const graphs: AuditGraph[] = [
+      {
+        command: '',
+        json: 'npm-audit-root-production.json',
+        markdown: '',
+        status: '',
+        level: 'moderate',
+        scope: 'root-production',
+      },
+      {
+        command: '',
+        json: 'npm-audit-e2e-full.json',
+        markdown: '',
+        status: '',
+        level: 'high',
+        scope: 'e2e-full',
+      },
+    ];
+    const invocation = (graph: AuditGraph): string =>
+      `node scripts/ci/npm-audit-gate.mjs --audit ${graph.json} \\\n` +
+      `  --level ${graph.level} --scope ${graph.scope} --exceptions scripts/ci/npm-audit-exceptions.json`;
+    const valid = [
+      'FAILED_LEGS=""',
+      ...graphs.map(
+        (graph) => `${invocation(graph)} \\\n  || FAILED_LEGS="$FAILED_LEGS ${graph.scope}"`,
+      ),
+      'if [ -n "$FAILED_LEGS" ]; then',
+      '  echo "::error title=npm audit gate::red leg(s):$FAILED_LEGS"',
+      '  exit 1',
+      'fi',
+    ].join('\n');
+    const mutants = [
+      // The pre-fix shape: bare calls, `bash -e` stops at the first red leg.
+      graphs.map(invocation).join('\n'),
+      // One leg still aborts the step instead of recording its failure.
+      valid.replace(' \\\n  || FAILED_LEGS="$FAILED_LEGS root-production"', ''),
+      // Every leg records, nothing ever fails the step.
+      valid.replace('  exit 1\n', ''),
+      // A leg records under another leg's name, so the report lies.
+      valid.replace(
+        'FAILED_LEGS="$FAILED_LEGS e2e-full"',
+        'FAILED_LEGS="$FAILED_LEGS root-production"',
+      ),
+    ];
+
+    expect(gateStepReportsEveryLeg(valid, graphs)).toBe(true);
+    expect(mutants.map((script) => gateStepReportsEveryLeg(script, graphs))).toEqual([
+      false,
+      false,
+      false,
+      false,
+    ]);
+  });
+
   test('keeps the standalone E2E graph above its patched CI supply-chain floors', () => {
     const manifest = readJson<PackageManifest>('e2e/package.json');
     const lock = readJson<Lockfile>('e2e/package-lock.json');
@@ -723,6 +883,8 @@ describe('JavaScript dependency security floor', () => {
       expect(auditScriptSatisfiesContract(audit, auditGraphs)).toBe(true);
       // Every graph the step produces is also judged, at its own level and scope.
       expect(gateStepCovers(gate, auditGraphs)).toEqual([]);
+      // …and every leg runs and reports before the step decides.
+      expect(gateStepReportsEveryLeg(gate, auditGraphs)).toBe(true);
       for (const graph of auditGraphs) {
         expect(artifactPaths).toContain(graph.json);
         expect(artifactPaths).toContain(graph.markdown);

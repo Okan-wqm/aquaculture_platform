@@ -25536,6 +25536,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/notification/services/__tests__/email.service.smtp-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/notification/services/__tests__/notification-log-dead-letter.sink.spec.ts",
       "prettier_managed": true
     },
@@ -28558,6 +28564,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/services/__tests__/alarm-engine.tenant-isolation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/__tests__/notification.service.smtp-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -45551,6 +45563,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/testing/src/nest/preview-graph.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/smtp/__tests__/fake-smtp-server.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/smtp/default-ca-trust.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/smtp/fake-smtp-server.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/smtp/loopback-certificate.ts",
       "prettier_managed": true
     },
     {

@@ -11,6 +11,8 @@ import {
   EscalationPolicy,
   EscalationLevel,
   EscalationActionType,
+  EscalationRecipientRole,
+  EscalationRecipientScope,
   NotificationChannel,
   OnCallSchedule,
   SuppressionWindow,
@@ -317,7 +319,10 @@ describe('EscalationPolicyService', () => {
       expect(result).toBeDefined();
     });
 
-    it('should return default policy when no specific match', async () => {
+    it('does not fall back to the default policy for a severity it does not list', async () => {
+      // SCENARIO: the only policy is the default and it covers LOW; a CRITICAL arrives.
+      // EXPECTS: no match — a policy's severity list is its contract (the old
+      //          fallback paged LOW recipients for anything, ALERT-CRITICAL-004).
       const defaultPolicy = {
         ...mockPolicy,
         isDefault: true,
@@ -334,7 +339,7 @@ describe('EscalationPolicyService', () => {
         AlertSeverity.CRITICAL,
       );
 
-      expect(result?.isDefault).toBe(true);
+      expect(result).toBeNull();
     });
 
     it('should prioritize specific rule match', async () => {
@@ -575,7 +580,9 @@ describe('EscalationPolicyService', () => {
       expect(result.errors.some(e => e.includes('channel'))).toBe(true);
     });
 
-    it('should warn for level with no users', () => {
+    it('rejects a level that pages nobody', () => {
+      // SCENARIO: a level with no users, no role targets and no on-call schedule.
+      // EXPECTS: an error, not a warning — such a level is a silent alarm.
       const dto: CreatePolicyDto = {
         tenantId: 'tenant-1',
         name: 'Test',
@@ -587,7 +594,29 @@ describe('EscalationPolicyService', () => {
 
       const result = service.validatePolicy(dto);
 
-      expect(result.warnings.some(w => w.includes('users'))).toBe(true);
+      expect(result.isValid).toBe(false);
+      expect(result.errors.some(e => e.includes('recipient'))).toBe(true);
+    });
+
+    it('accepts a level whose only recipients are role targets', () => {
+      // SCENARIO: the seeded default shape — roles instead of explicit users.
+      // EXPECTS: valid.
+      const dto: CreatePolicyDto = {
+        tenantId: 'tenant-1',
+        name: 'Test',
+        severity: [AlertSeverity.HIGH],
+        levels: [
+          {
+            ...mockEscalationLevel,
+            notifyUserIds: [],
+            notifyRoles: [
+              { role: EscalationRecipientRole.TENANT_ADMIN, scope: EscalationRecipientScope.TENANT },
+            ],
+          },
+        ],
+      };
+
+      expect(service.validatePolicy(dto).isValid).toBe(true);
     });
 
     it('should fail for negative repeat interval', () => {

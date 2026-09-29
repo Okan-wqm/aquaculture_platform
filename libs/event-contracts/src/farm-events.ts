@@ -1530,6 +1530,13 @@ export interface MortalityAlertRaisedEvent extends BaseEvent {
   eventType: 'MortalityAlertRaised';
   batchId: string;
   tankId?: string;
+  /**
+   * Site of the tank the deaths were recorded in (ALERT-MEDIUM-007), resolved
+   * by the producer through the one tank→site resolver. Absent when the tank
+   * resolves to no site and on events published before the field existed. The
+   * actor who recorded the deaths rides on the inherited `BaseEvent.userId`.
+   */
+  siteId?: string;
   alertType: 'single_event' | 'daily_rate' | 'cumulative_rate';
   severity: 'warning' | 'critical';
   message: string;

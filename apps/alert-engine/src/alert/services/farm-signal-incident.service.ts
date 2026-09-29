@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, QueryFailedError, Repository } from 'typeorm';
+import type { SignalKey } from '@platform/event-contracts';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import {
   AlertIncident,
@@ -17,7 +18,19 @@ import { EscalationManagerService } from '../../escalation/escalation-manager.se
  */
 export interface FarmSignalIncidentSpec {
   tenantId: string;
-  ruleId: string;
+  /**
+   * The condition's platform-wide identity (ALERT-MEDIUM-006), persisted in
+   * `alert_incidents.signal_key` (ALERT-CRITICAL-009). Typed as the branded
+   * `SignalKey`, so only `signalKey()` can produce it — a hand-spelled key is a
+   * compile error, and the incident, the auto-rule task and the AI suggestion
+   * for one condition can never drift apart.
+   */
+  signalKey: SignalKey;
+  /**
+   * Site the signal belongs to, or null when the producer's event names none
+   * (ALERT-MEDIUM-007). Required-nullable on purpose: every caller states it.
+   */
+  siteId: string | null;
   title: string;
   description: string;
   severity: AlertSeverity;
@@ -44,6 +57,18 @@ const SEVERITY_RANK: Record<AlertSeverity, number> = {
   [AlertSeverity.HIGH]: 4,
   [AlertSeverity.CRITICAL]: 5,
 };
+
+/** Name of the partial unique index holding "one open incident per signal". */
+const OPEN_SIGNAL_INDEX = 'uq_alert_incidents_open_signal';
+
+/** True when `error` is the open-incident uniqueness race (another delivery won). */
+function isOpenSignalRace(error: unknown): boolean {
+  if (!(error instanceof QueryFailedError)) return false;
+  const driverError: unknown = error.driverError;
+  if (typeof driverError !== 'object' || driverError === null) return false;
+  const { code, constraint } = driverError as { code?: unknown; constraint?: unknown };
+  return code === '23505' && constraint === OPEN_SIGNAL_INDEX;
+}
 
 /** True when `next` is strictly more severe than `current`. */
 export function isSeverityEscalation(current: AlertSeverity, next: AlertSeverity): boolean {
@@ -80,6 +105,8 @@ export function isSeverityEscalation(current: AlertSeverity, next: AlertSeverity
  * NEW severity engages. A same-or-lower occurrence still only bumps the
  * counter — de-escalation is an operator decision (resolve/close), and
  * re-running the ladder on every repeat occurrence would be a pager storm.
+ * The one exception is an incident that was never escalated (level 0): it
+ * re-tries on every occurrence until a policy pages someone (ALERT-CRITICAL-004).
  */
 @Injectable()
 export class FarmSignalIncidentService {
@@ -103,72 +130,31 @@ export class FarmSignalIncidentService {
   ) {}
 
   /**
-   * Bump the open incident for this rule + tenant, or create a new one and start
-   * escalation. Runs inside the caller's tenant context (the handler establishes
-   * search_path before calling).
+   * Bump the open incident for this rule + tenant, or create a new one, and
+   * make sure an escalatable incident has actually been escalated. Runs inside
+   * the caller's tenant context (the handler establishes search_path before
+   * calling).
+   *
+   * LEVEL-TRIGGERED ESCALATION (ALERT-CRITICAL-004): escalation is started for a
+   * new incident, for a severity rise, AND for an open incident still at
+   * escalation level 0 — one whose earlier escalation found no policy or
+   * failed. The escalation is awaited, so a failure propagates to the consumer
+   * and the event is re-driven; the redelivery finds the level-0 incident and
+   * tries again. The previous fire-and-forget start logged the failure and
+   * acked the event, so a single transient fault silenced the alarm for good.
    */
   async ensureIncident(spec: FarmSignalIncidentSpec): Promise<void> {
-    const existing = await this.incidentRepository.findOne({
-      where: {
-        ruleId: spec.ruleId,
-        tenantId: spec.tenantId,
-        status: In(FarmSignalIncidentService.ACTIVE_STATUSES),
-      },
-      order: { createdAt: 'DESC' },
-    });
-
+    const existing = await this.findOpenIncident(spec);
     if (existing) {
-      const escalated = isSeverityEscalation(existing.severity, spec.severity);
-      const previousSeverity = existing.severity;
-
-      existing.recordOccurrence(spec.triggeredAt);
-
-      if (escalated) {
-        existing.severity = spec.severity;
-        // The description and breadcrumb describe the CURRENT state (e.g.
-        // "2 days of cover", not the 7 it was opened with) — an operator
-        // opening the incident must not read a stale reason for a critical
-        // page.
-        existing.description = spec.description;
-        existing.triggerData = spec.triggerData;
-        existing.addTimelineEvent({
-          type: TimelineEventType.ESCALATED,
-          description: `Severity raised ${previousSeverity} → ${spec.severity}: ${spec.description}`,
-          data: { previousSeverity, severity: spec.severity },
-        });
-      }
-
-      const saved = await this.incidentRepository.save(existing);
-
-      if (escalated) {
-        this.logger.warn(
-          `Escalated ${spec.signalLabel} incident ${saved.id} for ${spec.ruleId}: ` +
-            `${previousSeverity} → ${spec.severity} (occurrences: ${saved.occurrenceCount})`,
-        );
-        // Re-run the ladder so the policy matched for the NEW severity engages.
-        // Non-blocking for the same reason as on creation: the incident row has
-        // already landed and must not be rolled back by a notification fault.
-        this.escalationManager
-          .startEscalation(saved, spec.severity, spec.ruleId)
-          .catch((err: Error) => {
-            this.logger.error(
-              `Failed to re-start escalation for escalated ${spec.signalLabel} incident ` +
-                `${saved.id}: ${err.message}`,
-            );
-          });
-        return;
-      }
-
-      this.logger.debug(
-        `Updated existing ${spec.signalLabel} incident ${existing.id} for ${spec.ruleId} ` +
-          `(occurrences: ${existing.occurrenceCount})`,
-      );
+      await this.bumpIncident(existing, spec);
       return;
     }
 
     const incident = this.incidentRepository.create({
       tenantId: spec.tenantId,
-      ruleId: spec.ruleId,
+      ruleId: null,
+      signalKey: spec.signalKey,
+      siteId: spec.siteId,
       title: spec.title,
       description: spec.description,
       severity: spec.severity,
@@ -187,21 +173,88 @@ export class FarmSignalIncidentService {
       description: spec.description,
     });
 
-    const savedIncident = await this.incidentRepository.save(incident);
+    let savedIncident: AlertIncident;
+    try {
+      savedIncident = await this.incidentRepository.save(incident);
+    } catch (error) {
+      // INVARIANT: one OPEN incident per (tenant, signal key), held by the
+      // partial unique index. A concurrent delivery of the same condition won
+      // the insert — this occurrence joins its incident instead of opening a
+      // second alarm.
+      if (!isOpenSignalRace(error)) throw error;
+      const winner = await this.findOpenIncident(spec);
+      if (!winner) throw error;
+      await this.bumpIncident(winner, spec);
+      return;
+    }
+
     this.logger.log(
-      `Created ${spec.signalLabel} incident ${savedIncident.id} for ${spec.ruleId} ` +
+      `Created ${spec.signalLabel} incident ${savedIncident.id} for ${spec.signalKey} ` +
         `(severity: ${spec.severity})`,
     );
 
-    // Escalation is non-blocking for the alert flow — a failure here must not
-    // fail the AlertHistory/Incident write that already landed.
-    this.escalationManager
-      .startEscalation(savedIncident, spec.severity, spec.ruleId)
-      .catch((err: Error) => {
-        this.logger.error(
-          `Failed to start escalation for ${spec.signalLabel} incident ` +
-            `${savedIncident.id}: ${err.message}`,
-        );
+    await this.escalationManager.startEscalation(savedIncident, spec.severity, spec.signalKey);
+  }
+
+  private findOpenIncident(spec: FarmSignalIncidentSpec): Promise<AlertIncident | null> {
+    return this.incidentRepository.findOne({
+      where: {
+        signalKey: spec.signalKey,
+        tenantId: spec.tenantId,
+        status: In(FarmSignalIncidentService.ACTIVE_STATUSES),
+      },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /** Record another occurrence on an open incident (see class doc for escalation). */
+  private async bumpIncident(existing: AlertIncident, spec: FarmSignalIncidentSpec): Promise<void> {
+    const escalated = isSeverityEscalation(existing.severity, spec.severity);
+    const previousSeverity = existing.severity;
+
+    existing.recordOccurrence(spec.triggeredAt);
+    // A site learnt later (an earlier event predates the field) fills in; a
+    // known site is never overwritten — one signal key names one place.
+    if (!existing.siteId && spec.siteId) {
+      existing.siteId = spec.siteId;
+    }
+
+    if (escalated) {
+      existing.severity = spec.severity;
+      // The description and breadcrumb describe the CURRENT state (e.g.
+      // "2 days of cover", not the 7 it was opened with) — an operator
+      // opening the incident must not read a stale reason for a critical
+      // page.
+      existing.description = spec.description;
+      existing.triggerData = spec.triggerData;
+      existing.addTimelineEvent({
+        type: TimelineEventType.ESCALATED,
+        description: `Severity raised ${previousSeverity} → ${spec.severity}: ${spec.description}`,
+        data: { previousSeverity, severity: spec.severity },
       });
+    }
+
+    const saved = await this.incidentRepository.save(existing);
+
+    if (escalated) {
+      this.logger.warn(
+        `Escalated ${spec.signalLabel} incident ${saved.id} for ${spec.signalKey}: ` +
+          `${previousSeverity} → ${spec.severity} (occurrences: ${saved.occurrenceCount})`,
+      );
+      // Re-run the ladder so the policy matched for the NEW severity engages.
+      await this.escalationManager.startEscalation(saved, spec.severity, spec.signalKey);
+      return;
+    }
+
+    if (saved.escalationLevel === 0) {
+      // Never escalated (no policy then, or a failed first level) — retry.
+      await this.escalationManager.startEscalation(saved, saved.severity, spec.signalKey);
+      return;
+    }
+
+    this.logger.debug(
+      `Updated existing ${spec.signalLabel} incident ${existing.id} for ${spec.signalKey} ` +
+        `(occurrences: ${existing.occurrenceCount})`,
+    );
   }
 }

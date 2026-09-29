@@ -3,12 +3,13 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, AlertEscalatedEvent } from '@platform/event-contracts';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { withTenantContext } from '@aquaculture/backend-common/context';
 import {
   EscalationPolicy,
   EscalationLevel,
   EscalationActionType,
+  EscalationRoleTarget,
   NotificationChannel,
 } from '../database/entities/escalation-policy.entity';
 import {
@@ -18,12 +19,20 @@ import {
 } from '../database/entities/alert-incident.entity';
 import { AlertSeverity } from '../database/entities/alert-rule.entity';
 import { EscalationPolicyService } from './escalation-policy.service';
+import { buildAlertEscalatedEvent } from './alert-escalated-event.builder';
 
 /**
  * Escalation state for an incident
  */
 export interface EscalationState {
   incidentId: string;
+  /**
+   * Owning tenant. WHY: timers, the missed-escalation sweep and boot-time
+   * restore run OUTSIDE any request, and `alert_incidents` is a per-tenant
+   * table — without the tenant the lookup hit the empty source schema, found
+   * nothing, and every level after the first silently never fired.
+   */
+  tenantId: string;
   policyId: string;
   currentLevel: number;
   startedAt: Date;
@@ -66,6 +75,8 @@ export interface EscalationAction {
   level: number;
   targetUsers: string[];
   targetTeams?: string[];
+  /** Role targets expanded to people by notification-service via auth-service. */
+  targetRoles: EscalationRoleTarget[];
   channels: NotificationChannel[];
   message: string;
   metadata?: Record<string, unknown>;
@@ -167,17 +178,19 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
         try {
           const state = await this.getEscalationState(incidentId);
           if (state && !state.isComplete) {
-            const incident = await this.incidentRepository.findOne({
-              where: { id: incidentId },
-            });
+            await this.inTenantOf(state, async () => {
+              const incident = await this.incidentRepository.findOne({
+                where: { id: incidentId },
+              });
 
-            if (incident) {
-              const policy = await this.policyService.getPolicy(state.policyId, incident.tenantId);
-              if (policy) {
-                await this.setEscalationTimeout(incidentId, policy);
-                this.logger.log(`Restored timer for incident ${incidentId}`);
+              if (incident) {
+                const policy = await this.policyService.getPolicy(state.policyId, incident.tenantId);
+                if (policy) {
+                  await this.setEscalationTimeout(incidentId, policy);
+                  this.logger.log(`Restored timer for incident ${incidentId}`);
+                }
               }
-            }
+            });
           }
         } finally {
           await this.redisService.del(lockKey);
@@ -212,7 +225,9 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
 
           if (timerInfo && new Date(timerInfo.nextEscalationAt) < new Date()) {
             // Check that the incident has not been acknowledged or resolved since the timer was set
-            const incident = await this.incidentRepository.findOne({ where: { id: incidentId } });
+            const incident = await this.inTenantOf(state, () =>
+              this.incidentRepository.findOne({ where: { id: incidentId } }),
+            );
             if (
               incident &&
               incident.status !== IncidentStatus.ACKNOWLEDGED &&
@@ -273,7 +288,13 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     );
 
     if (!policy) {
-      this.logger.warn(`No escalation policy found for incident ${incident.id}`);
+      // Not an error by itself: a policy covers only the severities it lists
+      // (the seeded default covers CRITICAL/HIGH). The incident stays at
+      // escalation level 0 and the next occurrence re-tries — see
+      // FarmSignalIncidentService (level-triggered escalation).
+      this.logger.log(
+        `No escalation policy covers incident ${incident.id} (severity ${severity}) — not escalated`,
+      );
       return null;
     }
 
@@ -290,6 +311,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     // Initialize escalation state
     const state: EscalationState = {
       incidentId: incident.id,
+      tenantId: incident.tenantId,
       policyId: policy.id,
       currentLevel: 1,
       startedAt: new Date(),
@@ -302,8 +324,18 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
 
     await this.saveState(state);
 
-    // Execute first level escalation
-    await this.executeEscalationLevel(incident, policy, 1);
+    // Execute first level escalation. LIFE-SAFETY (ALERT-CRITICAL-004): a failed
+    // first level used to be swallowed into a result nobody read, leaving an
+    // incident that looked escalated but paged no one. It now throws: the
+    // incident keeps escalation level 0, the consumer's delivery budget re-drives
+    // the event, and the redelivery re-tries the escalation.
+    const first = await this.executeEscalationLevel(incident, policy, 1);
+    if (!first.success) {
+      await this.completeEscalation(incident.id, 'first_level_failed');
+      throw new Error(
+        `Escalation level 1 failed for incident ${incident.id}: ${(first.errors ?? []).join('; ')}`,
+      );
+    }
 
     // Set timeout for next level
     await this.setEscalationTimeout(incident.id, policy);
@@ -347,6 +379,7 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
         level,
         targetUsers,
         targetTeams: levelConfig.notifyTeamIds,
+        targetRoles: levelConfig.notifyRoles ?? [],
         channels: levelConfig.channels,
         message: this.formatEscalationMessage(incident, levelConfig, policy),
         metadata: {
@@ -376,7 +409,31 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
       // the wider on-call group never paged. No try/catch wraps the enqueue —
       // a failed enqueue rolls back the escalation-level write so they stay
       // consistent.
-      const event = this.buildAlertEscalatedEvent(incident, level, action);
+      const { event, undeliverableChannels, droppedUserIds, malformedUserIds } = buildAlertEscalatedEvent({
+        incident,
+        level,
+        levelConfig,
+        targetUsers: action.targetUsers,
+        reason: action.message,
+      });
+      if (undeliverableChannels.length > 0) {
+        this.logger.warn(
+          `Policy ${policy.id} level ${level} lists channels with no delivery path ` +
+            `(${undeliverableChannels.join(', ')}) — delivered via ${event.channels.join(', ') || 'in-app only'}`,
+        );
+      }
+      if (droppedUserIds.length > 0) {
+        this.logger.warn(
+          `Policy ${policy.id} level ${level} names ${droppedUserIds.length} user(s) beyond the ` +
+            'delivery cap — they were not paged',
+        );
+      }
+      if (malformedUserIds.length > 0) {
+        this.logger.warn(
+          `Policy ${policy.id} level ${level} names ${malformedUserIds.length} recipient id(s) that ` +
+            'are not user ids — they were not paged; fix the policy or its on-call schedule',
+        );
+      }
       await this.dataSource.transaction(async (manager) => {
         await this.updateIncidentEscalation(manager, incident, level, policy);
         await this.outboxPublisher.enqueue(event, manager);
@@ -413,7 +470,12 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     if (!state || state.isComplete) {
       return null;
     }
+    return this.inTenantOf(state, () => this.escalateStateToNextLevel(state));
+  }
 
+  /** Body of {@link escalateToNextLevel}; runs inside the incident's tenant context. */
+  private async escalateStateToNextLevel(state: EscalationState): Promise<EscalationResult | null> {
+    const incidentId = state.incidentId;
     const incident = await this.incidentRepository.findOne({
       where: { id: incidentId },
     });
@@ -483,14 +545,16 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
     await this.cancelEscalationTimeout(incidentId);
 
     // Update incident
-    const incident = await this.incidentRepository.findOne({
-      where: { id: incidentId },
-    });
+    await this.inTenantOf(state, async () => {
+      const incident = await this.incidentRepository.findOne({
+        where: { id: incidentId },
+      });
 
-    if (incident) {
-      incident.acknowledge(userId);
-      await this.incidentRepository.save(incident);
-    }
+      if (incident) {
+        incident.acknowledge(userId);
+        await this.incidentRepository.save(incident);
+      }
+    });
 
     // Emit event
     this.eventEmitter.emit(ESCALATION_EVENTS.ACKNOWLEDGED, {
@@ -591,9 +655,11 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
       return false;
     }
 
-    const incident = await this.incidentRepository.findOne({
-      where: { id: incidentId },
-    });
+    const incident = await this.inTenantOf(state, () =>
+      this.incidentRepository.findOne({
+        where: { id: incidentId },
+      }),
+    );
 
     if (!incident) {
       return false;
@@ -756,30 +822,6 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Build the AlertEscalated domain event.
-   *
-   * Pure builder: performs NO I/O. The caller enqueues the returned event on
-   * the transaction manager so it commits atomically with the incident
-   * escalation-level write (ALERT-CRITICAL-001).
-   */
-  private buildAlertEscalatedEvent(
-    incident: AlertIncident,
-    level: number,
-    action: EscalationAction,
-  ): AlertEscalatedEvent {
-    return {
-      ...createBaseEvent<AlertEscalatedEvent>('AlertEscalated', incident.tenantId, {
-        aggregateId: incident.id,
-        aggregateType: 'AlertIncident',
-      }),
-      alertId: incident.id,
-      escalationLevel: level,
-      escalatedTo: action.targetUsers,
-      reason: action.message,
-    };
-  }
-
-  /**
    * Set escalation timeout
    */
   private async setEscalationTimeout(incidentId: string, policy: EscalationPolicy): Promise<void> {
@@ -806,8 +848,19 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
       Math.ceil(timeoutMs / 1000) + 60 // TTL slightly longer than timeout
     );
 
-    // Set new timer
-    const timer = setTimeout(async () => {
+    // Set new timer. A Node timer has no caller to hand a rejection to, so the
+    // callback owns its failure (logged) instead of leaking an unhandled one;
+    // the missed-escalation sweep re-drives any tick that failed.
+    const timer = setTimeout(() => {
+      void this.handleEscalationTimeout(incidentId);
+    }, timeoutMs);
+
+    this.escalationTimers.set(incidentId, timer);
+  }
+
+  /** Timer tick: advance the ladder, never throwing out of the timer. */
+  private async handleEscalationTimeout(incidentId: string): Promise<void> {
+    try {
       this.logger.log(`Escalation timeout for incident ${incidentId}`);
 
       const currentState = await this.getEscalationState(incidentId);
@@ -817,9 +870,21 @@ export class EscalationManagerService implements OnModuleInit, OnModuleDestroy {
       });
 
       await this.escalateToNextLevel(incidentId);
-    }, timeoutMs);
+    } catch (error) {
+      this.logger.error(
+        `Escalation timeout handling failed for incident ${incidentId}: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 
-    this.escalationTimers.set(incidentId, timer);
+  /**
+   * Run `fn` inside the escalation's tenant context. WHY: every incident read
+   * outside a request (timers, sweep, restore) must route to `tenant_<uuid>`;
+   * the state carries the tenant so no caller has to remember it.
+   */
+  private inTenantOf<T>(state: EscalationState, fn: () => Promise<T>): Promise<T> {
+    return withTenantContext(state.tenantId, fn);
   }
 
   /**

@@ -24,6 +24,10 @@ export interface WaterQualityMeasurementCreatedEvent extends BaseEvent {
  * ARCH-C01: criticalParameters serialized as JSON string — array of complex objects
  * with variable structure makes flat-field mapping impractical.
  * criticalParameterCount provides quick access without deserializing.
+ *
+ * ACTOR (ALERT-MEDIUM-007): the person who recorded the measurement rides on
+ * the inherited `BaseEvent.userId` (absent for sensor-derived measurements), so
+ * no second actor field is invented next to it.
  */
 export interface WaterQualityCriticalEvent extends BaseEvent {
   eventType: 'WaterQualityCritical';
@@ -33,6 +37,14 @@ export interface WaterQualityCriticalEvent extends BaseEvent {
   criticalParametersJson: string;
   criticalParameterCount: number;
   measuredAt: string;
+  /**
+   * Site of the measured unit (ALERT-MEDIUM-007) — resolved by the producer
+   * through the one unit→site resolver (Department.siteId). Absent when the
+   * measurement resolves to no site (pond-only, or a site-less department) and
+   * on events published before the field existed; the alert escalation then
+   * widens site-scoped recipients to the whole tenant rather than dropping them.
+   */
+  siteId?: string;
 }
 
 // ==================== Type Union ====================

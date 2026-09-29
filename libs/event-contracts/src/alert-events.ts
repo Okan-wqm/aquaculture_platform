@@ -68,14 +68,61 @@ export interface AlertResolvedEvent extends BaseEvent {
 }
 
 /**
- * Alert Escalated Event
+ * Channels notification-service can deliver an escalated alarm through
+ * (ALERT-CRITICAL-004). A policy may list more (SMS, Slack, PagerDuty…); only
+ * these have a recipient directory behind them, so the producer maps the rest
+ * out and logs them instead of shipping a channel nobody can serve.
+ */
+export const ALERT_DELIVERY_CHANNELS = ['push', 'email'] as const;
+export type AlertDeliveryChannel = (typeof ALERT_DELIVERY_CHANNELS)[number];
+
+/**
+ * Tenant roles an escalation level can target — the auth-service `users.role`
+ * codes a tenant user can hold. SUPER_ADMIN is deliberately absent: a platform
+ * operator is never a tenant alarm recipient.
+ */
+export const ALERT_RECIPIENT_ROLES = ['TENANT_ADMIN', 'MODULE_MANAGER', 'MODULE_USER'] as const;
+export type AlertRecipientRole = (typeof ALERT_RECIPIENT_ROLES)[number];
+
+/**
+ * Alert Escalated Event — the ONLY hand-off from the alert ladder to delivery.
+ *
+ * WHY the delivery fields (ALERT-CRITICAL-004): the event used to carry only
+ * `escalatedTo` user ids and a reason, and nothing consumed it, so a farm-signal
+ * incident reached nobody. It now carries everything notification-service needs
+ * to reach a person without reading alert-engine's database: what happened
+ * (title/description/severity), how (channels) and to whom — explicit user ids
+ * PLUS role targets that notification-service expands through auth-service (the
+ * user directory's owner), tenant-wide or narrowed to `siteId`.
+ *
+ * Flat by rule (ADR-006): role targets are two string arrays, not nested objects.
+ * `siteId: null` means the incident has no site; site-scoped roles then widen to
+ * the whole tenant so a missing site can never silence an alarm.
  */
 export interface AlertEscalatedEvent extends BaseEvent {
   eventType: 'AlertEscalated';
+  /** The escalated AlertIncident id. */
   alertId: string;
   escalationLevel: number;
+  /** Explicit recipient user ids (policy `notifyUserIds` + current on-call). */
   escalatedTo: string[];
   reason: string;
+  /**
+   * The incident's identity — exactly one is non-null (ALERT-CRITICAL-009):
+   * the alert rule of a rule-driven incident, or the `signalKey()` of a
+   * farm-signal incident.
+   */
+  ruleId: string | null;
+  signalKey: string | null;
+  title: string;
+  description: string;
+  severity: AlertSeverityLevel;
+  channels: AlertDeliveryChannel[];
+  /** Roles whose every active holder in the tenant is a recipient. */
+  tenantWideRecipientRoles: AlertRecipientRole[];
+  /** Roles whose holders assigned to `siteId` are recipients. */
+  siteRecipientRoles: AlertRecipientRole[];
+  siteId: string | null;
 }
 
 /**

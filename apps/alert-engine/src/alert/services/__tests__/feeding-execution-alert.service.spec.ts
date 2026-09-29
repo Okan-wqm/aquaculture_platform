@@ -4,6 +4,7 @@
  * UnfedUnitDetected CRITICAL (sessiz aç kalma); FeedTypeTransitioned
  * INFO/audit satırı üretir, incident ÜRETMEZ (belgeli karar).
  */
+import { signalKey } from '@platform/event-contracts';
 import type {
   FeedTypeTransitionedEvent,
   MealMissedEvent,
@@ -106,14 +107,15 @@ describe('FeedingExecutionAlertService', () => {
     await service.recordMealUnderfed(underfedEvent());
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
-        ruleId: 'system:meal-underfed:unit-1',
+        ruleId: signalKey({ kind: 'meal-underfed', unitId: 'unit-1' }),
         severity: AlertSeverity.WARNING,
         tenantId: TENANT,
       }),
     );
     expect(ensureIncident).toHaveBeenCalledWith(
       expect.objectContaining({
-        ruleId: 'system:meal-underfed:unit-1',
+        signalKey: signalKey({ kind: 'meal-underfed', unitId: 'unit-1' }),
+        siteId: null,
         severity: AlertSeverity.WARNING,
         signalLabel: 'meal-underfed',
       }),
@@ -123,7 +125,9 @@ describe('FeedingExecutionAlertService', () => {
   it('gün-seviyesi az-atım (scope=day, D-16) AYNI ünite incident kimliğini besler', async () => {
     await service.recordMealUnderfed(underfedEvent({ scope: 'day', mealId: undefined }));
     expect(ensureIncident).toHaveBeenCalledWith(
-      expect.objectContaining({ ruleId: 'system:meal-underfed:unit-1' }),
+      expect.objectContaining({
+        signalKey: signalKey({ kind: 'meal-underfed', unitId: 'unit-1' }),
+      }),
     );
     const historyRow = create.mock.calls[0][0] as {
       triggeringData: { scope: string; mealId: string | null };
@@ -136,7 +140,7 @@ describe('FeedingExecutionAlertService', () => {
     await service.recordMealMissed(missedEvent());
     expect(ensureIncident).toHaveBeenCalledWith(
       expect.objectContaining({
-        ruleId: 'system:meal-missed:unit-1',
+        signalKey: signalKey({ kind: 'meal-missed', unitId: 'unit-1' }),
         severity: AlertSeverity.WARNING,
         signalLabel: 'meal-missed',
       }),
@@ -147,13 +151,15 @@ describe('FeedingExecutionAlertService', () => {
     await service.recordUnfedUnit(unfedEvent());
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
-        ruleId: 'system:unfed-unit:unit-1',
+        ruleId: signalKey({ kind: 'unfed-unit', unitId: 'unit-1' }),
         severity: AlertSeverity.CRITICAL,
       }),
     );
     expect(ensureIncident).toHaveBeenCalledWith(
       expect.objectContaining({
-        ruleId: 'system:unfed-unit:unit-1',
+        signalKey: signalKey({ kind: 'unfed-unit', unitId: 'unit-1' }),
+        // UnfedUnitDetected names its site, so the site's managers are paged.
+        siteId: unfedEvent().siteId,
         severity: AlertSeverity.CRITICAL,
         signalLabel: 'unfed-unit',
       }),
@@ -175,7 +181,7 @@ describe('FeedingExecutionAlertService', () => {
     await service.recordFeedTransitioned(transitionedEvent());
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
-        ruleId: 'system:feed-transition:unit-1',
+        ruleId: signalKey({ kind: 'feed-transition', unitId: 'unit-1' }),
         severity: AlertSeverity.INFO,
       }),
     );

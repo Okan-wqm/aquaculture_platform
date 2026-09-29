@@ -48,9 +48,15 @@ export {
   type FinanceEventType,
 } from './finance-events.schema';
 export {
+  WATER_QUALITY_EVENT_SCHEMAS,
+  WATER_QUALITY_CRITICAL_PARAMETERS_JSON_MAX_LENGTH,
+  type WaterQualityEventType,
+} from './water-quality-events.schema';
+export {
   UUID_PATTERN,
   MAX_FREE_TEXT_LENGTH,
   MAX_SHORT_CODE_LENGTH,
 } from './common.schema';
 export * from './auth-user-queries.schema';
 export * from './auth-credential-queries.schema';
+export * from './alert-events.schema';

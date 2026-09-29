@@ -10,6 +10,7 @@ import {
   NotificationChannel,
 } from '../database/entities/escalation-policy.entity';
 import { AlertSeverity } from '../database/entities/alert-rule.entity';
+import { ensureDefaultEscalationPolicy } from './default-escalation-policy';
 
 /**
  * Policy match result
@@ -112,6 +113,20 @@ export class EscalationPolicyService {
       throw new NotFoundException(`Policy ${id} not found`);
     }
 
+    // INVARIANT (ALERT-CRITICAL-004): a tenant always has exactly one ACTIVE
+    // default policy — it is what pages people when nothing more specific
+    // matches. Switching it off or un-defaulting it would silently leave
+    // critical alarms with no ladder, so both are refused; the tenant makes
+    // another policy the default (which demotes this one) or edits this one.
+    if (policy.isDefault && dto.isDefault === false) {
+      throw new ConflictException(
+        'Cannot unset the default policy; make another policy the default instead',
+      );
+    }
+    if (policy.isDefault && dto.isActive === false) {
+      throw new ConflictException('Cannot deactivate the default policy');
+    }
+
     // Validate if levels are being updated
     if (dto.levels) {
       const validation = this.validatePolicy({ ...policy, ...dto } as CreatePolicyDto);
@@ -179,14 +194,30 @@ export class EscalationPolicyService {
       return activeOnly ? cached.filter(p => p.isActive) : cached;
     }
 
-    const policies = await this.policyRepository.find({
-      where: { tenantId },
-      order: { priority: 'DESC', createdAt: 'ASC' },
-    });
+    let policies = await this.loadPolicies(tenantId);
+
+    // POINT-OF-USE ENSURE (ALERT-CRITICAL-004): a tenant with no policy at all
+    // gets its default right here, in its own tenant context, before anything
+    // tries to escalate — so an alarm that arrives before the provisioning
+    // event or the periodic reconcile has run still reaches a person.
+    if (policies.length === 0) {
+      const outcome = await ensureDefaultEscalationPolicy(this.policyRepository.manager, tenantId);
+      if (outcome === 'created') {
+        this.logger.log(`Seeded default escalation policy for tenant ${tenantId} at point of use`);
+      }
+      policies = await this.loadPolicies(tenantId);
+    }
 
     this.setCachedPolicies(tenantId, policies);
 
     return activeOnly ? policies.filter(p => p.isActive) : policies;
+  }
+
+  private loadPolicies(tenantId: string): Promise<EscalationPolicy[]> {
+    return this.policyRepository.find({
+      where: { tenantId },
+      order: { priority: 'DESC', createdAt: 'ASC' },
+    });
   }
 
   /**
@@ -224,7 +255,11 @@ export class EscalationPolicyService {
     }
 
     if (matches.length === 0) {
-      return this.getDefaultPolicy(tenantId);
+      // A policy's severity list is its contract: the default policy is
+      // already a candidate above for every severity it covers, and falling
+      // back to it for a severity it does NOT list (the old behaviour) would
+      // page CRITICAL recipients for INFO noise.
+      return null;
     }
 
     // Sort by score (descending) then priority (descending)
@@ -343,8 +378,15 @@ export class EscalationPolicyService {
             errors.push(`Level ${level.level}: Timeout must be non-negative`);
           }
 
-          if (!level.notifyUserIds || level.notifyUserIds.length === 0) {
-            warnings.push(`Level ${level.level}: No users configured for notification`);
+          // A level that pages nobody is a silent alarm: it needs explicit
+          // users, a role target, or an on-call schedule (ALERT-CRITICAL-004).
+          const hasUsers = level.notifyUserIds.length > 0;
+          const hasRoles = (level.notifyRoles ?? []).length > 0;
+          const hasOnCall = (dto.onCallSchedule ?? []).length > 0;
+          if (!hasUsers && !hasRoles && !hasOnCall) {
+            errors.push(
+              `Level ${level.level}: at least one recipient (user, role or on-call schedule) is required`,
+            );
           }
 
           if (!level.channels || level.channels.length === 0) {
@@ -537,7 +579,8 @@ export class EscalationPolicyService {
     this.lastCacheUpdate.set(tenantId, Date.now());
   }
 
-  private invalidateCache(tenantId: string): void {
+  /** Drop the tenant's cached policies (after a write this process did not make itself). */
+  invalidateCache(tenantId: string): void {
     this.policyCache.delete(tenantId);
     this.lastCacheUpdate.delete(tenantId);
   }

@@ -11,8 +11,14 @@
  *
  * London-school: the incident repository is a @platform/testing double and the
  * escalation manager is a typed double (only startEscalation is exercised).
+ *
+ * ALERT-CRITICAL-004/009: the identity is the branded signal key stored in
+ * `signal_key` (rule_id stays NULL), escalation is AWAITED and level-triggered,
+ * and a lost race on the open-incident unique index joins the winner.
  */
 import { createMockRepository } from '@aquaculture/testing';
+import { signalKey } from '@platform/event-contracts';
+import { QueryFailedError } from 'typeorm';
 
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
 import {
@@ -27,13 +33,15 @@ import {
 } from '../farm-signal-incident.service';
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
-const RULE_ID = 'system:mortality:cumulative_rate';
+const SITE_ID = '22222222-2222-4222-8222-222222222222';
+const KEY = signalKey({ kind: 'mortality', batchId: '33333333-3333-4333-8333-333333333333' });
 const TRIGGERED_AT = new Date('2026-06-10T08:00:00.000Z');
 
 function makeSpec(overrides: Partial<FarmSignalIncidentSpec> = {}): FarmSignalIncidentSpec {
   return {
     tenantId: TENANT_ID,
-    ruleId: RULE_ID,
+    signalKey: KEY,
+    siteId: SITE_ID,
     title: 'High Mortality (cumulative_rate): batch b-1',
     description: 'Cumulative mortality rate 12.00% is critical',
     severity: AlertSeverity.CRITICAL,
@@ -49,7 +57,10 @@ function makeSpec(overrides: Partial<FarmSignalIncidentSpec> = {}): FarmSignalIn
  * an unsafe cast). The service reads status/severity/occurrenceCount and calls
  * `recordOccurrence` / `addTimelineEvent` on it.
  */
-function openIncident(severity: AlertSeverity): AlertIncident & {
+function openIncident(
+  severity: AlertSeverity,
+  escalationLevel = 1,
+): AlertIncident & {
   recordOccurrence: jest.Mock;
   addTimelineEvent: jest.Mock;
 } {
@@ -58,6 +69,8 @@ function openIncident(severity: AlertSeverity): AlertIncident & {
     occurrenceCount: 1,
     status: IncidentStatus.NEW,
     severity,
+    escalationLevel,
+    siteId: SITE_ID,
     description: 'opened seven days ago',
     triggerData: { historyId: 'history-1' },
     recordOccurrence: jest.fn(),
@@ -101,7 +114,10 @@ describe('FarmSignalIncidentService', () => {
 
     expect(incidentRepo.create).toHaveBeenCalledTimes(1);
     const created = incidentRepo.create.mock.calls[0]?.[0] as Partial<AlertIncident>;
-    expect(created.ruleId).toBe(RULE_ID);
+    // ALERT-CRITICAL-009: the farm identity lives in signal_key; rule_id (FK) stays NULL.
+    expect(created.ruleId).toBeNull();
+    expect(created.signalKey).toBe(KEY);
+    expect(created.siteId).toBe(SITE_ID);
     expect(created.title).toBe('High Mortality (cumulative_rate): batch b-1');
     expect(created.severity).toBe(AlertSeverity.CRITICAL);
     expect(created.occurrenceCount).toBe(1);
@@ -111,7 +127,7 @@ describe('FarmSignalIncidentService', () => {
     expect(escalation.startEscalation).toHaveBeenCalledTimes(1);
     const [incidentArg, severityArg, ruleArg] = escalation.startEscalation.mock.calls[0] ?? [];
     expect(severityArg).toBe(AlertSeverity.CRITICAL);
-    expect(ruleArg).toBe(RULE_ID);
+    expect(ruleArg).toBe(KEY);
     expect(incidentArg).toBeDefined();
   });
 
@@ -175,7 +191,7 @@ describe('FarmSignalIncidentService', () => {
     expect(escalation.startEscalation).toHaveBeenCalledTimes(1);
     const [, severityArg, ruleArg] = escalation.startEscalation.mock.calls[0] ?? [];
     expect(severityArg).toBe(AlertSeverity.CRITICAL);
-    expect(ruleArg).toBe(RULE_ID);
+    expect(ruleArg).toBe(KEY);
   });
 
   it('does NOT de-escalate or re-page when a less severe occurrence arrives', async () => {
@@ -191,23 +207,104 @@ describe('FarmSignalIncidentService', () => {
     expect(escalation.startEscalation).not.toHaveBeenCalled();
   });
 
-  it('keeps the escalated incident write when the re-run escalation rejects', async () => {
+  it('keeps the escalated incident write and PROPAGATES a failed re-run escalation', async () => {
+    // SCENARIO: severity rises, but the ladder cannot start (policy lookup down).
+    // EXPECTS: the promoted incident is saved AND the failure reaches the consumer,
+    //          which re-drives the event (a swallowed failure silenced the alarm).
     const existing = openIncident(AlertSeverity.WARNING);
     const { service, incidentRepo, escalation } = makeService({ existingIncident: existing });
     escalation.startEscalation.mockRejectedValueOnce(new Error('policy service down'));
 
     await expect(
       service.ensureIncident(makeSpec({ severity: AlertSeverity.CRITICAL })),
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow('policy service down');
     expect(incidentRepo.save).toHaveBeenCalledWith(existing);
   });
 
-  it('does not fail the incident write when escalation rejects (non-blocking)', async () => {
-    const { service, escalation } = makeService({ existingIncident: null });
-    escalation.startEscalation.mockRejectedValueOnce(new Error('policy service down'));
+  it('propagates a failed first escalation after the incident is written', async () => {
+    // SCENARIO: a new incident; its first escalation fails.
+    // EXPECTS: the incident row landed, and the error propagates so the redelivery
+    //          finds the level-0 incident and retries the escalation.
+    const { service, incidentRepo, escalation } = makeService({ existingIncident: null });
+    escalation.startEscalation.mockRejectedValueOnce(new Error('outbox down'));
 
-    // The rejected escalation is swallowed — the already-landed incident write
-    // must not be undone by a downstream escalation failure.
-    await expect(service.ensureIncident(makeSpec())).resolves.toBeUndefined();
+    await expect(service.ensureIncident(makeSpec())).rejects.toThrow('outbox down');
+    expect(incidentRepo.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries escalation on every occurrence while the open incident was never escalated', async () => {
+    // SCENARIO: the incident opened before any policy existed (escalation level 0).
+    // EXPECTS: a same-severity repeat re-starts the ladder — level-triggered, so a
+    //          policy seeded later still pages someone (ALERT-CRITICAL-004).
+    const existing = openIncident(AlertSeverity.CRITICAL, 0);
+    const { service, escalation } = makeService({ existingIncident: existing });
+
+    await service.ensureIncident(makeSpec());
+
+    expect(escalation.startEscalation).toHaveBeenCalledTimes(1);
+    const [, severityArg, ruleArg] = escalation.startEscalation.mock.calls[0] ?? [];
+    expect(severityArg).toBe(AlertSeverity.CRITICAL);
+    expect(ruleArg).toBe(KEY);
+  });
+
+  it('fills in a site learnt from a later event, never overwriting a known one', async () => {
+    // SCENARIO: the incident opened from an event that predates the siteId field.
+    // EXPECTS: the next occurrence's site is recorded; a known site is kept.
+    const siteless = openIncident(AlertSeverity.CRITICAL);
+    siteless.siteId = null;
+    const { service } = makeService({ existingIncident: siteless });
+
+    await service.ensureIncident(makeSpec());
+    expect(siteless.siteId).toBe(SITE_ID);
+
+    const known = openIncident(AlertSeverity.CRITICAL);
+    const second = makeService({ existingIncident: known });
+    await second.service.ensureIncident(
+      makeSpec({ siteId: '44444444-4444-4444-8444-444444444444' }),
+    );
+    expect(known.siteId).toBe(SITE_ID);
+  });
+
+  it('joins the winning incident when a concurrent delivery opened it first', async () => {
+    // SCENARIO: two deliveries of one condition both saw "no open incident"; this
+    //           one lost the insert to uq_alert_incidents_open_signal.
+    // EXPECTS: no second incident — the occurrence bumps the winner.
+    const winner = openIncident(AlertSeverity.CRITICAL);
+    const { service, incidentRepo, escalation } = makeService({ existingIncident: null });
+    incidentRepo.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce(winner);
+    const race = new QueryFailedError(
+      'INSERT',
+      [],
+      Object.assign(new Error('duplicate key value'), {
+        code: '23505',
+        constraint: 'uq_alert_incidents_open_signal',
+      }),
+    );
+    incidentRepo.save.mockRejectedValueOnce(race).mockImplementation(async (i) => i as AlertIncident);
+
+    await service.ensureIncident(makeSpec());
+
+    expect(winner.recordOccurrence).toHaveBeenCalledWith(TRIGGERED_AT);
+    expect(incidentRepo.save).toHaveBeenLastCalledWith(winner);
+    // The winner is already escalated (level 1) and the severity did not rise.
+    expect(escalation.startEscalation).not.toHaveBeenCalled();
+  });
+
+  it('rethrows any other insert failure', async () => {
+    // SCENARIO: the insert fails for a reason other than the open-incident race.
+    // EXPECTS: the error propagates untouched (no silent bump of a stranger).
+    const { service, incidentRepo } = makeService({ existingIncident: null });
+    incidentRepo.save.mockRejectedValueOnce(
+      new QueryFailedError(
+        'INSERT',
+        [],
+        Object.assign(new Error('check violation'), {
+          code: '23514',
+          constraint: 'CHK_alert_incidents_rule_xor_signal',
+        }),
+      ),
+    );
+
+    await expect(service.ensureIncident(makeSpec())).rejects.toBeInstanceOf(QueryFailedError);
   });
 });

@@ -17,7 +17,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { FEED_STOCKOUT_CRITICAL_DAYS } from '@platform/event-contracts';
+import {
+  FEED_STOCKOUT_CRITICAL_DAYS,
+  signalKey,
+  stockScopeFromSiteScopeKey,
+  type StockSignalScope,
+} from '@platform/event-contracts';
 import type {
   FeedStockoutForecastEvent,
   FeedTransitionUpcomingEvent,
@@ -41,6 +46,11 @@ export function stockoutSeverityFor(
   return null;
 }
 
+/** The site a stock scope names, or null for the pool tier. */
+function siteOf(scope: StockSignalScope): string | null {
+  return scope.level === 'site' ? scope.siteId : null;
+}
+
 @Injectable()
 export class FeedCoverageAlertService {
   private readonly logger = new Logger(FeedCoverageAlertService.name);
@@ -61,7 +71,8 @@ export class FeedCoverageAlertService {
       );
       return;
     }
-    const ruleId = `system:feed-stockout:${event.siteScopeKey}:${event.feedId}`;
+    const scope = stockScopeFromSiteScopeKey(event.siteScopeKey);
+    const key = signalKey({ kind: 'feed-stockout', scope, feedId: event.feedId });
     const ruleName = 'Feed Stockout Forecast';
     const triggeredAt = new Date(event.timestamp);
     const message =
@@ -72,7 +83,7 @@ export class FeedCoverageAlertService {
 
     const history = await this.historyRepository.save(
       this.historyRepository.create({
-        ruleId,
+        ruleId: key,
         ruleName,
         tenantId: event.tenantId,
         severity,
@@ -94,7 +105,8 @@ export class FeedCoverageAlertService {
 
     await this.farmSignalIncident.ensureIncident({
       tenantId: event.tenantId,
-      ruleId,
+      signalKey: key,
+      siteId: siteOf(scope),
       title: `${ruleName}: ${event.feedCode}`,
       description: message,
       severity,
@@ -115,7 +127,11 @@ export class FeedCoverageAlertService {
     if (event.shortfallDays === undefined || event.shortfallDays <= 0) {
       return; // Açıksız geçiş bilgi sinyalidir — incident değil (belgeli).
     }
-    const ruleId = `system:feed-transition-gap:${event.unitId}:${event.toFeedId}`;
+    const key = signalKey({
+      kind: 'feed-transition-gap',
+      unitId: event.unitId,
+      toFeedId: event.toFeedId,
+    });
     const ruleName = 'Feed Transition Coverage Gap';
     const triggeredAt = new Date(event.timestamp);
     const message =
@@ -125,7 +141,7 @@ export class FeedCoverageAlertService {
 
     const history = await this.historyRepository.save(
       this.historyRepository.create({
-        ruleId,
+        ruleId: key,
         ruleName,
         tenantId: event.tenantId,
         severity: AlertSeverity.WARNING,
@@ -148,7 +164,8 @@ export class FeedCoverageAlertService {
 
     await this.farmSignalIncident.ensureIncident({
       tenantId: event.tenantId,
-      ruleId,
+      signalKey: key,
+      siteId: siteOf(stockScopeFromSiteScopeKey(event.siteScopeKey)),
       title: `${ruleName}: ${event.unitCode}`,
       description: message,
       severity: AlertSeverity.WARNING,

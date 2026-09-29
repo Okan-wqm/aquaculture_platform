@@ -5698,6 +5698,7 @@ export type EscalationLevel = {
   level: Scalars['Int']['output'];
   messageTemplate?: Maybe<Scalars['String']['output']>;
   name: Scalars['String']['output'];
+  notifyRoles?: Maybe<Array<EscalationRoleTarget>>;
   notifyTeamIds?: Maybe<Array<Scalars['String']['output']>>;
   notifyUserIds: Array<Scalars['String']['output']>;
   timeoutMinutes: Scalars['Int']['output'];
@@ -5710,6 +5711,7 @@ export type EscalationLevelInput = {
   level: Scalars['Int']['input'];
   messageTemplate?: InputMaybe<Scalars['String']['input']>;
   name: Scalars['String']['input'];
+  notifyRoles?: InputMaybe<Array<EscalationRoleTargetInput>>;
   notifyTeamIds?: InputMaybe<Array<Scalars['String']['input']>>;
   notifyUserIds: Array<Scalars['String']['input']>;
   timeoutMinutes: Scalars['Int']['input'];
@@ -5736,6 +5738,27 @@ export type EscalationPolicy = {
   tenantId: Scalars['String']['output'];
   timezone?: Maybe<Scalars['String']['output']>;
   updatedAt: Scalars['DateTime']['output'];
+};
+
+/** Tenant role an escalation level pages */
+export type EscalationRecipientRole =
+  | 'MODULE_MANAGER'
+  | 'MODULE_USER'
+  | 'TENANT_ADMIN';
+
+/** Scope a role target is resolved in */
+export type EscalationRecipientScope =
+  | 'INCIDENT_SITE'
+  | 'TENANT';
+
+export type EscalationRoleTarget = {
+  role: EscalationRecipientRole;
+  scope: EscalationRecipientScope;
+};
+
+export type EscalationRoleTargetInput = {
+  role: EscalationRecipientRole;
+  scope: EscalationRecipientScope;
 };
 
 export type EscapeIncident = {

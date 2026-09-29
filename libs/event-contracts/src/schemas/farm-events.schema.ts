@@ -418,6 +418,7 @@ interface WireMortalityAlertRaised extends WireBaseEvent {
   eventType: 'MortalityAlertRaised';
   batchId: string;
   tankId?: string;
+  siteId?: string;
   alertType: 'single_event' | 'daily_rate' | 'cumulative_rate';
   severity: 'warning' | 'critical';
   message: string;
@@ -1405,6 +1406,9 @@ export const mortalityAlertRaisedSchema: JSONSchemaType<WireMortalityAlertRaised
     eventType: { type: 'string', const: 'MortalityAlertRaised' },
     batchId: UUID_SCHEMA,
     tankId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    // ALERT-MEDIUM-007: optional + nullable-tolerant — events published before
+    // the field existed stay valid (additive contract change).
+    siteId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
     alertType: {
       type: 'string',
       enum: ['single_event', 'daily_rate', 'cumulative_rate'],

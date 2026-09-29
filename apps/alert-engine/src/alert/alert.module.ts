@@ -24,6 +24,8 @@ import { AlertAuditService } from '../audit/alert-audit.service';
 import { EscalationManagerService } from '../escalation/escalation-manager.service';
 import { EscalationPolicyService } from '../escalation/escalation-policy.service';
 import { AcknowledgmentTrackerService } from '../escalation/acknowledgment-tracker.service';
+import { DefaultPolicyProvisioningHandler } from '../escalation/default-policy-provisioning.handler';
+import { DefaultPolicyReconcilerService } from '../escalation/default-policy-reconciler.service';
 
 // Event Handlers
 import { SensorReadingEventHandler } from './event-handlers/sensor-reading.handler';
@@ -80,6 +82,10 @@ import { EscalationPolicyResolver } from './resolvers/escalation-policy.resolver
     EscalationPolicyService,
     EscalationManagerService,
     AcknowledgmentTrackerService,
+    // ALERT-CRITICAL-004: every tenant has a default escalation policy —
+    // seeded on TenantProvisioned and re-asserted by a periodic reconcile.
+    DefaultPolicyProvisioningHandler,
+    DefaultPolicyReconcilerService,
 
     // Event Handlers
     SensorReadingEventHandler,

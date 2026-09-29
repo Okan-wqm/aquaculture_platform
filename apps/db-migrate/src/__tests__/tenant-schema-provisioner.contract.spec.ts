@@ -71,6 +71,11 @@ describe('tenant schema provisioner contract', () => {
     expect(sql).toContain(
       'GRANT EXECUTE ON FUNCTION platform.list_active_tenant_schema_mappings() TO farm_service',
     );
+    // ALERT-CRITICAL-004: the default-escalation-policy reconcile fans out
+    // through the verified mapping; without this grant it fails every tick.
+    expect(sql).toContain(
+      'GRANT EXECUTE ON FUNCTION platform.list_active_tenant_schema_mappings() TO alert_service',
+    );
     expect(sql).toContain('GRANT USAGE, CREATE ON SCHEMA platform TO db_migrate');
     expect(sql).toContain('GRANT USAGE ON SCHEMA platform TO farm_service');
     expect(leastPrivilegeSql).toContain(

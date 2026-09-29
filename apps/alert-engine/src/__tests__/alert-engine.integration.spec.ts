@@ -190,6 +190,11 @@ describe('Alert Engine Integration', () => {
         {
           provide: DataSource,
           useValue: {
+            // The escalation-level write and the AlertEscalated enqueue share one
+            // transaction. Without this double the enqueue used to fail silently
+            // (a swallowed error); a failed first level now throws, as it must.
+            transaction: (cb: (manager: { save: jest.Mock }) => Promise<unknown>): Promise<unknown> =>
+              cb({ save: jest.fn(async (_entity: unknown, row: unknown) => row) }),
             createQueryRunner: jest.fn().mockReturnValue({
               connect: jest.fn(),
               startTransaction: jest.fn(),
@@ -353,7 +358,9 @@ describe('Alert Engine Integration', () => {
     it('should acknowledge escalation', async () => {
       const incident = new AlertIncident();
       incident.id = 'incident-1';
-      incident.tenantId = 'tenant-1';
+      // Acknowledgement reads the incident in its tenant context (timer paths do
+      // too), which needs a canonical tenant UUID.
+      incident.tenantId = '7f6b08ab-90e2-46d3-8a11-2b3c4d5e6f70';
       incident.title = 'Test Alert';
       incident.status = IncidentStatus.NEW;
       incident.timeline = [];

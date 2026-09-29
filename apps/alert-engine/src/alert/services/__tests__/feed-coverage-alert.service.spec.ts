@@ -3,6 +3,7 @@
  * ≤3 gün CRITICAL, ≤leadTime WARNING, pencere dışı incident YOK;
  * kapsama açıksız geçiş sinyali incident üretmez; dedup kimliği kapsam bazlı.
  */
+import { signalKey } from '@platform/event-contracts';
 import type {
   FeedStockoutForecastEvent,
   FeedTransitionUpcomingEvent,
@@ -89,13 +90,29 @@ describe('FeedCoverageAlertService', () => {
     await service.recordStockoutForecast(stockoutEvent({ daysOfCover: 2 }));
     expect(ensureIncident).toHaveBeenCalledTimes(1);
     const call = ensureIncident.mock.calls[0]?.[0] as {
-      ruleId: string;
+      signalKey: string;
+      siteId: string | null;
       severity: AlertSeverity;
       signalLabel: string;
     };
-    expect(call.ruleId).toBe('system:feed-stockout:site-1:feed-1');
+    expect(call.signalKey).toBe(
+      signalKey({ kind: 'feed-stockout', scope: { level: 'site', siteId: 'site-1' }, feedId: 'feed-1' }),
+    );
+    // Site tier: the forecast names its site, so site managers are paged.
+    expect(call.siteId).toBe('site-1');
     expect(call.severity).toBe(AlertSeverity.CRITICAL);
     expect(call.signalLabel).toBe('feed-stockout');
+  });
+
+  it('tenant-geneli (pool) tükeniş sitesiz, havuz anahtarıyla açılır', async () => {
+    // SCENARIO: the D-9 tenant-wide fallback scope ('tenant').
+    // EXPECTS: the pool-tier key and no site — procurement-level, tenant admins page.
+    await service.recordStockoutForecast(stockoutEvent({ daysOfCover: 2, siteScopeKey: 'tenant' }));
+    const call = ensureIncident.mock.calls[0]?.[0] as { signalKey: string; siteId: string | null };
+    expect(call.signalKey).toBe(
+      signalKey({ kind: 'feed-stockout', scope: { level: 'pool' }, feedId: 'feed-1' }),
+    );
+    expect(call.siteId).toBeNull();
   });
 
   it('aksiyon penceresi dışındaki tükeniş NE history NE incident üretir', async () => {
@@ -109,8 +126,10 @@ describe('FeedCoverageAlertService', () => {
   it('kapsama açığı taşıyan geçiş WARNING incident üretir', async () => {
     await service.recordTransitionGap(transitionEvent({ shortfallDays: 2 }));
     expect(ensureIncident).toHaveBeenCalledTimes(1);
-    const call = ensureIncident.mock.calls[0]?.[0] as { ruleId: string; severity: AlertSeverity };
-    expect(call.ruleId).toBe('system:feed-transition-gap:unit-1:feed-2');
+    const call = ensureIncident.mock.calls[0]?.[0] as { signalKey: string; severity: AlertSeverity };
+    expect(call.signalKey).toBe(
+      signalKey({ kind: 'feed-transition-gap', unitId: 'unit-1', toFeedId: 'feed-2' }),
+    );
     expect(call.severity).toBe(AlertSeverity.WARNING);
   });
 

@@ -13,6 +13,7 @@
  * malformed-entry drop) and the water-quality incident spec; the dedup/
  * escalation behaviour is proven once in farm-signal-incident.service.spec.ts.
  */
+import { signalKey } from '@platform/event-contracts';
 import { createMockRepository } from '@aquaculture/testing';
 import { createBaseEvent } from '@platform/event-contracts';
 import type { WaterQualityCriticalEvent } from '@platform/event-contracts';
@@ -88,7 +89,7 @@ describe('WaterQualityCriticalAlertService', () => {
     const saved = historyRepo.save.mock.calls[0]?.[0] as AlertHistory;
     expect(saved.tenantId).toBe(TENANT_ID);
     expect(saved.severity).toBe(AlertSeverity.CRITICAL);
-    expect(saved.ruleId).toBe(`system:water-quality:${TANK_ID}`);
+    expect(saved.ruleId).toBe(signalKey({ kind: 'water', equipmentId: TANK_ID }));
     expect(saved.message).toContain('Dissolved Oxygen 3.1mg/L below 4.5mg/L');
     expect(saved.message).toContain('pH 5.2 below 6');
     expect(saved.triggeredAt).toEqual(new Date('2026-06-10T08:00:00.000Z'));
@@ -110,7 +111,7 @@ describe('WaterQualityCriticalAlertService', () => {
     );
 
     const saved = historyRepo.save.mock.calls[0]?.[0] as AlertHistory;
-    expect(saved.ruleId).toBe('system:water-quality:equip-9');
+    expect(saved.ruleId).toBe(signalKey({ kind: 'water', equipmentId: 'equip-9' }));
     expect(saved.message).toBe(
       'Water quality critical at equipment equip-9: 3 parameter(s) out of critical range',
     );
@@ -144,7 +145,7 @@ describe('WaterQualityCriticalAlertService', () => {
     expect(farmSignalIncident.ensureIncident).toHaveBeenCalledTimes(1);
     const spec = farmSignalIncident.ensureIncident.mock.calls[0]?.[0] as FarmSignalIncidentSpec;
     expect(spec.tenantId).toBe(TENANT_ID);
-    expect(spec.ruleId).toBe(`system:water-quality:${TANK_ID}`);
+    expect(spec.signalKey).toBe(signalKey({ kind: 'water', equipmentId: TANK_ID }));
     expect(spec.severity).toBe(AlertSeverity.CRITICAL);
     expect(spec.signalLabel).toBe('water-quality');
     expect(spec.title).toBe(`Water Quality Critical: tank ${TANK_ID}`);
@@ -167,6 +168,43 @@ describe('WaterQualityCriticalAlertService', () => {
 
     const spec = farmSignalIncident.ensureIncident.mock.calls[0]?.[0] as FarmSignalIncidentSpec;
     expect(spec.title).toBe('Water Quality Critical: equipment equip-9');
-    expect(spec.ruleId).toBe('system:water-quality:equip-9');
+    expect(spec.signalKey).toBe(signalKey({ kind: 'water', equipmentId: 'equip-9' }));
+  });
+
+  it('carries the producer site and actor into the incident (ALERT-MEDIUM-007)', async () => {
+    // SCENARIO: a manual critical reading on a tank of a known site.
+    // EXPECTS: the incident is scoped to that site (so site managers are paged) and
+    //          the breadcrumb names who took the reading.
+    const { service, farmSignalIncident, historyRepo } = makeService();
+    const siteId = '44444444-4444-4444-8444-444444444444';
+
+    await service.recordCriticalWaterQuality(makeEvent({ siteId, userId: 'user-7' }));
+
+    const spec = farmSignalIncident.ensureIncident.mock.calls[0]?.[0] as FarmSignalIncidentSpec;
+    expect(spec.siteId).toBe(siteId);
+    const saved = historyRepo.save.mock.calls[0]?.[0] as AlertHistory;
+    expect(saved.triggeringData).toMatchObject({ siteId, recordedBy: 'user-7' });
+  });
+
+  it('opens a siteless incident for an event that names no site', async () => {
+    // SCENARIO: an event published before the field existed / a pond-only reading.
+    // EXPECTS: siteId null — escalation then widens site roles to the tenant.
+    const { service, farmSignalIncident } = makeService();
+
+    await service.recordCriticalWaterQuality(makeEvent());
+
+    const spec = farmSignalIncident.ensureIncident.mock.calls[0]?.[0] as FarmSignalIncidentSpec;
+    expect(spec.siteId).toBeNull();
+  });
+
+  it('keys a reading that names no unit by the measurement, never "unknown"', async () => {
+    // SCENARIO: neither equipmentId nor tankId is present.
+    // EXPECTS: a measurement-scoped key — it still pages, it just cannot merge.
+    const { service, farmSignalIncident } = makeService();
+
+    await service.recordCriticalWaterQuality(makeEvent({ tankId: null, equipmentId: null }));
+
+    const spec = farmSignalIncident.ensureIncident.mock.calls[0]?.[0] as FarmSignalIncidentSpec;
+    expect(spec.signalKey).toBe(signalKey({ kind: 'water-measurement', measurementId: MEASUREMENT_ID }));
   });
 });

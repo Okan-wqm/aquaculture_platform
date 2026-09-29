@@ -4839,6 +4839,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/jest.integration.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/project.json",
       "prettier_managed": true
     },
@@ -4870,6 +4876,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/alert-engine/src/__tests__/di-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/__tests__/integration/farm-signal-delivery.postgres.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5213,7 +5225,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/database/migrations/1801200000000-FarmSignalIncidentDelivery.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/escalation/__tests__/acknowledgment-tracker.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/escalation/__tests__/default-escalation-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/escalation/__tests__/default-policy-provisioning.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/escalation/__tests__/escalation-manager.delivery.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5232,6 +5268,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/alert-engine/src/escalation/acknowledgment-tracker.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/escalation/alert-escalated-event.builder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/escalation/default-escalation-policy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/escalation/default-policy-provisioning.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/escalation/default-policy-reconciler.service.ts",
       "prettier_managed": true
     },
     {
@@ -43693,6 +43753,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/fixtures/alert-escalated.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/fixtures/finance-settings-updated.json",
       "prettier_managed": true
     },
@@ -43712,6 +43778,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/__tests__/alert-escalated-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -43765,6 +43837,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/__tests__/signal-key.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/__tests__/tenant-erasure-targets.spec.ts",
       "prettier_managed": true
     },
@@ -43790,6 +43868,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/alert-events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/alert-recipient-queries.ts",
       "prettier_managed": true
     },
     {
@@ -44089,6 +44173,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/schemas/__tests__/water-quality-events.schema.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/schemas/alert-events.schema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/schemas/auth-credential-queries.schema.ts",
       "prettier_managed": true
     },
@@ -44167,6 +44263,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/schemas/water-quality-events.schema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/security/index.ts",
       "prettier_managed": true
     },
@@ -44192,6 +44294,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/sensor-reading-projection.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/signal-key.ts",
       "prettier_managed": true
     },
     {
@@ -49456,6 +49564,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/shared-ui-test-alias.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/signal-key-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -63527,7 +63641,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "02d09b01578bdcb4be6329c109b4f25684fa040e8262a4a0283a92708459f60d",
+      "content_sha256": "aeb8175b0d7a1c2b95c712e341d5e826b25261513499c01ed436d724cfdde4a2",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

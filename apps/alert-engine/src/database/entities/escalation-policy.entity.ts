@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
+import type { AlertRecipientRole } from '@platform/event-contracts';
 import { AlertSeverity } from './alert-rule.entity';
 
 /**
@@ -46,6 +47,52 @@ registerEnumType(NotificationChannel, {
 });
 
 /**
+ * Tenant roles a level can page (ALERT-CRITICAL-004).
+ *
+ * WHY a const object and not a second enum: the codes are the event contract's
+ * `AlertRecipientRole` (the auth `users.role` values a tenant user can hold).
+ * `satisfies` makes this object exactly that union — a role added to or removed
+ * from the contract is a compile error here, so the GraphQL enum, the stored
+ * policy and the delivery event can never disagree on a role code.
+ */
+export const EscalationRecipientRole = {
+  TENANT_ADMIN: 'TENANT_ADMIN',
+  MODULE_MANAGER: 'MODULE_MANAGER',
+  MODULE_USER: 'MODULE_USER',
+} as const satisfies { [K in AlertRecipientRole]: K };
+export type EscalationRecipientRole = AlertRecipientRole;
+
+registerEnumType(EscalationRecipientRole, {
+  name: 'EscalationRecipientRole',
+  description: 'Tenant role an escalation level pages',
+});
+
+/**
+ * Where a role target is looked up. TENANT = every active holder of the role;
+ * INCIDENT_SITE = holders assigned to the incident's site (an incident with no
+ * site widens to TENANT — a missing site never silences an alarm).
+ */
+export enum EscalationRecipientScope {
+  TENANT = 'TENANT',
+  INCIDENT_SITE = 'INCIDENT_SITE',
+}
+
+registerEnumType(EscalationRecipientScope, {
+  name: 'EscalationRecipientScope',
+  description: 'Scope a role target is resolved in',
+});
+
+/** One role target of an escalation level ("site managers", "tenant admins"). */
+@ObjectType('EscalationRoleTarget')
+export class EscalationRoleTarget {
+  @Field(() => EscalationRecipientRole)
+  role!: EscalationRecipientRole;
+
+  @Field(() => EscalationRecipientScope)
+  scope!: EscalationRecipientScope;
+}
+
+/**
  * Escalation level configuration
  */
 @ObjectType('EscalationLevel')
@@ -64,6 +111,14 @@ export class EscalationLevel {
 
   @Field(() => [String], { nullable: true })
   notifyTeamIds?: string[];
+
+  /**
+   * Role targets resolved to people at delivery time by auth-service (the user
+   * directory's owner) — a policy says "site managers", not a frozen id list
+   * that goes stale when staff change (ALERT-CRITICAL-004).
+   */
+  @Field(() => [EscalationRoleTarget], { nullable: true })
+  notifyRoles?: EscalationRoleTarget[];
 
   @Field(() => [NotificationChannel])
   channels!: NotificationChannel[];
@@ -137,6 +192,15 @@ export class SuppressionWindow {
 @Entity('escalation_policies')
 @Index(['tenantId', 'isActive'])
 @Index(['severity'])
+// INVARIANT (ALERT-CRITICAL-004): at most one default policy per tenant. The
+// seeder's ON CONFLICT DO NOTHING relies on this index, so the provisioning
+// event, the periodic reconcile and the point-of-use ensure can race without
+// ever creating a second default. If violated → two defaults and a coin-flip
+// escalation ladder.
+@Index('uq_escalation_policies_tenant_default', ['tenantId'], {
+  unique: true,
+  where: '"is_default" = true',
+})
 export class EscalationPolicy {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

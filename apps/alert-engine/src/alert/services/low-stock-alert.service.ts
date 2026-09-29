@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import type { LowStockDetectedEvent } from '@platform/event-contracts';
+import { signalKey, type LowStockDetectedEvent, type SignalKey } from '@platform/event-contracts';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
 import { FarmSignalIncidentService } from './farm-signal-incident.service';
@@ -16,9 +16,13 @@ import { FarmSignalIncidentService } from './farm-signal-incident.service';
  * broadcast (`FeedInventoryLow`) or an in-process emit with no listener —
  * no escalatable incident anywhere (findings register FARM-HIGH-217).
  *
- * Dedup identity is per (itemType, itemId): repeated deductions of the same
- * depleted item bump ONE open incident instead of flooding — the same
- * semantics MortalityAlertService uses per alert type.
+ * Dedup identity is the platform signal key of the item's stock condition
+ * (ALERT-MEDIUM-006): repeated deductions of the same depleted item bump ONE
+ * open incident instead of flooding. Today's event reports the tenant-wide
+ * total across every storage location, i.e. the POOL tier of plan K8, so the
+ * key is `stock:pool:{itemId}` and the incident has no site. When the event
+ * gains its site tier (`level` + `siteId`, lane B / FARM-HIGH-336) a site-level
+ * event keys `stock:{siteId}:{itemId}` and names its site here.
  */
 @Injectable()
 export class LowStockAlertService {
@@ -40,9 +44,9 @@ export class LowStockAlertService {
     return severity === 'out_of_stock' ? AlertSeverity.CRITICAL : AlertSeverity.WARNING;
   }
 
-  /** Deterministic synthetic rule identity grouping low-stock alerts per item. */
-  private syntheticRuleId(event: LowStockDetectedEvent): string {
-    return `system:low-stock:${event.itemType}:${event.itemId}`;
+  /** Pool-tier stock condition of the item (see class doc). */
+  private signalKeyOf(event: LowStockDetectedEvent): SignalKey {
+    return signalKey({ kind: 'stock', scope: { level: 'pool' }, itemId: event.itemId });
   }
 
   private buildMessage(event: LowStockDetectedEvent): string {
@@ -61,7 +65,7 @@ export class LowStockAlertService {
    */
   async recordLowStockAlert(event: LowStockDetectedEvent): Promise<void> {
     const severity = this.mapSeverity(event.severity);
-    const ruleId = this.syntheticRuleId(event);
+    const key = this.signalKeyOf(event);
     const ruleName = `Low Stock (${event.itemType})`;
     const triggeredAt = new Date(event.timestamp);
     const message = this.buildMessage(event);
@@ -79,7 +83,7 @@ export class LowStockAlertService {
     };
 
     const history = this.historyRepository.create({
-      ruleId,
+      ruleId: key,
       ruleName,
       tenantId: event.tenantId,
       severity,
@@ -91,7 +95,9 @@ export class LowStockAlertService {
 
     await this.farmSignalIncident.ensureIncident({
       tenantId: event.tenantId,
-      ruleId,
+      signalKey: key,
+      // Pool tier: the event reports the tenant-wide total, so no one site owns it.
+      siteId: null,
       title: `${ruleName}: ${event.itemName}`,
       description: message,
       severity,

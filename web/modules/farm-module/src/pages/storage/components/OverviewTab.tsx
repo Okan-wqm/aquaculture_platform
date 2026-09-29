@@ -25,6 +25,7 @@ import {
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
 import { usePendingDeliveries, PurchaseOrder } from '../../../hooks/usePurchaseOrders';
 import { ReceiveDeliveryModal } from './ReceiveDeliveryModal';
+import { lowStockRowKey, lowStockTierLabel } from '../utils/low-stock-tiers';
 import { ChevronDown, Clock, X } from 'lucide-react';
 
 const movementTypeBadge: Record<string, string> = {
@@ -477,16 +478,20 @@ export const OverviewTab: React.FC = () => {
                 No low stock alerts
               </div>
             ) : (
-              overview?.lowStockAlerts.map((alert, idx) => (
+              overview?.lowStockAlerts.map((alert) => (
+                // One row per (item, tier, site): the pool and each short site are
+                // separate decisions (reorder vs. transfer) — plan K8.
                 <div
-                  key={`${alert.itemId}-${idx}`}
+                  key={lowStockRowKey(alert)}
                   className="px-5 py-3 flex items-center justify-between"
                 >
                   <div>
                     <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                       {alert.itemName}
                     </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">{alert.itemType}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      {alert.itemType} · {lowStockTierLabel(alert)}
+                    </div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm">
@@ -504,6 +509,11 @@ export const OverviewTab: React.FC = () => {
                         / {alert.minStock} {alert.unit}
                       </span>
                     </div>
+                    {alert.level === 'POOL' && alert.onOrderQuantity > 0 && (
+                      <div className="text-xs text-info-600 dark:text-info-400">
+                        +{alert.onOrderQuantity} {alert.unit} on order
+                      </div>
+                    )}
                   </div>
                 </div>
               ))

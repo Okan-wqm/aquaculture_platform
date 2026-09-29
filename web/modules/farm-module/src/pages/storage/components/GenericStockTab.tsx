@@ -20,9 +20,10 @@ import {
   useStorageOverview,
   StorageItemType,
   MovementType,
-  LowStockAlert,
 } from '../../../hooks/useStorageInventory';
+import { useStorageLocationList } from '../../../hooks/useStorageLocations';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
+import { indexLowStock, lowStockTierLabel, type RowLowStock } from '../utils/low-stock-tiers';
 import { getExpiryRowClass, isExpired, isExpiringSoon } from '../utils/expiry-utils';
 import { DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
 import { Search as SearchIcon } from 'lucide-react';
@@ -76,23 +77,36 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
 
   const { data: inventory, isLoading, error, refetch } = useStorageInventory(undefined, itemType);
 
-  // Low-stock signal: the SAME server-side threshold the Overview tab shows
-  // (master quantity <= minStock, computed in get-storage-overview) — surfaced
-  // HERE, on the rows the operator actually restocks from. Matched by itemId.
+  // Low-stock signal: the SAME ledger tiers the Overview tab shows (plan K8,
+  // LowStockEvaluator) — surfaced HERE, on the rows the operator restocks
+  // from. A POOL tier concerns every row of the item; a SITE tier only the
+  // rows at that site, so a row's site comes from its storage location.
   const { data: overview } = useStorageOverview();
-  const lowStockByItemId = useMemo(() => {
-    const map = new Map<string, LowStockAlert>();
-    for (const alert of overview?.lowStockAlerts ?? []) {
-      map.set(alert.itemId, alert);
-    }
-    return map;
-  }, [overview?.lowStockAlerts]);
+  const { data: locations } = useStorageLocationList();
+  const lowStock = useMemo(
+    () => indexLowStock(overview?.lowStockAlerts ?? []),
+    [overview?.lowStockAlerts],
+  );
+  const siteByLocationId = useMemo(
+    () => new Map((locations?.items ?? []).map((location) => [location.id, location.siteId])),
+    [locations?.items],
+  );
+  const rowLowStock = useCallback(
+    (item: { itemId: string; storageLocationId: string }): RowLowStock =>
+      lowStock.forRow(item.itemId, siteByLocationId.get(item.storageLocationId)),
+    [lowStock, siteByLocationId],
+  );
 
   const items = inventory || [];
-  // Distinct ITEMS below minimum — inventory rows are per lot/location, so a
+  // Distinct ITEMS with a short tier — inventory rows are per lot/location, so a
   // row count would multiply one low feed by its number of lots.
   const lowStockCount = new Set(
-    items.map((item) => item.itemId).filter((id) => lowStockByItemId.has(id)),
+    items
+      .filter((item) => {
+        const tiers = rowLowStock(item);
+        return tiers.pool !== undefined || tiers.site !== undefined;
+      })
+      .map((item) => item.itemId),
   ).size;
 
   const filtered = items.filter((item) => {
@@ -127,7 +141,7 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
         key: col,
         header: COLUMN_HEADERS[col],
         className: getCellClassName(col),
-        render: (_value, item) => renderCell(col, item, lowStockByItemId.get(item.itemId)),
+        render: (_value, item) => renderCell(col, item, rowLowStock(item)),
       }),
     ),
     {
@@ -275,27 +289,32 @@ function renderCell(
     expiryDate?: string;
     notes?: string;
   },
-  lowStock?: LowStockAlert,
+  lowStock: RowLowStock,
 ): React.ReactNode {
   switch (col) {
     case 'itemName':
       return (
         <>
           {item.itemName || '-'}
-          {/* Low-stock badge — same server-side threshold as the Overview tab
-              (master quantity <= minStock). Red = nothing left; amber = at or
-              below the reorder point, restock soon. */}
-          {lowStock && (
-            <span
-              className={`ml-2 text-xs px-1.5 py-0.5 rounded font-medium ${
-                lowStock.currentQuantity === 0
-                  ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
-                  : 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
-              }`}
-              title={`${lowStock.currentQuantity} / min ${lowStock.minStock} ${lowStock.unit}`}
-            >
-              {lowStock.currentQuantity === 0 ? 'OUT OF STOCK' : 'LOW STOCK'}
-            </span>
+          {/* Low-stock badges — the ledger tiers the Overview tab shows. SITE:
+              this row's site is below its site policy (transfer / site buy);
+              POOL: the whole tenant is at the reorder threshold (purchase).
+              Red = nothing left in that tier; amber = at/below its threshold. */}
+          {[lowStock.site, lowStock.pool].map((alert) =>
+            alert === undefined ? null : (
+              <span
+                key={alert.level}
+                className={`ml-2 text-xs px-1.5 py-0.5 rounded font-medium ${
+                  alert.currentQuantity === 0
+                    ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
+                    : 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
+                }`}
+                title={`${lowStockTierLabel(alert)}: ${alert.currentQuantity} / min ${alert.minStock} ${alert.unit}`}
+              >
+                {alert.level === 'SITE' ? 'SITE ' : ''}
+                {alert.currentQuantity === 0 ? 'OUT OF STOCK' : 'LOW STOCK'}
+              </span>
+            ),
           )}
         </>
       );

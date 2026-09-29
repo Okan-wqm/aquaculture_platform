@@ -17,6 +17,7 @@ import {
   CreateConsumableInput,
 } from '../../../hooks/useConsumables';
 import { useSupplierList } from '../../../hooks/useSuppliers';
+import { derivedStockTone, STOCK_TONE_TEXT_CLASS } from '../../../utils/derived-stock-tone';
 import {
   FormField,
   Modal,
@@ -341,13 +342,10 @@ export const ConsumablesTab: React.FC = () => {
       header: 'Stock / Min',
       render: (_value, item) => (
         <>
-          <span
-            className={
-              item.quantity <= item.minStock
-                ? 'text-error-600 dark:text-error-400 font-medium'
-                : 'text-gray-900 dark:text-gray-100'
-            }
-          >
+          {/* WHY status, not quantity vs minStock: the ledger projection
+              derives the status (CatalogStockProjector); re-comparing the
+              catalog quantity here would be a second low-stock rule. */}
+          <span className={`font-medium ${STOCK_TONE_TEXT_CLASS[derivedStockTone(item.status)]}`}>
             {item.quantity}
           </span>
           <span className="text-gray-400 dark:text-gray-500"> / {item.minStock}</span>

@@ -56467,6 +56467,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/storage/__tests__/low-stock-tiers.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/storage/__tests__/StoragePage.spec.tsx",
       "prettier_managed": true
     },
@@ -56582,6 +56588,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/storage/utils/expiry-utils.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/storage/utils/low-stock-tiers.ts",
       "prettier_managed": true
     },
     {

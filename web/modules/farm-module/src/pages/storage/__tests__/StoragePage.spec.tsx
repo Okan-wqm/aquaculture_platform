@@ -25,9 +25,7 @@ const OVERVIEW = {
   totalItems: 42,
   lowStockAlertCount: 1,
   recentMovementsCount: 7,
-  categoryTotals: [
-    { category: 'FEED', totalQuantity: 900, totalValue: 90000, itemCount: 12 },
-  ],
+  categoryTotals: [{ category: 'FEED', totalQuantity: 900, totalValue: 90000, itemCount: 12 }],
   locationFillRates: [
     {
       locationId: 'loc-1',
@@ -44,8 +42,24 @@ const OVERVIEW = {
       itemId: 'feed-1',
       itemName: 'Pellet 3mm',
       itemType: 'FEED',
+      level: 'SITE',
+      siteId: 'site-1',
+      siteName: 'Bodø North',
       currentQuantity: 100,
       minStock: 500,
+      onOrderQuantity: 0,
+      unit: 'kg',
+    },
+    {
+      itemId: 'feed-1',
+      itemName: 'Pellet 3mm',
+      itemType: 'FEED',
+      level: 'POOL',
+      siteId: null,
+      siteName: null,
+      currentQuantity: 900,
+      minStock: 1000,
+      onOrderQuantity: 50,
       unit: 'kg',
     },
   ],
@@ -78,6 +92,17 @@ describe('StoragePage', () => {
     });
     expect((await screen.findAllByText(/Feed Silo 1/)).length).toBeGreaterThan(0);
     expect((await screen.findAllByText(/Pellet 3mm/)).length).toBeGreaterThan(0);
+  });
+
+  it('shows the site tier and the pool tier of one item as two distinct rows (plan K8)', async () => {
+    // SCENARIO: Pellet 3mm is short at site Bodø North AND in the tenant pool
+    // (50 kg on order). EXPECTS: two rows, one naming the site, one the pool
+    // with its open-order remainder — not one row overwriting the other.
+    renderWithProviders(<StoragePage />, { route: '/storage', path: 'storage' });
+
+    expect(await screen.findByText(/Site: Bodø North/)).toBeInTheDocument();
+    expect(await screen.findByText(/All sites \(pool\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/\+50 kg on order/)).toBeInTheDocument();
   });
 
   it('does not render the overview as a fake-empty success state when the query fails (FARM-LOW-147)', async () => {

@@ -163,7 +163,9 @@ class RecoveryClassifies(unittest.TestCase):
 
     def test_I_V12_RECV_03_pr_manager_brackets_the_external_write(self) -> None:
         source = (_REPO_ROOT / "aria-kernel" / "aria_kernel" / "pr_manager.py").read_text(encoding="utf-8")
-        create = source.index('"gh", "pr", "create"')
+        # ARIA-CRITICAL-246 — the create is handed to the one write door,
+        # which prepends `gh`; the argv the kernel spells starts at `pr`.
+        create = source.index('run_gh_write(\n            ["pr", "create"')
         self.assertLess(source.rindex("record_intent(", 0, create), create)
         self.assertGreater(source.index("record_receipt(", create), create)
         push = source.index('["push", "-u", remote, branch]')

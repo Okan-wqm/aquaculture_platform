@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `116962be245b9428043e42a8ced834486a461da3aae4e7158b69986cfa0f13cf`
+Registry tip: `1f65feb1f0f16fb01231a17e4cc2e1425672edbdd65122aa6df42273db6f7cce`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -285,6 +285,7 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
 | `ARIA-CRITICAL-216` | OPEN | 2026-09-26 | claude | real-open |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
+| `ARIA-CRITICAL-246` | OPEN | 2026-09-29 | claude | real-open |
 
 ## Mutation Rules
 
@@ -436,6 +437,12 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
   while farm signals use synthetic keys — the likely reason the live DB holds 0 incidents. Real open
   work, owner alert-engine-expert (registry owner_user okan), deadline 2026-10-15; closed by plan
   PR-S1 (`docs/reviews/alert-engine-expert/2026-09-29-ai-tracking-program.md`).
+- `ARIA-CRITICAL-246` (2026-09-29, ARIA sync risks): ARIA could author its own operator approval,
+  because every kernel GitHub write ran on the ambient credential, and the lanes exported the
+  operator's PAT. Real open work until the identity PR merges (`github_writes` door, lanes without
+  the PAT) and the operator retires the PAT on the runner (plan M3); owner claude (registry
+  owner_user okan), deadline 2026-10-06
+  (`docs/reviews/claude/2026-09-27-aria-sync-risks.md`).
 
 - `SENSOR-CRITICAL-127`, `BILLING-CRITICAL-019`, `FARM-CRITICAL-331`, `SEC-CRITICAL-169` (2026-09-20,
   the boot-path outage): a re-provided sensor MQTT auth service, a type-only import of an injected

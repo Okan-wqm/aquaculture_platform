@@ -69,6 +69,7 @@ from aria_kernel.self_revert import (
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.validation_runs_ledger import list_validation_runs_for_change, record_validation_run
 from aria_kernel.validation_suite import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
+from tests._helpers.installation_credential import INSTALLATION_TOKEN
 from tests._helpers.operator_acts import operator_set_profile
 
 MERGED_PR = 41
@@ -76,6 +77,23 @@ REVERT_PR = 77
 LINES = [f"line {n}\n" for n in range(1, 11)]
 MERGE_SUBJECT = "docs: the merge that goes bad"
 
+
+
+def _installation_mint(*, cycle_id: str, workspace_root: Any, ttl_seconds: int, token_dir: Any, **_ignored: Any) -> Any:
+    """``gh_token_factory.mint_installation_token``'s shape: a Mode A lease
+    whose token file holds an installation-shaped value."""
+    from datetime import datetime, timedelta, timezone
+
+    from aria_kernel.gh_token_factory import InstallationTokenLease
+
+    now = datetime.now(timezone.utc)
+    token_file = Path(token_dir) / f"{cycle_id}.token"
+    token_file.write_text(INSTALLATION_TOKEN, encoding="utf-8")
+    token_file.chmod(0o600)
+    return InstallationTokenLease(
+        cycle_id=cycle_id, token_file=token_file, ttl_seconds=ttl_seconds, gh_app_installation_id="42",
+        fallback_active=False, minted_at_utc=now.isoformat(), provider_expiry=(now + timedelta(hours=1)).isoformat(),
+    )
 
 class FakeReader:
     """The checks reader's read surface, answering from a fixed table."""
@@ -241,9 +259,19 @@ class SelfRevertTests(unittest.TestCase):
         patcher = mock.patch.object(pr_manager.subprocess, "run", side_effect=fake_run)
         patcher.start()
         self.addCleanup(patcher.stop)
-        env = mock.patch.dict(os.environ, {"ARIA_DRY_RUN": "true"})
-        env.start()
-        self.addCleanup(env.stop)
+        # The lane's delivery credential: an App installation token, minted
+        # and revoked at the credential hold's one seam. The PR is a write,
+        # and a write runs on an installation token (ARIA-CRITICAL-246); the
+        # dry-run sentinel is non-authoritative and writes nothing. A test
+        # about a lane that cannot mint patches the mint again.
+        from aria_kernel import delivery_credentials
+
+        mint = mock.patch.object(delivery_credentials, "mint_installation_token", side_effect=_installation_mint)
+        mint.start()
+        self.addCleanup(mint.stop)
+        revoke = mock.patch.object(delivery_credentials, "revoke_installation_token", return_value="revoked")
+        revoke.start()
+        self.addCleanup(revoke.stop)
 
     # -- fixture helpers --------------------------------------------------
 

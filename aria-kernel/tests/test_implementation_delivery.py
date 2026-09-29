@@ -44,6 +44,7 @@ from aria_kernel.implementation_delivery import (
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 from tests._helpers.operator_acts import operator_set_profile
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -1541,14 +1542,17 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
                          (delivery.CREDENTIAL_STAGE, "credential_unavailable:delivery_credential_unavailable:RuntimeError"))
         self.assertEqual(self._log(self.push_log), [])
         self.assertEqual(self._log(self.gh_log), [])
-        # And a profile without the grant mints nothing: the remote here
-        # needs no credential, so the delivery lands with none.
-        delivered = deliver_implementation(
-            request_id=self.request["request_id"], claim_id=self.claim["claim_id"], agent_id=self.claim["agent_id"],
-            cycle_id=CYCLE_ID, signer_key_fp=self.fingerprint, implementation_ids=self.ids,
-            envelope=self.envelope, output_path=self.output, workspace_root=self.repo, base_dir=self.tools,
-            publication=_published(self.ids["branch"], adopted=self.ids["branch"]), profile=None,
-        )
+        # And a profile without the grant mints nothing: the delivery lands on
+        # the lane's own job token (ARIA-CRITICAL-246: the PR is a write, and
+        # a write runs on an installation token), with no minted git credential.
+        with mock.patch.dict("os.environ", LANE_CREDENTIAL_ENV):
+            delivered = deliver_implementation(
+                request_id=self.request["request_id"], claim_id=self.claim["claim_id"], agent_id=self.claim["agent_id"],
+                cycle_id=CYCLE_ID, signer_key_fp=self.fingerprint, implementation_ids=self.ids,
+                envelope=self.envelope, output_path=self.output, workspace_root=self.repo, base_dir=self.tools,
+                publication=_published(self.ids["branch"], adopted=self.ids["branch"]), profile=None,
+            )
         self.assertEqual(delivered.pr_number, 6)
-        self.assertEqual(self._log(self.push_log)[0]["credential_names"], [])
+        self.assertEqual(self._log(self.push_log)[0]["credential_names"], ["GH_TOKEN"])
+        self.assertEqual(self._log(self.gh_log)[0]["credential_names"], ["GH_TOKEN"])
         self.assertEqual(self._governance("delivery_credential_issued"), [])

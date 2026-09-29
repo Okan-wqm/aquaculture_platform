@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .canonical_path import matches_repo_glob, normalize_repo_relpath
+from .github_writes import run_gh_write
 from .implementation_safety import (
     CANONICAL_VALIDATION_COMMANDS,
     canonical_command_satisfied_by,
@@ -1183,20 +1184,12 @@ class GhCliGitHubAdapter:
         self._merge_authority_token = None
         if method != "squash":
             raise GovernanceError("only squash merge is allowed")
-        completed = subprocess.run(
-            [
-                "gh",
-                "pr",
-                "merge",
-                str(number),
-                "--squash",
-                "--match-head-commit",
-                expected_head_sha,
-            ],
+        # ARIA-CRITICAL-246 — the merge is a write and runs on an
+        # installation token; GitHubWriteRefused is a GovernanceError, so a
+        # refusal reaches the caller the way a refused merge always has.
+        completed = run_gh_write(
+            ["pr", "merge", str(number), "--squash", "--match-head-commit", expected_head_sha],
             cwd=self.cwd,
-            check=False,
-            capture_output=True,
-            text=True,
         )
         if completed.returncode != 0:
             raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "gh pr merge failed")

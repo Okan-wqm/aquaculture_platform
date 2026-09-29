@@ -36,7 +36,7 @@ only.
 | Runner name        | `suderra-droplet-claude`                                                                                                                          |
 | Labels             | `self-hosted`, `linux`, `claude` (both lanes pin `runs-on: [self-hosted, linux, claude]`)                                                         |
 | systemd service    | `actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service`                                                                     |
-| Secrets file       | `/home/gharunner/actions-runner/.env` (keys: `ARIA_GH_TOKEN`, `ARIA_OBSERVABILITY_API_KEY`)                                                       |
+| Secrets file       | `/home/gharunner/actions-runner/.env` (key: `ARIA_OBSERVABILITY_API_KEY`; `ARIA_GH_TOKEN` must be absent)                                         |
 | Claude CLI floor   | `2.1.197` (both lanes' preflight rejects older)                                                                                                   |
 | Workspace checkout | `/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform`                                                                  |
 | Runner limits      | `MemoryHigh=2300M MemoryMax=3G OOMPolicy=continue CPUQuota=200% CPUWeight=400` (`scripts/aria/runner-habitat/systemd/actions-runner.limits.conf`) |
@@ -212,26 +212,27 @@ secrets, or workflow files. **Every edit requires a service restart**:
 sudo systemctl restart actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service
 ```
 
-Keep it `chown gharunner: && chmod 600`. Two keys (NAMES only here):
+Keep it `chown gharunner: && chmod 600`. One key (NAMES only here), and one that must be absent:
 
-### `ARIA_GH_TOKEN` — the lanes' ambient `gh` identity
+### `ARIA_GH_TOKEN` — retired; must be absent (ARIA-CRITICAL-246)
 
-The kernel-run steps in both lanes export this PAT as `GH_TOKEN` for their
-own `gh` calls when present, and fall back to the job token otherwise. It
-never authors a PR: every ARIA PR is opened with a GitHub App installation
-token under `ARIA_REQUIRE_MODE_A` (ARIA-HIGH-208), set up per
-`docs/runbooks/aria-github-app-setup.md`.
+This key held the operator's fine-grained PAT, and the kernel-run steps
+exported it as `GH_TOKEN`. Every write made with it was authored as the
+operator, and an operator's act on GitHub is what an `ARIA-APPROVE` line is
+verified against, so ARIA could author its own approval. No workflow reads it
+any more. The kernel writes only on an installation token (the job token or
+the ARIA GitHub App, `aria_kernel/github_writes.py`) and refuses any other
+credential by name. `provision_runner.sh` reports the key as `bad` while it is
+present.
 
-Mint (GitHub → Settings → Developer settings → Personal access tokens →
-**Fine-grained tokens** → Generate new token):
+To retire it on a runner that still has it:
 
-- **Repository access:** Only select repositories →
-  `Okan-wqm/aquaculture_platform` (this repo ONLY).
-- **Permissions:** Contents = Read and write; Pull requests = Read and
-  write. **Workflows = NOT granted** — deliberately withheld so
-  kernel/workflow-file writes stay operator-gated.
-- Expiration per operator policy; rotation = re-mint, replace the line
-  in `.env`, restart the service.
+1. Delete the `ARIA_GH_TOKEN=` line from `.env`.
+2. As `gharunner`, run `gh auth status`. It must show no logged-in operator
+   account (`gh auth logout` otherwise).
+3. Restart the service.
+4. Revoke the PAT (GitHub → Settings → Developer settings → Personal access
+   tokens → Fine-grained tokens).
 
 ### `ARIA_OBSERVABILITY_API_KEY` — production telemetry pull (E24-a)
 
@@ -328,8 +329,7 @@ claude` (or `gh api repos/Okan-wqm/aquaculture_platform/actions/runners`).
 
    A healthy run shows, in order: the CLI preflight passing the
    `2.1.197` floor, `aria/state checked out (restored)` (NOT
-   `bootstrap`), `ambient gh identity (reads): machine PAT (ARIA_GH_TOKEN)`
-   in the cycle step, and a green `Publish ARIA state to the aria/state branch` step.
+   `bootstrap`), and a green `Publish ARIA state to the aria/state branch` step.
    The executor drain follows automatically via `workflow_run`.
 
 4. **Drift gate:** `scripts/aria/provision_runner.sh --dry-run` exits 0.

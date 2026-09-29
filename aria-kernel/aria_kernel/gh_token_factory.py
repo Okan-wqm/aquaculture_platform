@@ -1376,14 +1376,17 @@ def revoke_installation_token(
         elif not shutil.which("gh"):
             outcome = "revoke_not_attempted:gh_unavailable"
         else:
+            from .github_writes import GitHubWriteRefused, run_gh_write
+
             try:
-                completed = subprocess.run(
-                    ["gh", "api", "-X", "DELETE", "/installation/token"],
-                    capture_output=True, text=True, check=False,
+                completed = run_gh_write(
+                    ["api", "-X", "DELETE", "/installation/token"],
                     env={**os.environ, "GH_TOKEN": token},
                     timeout=INSTALLATION_TOKEN_REVOKE_TIMEOUT_SECONDS,
                 )
                 outcome = "revoked" if completed.returncode == 0 else f"revoke_failed:rc={completed.returncode}"
+            except GitHubWriteRefused as exc:
+                outcome = f"revoke_refused:{exc}"
             except (OSError, subprocess.SubprocessError) as exc:
                 outcome = f"revoke_failed:{type(exc).__name__}"
     try:

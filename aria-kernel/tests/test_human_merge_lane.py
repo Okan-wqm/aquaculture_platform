@@ -28,6 +28,7 @@ from aria_kernel.plan_synthesizer import convert_candidate_to_plan_content
 from aria_kernel.risk_policy import HUMAN_MERGE_DECISION, HUMAN_MERGE_LABEL, classify_change
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.git_fixtures import make_local_git_repo
+from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -73,6 +74,10 @@ class ThePullRequestCarriesItsRouteTests(unittest.TestCase):
         patcher = mock.patch.object(pr_manager.subprocess, "run", side_effect=fake_run)
         patcher.start()
         self.addCleanup(patcher.stop)
+        # The lane opens the PR on its installation token (ARIA-CRITICAL-246).
+        credential = mock.patch.dict("os.environ", LANE_CREDENTIAL_ENV)
+        credential.start()
+        self.addCleanup(credential.stop)
 
     def _open(self, path: str, *, base_sha: str | None = None) -> dict[str, Any]:
         base = _git(self.repo, "rev-parse", "HEAD")

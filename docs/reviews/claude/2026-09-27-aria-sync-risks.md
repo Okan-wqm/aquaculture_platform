@@ -192,3 +192,46 @@ reading run history with the job token) and hands the verdict over as the job ou
 `scripts/aria/provision_runner.sh` and fails any workflow or composite action that names one in an
 `env` expression. It also pins the decide/dispatch split and the job's permissions. Against the
 previous workflow, four of its five tests fail.
+
+## ARIA-CRITICAL-246
+
+An operator approval is an act on GitHub by an account in `docs/aria/policy/operators.json`.
+`operator_approval.verify_operator_approval` accepts a comment or review whose author is a listed
+login of type `User`, and it does not look at the credential that posted it. Two things made that
+author reachable by ARIA. The cycle and executor kernel-run steps exported the runner `.env`'s
+`ARIA_GH_TOKEN`, the operator's PAT, as `GH_TOKEN`, and the operator's own terminal holds the
+operator's `gh` login. Every kernel write spawned `gh` with whatever credential was ambient: the
+notice comment and create in `notify`, the label and issue writes in `GhCliIssueWriter`,
+`gh pr create`, `gh pr merge`, the gateway's `gh workflow run` and the token revoke. A notice
+body carrying an `ARIA-APPROVE` line was posted as the operator. Reproduced: `aria_kernel notify
+send` with `GH_TOKEN=ghp_…` runs `gh issue create` with that body. Plan 037's operator decision
+(2026-09-26) already said the runner's token cannot be the operator's account.
+
+Rule: ARIA never writes to GitHub as an operator. Every kernel write runs on an installation token,
+which GitHub authors as a Bot and the approval verifier refuses, and no ARIA lane holds a user
+credential.
+
+Fix: `aria_kernel/github_writes.py` is the one door. `run_gh_write` reads the class of the
+credential `gh` would use from GitHub's token prefix (`ghs_` is a server-to-server installation
+token; `ghp_`, `github_pat_`, `gho_` and `ghu_` act as a user). It runs the write only on an
+installation token and refuses anything else by name
+(`github_write_requires_installation_token:<class>`), including no token at all, where `gh` would
+use its stored login. The check makes no network call. Every write above goes through it, and the
+PR create checks the credential before it records its intent. `test_github_write_paths` parses the
+kernel and fails on any `gh` write argv not handed to the door. The lanes no longer export the PAT.
+The daily report mints an App token for its PR, which its preflight already declared as
+`github_app:installation`. That mint runs under `ARIA_REQUIRE_MODE_A`, and the token is revoked
+with its own value after the PR step, whatever its outcome. `provision_runner.sh` reports a runner
+`.env` that still holds the key as `bad`. `test_no_lane_holds_a_user_credential` pins the lane
+side, and `test_github_write_identity` runs `notify send` as a real process against a fake `gh`.
+With the operator's PAT, a fine-grained PAT or no token, nothing is posted and the row names the
+class. Before the fix, the same test logs `gh issue create`.
+
+Mode B (`gh_token_factory`'s PAT fallback) stays in the code. Every lane sets
+`ARIA_REQUIRE_MODE_A`, and any write a Mode B lease could feed is refused by the door. The gateway
+daemon dispatches workflows with the `GH_TOKEN` in `/etc/aria/aria.env`, and it is inactive on the
+runner host. If it is started with a user token, each dispatch is refused by name.
+
+Operator step after merge (plan M3): remove `ARIA_GH_TOKEN` from the runner `.env`, confirm
+`gh auth status` as `gharunner` shows no operator login, restart the runner service, and revoke
+the PAT.

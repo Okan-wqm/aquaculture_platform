@@ -169,3 +169,26 @@ Fix direction (owner claude, deadline 2026-10-13): each producer resolves its so
 opens the mission (the finding's evidence paths, the pressure's stored `evidence_paths`, the changed
 path, the issue URL), and `open_mission` records them. A producer that cannot resolve any refuses by
 name.
+
+## ARIA-HIGH-244
+
+The executor's chain edge (ORPHAN-HIGH-740) dispatched the next cycle with
+`GH_TOKEN: ${{ env.ARIA_GH_TOKEN || github.token }}`. The self-hosted runner loads its `.env` into
+the process environment of each step. GitHub's `env` expression context holds only what the workflow
+declares or writes to `$GITHUB_ENV`, so the expression was always `github.token`. That token has the
+workflow's `actions: read`, and every dispatch the rhythm allowed was refused with 403. The step
+only warned ("chain dispatch refused by the API"), so the edge had never fired, and the cron floor
+paced the loop. Nothing checked which token the dispatch used, or whether a workflow read a runner
+`.env` name through an expression.
+
+Rule: A runner `.env` secret is never read through the `env` expression context. A GitHub write
+runs on a token that holds the permission it needs, and nothing more.
+
+Fix: the executor step now only decides (`cycle_rhythm` via `tools/aria/chain_next_cycle.py`,
+reading run history with the job token) and hands the verdict over as the job output
+`chain_dispatch`. A new hosted job, `chain-next-cycle`, holds `actions: write` alone and dispatches
+`aria-auto-cycle.yml`. A refused dispatch is now a red job instead of a warning.
+`test_runner_env_not_expression_context` reads the runner `.env` names from
+`scripts/aria/provision_runner.sh` and fails any workflow or composite action that names one in an
+`env` expression. It also pins the decide/dispatch split and the job's permissions. Against the
+previous workflow, four of its five tests fail.

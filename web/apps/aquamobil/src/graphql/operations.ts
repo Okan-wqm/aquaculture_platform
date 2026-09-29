@@ -545,8 +545,12 @@ export const GET_WAREHOUSE_SUMMARY: TypedDocumentNode<GetWarehouseSummaryQuery, 
         id
         name
         itemType
+        level
+        siteId
+        siteName
         currentQty
         minQty
+        onOrderQty
         unit
       }
       recentMovements {

@@ -18,9 +18,7 @@ import { InventoryCount, InventoryCountStatus } from '../entities/inventory-coun
 import { InventoryCountItem } from '../entities/inventory-count-item.entity';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
 import { StorageLocation } from '../entities/storage-location.entity';
-import { Feed } from '../../feed/entities/feed.entity';
-import { Chemical } from '../../chemical/entities/chemical.entity';
-import { Consumable } from '../../consumable/entities/consumable.entity';
+import { describeStorageItem } from '../services/storage-item-catalog';
 
 @CommandHandler(CreateInventoryCountCommand)
 export class CreateInventoryCountHandler implements ICommandHandler<CreateInventoryCountCommand, InventoryCount> {
@@ -31,12 +29,6 @@ export class CreateInventoryCountHandler implements ICommandHandler<CreateInvent
     private readonly countRepository: Repository<InventoryCount>,
     @InjectRepository(StorageLocation)
     private readonly locationRepository: Repository<StorageLocation>,
-    @InjectRepository(Feed)
-    private readonly feedRepository: Repository<Feed>,
-    @InjectRepository(Chemical)
-    private readonly chemicalRepository: Repository<Chemical>,
-    @InjectRepository(Consumable)
-    private readonly consumableRepository: Repository<Consumable>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -110,9 +102,8 @@ export class CreateInventoryCountHandler implements ICommandHandler<CreateInvent
       // A human-readable name is critical for warehouse workers performing physical
       // counts — "Salmon Grower 5mm" is actionable, "feed:3a7b2c9d" is not.
       for (const item of itemEntities) {
-        const resolvedName = await this.resolveItemName(
-          item.itemType as StorageItemType, item.itemId, tenantId,
-        );
+        const resolvedName =
+          (await describeStorageItem(manager, tenantId, item.itemType, item.itemId))?.name ?? null;
         const lotSuffix = item.lotNumber ? ` (${item.lotNumber})` : '';
         item.itemName = resolvedName
           ? `${resolvedName}${lotSuffix}`
@@ -129,30 +120,5 @@ export class CreateInventoryCountHandler implements ICommandHandler<CreateInvent
       savedCount.items = savedItems;
       return savedCount;
     });
-  }
-
-  /**
-   * Resolve the human-readable item name from the corresponding domain entity.
-   * Returns null if the item is not found (deleted or orphaned inventory row).
-   */
-  private async resolveItemName(
-    itemType: StorageItemType, itemId: string, tenantId: string,
-  ): Promise<string | null> {
-    switch (itemType) {
-      case StorageItemType.FEED: {
-        const feed = await this.feedRepository.findOne({ where: { id: itemId, tenantId } });
-        return feed?.name ?? null;
-      }
-      case StorageItemType.CHEMICAL: {
-        const chem = await this.chemicalRepository.findOne({ where: { id: itemId, tenantId } });
-        return chem?.name ?? null;
-      }
-      case StorageItemType.CONSUMABLE: {
-        const cons = await this.consumableRepository.findOne({ where: { id: itemId, tenantId } });
-        return cons?.name ?? null;
-      }
-      default:
-        return null;
-    }
   }
 }

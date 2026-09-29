@@ -48,7 +48,11 @@ import { SparePart, SparePartStatus } from '../maintenance/entities/spare-part.e
 
 // Services
 import { MaintenanceScheduleService } from '../maintenance/services/maintenance-schedule.service';
-import { SparePartService } from '../maintenance/services/spare-part.service';
+import {
+  requireStockView,
+  SparePartStockReader,
+} from '../maintenance/services/spare-part-stock.reader';
+import type { InventoryLowStockEventPayload } from '../events/event-types';
 import { FarmOrphanCleanupService } from '../common/file-cleanup/farm-orphan-cleanup.service';
 
 /**
@@ -95,7 +99,8 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(SparePart)
     private readonly sparePartRepository: Repository<SparePart>,
     private readonly maintenanceScheduleService: MaintenanceScheduleService,
-    private readonly sparePartService: SparePartService,
+    // FARM-HIGH-338: spare-part stock/status are derived from the storage ledger.
+    private readonly sparePartStock: SparePartStockReader,
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
@@ -505,18 +510,17 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
       try {
         await queryRunner.query(`SET search_path TO "${schema}", farm, public`);
 
-        const lowStockParts = await queryRunner.manager.find(SparePart, {
-          where: {
-            isActive: true,
-            status: In([SparePartStatus.LOW_STOCK, SparePartStatus.OUT_OF_STOCK]),
-          },
+        // Stock and status come from the storage ledger (FARM-HIGH-338); the
+        // legacy status column stopped moving. Plan PR-B1a-2 hands this sweep
+        // to the AutoRule reconciler.
+        const activeParts = await queryRunner.manager.find(SparePart, {
+          where: { isActive: true },
         });
-
-        if (lowStockParts.length === 0) continue;
+        if (activeParts.length === 0) continue;
 
         // Group by tenantId
         const byTenant = new Map<string, SparePart[]>();
-        for (const p of lowStockParts) {
+        for (const p of activeParts) {
           const list = byTenant.get(p.tenantId) || [];
           list.push(p);
           byTenant.set(p.tenantId, list);
@@ -527,18 +531,30 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
           if (config && !config.alertsEnabled) continue;
 
           try {
-            this.logger.warn(
-              `Found ${parts.length} low stock parts for tenant ${tenantId} (schema: ${schema})`,
-            );
-
-            const outOfStock = parts.filter((p) => p.status === SparePartStatus.OUT_OF_STOCK);
-            const lowStock = parts.filter((p) => p.status === SparePartStatus.LOW_STOCK);
-
-            this.eventEmitter.emit('inventory.lowStock', {
+            const stock = await this.sparePartStock.read(queryRunner.manager, tenantId, parts);
+            const payload: InventoryLowStockEventPayload = {
               tenantId,
-              outOfStock,
-              lowStock,
-            });
+              outOfStock: parts
+                .filter(
+                  (p) => requireStockView(stock, p.id).status === SparePartStatus.OUT_OF_STOCK,
+                )
+                .map((p) => ({ id: p.id, partNumber: p.partNumber, name: p.name })),
+              lowStock: parts
+                .filter((p) => requireStockView(stock, p.id).status === SparePartStatus.LOW_STOCK)
+                .map((p) => ({
+                  id: p.id,
+                  partNumber: p.partNumber,
+                  name: p.name,
+                  quantity: requireStockView(stock, p.id).onHand,
+                  minStock: p.minStock,
+                })),
+            };
+            if (payload.outOfStock.length === 0 && payload.lowStock.length === 0) continue;
+
+            this.logger.warn(
+              `Found ${payload.outOfStock.length + payload.lowStock.length} low stock parts for tenant ${tenantId} (schema: ${schema})`,
+            );
+            this.eventEmitter.emit('inventory.lowStock', payload);
           } catch (error) {
             this.logger.error(
               `Failed to check low stock for tenant ${tenantId} in schema ${schema}: ${error}`,

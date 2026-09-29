@@ -77,6 +77,21 @@ registerEnumType(ChemicalStatus, {
   description: 'Kimyasal durumu',
 });
 
+/**
+ * WHY (FARM-HIGH-337): LOW_STOCK / OUT_OF_STOCK are stock bands the ledger
+ * projection derives; only these lifecycle statuses are operator decisions.
+ * WHAT: the statuses a projection keeps, and — with AVAILABLE, meaning "clear
+ * the lifecycle override, derive from stock" — the only ones a client may set.
+ */
+export const CHEMICAL_LIFECYCLE_STATUSES: readonly ChemicalStatus[] = [
+  ChemicalStatus.EXPIRED,
+  ChemicalStatus.DISCONTINUED,
+];
+export const CHEMICAL_CLIENT_SETTABLE_STATUSES: readonly ChemicalStatus[] = [
+  ChemicalStatus.AVAILABLE,
+  ...CHEMICAL_LIFECYCLE_STATUSES,
+];
+
 // ============================================================================
 // INTERFACES
 // ============================================================================
@@ -370,19 +385,6 @@ export class Chemical {
       (now.getTime() - lastApplicationDate.getTime()) / (1000 * 60 * 60 * 24)
     );
     return daysSinceApplication >= this.withdrawalPeriodDays;
-  }
-
-  /**
-   * Stok durumunu güncelle
-   */
-  updateStockStatus(): void {
-    if (this.quantity <= 0) {
-      this.status = ChemicalStatus.OUT_OF_STOCK;
-    } else if (this.quantity <= this.minStock) {
-      this.status = ChemicalStatus.LOW_STOCK;
-    } else {
-      this.status = ChemicalStatus.AVAILABLE;
-    }
   }
 
   /**

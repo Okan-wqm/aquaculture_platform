@@ -11,6 +11,9 @@ export enum PurchaseOrderCategory {
   CHEMICAL = 'CHEMICAL',
   CONSUMABLE = 'CONSUMABLE',
   HEALTHCARE = 'HEALTHCARE',
+  // FARM-HIGH-338: spare parts are ledger stock, so they are ordered and
+  // received through the same purchase-order path as every other item.
+  SPARE_PART = 'SPARE_PART',
 }
 
 registerEnumType(PurchaseOrderCategory, {

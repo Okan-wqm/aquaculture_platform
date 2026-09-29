@@ -34,6 +34,9 @@ import { StockMovementService } from '../services/stock-movement.service';
 import { StockMutationLockAuthority } from '../services/stock-mutation-lock.authority';
 import { FeedAllocationService } from '../services/feed-allocation.service';
 import { LotMixService } from '../services/lot-mix.service';
+import { LowStockEvaluator } from '../services/low-stock/low-stock-evaluator.service';
+import { CatalogStockProjector } from '../services/catalog-stock-projector.service';
+import type { LowStockCrossing } from '../services/low-stock/low-stock.types';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StockMovement, MovementType } from '../entities/stock-movement.entity';
@@ -107,6 +110,8 @@ interface HarnessOpts {
   };
   /** Post-decrement aggregate SUM returned for the item (default '250'). */
   aggregateTotal?: string;
+  /** Tier crossings the doubled LowStockEvaluator reports (default none). */
+  crossings?: LowStockCrossing[];
 }
 
 function inv(over: Partial<StorageInventory>): StorageInventory {
@@ -131,6 +136,8 @@ function makeHarness(opts: HarnessOpts = {}): {
   manager: EntityManager;
   repos: RepoDoubles;
   outboxEnqueue: jest.Mock;
+  crossingsForMovement: jest.Mock;
+  project: jest.Mock;
 } {
   const fromLot = opts.fromLot === undefined ? null : opts.fromLot;
   const feed =
@@ -243,12 +250,23 @@ function makeHarness(opts: HarnessOpts = {}): {
       : opts.allocation,
   );
   const feedAllocation = stub<FeedAllocationService>({ allocateForDeduction });
+  // The low-stock DECISION is the evaluator's (pinned in
+  // low-stock-evaluator.service.spec.ts and the PG lane); here the question
+  // is only what the sink hands it and what it does with the answer.
+  const crossingsForMovement = jest.fn();
+  crossingsForMovement.mockResolvedValue(opts.crossings ?? []);
+  const lowStockEvaluator = stub<LowStockEvaluator>({ crossingsForMovement });
+  const project = jest.fn();
+  project.mockResolvedValue(undefined);
+  const catalogProjector = stub<CatalogStockProjector>({ project });
   const service = new StockMovementService(
     lotMix,
     new SiteAuthorizationService(),
     outboxPublisher,
     mutationLocks,
     feedAllocation,
+    lowStockEvaluator,
+    catalogProjector,
   );
 
   return {
@@ -259,6 +277,8 @@ function makeHarness(opts: HarnessOpts = {}): {
     manager,
     repos: { inventory: inventoryRepo, inventorySave, movementCreate, movementSave },
     outboxEnqueue,
+    crossingsForMovement,
+    project,
   };
 }
 
@@ -435,66 +455,117 @@ describe('StockMovementService.resolveFeedDeductionLocation', () => {
   });
 });
 
-describe('StockMovementService.recordMovement — single low-stock sink', () => {
+describe('StockMovementService.recordMovement — single low-stock sink (plan K8)', () => {
   // The durable LowStockDetected signal is enqueued AT THE MUTATION CORE so
-  // every stock-reducing writer (manual movement, feeding deduction, PO
-  // receipt) emits it on the caller's transactional manager. Previously the
-  // detection lived only in the RecordStockMovementHandler wrapper, so
-  // feeding-driven depletion never raised it (FARM-HIGH-217 dead chain).
+  // every stock-reducing writer (manual movement, feeding deduction, work-order
+  // consumption) emits it on the caller's transactional manager. The DECISION
+  // (which tier crossed into which band) belongs to LowStockEvaluator.
   const ctx = { tenantId: TENANT, userId: USER };
+  const poolCrossing: LowStockCrossing = {
+    before: 'ok',
+    severity: 'low_stock',
+    reading: {
+      level: 'pool',
+      itemType: StorageItemType.FEED,
+      itemId: FEED,
+      onHand: 80,
+      onOrder: 5,
+      threshold: 100,
+      band: 'low_stock',
+    },
+  };
+  const siteCrossing: LowStockCrossing = {
+    before: 'low_stock',
+    severity: 'out_of_stock',
+    reading: {
+      level: 'site',
+      itemType: StorageItemType.FEED,
+      itemId: FEED,
+      siteId: 'site-1',
+      onHand: 0,
+      threshold: 40,
+      band: 'out_of_stock',
+    },
+  };
 
-  it('enqueues LowStockDetected (low_stock) when the aggregate falls to/below minStock', async () => {
+  it('hands the evaluator the movement effect (item, quantity, touched sites) and the pool threshold', async () => {
+    // SCENARIO: OUT of 50 kg from a live location at site-1.
+    // EXPECTS: effect with fromSiteId=site-1, no toSiteId, threshold = catalog minStock.
+    const { service, manager, crossingsForMovement } = makeHarness({
+      fromLot: inv({ quantity: 500 }),
+    });
+
+    await service.recordMovement(manager, outInput(50), ctx);
+
+    expect(crossingsForMovement).toHaveBeenCalledWith(
+      manager,
+      TENANT,
+      {
+        itemType: StorageItemType.FEED,
+        itemId: FEED,
+        quantity: 50,
+        fromSiteId: 'site-1',
+        toSiteId: null,
+      },
+      100,
+    );
+  });
+
+  it('enqueues one LowStockDetected per crossed tier, on the caller manager', async () => {
+    // SCENARIO: the movement crossed the pool into low and a site into out.
+    // EXPECTS: two v2 events (pool + site) enqueued atomically with the decrement.
     const { service, manager, outboxEnqueue } = makeHarness({
       fromLot: inv({ quantity: 500 }),
-      aggregateTotal: '80', // feed minStock default is 100
+      crossings: [poolCrossing, siteCrossing],
     });
 
     const result = await service.recordMovement(manager, outInput(50), ctx);
 
-    expect(result.lowStock).toEqual({ severity: 'low_stock', minimumThreshold: 100 });
-    expect(outboxEnqueue).toHaveBeenCalledTimes(1);
-    const [event, passedManager] = outboxEnqueue.mock.calls[0];
-    expect(event.eventType).toBe('LowStockDetected');
-    expect(event).toMatchObject({
+    expect(result.lowStockCrossings).toEqual([poolCrossing, siteCrossing]);
+    expect(outboxEnqueue).toHaveBeenCalledTimes(2);
+    const [poolEvent, poolManager] = outboxEnqueue.mock.calls[0];
+    expect(poolManager).toBe(manager);
+    expect(poolEvent).toMatchObject({
+      eventType: 'LowStockDetected',
+      version: 2,
+      level: 'pool',
       itemType: StorageItemType.FEED,
       itemId: FEED,
       itemName: 'Grower 4mm',
       currentQuantity: 80,
-      unit: 'kg',
+      onOrderQuantity: 5,
       minimumThreshold: 100,
+      unit: 'kg',
       severity: 'low_stock',
     });
-    expect(passedManager).toBe(manager); // same caller transaction — atomic with the decrement
+    expect(poolEvent).not.toHaveProperty('siteId');
+    expect(outboxEnqueue.mock.calls[1][0]).toMatchObject({
+      level: 'site',
+      siteId: 'site-1',
+      currentQuantity: 0,
+      minimumThreshold: 40,
+      severity: 'out_of_stock',
+    });
   });
 
-  it('enqueues out_of_stock when the aggregate reaches zero', async () => {
-    const { service, manager, outboxEnqueue } = makeHarness({
-      fromLot: inv({ quantity: 500 }),
-      aggregateTotal: '0',
-    });
+  it('stays silent when no tier crossed (edge trigger, not level trigger)', async () => {
+    // SCENARIO: stock was already low before this OUT. EXPECTS: no event.
+    const { service, manager, outboxEnqueue } = makeHarness({ fromLot: inv({ quantity: 500 }) });
 
     const result = await service.recordMovement(manager, outInput(50), ctx);
 
-    expect(result.lowStock?.severity).toBe('out_of_stock');
-    expect(outboxEnqueue.mock.calls[0][0].severity).toBe('out_of_stock');
-  });
-
-  it('stays silent when the aggregate remains above minStock', async () => {
-    const { service, manager, outboxEnqueue } = makeHarness({
-      fromLot: inv({ quantity: 500 }),
-      aggregateTotal: '250',
-    });
-
-    const result = await service.recordMovement(manager, outInput(50), ctx);
-
-    expect(result.lowStock).toBeNull();
+    expect(result.lowStockCrossings).toEqual([]);
     expect(outboxEnqueue).not.toHaveBeenCalled();
   });
 
-  it('does not evaluate low stock for inbound movements', async () => {
-    const { service, manager, outboxEnqueue } = makeHarness({ aggregateTotal: '0' });
+  it('reports an inbound movement with only the TO side', async () => {
+    // SCENARIO: IN of 10 kg. EXPECTS: effect with toSiteId, no fromSiteId.
+    const toLocation = stub<StorageLocation>({ id: LOCATION, tenantId: TENANT, siteId: 'site-1' });
+    const { service, manager, crossingsForMovement, outboxEnqueue } = makeHarness({
+      fromLocation: toLocation,
+    });
 
-    const result = await service.recordMovement(
+    await service.recordMovement(
       manager,
       {
         movementType: MovementType.IN,
@@ -506,14 +577,45 @@ describe('StockMovementService.recordMovement — single low-stock sink', () => 
       ctx,
     );
 
-    expect(result.lowStock).toBeNull();
+    expect(crossingsForMovement.mock.calls[0][2]).toMatchObject({
+      fromSiteId: null,
+      toSiteId: 'site-1',
+    });
     expect(outboxEnqueue).not.toHaveBeenCalled();
   });
 
-  it('does not re-enqueue on an idempotent replay', async () => {
-    const { service, manager, outboxEnqueue } = makeHarness({
+  it('treats a soft-deleted location as no stock side (FARM-MEDIUM-293)', async () => {
+    // SCENARIO: OUT from a soft-deleted location. EXPECTS: fromSiteId null.
+    const deleted = stub<StorageLocation>({
+      id: LOCATION,
+      tenantId: TENANT,
+      siteId: 'site-1',
+      isDeleted: true,
+    });
+    const { service, manager, crossingsForMovement } = makeHarness({
+      fromLot: inv({ quantity: 500 }),
+      fromLocation: deleted,
+    });
+
+    await service.recordMovement(manager, outInput(50), ctx);
+
+    expect(crossingsForMovement.mock.calls[0][2]).toMatchObject({ fromSiteId: null });
+  });
+
+  it('re-projects the catalog row through the ONE projector', async () => {
+    // SCENARIO: any committed movement. EXPECTS: CatalogStockProjector.project(item).
+    const { service, manager, project } = makeHarness({ fromLot: inv({ quantity: 500 }) });
+
+    await service.recordMovement(manager, outInput(50), ctx);
+
+    expect(project).toHaveBeenCalledWith(manager, TENANT, StorageItemType.FEED, FEED);
+  });
+
+  it('does not evaluate or enqueue on an idempotent replay', async () => {
+    // SCENARIO: the key already recorded a movement. EXPECTS: no evaluation, no event.
+    const { service, manager, outboxEnqueue, crossingsForMovement } = makeHarness({
       existingMovement: stub<StockMovement>({ id: 'mv-existing' }),
-      aggregateTotal: '0',
+      crossings: [poolCrossing],
     });
 
     const result = await service.recordMovement(
@@ -523,7 +625,8 @@ describe('StockMovementService.recordMovement — single low-stock sink', () => 
     );
 
     expect(result.idempotentHit).toBe(true);
-    expect(result.lowStock).toBeNull();
+    expect(result.lowStockCrossings).toEqual([]);
+    expect(crossingsForMovement).not.toHaveBeenCalled();
     expect(outboxEnqueue).not.toHaveBeenCalled();
   });
 });

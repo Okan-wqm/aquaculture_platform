@@ -12,6 +12,7 @@ import {
   IsUUID,
   IsBoolean,
   IsArray,
+  IsIn,
   Min,
   MaxLength,
   ValidateNested,
@@ -20,10 +21,11 @@ import { Type } from 'class-transformer';
 import { SparePartStatus } from '../entities/spare-part.entity';
 
 /**
- * Depolama lokasyonu input
+ * Shelf/bin text inside the part's storage location (FARM-HIGH-338). The
+ * physical place itself is `storageLocationId`; this is operator detail only.
  */
 @InputType()
-export class StorageLocationInput {
+export class SparePartBinDetailInput {
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
@@ -92,10 +94,21 @@ export class CreateSparePartInput {
   @MaxLength(100)
   manufacturer?: string;
 
+  /**
+   * Stock on hand when the part is registered. Recorded as ONE opening IN
+   * movement in the storage ledger at `storageLocationId` (required when > 0);
+   * it is never written to a counter (FARM-HIGH-338).
+   */
   @Field(() => Int, { defaultValue: 0 })
   @IsNumber()
   @Min(0)
-  quantity!: number;
+  openingQuantity!: number;
+
+  /** The storage location that physically holds the part. */
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  storageLocationId?: string;
 
   @Field(() => Int, { defaultValue: 0 })
   @IsNumber()
@@ -117,11 +130,11 @@ export class CreateSparePartInput {
   @MaxLength(20)
   unit!: string;
 
-  @Field(() => StorageLocationInput, { nullable: true })
+  @Field(() => SparePartBinDetailInput, { nullable: true })
   @IsOptional()
   @ValidateNested()
-  @Type(() => StorageLocationInput)
-  location?: StorageLocationInput;
+  @Type(() => SparePartBinDetailInput)
+  binDetail?: SparePartBinDetailInput;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -194,11 +207,17 @@ export class UpdateSparePartInput {
   @MaxLength(100)
   manufacturer?: string;
 
-  @Field(() => Int, { nullable: true })
+  // NO quantity and NO status here (FARM-HIGH-337/338): stock changes only
+  // through ledger movements, and the status is derived from the ledger.
+
+  /**
+   * Re-home the part: the location its future movements default to. `null`
+   * clears it (stock already booked stays where the ledger says it is).
+   */
+  @Field(() => ID, { nullable: true })
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  quantity?: number;
+  @IsUUID()
+  storageLocationId?: string | null;
 
   @Field(() => Int, { nullable: true })
   @IsOptional()
@@ -224,16 +243,11 @@ export class UpdateSparePartInput {
   @MaxLength(20)
   unit?: string;
 
-  @Field(() => SparePartStatus, { nullable: true })
-  @IsOptional()
-  @IsEnum(SparePartStatus)
-  status?: SparePartStatus;
-
-  @Field(() => StorageLocationInput, { nullable: true })
+  @Field(() => SparePartBinDetailInput, { nullable: true })
   @IsOptional()
   @ValidateNested()
-  @Type(() => StorageLocationInput)
-  location?: StorageLocationInput;
+  @Type(() => SparePartBinDetailInput)
+  binDetail?: SparePartBinDetailInput;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()
@@ -273,13 +287,24 @@ export class StockMovementInput {
   @IsUUID()
   sparePartId!: string;
 
+  /** in/out: the amount moved (> 0). adjustment: the counted on-hand at the location (>= 0). */
   @Field(() => Int)
   @IsNumber()
+  @Min(0)
   quantity!: number;
 
   @Field({ description: 'in | out | adjustment' })
-  @IsString()
+  @IsIn(['in', 'out', 'adjustment'])
   movementType!: 'in' | 'out' | 'adjustment';
+
+  /**
+   * The storage location the movement acts at. Defaults to the part's own
+   * `storageLocationId`; one of the two is required.
+   */
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  storageLocationId?: string;
 
   @Field({ nullable: true })
   @IsOptional()

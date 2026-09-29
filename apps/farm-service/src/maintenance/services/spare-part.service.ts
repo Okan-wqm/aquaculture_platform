@@ -1,47 +1,28 @@
 /**
  * SparePart Service
  *
- * Yedek parça stok yönetimi ve envanter takibi.
- * Stok hareketleri ve düşük stok uyarıları.
+ * Spare-part catalogue (CRUD) and the operator entry points for spare-part
+ * stock. Stock itself lives in the ONE storage ledger (FARM-HIGH-338): every
+ * change goes through SparePartLedgerService → StockMovementService, and the
+ * quantity/status a caller sees are derived from the ledger
+ * (SparePartStockReader), never stored on the part.
  *
  * @module Maintenance/Services
  */
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, Like, DataSource } from 'typeorm';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, EntityManager, In, Like } from 'typeorm';
+import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+
 import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
 import {
   CreateSparePartInput,
   UpdateSparePartInput,
   StockMovementInput,
 } from '../dto/spare-part.dto';
+import { SparePartActor, SparePartLedgerService } from './spare-part-ledger.service';
 
-/**
- * Stok hareketi kaydı
- */
-export interface StockMovement {
-  id: string;
-  sparePartId: string;
-  tenantId: string;
-  movementType: 'in' | 'out' | 'adjustment';
-  quantity: number;
-  previousQuantity: number;
-  newQuantity: number;
-  reason?: string;
-  workOrderId?: string;
-  performedBy: string;
-  performedAt: Date;
-  notes?: string;
-}
-
-/**
- * Stok özeti
- */
+/** Spare-part stock summary (ledger-derived). */
 export interface StockSummary {
   totalParts: number;
   totalValue: number;
@@ -50,9 +31,7 @@ export interface StockSummary {
   byStatus: Record<SparePartStatus, number>;
 }
 
-/**
- * Düşük stok uyarısı
- */
+/** A spare part at or below its reorder point (ledger-derived). */
 export interface LowStockAlert {
   sparePart: SparePart;
   currentQuantity: number;
@@ -66,9 +45,8 @@ export class SparePartService {
   private readonly logger = new Logger(SparePartService.name);
 
   constructor(
-    @InjectRepository(SparePart)
-    private readonly sparePartRepository: Repository<SparePart>,
-    private readonly dataSource: DataSource,
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly ledger: SparePartLedgerService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -76,371 +54,187 @@ export class SparePartService {
   // -------------------------------------------------------------------------
 
   /**
-   * Yeni yedek parça oluşturur
+   * Register a part. WHY one transaction: the opening balance is a ledger IN
+   * movement; if it fails (bad location) the part must not exist either.
    */
-  async create(
-    tenantId: string,
-    input: CreateSparePartInput,
-    createdBy: string,
-  ): Promise<SparePart> {
+  async create(tenantId: string, input: CreateSparePartInput, actor: SparePartActor): Promise<SparePart> {
     this.logger.log(`Creating spare part for tenant: ${tenantId}`);
-
-    // Check for duplicate part number
-    const existing = await this.sparePartRepository.findOne({
-      where: { tenantId, partNumber: input.partNumber },
-    });
-
-    if (existing) {
+    if (input.openingQuantity > 0 && !input.storageLocationId) {
       throw new BadRequestException(
-        `Bu parça numarası zaten mevcut: ${input.partNumber}`,
+        'An opening quantity needs the storage location that holds it (storageLocationId)',
       );
     }
 
-    // Generate unique code
-    const code = await this.generateCode(tenantId);
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+      const repo = tenantManagerRepo(manager, SparePart, tenantId);
 
-    // Determine initial status
-    let status = SparePartStatus.IN_STOCK;
-    if (input.quantity === 0) {
-      status = SparePartStatus.OUT_OF_STOCK;
-    } else if (input.quantity <= input.minStock) {
-      status = SparePartStatus.LOW_STOCK;
-    }
-
-    const sparePart = this.sparePartRepository.create({
-      tenantId,
-      code,
-      name: input.name,
-      partNumber: input.partNumber,
-      description: input.description,
-      equipmentTypeId: input.equipmentTypeId,
-      compatibleEquipmentTypes: input.compatibleEquipmentTypes,
-      supplierId: input.supplierId,
-      manufacturer: input.manufacturer,
-      quantity: input.quantity,
-      minStock: input.minStock,
-      maxStock: input.maxStock,
-      reorderPoint: input.reorderPoint,
-      unit: input.unit,
-      status,
-      location: input.location,
-      unitPrice: input.unitPrice,
-      currency: input.currency,
-      leadTimeDays: input.leadTimeDays,
-      notes: input.notes,
-      isActive: true,
-      createdBy,
-    });
-
-    const saved = await this.sparePartRepository.save(sparePart);
-    this.logger.log(`Spare part created: ${saved.code}`);
-
-    return saved;
-  }
-
-  /**
-   * Yedek parçayı günceller
-   */
-  async update(
-    tenantId: string,
-    input: UpdateSparePartInput,
-    updatedBy: string,
-  ): Promise<SparePart> {
-    const sparePart = await this.findById(tenantId, input.id);
-
-    // Check for duplicate part number if changing
-    if (input.partNumber && input.partNumber !== sparePart.partNumber) {
-      const existing = await this.sparePartRepository.findOne({
-        where: { tenantId, partNumber: input.partNumber },
-      });
+      const existing = await repo.findOne({ where: { tenantId, partNumber: input.partNumber } });
       if (existing) {
-        throw new BadRequestException(
-          `Bu parça numarası zaten mevcut: ${input.partNumber}`,
-        );
+        throw new BadRequestException(`Bu parça numarası zaten mevcut: ${input.partNumber}`);
       }
-    }
+      if (input.storageLocationId) {
+        await this.ledger.assertLocation(manager, tenantId, input.storageLocationId);
+      }
 
-    // Update fields
-    if (input.name) sparePart.name = input.name;
-    if (input.partNumber) sparePart.partNumber = input.partNumber;
-    if (input.description !== undefined) sparePart.description = input.description;
-    if (input.equipmentTypeId !== undefined) {
-      sparePart.equipmentTypeId = input.equipmentTypeId;
-    }
-    if (input.compatibleEquipmentTypes !== undefined) {
-      sparePart.compatibleEquipmentTypes = input.compatibleEquipmentTypes;
-    }
-    if (input.supplierId !== undefined) sparePart.supplierId = input.supplierId;
-    if (input.manufacturer !== undefined) sparePart.manufacturer = input.manufacturer;
-    if (input.quantity !== undefined) sparePart.quantity = input.quantity;
-    if (input.minStock !== undefined) sparePart.minStock = input.minStock;
-    if (input.maxStock !== undefined) sparePart.maxStock = input.maxStock;
-    if (input.reorderPoint !== undefined) sparePart.reorderPoint = input.reorderPoint;
-    if (input.unit) sparePart.unit = input.unit;
-    if (input.status) sparePart.status = input.status;
-    if (input.location) sparePart.location = input.location;
-    if (input.unitPrice !== undefined) sparePart.unitPrice = input.unitPrice;
-    if (input.currency) sparePart.currency = input.currency;
-    if (input.leadTimeDays !== undefined) sparePart.leadTimeDays = input.leadTimeDays;
-    if (input.isActive !== undefined) sparePart.isActive = input.isActive;
-    if (input.notes !== undefined) sparePart.notes = input.notes;
+      const saved = await repo.save(
+        repo.create({
+          tenantId,
+          code: await this.generateCode(manager, tenantId),
+          name: input.name,
+          partNumber: input.partNumber,
+          description: input.description,
+          equipmentTypeId: input.equipmentTypeId,
+          compatibleEquipmentTypes: input.compatibleEquipmentTypes,
+          supplierId: input.supplierId,
+          manufacturer: input.manufacturer,
+          minStock: input.minStock,
+          maxStock: input.maxStock,
+          reorderPoint: input.reorderPoint,
+          unit: input.unit,
+          storageLocationId: input.storageLocationId,
+          binDetail: input.binDetail,
+          unitPrice: input.unitPrice,
+          currency: input.currency,
+          leadTimeDays: input.leadTimeDays,
+          notes: input.notes,
+          isActive: true,
+          createdBy: actor.userId,
+        }),
+      );
 
-    sparePart.updatedBy = updatedBy;
-
-    // Update status based on quantity
-    this.updateStockStatus(sparePart);
-
-    return this.sparePartRepository.save(sparePart);
-  }
-
-  /**
-   * Yedek parçayı siler (soft delete)
-   */
-  async delete(tenantId: string, id: string): Promise<void> {
-    const sparePart = await this.findById(tenantId, id);
-    sparePart.isActive = false;
-    await this.sparePartRepository.save(sparePart);
-  }
-
-  // -------------------------------------------------------------------------
-  // QUERY OPERATIONS
-  // -------------------------------------------------------------------------
-
-  /**
-   * ID ile yedek parça bulur
-   */
-  async findById(tenantId: string, id: string): Promise<SparePart> {
-    const sparePart = await this.sparePartRepository.findOne({
-      where: { id, tenantId },
+      if (input.openingQuantity > 0) {
+        await this.ledger.recordOpeningBalance(manager, tenantId, saved, input.openingQuantity, actor);
+      }
+      this.logger.log(`Spare part created: ${saved.code}`);
+      return saved;
     });
+  }
 
-    if (!sparePart) {
-      throw new NotFoundException(`Yedek parça bulunamadı: ${id}`);
-    }
+  /**
+   * Update catalogue fields. Stock and status are NOT here (FARM-HIGH-338):
+   * stock moves only through the ledger and the status is derived from it.
+   */
+  async update(tenantId: string, input: UpdateSparePartInput, updatedBy: string): Promise<SparePart> {
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+      const repo = tenantManagerRepo(manager, SparePart, tenantId);
+      const sparePart = await this.findInTransaction(manager, tenantId, input.id);
 
-    return sparePart;
+      if (input.partNumber && input.partNumber !== sparePart.partNumber) {
+        const existing = await repo.findOne({ where: { tenantId, partNumber: input.partNumber } });
+        if (existing) {
+          throw new BadRequestException(`Bu parça numarası zaten mevcut: ${input.partNumber}`);
+        }
+      }
+      // undefined = unchanged; null = no default location; an id = re-home.
+      if (input.storageLocationId === null) {
+        sparePart.storageLocationId = null;
+      } else if (input.storageLocationId !== undefined) {
+        await this.ledger.assertLocation(manager, tenantId, input.storageLocationId);
+        sparePart.storageLocationId = input.storageLocationId;
+      }
+
+      if (input.name) sparePart.name = input.name;
+      if (input.partNumber) sparePart.partNumber = input.partNumber;
+      if (input.description !== undefined) sparePart.description = input.description;
+      if (input.equipmentTypeId !== undefined) sparePart.equipmentTypeId = input.equipmentTypeId;
+      if (input.compatibleEquipmentTypes !== undefined) {
+        sparePart.compatibleEquipmentTypes = input.compatibleEquipmentTypes;
+      }
+      if (input.supplierId !== undefined) sparePart.supplierId = input.supplierId;
+      if (input.manufacturer !== undefined) sparePart.manufacturer = input.manufacturer;
+      if (input.minStock !== undefined) sparePart.minStock = input.minStock;
+      if (input.maxStock !== undefined) sparePart.maxStock = input.maxStock;
+      if (input.reorderPoint !== undefined) sparePart.reorderPoint = input.reorderPoint;
+      if (input.unit) sparePart.unit = input.unit;
+      if (input.binDetail) sparePart.binDetail = input.binDetail;
+      if (input.unitPrice !== undefined) sparePart.unitPrice = input.unitPrice;
+      if (input.currency) sparePart.currency = input.currency;
+      if (input.leadTimeDays !== undefined) sparePart.leadTimeDays = input.leadTimeDays;
+      if (input.isActive !== undefined) sparePart.isActive = input.isActive;
+      if (input.notes !== undefined) sparePart.notes = input.notes;
+      sparePart.updatedBy = updatedBy;
+
+      return repo.save(sparePart);
+    });
+  }
+
+  /** Soft delete: the part becomes inactive (derived status DISCONTINUED). */
+  async delete(tenantId: string, id: string): Promise<void> {
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const sparePart = await this.findInTransaction(queryRunner.manager, tenantId, id);
+      sparePart.isActive = false;
+      await tenantManagerRepo(queryRunner.manager, SparePart, tenantId).save(sparePart);
+    });
   }
 
   // -------------------------------------------------------------------------
-  // STOCK MANAGEMENT
+  // STOCK MANAGEMENT (ledger-backed)
   // -------------------------------------------------------------------------
 
-  /**
-   * Stok hareketi kaydeder
-   */
+  /** One operator movement; the movement row is persisted by the ledger sink. */
   async recordStockMovement(
     tenantId: string,
     input: StockMovementInput,
-    performedBy: string,
+    actor: SparePartActor,
   ): Promise<SparePart> {
-    const sparePart = await this.findById(tenantId, input.sparePartId);
-    const previousQuantity = sparePart.quantity;
-
-    switch (input.movementType) {
-      case 'in':
-        sparePart.quantity += input.quantity;
-        sparePart.lastOrderDate = new Date();
-        break;
-      case 'out':
-        if (sparePart.quantity < input.quantity) {
-          throw new BadRequestException(
-            `Yetersiz stok. Mevcut: ${sparePart.quantity}, İstenen: ${input.quantity}`,
-          );
-        }
-        sparePart.quantity -= input.quantity;
-        sparePart.lastUsedDate = new Date();
-        break;
-      case 'adjustment':
-        sparePart.quantity = input.quantity;
-        break;
-    }
-
-    sparePart.updatedBy = performedBy;
-
-    // Update status
-    this.updateStockStatus(sparePart);
-
-    // Log movement (in a real implementation, this would be stored in a separate table)
-    const movement: StockMovement = {
-      id: Date.now().toString(),
-      sparePartId: sparePart.id,
-      tenantId,
-      movementType: input.movementType,
-      quantity: input.quantity,
-      previousQuantity,
-      newQuantity: sparePart.quantity,
-      reason: input.reason,
-      workOrderId: input.workOrderId,
-      performedBy,
-      performedAt: new Date(),
-      notes: input.notes,
-    };
-
-    this.logger.log(
-      `Stock movement recorded: ${sparePart.code} - ${input.movementType} ${input.quantity}`,
-    );
-
-    return this.sparePartRepository.save(sparePart);
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+      const sparePart = await this.findInTransaction(manager, tenantId, input.sparePartId);
+      await this.ledger.recordMovement(manager, tenantId, sparePart, input, actor);
+      sparePart.updatedBy = actor.userId;
+      this.logger.log(
+        `Spare-part movement recorded in the ledger: ${sparePart.code} - ${input.movementType} ${input.quantity}`,
+      );
+      return tenantManagerRepo(manager, SparePart, tenantId).save(sparePart);
+    });
   }
 
-  /**
-   * İş emri için malzemeleri çıkış yapar
-   * Uses transaction to ensure all material consumptions succeed or fail together
-   * Optimized to batch fetch spare parts to avoid N+1 queries
-   */
-  async consumeForWorkOrder(
-    tenantId: string,
-    workOrderId: string,
-    materials: { sparePartId: string; quantity: number }[],
-    performedBy: string,
-  ): Promise<void> {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      // Batch fetch all spare parts at once to avoid N+1 queries
-      const sparePartIds = materials.map((m) => m.sparePartId);
-      const spareParts = await queryRunner.manager.find(SparePart, {
-        where: { id: In(sparePartIds), tenantId },
-      });
-
-      // Create a map for quick lookup
-      const sparePartMap = new Map(spareParts.map((sp) => [sp.id, sp]));
-
-      // Validate all materials first before making any changes
-      for (const material of materials) {
-        const sparePart = sparePartMap.get(material.sparePartId);
-
-        if (!sparePart) {
-          throw new NotFoundException(`Yedek parça bulunamadı: ${material.sparePartId}`);
-        }
-
-        if (sparePart.quantity < material.quantity) {
-          throw new BadRequestException(
-            `Yetersiz stok. Mevcut: ${sparePart.quantity}, İstenen: ${material.quantity}`,
-          );
-        }
-      }
-
-      // Now apply all changes
-      for (const material of materials) {
-        const sparePart = sparePartMap.get(material.sparePartId)!;
-
-        const previousQuantity = sparePart.quantity;
-        sparePart.quantity -= material.quantity;
-        sparePart.lastUsedDate = new Date();
-        sparePart.updatedBy = performedBy;
-
-        // Update stock status
-        this.updateStockStatus(sparePart);
-
-        // Log movement
-        this.logger.log(
-          `Stock movement recorded: ${sparePart.code} - out ${material.quantity} for work order ${workOrderId}`,
-        );
-      }
-
-      // Batch save all updated spare parts at once
-      await queryRunner.manager.save(spareParts);
-
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-  }
-
-  /**
-   * Toplu stok girişi yapar
-   * Optimized to batch fetch and save spare parts to avoid N+1 queries
-   */
+  /** Receive several parts at once; each becomes an IN movement. All or nothing. */
   async bulkStockIn(
     tenantId: string,
     items: { sparePartId: string; quantity: number; notes?: string }[],
-    performedBy: string,
+    actor: SparePartActor,
     reason?: string,
   ): Promise<SparePart[]> {
-    if (items.length === 0) {
-      return [];
-    }
-
-    // Batch fetch all spare parts at once to avoid N+1 queries
-    const sparePartIds = items.map((item) => item.sparePartId);
-    const spareParts = await this.sparePartRepository.find({
-      where: { id: In(sparePartIds), tenantId },
+    if (items.length === 0) return [];
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+      const repo = tenantManagerRepo(manager, SparePart, tenantId);
+      const parts = await repo.find({
+        where: { tenantId, id: In(items.map((item) => item.sparePartId)) },
+      });
+      await this.ledger.receiveMany(manager, tenantId, parts, items, reason, actor);
+      for (const part of parts) part.updatedBy = actor.userId;
+      return repo.saveMany(parts);
     });
-
-    // Create a map for quick lookup
-    const sparePartMap = new Map(spareParts.map((sp) => [sp.id, sp]));
-
-    // Validate all items exist
-    for (const item of items) {
-      if (!sparePartMap.has(item.sparePartId)) {
-        throw new NotFoundException(`Yedek parça bulunamadı: ${item.sparePartId}`);
-      }
-    }
-
-    // Apply all stock movements
-    for (const item of items) {
-      const sparePart = sparePartMap.get(item.sparePartId)!;
-      const previousQuantity = sparePart.quantity;
-
-      sparePart.quantity += item.quantity;
-      sparePart.lastOrderDate = new Date();
-      sparePart.updatedBy = performedBy;
-
-      // Update status
-      this.updateStockStatus(sparePart);
-
-      // Log movement
-      this.logger.log(
-        `Stock movement recorded: ${sparePart.code} - in ${item.quantity}`,
-      );
-    }
-
-    // Batch save all updated spare parts at once
-    const savedParts = await this.sparePartRepository.save(spareParts);
-
-    return savedParts;
   }
 
   // -------------------------------------------------------------------------
   // HELPER METHODS
   // -------------------------------------------------------------------------
 
-  /**
-   * Benzersiz kod üretir
-   */
-  private async generateCode(tenantId: string): Promise<string> {
-    const prefix = 'SP-';
+  private async findInTransaction(
+    manager: EntityManager,
+    tenantId: string,
+    id: string,
+  ): Promise<SparePart> {
+    const sparePart = await tenantManagerRepo(manager, SparePart, tenantId).findOne({
+      where: { id, tenantId },
+    });
+    if (!sparePart) throw new NotFoundException(`Yedek parça bulunamadı: ${id}`);
+    return sparePart;
+  }
 
-    const lastPart = await this.sparePartRepository.findOne({
+  /** Next `SP-000001` style code within the tenant. */
+  private async generateCode(manager: EntityManager, tenantId: string): Promise<string> {
+    const prefix = 'SP-';
+    const lastPart = await tenantManagerRepo(manager, SparePart, tenantId).findOne({
       where: { tenantId, code: Like(`${prefix}%`) },
       order: { code: 'DESC' },
     });
-
-    let nextNumber = 1;
-    if (lastPart) {
-      const lastNumber = parseInt(lastPart.code.replace(prefix, ''), 10);
-      nextNumber = lastNumber + 1;
-    }
-
+    const nextNumber = lastPart ? parseInt(lastPart.code.replace(prefix, ''), 10) + 1 : 1;
     return `${prefix}${nextNumber.toString().padStart(6, '0')}`;
-  }
-
-  /**
-   * Stok durumunu günceller
-   */
-  private updateStockStatus(sparePart: SparePart): void {
-    if (sparePart.quantity === 0) {
-      sparePart.status = SparePartStatus.OUT_OF_STOCK;
-    } else if (sparePart.quantity <= sparePart.minStock) {
-      sparePart.status = SparePartStatus.LOW_STOCK;
-    } else {
-      sparePart.status = SparePartStatus.IN_STOCK;
-    }
   }
 }

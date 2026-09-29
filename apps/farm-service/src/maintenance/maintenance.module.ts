@@ -26,6 +26,11 @@ import { SparePart } from './entities/spare-part.entity';
 import { WorkOrderService } from './services/work-order.service';
 import { MaintenanceScheduleService } from './services/maintenance-schedule.service';
 import { SparePartService } from './services/spare-part.service';
+import { SparePartLedgerService } from './services/spare-part-ledger.service';
+import { SparePartStockReader } from './services/spare-part-stock.reader';
+import { SparePartStockDataLoader } from './dataloaders/spare-part-stock.dataloader';
+// FARM-HIGH-338: spare-part stock lives in the storage ledger.
+import { InventoryModule } from '../storage/storage.module';
 
 // Resolvers
 import { WorkOrderResolver } from './resolvers/work-order.resolver';
@@ -57,6 +62,7 @@ import { ListSparePartsHandler } from './handlers/list-spare-parts.handler';
 import { ListLowStockAlertsHandler } from './handlers/list-low-stock-alerts.handler';
 import { ListSparePartsByEquipmentTypeHandler } from './handlers/list-spare-parts-by-equipment-type.handler';
 import { GetStockSummaryHandler } from './handlers/get-stock-summary.handler';
+import { GetSparePartCriticalityHandler } from './handlers/get-spare-part-criticality.handler';
 import { MaintenanceAiQueryResponder } from './responders/maintenance-ai-query.responder';
 
 const WorkOrderQueryHandlers = [
@@ -86,10 +92,12 @@ const SparePartQueryHandlers = [
   ListLowStockAlertsHandler,
   ListSparePartsByEquipmentTypeHandler,
   GetStockSummaryHandler,
+  // FARM-24 spare-part priority input (read-only; no GraphQL/NATS surface).
+  GetSparePartCriticalityHandler,
 ];
 
 @Module({
-  imports: [TypeOrmModule.forFeature([WorkOrder, MaintenanceSchedule, SparePart])],
+  imports: [TypeOrmModule.forFeature([WorkOrder, MaintenanceSchedule, SparePart]), InventoryModule],
   // NATS request-reply responders for the farm AI specialists (FARM-MEDIUM-328).
   controllers: [MaintenanceAiQueryResponder],
   providers: [
@@ -97,6 +105,9 @@ const SparePartQueryHandlers = [
     WorkOrderService,
     MaintenanceScheduleService,
     SparePartService,
+    SparePartLedgerService,
+    SparePartStockReader,
+    SparePartStockDataLoader, // REQUEST-scoped: batches the derived stock fields
 
     // Resolvers
     WorkOrderResolver,
@@ -112,6 +123,12 @@ const SparePartQueryHandlers = [
     // Spare-part query handlers
     ...SparePartQueryHandlers,
   ],
-  exports: [TypeOrmModule, WorkOrderService, MaintenanceScheduleService, SparePartService],
+  exports: [
+    TypeOrmModule,
+    WorkOrderService,
+    MaintenanceScheduleService,
+    SparePartService,
+    SparePartStockReader,
+  ],
 })
 export class MaintenanceModule {}

@@ -127,7 +127,10 @@ function discoverDeclaredInterfaces(): Set<string> {
     (f) => f.length > 0 && !f.includes('/__tests__/') && !f.endsWith('.spec.ts'),
   );
 
-  const declRe = /export interface ([A-Z][A-Za-z0-9]+Event)\b/g;
+  // A contract is an `export interface XEvent` OR an `export type XEvent =`
+  // discriminated union of interfaces (e.g. LowStockDetectedEvent = site | pool
+  // tier, plan K8): both give every emit a compile-checked shape.
+  const declRe = /export (?:interface|type) ([A-Z][A-Za-z0-9]+Event)\b/g;
   const names = new Set<string>();
   for (const rel of files) {
     const src = readFileSync(resolve(REPO_ROOT, rel), 'utf8');

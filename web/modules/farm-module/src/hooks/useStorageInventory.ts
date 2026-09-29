@@ -10,12 +10,16 @@ import {
 } from '@aquaculture/shared-ui';
 import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
+import { invalidateStockReadModels } from './stockReadModels';
+
 // Types
 export enum StorageItemType {
   FEED = 'FEED',
   CHEMICAL = 'CHEMICAL',
   CONSUMABLE = 'CONSUMABLE',
   HEALTHCARE = 'HEALTHCARE',
+  // FARM-HIGH-338: spare parts are storage-ledger stock (backend StorageItemType).
+  SPARE_PART = 'SPARE_PART',
 }
 
 export enum MovementType {
@@ -365,14 +369,8 @@ export function useRecordStockMovement() {
       );
       return data.recordStockMovement;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockMovements') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageOverview') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeds', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'chemicals', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'consumables', 'list') });
-    },
+    // Every ledger-derived cache, spare parts included (FARM-HIGH-338).
+    onSuccess: () => invalidateStockReadModels(queryClient, tenantId),
   });
 }
 
@@ -420,10 +418,6 @@ export function useTransferStock() {
       );
       return data.transferStock;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockMovements') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageOverview') });
-    },
+    onSuccess: () => invalidateStockReadModels(queryClient, tenantId),
   });
 }

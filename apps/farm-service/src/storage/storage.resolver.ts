@@ -12,6 +12,7 @@ import {
   RequiresMobileFeature,
 } from '@aquaculture/backend-common/decorators';
 import { TenantGuard, MobileFeatureGuard } from '@aquaculture/backend-common/guards';
+import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
 import { fromCqrsPaginated, CursorPaginationInput } from '@aquaculture/backend-common/pagination';
 import {
   StorageLocationResponse,
@@ -336,15 +337,21 @@ export class StorageResolver {
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => StorageOverviewResponse)
-  async storageOverview(@CurrentTenant() tenantId: string): Promise<StorageOverviewResponse> {
-    const query = new GetStorageOverviewQuery(tenantId);
+  async storageOverview(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: SiteScopeCaller,
+  ): Promise<StorageOverviewResponse> {
+    const query = new GetStorageOverviewQuery(tenantId, user);
     return this.queryBus.execute(query);
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WarehouseSummaryResponse)
-  async warehouseSummary(@CurrentTenant() tenantId: string): Promise<WarehouseSummaryResponse> {
-    return this.queryBus.execute(new GetWarehouseSummaryQuery(tenantId));
+  async warehouseSummary(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: SiteScopeCaller,
+  ): Promise<WarehouseSummaryResponse> {
+    return this.queryBus.execute(new GetWarehouseSummaryQuery(tenantId, user));
   }
 
   // === Lot Traceability ===

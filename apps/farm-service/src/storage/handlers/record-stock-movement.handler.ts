@@ -96,25 +96,28 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
       return movementResult;
     });
 
-    const { saved, warnings, lowStock } = result;
+    const { saved, warnings, lowStockCrossings } = result;
 
     // POST-COMMIT in-process signal for the STOCK_LOW auto-task trigger
     // (task/services/auto-rule-trigger.service.ts). Emitted only after the
     // transaction committed so a rolled-back movement can never spawn a task.
-    // NOTE: this extends the STOCK_LOW trigger to storage items — previously
-    // only the spare-parts cron emitted `inventory.lowStock` (documented as
-    // new behavior; the AutoRule UI already advertises feed stock as the
-    // example use case).
-    if (lowStock && !result.idempotentHit) {
+    // That trigger is tenant-level, so it is fed from the POOL tier crossing;
+    // the durable, site-aware signal is the outboxed LowStockDetected. The
+    // in-process chain is replaced by the AutoRule reconciler in plan PR-B1a-2.
+    const poolCrossing = lowStockCrossings.find((crossing) => crossing.reading.level === 'pool');
+    if (poolCrossing && !result.idempotentHit) {
+      const item = {
+        id: saved.itemId,
+        name: saved.itemName,
+        itemType: saved.itemType,
+        currentQuantity: poolCrossing.reading.onHand,
+      };
       this.eventEmitter.emit('inventory.lowStock', {
         tenantId,
-        outOfStock:
-          lowStock.severity === 'out_of_stock'
-            ? [{ id: saved.itemId, name: saved.itemName, itemType: saved.itemType, currentQuantity: result.currentTotal }]
-            : [],
+        outOfStock: poolCrossing.severity === 'out_of_stock' ? [item] : [],
         lowStock:
-          lowStock.severity === 'low_stock'
-            ? [{ id: saved.itemId, name: saved.itemName, itemType: saved.itemType, currentQuantity: result.currentTotal, minimumThreshold: lowStock.minimumThreshold }]
+          poolCrossing.severity === 'low_stock'
+            ? [{ ...item, minimumThreshold: poolCrossing.reading.threshold }]
             : [],
       });
     }

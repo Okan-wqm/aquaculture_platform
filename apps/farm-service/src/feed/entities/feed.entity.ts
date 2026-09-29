@@ -54,6 +54,21 @@ registerEnumType(FeedType, { name: 'FeedType', description: 'Type of feed' });
 registerEnumType(FloatingType, { name: 'FloatingType', description: 'Feed floating behavior' });
 registerEnumType(FeedStatus, { name: 'FeedStatus', description: 'Feed stock status' });
 
+/**
+ * WHY (FARM-HIGH-337): LOW_STOCK / OUT_OF_STOCK are stock bands the ledger
+ * projection derives; only these lifecycle statuses are operator decisions.
+ * WHAT: the statuses a projection keeps, and — with AVAILABLE, meaning "clear
+ * the lifecycle override, derive from stock" — the only ones a client may set.
+ */
+export const FEED_LIFECYCLE_STATUSES: readonly FeedStatus[] = [
+  FeedStatus.EXPIRED,
+  FeedStatus.DISCONTINUED,
+];
+export const FEED_CLIENT_SETTABLE_STATUSES: readonly FeedStatus[] = [
+  FeedStatus.AVAILABLE,
+  ...FEED_LIFECYCLE_STATUSES,
+];
+
 export interface NutritionalContent {
   crudeProtein?: number;     // %
   crudeFat?: number;         // %

@@ -120,6 +120,8 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   deleteSparePart: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   deleteSpecies: [Role.TENANT_ADMIN],
   deleteStorageLocation: [Role.TENANT_ADMIN],
+  // Plan K8 tier 1: per-site distribution minimum (FARM-HIGH-336).
+  deleteStorageItemSitePolicy: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   deleteSubEquipment: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   deleteSupplier: [Role.TENANT_ADMIN],
   deleteSystem: [Role.TENANT_ADMIN],
@@ -264,6 +266,7 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   updateSparePart: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateSpecies: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateStorageLocation: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  upsertStorageItemSitePolicy: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateSubEquipment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   updateSupplier: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateSystem: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -473,6 +476,8 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   storageLocation: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   storageLocations: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   storageOverview: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // Plan K8 tier 1: site-scoped in the handler for MODULE_USER (FARM-HIGH-336).
+  storageItemSitePolicies: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   subEquipment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   subEquipmentByParent: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   subEquipmentList: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

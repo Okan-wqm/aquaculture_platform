@@ -1,8 +1,15 @@
 /**
  * List Spare Parts (filtered, paginated) Query Handler — fail-closed tenant
  * boundary.
+ *
+ * WHY stock filters run after the ledger read (FARM-HIGH-338): quantity and
+ * status are no longer columns anyone writes — they are derived from the
+ * storage ledger by SparePartStockReader. Filtering or sorting on the legacy
+ * columns in SQL would silently use numbers that stopped moving. The
+ * catalogue filters stay in SQL; the stock filters, the stock sorts and the
+ * page slice apply to the derived values, with the ONE derivation rule.
  */
-import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import {
   IStandardPaginatedResult,
   createStandardPaginatedResult,
@@ -13,25 +20,31 @@ import { DataSource } from 'typeorm';
 
 import { SparePart } from '../entities/spare-part.entity';
 import { ListSparePartsQuery } from '../queries/list-spare-parts.query';
+import {
+  requireStockView,
+  SparePartStockReader,
+  SparePartStockView,
+} from '../services/spare-part-stock.reader';
+
+/** Sort keys that read catalogue columns directly. */
+const COLUMN_SORTS: ReadonlySet<string> = new Set(['name', 'code', 'partNumber', 'createdAt']);
 
 @QueryHandler(ListSparePartsQuery)
 export class ListSparePartsHandler implements IQueryHandler<ListSparePartsQuery> {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly stockReader: SparePartStockReader,
   ) {}
 
   async execute(query: ListSparePartsQuery): Promise<IStandardPaginatedResult<SparePart>> {
     const { tenantId, filter, page, limit, sortBy, sortOrder } = query;
 
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const qb = queryRunner.manager
-        .createQueryBuilder(SparePart, 'sp')
-        .where('sp.tenantId = :tenantId', { tenantId });
+      const qb = tenantManagerRepo(queryRunner.manager, SparePart, tenantId).createQueryBuilder(
+        'sp',
+      );
 
-      if (filter?.status?.length) {
-        qb.andWhere('sp.status IN (:...statuses)', { statuses: filter.status });
-      }
       if (filter?.equipmentTypeId) {
         qb.andWhere('sp.equipmentTypeId = :equipmentTypeId', {
           equipmentTypeId: filter.equipmentTypeId,
@@ -48,31 +61,42 @@ export class ListSparePartsHandler implements IQueryHandler<ListSparePartsQuery>
       if (filter?.isActive !== undefined) {
         qb.andWhere('sp.isActive = :isActive', { isActive: filter.isActive });
       }
-      if (filter?.isLowStock) {
-        qb.andWhere('sp.quantity <= sp.minStock');
-        qb.andWhere('sp.quantity > 0');
-      }
-      if (filter?.isOutOfStock) {
-        qb.andWhere('sp.quantity = 0');
-      }
       if (filter?.searchTerm) {
         qb.andWhere(
           '(sp.name ILIKE :search OR sp.code ILIKE :search OR sp.partNumber ILIKE :search)',
           { search: `%${filter.searchTerm}%` },
         );
       }
+      const columnSort = COLUMN_SORTS.has(sortBy) ? sortBy : 'name';
+      qb.orderBy(`sp.${columnSort}`, sortOrder);
 
-      const total = await qb.getCount();
+      const candidates = await qb.getMany();
+      const stock = await this.stockReader.read(queryRunner.manager, tenantId, candidates);
+      const viewOf = (part: SparePart): SparePartStockView => requireStockView(stock, part.id);
 
-      const validSortFields = ['name', 'code', 'partNumber', 'quantity', 'status', 'createdAt'];
-      const finalSortBy = validSortFields.includes(sortBy) ? sortBy : 'name';
+      let rows = candidates.filter((part) => {
+        const view = viewOf(part);
+        if (filter?.status?.length && !filter.status.includes(view.status)) return false;
+        if (filter?.isLowStock && !(view.onHand > 0 && view.onHand <= part.minStock)) return false;
+        if (filter?.isOutOfStock && view.onHand > 0) return false;
+        return true;
+      });
 
-      qb.orderBy(`sp.${finalSortBy}`, sortOrder)
-        .skip((page - 1) * limit)
-        .take(limit);
+      if (sortBy === 'quantity' || sortBy === 'status') {
+        const direction = sortOrder === 'DESC' ? -1 : 1;
+        rows = [...rows].sort((a, b) => {
+          const left = viewOf(a);
+          const right = viewOf(b);
+          const order =
+            sortBy === 'quantity'
+              ? left.onHand - right.onHand
+              : left.status.localeCompare(right.status);
+          return order * direction;
+        });
+      }
 
-      const items = await qb.getMany();
-      return createStandardPaginatedResult(items, total, page, limit);
+      const items = rows.slice((page - 1) * limit, page * limit);
+      return createStandardPaginatedResult(items, rows.length, page, limit);
     });
   }
 }

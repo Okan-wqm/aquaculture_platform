@@ -9,9 +9,9 @@ import { createBaseEvent } from '@platform/event-contracts';
 import { ReceiveDeliveryCommand } from '../commands/receive-delivery.command';
 import { PurchaseOrder, PurchaseOrderStatus } from '../entities/purchase-order.entity';
 import { PurchaseOrderItem } from '../entities/purchase-order-item.entity';
-import { StorageItemType } from '../entities/storage-inventory.entity';
 import { MovementType, StockMovement } from '../entities/stock-movement.entity';
 import { StockMovementService } from '../services/stock-movement.service';
+import { PURCHASE_ORDER_CATEGORY_ITEM_TYPE } from '../services/purchase-order-item-type';
 
 /**
  * ReceiveDeliveryHandler — PO receipt into the storage ledger.
@@ -71,14 +71,9 @@ export class ReceiveDeliveryHandler implements ICommandHandler<ReceiveDeliveryCo
       throw new BadRequestException(`PO must be in ORDERED or PARTIALLY_RECEIVED status to receive delivery`);
     }
 
-    // Map category to StorageItemType
-    const itemTypeMap: Record<string, StorageItemType> = {
-      FEED: StorageItemType.FEED,
-      CHEMICAL: StorageItemType.CHEMICAL,
-      CONSUMABLE: StorageItemType.CONSUMABLE,
-      HEALTHCARE: StorageItemType.HEALTHCARE,
-    };
-    const storageItemType = itemTypeMap[po.category] || StorageItemType.CONSUMABLE;
+    // The category → ledger item type mapping is total (one SSoT, no fallback):
+    // an unmapped category is a compile error, not a receipt filed as CONSUMABLE.
+    const storageItemType = PURCHASE_ORDER_CATEGORY_ITEM_TYPE[po.category];
 
     return this.dataSource.transaction(async (manager) => {
       const poItemRepo = tenantManagerRepo(manager, PurchaseOrderItem, tenantId);

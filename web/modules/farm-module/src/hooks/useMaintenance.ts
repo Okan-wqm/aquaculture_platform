@@ -247,9 +247,21 @@ export interface MaintenanceSchedule {
 // TYPES - Spare Parts
 // ============================================================================
 
+/**
+ * DERIVED on the backend from ledger on-hand, open orders and `isActive`
+ * (FARM-HIGH-338) — read-only on the web; no input type carries it.
+ */
 export type SparePartStatus = 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK' | 'ON_ORDER' | 'DISCONTINUED';
 
-export interface StorageLocation {
+/**
+ * Free-text shelf/bin detail INSIDE the part's storage location.
+ *
+ * WHY renamed from `StorageLocation` (FARM-HIGH-338): the old name shadowed the
+ * storage module's real `StorageLocation` (useStorageLocations.ts) and read as
+ * if this blob placed the part somewhere. It never did — the physical place is
+ * `SparePart.storageLocationId`; this is operator text only.
+ */
+export interface SparePartBinDetail {
   warehouse?: string;
   shelf?: string;
   bin?: string;
@@ -259,6 +271,7 @@ export interface StorageLocation {
 export interface SparePart {
   id: string;
   tenantId: string;
+  /** Server-generated (`SP-000001`); no input type carries it. */
   code: string;
   name: string;
   partNumber: string;
@@ -267,13 +280,25 @@ export interface SparePart {
   compatibleEquipmentTypes?: string[];
   supplierId?: string;
   manufacturer?: string;
+  /**
+   * On-hand across every storage location, DERIVED from the storage ledger
+   * (FARM-HIGH-338). Float: ledger quantities may be fractional. Changes only
+   * through `recordSparePartStockMovement`, never through create/update.
+   */
   quantity: number;
+  /** Unreceived remainder on open purchase orders (ledger-derived). */
+  onOrderQuantity: number;
   minStock: number;
   maxStock: number;
   reorderPoint: number;
   unit: string;
   status: SparePartStatus;
-  location?: StorageLocation;
+  /**
+   * The storage location that physically holds the part — the ledger location
+   * its movements default to. Null while the part has never been stocked.
+   */
+  storageLocationId?: string | null;
+  binDetail?: SparePartBinDetail | null;
   /** @deprecated Float — use `unitPriceDecimal` (exact decimal string, ADR-0004). */
   unitPrice?: number;
   unitPriceDecimal?: string | null;
@@ -519,12 +544,14 @@ const SPARE_PART_FIELDS = `
   supplierId
   manufacturer
   quantity
+  onOrderQuantity
   minStock
   maxStock
   reorderPoint
   unit
   status
-  location
+  storageLocationId
+  binDetail
   unitPrice
   unitPriceDecimal
   currency
@@ -1591,9 +1618,11 @@ export function useLowStockAlerts() {
       const result = await graphqlClient.request<{
         lowStockAlerts: {
           sparePart: SparePart;
+          /** Ledger on-hand (Float, FARM-HIGH-338). */
           currentQuantity: number;
           minStock: number;
           reorderPoint: number;
+          /** reorderPoint − (on-hand + open orders), never negative (Float). */
           deficit: number;
         }[];
       }>(query, {});
@@ -1643,46 +1672,84 @@ export function useStockSummary() {
   });
 }
 
+/**
+ * Input of `recordSparePartStockMovement` — mirrors the backend
+ * `StockMovementInput` (apps/farm-service/src/maintenance/dto/spare-part.dto.ts).
+ */
+export interface SparePartStockMovementInput {
+  sparePartId: string;
+  /** in/out: the amount moved (> 0). adjustment: the counted on-hand AT the location (>= 0). Int. */
+  quantity: number;
+  movementType: 'in' | 'out' | 'adjustment';
+  /**
+   * The ledger location the movement acts at. The backend defaults it to the
+   * part's own `storageLocationId`; one of the two must exist.
+   */
+  storageLocationId?: string;
+  reason?: string;
+  workOrderId?: string;
+  notes?: string;
+}
+
+/**
+ * Spare-part cache keys whose values the storage ledger DERIVES (quantity,
+ * onOrderQuantity, status, low-stock deficit, summary counts). Every write that
+ * books a ledger movement for a part invalidates all of them.
+ */
+const SPARE_PART_LEDGER_DERIVED_KEYS = ['spareParts', 'lowStockAlerts', 'stockSummary'] as const;
+
+/**
+ * Storage-module cache keys (useStorageInventory.ts) that show the same ledger
+ * rows: a spare-part movement IS a storage-ledger movement (FARM-HIGH-338), so
+ * the storage surfaces go stale with it.
+ */
+const STORAGE_LEDGER_KEYS = ['storageInventory', 'stockMovements', 'storageOverview'] as const;
+
+/**
+ * Records one spare-part stock movement in the storage ledger.
+ *
+ * WHY `recordSparePartStockMovement`: `recordStockMovement` is the STORAGE
+ * inventory mutation (input type `RecordStockMovementInput`); sending this
+ * hook's `StockMovementInput` to it failed GraphQL validation, so no
+ * spare-part movement ever reached the backend (FARM-HIGH-338).
+ */
 export function useRecordStockMovement() {
   const queryClient = useQueryClient();
 
   const { tenantId } = useAuth();
   return useMutation({
-    mutationFn: async (input: {
-      sparePartId: string;
-      quantity: number;
-      movementType: 'in' | 'out' | 'adjustment';
-      reason?: string;
-      workOrderId?: string;
-      notes?: string;
-    }) => {
+    mutationFn: async (input: SparePartStockMovementInput) => {
       const mutation = `
-        mutation RecordStockMovement($input: StockMovementInput!) {
-          recordStockMovement(input: $input) {
+        mutation RecordSparePartStockMovement($input: StockMovementInput!) {
+          recordSparePartStockMovement(input: $input) {
             ${SPARE_PART_FIELDS}
           }
         }
       `;
 
-      const result = await graphqlClient.request<{ recordStockMovement: SparePart }>(
+      const result = await graphqlClient.request<{ recordSparePartStockMovement: SparePart }>(
         mutation,
         { input }
       );
 
-      return result.recordStockMovement;
+      return result.recordSparePartStockMovement;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'spareParts') });
+      for (const key of [...SPARE_PART_LEDGER_DERIVED_KEYS, ...STORAGE_LEDGER_KEYS]) {
+        queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, key) });
+      }
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'sparePart', data.id) });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'lowStockAlerts') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockSummary') });
     },
   });
 }
 
-// Input types for Spare Part mutations
-export interface CreateSparePartInput {
-  code: string;
+// Input types for Spare Part mutations — mirror the backend DTOs
+// (apps/farm-service/src/maintenance/dto/spare-part.dto.ts). `code` is
+// server-generated; `quantity` and `status` are ledger-derived, so neither
+// input carries them and an object literal that tries is a compile error.
+
+/** Catalogue fields shared by every create shape. */
+interface CreateSparePartCatalogueInput {
   name: string;
   partNumber: string;
   description?: string;
@@ -1690,22 +1757,29 @@ export interface CreateSparePartInput {
   compatibleEquipmentTypes?: string[];
   supplierId?: string;
   manufacturer?: string;
-  quantity: number;
   minStock: number;
   maxStock: number;
   reorderPoint: number;
   unit: string;
-  location?: StorageLocation;
+  binDetail?: SparePartBinDetail;
   unitPrice?: number;
   currency?: string;
-  specifications?: Record<string, unknown>;
   leadTimeDays?: number;
   notes?: string;
 }
 
+/**
+ * The opening balance is ONE ledger IN movement AT a storage location, so the
+ * backend rejects `openingQuantity > 0` without `storageLocationId`. The union
+ * makes that shape unrepresentable here: a positive opening quantity only
+ * type-checks together with a location.
+ */
+export type CreateSparePartInput =
+  | (CreateSparePartCatalogueInput & { openingQuantity: 0; storageLocationId?: string })
+  | (CreateSparePartCatalogueInput & { openingQuantity: number; storageLocationId: string });
+
 export interface UpdateSparePartInput {
   id: string;
-  code?: string;
   name?: string;
   partNumber?: string;
   description?: string;
@@ -1713,16 +1787,15 @@ export interface UpdateSparePartInput {
   compatibleEquipmentTypes?: string[];
   supplierId?: string;
   manufacturer?: string;
-  quantity?: number;
+  /** Re-home the part: the location its future movements default to. */
+  storageLocationId?: string;
   minStock?: number;
   maxStock?: number;
   reorderPoint?: number;
   unit?: string;
-  status?: SparePartStatus;
-  location?: StorageLocation;
+  binDetail?: SparePartBinDetail;
   unitPrice?: number;
   currency?: string;
-  specifications?: Record<string, unknown>;
   leadTimeDays?: number;
   notes?: string;
   isActive?: boolean;
@@ -1750,8 +1823,11 @@ export function useCreateSparePart() {
       return result.createSparePart;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'spareParts') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockSummary') });
+      // A non-zero opening quantity is booked as a ledger IN movement, so the
+      // create touches the same derived + storage caches as a movement does.
+      for (const key of [...SPARE_PART_LEDGER_DERIVED_KEYS, ...STORAGE_LEDGER_KEYS]) {
+        queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, key) });
+      }
     },
   });
 }

@@ -48,6 +48,20 @@ registerEnumType(ConsumableStatus, {
   description: 'Status of the consumable',
 });
 
+/**
+ * WHY (FARM-HIGH-337): LOW_STOCK / OUT_OF_STOCK are stock bands the ledger
+ * projection derives; DISCONTINUED is the one operator lifecycle decision.
+ * WHAT: the statuses a projection keeps, and — with AVAILABLE, meaning "clear
+ * the lifecycle override, derive from stock" — the only ones a client may set.
+ */
+export const CONSUMABLE_LIFECYCLE_STATUSES: readonly ConsumableStatus[] = [
+  ConsumableStatus.DISCONTINUED,
+];
+export const CONSUMABLE_CLIENT_SETTABLE_STATUSES: readonly ConsumableStatus[] = [
+  ConsumableStatus.AVAILABLE,
+  ...CONSUMABLE_LIFECYCLE_STATUSES,
+];
+
 @Entity('consumables')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'category'])
@@ -161,17 +175,8 @@ export class Consumable {
   @VersionColumn()
   version!: number;
 
-  // Business methods
-  updateStockStatus(): void {
-    if (this.quantity <= 0) {
-      this.status = ConsumableStatus.OUT_OF_STOCK;
-    } else if (this.quantity <= this.minStock) {
-      this.status = ConsumableStatus.LOW_STOCK;
-    } else {
-      this.status = ConsumableStatus.AVAILABLE;
-    }
-  }
-
+  // Business methods. Stock status is derived by CatalogStockProjector from the
+  // storage ledger (FARM-HIGH-337); the entity carries no second derivation.
   softDelete(deletedBy?: string): void {
     this.isDeleted = true;
     this.deletedAt = new Date();

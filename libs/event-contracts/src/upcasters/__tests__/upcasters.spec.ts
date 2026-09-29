@@ -2,6 +2,7 @@ import { EventUpcasterRegistry, createDefaultRegistry } from '../index';
 import { sensorReadingUpcaster } from '../sensor-reading.upcaster';
 import { alertTriggeredUpcaster } from '../alert-triggered.upcaster';
 import { batchHarvestedUpcaster } from '../batch-harvested-v1-to-v2.upcaster';
+import { lowStockDetectedUpcaster } from '../low-stock-detected-v1-to-v2.upcaster';
 import { createTimestampUpcaster } from '../timestamp-to-string.upcaster';
 
 describe('EventUpcasterRegistry', () => {
@@ -558,5 +559,33 @@ describe('BatchHarvested v1→v2 upcaster (arbiter B2 — identity, additive isF
     });
     expect(out['version']).toBe(2);
     expect(out['batchId']).toBe('b-44');
+  });
+});
+
+describe('LowStockDetected v1→v2 upcaster (plan K8 — stock tier)', () => {
+  it('declares the contiguous 1→2 step the chain invariant requires', () => {
+    // SCENARIO: chain metadata. EXPECTS: LowStockDetected 1 → 2.
+    expect(lowStockDetectedUpcaster.eventType).toBe('LowStockDetected');
+    expect(lowStockDetectedUpcaster.fromVersion).toBe(1);
+    expect(lowStockDetectedUpcaster.toVersion).toBe(2);
+  });
+
+  it('lifts a v1 event to a pool event whose open-order remainder is unknown', () => {
+    // SCENARIO: v1 (tenant-wide SUM, no tier). EXPECTS: level pool, onOrderQuantity
+    // null (not 0), no siteId, payload preserved.
+    const out = lowStockDetectedUpcaster.upcast({
+      eventType: 'LowStockDetected',
+      version: 1,
+      itemId: 'i-1',
+      currentQuantity: 4,
+    });
+    expect(out).toEqual({
+      eventType: 'LowStockDetected',
+      version: 2,
+      itemId: 'i-1',
+      currentQuantity: 4,
+      level: 'pool',
+      onOrderQuantity: null,
+    });
   });
 });

@@ -177,10 +177,9 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     if (opts.recordMovementThrows) throw opts.recordMovementThrows;
     return {
       saved: stub<StockMovement>({ id: 'mv-1' }),
-      currentTotal: 0,
       idempotentHit: false,
-      lowStock: null,
       warnings: [],
+      lowStockCrossings: [],
     };
   });
   // GERÇEK ledger (P-05 tek yol) — pinlenen davranışlar (fail-closed no-lot,

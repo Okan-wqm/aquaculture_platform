@@ -122,22 +122,26 @@ export interface DeliveryReceivedEvent extends BaseEvent {
 }
 
 /**
- * Emitted when stock drops below the minimum threshold or reaches zero.
+ * Current wire version of `LowStockDetected`.
  *
- * This is a critical operational event for aquaculture farms where running out
- * of feed or treatment chemicals can cause fish mortality. The event enables
- * proactive alerting before stock-out situations occur.
- *
- * Subscribers:
- *   - notification-service: sends urgent low-stock alerts to farm managers
- *   - alert-engine: triggers automated reorder workflows
- *   - billing module: flags potential production disruption risk
+ * WHY: v2 added the stock tier (`level`, `siteId`, `onOrderQuantity`, plan K8).
+ * v1 events still in flight are lifted by `lowStockDetectedUpcaster`.
+ * WHAT: producers pass this to `createBaseEvent(..., { version })`.
  */
-export interface LowStockDetectedEvent extends BaseEvent {
+export const LOW_STOCK_DETECTED_VERSION = 2;
+
+/**
+ * Fields every `LowStockDetected` tier carries.
+ *
+ * The event is EDGE-triggered: the farm ledger emits it only when a movement
+ * makes a tier cross into a worse stock band (ok → low → out), never on every
+ * movement that leaves stock already low.
+ */
+interface LowStockDetectedFields extends BaseEvent {
   /** Literal discriminator for event routing and type narrowing */
   eventType: 'LowStockDetected';
 
-  /** Category of the item: feed, chemical, consumable */
+  /** Storage item category: feed, chemical, consumable, healthcare, spare_part */
   itemType: string;
 
   /** UUID of the specific item that is running low */
@@ -146,26 +150,71 @@ export interface LowStockDetectedEvent extends BaseEvent {
   /** Human-readable item name for alert messages */
   itemName: string;
 
-  /** Current total quantity across all storage locations for this tenant */
+  /**
+   * Physical on-hand quantity of the tier, read from the storage ledger:
+   * the site's locations for `level: 'site'`, every location of the tenant
+   * for `level: 'pool'`. Never the denormalized catalog quantity.
+   */
   currentQuantity: number;
 
   /** Unit of measure for display in alerts */
   unit: string;
 
   /**
-   * Minimum stock threshold that was breached.
-   * This value comes from the item's minStock configuration.
-   * Null when the threshold is unknown (e.g., item has no minStock set).
+   * The threshold the tier was compared against: the site policy's minStock
+   * for `level: 'site'`, the catalog reorder threshold for `level: 'pool'`.
+   * Absent when the tier has no positive threshold and the event reports a
+   * physical stock-out only.
    */
   minimumThreshold?: number;
 
   /**
    * Severity classification for alert prioritization:
-   * - 'low_stock': quantity is below minStock but above zero
-   * - 'out_of_stock': quantity has reached zero — immediate action required
+   * - 'low_stock': the compared quantity is at or below the threshold, on-hand above zero
+   * - 'out_of_stock': physical on-hand has reached zero — immediate action required
    */
   severity: 'low_stock' | 'out_of_stock';
 }
+
+/**
+ * Tier 1 (distribution): one site fell below its `storage_item_site_policies`
+ * minimum. The action is a transfer or a site purchase at THAT site.
+ */
+export interface SiteLowStockDetectedEvent extends LowStockDetectedFields {
+  level: 'site';
+  /** Site whose locations were summed. */
+  siteId: string;
+}
+
+/**
+ * Tier 2 (procurement): the tenant pool's inventory position
+ * (`currentQuantity` + `onOrderQuantity`) fell to the catalog reorder threshold.
+ * The action is a purchase for the tenant.
+ */
+export interface PoolLowStockDetectedEvent extends LowStockDetectedFields {
+  level: 'pool';
+  siteId?: undefined;
+  /**
+   * Outstanding quantity on open purchase-order lines (SUBMITTED, APPROVED,
+   * ORDERED, PARTIALLY_RECEIVED). `null` only on a v1 event lifted by the
+   * upcaster: v1 never measured it, so the value is unknown, not zero.
+   */
+  onOrderQuantity: number | null;
+}
+
+/**
+ * Emitted when a stock tier crosses into a worse band (low or out of stock).
+ *
+ * This is a critical operational event for aquaculture farms where running out
+ * of feed or treatment chemicals can cause fish mortality. A discriminated
+ * union on `level`: a site event always names its site, a pool event never
+ * does, and the compiler rejects any other shape.
+ *
+ * Subscribers:
+ *   - alert-engine: opens a low-stock incident
+ *   - gateway-api: live dashboard broadcast
+ */
+export type LowStockDetectedEvent = SiteLowStockDetectedEvent | PoolLowStockDetectedEvent;
 
 /**
  * Emitted after a successful location-to-location stock transfer.

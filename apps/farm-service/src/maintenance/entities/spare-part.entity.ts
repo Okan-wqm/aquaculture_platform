@@ -42,7 +42,16 @@ registerEnumType(SparePartStatus, {
   description: 'Yedek parça stok durumu',
 });
 
-export interface StorageLocation {
+/**
+ * Free-text shelf/bin detail inside the part's storage location.
+ *
+ * WHY renamed (FARM-HIGH-338): this jsonb blob used to be called
+ * `StorageLocation`, shadowing the storage module's entity, and was read as if
+ * it placed the part in a storage location. It never did — it is operator
+ * text. The physical place is `storageLocationId` (a real FK); this blob only
+ * says where on that location's shelves the part sits.
+ */
+export interface SparePartBinDetail {
   warehouse?: string;
   shelf?: string;
   bin?: string;
@@ -53,7 +62,7 @@ export interface StorageLocation {
 @Entity('spare_parts')
 @Index(['tenantId', 'partNumber'], { unique: true })
 @Index(['tenantId', 'code'], { unique: true })
-@Index(['tenantId', 'status'])
+@Index(['tenantId', 'legacyStatus'])
 @Index(['tenantId', 'equipmentTypeId'])
 @Index(['tenantId', 'supplierId'])
 export class SparePart {
@@ -113,9 +122,14 @@ export class SparePart {
   @Column({ length: 100, nullable: true })
   manufacturer?: string;
 
-  @Field(() => Int)
-  @Column({ type: 'int', default: 0 })
-  quantity!: number; // Mevcut stok
+  /**
+   * LEGACY counter, no longer written (FARM-HIGH-338). Spare-part stock lives
+   * in the storage ledger; the GraphQL `quantity` field is resolved from it
+   * (SparePartResolver). Kept only until plan PR-A4 drops the column; the
+   * property name makes every stale reader a compile error.
+   */
+  @Column({ type: 'int', default: 0, name: 'quantity' })
+  legacyQuantity!: number;
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
@@ -133,17 +147,32 @@ export class SparePart {
   @Column({ length: 20, default: 'piece' })
   unit!: string; // piece, set, box, kg, liter, meter
 
-  @Field(() => SparePartStatus)
+  /**
+   * LEGACY status, no longer written (FARM-HIGH-338). The GraphQL `status`
+   * field is DERIVED from ledger on-hand, open orders and `isActive`
+   * (deriveSparePartStatus). Dropped in plan PR-A4 with `legacyQuantity`.
+   */
   @Column({
     type: 'enum',
     enum: SparePartStatus,
     default: SparePartStatus.IN_STOCK,
+    name: 'status',
   })
-  status!: SparePartStatus;
+  legacyStatus!: SparePartStatus;
 
+  /**
+   * The storage location that physically holds this part — the ledger
+   * location its movements default to. Nullable: a part with no stock yet
+   * needs no location. Site = storage_locations.siteId.
+   */
+  @Field(() => ID, { nullable: true })
+  @Column('uuid', { nullable: true })
+  storageLocationId?: string | null;
+
+  /** Shelf/bin text inside the storage location (column `location`). */
   @Field(() => GraphQLJSON, { nullable: true })
-  @Column({ type: 'jsonb', nullable: true })
-  location?: StorageLocation;
+  @Column({ type: 'jsonb', nullable: true, name: 'location' })
+  binDetail?: SparePartBinDetail;
 
   @Field(() => Float, {
     nullable: true,

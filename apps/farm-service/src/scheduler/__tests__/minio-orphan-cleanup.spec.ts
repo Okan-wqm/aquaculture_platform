@@ -29,7 +29,7 @@ import { MaintenanceSchedule } from '../../maintenance/entities/maintenance-sche
 import { SparePart } from '../../maintenance/entities/spare-part.entity';
 import { WorkOrder } from '../../maintenance/entities/work-order.entity';
 import { MaintenanceScheduleService } from '../../maintenance/services/maintenance-schedule.service';
-import { SparePartService } from '../../maintenance/services/spare-part.service';
+import { SparePartStockReader } from '../../maintenance/services/spare-part-stock.reader';
 import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
 import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 
@@ -98,7 +98,7 @@ async function makeService(
     { provide: getRepositoryToken(WorkOrder), useValue: {} },
     { provide: getRepositoryToken(SparePart), useValue: {} },
     { provide: MaintenanceScheduleService, useValue: {} },
-    { provide: SparePartService, useValue: {} },
+    { provide: SparePartStockReader, useValue: {} },
     { provide: SchedulerRegistry, useValue: {} },
     { provide: EventEmitter2, useValue: {} },
     { provide: ConfigService, useValue: {} },

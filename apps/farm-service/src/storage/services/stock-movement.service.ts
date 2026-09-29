@@ -41,16 +41,16 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { EntityManager, IsNull } from 'typeorm';
 import { tenantManagerRepo, TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
-import type { LowStockDetectedEvent } from '@platform/event-contracts';
-import { createBaseEvent } from '@platform/event-contracts';
 
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
 import { StockMovement, MovementType } from '../entities/stock-movement.entity';
-import { Feed, FeedStatus } from '../../feed/entities/feed.entity';
-import { Chemical } from '../../chemical/entities/chemical.entity';
-import { Consumable } from '../../consumable/entities/consumable.entity';
 import { ConditionWarning } from '../dto/stock-movement.response';
+import { describeStorageItem } from './storage-item-catalog';
+import { CatalogStockProjector } from './catalog-stock-projector.service';
+import { LowStockEvaluator } from './low-stock/low-stock-evaluator.service';
+import { buildLowStockDetectedEvent } from './low-stock/low-stock-event.factory';
+import type { LowStockCrossing } from './low-stock/low-stock.types';
 import { LotMixService } from './lot-mix.service';
 import { FeedAllocationService } from './feed-allocation.service';
 import type { FeedAllocationResult } from './feed-allocation.service';
@@ -134,27 +134,20 @@ export interface MovementContext {
   siteAuthorization?: SiteScopeCaller;
 }
 
-/**
- * Result of `recordMovement`. `currentTotal` is the post-decrement
- * aggregate quantity across all locations for the item — the wrapper uses
- * it for low-stock detection AFTER commit.
- */
+/** Result of `recordMovement`. */
 export interface RecordMovementResult {
   saved: StockMovement;
-  /** Aggregate item quantity after the movement (only computed for OUT/WASTE). */
-  currentTotal: number;
   /** True when the idempotency key matched an existing movement (no-op replay). */
   idempotentHit: boolean;
   warnings: ConditionWarning[];
   /**
-   * Set when this OUT/WASTE movement left the item's aggregate at or below
-   * its minStock. The matching durable `LowStockDetectedEvent` has already
-   * been enqueued to the outbox INSIDE the caller's transaction by this
-   * service (single low-stock sink); callers use this field only for
-   * POST-COMMIT side effects (e.g. the in-process `inventory.lowStock`
-   * auto-task trigger), never to re-emit the durable event.
+   * The stock tiers (site, pool) this movement pushed into a worse band. The
+   * matching durable `LowStockDetected` events have already been enqueued to
+   * the outbox INSIDE the caller's transaction by this service (single
+   * low-stock sink); callers use this field only for POST-COMMIT side effects,
+   * never to re-emit the durable event. Empty on an idempotent replay.
    */
-  lowStock: { severity: 'low_stock' | 'out_of_stock'; minimumThreshold?: number } | null;
+  lowStockCrossings: LowStockCrossing[];
 }
 
 @Injectable()
@@ -178,6 +171,10 @@ export class StockMovementService {
     // the only thing that asks the allocator. Two entry points would be two
     // places for the fail-closed rule to drift.
     private readonly feedAllocation: FeedAllocationService,
+    // Plan K8: the ONE low-stock decision (site + pool tiers, ledger-based).
+    private readonly lowStockEvaluator: LowStockEvaluator,
+    // FARM-HIGH-337: the ONE writer of the catalog quantity/status projection.
+    private readonly catalogProjector: CatalogStockProjector,
   ) {}
 
   /**
@@ -229,15 +226,14 @@ export class StockMovementService {
         this.logger.log(`Idempotent hit: movement ${existing.id} for key ${input.idempotencyKey}`);
         return {
           saved: existing,
-          currentTotal: 0,
           idempotentHit: true,
           warnings: [],
-          lowStock: null,
+          lowStockCrossings: [],
         };
       }
     }
 
-    const itemDetails = await this.getItemDetails(manager, itemType, itemId, tenantId);
+    const itemDetails = await describeStorageItem(manager, tenantId, itemType, itemId);
     if (!itemDetails) {
       throw new NotFoundException(`${itemType} with ID "${itemId}" not found`);
     }
@@ -340,9 +336,9 @@ export class StockMovementService {
       );
     }
 
-    // Roll the item's total quantity back onto the source entity
-    // (Feed.quantity / Chemical.quantity / Consumable.quantity + status).
-    await this.updateItemTotalQuantity(manager, itemType, itemId, tenantId);
+    // Re-project the catalog quantity + derived status from the ledger
+    // (Feed/Chemical/Consumable; spare parts are derived at read time).
+    await this.catalogProjector.project(manager, tenantId, itemType, itemId);
 
     // Immutable audit row (EU 178/2002 lot traceability).
     const movement = movementRepo.create({
@@ -375,55 +371,33 @@ export class StockMovementService {
     });
     const saved = await movementRepo.save(movement);
 
-    // Post-update aggregate quantity across all locations for the item —
-    // read inside the tx so it reflects the just-applied mutation. Used for
-    // low-stock detection on stock-reducing movements only.
-    let currentTotal = 0;
-    let lowStock: RecordMovementResult['lowStock'] = null;
-    if (
-      fromLocation &&
-      (movementType === MovementType.OUT || movementType === MovementType.WASTE)
-    ) {
-      const stockResult = await tenantManagerRepo(manager, StorageInventory, tenantId)
-        .createQueryBuilder('inv')
-        .select('COALESCE(SUM(inv.quantity), 0)', 'total')
-        .andWhere('inv.itemType = :itemType', { itemType })
-        .andWhere('inv.itemId = :itemId', { itemId })
-        .getRawOne();
-      currentTotal = parseFloat(stockResult?.total ?? '0');
-
-      // Single low-stock sink: threshold detection + the durable event live
-      // at the mutation core, so a feeding deduction and a manual OUT emit
-      // the SAME signal on the SAME transactional manager. Previously the
-      // detection lived only in RecordStockMovementHandler, so feeding-driven
-      // depletion never raised LowStockDetected (findings register
-      // FARM-HIGH-217 leg of the dead alert chain).
-      const minStock = Number(itemDetails.minStock ?? 0);
-      if (currentTotal <= 0) {
-        lowStock = {
-          severity: 'out_of_stock',
-          minimumThreshold: minStock > 0 ? minStock : undefined,
-        };
-      } else if (minStock > 0 && currentTotal <= minStock) {
-        lowStock = { severity: 'low_stock', minimumThreshold: minStock };
-      }
-
-      if (lowStock) {
-        const lowStockEvent: LowStockDetectedEvent = {
-          ...createBaseEvent<LowStockDetectedEvent>('LowStockDetected', tenantId),
-          itemType,
-          itemId,
-          itemName: itemDetails.name,
-          currentQuantity: currentTotal,
-          unit: itemDetails.unit,
-          minimumThreshold: lowStock.minimumThreshold,
-          severity: lowStock.severity,
-        };
-        await this.outboxPublisher.enqueue(lowStockEvent, manager);
-      }
+    // Single low-stock sink, EDGE-triggered per tier (plan K8): the
+    // evaluator reads the post-movement ledger inside this transaction and
+    // reports only the tiers this movement pushed into a worse band, so a
+    // feeding deduction, a work-order consumption and a manual OUT emit the
+    // same signal once per crossing — never again on every later movement
+    // that leaves stock already low. A soft-deleted location is not stock
+    // (FARM-MEDIUM-293), so its side of the movement moves no tier.
+    const lowStockCrossings = await this.lowStockEvaluator.crossingsForMovement(
+      manager,
+      tenantId,
+      {
+        itemType,
+        itemId,
+        quantity,
+        fromSiteId: fromLocation && !fromLocation.isDeleted ? fromLocation.siteId : null,
+        toSiteId: toLocation && !toLocation.isDeleted ? toLocation.siteId : null,
+      },
+      itemDetails.poolReorderThreshold,
+    );
+    for (const crossing of lowStockCrossings) {
+      await this.outboxPublisher.enqueue(
+        buildLowStockDetectedEvent(tenantId, crossing, itemDetails),
+        manager,
+      );
     }
 
-    return { saved, currentTotal, idempotentHit: false, warnings, lowStock };
+    return { saved, idempotentHit: false, warnings, lowStockCrossings };
   }
 
   /**
@@ -566,90 +540,26 @@ export class StockMovementService {
           'Either fromLocationId or toLocationId is required for adjustments',
         );
       }
+      // A NAMED side must exist. Returning null here made the sink skip the
+      // mutation while still writing the audit row that claims it happened —
+      // the same fail-open the TRANSFER branch above closes.
       if (input.toLocationId) {
         toLocation = await locationRepo.findOne({ where: { id: input.toLocationId, tenantId } });
+        if (!toLocation) {
+          throw new NotFoundException(`Storage location "${input.toLocationId}" not found`);
+        }
       }
       if (input.fromLocationId) {
         fromLocation = await locationRepo.findOne({
           where: { id: input.fromLocationId, tenantId },
         });
+        if (!fromLocation) {
+          throw new NotFoundException(`Storage location "${input.fromLocationId}" not found`);
+        }
       }
     }
 
     return { fromLocation, toLocation };
-  }
-
-  private async getItemDetails(
-    manager: EntityManager,
-    itemType: StorageItemType,
-    itemId: string,
-    tenantId: string,
-  ): Promise<{
-    name: string;
-    unit: string;
-    minStock?: number;
-    manufacturer?: string;
-    storageTempMin?: number;
-    storageTempMax?: number;
-    storageHumidityMin?: number;
-    storageHumidityMax?: number;
-  } | null> {
-    switch (itemType) {
-      case StorageItemType.FEED: {
-        const feed = await tenantManagerRepo(manager, Feed, tenantId).findOne({
-          where: { id: itemId, tenantId },
-        });
-        return feed
-          ? {
-              name: feed.name,
-              unit: feed.unit,
-              minStock: feed.minStock,
-              manufacturer: feed.manufacturer,
-              storageTempMin: feed.storageTempMin,
-              storageTempMax: feed.storageTempMax,
-              storageHumidityMin: feed.storageHumidityMin,
-              storageHumidityMax: feed.storageHumidityMax,
-            }
-          : null;
-      }
-      case StorageItemType.CHEMICAL: {
-        const chem = await tenantManagerRepo(manager, Chemical, tenantId).findOne({
-          where: { id: itemId, tenantId },
-        });
-        return chem
-          ? {
-              name: chem.name,
-              unit: chem.unit,
-              minStock: chem.minStock,
-              storageTempMin: chem.storageTempMin,
-              storageTempMax: chem.storageTempMax,
-              storageHumidityMin: chem.storageHumidityMin,
-              storageHumidityMax: chem.storageHumidityMax,
-            }
-          : null;
-      }
-      case StorageItemType.CONSUMABLE:
-      case StorageItemType.HEALTHCARE: {
-        // Healthcare products (medications, vaccines) share the consumable
-        // table — a unified entity with healthcare-specific categories.
-        const cons = await tenantManagerRepo(manager, Consumable, tenantId).findOne({
-          where: { id: itemId, tenantId },
-        });
-        return cons
-          ? {
-              name: cons.name,
-              unit: cons.unit,
-              minStock: cons.minStock,
-              storageTempMin: cons.storageTempMin,
-              storageTempMax: cons.storageTempMax,
-              storageHumidityMin: cons.storageHumidityMin,
-              storageHumidityMax: cons.storageHumidityMax,
-            }
-          : null;
-      }
-      default:
-        return null;
-    }
   }
 
   private checkConditionWarnings(
@@ -849,90 +759,6 @@ export class StockMovementService {
         updatedBy: userId,
       });
       await repo.save(inventory);
-    }
-  }
-
-  /**
-   * Sum all inventory for the item across locations and write the total +
-   * stock status back onto the source entity. This is what keeps
-   * `Feed.quantity` — the field the feed-consumption forecast reads —
-   * authoritative after every movement.
-   */
-  private async updateItemTotalQuantity(
-    manager: EntityManager,
-    itemType: StorageItemType,
-    itemId: string,
-    tenantId: string,
-  ): Promise<void> {
-    // The roll-up target is locked BEFORE the SUM is taken, not after.
-    //
-    // Order matters: this is a read-modify-write of a single aggregate row from
-    // a sum over many rows. Two movements against different lots of the same
-    // feed commit concurrently; under READ COMMITTED each would otherwise sum
-    // without seeing the peer's uncommitted row and the second write would
-    // overwrite the first with a total missing that movement (FARM-CRITICAL-240).
-    // Taking the row lock first makes the pair serialize, so the later SUM runs
-    // after the earlier transaction has committed and sees its row.
-    //
-    // Lock ORDER across the service stays inventory-row → aggregate-row, because
-    // this method is only ever called after the inventory mutation. Reversing it
-    // anywhere would open an AB-BA cycle.
-    const sumInventory = async (): Promise<number> => {
-      const result = await tenantManagerRepo(manager, StorageInventory, tenantId)
-        .createQueryBuilder('inv')
-        .select('COALESCE(SUM(inv.quantity), 0)', 'total')
-        .andWhere('inv.itemType = :itemType', { itemType })
-        .andWhere('inv.itemId = :itemId', { itemId })
-        .getRawOne();
-      return parseFloat(result?.total ?? '0');
-    };
-
-    switch (itemType) {
-      case StorageItemType.FEED: {
-        const feedRepo = tenantManagerRepo(manager, Feed, tenantId);
-        const feed = await feedRepo.findOne({
-          where: { id: itemId, tenantId },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (feed) {
-          const totalQuantity = await sumInventory();
-          feed.quantity = totalQuantity;
-          if (totalQuantity <= 0) feed.status = FeedStatus.OUT_OF_STOCK;
-          else if (totalQuantity <= Number(feed.minStock)) feed.status = FeedStatus.LOW_STOCK;
-          else feed.status = FeedStatus.AVAILABLE;
-          await feedRepo.save(feed);
-        }
-        break;
-      }
-      case StorageItemType.CHEMICAL: {
-        const chemRepo = tenantManagerRepo(manager, Chemical, tenantId);
-        const chem = await chemRepo.findOne({
-          where: { id: itemId, tenantId },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (chem) {
-          const totalQuantity = await sumInventory();
-          chem.quantity = totalQuantity;
-          chem.updateStockStatus();
-          await chemRepo.save(chem);
-        }
-        break;
-      }
-      case StorageItemType.CONSUMABLE:
-      case StorageItemType.HEALTHCARE: {
-        const consRepo = tenantManagerRepo(manager, Consumable, tenantId);
-        const cons = await consRepo.findOne({
-          where: { id: itemId, tenantId },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (cons) {
-          const totalQuantity = await sumInventory();
-          cons.quantity = totalQuantity;
-          cons.updateStockStatus();
-          await consRepo.save(cons);
-        }
-        break;
-      }
     }
   }
 }

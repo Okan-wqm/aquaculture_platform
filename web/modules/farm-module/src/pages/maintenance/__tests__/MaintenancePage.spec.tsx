@@ -92,7 +92,7 @@ const SPARE_PART = {
   reorderPoint: 3,
   unit: 'kit',
   status: 'IN_STOCK',
-  location: { warehouse: 'Main', shelf: 'B2' },
+  binDetail: { warehouse: 'Main', shelf: 'B2' },
   unitPrice: 120,
   currency: 'NOK',
   specifications: {},

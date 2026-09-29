@@ -150,6 +150,21 @@ function formatRelativeTime(isoDate: string): string {
   });
 }
 
+/**
+ * Stable identity of a low-stock row. The same item appears once for the
+ * tenant pool and once per short site (plan K8), so the item id alone is not
+ * unique.
+ */
+function lowStockRowKey(item: LowStockItem): string {
+  return `${item.id}:${item.level}:${item.siteId ?? 'pool'}`;
+}
+
+/** Where the shortage is: one site, or every site together (+ what is on order). */
+function lowStockScopeLabel(item: LowStockItem): string {
+  if (item.level === 'SITE') return item.siteName ?? 'Site';
+  return item.onOrderQty > 0 ? `All sites · ${item.onOrderQty} ${item.unit} on order` : 'All sites';
+}
+
 /** Low stock alert row with red progress bar showing current vs minimum quantity. */
 function LowStockRow({ item }: { item: LowStockItem }): JSX.Element {
   const fillPercent = item.minQty > 0
@@ -159,8 +174,13 @@ function LowStockRow({ item }: { item: LowStockItem }): JSX.Element {
   return (
     <li className="bg-white dark:bg-gray-900 rounded-xl shadow-card border border-gray-100 dark:border-gray-800 p-3">
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-sm font-semibold text-gray-900 dark:text-white truncate">
-          {item.name}
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-gray-900 dark:text-white truncate">
+            {item.name}
+          </span>
+          <span className="block text-xs text-gray-500 dark:text-gray-400 truncate">
+            {lowStockScopeLabel(item)}
+          </span>
         </span>
         <span className="text-xs text-red-600 dark:text-red-400 font-bold tabular-nums flex-shrink-0">
           {item.currentQty}/{item.minQty} {item.unit}
@@ -377,7 +397,7 @@ export function StorageHubPage(): JSX.Element {
               ) : (
                 <ul className="space-y-2">
                   {lowStockItems.map((item: LowStockItem) => (
-                    <LowStockRow key={item.id} item={item} />
+                    <LowStockRow key={lowStockRowKey(item)} item={item} />
                   ))}
                 </ul>
               )}

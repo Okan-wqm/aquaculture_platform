@@ -113,4 +113,45 @@ describe('StorageHubPage (FARM-HIGH-319 — total MovementType config)', () => {
     expect(screen.getByText('FEED-warn')).toBeTruthy();
     expect(screen.getByText('FEED-crit')).toBeTruthy();
   });
+
+  it('renders one low-stock row per tier (pool + each short site) with its scope', () => {
+    // SCENARIO: the same feed is short at Site A and across the pool (plan K8).
+    // EXPECTS: two rows for one item id (unique keys), scoped "Site A" and
+    // "All sites · 100 kg on order".
+    const base = {
+      id: 'feed-1',
+      name: 'Skretting 3mm',
+      itemType: 'FEED' as const,
+      unit: 'kg',
+    };
+    h.summary = summaryWith({
+      lowStockAlertCount: 2,
+      lowStockItems: [
+        {
+          ...base,
+          level: 'SITE',
+          siteId: 'site-a',
+          siteName: 'Site A',
+          currentQty: 0,
+          minQty: 200,
+          onOrderQty: 0,
+        },
+        {
+          ...base,
+          level: 'POOL',
+          siteId: null,
+          siteName: null,
+          currentQty: 300,
+          minQty: 500,
+          onOrderQty: 100,
+        },
+      ],
+    });
+
+    render(<StorageHubPage />);
+
+    expect(screen.getAllByText('Skretting 3mm')).toHaveLength(2);
+    expect(screen.getByText('Site A')).toBeTruthy();
+    expect(screen.getByText('All sites · 100 kg on order')).toBeTruthy();
+  });
 });

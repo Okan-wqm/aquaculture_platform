@@ -26,7 +26,7 @@ import {
   FeedAssignmentEntry,
   useAssignFeedsToBatch,
 } from '../../../hooks/useBatchFeedAssignments';
-import { FeedStatus, useFeedList } from '../../../hooks/useFeeds';
+import { FeedStatus, toFeedSettableStatus, useFeedList } from '../../../hooks/useFeeds';
 
 interface AssignFeedsToBatchModalProps {
   isOpen: boolean;
@@ -77,7 +77,20 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
   existing,
   onSuccess,
 }) => {
-  const feedList = useFeedList({ status: FeedStatus.AVAILABLE });
+  // Assigning a feed to a batch plans future feeding; it consumes no stock.
+  // Since FARM-HIGH-337 the stock bands (LOW_STOCK / OUT_OF_STOCK) are derived
+  // from the ledger, so filtering on AVAILABLE hid every feed that has not
+  // been received yet. Only the operator lifecycle (EXPIRED / DISCONTINUED)
+  // excludes a feed here.
+  const feedList = useFeedList({ isActive: true });
+  const assignableFeeds = useMemo(
+    () =>
+      // Not under a lifecycle override = its settable status is AVAILABLE.
+      (feedList.data?.items ?? []).filter(
+        (feed) => toFeedSettableStatus(feed.status) === FeedStatus.AVAILABLE,
+      ),
+    [feedList.data],
+  );
   const assign = useAssignFeedsToBatch();
   const { toast } = useToast();
 
@@ -143,7 +156,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
     if (!isValid) return;
     try {
       const feedAssignments: FeedAssignmentEntry[] = entries.map((entry) => {
-        const feed = feedList.data?.items.find((f) => f.id === entry.feedId);
+        const feed = assignableFeeds.find((f) => f.id === entry.feedId);
         return {
           feedId: entry.feedId,
           feedCode: feed?.code ?? '',
@@ -209,7 +222,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                   placeholder="— Choose a feed —"
                   value={entry.feedId}
                   onChange={(e) => setField(idx, 'feedId', e.target.value)}
-                  options={(feedList.data?.items ?? []).map((feed) => ({
+                  options={assignableFeeds.map((feed) => ({
                     value: feed.id,
                     label: `${feed.code} — ${feed.name}`,
                   }))}

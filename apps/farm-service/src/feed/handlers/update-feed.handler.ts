@@ -8,13 +8,24 @@ import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-
 import { UpdateFeedCommand } from '../commands/update-feed.command';
 import { Feed } from '../entities/feed.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
+import { CatalogStockProjector } from '../../storage/services/catalog-stock-projector.service';
+import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 
 @CommandHandler(UpdateFeedCommand)
 export class UpdateFeedHandler implements ICommandHandler<UpdateFeedCommand, Feed> {
   private readonly logger = new Logger(UpdateFeedHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly stockProjector: CatalogStockProjector,
+  ) {}
 
+  /**
+   * WHY (FARM-HIGH-337): `quantity` and the stock band belong to the ledger
+   * projection; an edit of minStock or the lifecycle status must re-derive
+   * them, not leave them stale. WHAT: saves the catalog fields, re-projects
+   * quantity + status in the SAME transaction, returns the projected row.
+   */
   async execute(command: UpdateFeedCommand): Promise<Feed> {
     const { feedId, input, tenantId, userId } = command;
 
@@ -67,11 +78,20 @@ export class UpdateFeedHandler implements ICommandHandler<UpdateFeedCommand, Fee
         updatedBy: userId,
       });
 
-      const updatedFeed = await feedRepo.save(feed);
+      await feedRepo.save(feed);
+      // The projector is the one writer of quantity + stock status; it runs
+      // last so a minStock or lifecycle change re-derives the band.
+      await this.stockProjector.project(
+        queryRunner.manager,
+        tenantId,
+        StorageItemType.FEED,
+        feedId,
+      );
+      const projected = await feedRepo.findOneOrFail({ where: { id: feedId, tenantId } });
 
       this.logger.log(`Feed ${feedId} updated successfully`);
 
-      return updatedFeed;
+      return projected;
     });
   }
 }

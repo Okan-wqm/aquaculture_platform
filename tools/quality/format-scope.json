@@ -10149,6 +10149,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/chemical/__tests__/chemical-input-stock-rule.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/chemical/__tests__/handlers/chemical-stock-projection.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/chemical/__tests__/handlers/get-chemical.handler.spec.ts",
       "prettier_managed": true
     },
@@ -10666,6 +10678,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/compliance/tenant-erasure-requested.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/consumable/__tests__/consumable-input-stock-rule.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/consumable/__tests__/consumable-stock-projection.handler.spec.ts",
       "prettier_managed": true
     },
     {
@@ -12855,6 +12879,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/farm/resolvers/farm.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feed/__tests__/feed-input-stock-rule.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feed/__tests__/feed-stock-projection.handler.spec.ts",
       "prettier_managed": true
     },
     {
@@ -54997,6 +55033,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/hooks/__tests__/settableCatalogStatus.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/hooks/__tests__/useCreateBatch.spec.tsx",
       "prettier_managed": true
     },
@@ -55700,6 +55742,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/production/BatchDetailPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/production/components/__tests__/AssignFeedsToBatchModal.spec.tsx",
       "prettier_managed": true
     },
     {

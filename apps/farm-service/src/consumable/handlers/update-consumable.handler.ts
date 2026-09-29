@@ -5,13 +5,24 @@ import { ConflictException, NotFoundException, Logger, BadRequestException } fro
 import { UpdateConsumableCommand } from '../commands/update-consumable.command';
 import { Consumable } from '../entities/consumable.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
+import { CatalogStockProjector } from '../../storage/services/catalog-stock-projector.service';
+import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 
 @CommandHandler(UpdateConsumableCommand)
 export class UpdateConsumableHandler implements ICommandHandler<UpdateConsumableCommand, Consumable> {
   private readonly logger = new Logger(UpdateConsumableHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly stockProjector: CatalogStockProjector,
+  ) {}
 
+  /**
+   * WHY (FARM-HIGH-337): `quantity` and the stock band belong to the ledger
+   * projection; an edit of minStock or the lifecycle status must re-derive
+   * them, not leave them stale. WHAT: saves the catalog fields, re-projects
+   * quantity + status in the SAME transaction, returns the projected row.
+   */
   async execute(command: UpdateConsumableCommand): Promise<Consumable> {
     const { consumableId, input, tenantId, userId } = command;
 
@@ -61,10 +72,21 @@ export class UpdateConsumableHandler implements ICommandHandler<UpdateConsumable
         updatedBy: userId,
       });
 
-      const updated = await consumableRepo.save(consumable);
+      await consumableRepo.save(consumable);
+      // The projector is the one writer of quantity + stock status; it runs
+      // last so a minStock or lifecycle change re-derives the band.
+      await this.stockProjector.project(
+        queryRunner.manager,
+        tenantId,
+        StorageItemType.CONSUMABLE,
+        consumableId,
+      );
+      const projected = await consumableRepo.findOneOrFail({
+        where: { id: consumableId, tenantId },
+      });
 
       this.logger.log(`Consumable ${consumableId} updated successfully`);
-      return updated;
+      return projected;
     });
   }
 }

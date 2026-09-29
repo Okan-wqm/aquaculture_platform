@@ -28,6 +28,9 @@ import {
   Chemical,
   ChemicalType,
   ChemicalStatus,
+  CHEMICAL_SETTABLE_STATUSES,
+  type ChemicalSettableStatus,
+  toChemicalSettableStatus,
   CreateChemicalInput,
   UpdateChemicalInput,
   UsageProtocol,
@@ -149,7 +152,8 @@ interface FormData {
   prescriptionRequired: boolean;
   targetConditionsText: string;
   storageRequirements: string;
-  status: ChemicalStatus;
+  /** Lifecycle-only; stock bands are derived (FARM-HIGH-337). */
+  status: ChemicalSettableStatus;
 }
 
 const emptyForm: FormData = {
@@ -241,7 +245,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
       prescriptionRequired: item.usageProtocol?.prescriptionRequired ?? false,
       targetConditionsText: (item.usageProtocol?.targetConditions ?? []).join(', '),
       storageRequirements: item.storageRequirements ?? '',
-      status: item.status,
+      status: toChemicalSettableStatus(item.status),
     });
     setIsModalOpen(true);
   };
@@ -716,11 +720,14 @@ export const FishHealthChemicalsTab: React.FC = () => {
                     <Select
                       label="Status"
                       value={formData.status}
-                      onChange={(e) => updateField('status', e.target.value as ChemicalStatus)}
-                      options={Object.entries(statusLabels).map(([value, label]) => ({
+                      onChange={(e) =>
+                        updateField('status', toChemicalSettableStatus(e.target.value))
+                      }
+                      options={CHEMICAL_SETTABLE_STATUSES.map((value) => ({
                         value,
-                        label,
+                        label: statusLabels[value],
                       }))}
+                      helperText="Low / out of stock is derived from stock movements (Storage page)."
                     />
                   )}
                 </div>

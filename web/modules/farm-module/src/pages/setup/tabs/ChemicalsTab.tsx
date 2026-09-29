@@ -14,6 +14,9 @@ import {
   Chemical,
   ChemicalType,
   ChemicalStatus,
+  CHEMICAL_SETTABLE_STATUSES,
+  type ChemicalSettableStatus,
+  toChemicalSettableStatus,
   ChemicalDocumentType,
   ChemicalDocument,
   CreateChemicalInput,
@@ -143,8 +146,8 @@ interface ChemicalFormData {
   // Usage
   withdrawalPeriodDays: number;
   usageGuideUrl: string;
-  // Status
-  status: ChemicalStatus;
+  // Status — lifecycle-only; stock bands are derived (FARM-HIGH-337)
+  status: ChemicalSettableStatus;
   // Notes
   notes: string;
   // Site (required - single site for backward compatibility)
@@ -528,8 +531,9 @@ export const ChemicalsTab: React.FC = () => {
       }
 
       if (editingId) {
-        // siteId is not accepted by UpdateChemicalInput - strip it
-        await updateChemical.mutateAsync({ id: editingId, ...input });
+        // siteId is not accepted by UpdateChemicalInput - strip it. Status is
+        // update-only: CreateChemicalInput has none (FARM-HIGH-337).
+        await updateChemical.mutateAsync({ id: editingId, status: formData.status, ...input });
       } else {
         // siteId only valid for create
         input.siteId = formData.siteId || undefined;
@@ -590,7 +594,7 @@ export const ChemicalsTab: React.FC = () => {
       msdsUrl: chemical.safetyInfo?.msdsUrl || '',
       withdrawalPeriodDays: chemical.usageProtocol?.withdrawalPeriod || 0,
       usageGuideUrl: '',
-      status: chemical.status,
+      status: toChemicalSettableStatus(chemical.status),
       notes: chemical.notes || '',
       siteId: chemical.siteId || '',
       siteIds: chemical.siteId ? [chemical.siteId] : [],
@@ -968,14 +972,23 @@ export const ChemicalsTab: React.FC = () => {
                     rows={2}
                   />
                 </div>
-                <Select
-                  label="Status"
-                  value={formData.status}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, status: e.target.value as ChemicalStatus }))
-                  }
-                  options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))}
-                />
+                {editingId && (
+                  <Select
+                    label="Status"
+                    value={formData.status}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        status: toChemicalSettableStatus(e.target.value),
+                      }))
+                    }
+                    options={CHEMICAL_SETTABLE_STATUSES.map((value) => ({
+                      value,
+                      label: statusLabels[value],
+                    }))}
+                    helperText="Low / out of stock is derived from stock movements (Storage page)."
+                  />
+                )}
               </div>
             </CollapsibleSection>
 

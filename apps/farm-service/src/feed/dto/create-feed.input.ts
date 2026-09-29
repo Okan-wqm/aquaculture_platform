@@ -2,10 +2,22 @@
  * Create Feed Input DTO
  */
 import { InputType, Field, Float, Int, ID } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, MinLength, IsEnum, IsArray, ValidateNested, IsUUID, IsDate, Min, Max } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, MinLength, IsEnum, IsIn, IsArray, ValidateNested, IsUUID, IsDate, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 import { GraphQLJSON } from 'graphql-type-json';
-import { FeedType, FloatingType, FeedStatus } from '../entities/feed.entity';
+import { FeedType, FloatingType, FeedStatus, FEED_CLIENT_SETTABLE_STATUSES } from '../entities/feed.entity';
+
+/**
+ * WHY (FARM-HIGH-337): the status input is lifecycle-only; stock bands come
+ * from the ledger. WHAT: the schema description and the validation message,
+ * shared by the create and update inputs so both state the same rule.
+ */
+export const FEED_STATUS_INPUT_DESCRIPTION =
+  'Lifecycle status. Accepts AVAILABLE, EXPIRED or DISCONTINUED. AVAILABLE clears a ' +
+  'lifecycle override: the stock band (AVAILABLE / LOW_STOCK / OUT_OF_STOCK) is then ' +
+  'derived from storage-ledger stock and minStock. LOW_STOCK and OUT_OF_STOCK are rejected.';
+export const FEED_STATUS_INPUT_MESSAGE =
+  'status accepts only AVAILABLE, EXPIRED or DISCONTINUED; LOW_STOCK and OUT_OF_STOCK are derived from stock movements';
 import { FeedGrowthStage, FeedSpeciesRecommendation } from '../entities/feed-type-species.entity';
 
 @InputType()
@@ -315,20 +327,16 @@ export class CreateFeedInput {
 
   // WHY: `@Field(() => Enum, { defaultValue })` makes @nestjs/graphql apply the
   // raw enum KEY (AVAILABLE) — not the value ('available') — when the field is
-  // omitted, so @IsEnum (which validates the lowercase values) rejects every
-  // createFeed that doesn't send status, masked as "Bad Request". WHAT: drop the
-  // GraphQL defaultValue; the handler already applies FeedStatus.AVAILABLE when
-  // status is undefined (create-feed.handler.ts) so the default is preserved.
-  /** Feed availability status. Handler defaults it to AVAILABLE when omitted. */
-  @Field(() => FeedStatus, { nullable: true, description: 'Feed availability status' })
+  // omitted, so the validator (which checks the lowercase values) rejected every
+  // createFeed that didn't send status, masked as "Bad Request". WHAT: no
+  // GraphQL defaultValue; the handler applies FeedStatus.AVAILABLE when omitted.
+  // FARM-HIGH-337: stock bands are derived from the ledger, so only the
+  // client-settable vocabulary is accepted. There is no `quantity` field —
+  // opening stock is a stock movement on the Storage page.
+  @Field(() => FeedStatus, { nullable: true, description: FEED_STATUS_INPUT_DESCRIPTION })
   @IsOptional()
-  @IsEnum(FeedStatus)
+  @IsIn(FEED_CLIENT_SETTABLE_STATUSES, { message: FEED_STATUS_INPUT_MESSAGE })
   status?: FeedStatus;
-
-  @Field(() => Float, { nullable: true, description: 'Initial quantity in stock (kg)' })
-  @IsOptional()
-  @IsNumber()
-  quantity?: number;
 
   @Field(() => Float, { nullable: true, description: 'Minimum stock level (kg)' })
   @IsOptional()

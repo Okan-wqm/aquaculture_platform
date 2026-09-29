@@ -22,6 +22,10 @@ import { FeedingProtocolSeederService } from './services/feeding-protocol-seeder
 import { RestoreModule } from '../common/services/restore.module';
 // FinanceModule exports the currency SSoT resolver (FARM-HIGH-151).
 import { FinanceModule } from '../finance/finance.module';
+// InventoryModule exports CatalogStockProjector — the one writer of the
+// catalog quantity + stock status (FARM-HIGH-337). No cycle: InventoryModule
+// imports only FinanceModule, which imports no domain module.
+import { InventoryModule } from '../storage/storage.module';
 
 // Feed Command Handlers
 import { CreateFeedHandler } from './handlers/create-feed.handler';
@@ -75,6 +79,7 @@ const QueryHandlers = [
     ]),
     RestoreModule,
     FinanceModule,
+    InventoryModule,
   ],
   providers: [
     FeedResolver,

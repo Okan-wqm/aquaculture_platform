@@ -8,13 +8,24 @@ import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-
 import { UpdateChemicalCommand } from '../commands/update-chemical.command';
 import { Chemical } from '../entities/chemical.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
+import { CatalogStockProjector } from '../../storage/services/catalog-stock-projector.service';
+import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 
 @CommandHandler(UpdateChemicalCommand)
 export class UpdateChemicalHandler implements ICommandHandler<UpdateChemicalCommand, Chemical> {
   private readonly logger = new Logger(UpdateChemicalHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly stockProjector: CatalogStockProjector,
+  ) {}
 
+  /**
+   * WHY (FARM-HIGH-337): `quantity` and the stock band belong to the ledger
+   * projection; an edit of minStock or the lifecycle status must re-derive
+   * them, not leave them stale. WHAT: saves the catalog fields, re-projects
+   * quantity + status in the SAME transaction, returns the projected row.
+   */
   async execute(command: UpdateChemicalCommand): Promise<Chemical> {
     const { chemicalId, input, tenantId, userId } = command;
 
@@ -66,11 +77,20 @@ export class UpdateChemicalHandler implements ICommandHandler<UpdateChemicalComm
         updatedBy: userId,
       });
 
-      const updatedChemical = await chemicalRepo.save(chemical);
+      await chemicalRepo.save(chemical);
+      // The projector is the one writer of quantity + stock status; it runs
+      // last so a minStock or lifecycle change re-derives the band.
+      await this.stockProjector.project(
+        queryRunner.manager,
+        tenantId,
+        StorageItemType.CHEMICAL,
+        chemicalId,
+      );
+      const projected = await chemicalRepo.findOneOrFail({ where: { id: chemicalId, tenantId } });
 
       this.logger.log(`Chemical ${chemicalId} updated successfully`);
 
-      return updatedChemical;
+      return projected;
     });
   }
 }

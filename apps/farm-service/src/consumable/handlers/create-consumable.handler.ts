@@ -6,6 +6,8 @@ import { CreateConsumableCommand } from '../commands/create-consumable.command';
 import { Consumable, ConsumableStatus } from '../entities/consumable.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
+import { CatalogStockProjector } from '../../storage/services/catalog-stock-projector.service';
+import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 
 @CommandHandler(CreateConsumableCommand)
 export class CreateConsumableHandler implements ICommandHandler<CreateConsumableCommand, Consumable> {
@@ -14,8 +16,15 @@ export class CreateConsumableHandler implements ICommandHandler<CreateConsumable
   constructor(
     private readonly dataSource: DataSource,
     private readonly financeSettings: FinanceSettingsService,
+    private readonly stockProjector: CatalogStockProjector,
   ) {}
 
+  /**
+   * WHY (FARM-HIGH-337): a new consumable has no stock until a stock movement
+   * books it; seeding `quantity` from the input made a ledger-less writer.
+   * WHAT: creates the catalog row (quantity = column default 0), then projects
+   * quantity + status from the ledger in the SAME transaction.
+   */
   async execute(command: CreateConsumableCommand): Promise<Consumable> {
     const { input, tenantId, userId } = command;
 
@@ -61,7 +70,6 @@ export class CreateConsumableHandler implements ICommandHandler<CreateConsumable
         brand: input.brand,
         supplierId: input.supplierId,
         status: ConsumableStatus.AVAILABLE,
-        quantity: input.quantity ?? 0,
         minStock: input.minStock ?? 0,
         unitPrice: input.unitPrice,
         currency: input.currency ?? defaultCurrency,
@@ -77,9 +85,19 @@ export class CreateConsumableHandler implements ICommandHandler<CreateConsumable
       });
 
       const saved = await consumableRepo.save(consumable);
+      // Last write in the transaction: the projector derives the stock band
+      // from the (empty) ledger and minStock. New stock of a consumable row is
+      // booked under CONSUMABLE (StockLedgerReader.catalog).
+      await this.stockProjector.project(
+        queryRunner.manager,
+        tenantId,
+        StorageItemType.CONSUMABLE,
+        saved.id,
+      );
+      const projected = await consumableRepo.findOneOrFail({ where: { id: saved.id, tenantId } });
 
-      this.logger.log(`Consumable "${saved.name}" created with ID ${saved.id}`);
-      return saved;
+      this.logger.log(`Consumable "${projected.name}" created with ID ${projected.id}`);
+      return projected;
     });
   }
 }

@@ -37,6 +37,26 @@ export enum FeedStatus {
   DISCONTINUED = 'DISCONTINUED',
 }
 
+/**
+ * WHY (FARM-HIGH-337): LOW_STOCK / OUT_OF_STOCK are derived from the storage
+ * ledger and the API rejects them as input. WHAT: the statuses a form may
+ * send — AVAILABLE clears a lifecycle override so the band is derived again.
+ */
+export const FEED_SETTABLE_STATUSES = [
+  FeedStatus.AVAILABLE,
+  FeedStatus.EXPIRED,
+  FeedStatus.DISCONTINUED,
+] as const;
+export type FeedSettableStatus = (typeof FEED_SETTABLE_STATUSES)[number];
+
+/**
+ * WHY: edit forms prefill from the stored status, which may be a derived band.
+ * WHAT: a lifecycle status is kept; anything else maps to AVAILABLE.
+ */
+export function toFeedSettableStatus(status: string): FeedSettableStatus {
+  return FEED_SETTABLE_STATUSES.find((settable) => settable === status) ?? FeedStatus.AVAILABLE;
+}
+
 // Types
 export interface FeedTypeResponse {
   id: string;
@@ -198,8 +218,8 @@ export interface CreateFeedInput {
   pelletSize?: number;
   floatingType?: FloatingType;
   nutritionalContent?: NutritionalContent;
-  status?: FeedStatus;
-  quantity?: number;
+  /** Lifecycle-only (FARM-HIGH-337); stock is changed through stock movements. */
+  status?: FeedSettableStatus;
   minStock?: number;
   unit?: string;
   storageRequirements?: string;

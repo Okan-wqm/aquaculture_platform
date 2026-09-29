@@ -916,10 +916,27 @@ class AncestryProof(StateStoreTestCase):
         to stage; publish must proceed and the fresh snapshot must stop
         declaring the phantom.
         """
-        import os as _os
+        from aria_kernel.tools_binding import bind_tools_root
 
+        # Bound, as the restore action leaves every lane's store: the
+        # acknowledged reduction is RECORDED on the governance ledger by the
+        # publish preamble, and that row needs a bound tools root.
         store = self._bootstrap()
-        surface = self._seed_surface(store, '{"row": 1}\n')
+        with _EnvPatch(state_store.store_environment(store, REPO_HASH)):
+            bind_tools_root(
+                tools_dir=str(tools_root(store)),
+                workspace_root=str(self.repo),
+                reason="bind the restored aria/state store to this checkout",
+            )
+        self._seed_surface(store, '{"row": 1}\n')
+        # A hot artifact, not a core ledger: `ensure_tools_dir` re-touches
+        # the core ledgers on every governance write, so a deleted
+        # runs.jsonl would come back empty (a reset, "changed") before the
+        # publish ever saw it missing. The 2026-08-31 phantoms were hot
+        # artifacts, and those stay gone.
+        surface = tools_root(store) / "pressure" / "phantom.json"
+        surface.parent.mkdir(parents=True, exist_ok=True)
+        surface.write_text("{}\n", encoding="utf-8")
         publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         # Surgery: the surface vanishes from the worktree AND the index —
@@ -927,11 +944,23 @@ class AncestryProof(StateStoreTestCase):
         surface.unlink()
         _git(store.root, "rm", "--cached", "--", surface.relative_to(store.root).as_posix())
 
-        _os.environ["ARIA_STATE_BOOTSTRAP_ACK"] = "test-ack"
-        self.addCleanup(_os.environ.pop, "ARIA_STATE_BOOTSTRAP_ACK", None)
-        follow_up = self._snapshot(store, "snap-2", cycle_id="cycle-2")
-        result = publish_state(store, snapshot=follow_up, cycle_id="cycle-2", repo_hash=REPO_HASH)
-        self.assertTrue(result.get("published") or result.get("commit") or True)
+        # The fixture's acknowledgment names this repository — the only
+        # value the gate accepts, exactly as the bootstrap accepts it — and
+        # the preamble records the acceptance before the snapshot is built.
+        phantom_key = "pressure_artifacts:pressure/phantom.json"
+        prepared = state_store.prepare_publishable_snapshot(
+            store, snapshot_id="snap-2", cycle_id="cycle-2", lane="test", repo_hash=REPO_HASH
+        )
+        self.assertEqual(prepared.accepted_losses_recorded, (phantom_key,))
+        result = publish_state(
+            store,
+            snapshot=prepared.snapshot,
+            cycle_id="cycle-2",
+            repo_hash=REPO_HASH,
+            expected_base_head=prepared.base_head,
+        )
+        self.assertTrue(result["published"])
+        self.assertEqual(result["continuity"]["ack_accepted_surfaces"], [phantom_key])
 
         # The fresh tip no longer declares the phantom surface, and a
         # follow-up publish on the healed branch needs no special casing.

@@ -757,7 +757,9 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
         workflow_id="aria-state-maintenance",
         reason="utility maintenance lane; materialises aria/state through the single "
         "restore path (state checkout + bind-tools-root), compacts JSONL surfaces, prunes "
-        "the artifact index alongside the hot artifacts it strips, pushes the slim branch; "
+        "the artifact index alongside the hot artifacts it strips, and publishes the slim "
+        "tree through the single publish path (state publish: fresh snapshot, bounded "
+        "pathspec, inherited-entry healing, immutable verification, fast-forward push); "
         "performs no governed ARIA mutation and uploads no ARIA artifact — the output IS "
         "the aria/state branch itself (ORPHAN-CRITICAL-807)",
         owner="aria-kernel",

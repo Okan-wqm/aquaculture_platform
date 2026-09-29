@@ -755,11 +755,40 @@ class PublishContentionTests(unittest.TestCase):
             state_store.build_publishable_snapshot,
         ).parameters
         self.assertIn("previous", parameters)
-        source = inspect.getsource(cli_module._handle_state_store_command)
-        self.assertIn("base_head = _read_commit_ref", source)
-        self.assertIn("expected_head=base_head", source)
-        self.assertIn("previous=base", source)
-        self.assertIn("expected_base_head=base_head", source)
+        # The base binding lives in ONE preamble (`prepare_publishable_snapshot`)
+        # — read HEAD once, read that exact commit's snapshot, build against
+        # it — and both production publishers hand its `base_head` to the
+        # publish as the immutable base. A publisher that re-read HEAD for
+        # itself would be the drift this pin exists to catch.
+        preamble = inspect.getsource(state_store.prepare_publishable_snapshot)
+        self.assertIn("base_head = _read_commit_ref", preamble)
+        self.assertIn("expected_head=base_head", preamble)
+        self.assertIn("previous=previous", preamble)
+        self.assertIn("with _state_store_lifecycle_lock(", preamble)
+        for publisher in (
+            state_store.prepare_and_publish_state,
+            state_store._publish_with_contention_replay_locked,
+        ):
+            source = inspect.getsource(publisher)
+            self.assertIn("prepare_publishable_snapshot(", source)
+            self.assertNotIn("build_publishable_snapshot(", source)
+        # The CLI is the single-attempt publisher and runs BOTH halves under
+        # one lifecycle lock through `prepare_and_publish_state`; it neither
+        # runs the preamble nor calls a publish for itself, so nothing can
+        # take the lock between the preamble's index mutation and the commit.
+        cli_source = inspect.getsource(cli_module._handle_state_store_command)
+        self.assertIn("prepare_and_publish_state(", cli_source)
+        self.assertNotIn("prepare_publishable_snapshot(", cli_source)
+        self.assertNotIn("publish_state(", cli_source.replace("prepare_and_publish_state(", ""))
+        one_lock = inspect.getsource(state_store.prepare_and_publish_state)
+        self.assertIn("with _state_store_lifecycle_lock(", one_lock)
+        self.assertIn("expected_base_head=prepared.base_head", one_lock)
+        self.assertIn("_publish_state_locked(", one_lock)
+        replay_source = inspect.getsource(
+            state_store._publish_with_contention_replay_locked,
+        )
+        self.assertIn("base_head = prepared.base_head", replay_source)
+        self.assertIn("expected_base_head=base_head", replay_source)
         recovery_source = inspect.getsource(memory_gap_module.restore_and_replay)
         self.assertIn("base_head = _read_commit_ref", recovery_source)
         self.assertIn("expected_head=base_head", recovery_source)

@@ -16,6 +16,7 @@ from typing import Any, Callable, Iterable, Iterator
 from .file_lock import ExclusiveLockHandle, with_exclusive_lock
 from .state_manifest import (
     normalize_surface_relative_path,
+    state_group_lock_relative_path,
     surface_for_path,
     surface_for_relative_path,
 )
@@ -559,7 +560,7 @@ def _state_group_lock_path(path: Path) -> Path | None:
     if match is None:
         return None
     surface, base_dir = match
-    return base_dir / "locks" / "state-groups" / f"{surface.lock_group}.lock"
+    return base_dir / state_group_lock_relative_path(surface.lock_group)
 
 
 def _transaction_group_lock_paths(

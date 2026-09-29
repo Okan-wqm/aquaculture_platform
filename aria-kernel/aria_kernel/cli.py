@@ -528,15 +528,12 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
     from .workspace import canonical_identity
     from .state_store import (
         StateStoreRefusal,
-        _read_commit_ref,
-        build_publishable_snapshot,
         checkout_state_store,
         findings_root,
         open_state_store,
-        publish_state,
+        prepare_and_publish_state,
         store_environment,
         read_published_snapshot,
-        read_snapshot_at_worktree_head,
         tools_root,
         verify_state_store,
         workspace_root,
@@ -601,17 +598,14 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             print(json.dumps(verdict, indent=2, sort_keys=True))
             return 0 if verdict["valid"] else 1
 
-        base_head = _read_commit_ref(store.root, "HEAD")
-        if base_head is None:
-            raise StateStoreRefusal(
-                "state_publish_base_head_unavailable: operator publish HEAD is "
-                "not an exact commit"
-            )
-        base = read_snapshot_at_worktree_head(
-            store,
-            expected_head=base_head,
-        )
-        snapshot = build_publishable_snapshot(
+        # ONE call, ONE lock. The preamble binds one exact base, drops what
+        # the parent tree carries that no snapshot can claim (recording it),
+        # records an acknowledged reduction, and builds the snapshot from the
+        # healed store; the publish commits it against that base — the same
+        # steps the contention-replay orchestrator runs under its lock, so
+        # this command and that orchestrator cannot disagree about what a
+        # publish stages, and nothing can run between the two halves here.
+        result = prepare_and_publish_state(
             store,
             snapshot_id=args.snapshot_id,
             cycle_id=args.cycle_id,
@@ -620,14 +614,6 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             lane="operator",
             repo_hash=repo_hash,
             parent_commit=args.parent_commit,
-            previous=base,
-        )
-        result = publish_state(
-            store,
-            snapshot=snapshot,
-            cycle_id=args.cycle_id,
-            repo_hash=repo_hash,
-            expected_base_head=base_head,
         )
     except StateStoreRefusal as exc:
         print(json.dumps({"published": False, "refusal": str(exc)}, indent=2, sort_keys=True))

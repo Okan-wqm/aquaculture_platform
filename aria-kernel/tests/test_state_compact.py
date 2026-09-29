@@ -15,7 +15,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from aria_kernel.ledger import load_declared_jsonl, verify_jsonl
+from aria_kernel.ledger import load_declared_jsonl, load_jsonl, verify_jsonl
 from aria_kernel.state_compact import compact_state
 from aria_kernel.tool_registry import ensure_tools_dir
 
@@ -301,44 +301,113 @@ class StateCompactTests(unittest.TestCase):
         hot = self.tools / "run-artifacts" / "hot"
         self.assertEqual(len(list(hot.iterdir())), 3)
 
+    # ------------------------------------------------------------------
+    # The prune is attested: what compaction removes, it names — and the
+    # publish gate reads those names back. Before this, the only way past
+    # `surfaces_lost` after a compaction was the operator bootstrap ack.
+    # ------------------------------------------------------------------
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_compaction_names_every_pruned_path_on_its_governance_row(self) -> None:
+        from aria_kernel.state_compact import COMPACTED_EVENT, PRUNED_PATHS_KEY
+
+        self._seed_hot_artifacts()
+        fates = self.tools / "discovery" / "cyc-x" / "FATES.json"
+        fates.parent.mkdir(parents=True, exist_ok=True)
+        fates.write_text("{}", encoding="utf-8")
+        old_ts = (datetime.now(timezone.utc) - timedelta(days=31)).timestamp()
+        os.utime(fates, (old_ts, old_ts))
+        hot = self.tools / "run-artifacts" / "hot"
+        before = {p.name for p in hot.iterdir()}
+
+        result = compact_state(base_dir=self.tools, retain_days=7)
+
+        after = {p.name for p in hot.iterdir()}
+        old_cycles = sorted(f"run-artifacts/hot/{name}/" for name in before - after)
+        self.assertEqual(len(old_cycles), 2)
+        expected = sorted([*old_cycles, "discovery/cyc-x/FATES.json"])
+        self.assertEqual(result[PRUNED_PATHS_KEY], expected)
+        rows = load_jsonl(self.tools / "governance.jsonl")
+        row = [r for r in rows if r.get("kind") == COMPACTED_EVENT][-1]
+        self.assertEqual(row["details"][PRUNED_PATHS_KEY], expected)
+        # Directory prunes end with "/" so a reader can match by prefix;
+        # single files are exact.
+        self.assertTrue(all(p.endswith("/") for p in old_cycles))
+
+    def test_attested_pruned_paths_reads_only_rows_since_the_published_tip(self) -> None:
+        from aria_kernel.state_compact import attested_pruned_paths, prune_attested
+
+        rows_before = len(load_jsonl(self.tools / "governance.jsonl"))
+        self._seed_hot_artifacts()
+        compact_state(base_dir=self.tools, retain_days=7)
+        rows_after = len(load_jsonl(self.tools / "governance.jsonl"))
+
+        attested = attested_pruned_paths(self.tools, governance_rows_since=rows_before)
+        self.assertTrue(any(p.startswith("run-artifacts/hot/cyc-") for p in attested))
+        self.assertIn("run-artifacts/hot/not-a-cycle-dir/", attested)
+        # Rows the published tip already claims are not this run's evidence.
+        self.assertEqual(attested_pruned_paths(self.tools, governance_rows_since=rows_after), ())
+        self.assertEqual(attested_pruned_paths(self._tmp / "nowhere", governance_rows_since=0), ())
+
+        cycle = next(p for p in attested if p.startswith("run-artifacts/hot/cyc-"))
+        self.assertTrue(prune_attested(f"{cycle}abc/tool_run.json", attested))
+        self.assertTrue(prune_attested(f"{cycle}progress.jsonl", attested))
+        self.assertFalse(prune_attested("run-artifacts/hot/cyc-other/tool_run.json", attested))
+        self.assertFalse(prune_attested("runs.jsonl", attested))
+
+    def test_a_compaction_that_prunes_nothing_attests_nothing(self) -> None:
+        from aria_kernel.state_compact import COMPACTED_EVENT, PRUNED_PATHS_KEY
+
+        result = compact_state(base_dir=self.tools, retain_days=7)
+        self.assertEqual(result[PRUNED_PATHS_KEY], [])
+        row = [r for r in load_jsonl(self.tools / "governance.jsonl") if r.get("kind") == COMPACTED_EVENT][-1]
+        self.assertEqual(row["details"][PRUNED_PATHS_KEY], [])
 
     # ------------------------------------------------------------------
     # ORPHAN-CRITICAL-805 — the index must follow the files it describes.
+    #
+    # These three tests were defined BELOW the module's `if __name__ ==
+    # "__main__": unittest.main()` block at the block's indentation, so they
+    # were never class methods and no runner ever collected them: the gate
+    # for 805 was green because it did not exist. The block now sits where
+    # a main guard belongs, at the end of the module.
     # ------------------------------------------------------------------
 
-    def _seed_artifact_index(self) -> None:
-        """One artifact that exists on disk, one whose cycle was swept."""
-        import hashlib
+    def _index_row(self, cycle: str, run: str, body: bytes | None) -> dict:
+        """One artifact-index row in the shape the writer records — the
+        hash carries the ``sha256:`` scheme prefix ``verify_artifacts``
+        compares byte-for-byte."""
+        from aria_kernel.runtime_artifacts import _sha256_bytes
 
-        live_uri = "run-artifacts/hot/cyc-20260904T194353Z-auto/run-live/tool_run.json"
-        live = self.tools / live_uri
+        return {
+            "schema_version": 1,
+            "artifact_id": f"{cycle}.{run}.tool_run",
+            "cycle_uid": cycle,
+            "current_uri": f"run-artifacts/hot/{cycle}/{run}/tool_run.json",
+            "sha256": _sha256_bytes(body) if body is not None else "sha256:" + "0" * 64,
+            "storage_tier": "hot",
+            "run_status": "ok",
+        }
+
+    def _seed_artifact_index(self) -> str:
+        """One artifact that exists on disk, one whose cycle was swept.
+
+        The live cycle's stamp is relative to now: a fixed date here is a
+        time bomb — the retention sweep would remove the "live" directory
+        itself once the date aged past --retain-days, and the test would
+        then assert against a sweep it never meant to exercise. Returns
+        the live cycle's name.
+        """
+        live_cycle = f"cyc-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-auto"
+        live = self.tools / "run-artifacts" / "hot" / live_cycle / "run-live" / "tool_run.json"
         live.parent.mkdir(parents=True, exist_ok=True)
         body = b'{"tool_id": "event-contracts-adapter"}'
         live.write_bytes(body)
         rows = [
-            {
-                "schema_version": 1,
-                "artifact_id": "cyc-20260904T194353Z-auto.run-live.tool_run",
-                "cycle_uid": "cyc-20260904T194353Z-auto",
-                "current_uri": live_uri,
-                "sha256": hashlib.sha256(body).hexdigest(),
-                "storage_tier": "hot",
-                "run_status": "ok",
-            },
-            {
-                "schema_version": 1,
-                "artifact_id": "cyc-20260810T063724Z-auto.run-swept.tool_run",
-                "cycle_uid": "cyc-20260810T063724Z-auto",
-                "current_uri": "run-artifacts/hot/cyc-20260810T063724Z-auto/run-swept/tool_run.json",
-                "sha256": "0" * 64,
-                "storage_tier": "hot",
-                "run_status": "ok",
-            },
+            self._index_row(live_cycle, "run-live", body),
+            self._index_row("cyc-20260810T063724Z-auto", "run-swept", None),
         ]
         self._write_ledger(self.tools / "run-artifacts" / "artifact-index.jsonl", rows)
+        return live_cycle
 
     def test_index_rows_for_swept_artifacts_are_dropped_and_archived(self) -> None:
         """A row whose file `_strip_hot_artifacts` removed used to survive
@@ -362,7 +431,8 @@ if __name__ == "__main__":
             self.tools / "run-artifacts" / "artifact-index.jsonl",
             expected_surface="runtime_artifact_index",
         )
-        self.assertEqual([r["artifact_id"] for r in kept], ["cyc-20260904T194353Z-auto.run-live.tool_run"])
+        self.assertEqual(len(kept), 1)
+        self.assertTrue(kept[0]["artifact_id"].endswith(".run-live.tool_run"))
 
         archives = sorted((self.tools / "archives").glob("artifact_index-compact-*.jsonl.gz"))
         self.assertEqual(len(archives), 1, "compaction must not lose the rows it drops")
@@ -373,11 +443,18 @@ if __name__ == "__main__":
     def test_index_compaction_is_a_no_op_when_every_file_is_present(self) -> None:
         from aria_kernel.runtime_artifacts import verify_artifacts
 
-        self._seed_artifact_index()
-        (self.tools / "run-artifacts" / "hot" / "cyc-20260810T063724Z-auto" / "run-swept").mkdir(parents=True)
+        live_cycle = f"cyc-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-auto"
+        mismatched = self.tools / "run-artifacts" / "hot" / live_cycle / "run-mismatch" / "tool_run.json"
+        mismatched.parent.mkdir(parents=True, exist_ok=True)
         # A file whose bytes do not match the recorded hash is a REAL integrity
-        # failure and must stay in the index for verify_artifacts to catch.
-        (self.tools / "run-artifacts" / "hot" / "cyc-20260810T063724Z-auto" / "run-swept" / "tool_run.json").write_bytes(b"{}")
+        # failure and must stay in the index for verify_artifacts to catch —
+        # in a cycle the retention sweep keeps, or the sweep (not the index
+        # compaction) would be what removed it.
+        mismatched.write_bytes(b"{}")
+        self._write_ledger(
+            self.tools / "run-artifacts" / "artifact-index.jsonl",
+            [self._index_row(live_cycle, "run-mismatch", None)],
+        )
 
         result = compact_state(base_dir=self.tools, retain_days=7)
         self.assertEqual(result["artifact_index_rows_dropped"], 0)
@@ -394,3 +471,7 @@ if __name__ == "__main__":
             expected_surface="runtime_artifact_index",
         )
         self.assertEqual(len(rows), 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

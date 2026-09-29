@@ -22,6 +22,7 @@ import { StockMutationLockAuthority } from './services/stock-mutation-lock.autho
 import { StockLedgerReader } from './services/low-stock/stock-ledger.reader';
 import { LowStockEvaluator } from './services/low-stock/low-stock-evaluator.service';
 import { CatalogStockProjector } from './services/catalog-stock-projector.service';
+import { StockTierWatch } from './services/low-stock/stock-tier-watch.service';
 import { Site } from '../site/entities/site.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Chemical } from '../chemical/entities/chemical.entity';
@@ -150,6 +151,10 @@ const QueryHandlers = [
     StockLedgerReader,
     LowStockEvaluator,
     CatalogStockProjector,
+    // V-B1-5: the low-stock edge trigger for commands that move a tier without
+    // moving stock (thresholds, open orders, site restore). Exported so the
+    // catalog, maintenance and site modules wrap their commands in it.
+    StockTierWatch,
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
     SiteAuthorizationService,
     MobileFeatureGuard,
@@ -163,6 +168,7 @@ const QueryHandlers = [
     StockLedgerReader,
     LowStockEvaluator,
     CatalogStockProjector,
+    StockTierWatch,
   ],
 })
 export class InventoryModule {}

@@ -7,6 +7,11 @@ import { BadRequestException } from '@nestjs/common';
 import { createMockDataSource, stub } from '@aquaculture/testing';
 import type { Repository } from 'typeorm';
 
+import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
+import {
+  StockTierWatch,
+  type TierWatchScope,
+} from '../../storage/services/low-stock/stock-tier-watch.service';
 import { SparePart } from '../entities/spare-part.entity';
 import { SparePartLedgerService } from '../services/spare-part-ledger.service';
 import { SparePartService } from '../services/spare-part.service';
@@ -20,6 +25,7 @@ function harness(relocatable: boolean): {
   assertRelocatable: jest.Mock;
   assertLocation: jest.Mock;
   save: jest.Mock;
+  around: jest.Mock;
 } {
   const { mockDataSource, mockManager } = createMockDataSource();
   const part = stub<SparePart>({
@@ -47,11 +53,23 @@ function harness(relocatable: boolean): {
     if (!relocatable)
       throw new BadRequestException('transfer that stock before changing the location');
   });
+  // The tier watch runs the edit (its crossings are pinned in
+  // storage/__tests__/stock-tier-watch.service.spec.ts).
+  const around = jest.fn();
+  around.mockImplementation(
+    async (
+      _manager: unknown,
+      _tenantId: string,
+      _scope: TierWatchScope<unknown>,
+      command: () => Promise<unknown>,
+    ): Promise<unknown> => command(),
+  );
   const service = new SparePartService(
     mockDataSource,
     stub<SparePartLedgerService>({ assertLocation, assertRelocatable }),
+    stub<StockTierWatch>({ around }),
   );
-  return { service, assertRelocatable, assertLocation, save };
+  return { service, assertRelocatable, assertLocation, save, around };
 }
 
 describe('SparePartService.update — relocation', () => {
@@ -69,6 +87,24 @@ describe('SparePartService.update — relocation', () => {
       NEXT,
     );
     expect(save).toHaveBeenCalledWith(expect.objectContaining({ storageLocationId: NEXT }));
+  });
+
+  it('runs the edit inside the tier watch, scoped to the part (a reorder point is a threshold)', async () => {
+    // SCENARIO: the manager raises the reorder point. EXPECTS: the save runs inside
+    // StockTierWatch for this SPARE_PART, caused by the part (V-B1-5).
+    const { service, around, save } = harness(true);
+    await service.update(TENANT, { id: 'part-1', reorderPoint: 12 }, 'user-1');
+
+    expect(around).toHaveBeenCalledWith(
+      expect.anything(),
+      TENANT,
+      expect.objectContaining({
+        items: [{ itemType: StorageItemType.SPARE_PART, itemId: 'part-1' }],
+      }),
+      expect.any(Function),
+    );
+    expect(around.mock.calls[0][2].causationId(undefined)).toBe('part-1');
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ reorderPoint: 12 }));
   });
 
   it('refuses to re-home (or clear the home) while stock still sits there', async () => {

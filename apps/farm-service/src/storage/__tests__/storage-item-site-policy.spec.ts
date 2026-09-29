@@ -22,7 +22,12 @@ import { DeleteStorageItemSitePolicyCommand } from '../commands/delete-storage-i
 import { ListStorageItemSitePoliciesQuery } from '../queries/list-storage-item-site-policies.query';
 import { StorageItemSitePolicyResolver } from '../resolvers/storage-item-site-policy.resolver';
 import { MUTATION_ROLES, QUERY_ROLES } from '../../common/authz/permission-matrix';
-import { StockMutationLockAuthority } from '../services/stock-mutation-lock.authority';
+import {
+  StockTierWatch,
+  type TierWatchScope,
+} from '../services/low-stock/stock-tier-watch.service';
+import { AuditAction } from '../../database/entities/audit-log.entity';
+import { AuditLogService } from '../../database/services/audit-log.service';
 import { UpsertStorageItemSitePolicyInput } from '../dto/storage-item-site-policy.input';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -41,8 +46,10 @@ interface Repos {
 
 function harness(repos: Repos): {
   dataSource: ReturnType<typeof createMockDataSource>['mockDataSource'];
-  locks: StockMutationLockAuthority;
-  acquire: jest.Mock;
+  watch: StockTierWatch;
+  around: jest.Mock;
+  audit: AuditLogService;
+  logWithManager: jest.Mock;
   order: string[];
   policySave: jest.Mock;
   policyRemove: jest.Mock;
@@ -51,10 +58,22 @@ function harness(repos: Repos): {
   const { mockDataSource, mockManager } = createMockDataSource();
   // Call log shared by the lock double and the policy read: proves the order.
   const order: string[] = [];
-  const acquire = jest.fn();
-  acquire.mockImplementation(async () => {
-    order.push('lock');
-  });
+  // The tier watch double takes "the item lock" and runs the command, the way
+  // StockTierWatch does (its snapshots and crossings are pinned in
+  // stock-tier-watch.service.spec.ts and the Postgres lane).
+  const around = jest.fn();
+  around.mockImplementation(
+    async (
+      _manager: unknown,
+      _tenantId: string,
+      _scope: TierWatchScope<unknown>,
+      command: () => Promise<unknown>,
+    ): Promise<unknown> => {
+      order.push('lock');
+      return command();
+    },
+  );
+  const logWithManager = jest.fn().mockResolvedValue(undefined);
   const policyFindOne = jest.fn();
   policyFindOne.mockImplementation(async () => {
     order.push('read');
@@ -89,8 +108,10 @@ function harness(repos: Repos): {
   });
   return {
     dataSource: mockDataSource,
-    locks: stub<StockMutationLockAuthority>({ acquire }),
-    acquire,
+    watch: stub<StockTierWatch>({ around }),
+    around,
+    audit: stub<AuditLogService>({ logWithManager }),
+    logWithManager,
     order,
     policySave,
     policyRemove,
@@ -106,20 +127,28 @@ describe('UpsertStorageItemSitePolicyHandler', () => {
   it('creates a policy stamped with its author', async () => {
     // SCENARIO: no policy yet for (site A, feed). EXPECTS: insert with createdBy = updatedBy = caller,
     // after the item lock (so two concurrent first inserts cannot both read "none").
-    const { dataSource, locks, acquire, order, policySave } = harness({
+    const { dataSource, watch, around, order, policySave } = harness({
       site: liveSite,
       feed: liveFeed,
     });
 
-    await new UpsertStorageItemSitePolicyHandler(dataSource, locks).execute(
+    await new UpsertStorageItemSitePolicyHandler(dataSource, watch).execute(
       new UpsertStorageItemSitePolicyCommand(input, TENANT, ADMIN),
     );
 
-    // The first-insert race is closed by the item lock, taken BEFORE the read.
-    expect(acquire).toHaveBeenCalledWith(expect.anything(), TENANT, [
-      { itemType: StorageItemType.FEED, itemId: FEED },
-    ]);
+    // The first-insert race is closed by the item lock the tier watch takes
+    // BEFORE the read; the watch also signals the site tier a new minimum
+    // puts below it (V-B1-5), caused by the policy row.
+    expect(around).toHaveBeenCalledWith(
+      expect.anything(),
+      TENANT,
+      expect.objectContaining({ items: [{ itemType: StorageItemType.FEED, itemId: FEED }] }),
+      expect.any(Function),
+    );
     expect(order).toEqual(['lock', 'read']);
+    expect(around.mock.calls[0][2].causationId(stub<StorageItemSitePolicy>({ id: 'p9' }))).toBe(
+      'p9',
+    );
 
     expect(policySave).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -143,13 +172,13 @@ describe('UpsertStorageItemSitePolicyHandler', () => {
       createdBy: OTHER_ADMIN,
       updatedBy: OTHER_ADMIN,
     });
-    const { dataSource, locks, policySave } = harness({
+    const { dataSource, watch, policySave } = harness({
       site: liveSite,
       feed: liveFeed,
       policy: existing,
     });
 
-    await new UpsertStorageItemSitePolicyHandler(dataSource, locks).execute(
+    await new UpsertStorageItemSitePolicyHandler(dataSource, watch).execute(
       new UpsertStorageItemSitePolicyCommand(input, TENANT, ADMIN),
     );
 
@@ -167,7 +196,7 @@ describe('UpsertStorageItemSitePolicyHandler', () => {
     // SCENARIO: soft-deleted site; then a live site with no such feed. EXPECTS: 400, then 404; nothing saved.
     const deleted = harness({ site: { ...liveSite, isDeleted: true }, feed: liveFeed });
     await expect(
-      new UpsertStorageItemSitePolicyHandler(deleted.dataSource, deleted.locks).execute(
+      new UpsertStorageItemSitePolicyHandler(deleted.dataSource, deleted.watch).execute(
         new UpsertStorageItemSitePolicyCommand(input, TENANT, ADMIN),
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -175,7 +204,7 @@ describe('UpsertStorageItemSitePolicyHandler', () => {
 
     const missingItem = harness({ site: liveSite, feed: null });
     await expect(
-      new UpsertStorageItemSitePolicyHandler(missingItem.dataSource, missingItem.locks).execute(
+      new UpsertStorageItemSitePolicyHandler(missingItem.dataSource, missingItem.watch).execute(
         new UpsertStorageItemSitePolicyCommand(input, TENANT, ADMIN),
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -185,21 +214,80 @@ describe('UpsertStorageItemSitePolicyHandler', () => {
 describe('DeleteStorageItemSitePolicyHandler', () => {
   it('removes the policy, and 404s an unknown id', async () => {
     // SCENARIO: delete existing, then missing. EXPECTS: remove called once; then NotFound.
-    const existing = stub<StorageItemSitePolicy>({ id: 'p1', tenantId: TENANT });
+    const existing = stub<StorageItemSitePolicy>({
+      id: 'p1',
+      tenantId: TENANT,
+      siteId: SITE_A,
+      itemType: StorageItemType.FEED,
+      itemId: FEED,
+      minStock: 250,
+    });
     const found = harness({ policy: existing });
     await expect(
-      new DeleteStorageItemSitePolicyHandler(found.dataSource).execute(
-        new DeleteStorageItemSitePolicyCommand('p1', TENANT),
+      new DeleteStorageItemSitePolicyHandler(found.dataSource, found.watch, found.audit).execute(
+        new DeleteStorageItemSitePolicyCommand('p1', TENANT, ADMIN),
       ),
     ).resolves.toBe(true);
     expect(found.policyRemove).toHaveBeenCalledWith(existing);
 
     const missing = harness({ policy: null });
     await expect(
-      new DeleteStorageItemSitePolicyHandler(missing.dataSource).execute(
-        new DeleteStorageItemSitePolicyCommand('nope', TENANT),
-      ),
+      new DeleteStorageItemSitePolicyHandler(
+        missing.dataSource,
+        missing.watch,
+        missing.audit,
+      ).execute(new DeleteStorageItemSitePolicyCommand('nope', TENANT, ADMIN)),
     ).rejects.toBeInstanceOf(NotFoundException);
+    expect(missing.logWithManager).not.toHaveBeenCalled();
+  });
+
+  it('audit-logs the deletion with its actor and what was removed (V-B1-13)', async () => {
+    // SCENARIO: an admin removes site A's 250 kg feed minimum, last set by another admin.
+    // EXPECTS: one farm_audit_logs DELETE row in the same transaction naming the
+    // actor, the policy id and the removed minimum; the removal runs inside the
+    // tier watch for the policy's item.
+    const existing = stub<StorageItemSitePolicy>({
+      id: 'p1',
+      tenantId: TENANT,
+      siteId: SITE_A,
+      itemType: StorageItemType.FEED,
+      itemId: FEED,
+      minStock: 250,
+      createdBy: OTHER_ADMIN,
+      updatedBy: OTHER_ADMIN,
+    });
+    const h = harness({ policy: existing });
+
+    await new DeleteStorageItemSitePolicyHandler(h.dataSource, h.watch, h.audit).execute(
+      new DeleteStorageItemSitePolicyCommand('p1', TENANT, ADMIN),
+    );
+
+    expect(h.logWithManager).toHaveBeenCalledTimes(1);
+    expect(h.logWithManager).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tenantId: TENANT,
+        entityType: 'StorageItemSitePolicy',
+        entityId: 'p1',
+        action: AuditAction.DELETE,
+        userId: ADMIN,
+        changes: {
+          before: expect.objectContaining({
+            siteId: SITE_A,
+            itemType: StorageItemType.FEED,
+            itemId: FEED,
+            minStock: 250,
+            updatedBy: OTHER_ADMIN,
+          }),
+        },
+      }),
+    );
+    expect(h.around).toHaveBeenCalledWith(
+      expect.anything(),
+      TENANT,
+      expect.objectContaining({ items: [{ itemType: StorageItemType.FEED, itemId: FEED }] }),
+      expect.any(Function),
+    );
   });
 });
 

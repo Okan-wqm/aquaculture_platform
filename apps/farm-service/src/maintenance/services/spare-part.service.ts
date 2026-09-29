@@ -20,6 +20,8 @@ import {
   UpdateSparePartInput,
   StockMovementInput,
 } from '../dto/spare-part.dto';
+import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
+import { StockTierWatch } from '../../storage/services/low-stock/stock-tier-watch.service';
 import { SparePartActor, SparePartLedgerService } from './spare-part-ledger.service';
 
 /** Spare-part stock summary (ledger-derived). */
@@ -47,6 +49,9 @@ export class SparePartService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly ledger: SparePartLedgerService,
+    // A reorder-point change moves the part's pool tier without moving stock
+    // (V-B1-5); the edit runs inside the tier watch like every other threshold.
+    private readonly tierWatch: StockTierWatch,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -123,7 +128,9 @@ export class SparePartService {
 
   /**
    * Update catalogue fields. Stock and status are NOT here (FARM-HIGH-338):
-   * stock moves only through the ledger and the status is derived from it.
+   * stock moves only through the ledger and the status is derived from it. A
+   * raised reorder point can put the part's pool below it with no movement, so
+   * the edit runs inside StockTierWatch, which signals that crossing (V-B1-5).
    */
   async update(
     tenantId: string,
@@ -132,49 +139,68 @@ export class SparePartService {
   ): Promise<SparePart> {
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      const repo = tenantManagerRepo(manager, SparePart, tenantId);
-      const sparePart = await this.findInTransaction(manager, tenantId, input.id);
-
-      if (input.partNumber && input.partNumber !== sparePart.partNumber) {
-        const existing = await repo.findOne({ where: { tenantId, partNumber: input.partNumber } });
-        if (existing) {
-          throw new BadRequestException(`Bu parça numarası zaten mevcut: ${input.partNumber}`);
-        }
-      }
-      // undefined = unchanged; null = no default location; an id = re-home.
-      // Either change is refused while stock still sits at the current home.
-      if (input.storageLocationId === null) {
-        await this.ledger.assertRelocatable(manager, tenantId, sparePart, null);
-        sparePart.storageLocationId = null;
-      } else if (input.storageLocationId !== undefined) {
-        await this.ledger.assertLocation(manager, tenantId, input.storageLocationId);
-        await this.ledger.assertRelocatable(manager, tenantId, sparePart, input.storageLocationId);
-        sparePart.storageLocationId = input.storageLocationId;
-      }
-
-      if (input.name) sparePart.name = input.name;
-      if (input.partNumber) sparePart.partNumber = input.partNumber;
-      if (input.description !== undefined) sparePart.description = input.description;
-      if (input.equipmentTypeId !== undefined) sparePart.equipmentTypeId = input.equipmentTypeId;
-      if (input.compatibleEquipmentTypes !== undefined) {
-        sparePart.compatibleEquipmentTypes = input.compatibleEquipmentTypes;
-      }
-      if (input.supplierId !== undefined) sparePart.supplierId = input.supplierId;
-      if (input.manufacturer !== undefined) sparePart.manufacturer = input.manufacturer;
-      if (input.minStock !== undefined) sparePart.minStock = input.minStock;
-      if (input.maxStock !== undefined) sparePart.maxStock = input.maxStock;
-      if (input.reorderPoint !== undefined) sparePart.reorderPoint = input.reorderPoint;
-      if (input.unit) sparePart.unit = input.unit;
-      if (input.binDetail) sparePart.binDetail = input.binDetail;
-      if (input.unitPrice !== undefined) sparePart.unitPrice = input.unitPrice;
-      if (input.currency) sparePart.currency = input.currency;
-      if (input.leadTimeDays !== undefined) sparePart.leadTimeDays = input.leadTimeDays;
-      if (input.isActive !== undefined) sparePart.isActive = input.isActive;
-      if (input.notes !== undefined) sparePart.notes = input.notes;
-      sparePart.updatedBy = updatedBy;
-
-      return repo.save(sparePart);
+      const found = await this.findInTransaction(manager, tenantId, input.id);
+      return this.tierWatch.around(
+        manager,
+        tenantId,
+        {
+          items: [{ itemType: StorageItemType.SPARE_PART, itemId: found.id }],
+          causationId: () => found.id,
+        },
+        () => this.applyUpdate(manager, tenantId, input, updatedBy),
+      );
     });
+  }
+
+  /** The catalogue edit itself, read and written under the part's stock lock. */
+  private async applyUpdate(
+    manager: EntityManager,
+    tenantId: string,
+    input: UpdateSparePartInput,
+    updatedBy: string,
+  ): Promise<SparePart> {
+    const repo = tenantManagerRepo(manager, SparePart, tenantId);
+    const sparePart = await this.findInTransaction(manager, tenantId, input.id);
+
+    if (input.partNumber && input.partNumber !== sparePart.partNumber) {
+      const existing = await repo.findOne({ where: { tenantId, partNumber: input.partNumber } });
+      if (existing) {
+        throw new BadRequestException(`Bu parça numarası zaten mevcut: ${input.partNumber}`);
+      }
+    }
+    // undefined = unchanged; null = no default location; an id = re-home.
+    // Either change is refused while stock still sits at the current home.
+    if (input.storageLocationId === null) {
+      await this.ledger.assertRelocatable(manager, tenantId, sparePart, null);
+      sparePart.storageLocationId = null;
+    } else if (input.storageLocationId !== undefined) {
+      await this.ledger.assertLocation(manager, tenantId, input.storageLocationId);
+      await this.ledger.assertRelocatable(manager, tenantId, sparePart, input.storageLocationId);
+      sparePart.storageLocationId = input.storageLocationId;
+    }
+
+    if (input.name) sparePart.name = input.name;
+    if (input.partNumber) sparePart.partNumber = input.partNumber;
+    if (input.description !== undefined) sparePart.description = input.description;
+    if (input.equipmentTypeId !== undefined) sparePart.equipmentTypeId = input.equipmentTypeId;
+    if (input.compatibleEquipmentTypes !== undefined) {
+      sparePart.compatibleEquipmentTypes = input.compatibleEquipmentTypes;
+    }
+    if (input.supplierId !== undefined) sparePart.supplierId = input.supplierId;
+    if (input.manufacturer !== undefined) sparePart.manufacturer = input.manufacturer;
+    if (input.minStock !== undefined) sparePart.minStock = input.minStock;
+    if (input.maxStock !== undefined) sparePart.maxStock = input.maxStock;
+    if (input.reorderPoint !== undefined) sparePart.reorderPoint = input.reorderPoint;
+    if (input.unit) sparePart.unit = input.unit;
+    if (input.binDetail) sparePart.binDetail = input.binDetail;
+    if (input.unitPrice !== undefined) sparePart.unitPrice = input.unitPrice;
+    if (input.currency) sparePart.currency = input.currency;
+    if (input.leadTimeDays !== undefined) sparePart.leadTimeDays = input.leadTimeDays;
+    if (input.isActive !== undefined) sparePart.isActive = input.isActive;
+    if (input.notes !== undefined) sparePart.notes = input.notes;
+    sparePart.updatedBy = updatedBy;
+
+    return repo.save(sparePart);
   }
 
   /** Soft delete: the part becomes inactive (derived status DISCONTINUED). */

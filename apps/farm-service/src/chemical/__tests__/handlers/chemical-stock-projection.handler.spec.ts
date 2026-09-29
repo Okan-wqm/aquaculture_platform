@@ -4,8 +4,9 @@
  * WHY: the handlers were a second writer of `chemicals.quantity` / stock
  * status, and a minStock edit left the derived band stale. WHAT this pins:
  *   - neither handler writes `quantity` itself;
- *   - both call CatalogStockProjector.project(manager, tenant, CHEMICAL, id)
- *     AFTER their own save, inside the same transaction;
+ *   - create calls CatalogStockProjector.project(manager, tenant, CHEMICAL, id)
+ *     AFTER its own save; update saves inside StockTierWatch (V-B1-5), which
+ *     re-projects after the save — both inside the same transaction;
  *   - the returned row is the projected one.
  */
 import { collaborator, createMockDataSource, stub, stubMember } from '@aquaculture/testing';
@@ -20,6 +21,8 @@ import { UpdateChemicalHandler } from '../../handlers/update-chemical.handler';
 import { Site } from '../../../site/entities/site.entity';
 import { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
 import { CatalogStockProjector } from '../../../storage/services/catalog-stock-projector.service';
+import { StockTierWatch } from '../../../storage/services/low-stock/stock-tier-watch.service';
+import type { TierWatchScope } from '../../../storage/services/low-stock/stock-tier-watch.service';
 import { StorageItemType } from '../../../storage/entities/storage-inventory.entity';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -74,18 +77,36 @@ function harness(chemicals: Chemical[]) {
     row.status = ChemicalStatus.OUT_OF_STOCK;
   });
   const projector = collaborator<CatalogStockProjector>({ project }, 'CatalogStockProjector');
+  // The tier-watch double runs the command, then re-projects every watched
+  // item the way StockTierWatch does (its crossings are pinned in
+  // storage/__tests__/stock-tier-watch.service.spec.ts).
+  const around = jest.fn();
+  around.mockImplementation(
+    async (
+      manager: unknown,
+      tenantId: string,
+      scope: TierWatchScope<unknown>,
+      command: () => Promise<unknown>,
+    ): Promise<unknown> => {
+      const result = await command();
+      for (const item of scope.items) await project(manager, tenantId, item.itemType, item.itemId);
+      return result;
+    },
+  );
+  const tierWatch = collaborator<StockTierWatch>({ around }, 'StockTierWatch');
   const finance = collaborator<FinanceSettingsService>(
     { getDefaultCurrency: jest.fn().mockResolvedValue('NOK') },
     'FinanceSettingsService',
   );
   return {
     create: new CreateChemicalHandler(mockDataSource, finance, projector),
-    update: new UpdateChemicalHandler(mockDataSource, projector),
+    update: new UpdateChemicalHandler(mockDataSource, tierWatch),
     mockManager,
     mockQueryRunner,
     chemicalTable,
     chemicalSiteTable,
     project,
+    around,
   };
 }
 
@@ -117,6 +138,17 @@ describe('Chemical handlers — catalog stock projection (FARM-HIGH-337)', () =>
       StorageItemType.CHEMICAL,
       CHEMICAL_ID,
     );
+    // V-B1-5: the save runs inside StockTierWatch, scoped to this item and
+    // caused by it, so a raised minStock signals its pool crossing.
+    expect(h.around).toHaveBeenCalledWith(
+      h.mockManager,
+      TENANT,
+      expect.objectContaining({
+        items: [{ itemType: StorageItemType.CHEMICAL, itemId: CHEMICAL_ID }],
+      }),
+      expect.any(Function),
+    );
+    expect(h.around.mock.calls[0]![2].causationId(undefined)).toBe(CHEMICAL_ID);
     expect(h.chemicalTable.save.mock.invocationCallOrder[0]).toBeLessThan(
       h.project.mock.invocationCallOrder[0]!,
     );

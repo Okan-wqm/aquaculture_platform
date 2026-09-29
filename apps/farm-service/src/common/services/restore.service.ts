@@ -41,10 +41,29 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { EntityTarget, FindOptionsWhere, Repository } from 'typeorm';
+import {
+  EntityTarget,
+  FindManyOptions,
+  FindOneOptions,
+  FindOptionsWhere,
+  ObjectLiteral,
+} from 'typeorm';
 
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { RestoreUniquenessConflictError } from '../errors/farm-errors';
+
+/**
+ * The repository surface a restore needs. WHY structural: a TypeORM
+ * `Repository` and a tenant-scoped repository on a caller's transaction
+ * (`tenantManagerRepo`) both satisfy it, so a restore can run INSIDE a
+ * command's transaction (e.g. the site restore, whose woken site policies are
+ * compared before and after by StockTierWatch).
+ */
+export interface RestoreRepository<T extends ObjectLiteral> {
+  find(options: FindManyOptions<T>): Promise<T[]>;
+  findOne(options: FindOneOptions<T>): Promise<T | null>;
+  save(entity: T): Promise<T>;
+}
 
 /** Minimum contract a restorable entity must satisfy. */
 export interface RestorableEntity {
@@ -97,7 +116,9 @@ export class RestoreService {
   constructor(private readonly auditLogService: AuditLogService) {}
 
   async restore<T extends RestorableEntity>(
-    repository: Repository<T>,
+    // NoInfer: T comes from `entityTarget`; the repository is then checked
+    // against it (inference through FindManyOptions<T> would widen T).
+    repository: NoInfer<RestoreRepository<T>>,
     entityTarget: EntityTarget<T>,
     id: string,
     context: RestoreContext,
@@ -162,7 +183,7 @@ export class RestoreService {
   }
 
   private async findSoftDeleted<T extends RestorableEntity>(
-    repository: Repository<T>,
+    repository: RestoreRepository<T>,
     id: string,
     tenantId: string,
   ): Promise<T | null> {
@@ -181,7 +202,7 @@ export class RestoreService {
   }
 
   private async assertUniqueness<T extends RestorableEntity>(
-    repository: Repository<T>,
+    repository: RestoreRepository<T>,
     entityTypeLabel: string,
     existing: T,
     uniqueKeys: Array<Array<keyof T & string>>,

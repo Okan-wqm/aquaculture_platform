@@ -10,6 +10,7 @@
  */
 import { PurchaseOrderCategory, PurchaseOrderStatus } from '../entities/purchase-order.entity';
 import { StorageItemType } from '../entities/storage-inventory.entity';
+import type { StorageItemKey } from './low-stock/low-stock.types';
 
 export const PURCHASE_ORDER_CATEGORY_ITEM_TYPE: Readonly<
   Record<PurchaseOrderCategory, StorageItemType>
@@ -38,4 +39,16 @@ export function purchaseOrderCategoriesFor(itemType: StorageItemType): PurchaseO
   return Object.values(PurchaseOrderCategory).filter(
     (category) => PURCHASE_ORDER_CATEGORY_ITEM_TYPE[category] === itemType,
   );
+}
+
+/**
+ * The stock items an order's lines restock — the tiers a change of the order
+ * (create, status, receipt) can move, handed to StockTierWatch (V-B1-5).
+ */
+export function purchaseOrderStockItems(order: {
+  category: PurchaseOrderCategory;
+  items: ReadonlyArray<{ itemId: string }>;
+}): StorageItemKey[] {
+  const itemType = PURCHASE_ORDER_CATEGORY_ITEM_TYPE[order.category];
+  return order.items.map((line) => ({ itemType, itemId: line.itemId }));
 }

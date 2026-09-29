@@ -49,7 +49,7 @@ import { ConditionWarning } from '../dto/stock-movement.response';
 import { describeStorageItem } from './storage-item-catalog';
 import { CatalogStockProjector } from './catalog-stock-projector.service';
 import { LowStockEvaluator } from './low-stock/low-stock-evaluator.service';
-import { buildLowStockDetectedEvent } from './low-stock/low-stock-event.factory';
+import { enqueueLowStockCrossings } from './low-stock/low-stock-event.factory';
 import type { LowStockCrossing } from './low-stock/low-stock.types';
 import { LotMixService } from './lot-mix.service';
 import { FeedAllocationService } from './feed-allocation.service';
@@ -391,12 +391,14 @@ export class StockMovementService {
       },
       itemDetails.poolReorderThreshold,
     );
-    for (const crossing of lowStockCrossings) {
-      await this.outboxPublisher.enqueue(
-        buildLowStockDetectedEvent(tenantId, crossing, itemDetails, saved.id),
-        manager,
-      );
-    }
+    await enqueueLowStockCrossings(
+      this.outboxPublisher,
+      manager,
+      tenantId,
+      lowStockCrossings,
+      itemDetails,
+      saved.id,
+    );
 
     return { saved, idempotentHit: false, warnings, lowStockCrossings };
   }

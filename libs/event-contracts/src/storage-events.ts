@@ -139,9 +139,13 @@ export type LowStockItemType = 'feed' | 'chemical' | 'consumable' | 'healthcare'
 /**
  * Fields every `LowStockDetected` tier carries.
  *
- * The event is EDGE-triggered: the farm ledger emits it only when a movement
- * makes a tier cross into a worse stock band (ok → low → out), never on every
- * movement that leaves stock already low.
+ * The event is EDGE-triggered: the farm ledger emits it only when a change
+ * makes a tier cross into a worse stock band (ok → low → out) — a stock
+ * movement, or a command that moves a tier without moving stock (a raised
+ * site minimum or catalog reorder threshold, a purchase order that stops
+ * counting as open, a restored site whose policies wake). It is never emitted
+ * again while the tier stays in that band. `causationId` names the change: the
+ * movement, or the policy / catalog item / purchase order / site record.
  */
 interface LowStockDetectedFields extends BaseEvent {
   /** Literal discriminator for event routing and type narrowing */

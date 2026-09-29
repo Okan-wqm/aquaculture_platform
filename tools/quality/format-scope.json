@@ -16742,6 +16742,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/site/commands/restore-site.command.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/site/commands/update-site.command.ts",
       "prettier_managed": true
     },
@@ -16863,6 +16869,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/site/handlers/list-sites.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/site/handlers/restore-site.handler.ts",
       "prettier_managed": true
     },
     {
@@ -17295,6 +17307,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/__tests__/stock-mutation-lock.authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/stock-tier-watch.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -17949,6 +17967,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/services/low-stock/stock-ledger.reader.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/low-stock/stock-tier-watch.service.ts",
       "prettier_managed": true
     },
     {

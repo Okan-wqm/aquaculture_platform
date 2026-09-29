@@ -8,7 +8,7 @@ import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-
 import { UpdateChemicalCommand } from '../commands/update-chemical.command';
 import { Chemical } from '../entities/chemical.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
-import { CatalogStockProjector } from '../../storage/services/catalog-stock-projector.service';
+import { StockTierWatch } from '../../storage/services/low-stock/stock-tier-watch.service';
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 
 @CommandHandler(UpdateChemicalCommand)
@@ -17,14 +17,16 @@ export class UpdateChemicalHandler implements ICommandHandler<UpdateChemicalComm
 
   constructor(
     private readonly dataSource: DataSource,
-    private readonly stockProjector: CatalogStockProjector,
+    private readonly tierWatch: StockTierWatch,
   ) {}
 
   /**
    * WHY (FARM-HIGH-337): `quantity` and the stock band belong to the ledger
    * projection; an edit of minStock or the lifecycle status must re-derive
-   * them, not leave them stale. WHAT: saves the catalog fields, re-projects
-   * quantity + status in the SAME transaction, returns the projected row.
+   * them, not leave them stale. WHAT: saves the catalog fields inside
+   * StockTierWatch (a raised minStock signals its pool crossing, V-B1-5), which
+   * re-projects quantity + status in the SAME transaction; returns the
+   * projected row.
    */
   async execute(command: UpdateChemicalCommand): Promise<Chemical> {
     const { chemicalId, input, tenantId, userId } = command;
@@ -77,14 +79,17 @@ export class UpdateChemicalHandler implements ICommandHandler<UpdateChemicalComm
         updatedBy: userId,
       });
 
-      await chemicalRepo.save(chemical);
-      // The projector is the one writer of quantity + stock status; it runs
-      // last so a minStock or lifecycle change re-derives the band.
-      await this.stockProjector.project(
+      // A minStock change moves the pool tier without moving stock (V-B1-5):
+      // the watch signals the crossing through the one low-stock sink and
+      // re-projects quantity + status (the projector stays their one writer).
+      await this.tierWatch.around(
         queryRunner.manager,
         tenantId,
-        StorageItemType.CHEMICAL,
-        chemicalId,
+        {
+          items: [{ itemType: StorageItemType.CHEMICAL, itemId: chemicalId }],
+          causationId: () => chemicalId,
+        },
+        () => chemicalRepo.save(chemical),
       );
       const projected = await chemicalRepo.findOneOrFail({ where: { id: chemicalId, tenantId } });
 

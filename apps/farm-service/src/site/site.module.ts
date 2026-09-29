@@ -4,6 +4,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RestoreModule } from '../common/services/restore.module';
+import { InventoryModule } from '../storage/storage.module';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 
 // Entity
@@ -24,6 +25,7 @@ import { CreateSiteHandler } from './handlers/create-site.handler';
 import { UpdateSiteHandler } from './handlers/update-site.handler';
 import { DeleteSiteHandler } from './handlers/delete-site.handler';
 import { UpsertSiteContactsHandler } from './handlers/upsert-site-contacts.handler';
+import { RestoreSiteHandler } from './handlers/restore-site.handler';
 
 // Query Handlers
 import { GetSiteHandler } from './handlers/get-site.handler';
@@ -37,6 +39,7 @@ const CommandHandlers = [
   UpdateSiteHandler,
   DeleteSiteHandler,
   UpsertSiteContactsHandler,
+  RestoreSiteHandler,
 ];
 
 const QueryHandlers = [
@@ -58,8 +61,11 @@ const QueryHandlers = [
       EquipmentSystem,
       Tank,
     ]),
-    // Phase 4.2: restoreSite mutation delegates to RestoreService.
+    // Phase 4.2: restoreSite (RestoreSiteHandler) delegates to RestoreService.
     RestoreModule,
+    // V-B1-5: a site restore wakes its dormant stock policies; the handler runs
+    // it inside StockTierWatch (exported by the storage module).
+    InventoryModule,
   ],
   providers: [
     SiteAuthorizationService,

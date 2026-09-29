@@ -12,6 +12,8 @@ import {
   type PoolLowStockDetectedEvent,
   type SiteLowStockDetectedEvent,
 } from '@platform/event-contracts';
+import type { OutboxPublisher } from '@platform/outbox';
+import type { EntityManager } from 'typeorm';
 
 import type { LowStockCrossing } from './low-stock.types';
 
@@ -26,9 +28,11 @@ export interface LowStockItemLabel {
  * `minimumThreshold` is omitted when the pool is not reorder-controlled (the
  * event then reports a physical stock-out only).
  *
- * `causationId` is the stock movement that crossed the tier, and the stock item
- * is the aggregate: one movement may emit a site AND a pool event, and a
- * consumer links the pair back to that one movement through these fields.
+ * `causationId` is the record whose change crossed the tier — the stock
+ * movement, or the site policy / catalog item / purchase order / site whose
+ * command moved a tier without moving stock — and the stock item is the
+ * aggregate: one change may emit a site AND a pool event, and a consumer links
+ * the pair back to that one cause through these fields.
  */
 export function buildLowStockDetectedEvent(
   tenantId: string,
@@ -69,4 +73,30 @@ export function buildLowStockDetectedEvent(
     ...(reading.threshold > 0 ? { minimumThreshold: reading.threshold } : {}),
   };
   return event;
+}
+
+/**
+ * THE low-stock sink: enqueue one durable `LowStockDetected` per crossed tier
+ * on the caller's transactional manager.
+ * WHY one function: a stock movement (StockMovementService) and a command that
+ * moves a tier without moving stock (StockTierWatch) must emit the identical
+ * event through the identical outbox write, so neither can drift into a second
+ * shape or a second delivery path.
+ * INVARIANT: called inside the transaction that made the change; if violated →
+ * an event for a change that rolled back, or a change whose event is lost.
+ */
+export async function enqueueLowStockCrossings(
+  outboxPublisher: OutboxPublisher,
+  manager: EntityManager,
+  tenantId: string,
+  crossings: readonly LowStockCrossing[],
+  label: LowStockItemLabel,
+  causationId: string,
+): Promise<void> {
+  for (const crossing of crossings) {
+    await outboxPublisher.enqueue(
+      buildLowStockDetectedEvent(tenantId, crossing, label, causationId),
+      manager,
+    );
+  }
 }

@@ -60,7 +60,8 @@ export class StorageItemSitePolicyResolver {
   async deleteStorageItemSitePolicy(
     @Args('id', { type: () => ID }) id: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
   ): Promise<boolean> {
-    return this.commandBus.execute(new DeleteStorageItemSitePolicyCommand(id, tenantId));
+    return this.commandBus.execute(new DeleteStorageItemSitePolicyCommand(id, tenantId, user.sub));
   }
 }

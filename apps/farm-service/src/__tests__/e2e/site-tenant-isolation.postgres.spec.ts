@@ -99,10 +99,16 @@ import { UpdateSiteHandler } from '../../site/handlers/update-site.handler';
 import { GetSiteQuery } from '../../site/queries/get-site.query';
 import { ListSitesQuery } from '../../site/queries/list-sites.query';
 import { Species } from '../../species/entities/species.entity';
+import { PurchaseOrderItem } from '../../storage/entities/purchase-order-item.entity';
+import { PurchaseOrder } from '../../storage/entities/purchase-order.entity';
 import { StorageInventory } from '../../storage/entities/storage-inventory.entity';
+import { StorageItemSitePolicy } from '../../storage/entities/storage-item-site-policy.entity';
 import { StorageLocation } from '../../storage/entities/storage-location.entity';
 import { CatalogStockProjector } from '../../storage/services/catalog-stock-projector.service';
+import { LowStockEvaluator } from '../../storage/services/low-stock/low-stock-evaluator.service';
 import { StockLedgerReader } from '../../storage/services/low-stock/stock-ledger.reader';
+import { StockTierWatch } from '../../storage/services/low-stock/stock-tier-watch.service';
+import { StockMutationLockAuthority } from '../../storage/services/stock-mutation-lock.authority';
 import { SetSupplierApprovedSitesCommand } from '../../supplier/commands/set-supplier-approved-sites.command';
 import { SupplierSite } from '../../supplier/entities/supplier-site.entity';
 import { Supplier, SupplierStatus, SupplierType } from '../../supplier/entities/supplier.entity';
@@ -195,9 +201,14 @@ const SETUP_TENANT_TABLES = [
   'feed_sites',
   'feed_type_species',
   // The feed handlers project quantity + status from the storage ledger
-  // (FARM-HIGH-337), so the ledger tables the projector reads are provisioned.
+  // (FARM-HIGH-337) — on-hand AND open orders (V-B1-4) — and the update runs
+  // inside StockTierWatch, which also reads the site policies (V-B1-5), so the
+  // ledger tables the projector and the watch read are provisioned.
   'storage_locations',
   'storage_inventory',
+  'purchase_orders',
+  'purchase_order_items',
+  'storage_item_site_policies',
   'water_quality_parameter_configs',
 ] as const;
 
@@ -298,6 +309,9 @@ describe('Site tenant isolation on real Postgres', () => {
         FeedTypeSpecies,
         StorageLocation,
         StorageInventory,
+        PurchaseOrder,
+        PurchaseOrderItem,
+        StorageItemSitePolicy,
         Species,
         Supplier,
         SupplierSite,
@@ -347,6 +361,13 @@ describe('Site tenant isolation on real Postgres', () => {
     // The real projector: the feed catalog's quantity + status come from the
     // ledger in the tenant schema, which this suite also isolates.
     const stockProjector = new CatalogStockProjector(new StockLedgerReader());
+    // The real tier watch around the feed update (minStock is a pool threshold).
+    const tierWatch = new StockTierWatch(
+      new LowStockEvaluator(new StockLedgerReader()),
+      new StockMutationLockAuthority(),
+      stockProjector,
+      new OutboxPublisher(FarmOutbox),
+    );
     const createTankHandler = new CreateTankHandler(
       dataSource,
       auditLogService,
@@ -473,7 +494,7 @@ describe('Site tenant isolation on real Postgres', () => {
       ),
       getFeed: new GetFeedHandler(dataSource),
       listFeeds: new ListFeedsHandler(dataSource),
-      updateFeed: new UpdateFeedHandler(dataSource, stockProjector),
+      updateFeed: new UpdateFeedHandler(dataSource, tierWatch),
       deleteFeed: new DeleteFeedHandler(dataSource),
       parameterConfigCache,
       createParameterConfig: new CreateParameterConfigHandler(

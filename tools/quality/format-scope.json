@@ -42847,6 +42847,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/metrics/life-safety-alarm.metrics.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/metrics/metrics.controller.ts",
       "prettier_managed": true
     },
@@ -46293,6 +46299,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/event-bus/src/interfaces/redelivery-policy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/event-bus/src/nats/__tests__/compliance-subscription.spec.ts",
       "prettier_managed": true
     },
@@ -46318,6 +46330,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.durable-consumer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.life-safety.spec.ts",
       "prettier_managed": true
     },
     {
@@ -49054,6 +49072,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/lib/scheduled-method-table.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/life-safety-redelivery.spec.ts",
       "prettier_managed": true
     },
     {

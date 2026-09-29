@@ -8,6 +8,7 @@ export type { IEventBus as EventBus } from './interfaces/event-bus.interface';
 // applies, and the dead-letter sink contract.
 export * from './interfaces/handler-outcome';
 export * from './interfaces/dead-letter-sink';
+export * from './interfaces/redelivery-policy';
 
 // NATS Implementation
 export * from './nats/nats-event-bus';

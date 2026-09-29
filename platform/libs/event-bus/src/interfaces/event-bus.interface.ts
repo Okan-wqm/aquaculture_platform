@@ -338,6 +338,12 @@ export interface SubscriptionOptions {
   maxInflight?: number;
   ackWait?: number;
   maxRetries?: number;
+  /**
+   * Redelivery budget (deliveries + backoff cap). Wins over `maxRetries`.
+   * Life-safety event types get `LIFE_SAFETY_REDELIVERY` automatically on
+   * `subscribeWildcard` (V-S1a-3) — set it only to name a different budget.
+   */
+  redelivery?: { readonly maxDeliveries: number; readonly maxBackoffMs: number };
 }
 
 /**

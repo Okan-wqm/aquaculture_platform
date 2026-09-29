@@ -166,3 +166,29 @@ export const FARM_SIGNAL_DELIVERY_SEMANTICS: Record<
 export function requiresDurableDelivery(eventType: string): boolean {
   return FARM_SIGNAL_DELIVERY_SEMANTICS[eventType as ConsumedFarmSignalEventType] === 'one_shot';
 }
+
+/**
+ * Event types whose consumers carry the LIFE-SAFETY redelivery budget
+ * (`LIFE_SAFETY_REDELIVERY` in @platform/event-bus, V-S1a-3): an hour of
+ * capped exponential backoff before a still-failing message is dead-lettered
+ * (and pages the operator), instead of the ~30-second bus default.
+ *
+ * Membership: every farm signal alert-engine consumes (each can open an
+ * incident that must page somebody) except `SensorReading` — continuous
+ * telemetry, whose next reading re-evaluates within seconds and whose volume
+ * would turn an hour-long budget into a redelivery storm — plus the two
+ * delivery hand-offs notification-service consumes: `AlertEscalated` (pages a
+ * person) and `AlertTriggered` (a sensor rule's external targets).
+ */
+export const LIFE_SAFETY_REDELIVERY_EVENT_TYPES: ReadonlySet<string> = new Set<string>([
+  ...(Object.keys(FARM_SIGNAL_DELIVERY_SEMANTICS) as ConsumedFarmSignalEventType[]).filter(
+    (eventType) => eventType !== 'SensorReading',
+  ),
+  'AlertEscalated',
+  'AlertTriggered',
+]);
+
+/** True when consumers of `eventType` must outlive an outage before dead-lettering. */
+export function requiresLifeSafetyRedelivery(eventType: string): boolean {
+  return LIFE_SAFETY_REDELIVERY_EVENT_TYPES.has(eventType);
+}

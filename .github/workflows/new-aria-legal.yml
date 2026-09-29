@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'new-aria/arias/legal/**'
+      - 'new-aria/arias/instance.schema.json'
       - 'new-aria/packs/legal/**'
       - 'new-aria/scripts/ci/aria-adapters-test.sh'
       - 'new-aria/scripts/ci/aria-suite-run.sh'
@@ -24,6 +25,7 @@ on:
       - 'feat/new-aria-*'
     paths:
       - 'new-aria/arias/legal/**'
+      - 'new-aria/arias/instance.schema.json'
       - 'new-aria/packs/legal/**'
       - 'new-aria/scripts/ci/aria-adapters-test.sh'
       - 'new-aria/scripts/ci/aria-suite-run.sh'
@@ -84,7 +86,7 @@ jobs:
           sudo apparmor_parser --skip-kernel-load --skip-cache new-aria/arias/legal/docker/apparmor.profile
           python3 -m json.tool new-aria/arias/legal/docker/seccomp.json > /dev/null
           sudo apparmor_parser --add new-aria/arias/legal/docker/apparmor.profile
-      - name: Run P0-A runtime regression tests
+      - name: Run authentication and configured-instance runtime regression tests
         working-directory: new-aria
         run: |
           PATH=/opt/venv/bin:$PATH bash scripts/ci/aria-suite-run.sh \
@@ -94,7 +96,13 @@ jobs:
             aria-kernel/tests/test_credit_fallback.py \
             aria-kernel/tests/test_environment_contract.py \
             aria-kernel/tests/test_ci_executor*.py \
-            aria-kernel/tests/test_auth_consumer_routes.py
+            aria-kernel/tests/test_auth_consumer_routes.py \
+            aria-kernel/tests/test_invocation_admission.py \
+            aria-kernel/tests/test_worker_dispatch_hook.py \
+            aria-kernel/tests/test_autonomous_worker_scheduler.py
+      - name: Validate ARIA instance manifests
+        working-directory: new-aria
+        run: npm run aria:instances:test
       - name: Check the complete legal surface
         working-directory: new-aria
         run: aa-exec --profile=aria-legal -- npm run legal:check

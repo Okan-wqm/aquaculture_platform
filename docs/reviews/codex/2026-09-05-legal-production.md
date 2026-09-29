@@ -496,3 +496,34 @@ ait ayrı önbellek kullanan çağrıyla aşıldı; hiçbir eklenti veya kontrol
 Bu bulgu yalnız kullanılabilirliğin doğru sunulmasını kapsar. Eski 8480 kurulumunda
 örnek veri göçü yapılmış sayılmaz; gerçek AI analizi, runner, bütçe ve canlı geçiş
 P0/P6 kabulü tamamlanmadan etkinleştirilmiş olarak raporlanmaz.
+
+<a id="configured-instance-admission"></a>
+
+## LEGAL-HIGH-024
+
+Durum: IN-PROGRESS. Sahip: Codex / runtime sorumlusu. Hedef: 2026-09-08.
+Faz: uçtan uca yol haritası P0-D; geniş model/bütçe kabulü LEGAL-CRITICAL-010.
+
+Başlangıçta iki Python executor ve gerçek CLI çağrı sınırı, seçilen hukuk
+manifestinin bütçe ve sağlayıcı politikasını okumuyordu. Genel tahmin kapısı,
+hukuk örneğinin 0,50 USD/koşum, 10 USD/gün ve 200 USD/ay sınırlarının uygulandığını
+kanıtlamıyordu. İş kilidi sahipleri de bu bilinen kullanılmazlığı önceden
+reddetmiyordu. Dayanak: `new-aria/tools/aria-poc/{claude_runtime,ci_executor,worker_executor}.py`,
+`new-aria/aria-kernel/aria_kernel/worker_dispatch_hook.py` ve
+`new-aria/arias/legal/config/budget.json`; başlangıç revizyonu `028037ba6`.
+
+Kabul: tek değişmez bağlam, güvenilir manifest seçimini, politika özetlerini,
+kanonik depo kimliğini ve tam USD mikro birimlerini taşır. Bozuk seçim genel
+çalışmaya düşmez; yanlış depo/sağlayıcı ve kanıtlanmayan ekonomik üst sınır
+çağrıdan ve yeni iş kilidinden önce tanımlı biçimde reddedilir. Devralınan kilidi
+yalnız gerçek sahibi bırakır. Zamanlayıcı, kilit edinmeden verilen terminal
+politika reddini yeni iş olarak saymaz ve aynı reddi sürekli yinelemez.
+
+Mevcut yönetilen Claude CLI'ın bütçe kontrolü yaklaşık maliyeti yanıt sonrasında
+değerlendirir; sınırı aşan yanıtı da içerebilir. Dolayısıyla bayrak tek başına
+harcama öncesi kesin ekonomik üst sınır kanıtı değildir
+([Anthropic ajan döngüsü](https://code.claude.com/docs/en/agent-sdk/agent-loop)).
+Bu dar kabul, böyle bir çağrının açık gerekçeyle durmasıdır. Harcama rezervasyonu,
+gerçek model başarısı veya analiz kullanılabilirliği olarak sunulamaz. Bu üç
+kabul P0 altında açık kalır. Red/green testleri ve bağımsız inceleme tamamlanınca
+kanıt kayıtları bu bölüme eklenecektir.

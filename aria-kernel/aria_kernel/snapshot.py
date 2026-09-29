@@ -450,11 +450,23 @@ def _read_scoped_working_file(
 
 
 class _ScopedSourceBudget:
-    """Ephemeral shared accounting, not persisted workflow or memory state."""
+    """Ephemeral shared accounting, not persisted workflow or memory state.
 
-    def __init__(self, *, deadline_monotonic: float | None = None, byte_limit: int = 16 * 1024 * 1024,
-                 path_limit: int = 256, membership_limit: int = 4096) -> None:
-        self.deadline_monotonic = _time.monotonic() + 2 if deadline_monotonic is None else deadline_monotonic
+    The deadline has no default (ARIA-MEDIUM-082): the old ``+ 2`` here was
+    the one literal every qualification inherited, so host load decided what
+    the map answered. A caller states either ``deadline_seconds`` (an
+    allowance from now, on this module's clock, resolved from
+    ``genesis_policy.source_qualification_policy``) or ``deadline_monotonic``
+    (an absolute instant, for callers that already pinned the clock).
+    """
+
+    def __init__(self, *, deadline_seconds: float | None = None, deadline_monotonic: float | None = None,
+                 byte_limit: int = 16 * 1024 * 1024, path_limit: int = 256, membership_limit: int = 4096) -> None:
+        if (deadline_seconds is None) == (deadline_monotonic is None):
+            raise GovernanceError("scoped_source_budget_deadline_unspecified: pass exactly one of "
+                                  "deadline_seconds or deadline_monotonic")
+        self.deadline_monotonic = (_time.monotonic() + float(deadline_seconds) if deadline_monotonic is None
+                                   else deadline_monotonic)
         self.remaining_bytes = byte_limit
         self.path_limit = path_limit
         self.paths_attempted = 0

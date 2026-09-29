@@ -88,6 +88,10 @@
     "max_authorings_per_cycle": 3,
     "max_tokens_per_cycle": 50000
   },
+  "source_qualification": {
+    "_doc": "ARIA-MEDIUM-082 \u2014 wall-clock allowance, in seconds, for one bounded scoped-source qualification: the twin self-feature projection at cycle refresh, the per-mint twin re-observation, and pinned evidence-excerpt blob reads. Past the deadline every reader answers qualification_deadline \u2014 an honest unknown, never a failure. This was the literal 2 inside snapshot._ScopedSourceBudget, so host load decided what the map answered and neither an operator override nor a test fixture could widen it. 0 is honest (nothing is qualified; every answer is qualification_deadline). Values above 300 are REFUSED with both numbers named so a mint-time qualification stays bounded.",
+    "deadline_seconds": 2.0
+  },
   "watchdog_pull": {
     "api_key_env": "ARIA_OBSERVABILITY_API_KEY",
     "enabled": true,

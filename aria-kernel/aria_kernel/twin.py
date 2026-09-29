@@ -34,6 +34,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .genesis_policy import source_qualification_policy
 from .impact_graph import _project_for_path, _project_graph, build_service_analysis_order
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .snapshot import (
@@ -113,7 +114,9 @@ def build_twin_map(
         },
     }
     if discovery is not None:
-        twin["self_features"] = _self_feature_projection(root, discovery)
+        twin["self_features"] = _self_feature_projection(
+            root, discovery, qualification_deadline_seconds=_qualification_deadline_seconds(root),
+        )
     _write_map(ensure_tools_dir(base_dir), twin)
     return twin
 
@@ -154,7 +157,9 @@ def refresh_twin_map(
         if discovery is not None:
             # HEAD alone cannot qualify a working-tree observation. The
             # captured pilot view is independent of the history refresh.
-            prior["self_features"] = _self_feature_projection(root, discovery)
+            prior["self_features"] = _self_feature_projection(
+                root, discovery, qualification_deadline_seconds=_qualification_deadline_seconds(root),
+            )
             _write_map(tools, prior)
         return prior
 
@@ -240,9 +245,23 @@ def refresh_twin_map(
         "refresh": {"mode": "incremental", "changed_files": len(changed), "reparsed_tests": reparsed_tests},
     }
     if discovery is not None:
-        twin["self_features"] = _self_feature_projection(root, discovery)
+        twin["self_features"] = _self_feature_projection(
+            root, discovery, qualification_deadline_seconds=_qualification_deadline_seconds(root),
+        )
     _write_map(tools, twin)
     return twin
+
+
+def _qualification_deadline_seconds(workspace_root: str | Path | None) -> float:
+    """The scoped-read allowance is policy, never a literal in this module.
+
+    ARIA-MEDIUM-082: ``genesis_policy.source_qualification_policy`` is the
+    one authority (default file + ``<workspace>/aria-config/genesis_policy.json``
+    override), so an operator on a loaded host — or a fixture that needs an
+    ample allowance — widens it through the same seam the runtime reads.
+    ``None`` (no workspace bound at mint) resolves to the shipped default.
+    """
+    return source_qualification_policy(workspace_root)["deadline_seconds"]
 
 
 def _pilot_input_roles() -> dict[str, list[str]]:
@@ -313,15 +332,20 @@ def _pilot_test_refs(module: str, trees: dict[str, Any], observed: dict[str, Any
     return refs
 
 
-def _self_feature_projection(root: Path, discovery: dict[str, Any]) -> dict[str, Any]:
+def _self_feature_projection(
+    root: Path, discovery: dict[str, Any], *, qualification_deadline_seconds: float,
+) -> dict[str, Any]:
     """Two source observations from the existing discovery, never execution proof.
 
     The whole discovery/history/project scans belong to cycle maintenance.
     Only the pilot byte reads share this scoped allowance; a later mint must
     independently qualify its applicable source view before using these facts.
+    ``qualification_deadline_seconds`` is required, not defaulted: the caller
+    resolves it from policy (``_qualification_deadline_seconds``), so no path
+    through this module can fall back to a literal.
     """
     started = utc_now()
-    budget = _ScopedSourceBudget()
+    budget = _ScopedSourceBudget(deadline_seconds=qualification_deadline_seconds)
     snapshot = discovery.get("snapshot") or {}
     proof = discovery.get("completion_proof") or {}
     pilots = ("runtime_artifacts.autonomy_output_summary", "knowledge_graph.conventions_for_paths")
@@ -451,6 +475,9 @@ def _self_feature_projection(root: Path, discovery: dict[str, Any]) -> dict[str,
                  "known_source_bytes": budget.source_bytes_read,
                  "transport_bytes_reserved_including_source": budget.transport_bytes_reserved,
                  "remaining_byte_allowance": budget.remaining_bytes,
+                 # The allowance this observation ran under, so a reader of
+                 # "qualification_deadline" sees the budget, not just the verdict.
+                 "qualification_deadline_seconds": qualification_deadline_seconds,
                  "discovery_fates_previously_materialized": len(discovery.get("fates", []))},
     }
 
@@ -460,7 +487,8 @@ def _qualified_twin_context(
     cycle_id: str | None, target_sha: str | None,
 ) -> dict[str, Any] | None:
     """Bounded local qualification of an existing index; never refresh at mint."""
-    budget = _ScopedSourceBudget()
+    qualification_deadline_seconds = _qualification_deadline_seconds(workspace_root)
+    budget = _ScopedSourceBudget(deadline_seconds=qualification_deadline_seconds)
     observation, data, projection_bytes = _read_scoped_working_file(
         base_dir, TWIN_MAP_RELPATH, byte_budget=2 * 1024 * 1024,
         deadline_monotonic=budget.deadline_monotonic,
@@ -479,7 +507,8 @@ def _qualified_twin_context(
                         "known_source_bytes": budget.source_bytes_read,
                         "transport_bytes_reserved_including_source": budget.transport_bytes_reserved,
                         "known_emitted_membership_records": budget.known_membership_records,
-                        "remaining_membership_record_allowance": budget.remaining_membership_records}
+                        "remaining_membership_record_allowance": budget.remaining_membership_records,
+                        "qualification_deadline_seconds": qualification_deadline_seconds}
         return {**context, "self_features": view}
 
     if data is None:

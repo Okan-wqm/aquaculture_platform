@@ -89,6 +89,25 @@ class _SnapshotViewFixture(unittest.TestCase):
 
 
 class ScopedSourceObservationTests(_SnapshotViewFixture):
+    def test_a_budget_must_state_its_deadline(self) -> None:
+        # ARIA-MEDIUM-082 — the constructor used to carry ``+ 2``, the one
+        # literal every qualification inherited. Now a caller states either
+        # an allowance (seconds from now) or an absolute instant, never both
+        # and never neither; the allowance itself is policy upstream.
+        with self.assertRaises(GovernanceError):
+            snapshot_module._ScopedSourceBudget()
+        with self.assertRaises(GovernanceError):
+            snapshot_module._ScopedSourceBudget(deadline_seconds=1.0, deadline_monotonic=1.0)
+        clock = [10.0]
+        with patch.object(snapshot_module._time, "monotonic", side_effect=lambda: clock[0]):
+            budget = snapshot_module._ScopedSourceBudget(deadline_seconds=2.5)
+            self.assertEqual(budget.deadline_monotonic, 12.5)
+            self.assertFalse(budget.expired())
+            clock[0] = 12.5
+            self.assertTrue(budget.expired())
+        # A zero allowance is already expired: the honest "nothing qualified".
+        self.assertTrue(snapshot_module._ScopedSourceBudget(deadline_seconds=0.0).expired())
+
     def _working_fate(self) -> dict:
         self._commit({"owner.py": b"def present():\n    return True\n"})
         captured = build_repo_snapshot(workspace_root=self.repo, mode="working_tree")

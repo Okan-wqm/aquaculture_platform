@@ -38,6 +38,7 @@ from aria_kernel.agent_invocations import render_invocation_prompt
 from aria_kernel.cycle import CYCLE_PHASES, _phase_twin_refresh, build_phase_context
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.twin import read_twin_map
+from tests._helpers.policy_fixtures import AMPLE_QUALIFICATION_DEADLINE_SECONDS, write_source_qualification_override
 
 
 def _git(root: Path, *args: str) -> str:
@@ -194,7 +195,8 @@ class TwinRefreshPhaseTests(unittest.TestCase):
         _git(self.repo, "commit", "-q", "-m", "fixture: annotated pilot")
         return run_discovery(workspace_root=self.repo, cycle_id="cyc-display", base_dir=self.tools)
 
-    def _discover_named_pilot_scope(self, *, mode="working_tree") -> dict:
+    def _discover_named_pilot_scope(self, *, mode="working_tree",
+                                    deadline_seconds=AMPLE_QUALIFICATION_DEADLINE_SECONDS) -> dict:
         from aria_kernel.cycle import _phase_discovery
         kernel = Path(__file__).resolve().parents[1]
         modules = (
@@ -211,6 +213,11 @@ class TwinRefreshPhaseTests(unittest.TestCase):
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes((kernel / relative).read_bytes())
         (self.repo / ".gitignore").write_text("aria-kernel/tests/test_ignored_*.py\n", encoding="utf-8")
+        # ARIA-MEDIUM-082 — the named scope is ~30 bounded Git reads at
+        # refresh and again at every mint; "available" must be a property
+        # of the source view, not of host load, so the allowance is widened
+        # through the policy seam the runtime reads.
+        write_source_qualification_override(self.repo, deadline_seconds=deadline_seconds)
         _git(self.repo, "add", "-A")
         _git(self.repo, "commit", "-q", "-m", "fixture: actual named pilot inputs")
         context = build_phase_context(cycle_id="cyc-freshness", workspace_root=self.repo,
@@ -404,7 +411,10 @@ class TwinRefreshPhaseTests(unittest.TestCase):
         count = len(mapped["self_features"]["membership"]["paths"])
         self.assertGreater(count, 0)
         real_budget = snapshot._ScopedSourceBudget
-        with patch.object(twin, "_ScopedSourceBudget", side_effect=lambda: real_budget(membership_limit=count)):
+        # The membership cap is what is narrowed; the deadline the mint
+        # resolved from policy passes through untouched.
+        with patch.object(twin, "_ScopedSourceBudget",
+                          side_effect=lambda **deadline: real_budget(membership_limit=count, **deadline)):
             exact = self._mint_named_pilot(marker="exact consumed record boundary")
         view = exact["repository_map"]["self_features"]
         self.assertEqual(view["qualification"]["status"], "unknown")
@@ -414,7 +424,8 @@ class TwinRefreshPhaseTests(unittest.TestCase):
         self.assertEqual(view["qualification_details"]["membership"],
                          {"status": "unknown", "reason": "scoped_membership_limit"})
         self.assertIn("scoped_membership_limit", render_invocation_prompt(exact))
-        with patch.object(twin, "_ScopedSourceBudget", side_effect=lambda: real_budget(membership_limit=count + 1)):
+        with patch.object(twin, "_ScopedSourceBudget",
+                          side_effect=lambda **deadline: real_budget(membership_limit=count + 1, **deadline)):
             spare = self._mint_named_pilot(marker="one record of EOF headroom")
         self.assertEqual(spare["repository_map"]["self_features"]["qualification"]["status"], "available")
         self.assertEqual(spare["repository_map"]["self_features"]["work"]["known_emitted_membership_records"], count)
@@ -671,7 +682,7 @@ class TwinRefreshPhaseTests(unittest.TestCase):
         from aria_kernel import twin
         discovered = self._discover_annotated_pilot()
         with patch.object(ast, "unparse", side_effect=RecursionError("ordinary display recursion")):
-            inventory = twin._self_feature_projection(self.repo, discovered)
+            inventory = twin._self_feature_projection(self.repo, discovered, qualification_deadline_seconds=120.0)
         feature = inventory["features"]["runtime_artifacts.autonomy_output_summary"]
         self.assertEqual(feature["implemented"], {
             "status": "available", "reason": "selected_source_definition",
@@ -696,9 +707,10 @@ class TwinRefreshPhaseTests(unittest.TestCase):
             clock[0] = 3.0
             return result
 
+        # Allowance 2 on a clock that jumps 0 -> 3 across the formatting call.
         with patch.object(snapshot._time, "monotonic", side_effect=lambda: clock[0]), \
                 patch.object(ast, "unparse", side_effect=complete_after_deadline):
-            inventory = twin._self_feature_projection(self.repo, discovered)
+            inventory = twin._self_feature_projection(self.repo, discovered, qualification_deadline_seconds=2.0)
         self.assertEqual(calls, ["dict"])
         self.assertEqual(inventory["features"]["runtime_artifacts.autonomy_output_summary"]["implemented"], {
             "status": "unknown", "reason": "qualification_deadline",
@@ -723,16 +735,72 @@ class TwinRefreshPhaseTests(unittest.TestCase):
                 clock[0] = 3.0
             return observation, data
 
+        # Allowance 2 on a clock that jumps 0 -> 3 during the later read.
         with patch.object(snapshot._time, "monotonic", side_effect=lambda: clock[0]), \
                 patch.object(twin, "_read_scoped_source_bytes", side_effect=expire_during_later_read), \
                 patch.object(ast, "parse", wraps=ast.parse) as parsed:
-            inventory = twin._self_feature_projection(self.repo, discovered)
+            inventory = twin._self_feature_projection(self.repo, discovered, qualification_deadline_seconds=2.0)
         self.assertEqual(reads, ["aria-kernel/aria_kernel/runtime_artifacts.py", "aria-kernel/pyproject.toml"])
         self.assertEqual(clock[0], 3.0)
         self.assertEqual(parsed.call_count, 0, "A retained owner body must not start parsing after a later read exhausts the deadline")
         self.assertEqual(inventory["features"]["runtime_artifacts.autonomy_output_summary"]["implemented"], {
             "status": "unknown", "reason": "qualification_deadline",
         })
+
+    def test_qualification_allowance_is_read_from_policy_at_refresh_and_at_mint(self) -> None:
+        """ARIA-MEDIUM-082 — the allowance is the operator's number, and disclosed.
+
+        Both qualification sites resolve ``source_qualification.deadline_seconds``
+        against the workspace's policy override and record the allowance they
+        ran under, so a reader of "qualification_deadline" sees the budget,
+        not just the verdict.
+        """
+        from aria_kernel import twin
+        mapped = self._discover_named_pilot_scope(deadline_seconds=42.5)
+        inventory = mapped["self_features"]
+        self.assertEqual(inventory["work"]["qualification_deadline_seconds"], 42.5)
+        self.assertEqual(inventory["features"]["knowledge_graph.conventions_for_paths"]["implemented"]["status"],
+                         "available")
+        request = self._mint_named_pilot(marker="policy-bounded qualification")
+        view = request["repository_map"]["self_features"]
+        self.assertEqual(view["work"]["qualification_deadline_seconds"], 42.5)
+        self.assertEqual(view["qualification"]["status"], "available")
+        # No workspace bound at mint: the shipped default, not a literal here.
+        unbound = twin._qualified_twin_context(
+            base_dir=self.tools, files=["aria-kernel/aria_kernel/knowledge_graph.py"], workspace_root=None,
+            cycle_id="cyc-freshness", target_sha=None,
+        )
+        self.assertNotIn("self_features", unbound)
+        self.assertEqual(twin._qualification_deadline_seconds(None), 2.0)
+
+    def test_an_exhausted_policy_allowance_is_an_honest_qualification_deadline(self) -> None:
+        """ARIA-MEDIUM-082 — no clock is patched: a zero allowance really expires.
+
+        The projection and the mint-time re-observation both answer
+        ``qualification_deadline`` — an honest unknown — rather than
+        pretending to a source view they were not allowed to read.
+        """
+        from aria_kernel import twin
+        discovered = self._discover_annotated_pilot()
+        write_source_qualification_override(self.repo, deadline_seconds=0)
+        refreshed = twin.refresh_twin_map(workspace_root=self.repo, base_dir=self.tools, discovery=discovered)
+        inventory = refreshed["self_features"]
+        self.assertEqual(inventory["work"]["qualification_deadline_seconds"], 0.0)
+        self.assertEqual(inventory["work"]["known_source_bytes"], 0)
+        self.assertEqual(set(inventory["features"]), {
+            "runtime_artifacts.autonomy_output_summary", "knowledge_graph.conventions_for_paths",
+        })
+        for feature in inventory["features"].values():
+            for dimension in ("implemented", "reachable"):
+                self.assertEqual(feature[dimension], {"status": "unknown", "reason": "qualification_deadline"})
+        self.assertEqual(inventory["input_binding"]["availability"]["source"]["status"], "unknown")
+        view = twin._qualified_twin_context(
+            base_dir=self.tools, files=["aria-kernel/aria_kernel/runtime_artifacts.py"], workspace_root=self.repo,
+            cycle_id="cyc-display", target_sha=discovered["snapshot"]["base_commit_sha"],
+        )["self_features"]
+        self.assertEqual(view["qualification"], {"status": "unknown", "reason": "qualification_deadline"})
+        self.assertEqual(view["features"], {})
+        self.assertEqual(view["work"]["qualification_deadline_seconds"], 0.0)
 
     def test_the_second_cycle_refreshes_rather_than_rebuilds(self) -> None:
         # The other half of the completion evidence: a normal cycle does not

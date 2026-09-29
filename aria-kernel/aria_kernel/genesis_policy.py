@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib as _hashlib
+import math as _math
 from dataclasses import dataclass as _dataclass
 from pathlib import Path
 from typing import Any
@@ -69,6 +70,13 @@ POLICY_KEYS = {
     # genesis_candidate panel escalations. Consumed by
     # agent_genesis.sweep_candidate_gaps_for_adjudication.
     "genesis_panel",
+    # ARIA-MEDIUM-082 — wall-clock allowance for one bounded scoped-source
+    # qualification (twin self-feature projection, per-mint twin
+    # re-observation, pinned evidence-excerpt blob reads). It was the
+    # literal ``+ 2`` inside snapshot._ScopedSourceBudget, so host load
+    # decided what the map answered and neither an operator override nor
+    # a fixture could widen it. Consumed via source_qualification_policy.
+    "source_qualification",
 }
 
 JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
@@ -170,6 +178,71 @@ def executor_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
     block["max_concurrent"] = max(1, min(8, int(block["max_concurrent"])))
     block["worktree_per_request"] = bool(block["worktree_per_request"])
     return block
+
+
+SOURCE_QUALIFICATION_DEFAULTS: dict[str, Any] = {
+    # ARIA-MEDIUM-082 — seconds one scoped-source qualification may spend
+    # before every reader answers "qualification_deadline". 2 is the value
+    # the literal carried; the map's honesty past the deadline is unchanged,
+    # only the number's authority moved from a constructor default to here.
+    "deadline_seconds": 2.0,
+}
+# The deadline exists so a mint-time qualification stays BOUNDED — a request
+# must never wait on source re-observation indefinitely. Five minutes keeps
+# that promise while leaving two orders of magnitude over the default for a
+# loaded host or a fixture that needs an ample allowance.
+SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS: float = 300.0
+
+
+def source_qualification_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """ARIA-MEDIUM-082 — typed accessor for the source_qualification block
+    (circuit_breaker_policy pattern: the accessor is what makes the block
+    real configuration).
+
+    ``deadline_seconds`` is returned as a float. Zero is an honest setting:
+    nothing is qualified and every answer is ``qualification_deadline``.
+    A negative, non-numeric, non-finite, or above-ceiling value is REFUSED
+    with both the value and the bound named (RC-4 discipline: silently
+    correcting an operator's number teaches them something false about
+    their own system).
+    """
+    merged = load_policy(repo_root) if repo_root is not None else default_policy()
+    block = dict(SOURCE_QUALIFICATION_DEFAULTS)
+    raw_block = merged.get("source_qualification")
+    if isinstance(raw_block, dict):
+        block.update({k: raw_block[k] for k in SOURCE_QUALIFICATION_DEFAULTS if k in raw_block})
+    block["deadline_seconds"] = _validated_qualification_deadline(block["deadline_seconds"])
+    return block
+
+
+def _validated_qualification_deadline(raw: Any) -> float:
+    """One gate for the deadline: a real finite number in [0, ceiling]."""
+    from .tool_registry import GovernanceError
+
+    # bool is an int subclass; ``true`` is not a number of seconds.
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not _math.isfinite(raw):
+        raise GovernanceError(
+            "genesis_policy_source_qualification_deadline_not_a_number: "
+            f"deadline_seconds={raw!r}. Write a finite number of seconds "
+            f"between 0 and {SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS:g}."
+        )
+    seconds = float(raw)
+    if seconds < 0:
+        raise GovernanceError(
+            "genesis_policy_source_qualification_deadline_negative: "
+            f"deadline_seconds={raw!r}. A qualification cannot expire before "
+            "it starts; write a number of seconds between 0 and "
+            f"{SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS:g}."
+        )
+    if seconds > SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS:
+        raise GovernanceError(
+            "genesis_policy_source_qualification_deadline_above_ceiling: "
+            f"deadline_seconds={raw!r} exceeds "
+            f"{SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS:g}. The deadline keeps a "
+            "mint-time qualification bounded; lower the value to at most the "
+            "ceiling."
+        )
+    return seconds
 
 
 @_dataclass(frozen=True)

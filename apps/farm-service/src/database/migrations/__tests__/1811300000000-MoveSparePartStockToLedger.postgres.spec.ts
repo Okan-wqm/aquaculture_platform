@@ -43,7 +43,10 @@ import { StockMovement } from '../../../storage/entities/stock-movement.entity';
 import { StorageInventory } from '../../../storage/entities/storage-inventory.entity';
 import { StorageLocation } from '../../../storage/entities/storage-location.entity';
 import { Supplier } from '../../../supplier/entities/supplier.entity';
-import { MoveSparePartStockToLedger1811300000000 } from '../1811300000000-MoveSparePartStockToLedger';
+import {
+  LEGACY_QUANTITY_FREEZE_TRIGGER,
+  MoveSparePartStockToLedger1811300000000,
+} from '../1811300000000-MoveSparePartStockToLedger';
 import { RestoreStorageInventoryCanonicalKey1809700000000 } from '../1809700000000-RestoreStorageInventoryCanonicalKey';
 
 const TENANT = '3f6c2a1e-8b4d-4c7a-9e2f-1a2b3c4d5e6f';
@@ -128,7 +131,12 @@ describe('MoveSparePartStockToLedger1811300000000 — real Postgres (FARM-HIGH-3
 
   beforeEach(async () => {
     // Back to the pre-migration shape: dropping the column takes the FK and
-    // the (tenantId, storageLocationId) index the migration created with it.
+    // the (tenantId, storageLocationId) index the migration created with it;
+    // the legacy-quantity freeze trigger (V-B1-7) goes too, so a case can
+    // seed pre-migration counters again.
+    await dataSource.query(
+      `DROP TRIGGER IF EXISTS ${LEGACY_QUANTITY_FREEZE_TRIGGER} ON "farm"."spare_parts"`,
+    );
     await dataSource.query(
       'ALTER TABLE "farm"."spare_parts" DROP COLUMN IF EXISTS "storageLocationId"',
     );
@@ -447,5 +455,88 @@ describe('MoveSparePartStockToLedger1811300000000 — real Postgres (FARM-HIGH-3
     await dataSource.query(`DELETE FROM "farm"."stock_movements"`);
 
     expect(await postConditionNow()).toBe(false);
+  });
+
+  // ── V-B1-7: the legacy counter is frozen from the snapshot on ─────────────
+
+  async function openingQuantity(partId: string): Promise<number | null> {
+    const rows: Array<{ quantity: string }> = await dataSource.query(
+      `SELECT "quantity"::text AS quantity FROM "farm"."stock_movements"
+        WHERE "idempotency_key" = $1`,
+      [`sp-migrate-${partId}`],
+    );
+    return rows[0] === undefined ? null : Number(rows[0].quantity);
+  }
+
+  it('freezes the legacy counter: a changing write is refused, the ORM and a default insert pass', async () => {
+    // SCENARIO: after the migration an OLD release updates a part's counter, and
+    // creates a part with an opening quantity; the NEW code creates and renames a
+    // part through the entity (legacyQuantity is insert:false / update:false).
+    // EXPECTS: both old writes fail with the freeze error; the new-code writes and
+    // a default (0) insert pass; the post-condition requires the trigger.
+    await seedLocation({ code: 'WS-2', name: 'Workshop 2' });
+    const belt = await seedPart({ name: 'V-belt', quantity: 3, warehouse: 'WS-2' });
+    await expect(runLikeRunner()).resolves.toBe(true);
+
+    await expect(
+      dataSource.query(
+        `UPDATE "farm"."spare_parts" SET "quantity" = "quantity" - 1 WHERE id = $1`,
+        [belt.id],
+      ),
+    ).rejects.toThrow(/spare_parts\.quantity is frozen/);
+    await expect(seedPart({ name: 'Old-release part', quantity: 5 })).rejects.toThrow(
+      /spare_parts\.quantity is frozen/,
+    );
+    await expect(seedPart({ name: 'Zero part', quantity: 0 })).resolves.toBeDefined();
+
+    const created = await dataSource.manager.save(SparePart, {
+      tenantId: TENANT,
+      code: `SP-NEW-${partSeq}`,
+      name: 'New-code part',
+      partNumber: `PN-NEW-${partSeq}`,
+      unit: 'piece',
+    });
+    await dataSource.manager.save(SparePart, { ...created, name: 'New-code part (renamed)' });
+    expect(await openingQuantity(belt.id)).toBe(3);
+
+    await dataSource.query(
+      `DROP TRIGGER ${LEGACY_QUANTITY_FREEZE_TRIGGER} ON "farm"."spare_parts"`,
+    );
+    expect(await postConditionNow()).toBe(false);
+  });
+
+  it('imports a write the old release committed before the snapshot, and refuses the next one', async () => {
+    // SCENARIO: the old farm-service has an UPDATE of a part's counter (4 → 7) in
+    // flight when db-migrate starts (selective deploy: the old container still
+    // serves). EXPECTS: the migration waits on the table lock instead of reading
+    // around the write; once the write commits the opening movement carries 7;
+    // the old release's next write is refused — no write is lost in between.
+    await seedLocation({ code: 'WS-3', name: 'Workshop 3' });
+    const impeller = await seedPart({ name: 'Old impeller', quantity: 4, warehouse: 'WS-3' });
+    const oldRelease = dataSource.createQueryRunner();
+    await oldRelease.connect();
+    await oldRelease.startTransaction();
+    await oldRelease.query(`UPDATE "farm"."spare_parts" SET "quantity" = 7 WHERE id = $1`, [
+      impeller.id,
+    ]);
+
+    let migrated = false;
+    const migration = runLikeRunner().then((holds) => {
+      migrated = true;
+      return holds;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const migratedBeforeCommit = migrated;
+    await oldRelease.commitTransaction();
+    await oldRelease.release();
+
+    expect(migratedBeforeCommit).toBe(false);
+    await expect(migration).resolves.toBe(true);
+    expect(await openingQuantity(impeller.id)).toBe(7);
+    await expect(
+      dataSource.query(`UPDATE "farm"."spare_parts" SET "quantity" = 8 WHERE id = $1`, [
+        impeller.id,
+      ]),
+    ).rejects.toThrow(/spare_parts\.quantity is frozen/);
   });
 });

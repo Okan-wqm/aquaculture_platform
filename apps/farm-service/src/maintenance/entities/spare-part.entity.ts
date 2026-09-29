@@ -119,12 +119,14 @@ export class SparePart {
   manufacturer?: string;
 
   /**
-   * LEGACY counter, no longer written (FARM-HIGH-338). Spare-part stock lives
-   * in the storage ledger; the GraphQL `quantity` field is resolved from it
+   * LEGACY counter, never written (FARM-HIGH-338). Spare-part stock lives in
+   * the storage ledger; the GraphQL `quantity` field is resolved from it
    * (SparePartResolver). Kept only until plan PR-A4 drops the column; the
-   * property name makes every stale reader a compile error.
+   * property name makes every stale reader a compile error, `insert: false` /
+   * `update: false` keep the ORM from ever writing it, and migration
+   * 1811300000000's trigger rejects any other writer (V-B1-7).
    */
-  @Column({ type: 'int', default: 0, name: 'quantity' })
+  @Column({ type: 'int', default: 0, name: 'quantity', insert: false, update: false })
   legacyQuantity!: number;
 
   @Field(() => Int)
@@ -144,15 +146,18 @@ export class SparePart {
   unit!: string; // piece, set, box, kg, liter, meter
 
   /**
-   * LEGACY status, no longer written (FARM-HIGH-338). The GraphQL `status`
-   * field is DERIVED from ledger on-hand, open orders and `isActive`
-   * (deriveSparePartStatus). Dropped in plan PR-A4 with `legacyQuantity`.
+   * LEGACY status, never written (FARM-HIGH-338). The GraphQL `status` field is
+   * DERIVED from ledger on-hand, open orders and `isActive`
+   * (deriveSparePartStatus). Dropped in plan PR-A4 with `legacyQuantity`;
+   * `insert: false` / `update: false` keep the ORM from writing it.
    */
   @Column({
     type: 'enum',
     enum: SparePartStatus,
     default: SparePartStatus.IN_STOCK,
     name: 'status',
+    insert: false,
+    update: false,
   })
   legacyStatus!: SparePartStatus;
 

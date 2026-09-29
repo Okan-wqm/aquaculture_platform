@@ -24,12 +24,33 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *      (idempotency key `sp-migrate-<id>`, exactly-once) plus its
  *      storage_inventory row.
  *
+ * FREEZE (V-B1-7 of the B1a-1 verifier round), created BEFORE steps 2–4 in
+ * the same transaction: a BEFORE INSERT / UPDATE OF quantity trigger rejects
+ * any write that changes `spare_parts.quantity`. WHY: the import is a
+ * one-time snapshot, and a selective droplet deploy (explicit service list)
+ * runs db-migrate while the OLD farm-service still serves — it keeps writing
+ * the counter (create with quantity, stock movement, work-order completion)
+ * until its container is recreated, and after a manual image rollback it
+ * would write a counter nobody reads. Without the freeze those writes are
+ * lost silently; with it they fail loudly and roll back (the operator
+ * retries on the new release, whose writes go through the ledger). The
+ * ALTER in step 1 already holds the table's ACCESS EXCLUSIVE lock, so every
+ * old write either committed before the snapshot below reads the table (and
+ * is imported) or runs after this commit (and is refused): no write falls
+ * between. The application never writes the column (`legacyQuantity` is
+ * `insert: false, update: false`); an insert of 0 (the default) passes.
+ *
  * NOT done here: `spare_parts.quantity` / `status` stop being written by the
  * application in the same PR and are read from the ledger; dropping the two
- * columns is plan PR-A4 (the destructive contract step after this runs live).
+ * columns, the trigger and its function is plan PR-A4 (the destructive
+ * contract step after this runs live).
  *
  * Tenant-aware: schema-unqualified DDL/DML; search_path routes each pass.
  */
+/** Trigger + function that reject every write changing `spare_parts.quantity`. */
+export const LEGACY_QUANTITY_FREEZE_TRIGGER = 'trg_spare_parts_legacy_quantity_frozen';
+export const LEGACY_QUANTITY_FREEZE_FUNCTION = 'spare_parts_legacy_quantity_frozen';
+
 export class MoveSparePartStockToLedger1811300000000 implements MigrationInterface {
   name = 'MoveSparePartStockToLedger1811300000000';
 
@@ -61,6 +82,32 @@ export class MoveSparePartStockToLedger1811300000000 implements MigrationInterfa
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "IDX_spare_parts_tenant_storage_location"
         ON "spare_parts" ("tenantId", "storageLocationId")
+    `);
+
+    // ── 1b. Freeze the legacy counter before the snapshot (V-B1-7) ──────────
+    // Unqualified: the function and trigger land in the schema this pass
+    // runs in (farm and every tenant_<uuid>), next to the table they guard.
+    await queryRunner.query(`
+      CREATE OR REPLACE FUNCTION ${LEGACY_QUANTITY_FREEZE_FUNCTION}()
+      RETURNS trigger AS $fn$
+      BEGIN
+        IF (TG_OP = 'INSERT' AND COALESCE(NEW.quantity, 0) <> 0)
+           OR (TG_OP = 'UPDATE' AND NEW.quantity IS DISTINCT FROM OLD.quantity) THEN
+          RAISE EXCEPTION
+            'spare_parts.quantity is frozen: spare-part stock lives in the storage ledger (FARM-HIGH-338); record a stock movement instead'
+            USING ERRCODE = 'P0001';
+        END IF;
+        RETURN NEW;
+      END;
+      $fn$ LANGUAGE plpgsql
+    `);
+    await queryRunner.query(
+      `DROP TRIGGER IF EXISTS ${LEGACY_QUANTITY_FREEZE_TRIGGER} ON "spare_parts"`,
+    );
+    await queryRunner.query(`
+      CREATE TRIGGER ${LEGACY_QUANTITY_FREEZE_TRIGGER}
+        BEFORE INSERT OR UPDATE OF quantity ON "spare_parts"
+        FOR EACH ROW EXECUTE FUNCTION ${LEGACY_QUANTITY_FREEZE_FUNCTION}()
     `);
 
     // ── 2. Deterministic mapping from the free-text warehouse ───────────────
@@ -153,21 +200,33 @@ export class MoveSparePartStockToLedger1811300000000 implements MigrationInterfa
   }
 
   /**
-   * Every spare part that held stock has its opening movement in the ledger.
-   * Holds trivially on an empty table and on a table whose parts hold no stock.
+   * Every spare part that held stock has its opening movement in the ledger,
+   * and the legacy counter is frozen. Holds trivially on an empty table and on
+   * a table whose parts hold no stock (the freeze is still required).
    */
   public async postCondition(queryRunner: QueryRunner): Promise<boolean> {
-    const rows: Array<{ missing: string }> = await queryRunner.query(`
-      SELECT COUNT(*)::text AS missing
-        FROM spare_parts sp
-       WHERE sp.quantity > 0
-         AND NOT EXISTS (
-           SELECT 1 FROM stock_movements sm
-            WHERE sm.tenant_id = sp."tenantId"
-              AND sm.idempotency_key = 'sp-migrate-' || sp.id
-         )
+    const rows: Array<{ missing: string; frozen: boolean }> = await queryRunner.query(`
+      SELECT
+        (SELECT COUNT(*)::text
+           FROM spare_parts sp
+          WHERE sp.quantity > 0
+            AND NOT EXISTS (
+              SELECT 1 FROM stock_movements sm
+               WHERE sm.tenant_id = sp."tenantId"
+                 AND sm.idempotency_key = 'sp-migrate-' || sp.id
+            )) AS missing,
+        EXISTS (
+          SELECT 1
+            FROM pg_trigger t
+            JOIN pg_class c ON c.oid = t.tgrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = current_schema()
+             AND c.relname = 'spare_parts'
+             AND t.tgname = '${LEGACY_QUANTITY_FREEZE_TRIGGER}'
+             AND NOT t.tgisinternal
+        ) AS frozen
     `);
-    return Number(rows[0]?.missing ?? '0') === 0;
+    return Number(rows[0]?.missing ?? '0') === 0 && rows[0]?.frozen === true;
   }
 
   public async down(): Promise<void> {

@@ -133,6 +133,8 @@ services:
   - events.*.WelfareEventReported
   - config.marine_credentials.resolve
   - config.marine_credentials.upsert
+  # V-S1b-5: a water-quality `measuredBy` override must name an active user.
+  - request.auth.user.validateTenantMembership
   - events.platform.schema-migration.>
   - events.security.events.>
   - request.farm.validateSiteAssignment

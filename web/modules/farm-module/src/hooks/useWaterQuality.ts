@@ -132,7 +132,7 @@ export interface WaterQualityFilters {
 export interface CreateWaterQualityInput {
   tankId?: string;
   pondId?: string;
-  siteId?: string;
+  // No `siteId`: the server derives the site from the measured unit (V-S1a-1).
   batchId?: string;
   equipmentId: string;
   measuredAt: string;

@@ -4012,7 +4012,10 @@ export type CreateWaterQualityInput = {
   relatedSensorReadingId?: InputMaybe<Scalars['ID']['input']>;
   /** Optional mobile command payload schema version */
   schemaVersion?: InputMaybe<Scalars['String']['input']>;
-  /** Site ID */
+  /**
+   * Site ID (assertion only; the site is derived from the measured unit)
+   * @deprecated The site is derived from equipmentId/tankId. A differing value is rejected.
+   */
   siteId?: InputMaybe<Scalars['ID']['input']>;
   /** Ölçüm kaynağı (makine kaynakları reddedilir) */
   source: WaterQualityMeasurementSource;
@@ -21322,6 +21325,7 @@ export type SupportTicket = {
 
 export type SuppressionWindow = {
   createdBy: Scalars['String']['output'];
+  createdByTenantAdmin: Scalars['Boolean']['output'];
   endTime: Scalars['DateTime']['output'];
   id: Scalars['String']['output'];
   isRecurring: Scalars['Boolean']['output'];

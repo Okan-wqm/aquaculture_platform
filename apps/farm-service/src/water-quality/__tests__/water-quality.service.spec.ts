@@ -15,149 +15,21 @@
  * outbox, repositories) is provided as a NestJS `useValue` double — no casts.
  */
 import { BadRequestException } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
-import { OutboxPublisher } from '@platform/outbox';
-import { Role } from '@aquaculture/backend-common/decorators';
-import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
-import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
-import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
-import { WaterQualityValidationService } from '../services/water-quality-validation.service';
-import { WaterQualityEvaluationService } from '../services/water-quality-evaluation.service';
-import {
-  WaterQualityService,
-  CreateWaterQualityData,
-  WaterQualityCaller,
-} from '../water-quality.service';
 import {
   WaterQualityMeasurement,
   WaterQualityStatus,
   MeasurementSource,
 } from '../entities/water-quality-measurement.entity';
-import { Tank } from '../../tank/entities/tank.entity';
-import { Equipment } from '../../equipment/entities/equipment.entity';
-import { Department } from '../../department/entities/department.entity';
-import { ParameterStatus } from '../entities/water-quality-measurement.entity';
 import { CreateWaterQualityInput } from '../dto/create-water-quality.input';
 import { UpdateWaterQualityInput } from '../dto/update-water-quality.input';
-
-const TENANT = '11111111-1111-4111-8111-111111111111';
-const EQUIPMENT = '22222222-2222-4222-8222-222222222222';
-const MEASUREMENT = '33333333-3333-4333-8333-333333333333';
-const USER = '44444444-4444-4444-8444-444444444444';
-
-// SEC-HIGH-051: the caller threaded into WaterQualityService.create. A
-// MODULE_MANAGER bypasses the object-level site check via the canonical role
-// hierarchy, so these single-ingress validation tests keep their original
-// behaviour — they assert validate()/persist invariants, not the site gate.
-const WQ_CALLER: WaterQualityCaller = {
-  sub: USER,
-  roles: [Role.MODULE_MANAGER],
-  assignedSiteIds: [],
-};
-
-interface ServiceHarness {
-  service: WaterQualityService;
-  validate: jest.Mock;
-  evaluate: jest.Mock;
-  repository: ReturnType<typeof createMockRepository<WaterQualityMeasurement>>;
-  mockManager: ReturnType<typeof createMockDataSource>['mockManager'];
-  enqueue: jest.Mock;
-  recalcForUnitMock: jest.Mock;
-}
-
-async function buildService(): Promise<ServiceHarness> {
-  const repository = createMockRepository<WaterQualityMeasurement>();
-  const tankRepository = createMockRepository<Tank>();
-
-  const evaluate = jest.fn().mockResolvedValue({
-    overallStatus: WaterQualityStatus.OPTIMAL,
-    criticalCount: 0,
-    warningCount: 0,
-    optimalCount: 1,
-    evaluations: [{ parameter: 'temperature', value: 14, unit: 'C', status: 'optimal' }],
-    recommendations: [],
-  });
-  const validate = jest.fn().mockResolvedValue({ valid: true, errors: [] });
-  const recalcForUnitMock = jest.fn().mockResolvedValue(null);
-  const enqueue = jest.fn().mockResolvedValue(undefined);
-
-  const { mockDataSource, mockManager } = createMockDataSource();
-
-  const moduleRef: TestingModule = await Test.createTestingModule({
-    providers: [
-      WaterQualityService,
-      { provide: getRepositoryToken(WaterQualityMeasurement), useValue: repository },
-      { provide: getRepositoryToken(Tank), useValue: tankRepository },
-      { provide: WaterQualityEvaluationService, useValue: { evaluate } },
-      { provide: WaterQualityValidationService, useValue: { validate } },
-      { provide: DataSource, useValue: mockDataSource },
-      { provide: OutboxPublisher, useValue: { enqueue } },
-      // SEC-HIGH-051: pure policy with no constructor deps — provided as the
-      // real class so the object-level site check runs production logic. The
-      // MODULE_MANAGER WQ_CALLER bypasses it, preserving each test's intent.
-      SiteAuthorizationService,
-      // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
-      { provide: DayPlanRecalcService, useValue: { recalcForUnit: recalcForUnitMock } },
-    ],
-  }).compile();
-
-  const service = moduleRef.get(WaterQualityService);
-  return { service, validate, evaluate, repository, mockManager, enqueue, recalcForUnitMock };
-}
-
-function createInput(overrides: Partial<CreateWaterQualityData> = {}): CreateWaterQualityData {
-  return {
-    equipmentId: EQUIPMENT,
-    measuredAt: new Date('2026-06-14T08:00:00Z'),
-    source: MeasurementSource.MANUAL,
-    dynamicParameters: { temperature: 14 },
-    ...overrides,
-  };
-}
-
-describe('WaterQualityService — critical event site (ALERT-MEDIUM-007)', () => {
-  it('resolves the site from the measured equipment and names it on WaterQualityCritical', async () => {
-    // SCENARIO: a manual critical reading that names only its equipment (no tankId).
-    // EXPECTS: the unit → department → site resolver runs on the equipment (the same
-    //          unit the batch path authorizes on) and the critical event carries
-    //          that site plus the actor, so the alarm pages the site's people.
-    const SITE = '55555555-5555-4555-8555-555555555555';
-    const { service, evaluate, mockManager, enqueue } = await buildService();
-    evaluate.mockResolvedValue({
-      overallStatus: WaterQualityStatus.CRITICAL,
-      criticalCount: 1,
-      warningCount: 0,
-      optimalCount: 0,
-      evaluations: [
-        {
-          parameter: 'dissolved_oxygen',
-          value: 2,
-          unit: 'mg/L',
-          status: ParameterStatus.CRITICAL_LOW,
-          criticalMin: 4,
-        },
-      ],
-      recommendations: [],
-    });
-    mockManager.findOne.mockImplementation((entity: unknown) => {
-      if (entity === Equipment) return Promise.resolve({ id: EQUIPMENT, departmentId: 'dep-1' });
-      if (entity === Department) return Promise.resolve({ id: 'dep-1', siteId: SITE });
-      return Promise.resolve(null);
-    });
-    mockManager.save.mockImplementation((_entityClass: unknown, data: unknown) =>
-      Promise.resolve({ id: MEASUREMENT, parameters: {}, ...(data as object) }),
-    );
-
-    await service.create(TENANT, createInput({ measuredBy: USER }), WQ_CALLER);
-
-    const critical = enqueue.mock.calls
-      .map(([event]) => event as { eventType: string; siteId?: string; userId?: string })
-      .find((event) => event.eventType === 'WaterQualityCritical');
-    expect(critical).toMatchObject({ siteId: SITE, userId: USER });
-  });
-});
+import {
+  EQUIPMENT,
+  MEASUREMENT,
+  TENANT,
+  WQ_CALLER,
+  buildService,
+  createInput,
+} from './water-quality-service.harness';
 
 describe('WaterQualityService — single-ingress validation', () => {
   describe('create()', () => {

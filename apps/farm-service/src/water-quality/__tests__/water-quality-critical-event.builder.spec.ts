@@ -15,6 +15,7 @@ import { buildWaterQualityCriticalEvent } from '../services/water-quality-critic
 const TENANT_ID = '7f6b08ab-90e2-46d3-8a11-2b3c4d5e6f70';
 const SITE_ID = '11111111-1111-4111-8111-111111111111';
 const EQUIPMENT_ID = '22222222-2222-4222-8222-222222222222';
+const ACTOR_ID = '44444444-4444-4444-8444-444444444444';
 
 function measurement(overrides: Partial<WaterQualityMeasurement> = {}): WaterQualityMeasurement {
   return Object.assign(new WaterQualityMeasurement(), {
@@ -49,19 +50,22 @@ function measurement(overrides: Partial<WaterQualityMeasurement> = {}): WaterQua
 
 describe('buildWaterQualityCriticalEvent', () => {
   it('names the site and the actor, and carries only the critical parameters', () => {
-    // SCENARIO: a manual reading with dissolved oxygen below its critical floor.
-    // EXPECTS: siteId from the resolved unit site, userId = who measured, one
-    //          critical parameter serialized flat (ARCH-C01).
+    // SCENARIO: a manual reading with dissolved oxygen below its critical floor,
+    //           whose `measuredBy` data field names someone other than the caller.
+    // EXPECTS: siteId from the resolved unit site, userId = the AUTHENTICATED caller
+    //          (never the client-supplied measuredBy, V-S1b-5), one critical
+    //          parameter serialized flat (ARCH-C01).
     const event = buildWaterQualityCriticalEvent({
       tenantId: TENANT_ID,
       measurement: measurement(),
       siteId: SITE_ID,
+      actorId: ACTOR_ID,
     });
 
     expect(event).toMatchObject({
       eventType: 'WaterQualityCritical',
       tenantId: TENANT_ID,
-      userId: 'operator-7',
+      userId: ACTOR_ID,
       siteId: SITE_ID,
       equipmentId: EQUIPMENT_ID,
       tankId: null,
@@ -80,6 +84,7 @@ describe('buildWaterQualityCriticalEvent', () => {
       tenantId: TENANT_ID,
       measurement: measurement(),
       siteId: null,
+      actorId: ACTOR_ID,
     });
     expect(event).not.toBeNull();
     expect(event && 'siteId' in event).toBe(false);
@@ -96,6 +101,7 @@ describe('buildWaterQualityCriticalEvent', () => {
         tenantId: TENANT_ID,
         measurement: measurement({ measuredBy: '44444444-4444-4444-8444-444444444444' }),
         siteId,
+        actorId: ACTOR_ID,
       });
       const wire: unknown = JSON.parse(JSON.stringify(event));
       expect({ siteId, result: validateEventBySubject(subject, wire) }).toEqual({
@@ -123,6 +129,7 @@ describe('buildWaterQualityCriticalEvent', () => {
         tenantId: TENANT_ID,
         measurement: warningOnly,
         siteId: SITE_ID,
+        actorId: ACTOR_ID,
       }),
     ).toBeNull();
     expect(
@@ -130,6 +137,7 @@ describe('buildWaterQualityCriticalEvent', () => {
         tenantId: TENANT_ID,
         measurement: measurement({ hasAlarm: false }),
         siteId: SITE_ID,
+        actorId: ACTOR_ID,
       }),
     ).toBeNull();
   });

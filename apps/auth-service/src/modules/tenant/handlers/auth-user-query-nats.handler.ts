@@ -108,9 +108,12 @@ export class AuthUserQueryNatsHandler {
         // audit is banned).
         await this.auditLogService.log({
           // performedBy is the cross-service caller — there is no end-user
-          // principal on an internal NATS membership query; the messaging
-          // service is the actor whose request triggered the rejection.
-          performedBy: 'messaging-service',
+          // principal on an internal NATS membership query. The broker admits
+          // only the identities services.yaml grants this subject to
+          // (messaging channel admission, farm `measuredBy` checks); the
+          // responder cannot tell which one asked, so it names the channel
+          // rather than guessing a service.
+          performedBy: 'nats:request.auth.user.validateTenantMembership',
           action: 'auth.membership_validation.rejected',
           entityType: 'tenant_membership_query',
           tenantId,

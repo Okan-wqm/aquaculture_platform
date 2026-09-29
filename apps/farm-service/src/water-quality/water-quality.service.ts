@@ -30,7 +30,9 @@ import {
   MeasurementSource,
 } from './entities/water-quality-measurement.entity';
 import { buildWaterQualityCriticalEvent } from './services/water-quality-critical-event.builder';
-import { resolveTankSiteId, resolveUnitSiteIds } from '../batch/utils/tank-lookup.util';
+import { resolveUnitSiteIds } from '../batch/utils/tank-lookup.util';
+import { resolveMeasuredUnitSite } from './services/measured-unit-site.resolver';
+import { MeasurementActorService } from './services/measurement-actor.service';
 import { Tank } from '../tank/entities/tank.entity';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
@@ -66,6 +68,10 @@ export interface WaterQualityCaller {
 export interface CreateWaterQualityData {
   tankId?: string;
   pondId?: string;
+  /**
+   * DEPRECATED assertion (V-S1a-1): the site is derived from the measured unit.
+   * When present it must equal that site, else the write is refused (400).
+   */
   siteId?: string;
   batchId?: string;
   measuredAt: Date;
@@ -127,6 +133,8 @@ export class WaterQualityService {
     // P-31/D-4: yeni manuel sıcaklık bugünkü beslenmemiş öğünleri AYNI tx'te
     // yeniden fiyatlar — ayrı yazma yolu AÇILMAZ, mevcut komutlar tetikler.
     private readonly dayPlanRecalc: DayPlanRecalcService,
+    // V-S1b-5: `measuredBy` override gate (MODULE_MANAGER+ and an active user).
+    private readonly measurementActor: MeasurementActorService,
   ) {}
 
   /**
@@ -179,15 +187,6 @@ export class WaterQualityService {
   }
 
   /**
-   * SEC-HIGH-051: resolve the site a water-quality measurement belongs to.
-   *
-   * A direct `siteId` wins (the measurement is explicitly site-scoped). Else a
-   * `tankId` resolves via Department.siteId. A pond-only measurement has no Site
-   * linkage in this schema (Pond -> Farm, not Site), so it resolves to `null`
-   * and the fail-closed deny restricts pond WQ to MODULE_MANAGER+ — the correct
-   * conservative posture (NEVER an implicit allow on an unresolved site).
-   */
-  /**
    * Site yetkisi kapısı — ÜNİTE LİSTESİ okuyan sorgular için (W8 —
    * FARM-MEDIUM-274).
    *
@@ -220,22 +219,6 @@ export class WaterQualityService {
     for (const unitId of unitIds) {
       this.siteAuth.assertSiteAssignment({ caller, siteId: siteByUnit.get(unitId) ?? null });
     }
-  }
-
-  private async resolveMeasurementSiteId(
-    manager: EntityManager,
-    input: Pick<CreateWaterQualityData, 'siteId' | 'tankId'>,
-    tenantId: string,
-  ): Promise<string | null> {
-    if (input.siteId) {
-      return input.siteId;
-    }
-    if (input.tankId) {
-      // Reuse the ONE tank site-resolver (checks equipment + legacy tanks tables
-      // → Department.siteId) so equipment-table tanks resolve too.
-      return resolveTankSiteId(manager, input.tankId, tenantId);
-    }
-    return null;
   }
 
   // -------------------------------------------------------------------------
@@ -294,6 +277,14 @@ export class WaterQualityService {
     // holding a DB lock during evaluation.
     const summary = await this.evaluationService.evaluate(tenantId, mergedParameters);
 
+    // V-S1b-5: who took the reading. Resolved before the transaction (it may ask
+    // auth-service); the event actor is the authenticated caller regardless.
+    const measuredBy = await this.measurementActor.resolveMeasuredBy(
+      tenantId,
+      input.measuredBy,
+      caller,
+    );
+
     // ── Transaction: measurement save + outbox event(s) ───────────────
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -301,17 +292,15 @@ export class WaterQualityService {
 
     let saved: WaterQualityMeasurement;
     try {
-      // SEC-HIGH-051: object-level site authorization. Resolve the measurement's
-      // site inside the transaction and assert the caller is assigned to it
-      // BEFORE persisting. MODULE_MANAGER+ bypasses; an unresolved site (e.g. a
-      // pond-only measurement, or a site-less department) for a MODULE_USER is
-      // DENIED — never an implicit allow.
-      // The unit is the tank when one is named, else the measured equipment —
-      // the same unit the batch path authorizes on (ALERT-MEDIUM-007: the
-      // critical event names this site, so both must resolve one unit).
-      const measurementSiteId = await this.resolveMeasurementSiteId(
+      // SEC-HIGH-051 + V-S1a-1: object-level site authorization on the site
+      // DERIVED from the measured unit (never the caller's `siteId`, which is
+      // an assertion only). Resolved inside the transaction and asserted BEFORE
+      // persisting. MODULE_MANAGER+ bypasses; an unresolved site (a site-less
+      // department) for a MODULE_USER is DENIED — never an implicit allow. The
+      // same site is stored on the row and named by the critical alarm.
+      const measurementSiteId = await resolveMeasuredUnitSite(
         queryRunner.manager,
-        { siteId: input.siteId, tankId: input.tankId ?? input.equipmentId },
+        { equipmentId: input.equipmentId, tankId: input.tankId, siteId: input.siteId },
         tenantId,
       );
       this.siteAuth.assertSiteAssignment({ caller, siteId: measurementSiteId });
@@ -320,12 +309,12 @@ export class WaterQualityService {
         tenantId,
         tankId: input.tankId,
         pondId: input.pondId,
-        siteId: input.siteId,
+        siteId: measurementSiteId ?? undefined,
         batchId: input.batchId,
         equipmentId: input.equipmentId,
         measuredAt: input.measuredAt,
         source: input.source,
-        measuredBy: input.measuredBy,
+        measuredBy,
         parameters: mergedParameters,
         notes: input.notes,
         weatherConditions: input.weatherConditions,
@@ -376,6 +365,7 @@ export class WaterQualityService {
         tenantId,
         measurement: saved,
         siteId: measurementSiteId,
+        actorId: caller.sub,
       });
       if (criticalEvent) {
         await this.outboxPublisher.enqueue(criticalEvent, queryRunner.manager);
@@ -464,9 +454,9 @@ export class WaterQualityService {
         // is keyed by equipmentId (a tank/equipment id) → Department.siteId.
         // MODULE_MANAGER+ bypasses; an unresolved site for a MODULE_USER DENIES
         // the whole batch (the transaction rolls back) — never an implicit allow.
-        const itemSiteId = await this.resolveMeasurementSiteId(
+        const itemSiteId = await resolveMeasuredUnitSite(
           queryRunner.manager,
-          { tankId: item.equipmentId },
+          { equipmentId: item.equipmentId },
           tenantId,
         );
         this.siteAuth.assertSiteAssignment({ caller, siteId: itemSiteId });
@@ -475,6 +465,7 @@ export class WaterQualityService {
         const measurement = queryRunner.manager.create(WaterQualityMeasurement, {
           tenantId,
           equipmentId: item.equipmentId,
+          siteId: itemSiteId ?? undefined,
           measuredAt: input.measuredAt,
           source: input.source,
           measuredBy: userId,
@@ -524,6 +515,7 @@ export class WaterQualityService {
           tenantId,
           measurement,
           siteId: itemSiteIds[index] ?? null,
+          actorId: userId,
         });
         if (criticalEvent) {
           await this.outboxPublisher.enqueue(criticalEvent, queryRunner.manager);

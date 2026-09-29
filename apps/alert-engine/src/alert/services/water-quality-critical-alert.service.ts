@@ -1,7 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { signalKey, type SignalKey, type WaterQualityCriticalEvent } from '@platform/event-contracts';
+import {
+  signalKey,
+  waterQualityMeasuredUnit,
+  type SignalKey,
+  type WaterQualityCriticalEvent,
+} from '@platform/event-contracts';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
 import { FarmSignalIncidentService } from './farm-signal-incident.service';
@@ -57,9 +62,14 @@ export class WaterQualityCriticalAlertService {
     private readonly farmSignalIncident: Pick<FarmSignalIncidentService, 'ensureIncident'>,
   ) {}
 
-  /** The condition's signal key — per affected unit (see class doc). */
+  /**
+   * The condition's signal key — per affected unit (see class doc). The unit is
+   * picked by the contract's `waterQualityMeasuredUnit`, the same function the
+   * farm write path resolves the site from (V-S1a-10), so the incident key and
+   * the site on the event always describe one unit.
+   */
   private signalKeyOf(event: WaterQualityCriticalEvent): SignalKey {
-    const unitId = event.equipmentId ?? event.tankId;
+    const unitId = waterQualityMeasuredUnit(event);
     return unitId
       ? signalKey({ kind: 'water', equipmentId: unitId })
       : signalKey({ kind: 'water-measurement', measurementId: event.measurementId });

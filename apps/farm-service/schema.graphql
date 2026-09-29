@@ -9580,8 +9580,8 @@ input CreateWaterQualityInput {
   """Havuz ID"""
   pondId: ID
 
-  """Site ID"""
-  siteId: ID
+  """Site ID (assertion only; the site is derived from the measured unit)"""
+  siteId: ID @deprecated(reason: "The site is derived from equipmentId/tankId. A differing value is rejected.")
 
   """Batch ID"""
   batchId: ID

@@ -11,11 +11,12 @@ import {
  * to carry two hand-kept copies).
  *
  * WHY the site and the actor (ALERT-MEDIUM-007): the alarm escalates to the
- * people assigned to the measured unit's site, and the report names who took
- * the reading. The site is the one the caller already resolved for site
- * authorization (Department.siteId via the unit resolver), so the event and the
- * authorization decision can never name two different sites. The actor rides on
- * `BaseEvent.userId` (absent for sensor-derived readings).
+ * people assigned to the measured unit's site, and the report names who
+ * recorded the reading. The site is the one DERIVED from the measured unit for
+ * site authorization (`resolveMeasuredUnitSite`), so the event and the
+ * authorization decision can never name two different sites. The actor rides
+ * on `BaseEvent.userId` and is the AUTHENTICATED caller (V-S1b-5) — never the
+ * `measuredBy` data field, which is client-supplied.
  *
  * Returns null when no parameter is in a CRITICAL band — nothing to raise.
  */
@@ -23,8 +24,10 @@ export function buildWaterQualityCriticalEvent(input: {
   tenantId: string;
   measurement: WaterQualityMeasurement;
   siteId: string | null;
+  /** The authenticated caller that recorded the measurement (JWT `sub`). */
+  actorId: string;
 }): WaterQualityCriticalEvent | null {
-  const { tenantId, measurement, siteId } = input;
+  const { tenantId, measurement, siteId, actorId } = input;
   if (!measurement.hasAlarm || !measurement.summary?.evaluations) {
     return null;
   }
@@ -52,7 +55,7 @@ export function buildWaterQualityCriticalEvent(input: {
 
   return {
     ...createBaseEvent<WaterQualityCriticalEvent>('WaterQualityCritical', tenantId, {
-      userId: measurement.measuredBy ?? undefined,
+      userId: actorId,
       aggregateId: measurement.id,
       aggregateType: 'WaterQualityMeasurement',
     }),

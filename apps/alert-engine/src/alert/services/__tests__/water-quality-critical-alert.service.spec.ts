@@ -20,10 +20,7 @@ import type { WaterQualityCriticalEvent } from '@platform/event-contracts';
 
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../../entities/alert-history.entity';
-import {
-  FarmSignalIncidentService,
-  FarmSignalIncidentSpec,
-} from '../farm-signal-incident.service';
+import { FarmSignalIncidentService, FarmSignalIncidentSpec } from '../farm-signal-incident.service';
 import { WaterQualityCriticalAlertService } from '../water-quality-critical-alert.service';
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
@@ -42,9 +39,7 @@ const CRITICAL_PARAMS = [
   { code: 'ph', name: 'pH', value: 5.2, threshold: 6, direction: 'below' },
 ];
 
-function makeEvent(
-  overrides: Partial<WaterQualityCriticalEvent> = {},
-): WaterQualityCriticalEvent {
+function makeEvent(overrides: Partial<WaterQualityCriticalEvent> = {}): WaterQualityCriticalEvent {
   return {
     ...createBaseEvent<WaterQualityCriticalEvent>('WaterQualityCritical', TENANT_ID),
     eventType: 'WaterQualityCritical',
@@ -162,13 +157,25 @@ describe('WaterQualityCriticalAlertService', () => {
   it('titles the incident by equipment when no tank is present', async () => {
     const { service, farmSignalIncident } = makeService();
 
-    await service.recordCriticalWaterQuality(
-      makeEvent({ tankId: null, equipmentId: 'equip-9' }),
-    );
+    await service.recordCriticalWaterQuality(makeEvent({ tankId: null, equipmentId: 'equip-9' }));
 
     const spec = farmSignalIncident.ensureIncident.mock.calls[0]?.[0] as FarmSignalIncidentSpec;
     expect(spec.title).toBe('Water Quality Critical: equipment equip-9');
     expect(spec.signalKey).toBe(signalKey({ kind: 'water', equipmentId: 'equip-9' }));
+  });
+
+  it('keys the incident by the SAME unit the farm write path derives the site from (V-S1a-10)', async () => {
+    // SCENARIO: a reading names a probe (equipment) inside a tank.
+    // EXPECTS: the equipment wins — `waterQualityMeasuredUnit`, the rule farm uses —
+    //          so the site on the event and the incident key describe one unit.
+    const { service, farmSignalIncident } = makeService();
+
+    await service.recordCriticalWaterQuality(
+      makeEvent({ tankId: TANK_ID, equipmentId: 'probe-7' }),
+    );
+
+    const spec = farmSignalIncident.ensureIncident.mock.calls[0]?.[0] as FarmSignalIncidentSpec;
+    expect(spec.signalKey).toBe(signalKey({ kind: 'water', equipmentId: 'probe-7' }));
   });
 
   it('carries the producer site and actor into the incident (ALERT-MEDIUM-007)', async () => {
@@ -205,6 +212,8 @@ describe('WaterQualityCriticalAlertService', () => {
     await service.recordCriticalWaterQuality(makeEvent({ tankId: null, equipmentId: null }));
 
     const spec = farmSignalIncident.ensureIncident.mock.calls[0]?.[0] as FarmSignalIncidentSpec;
-    expect(spec.signalKey).toBe(signalKey({ kind: 'water-measurement', measurementId: MEASUREMENT_ID }));
+    expect(spec.signalKey).toBe(
+      signalKey({ kind: 'water-measurement', measurementId: MEASUREMENT_ID }),
+    );
   });
 });

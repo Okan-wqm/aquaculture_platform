@@ -18746,6 +18746,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/water-quality/__tests__/water-quality-service.harness.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/__tests__/water-quality-site-and-actor.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/water-quality/__tests__/water-quality.service.spec.ts",
       "prettier_managed": true
     },
@@ -19239,6 +19251,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/water-quality/services/__tests__/water-temperature.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/services/measured-unit-site.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/services/measurement-actor.service.ts",
       "prettier_managed": true
     },
     {
@@ -52448,7 +52472,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "ec92fb48b9dae6f6720882614caa4c195580b3a19ba9dbf32783bad834666cb3",
+      "content_sha256": "5515130af6a88f39e5b332b1b78c15baacaf2d66fb3e5962898a24b254a9f478",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -63743,7 +63767,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "aeb8175b0d7a1c2b95c712e341d5e826b25261513499c01ed436d724cfdde4a2",
+      "content_sha256": "62e485cb722d5e46d864f5f8bef59bf34c75e57ebc809932d85f157f6b1e873d",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

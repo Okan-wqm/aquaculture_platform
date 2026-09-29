@@ -264,7 +264,12 @@ export interface QueuedPayloadByType {
    */
   setChecklistItem: QueueInput<SetChecklistItemInput>;
   recordTransfer: QueueInput<TransferBatchInput>;
-  createWaterQuality: QueueInput<CreateWaterQualityInput>;
+  /**
+   * V-S1a-1: `siteId` is excluded — the server derives the site from the
+   * measured unit and refuses a differing assertion, so a new queued reading
+   * can never carry one (payloads queued before this change still replay).
+   */
+  createWaterQuality: Omit<QueueInput<CreateWaterQualityInput>, 'siteId'>;
   recordStockMovement: QueueInput<RecordStockMovementInput>;
   transferStock: QueueInput<TransferStockInput>;
   recordLiceCount: QueueInput<RecordLiceCountInput>;

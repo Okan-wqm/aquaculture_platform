@@ -36,6 +36,9 @@ import {
   MeasurementSource,
 } from '../entities/water-quality-measurement.entity';
 import { Tank } from '../../tank/entities/tank.entity';
+import { Equipment } from '../../equipment/entities/equipment.entity';
+import { Department } from '../../department/entities/department.entity';
+import { ParameterStatus } from '../entities/water-quality-measurement.entity';
 import { CreateWaterQualityInput } from '../dto/create-water-quality.input';
 import { UpdateWaterQualityInput } from '../dto/update-water-quality.input';
 
@@ -113,6 +116,48 @@ function createInput(overrides: Partial<CreateWaterQualityData> = {}): CreateWat
     ...overrides,
   };
 }
+
+describe('WaterQualityService — critical event site (ALERT-MEDIUM-007)', () => {
+  it('resolves the site from the measured equipment and names it on WaterQualityCritical', async () => {
+    // SCENARIO: a manual critical reading that names only its equipment (no tankId).
+    // EXPECTS: the unit → department → site resolver runs on the equipment (the same
+    //          unit the batch path authorizes on) and the critical event carries
+    //          that site plus the actor, so the alarm pages the site's people.
+    const SITE = '55555555-5555-4555-8555-555555555555';
+    const { service, evaluate, mockManager, enqueue } = await buildService();
+    evaluate.mockResolvedValue({
+      overallStatus: WaterQualityStatus.CRITICAL,
+      criticalCount: 1,
+      warningCount: 0,
+      optimalCount: 0,
+      evaluations: [
+        {
+          parameter: 'dissolved_oxygen',
+          value: 2,
+          unit: 'mg/L',
+          status: ParameterStatus.CRITICAL_LOW,
+          criticalMin: 4,
+        },
+      ],
+      recommendations: [],
+    });
+    mockManager.findOne.mockImplementation((entity: unknown) => {
+      if (entity === Equipment) return Promise.resolve({ id: EQUIPMENT, departmentId: 'dep-1' });
+      if (entity === Department) return Promise.resolve({ id: 'dep-1', siteId: SITE });
+      return Promise.resolve(null);
+    });
+    mockManager.save.mockImplementation((_entityClass: unknown, data: unknown) =>
+      Promise.resolve({ id: MEASUREMENT, parameters: {}, ...(data as object) }),
+    );
+
+    await service.create(TENANT, createInput({ measuredBy: USER }), WQ_CALLER);
+
+    const critical = enqueue.mock.calls
+      .map(([event]) => event as { eventType: string; siteId?: string; userId?: string })
+      .find((event) => event.eventType === 'WaterQualityCritical');
+    expect(critical).toMatchObject({ siteId: SITE, userId: USER });
+  });
+});
 
 describe('WaterQualityService — single-ingress validation', () => {
   describe('create()', () => {

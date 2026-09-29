@@ -23,17 +23,13 @@ import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { OutboxPublisher } from '@platform/outbox';
-import {
-  WaterQualityMeasurementCreatedEvent,
-  WaterQualityCriticalEvent,
-  createBaseEvent,
-} from '@platform/event-contracts';
+import { WaterQualityMeasurementCreatedEvent, createBaseEvent } from '@platform/event-contracts';
 import {
   WaterQualityMeasurement,
   WaterQualityStatus,
   MeasurementSource,
-  ParameterStatus,
 } from './entities/water-quality-measurement.entity';
+import { buildWaterQualityCriticalEvent } from './services/water-quality-critical-event.builder';
 import { resolveTankSiteId, resolveUnitSiteIds } from '../batch/utils/tank-lookup.util';
 import { Tank } from '../tank/entities/tank.entity';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
@@ -310,9 +306,12 @@ export class WaterQualityService {
       // BEFORE persisting. MODULE_MANAGER+ bypasses; an unresolved site (e.g. a
       // pond-only measurement, or a site-less department) for a MODULE_USER is
       // DENIED — never an implicit allow.
+      // The unit is the tank when one is named, else the measured equipment —
+      // the same unit the batch path authorizes on (ALERT-MEDIUM-007: the
+      // critical event names this site, so both must resolve one unit).
       const measurementSiteId = await this.resolveMeasurementSiteId(
         queryRunner.manager,
-        { siteId: input.siteId, tankId: input.tankId },
+        { siteId: input.siteId, tankId: input.tankId ?? input.equipmentId },
         tenantId,
       );
       this.siteAuth.assertSiteAssignment({ caller, siteId: measurementSiteId });
@@ -373,40 +372,13 @@ export class WaterQualityService {
       // LIFE-SAFETY: Critical alert event for alert-service — if parameters are
       // in critical range, fish mortality risk is imminent. This event MUST be
       // delivered reliably via outbox, not fire-and-forget.
-      if (saved.hasAlarm && saved.summary?.evaluations) {
-        const criticalParams = saved.summary.evaluations
-          .filter(
-            (e) =>
-              e.status === ParameterStatus.CRITICAL_LOW ||
-              e.status === ParameterStatus.CRITICAL_HIGH,
-          )
-          .map((e) => ({
-            code: e.parameter,
-            name: e.parameter,
-            value: e.value,
-            threshold:
-              e.status === ParameterStatus.CRITICAL_LOW
-                ? (e.criticalMin ?? 0)
-                : (e.criticalMax ?? 0),
-            direction: (e.status === ParameterStatus.CRITICAL_LOW ? 'below' : 'above') as
-              | 'above'
-              | 'below',
-            unit: e.unit,
-          }));
-
-        if (criticalParams.length > 0) {
-          // ARCH-C01: Serialize criticalParameters to JSON string — flat-object contract
-          const criticalEvent: WaterQualityCriticalEvent = {
-            ...createBaseEvent<WaterQualityCriticalEvent>('WaterQualityCritical', tenantId),
-            measurementId: saved.id,
-            equipmentId: saved.equipmentId ?? null,
-            tankId: saved.tankId ?? null,
-            criticalParametersJson: JSON.stringify(criticalParams),
-            criticalParameterCount: criticalParams.length,
-            measuredAt: saved.measuredAt.toISOString(),
-          };
-          await this.outboxPublisher.enqueue(criticalEvent, queryRunner.manager);
-        }
+      const criticalEvent = buildWaterQualityCriticalEvent({
+        tenantId,
+        measurement: saved,
+        siteId: measurementSiteId,
+      });
+      if (criticalEvent) {
+        await this.outboxPublisher.enqueue(criticalEvent, queryRunner.manager);
       }
 
       // P-31: ölçüm sıcaklık taşıyorsa ünitenin bugünkü beslenmemiş öğünleri
@@ -482,6 +454,8 @@ export class WaterQualityService {
     let saved: WaterQualityMeasurement[];
     try {
       const entities: WaterQualityMeasurement[] = [];
+      // Site of each item, index-aligned with `entities` (and so with `saved`).
+      const itemSiteIds: Array<string | null> = [];
       for (let i = 0; i < input.measurements.length; i++) {
         const item = input.measurements[i]!;
         const summary = evaluations[i]!;
@@ -496,6 +470,7 @@ export class WaterQualityService {
           tenantId,
         );
         this.siteAuth.assertSiteAssignment({ caller, siteId: itemSiteId });
+        itemSiteIds.push(itemSiteId);
 
         const measurement = queryRunner.manager.create(WaterQualityMeasurement, {
           tenantId,
@@ -526,7 +501,7 @@ export class WaterQualityService {
       saved = await queryRunner.manager.save(WaterQualityMeasurement, entities);
 
       // Enqueue outbox events for each measurement (inside the same transaction)
-      for (const measurement of saved) {
+      for (const [index, measurement] of saved.entries()) {
         const createdEvent: WaterQualityMeasurementCreatedEvent = {
           ...createBaseEvent<WaterQualityMeasurementCreatedEvent>(
             'WaterQualityMeasurementCreated',
@@ -545,40 +520,13 @@ export class WaterQualityService {
         await this.outboxPublisher.enqueue(createdEvent, queryRunner.manager);
 
         // LIFE-SAFETY: Critical alert event for alert-service
-        if (measurement.hasAlarm && measurement.summary?.evaluations) {
-          const criticalParams = measurement.summary.evaluations
-            .filter(
-              (e) =>
-                e.status === ParameterStatus.CRITICAL_LOW ||
-                e.status === ParameterStatus.CRITICAL_HIGH,
-            )
-            .map((e) => ({
-              code: e.parameter,
-              name: e.parameter,
-              value: e.value,
-              threshold:
-                e.status === ParameterStatus.CRITICAL_LOW
-                  ? (e.criticalMin ?? 0)
-                  : (e.criticalMax ?? 0),
-              direction: (e.status === ParameterStatus.CRITICAL_LOW ? 'below' : 'above') as
-                | 'above'
-                | 'below',
-              unit: e.unit,
-            }));
-
-          if (criticalParams.length > 0) {
-            // ARCH-C01: Serialize criticalParameters to JSON string — flat-object contract
-            const criticalEvent: WaterQualityCriticalEvent = {
-              ...createBaseEvent<WaterQualityCriticalEvent>('WaterQualityCritical', tenantId),
-              measurementId: measurement.id,
-              equipmentId: measurement.equipmentId ?? null,
-              tankId: measurement.tankId ?? null,
-              criticalParametersJson: JSON.stringify(criticalParams),
-              criticalParameterCount: criticalParams.length,
-              measuredAt: measurement.measuredAt.toISOString(),
-            };
-            await this.outboxPublisher.enqueue(criticalEvent, queryRunner.manager);
-          }
+        const criticalEvent = buildWaterQualityCriticalEvent({
+          tenantId,
+          measurement,
+          siteId: itemSiteIds[index] ?? null,
+        });
+        if (criticalEvent) {
+          await this.outboxPublisher.enqueue(criticalEvent, queryRunner.manager);
         }
       }
 

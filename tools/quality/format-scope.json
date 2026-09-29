@@ -9255,6 +9255,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/helpers/mortality-alert-harness.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/helpers/tenant-schema-harness.ts",
       "prettier_managed": true
     },
@@ -9268,6 +9274,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/mortality-cull-harvest-tenant-isolation.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/mortality-daily-window.postgres.spec.ts",
       "prettier_managed": true
     },
     {
@@ -12656,6 +12668,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/events/listeners/__tests__/mortality-alert-window.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/events/listeners/__tests__/mortality-recorded.listener.spec.ts",
       "prettier_managed": true
     },
@@ -12705,6 +12723,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/events/listeners/maintenance-schedule-due.listener.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/events/listeners/mortality-alert-context.reader.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/events/listeners/mortality-alert-window.ts",
       "prettier_managed": true
     },
     {
@@ -18692,6 +18722,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/water-quality/__tests__/water-quality-critical-event.builder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/water-quality/__tests__/water-quality-read-handlers.spec.ts",
       "prettier_managed": true
     },
@@ -19197,6 +19233,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/water-quality/services/parameter-config-cache.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/services/water-quality-critical-event.builder.ts",
       "prettier_managed": true
     },
     {

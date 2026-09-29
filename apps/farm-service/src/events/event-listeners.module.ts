@@ -61,6 +61,7 @@ import {
   FarmStockProjectionListener,
   SensorTemperatureProjectionListener,
 } from './listeners';
+import { MortalityAlertContextReader } from './listeners/mortality-alert-context.reader';
 
 /**
  * All event listeners
@@ -98,7 +99,9 @@ const EventListeners = [
     // Shared FarmStockProjectionService for the event-driven read-model listener.
     FarmStockModule,
   ],
-  providers: [...EventListeners],
+  // MortalityAlertContextReader: the tenant reads behind a mortality alert
+  // (stored-day window + tank site) — FARM-HIGH-334 / ALERT-MEDIUM-007.
+  providers: [...EventListeners, MortalityAlertContextReader],
   exports: [...EventListeners],
 })
 export class EventListenersModule {}

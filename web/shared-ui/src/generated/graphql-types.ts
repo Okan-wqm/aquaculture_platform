@@ -2646,7 +2646,6 @@ export type CreateChemicalInput = {
   minStock?: InputMaybe<Scalars['Float']['input']>;
   name: Scalars['String']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
-  quantity?: InputMaybe<Scalars['Float']['input']>;
   safetyInfo?: InputMaybe<ChemicalSafetyInfoInput>;
   /** Shelf life in months */
   shelfLifeMonths?: InputMaybe<Scalars['Int']['input']>;
@@ -2691,7 +2690,6 @@ export type CreateConsumableInput = {
   minStock?: InputMaybe<Scalars['Float']['input']>;
   name: Scalars['String']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
-  quantity?: InputMaybe<Scalars['Float']['input']>;
   storageHumidityMax?: InputMaybe<Scalars['Float']['input']>;
   storageHumidityMin?: InputMaybe<Scalars['Float']['input']>;
   storageRequirements?: InputMaybe<Scalars['String']['input']>;
@@ -2862,15 +2860,13 @@ export type CreateFeedInput = {
   pricePerKg?: InputMaybe<Scalars['Float']['input']>;
   /** Product stage */
   productStage?: InputMaybe<Scalars['String']['input']>;
-  /** Initial quantity in stock (kg) */
-  quantity?: InputMaybe<Scalars['Float']['input']>;
   /** Shelf life in months */
   shelfLifeMonths?: InputMaybe<Scalars['Int']['input']>;
   /** Site this feed is available in */
   siteId: Scalars['ID']['input'];
   /** Species suitability mappings (persisted to feed_type_species) */
   speciesMappings?: InputMaybe<Array<FeedSpeciesMappingInput>>;
-  /** Feed availability status */
+  /** Lifecycle status. Accepts AVAILABLE, EXPIRED or DISCONTINUED. AVAILABLE clears a lifecycle override: the stock band (AVAILABLE / LOW_STOCK / OUT_OF_STOCK) is then derived from storage-ledger stock and minStock. LOW_STOCK and OUT_OF_STOCK are rejected. */
   status?: InputMaybe<FeedStatus>;
   /** Maximum storage humidity (%) */
   storageHumidityMax?: InputMaybe<Scalars['Float']['input']>;
@@ -3619,20 +3615,21 @@ export type CreateSlaughterFacilityInput = {
 };
 
 export type CreateSparePartInput = {
+  binDetail?: InputMaybe<SparePartBinDetailInput>;
   compatibleEquipmentTypes?: InputMaybe<Array<Scalars['String']['input']>>;
   currency?: Scalars['String']['input'];
   description?: InputMaybe<Scalars['String']['input']>;
   equipmentTypeId?: InputMaybe<Scalars['ID']['input']>;
   leadTimeDays?: InputMaybe<Scalars['Int']['input']>;
-  location?: InputMaybe<StorageLocationInput>;
   manufacturer?: InputMaybe<Scalars['String']['input']>;
   maxStock?: Scalars['Int']['input'];
   minStock?: Scalars['Int']['input'];
   name: Scalars['String']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
+  openingQuantity?: Scalars['Int']['input'];
   partNumber: Scalars['String']['input'];
-  quantity?: Scalars['Int']['input'];
   reorderPoint?: Scalars['Int']['input'];
+  storageLocationId?: InputMaybe<Scalars['ID']['input']>;
   supplierId?: InputMaybe<Scalars['ID']['input']>;
   unit?: Scalars['String']['input'];
   unitPrice?: InputMaybe<Scalars['Float']['input']>;
@@ -8864,17 +8861,26 @@ export type LowStockAlert = {
   itemId: Scalars['ID']['output'];
   itemName: Scalars['String']['output'];
   itemType: Scalars['String']['output'];
+  level: LowStockLevel;
   minStock: Scalars['Float']['output'];
+  onOrderQuantity: Scalars['Float']['output'];
+  siteId?: Maybe<Scalars['ID']['output']>;
+  siteName?: Maybe<Scalars['String']['output']>;
   unit: Scalars['String']['output'];
 };
 
 export type LowStockAlertResponse = {
-  currentQuantity: Scalars['Int']['output'];
-  deficit: Scalars['Int']['output'];
+  currentQuantity: Scalars['Float']['output'];
+  deficit: Scalars['Float']['output'];
   minStock: Scalars['Int']['output'];
   reorderPoint: Scalars['Int']['output'];
   sparePart: SparePart;
 };
+
+/** Stock tier of a low-stock reading: one site, or the tenant pool */
+export type LowStockLevel =
+  | 'POOL'
+  | 'SITE';
 
 export type LusetellingInput = {
   /** Mobile lice per fish */
@@ -9611,6 +9617,7 @@ export type Mutation = {
   deleteSite: Scalars['Boolean']['output'];
   deleteSparePart: DeleteSparePartResponse;
   deleteSpecies: DeleteSpeciesResponse;
+  deleteStorageItemSitePolicy: Scalars['Boolean']['output'];
   deleteStorageLocation: Scalars['Boolean']['output'];
   deleteSubEquipment: Scalars['Boolean']['output'];
   deleteSupplier: Scalars['Boolean']['output'];
@@ -10034,6 +10041,7 @@ export type Mutation = {
   updateWorkRotation: WorkRotation;
   updateWorker: WorkerResponse;
   upsertSiteContacts: Array<SiteContactResponse>;
+  upsertStorageItemSitePolicy: StorageItemSitePolicyResponse;
   validateProtocolConfig: ValidationResultType;
   validateStructuredText: ValidationResult;
   verifyCertification: EmployeeCertification;
@@ -11419,6 +11427,11 @@ export type MutationDeleteSparePartArgs = {
 
 
 export type MutationDeleteSpeciesArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteStorageItemSitePolicyArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -13231,6 +13244,11 @@ export type MutationUpdateWorkerArgs = {
 export type MutationUpsertSiteContactsArgs = {
   contacts: Array<SiteContactInput>;
   siteId: Scalars['ID']['input'];
+};
+
+
+export type MutationUpsertStorageItemSitePolicyArgs = {
+  input: UpsertStorageItemSitePolicyInput;
 };
 
 
@@ -15185,7 +15203,8 @@ export type PurchaseOrderCategory =
   | 'CHEMICAL'
   | 'CONSUMABLE'
   | 'FEED'
-  | 'HEALTHCARE';
+  | 'HEALTHCARE'
+  | 'SPARE_PART';
 
 export type PurchaseOrderFilterInput = {
   category?: InputMaybe<PurchaseOrderCategory>;
@@ -15768,6 +15787,7 @@ export type Query = {
   stockSummary: StockSummaryResponse;
   storageInventory: Array<StorageInventoryResponse>;
   storageInventoryByCursor: StorageInventoryCursorConnection;
+  storageItemSitePolicies: Array<StorageItemSitePolicyResponse>;
   storageLocation?: Maybe<StorageLocationResponse>;
   storageLocations: PaginatedStorageLocationsResponse;
   storageOverview: StorageOverviewResponse;
@@ -17648,6 +17668,11 @@ export type QueryStorageInventoryByCursorArgs = {
   input?: InputMaybe<CursorPaginationInput>;
   itemType?: InputMaybe<StorageItemType>;
   locationId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryStorageItemSitePoliciesArgs = {
+  filter?: InputMaybe<StorageItemSitePolicyFilterInput>;
 };
 
 
@@ -20267,6 +20292,7 @@ export type SortOrder =
   | 'DESC';
 
 export type SparePart = {
+  binDetail?: Maybe<Scalars['JSON']['output']>;
   code: Scalars['String']['output'];
   compatibleEquipmentTypes?: Maybe<Array<Scalars['String']['output']>>;
   createdAt: Scalars['DateTime']['output'];
@@ -20279,17 +20305,21 @@ export type SparePart = {
   lastOrderDate?: Maybe<Scalars['DateTime']['output']>;
   lastUsedDate?: Maybe<Scalars['DateTime']['output']>;
   leadTimeDays?: Maybe<Scalars['Int']['output']>;
-  location?: Maybe<Scalars['JSON']['output']>;
   manufacturer?: Maybe<Scalars['String']['output']>;
   maxStock: Scalars['Int']['output'];
   minStock: Scalars['Int']['output'];
   name: Scalars['String']['output'];
   notes?: Maybe<Scalars['String']['output']>;
+  /** Unreceived remainder on open purchase orders */
+  onOrderQuantity: Scalars['Float']['output'];
   partNumber: Scalars['String']['output'];
-  quantity: Scalars['Int']['output'];
+  /** On-hand across every storage location, from the storage ledger */
+  quantity: Scalars['Float']['output'];
   reorderPoint: Scalars['Int']['output'];
   specifications?: Maybe<Scalars['JSON']['output']>;
+  /** Derived: DISCONTINUED (inactive), OUT_OF_STOCK, ON_ORDER, LOW_STOCK, IN_STOCK */
   status: SparePartStatus;
+  storageLocationId?: Maybe<Scalars['ID']['output']>;
   supplierId?: Maybe<Scalars['String']['output']>;
   tenantId: Scalars['String']['output'];
   unit: Scalars['String']['output'];
@@ -20299,6 +20329,13 @@ export type SparePart = {
   updatedAt: Scalars['DateTime']['output'];
   updatedBy?: Maybe<Scalars['String']['output']>;
   version: Scalars['Int']['output'];
+};
+
+export type SparePartBinDetailInput = {
+  bin?: InputMaybe<Scalars['String']['input']>;
+  notes?: InputMaybe<Scalars['String']['input']>;
+  shelf?: InputMaybe<Scalars['String']['input']>;
+  warehouse?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type SparePartFilterInput = {
@@ -20543,6 +20580,7 @@ export type StockMovementInput = {
   quantity: Scalars['Int']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
   sparePartId: Scalars['ID']['input'];
+  storageLocationId?: InputMaybe<Scalars['ID']['input']>;
   workOrderId?: InputMaybe<Scalars['ID']['input']>;
 };
 
@@ -20615,25 +20653,37 @@ export type StorageInventoryResponse = {
   updatedAt: Scalars['DateTime']['output'];
 };
 
+export type StorageItemSitePolicyFilterInput = {
+  itemId?: InputMaybe<Scalars['ID']['input']>;
+  itemType?: InputMaybe<StorageItemType>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type StorageItemSitePolicyResponse = {
+  createdAt: Scalars['DateTime']['output'];
+  createdBy: Scalars['ID']['output'];
+  id: Scalars['ID']['output'];
+  itemId: Scalars['ID']['output'];
+  itemType: StorageItemType;
+  minStock: Scalars['Float']['output'];
+  siteId: Scalars['ID']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy: Scalars['ID']['output'];
+};
+
 /** Type of item in storage */
 export type StorageItemType =
   | 'CHEMICAL'
   | 'CONSUMABLE'
   | 'FEED'
-  | 'HEALTHCARE';
+  | 'HEALTHCARE'
+  | 'SPARE_PART';
 
 export type StorageLocationFilterInput = {
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
   search?: InputMaybe<Scalars['String']['input']>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
   type?: InputMaybe<StorageLocationType>;
-};
-
-export type StorageLocationInput = {
-  bin?: InputMaybe<Scalars['String']['input']>;
-  notes?: InputMaybe<Scalars['String']['input']>;
-  shelf?: InputMaybe<Scalars['String']['input']>;
-  warehouse?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type StorageLocationResponse = {
@@ -22856,10 +22906,10 @@ export type UpdateChemicalInput = {
   minStock?: InputMaybe<Scalars['Float']['input']>;
   name?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
-  quantity?: InputMaybe<Scalars['Float']['input']>;
   safetyInfo?: InputMaybe<ChemicalSafetyInfoInput>;
   /** Shelf life in months */
   shelfLifeMonths?: InputMaybe<Scalars['Int']['input']>;
+  /** Lifecycle status. Accepts AVAILABLE, EXPIRED or DISCONTINUED. AVAILABLE clears a lifecycle override: the stock band (AVAILABLE / LOW_STOCK / OUT_OF_STOCK) is then derived from storage-ledger stock and minStock. LOW_STOCK and OUT_OF_STOCK are rejected. */
   status?: InputMaybe<ChemicalStatus>;
   /** Maximum storage humidity (%) */
   storageHumidityMax?: InputMaybe<Scalars['Float']['input']>;
@@ -22889,7 +22939,7 @@ export type UpdateConsumableInput = {
   minStock?: InputMaybe<Scalars['Float']['input']>;
   name?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
-  quantity?: InputMaybe<Scalars['Float']['input']>;
+  /** Lifecycle status. Accepts AVAILABLE or DISCONTINUED. AVAILABLE clears a lifecycle override: the stock band (AVAILABLE / LOW_STOCK / OUT_OF_STOCK) is then derived from storage-ledger stock and minStock. LOW_STOCK and OUT_OF_STOCK are rejected. */
   status?: InputMaybe<ConsumableStatus>;
   storageHumidityMax?: InputMaybe<Scalars['Float']['input']>;
   storageHumidityMin?: InputMaybe<Scalars['Float']['input']>;
@@ -23068,10 +23118,9 @@ export type UpdateFeedInput = {
   pricePerKg?: InputMaybe<Scalars['Float']['input']>;
   /** Product stage */
   productStage?: InputMaybe<Scalars['String']['input']>;
-  /** Initial quantity in stock (kg) */
-  quantity?: InputMaybe<Scalars['Float']['input']>;
   /** Shelf life in months */
   shelfLifeMonths?: InputMaybe<Scalars['Int']['input']>;
+  /** Lifecycle status. Accepts AVAILABLE, EXPIRED or DISCONTINUED. AVAILABLE clears a lifecycle override: the stock band (AVAILABLE / LOW_STOCK / OUT_OF_STOCK) is then derived from storage-ledger stock and minStock. LOW_STOCK and OUT_OF_STOCK are rejected. */
   status?: InputMaybe<FeedStatus>;
   /** Maximum storage humidity (%) */
   storageHumidityMax?: InputMaybe<Scalars['Float']['input']>;
@@ -23872,6 +23921,7 @@ export type UpdateSlaughterFacilityInput = {
 };
 
 export type UpdateSparePartInput = {
+  binDetail?: InputMaybe<SparePartBinDetailInput>;
   compatibleEquipmentTypes?: InputMaybe<Array<Scalars['String']['input']>>;
   currency?: InputMaybe<Scalars['String']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
@@ -23879,16 +23929,14 @@ export type UpdateSparePartInput = {
   id: Scalars['ID']['input'];
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
   leadTimeDays?: InputMaybe<Scalars['Int']['input']>;
-  location?: InputMaybe<StorageLocationInput>;
   manufacturer?: InputMaybe<Scalars['String']['input']>;
   maxStock?: InputMaybe<Scalars['Int']['input']>;
   minStock?: InputMaybe<Scalars['Int']['input']>;
   name?: InputMaybe<Scalars['String']['input']>;
   notes?: InputMaybe<Scalars['String']['input']>;
   partNumber?: InputMaybe<Scalars['String']['input']>;
-  quantity?: InputMaybe<Scalars['Int']['input']>;
   reorderPoint?: InputMaybe<Scalars['Int']['input']>;
-  status?: InputMaybe<SparePartStatus>;
+  storageLocationId?: InputMaybe<Scalars['ID']['input']>;
   supplierId?: InputMaybe<Scalars['ID']['input']>;
   unit?: InputMaybe<Scalars['String']['input']>;
   unitPrice?: InputMaybe<Scalars['Float']['input']>;
@@ -24308,6 +24356,14 @@ export type UpdateWorkerInput = {
   phone?: InputMaybe<Scalars['String']['input']>;
   position?: InputMaybe<Scalars['String']['input']>;
   veterinaryLicenseNumber?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type UpsertStorageItemSitePolicyInput = {
+  itemId: Scalars['ID']['input'];
+  itemType: StorageItemType;
+  /** Minimum on-hand the site must hold (> 0) */
+  minStock: Scalars['Float']['input'];
+  siteId: Scalars['ID']['input'];
 };
 
 export type UsageProtocolInput = {
@@ -25138,8 +25194,12 @@ export type WarehouseLowStockItem = {
   currentQty: Scalars['Float']['output'];
   id: Scalars['ID']['output'];
   itemType: StorageItemType;
+  level: LowStockLevel;
   minQty: Scalars['Float']['output'];
   name: Scalars['String']['output'];
+  onOrderQty: Scalars['Float']['output'];
+  siteId?: Maybe<Scalars['ID']['output']>;
+  siteName?: Maybe<Scalars['String']['output']>;
   unit: Scalars['String']['output'];
 };
 

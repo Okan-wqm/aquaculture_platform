@@ -2149,6 +2149,7 @@ enum StorageItemType {
   CHEMICAL
   CONSUMABLE
   HEALTHCARE
+  SPARE_PART
 }
 
 type StorageInventoryEdge {
@@ -2235,51 +2236,23 @@ type PaginatedStockMovementsResponse {
   hasPreviousPage: Boolean!
 }
 
-type CategoryTotal {
-  category: String!
-  totalQuantity: Float!
-  totalValue: Float! @deprecated(reason: "Use totalValueDecimal (exact decimal string, ADR-0004).")
-  itemCount: Int!
-  totalValueDecimal: Decimal!
-}
-
-type LocationFillRate {
-  locationId: ID!
-  locationName: String!
-  locationType: String!
-  capacity: Float
-  capacityUnit: String!
-  usedCapacity: Float!
-  fillPercentage: Float!
-}
-
-type LowStockAlert {
-  itemId: ID!
-  itemName: String!
-  itemType: String!
-  currentQuantity: Float!
-  minStock: Float!
-  unit: String!
-}
-
-type StorageOverviewResponse {
-  totalStockValue: Float! @deprecated(reason: "Use totalStockValueDecimal (exact decimal string, ADR-0004).")
-  totalItems: Int!
-  lowStockAlertCount: Int!
-  recentMovementsCount: Int!
-  categoryTotals: [CategoryTotal!]!
-  locationFillRates: [LocationFillRate!]!
-  lowStockAlerts: [LowStockAlert!]!
-  totalStockValueDecimal: Decimal!
-}
-
 type WarehouseLowStockItem {
   id: ID!
   name: String!
   itemType: StorageItemType!
+  level: LowStockLevel!
+  siteId: ID
+  siteName: String
   currentQty: Float!
   minQty: Float!
+  onOrderQty: Float!
   unit: String!
+}
+
+"""Stock tier of a low-stock reading: one site, or the tenant pool"""
+enum LowStockLevel {
+  SITE
+  POOL
 }
 
 type WarehouseRecentMovement {
@@ -2315,6 +2288,48 @@ type WarehouseSummaryResponse {
   lowStockItems: [WarehouseLowStockItem!]!
   recentMovements: [WarehouseRecentMovement!]!
   feedCoverage: [WarehouseFeedCoverage!]!
+}
+
+type CategoryTotal {
+  category: String!
+  totalQuantity: Float!
+  totalValue: Float! @deprecated(reason: "Use totalValueDecimal (exact decimal string, ADR-0004).")
+  itemCount: Int!
+  totalValueDecimal: Decimal!
+}
+
+type LocationFillRate {
+  locationId: ID!
+  locationName: String!
+  locationType: String!
+  capacity: Float
+  capacityUnit: String!
+  usedCapacity: Float!
+  fillPercentage: Float!
+}
+
+type LowStockAlert {
+  itemId: ID!
+  itemName: String!
+  itemType: String!
+  level: LowStockLevel!
+  siteId: ID
+  siteName: String
+  currentQuantity: Float!
+  minStock: Float!
+  onOrderQuantity: Float!
+  unit: String!
+}
+
+type StorageOverviewResponse {
+  totalStockValue: Float! @deprecated(reason: "Use totalStockValueDecimal (exact decimal string, ADR-0004).")
+  totalItems: Int!
+  lowStockAlertCount: Int!
+  recentMovementsCount: Int!
+  categoryTotals: [CategoryTotal!]!
+  locationFillRates: [LocationFillRate!]!
+  lowStockAlerts: [LowStockAlert!]!
+  totalStockValueDecimal: Decimal!
 }
 
 type PurchaseOrderItemResponse {
@@ -2360,6 +2375,7 @@ enum PurchaseOrderCategory {
   CHEMICAL
   CONSUMABLE
   HEALTHCARE
+  SPARE_PART
 }
 
 """Status of purchase order"""
@@ -3980,6 +3996,59 @@ enum ExecutionStatus {
   PARTIAL
 }
 
+type SparePart {
+  id: ID!
+  tenantId: String!
+  name: String!
+  code: String!
+  partNumber: String!
+  description: String
+  equipmentTypeId: String
+  compatibleEquipmentTypes: [String!]
+  supplierId: String
+  manufacturer: String
+  minStock: Int!
+  maxStock: Int!
+  reorderPoint: Int!
+  unit: String!
+  storageLocationId: ID
+  binDetail: JSON
+  unitPrice: Float @deprecated(reason: "Use unitPriceDecimal (exact decimal string, ADR-0004).")
+  unitPriceDecimal: Decimal
+  currency: String!
+  specifications: JSON
+  leadTimeDays: Int
+  lastOrderDate: DateTime
+  lastUsedDate: DateTime
+  notes: String
+  isActive: Boolean!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  createdBy: String
+  updatedBy: String
+  version: Int!
+
+  """On-hand across every storage location, from the storage ledger"""
+  quantity: Float!
+
+  """Unreceived remainder on open purchase orders"""
+  onOrderQuantity: Float!
+
+  """
+  Derived: DISCONTINUED (inactive), OUT_OF_STOCK, ON_ORDER, LOW_STOCK, IN_STOCK
+  """
+  status: SparePartStatus!
+}
+
+"""Yedek parça stok durumu"""
+enum SparePartStatus {
+  IN_STOCK
+  LOW_STOCK
+  OUT_OF_STOCK
+  ON_ORDER
+  DISCONTINUED
+}
+
 type FinanceSettings {
   id: ID
   tenantId: String!
@@ -5227,49 +5296,6 @@ type DeleteMaintenanceScheduleResponse {
   message: String
 }
 
-type SparePart {
-  id: ID!
-  tenantId: String!
-  name: String!
-  code: String!
-  partNumber: String!
-  description: String
-  equipmentTypeId: String
-  compatibleEquipmentTypes: [String!]
-  supplierId: String
-  manufacturer: String
-  quantity: Int!
-  minStock: Int!
-  maxStock: Int!
-  reorderPoint: Int!
-  unit: String!
-  status: SparePartStatus!
-  location: JSON
-  unitPrice: Float @deprecated(reason: "Use unitPriceDecimal (exact decimal string, ADR-0004).")
-  unitPriceDecimal: Decimal
-  currency: String!
-  specifications: JSON
-  leadTimeDays: Int
-  lastOrderDate: DateTime
-  lastUsedDate: DateTime
-  notes: String
-  isActive: Boolean!
-  createdAt: DateTime!
-  updatedAt: DateTime!
-  createdBy: String
-  updatedBy: String
-  version: Int!
-}
-
-"""Yedek parça stok durumu"""
-enum SparePartStatus {
-  IN_STOCK
-  LOW_STOCK
-  OUT_OF_STOCK
-  ON_ORDER
-  DISCONTINUED
-}
-
 type SparePartListResponse {
   """Array of items"""
   items: [SparePart!]!
@@ -5295,10 +5321,10 @@ type SparePartListResponse {
 
 type LowStockAlertResponse {
   sparePart: SparePart!
-  currentQuantity: Int!
+  currentQuantity: Float!
   minStock: Int!
   reorderPoint: Int!
-  deficit: Int!
+  deficit: Float!
 }
 
 type StockSummaryResponse {
@@ -5392,6 +5418,18 @@ type DeleteSpeciesResponse {
   success: Boolean!
   id: String!
   message: String
+}
+
+type StorageItemSitePolicyResponse {
+  id: ID!
+  siteId: ID!
+  itemType: StorageItemType!
+  itemId: ID!
+  minStock: Float!
+  createdBy: ID!
+  updatedBy: ID!
+  createdAt: DateTime!
+  updatedAt: DateTime!
 }
 
 type TankListResponse {
@@ -5994,6 +6032,7 @@ type Query {
   activeSpecies: [Species!]!
   speciesTags: [String!]!
   predefinedSpeciesTags: [String!]!
+  storageItemSitePolicies(filter: StorageItemSitePolicyFilterInput): [StorageItemSitePolicyResponse!]!
   tank(id: ID!): Tank!
   tanks(filter: TankFilterInput): TankListResponse!
   tanksByDepartment(departmentId: ID!): [Tank!]!
@@ -6835,6 +6874,12 @@ input SpeciesFilterInput {
   sortOrder: String! = "ASC"
 }
 
+input StorageItemSitePolicyFilterInput {
+  siteId: ID
+  itemType: StorageItemType
+  itemId: ID
+}
+
 input TankFilterInput {
   search: String
   departmentId: String
@@ -7297,6 +7342,8 @@ type Mutation {
   updateSpecies(input: UpdateSpeciesInput!): Species!
   deleteSpecies(id: ID!): DeleteSpeciesResponse!
   restoreSpecies(id: ID!): Species!
+  upsertStorageItemSitePolicy(input: UpsertStorageItemSitePolicyInput!): StorageItemSitePolicyResponse!
+  deleteStorageItemSitePolicy(id: ID!): Boolean!
   createTank(input: CreateTankInput!): Tank!
   updateTank(input: UpdateTankInput!): Tank!
   updateTankStatus(input: UpdateTankStatusInput!): Tank!
@@ -7332,7 +7379,6 @@ input CreateChemicalInput {
   concentration: String
   formulation: String
   unit: String!
-  quantity: Float
   minStock: Float
   usageProtocol: UsageProtocolInput
   safetyInfo: ChemicalSafetyInfoInput
@@ -7410,7 +7456,6 @@ input UpdateChemicalInput {
   concentration: String
   formulation: String
   unit: String
-  quantity: Float
   minStock: Float
   usageProtocol: UsageProtocolInput
   safetyInfo: ChemicalSafetyInfoInput
@@ -7437,6 +7482,10 @@ input UpdateChemicalInput {
   currency: String
   notes: String
   id: ID!
+
+  """
+  Lifecycle status. Accepts AVAILABLE, EXPIRED or DISCONTINUED. AVAILABLE clears a lifecycle override: the stock band (AVAILABLE / LOW_STOCK / OUT_OF_STOCK) is then derived from storage-ledger stock and minStock. LOW_STOCK and OUT_OF_STOCK are rejected.
+  """
   status: ChemicalStatus
   isActive: Boolean
 }
@@ -7467,7 +7516,6 @@ input CreateConsumableInput {
   unit: String!
   brand: String
   supplierId: ID
-  quantity: Float
   minStock: Float
   unitPrice: Float
   currency: String
@@ -7487,7 +7535,6 @@ input UpdateConsumableInput {
   unit: String
   brand: String
   supplierId: ID
-  quantity: Float
   minStock: Float
   unitPrice: Float
   currency: String
@@ -7498,6 +7545,10 @@ input UpdateConsumableInput {
   storageRequirements: String
   notes: String
   id: ID!
+
+  """
+  Lifecycle status. Accepts AVAILABLE or DISCONTINUED. AVAILABLE clears a lifecycle override: the stock band (AVAILABLE / LOW_STOCK / OUT_OF_STOCK) is then derived from storage-ledger stock and minStock. LOW_STOCK and OUT_OF_STOCK are rejected.
+  """
   status: ConsumableStatus
   isActive: Boolean
 }
@@ -7726,11 +7777,10 @@ input CreateFeedInput {
   floatingType: FloatingType
   nutritionalContent: NutritionalContentInput
 
-  """Feed availability status"""
+  """
+  Lifecycle status. Accepts AVAILABLE, EXPIRED or DISCONTINUED. AVAILABLE clears a lifecycle override: the stock band (AVAILABLE / LOW_STOCK / OUT_OF_STOCK) is then derived from storage-ledger stock and minStock. LOW_STOCK and OUT_OF_STOCK are rejected.
+  """
   status: FeedStatus
-
-  """Initial quantity in stock (kg)"""
-  quantity: Float
 
   """Minimum stock level (kg)"""
   minStock: Float
@@ -7942,10 +7992,11 @@ input UpdateFeedInput {
   pelletSize: Float
   floatingType: FloatingType
   nutritionalContent: NutritionalContentInput
-  status: FeedStatus
 
-  """Initial quantity in stock (kg)"""
-  quantity: Float
+  """
+  Lifecycle status. Accepts AVAILABLE, EXPIRED or DISCONTINUED. AVAILABLE clears a lifecycle override: the stock band (AVAILABLE / LOW_STOCK / OUT_OF_STOCK) is then derived from storage-ledger stock and minStock. LOW_STOCK and OUT_OF_STOCK are rejected.
+  """
+  status: FeedStatus
 
   """Minimum stock level (kg)"""
   minStock: Float
@@ -11583,19 +11634,20 @@ input CreateSparePartInput {
   compatibleEquipmentTypes: [String!]
   supplierId: ID
   manufacturer: String
-  quantity: Int! = 0
+  openingQuantity: Int! = 0
+  storageLocationId: ID
   minStock: Int! = 0
   maxStock: Int! = 0
   reorderPoint: Int! = 0
   unit: String! = "piece"
-  location: StorageLocationInput
+  binDetail: SparePartBinDetailInput
   unitPrice: Float
   currency: String! = "TRY"
   leadTimeDays: Int
   notes: String
 }
 
-input StorageLocationInput {
+input SparePartBinDetailInput {
   warehouse: String
   shelf: String
   bin: String
@@ -11611,13 +11663,12 @@ input UpdateSparePartInput {
   compatibleEquipmentTypes: [String!]
   supplierId: ID
   manufacturer: String
-  quantity: Int
+  storageLocationId: ID
   minStock: Int
   maxStock: Int
   reorderPoint: Int
   unit: String
-  status: SparePartStatus
-  location: StorageLocationInput
+  binDetail: SparePartBinDetailInput
   unitPrice: Float
   currency: String
   leadTimeDays: Int
@@ -11631,6 +11682,7 @@ input StockMovementInput {
 
   """in | out | adjustment"""
   movementType: String!
+  storageLocationId: ID
   reason: String
   workOrderId: ID
   notes: String
@@ -11889,6 +11941,15 @@ input UpdateSpeciesInput {
   tags: [String!]
   id: ID!
   isActive: Boolean
+}
+
+input UpsertStorageItemSitePolicyInput {
+  siteId: ID!
+  itemType: StorageItemType!
+  itemId: ID!
+
+  """Minimum on-hand the site must hold (> 0)"""
+  minStock: Float!
 }
 
 input CreateTankInput {

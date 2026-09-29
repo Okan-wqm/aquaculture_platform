@@ -6,6 +6,9 @@ import { createGitSession } from './hermetic-git.mjs';
 import { loadReviewPolicy } from './verify-dossier.mjs';
 import { verifyEvents } from './verify-events.mjs';
 import { verifyNonAdmissionPackages } from './verify-review-evidence.mjs';
+import { verifyImmutableReviewHistory } from './immutable-review-history.mjs';
+
+export { verifyImmutableReviewHistory } from './immutable-review-history.mjs';
 
 const historicalHead = 'c6065d6dac97306f147de67ef58a96e3a67524ac';
 const oldEvidenceDigest = '0dfd4363797a067ce7ccdfa0a7efbe28b2ee69b2daf2cdcfe2cf2321a3df8558';
@@ -44,11 +47,13 @@ function verifyHistoricalManifest(planRoot, repositoryRoot, gitTool) {
 }
 
 export function verifyHistory(planRoot, options) {
-  const { gitRepositoryRoot, sourceRepositoryRoot, runtimeRepositoryRoot, gitTool } = options;
+  const { gitRepositoryRoot, sourceRepositoryRoot, runtimeRepositoryRoot, revision, gitTool } =
+    options;
   const policy = loadReviewPolicy(planRoot);
   const git = createGitSession(gitTool);
   return [
     ...verifyHistoricalManifest(planRoot, gitRepositoryRoot, git),
+    ...verifyImmutableReviewHistory(gitRepositoryRoot, revision, gitTool),
     ...verifyNonAdmissionPackages(planRoot, sourceRepositoryRoot, policy, runtimeRepositoryRoot),
     ...verifyEvents(planRoot),
   ];

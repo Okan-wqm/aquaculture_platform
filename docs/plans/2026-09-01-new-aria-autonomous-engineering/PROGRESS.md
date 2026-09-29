@@ -16,10 +16,10 @@ DO NOT EDIT -->
 - **Materialization digest:** `0dfd4363797a067ce7ccdfa0a7efbe28b2ee69b2daf2cdcfe2cf2321a3df8558`
 - **Review evidence:**
   [D0-review-c139f40f-changes-required.json](progress/evidence/D0-review-c139f40f-changes-required.json)
-- **Review evidence digest:** `b0d345a407d24b8241d97d526cc87087581fc53a9d2755f874ece02bac38118e`
+- **Review evidence digest:** `dad30caa52dac7f16910560472ca54072ee4e2f3ea973f66a5b58b376cfdcc5d`
 - **Review verdict:** `CHANGES_REQUIRED` (non-admission)
 - **Event count:** 6
-- **Event-chain tail:** `53b81ee13eaec05a86f0586eb0778f09873a7cc07a1e49fabcd343f875c34644`
+- **Event-chain tail:** `355732936afe3b121e88f9f03b09bdef7cbcee2813e2e0a1347da491d47ddc50`
 - **Corrective status:** pending fresh external twelve-role review
 - **D0 merge:** pending
 

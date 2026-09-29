@@ -16,8 +16,8 @@ withPlanCopy('new-aria-d0-review-valid-', (copy) => {
 const cases = [
   ['unknown transform field', (value) => (value.review_provenance.view_transform.unknown = 'deny')],
   [
-    'missing prose-wrap transform',
-    (value) => value.review_provenance.view_transform.argv_template.splice(5, 2),
+    'missing stdin-filepath transform',
+    (value) => value.review_provenance.view_transform.argv_template.splice(-2, 2),
   ],
   [
     'preamble digest drift',
@@ -35,6 +35,18 @@ const cases = [
   ],
   ['admission false-positive', (value) => (value.admission.accepted = true)],
   ['unknown manifest field', (value) => (value.unknown = 'deny')],
+  [
+    'unsupported transform generation',
+    (value) => (value.review_provenance.view_transform.id = 'prettier-markdown-v0'),
+  ],
+  [
+    'prototype transform generation',
+    (value) => (value.review_provenance.view_transform.id = 'toString'),
+  ],
+  [
+    'transform config path drift',
+    (value) => (value.review_provenance.view_transform.config_path = '../.prettierrc'),
+  ],
 ];
 
 for (const [name, mutate] of cases) {

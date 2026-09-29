@@ -120,14 +120,21 @@ async function runReadbackCase(dossier, admission, testCase) {
   }
 }
 
-function runFreshReadbackCase(dossier, testCase) {
-  dossier.refreshAuthority();
-  const admission = admitReviewDossier(dossier.options);
-  const signerOverride =
-    typeof testCase.signerOverride === 'function'
-      ? testCase.signerOverride(dossier)
-      : testCase.signerOverride;
-  return runReadbackCase(dossier, admission, { ...testCase, signerOverride });
+async function runFreshReadbackCase(dossier, testCase) {
+  const realNow = Date.now;
+  const fixedNow = realNow();
+  Date.now = () => fixedNow;
+  try {
+    dossier.refreshAuthority();
+    const admission = admitReviewDossier(dossier.options);
+    const signerOverride =
+      typeof testCase.signerOverride === 'function'
+        ? testCase.signerOverride(dossier)
+        : testCase.signerOverride;
+    return await runReadbackCase(dossier, admission, { ...testCase, signerOverride });
+  } finally {
+    Date.now = realNow;
+  }
 }
 
 export function createReadbackSuite() {

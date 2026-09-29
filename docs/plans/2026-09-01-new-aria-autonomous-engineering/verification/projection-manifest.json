@@ -10,11 +10,11 @@
     },
     {
       "path": "progress/events.jsonl",
-      "sha256": "11a44957cec3e6de96de46ddd59b76a2aa0887ea464cb39c844055f50289d6f8"
+      "sha256": "6dff453d8d8b18be53b4b57d24328b00ba20e085fd3b269ed5816f21f1679289"
     },
     {
       "path": "verification/readability-policy.json",
-      "sha256": "afb9cb3e4edcdfebfe99b39a38219e9c5a11756f9a2b37608d63db40fc9de106"
+      "sha256": "a0886004d4a52147661e9d629cc001424a7ad4e70e2f9332d2d5b0a0f5766202"
     }
   ],
   "generator_argv": [
@@ -32,7 +32,7 @@
     },
     {
       "path": "PROGRESS.md",
-      "sha256": "b1f1fe8ae3919021d5645c8b4ccf358ccfc38d9a915daaa3393bdd40bbd02d41"
+      "sha256": "80556728134c915a65f8f2a26da514f1c6cab999c22132c43d9d6d39d1dcf2ca"
     },
     {
       "path": "finding-projections/001-011.md",

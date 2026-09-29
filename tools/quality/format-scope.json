@@ -32010,142 +32010,257 @@
       "prettier_managed": true
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "0dfd4363797a067ce7ccdfa0a7efbe28b2ee69b2daf2cdcfe2cf2321a3df8558",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/progress/evidence/D0-plan-materialization.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "dad30caa52dac7f16910560472ca54072ee4e2f3ea973f66a5b58b376cfdcc5d",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/progress/evidence/D0-review-c139f40f-changes-required.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "02056a2752414ff180b1ff7e19758da2dd9e2a225a007510925c92054f3647d2",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/progress/evidence/D0-review-c6065d6d-changes-required.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "656788c691fd2f44de9bffbfccde97e38a511235c91b30c897733c1bf0801743",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/01-integrity.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "a5f1bca7f02dc3d333da88f0bb966198ca9a4e2e61fe1fcb4248a49a395782fd",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/02-identity.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "96a96387d52a9faa157eaa3a69da9e854b803e3c6746f8d539c38194be346322",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/03-authorization.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "47d9111ed0ba840bc91e06a71a97d90485cece8c20cc8f63f575adb12bea2378",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/04-execution-containment.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "e85469f9bc574924f0352ac893e8bd5a376c619dfa348ccb2a32c1dafd7dcbf5",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/05-supply-chain.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "8cf2b0fc5c92811146e1afd56e81204ba5121a984b5b4a804da1a46ccc767f45",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/06-data-privacy.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "de4382d74338c9c99327bfa3e655bf769c48eb9d576d81b4f6e3f8ed8bb4d123",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/07-cost-capacity.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "670f835a113accec77c58f36c086fe13e04f9a06bc7da8aada54403075a1feae",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/08-reliability-dr.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "11e5a72e7995f3cdb57cce6f162869b39f99edb33341c277aaa70f9a3d870411",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/09-github-delivery.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "044e2fceb8e3c86f3303c3a014cdb5a045395633ad776a3b1767a1e15ec7753c",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/10-api-ui.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "5b113ea5dbc2755b8207662bbc87c059aa6cfd80dbbe99fbfa600a1db60410b6",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/11-portability-readability.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "8b18f15641a1a759953cc19aac797767fd90dc1326858150340f765ed9701455",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/12-appellate.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "2ba0532d78fed791079d87aca9a705881a4174d81aa78aff3f91574c073dd9c7",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/c139f40f/A-foundations.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "2263713fc022d8e09bb89888b861ebdba2fdc46b2e09c7d8dbd3b608fb513823",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/c139f40f/B-platform.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "42e6561cb1a16bc288b4639abd0d067de4241d7bd3352749d2dc47e01808ff63",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/c139f40f/C-delivery.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "2113f831506483ba39a7985483988f2bf5407aa9a775e7bb064d875efd6c80e2",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/c139f40f/D-appellate.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "f25b8d227deebe3b3d6928950bc17361d0d0eb4d21b9fc9b4e0d93c5a640c7ce",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/c139f40f/INDEX.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "c497765ab84571257d4591e48f75baeb06a0504ec613c4011bfbf8bd38ad18cc",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/c139f40f/ROOT-notes.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "65182af6d4903daa7185c939b8b2ceb5d20eb7d2c292de617f494ce9e0616353",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/INDEX.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_docs",
-      "owner": "docs",
+      "class": "archive_immutable",
+      "content_sha256": "ad99995894a402909b400c36d2a78549293ead0ee5f8bbe4b73a8ee6743986bd",
+      "hash_policy": "sha256",
+      "owner": "new-aria-evidence-authority",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/reviews/source/INDEX.md",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "append-only historical evidence is hash-pinned and must retain its original bytes",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
       "class": "canonical_docs",
@@ -32373,6 +32488,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/hermetic-git.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/lib/immutable-review-history.mjs",
       "prettier_managed": true
     },
     {

@@ -86,6 +86,7 @@ export function verifyVerifiedSnapshot(snapshot, gitRepositoryRoot, targetFacts)
       gitRepositoryRoot,
       sourceRepositoryRoot,
       runtimeRepositoryRoot,
+      revision: targetFacts.head_sha,
       gitTool: targetFacts.git_tool,
     }),
   );

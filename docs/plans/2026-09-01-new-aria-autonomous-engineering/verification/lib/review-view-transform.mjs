@@ -8,6 +8,50 @@ const verifiedTransformSets = new Set();
 const readerViewPreamble =
   '<!-- markdownlint-disable MD013 MD033 -->\n' +
   '<!-- Historical review text preserves long evidence tokens and placeholders. -->\n\n';
+const transformProfiles = {
+  'prettier-markdown-v1': {
+    keys: [
+      'id',
+      'tool',
+      'tool_version',
+      'argv_template',
+      'config_path',
+      'config_sha256',
+      'lockfile_path',
+      'lockfile_sha256',
+    ],
+    argv: ['prettier', '--config', '.prettierrc', '--stdin-filepath', '<reader-view.md>'],
+    preamble: '',
+    options: [],
+  },
+  'prettier-markdown-v2': {
+    keys: [
+      'id',
+      'tool',
+      'tool_version',
+      'argv_template',
+      'preamble',
+      'preamble_sha256',
+      'config_path',
+      'config_sha256',
+      'lockfile_path',
+      'lockfile_sha256',
+    ],
+    argv: [
+      'prettier',
+      '--config',
+      '.prettierrc',
+      '--print-width',
+      '110',
+      '--prose-wrap',
+      'always',
+      '--stdin-filepath',
+      '<reader-view.md>',
+    ],
+    preamble: readerViewPreamble,
+    options: ['--print-width', '110', '--prose-wrap', 'always'],
+  },
+};
 
 function add(errors, message) {
   errors.push({ code: 'REVIEW_DOSSIER', message });
@@ -26,44 +70,29 @@ function sameKeys(value, keys) {
   );
 }
 
+function hasTransformIdentity(transform, profile) {
+  return (
+    equal([transform.tool, transform.tool_version], ['prettier', '3.6.2']) &&
+    equal(transform.argv_template, profile.argv) &&
+    transform.config_path === '.prettierrc' &&
+    transform.lockfile_path === 'package-lock.json' &&
+    (!('preamble' in transform) || transform.preamble === profile.preamble) &&
+    (!('preamble_sha256' in transform) ||
+      transform.preamble_sha256 === sha256(Buffer.from(profile.preamble, 'utf8')))
+  );
+}
+
 export function transformRuntime(errors, sourceRepositoryRoot, runtimeRepositoryRoot, transform) {
-  const keys = [
-    'id',
-    'tool',
-    'tool_version',
-    'argv_template',
-    'preamble',
-    'preamble_sha256',
-    'config_path',
-    'config_sha256',
-    'lockfile_path',
-    'lockfile_sha256',
-  ];
-  const expectedArgv = [
-    'prettier',
-    '--config',
-    '.prettierrc',
-    '--print-width',
-    '110',
-    '--prose-wrap',
-    'always',
-    '--stdin-filepath',
-    '<reader-view.md>',
-  ];
-  if (!sameKeys(transform, keys)) {
+  const profile = Object.hasOwn(transformProfiles, transform?.id)
+    ? transformProfiles[transform.id]
+    : null;
+  if (!profile || !sameKeys(transform, profile.keys)) {
     add(errors, 'view transform schema drift');
     return null;
   }
-  if (
-    !equal(
-      [transform.id, transform.tool, transform.tool_version],
-      ['prettier-markdown-v2', 'prettier', '3.6.2'],
-    ) ||
-    !equal(transform.argv_template, expectedArgv) ||
-    transform.preamble !== readerViewPreamble ||
-    transform.preamble_sha256 !== sha256(Buffer.from(readerViewPreamble, 'utf8'))
-  ) {
+  if (!hasTransformIdentity(transform, profile)) {
     add(errors, 'view transform identity drift');
+    return null;
   }
   for (const [pathKey, digestKey] of [
     ['config_path', 'config_sha256'],
@@ -79,9 +108,12 @@ export function transformRuntime(errors, sourceRepositoryRoot, runtimeRepository
     add(errors, 'Prettier runtime mismatch');
   }
   return {
+    id: transform.id,
     node: process.execPath,
     prettier,
     config: join(sourceRepositoryRoot, transform.config_path),
+    options: profile.options,
+    preamble: profile.preamble,
   };
 }
 
@@ -94,7 +126,7 @@ function verifyTransforms(errors, planRoot, runtime, reports) {
       const path = join(directory, 'reader-view.md');
       mkdirSync(directory);
       const source = readFileSync(join(planRoot, report.source_path));
-      writeFileSync(path, Buffer.concat([Buffer.from(readerViewPreamble, 'utf8'), source]));
+      writeFileSync(path, Buffer.concat([Buffer.from(runtime.preamble, 'utf8'), source]));
       return { path, relativePath };
     });
     const result = spawnSync(
@@ -103,10 +135,7 @@ function verifyTransforms(errors, planRoot, runtime, reports) {
         runtime.prettier,
         '--config',
         runtime.config,
-        '--print-width',
-        '110',
-        '--prose-wrap',
-        'always',
+        ...runtime.options,
         '--write',
         ...copies.map((copy) => copy.relativePath),
       ],
@@ -129,6 +158,7 @@ function verifyTransforms(errors, planRoot, runtime, reports) {
 
 function transformSetKey(runtime, reports) {
   return JSON.stringify({
+    id: runtime.id,
     config: runtime.config,
     reports: reports.map((report) => [
       report.path,
@@ -141,10 +171,22 @@ function transformSetKey(runtime, reports) {
 
 export function verifyTransformationSet(errors, planRoot, transformations) {
   if (errors.length > 0 || transformations.length === 0) return;
-  const reports = transformations.flatMap((transformation) => transformation.reports);
-  const runtime = transformations[0].runtime;
-  const key = transformSetKey(runtime, reports);
-  if (verifiedTransformSets.has(key)) return;
-  verifyTransforms(errors, planRoot, runtime, reports);
-  if (errors.length === 0) verifiedTransformSets.add(key);
+  const groups = new Map();
+  for (const transformation of transformations) {
+    const groupKey = JSON.stringify([
+      transformation.runtime.id,
+      transformation.runtime.config,
+      transformation.runtime.options,
+      transformation.runtime.preamble,
+    ]);
+    const group = groups.get(groupKey) ?? { reports: [], runtime: transformation.runtime };
+    group.reports.push(...transformation.reports);
+    groups.set(groupKey, group);
+  }
+  for (const { reports, runtime } of groups.values()) {
+    const key = transformSetKey(runtime, reports);
+    if (verifiedTransformSets.has(key)) continue;
+    verifyTransforms(errors, planRoot, runtime, reports);
+    if (errors.length === 0) verifiedTransformSets.add(key);
+  }
 }

@@ -48,6 +48,19 @@ function expectOnly(context, name, code, mutate) {
   );
 }
 
+function expectNone(context, name, mutate) {
+  const policy = structuredClone(context.policy);
+  mutate(policy);
+  assert.deepEqual(resultFor(context, name, policy).errors, [], `${name}: boundary rejected`);
+}
+
+function canonicalInstant(seconds) {
+  return new Date(seconds * 1_000).toISOString().replace('.000Z', 'Z');
+}
+
+const realNow = Date.now;
+const fixedNow = Math.floor(realNow() / 1_000);
+Date.now = () => fixedNow * 1_000;
 const ownerRoot = mkdtempSync(join(tmpdir(), 'new-aria-commit-policy-'));
 const root = join(ownerRoot, 'repository');
 try {
@@ -108,7 +121,23 @@ try {
   expectOnly(context, 'future-observation', 'TARGET_MANIFEST', (policy) => {
     policy.operator_observed_at = '2035-01-01T00:00:00Z';
   });
+  for (const offset of [-30, 30]) {
+    expectNone(context, `observation-boundary-${offset}s`, (policy) => {
+      policy.operator_observed_at = canonicalInstant(fixedNow + offset);
+    });
+  }
+  for (const [name, offset] of [
+    ['stale-observation-31s', -31],
+    ['stale-observation-600s', -600],
+    ['future-observation-31s', 31],
+    ['future-observation-600s', 600],
+  ]) {
+    expectOnly(context, name, 'TARGET_MANIFEST', (policy) => {
+      policy.operator_observed_at = canonicalInstant(fixedNow + offset);
+    });
+  }
 } finally {
+  Date.now = realNow;
   rmSync(ownerRoot, { recursive: true, force: true });
 }
 

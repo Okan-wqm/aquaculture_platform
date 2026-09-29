@@ -84,6 +84,7 @@
         "verification/lib/dossier-schema.mjs",
         "verification/lib/dossier-target.mjs",
         "verification/lib/delivery-policy-identity.mjs",
+        "verification/lib/immutable-review-history.mjs",
         "verification/lib/projection-format.mjs",
         "verification/lib/projections.mjs",
         "verification/lib/provenance-artifacts.mjs",

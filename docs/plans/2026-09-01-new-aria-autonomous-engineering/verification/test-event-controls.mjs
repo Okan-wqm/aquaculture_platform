@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eventHash, parseStrictJson, sha256File } from './lib/canonical.mjs';
+import { observeGitTool } from './lib/hermetic-git.mjs';
+import * as historyVerifier from './lib/verify-history.mjs';
 import { verifyEvents } from './lib/verify-events.mjs';
+import { commit, git } from './target-control-test-fixture.mjs';
 import { mutateJson, withPlanCopy } from './test-support.mjs';
 
 const failures = [];
@@ -85,6 +89,86 @@ for (const [source, pattern] of [
   ['{"a":"\\ud800"}', /Unicode scalar/u],
 ]) {
   assert.throws(() => parseStrictJson(source), pattern);
+}
+
+function historyFixture(mutation) {
+  const ownerRoot = mkdtempSync(join(tmpdir(), 'new-aria-history-anchor-'));
+  const root = join(ownerRoot, 'repository');
+  const plan = join(root, 'docs/plans/2026-09-01-new-aria-autonomous-engineering');
+  mkdirSync(join(plan, 'progress/evidence'), { recursive: true });
+  mkdirSync(join(plan, 'reviews/source'), { recursive: true });
+  git(ownerRoot, ['init', '-b', 'main', root]);
+  git(root, ['config', 'user.name', 'History Fixture']);
+  git(root, ['config', 'user.email', 'history@example.invalid']);
+  const first = { event_id: 'd0-0001', evidence_uri: null };
+  writeFileSync(join(plan, 'progress/events.jsonl'), `${JSON.stringify(first)}\n`);
+  commit(root, 'test: introduce history');
+
+  const report = 'reviews/01-integrity.md';
+  const source = 'reviews/source/01-integrity.md.raw';
+  const evidence = 'progress/evidence/review-one.json';
+  const second = { event_id: 'd0-0002', evidence_uri: evidence, claim: 'original' };
+  writeFileSync(join(plan, report), 'original report\n');
+  writeFileSync(join(plan, source), 'original source\n');
+  writeFileSync(
+    join(plan, evidence),
+    `${JSON.stringify({ reports: [{ path: report, source_path: source }] })}\n`,
+  );
+  writeFileSync(
+    join(plan, 'progress/events.jsonl'),
+    `${JSON.stringify(first)}\n${JSON.stringify(second)}\n`,
+  );
+  commit(root, 'test: append referenced review');
+
+  if (mutation === 'event') {
+    second.claim = 'rewritten';
+    writeFileSync(
+      join(plan, 'progress/events.jsonl'),
+      `${JSON.stringify(first)}\n${JSON.stringify(second)}\n`,
+    );
+    commit(root, 'test: rewrite event history');
+  } else if (mutation === 'evidence') {
+    writeFileSync(
+      join(plan, evidence),
+      `${JSON.stringify({ reports: [{ path: report, source_path: source }], rewritten: true })}\n`,
+    );
+    commit(root, 'test: rewrite evidence history');
+  } else if (mutation === 'report') {
+    writeFileSync(join(plan, report), 'rewritten report\n');
+    commit(root, 'test: rewrite report history');
+  } else if (mutation === 'source') {
+    writeFileSync(join(plan, source), 'rewritten source\n');
+    commit(root, 'test: rewrite source history');
+  } else if (mutation === 'delete') {
+    writeFileSync(join(plan, 'progress/events.jsonl'), `${JSON.stringify(first)}\n`);
+    commit(root, 'test: delete event history');
+  }
+  return { head: git(root, ['rev-parse', 'HEAD']).trim(), ownerRoot, root };
+}
+
+assert.equal(
+  typeof historyVerifier.verifyImmutableReviewHistory,
+  'function',
+  'history verifier must anchor referenced bytes to their introducing Git commit',
+);
+for (const mutation of ['clean', 'event', 'evidence', 'report', 'source', 'delete']) {
+  const fixture = historyFixture(mutation);
+  try {
+    const errors = historyVerifier.verifyImmutableReviewHistory(
+      fixture.root,
+      fixture.head,
+      observeGitTool(),
+    );
+    if (mutation === 'delete') {
+      assert(errors.length >= 1, `deleted history accepted: ${JSON.stringify(errors)}`);
+    } else if (mutation !== 'clean') {
+      assert(errors.length >= 1, `${mutation} rewrite accepted: ${JSON.stringify(errors)}`);
+    } else {
+      assert.deepEqual(errors, []);
+    }
+  } finally {
+    rmSync(fixture.ownerRoot, { recursive: true, force: true });
+  }
 }
 
 assert.deepEqual(failures, [], `event controls accepted:\n${failures.join('\n')}`);

@@ -3,7 +3,7 @@ import { canonicalJson, sha256 } from './canonical.mjs';
 import { inspectCommitSshSignature, verifyCommitSshSignature } from './ssh-signature.mjs';
 
 const digest = /^[a-f0-9]{64}$/u;
-const observationSkewSeconds = 900;
+const observationSkewSeconds = 30;
 const policyKeys = [
   'algorithm',
   'commit_signers',

@@ -35,6 +35,8 @@ function expectCodes(name, result, codes) {
 
 const ownerRoot = mkdtempSync(join(tmpdir(), 'new-aria-d0-target-owner-'));
 const root = join(ownerRoot, 'repository');
+const clock = { fixed: Date.now(), real: Date.now };
+Date.now = () => clock.fixed;
 try {
   mkdirSync(root);
   git(root, ['init', '-b', 'main']);
@@ -241,6 +243,7 @@ try {
     );
   }
 } finally {
+  Date.now = clock.real;
   rmSync(ownerRoot, { recursive: true, force: true });
 }
 

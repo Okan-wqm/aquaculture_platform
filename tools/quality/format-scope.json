@@ -2590,6 +2590,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/settings/__tests__/email-sender.smtp-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/settings/__tests__/reliability/email-circuit-breaker.spec.ts",
       "prettier_managed": true
     },
@@ -38410,6 +38416,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/supply-chain-auditor/2026-09-29-npm-advisories.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/supply-chain/2026-06-13-esbuild-high-advisory-override.md",
       "prettier_managed": true
     },
@@ -39714,7 +39726,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "fcc93344aa742f0a4d8e4f5ac8102c77785e5e6a1a4fbb6ba488864f3056befc",
+      "content_sha256": "f7df09436fd74b4d61915407f6cb8cb927f70408f4b7ef7900aaca7a86bc4f5f",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "e2e/package-lock.json",
@@ -45939,7 +45951,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "fc470a5ebd81ea0b33c179c7c6242ee3c8934570ddd77e0bca2853cf442dafb9",
+      "content_sha256": "c84ea406588458aaff4a58a26d5f571b353d8f9f67559a4255845592a00212da",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -51717,7 +51729,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "2433b7ee39a667efa4ee75fe8957f96e76c0148327a2c5d10cd1081f6a0d231d",
+      "content_sha256": "4e41a9024fc1c918f1c4c61da46ae73a0a1e47acfd57b5a4b8fb28079edd662b",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",

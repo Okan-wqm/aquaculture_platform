@@ -12,7 +12,9 @@ const API_EXTRACTOR_VERSION = '7.59.0';
 const E2E_SECURITY_FLOORS = {
   '@babel/core': '7.29.7',
   'brace-expansion': '1.1.18',
-  'fast-uri': '3.1.6',
+  // 3.1.8 clears GHSA-qw65-cvwx-89v3 and GHSA-58mr-gqgx-xq4g (fixed in 3.1.7)
+  // plus GHSA-hrr3-gc8f-f4qj (fixed in 3.1.8, SUPPLY-HIGH-014).
+  'fast-uri': '3.1.8',
 } as const;
 
 const NX_PACKAGES = [
@@ -505,9 +507,11 @@ describe('JavaScript dependency security floor', () => {
     expect(manifest.overrides).toEqual({
       ...(manifest.overrides ?? {}),
       'socket.io-parser': '4.2.7',
-      // 3.1.6 clears GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf
-      // and GHSA-jqff-g426-hqxp; the previous floor had itself become vulnerable.
-      'fast-uri': '3.1.6',
+      // 3.1.6 cleared GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf
+      // and GHSA-jqff-g426-hqxp, then became vulnerable itself: 3.1.8 clears
+      // GHSA-qw65-cvwx-89v3, GHSA-58mr-gqgx-xq4g and GHSA-hrr3-gc8f-f4qj
+      // (SUPPLY-HIGH-014).
+      'fast-uri': '3.1.8',
       // 4.28.9 clears the unbounded cache growth and the prototype write.
       browserslist: '4.28.9',
       nanoid: '3.3.18',
@@ -516,7 +520,7 @@ describe('JavaScript dependency security floor', () => {
     });
     expect(resolvedVersions(lock, 'socket.io-parser')).toEqual(['4.2.7']);
     expect(resolvedVersions(lock, 'protobufjs')).toEqual(['7.6.5']);
-    expect(resolvedVersions(lock, 'fast-uri')).toEqual(['3.1.6']);
+    expect(resolvedVersions(lock, 'fast-uri')).toEqual(['3.1.8']);
     expect(resolvedVersions(lock, 'browserslist')).toEqual(['4.28.9']);
     expect(resolvedVersions(lock, 'nanoid')).toEqual(['3.3.18']);
     const esbuildVersions = resolvedVersions(lock, 'esbuild');

@@ -66,8 +66,16 @@ export class NotificationService implements OnModuleDestroy {
    */
   private readonly pendingTimers = new Set<ReturnType<typeof setTimeout>>();
 
-  /** Nodemailer transporter (lazy-initialised). */
-  private transporter: ReturnType<typeof nodemailer.createTransport> | null = null;
+  /**
+   * Nodemailer transporter (lazy-initialised).
+   *
+   * WHY: `ReturnType<typeof nodemailer.createTransport>` takes the LAST
+   * overload, and in nodemailer 10's bundled declarations that is the
+   * catch-all `Mail<any, any>`, so the field silently became `any`-typed.
+   * WHAT: the plain `Transporter` (the type admin-api and notification-service
+   * use) — `sendMail` resolves to `SentMessageInfo`.
+   */
+  private transporter: nodemailer.Transporter | null = null;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -286,7 +294,7 @@ export class NotificationService implements OnModuleDestroy {
     }
   }
 
-  private getTransporter(): ReturnType<typeof nodemailer.createTransport> | null {
+  private getTransporter(): nodemailer.Transporter | null {
     if (this.transporter) return this.transporter;
 
     const host = this.configService.get<string>('SMTP_HOST');

@@ -9,9 +9,14 @@ import { createBaseEvent } from '@platform/event-contracts';
 import { ReceiveDeliveryCommand } from '../commands/receive-delivery.command';
 import { PurchaseOrder, PurchaseOrderStatus } from '../entities/purchase-order.entity';
 import { PurchaseOrderItem } from '../entities/purchase-order-item.entity';
-import { StorageItemType } from '../entities/storage-inventory.entity';
 import { MovementType, StockMovement } from '../entities/stock-movement.entity';
+import { StorageItemType } from '../entities/storage-inventory.entity';
 import { StockMovementService } from '../services/stock-movement.service';
+import { StockTierWatch } from '../services/low-stock/stock-tier-watch.service';
+import {
+  PURCHASE_ORDER_CATEGORY_ITEM_TYPE,
+  purchaseOrderStockItems,
+} from '../services/purchase-order-item-type';
 
 /**
  * ReceiveDeliveryHandler — PO receipt into the storage ledger.
@@ -31,7 +36,15 @@ import { StockMovementService } from '../services/stock-movement.service';
  * item-total roll-up, and the idempotency guard. The
  * `StockMovementRecordedEvent` is enqueued to the transactional outbox in the
  * same transaction (at-least-once), mirroring `RecordStockMovementHandler`.
- * No LowStockDetected here — receipts only increase stock.
+ *
+ * # Why the receipt runs inside StockTierWatch (V-B1-4 / V-B1-5)
+ *
+ * A receipt moves the same quantity from "on order" to "on hand": each IN
+ * movement re-projects the catalog status while the line still counts the
+ * received quantity as open, so the projection is only right AFTER the line's
+ * progress is saved. The watch re-projects every line item at the end and
+ * compares every tier before and after the whole receipt; a receipt raises
+ * on-hand and never worsens a tier, so it normally emits nothing.
  *
  * # Idempotency key shape
  *
@@ -43,7 +56,9 @@ import { StockMovementService } from '../services/stock-movement.service';
  * count and therefore derives a new key.
  */
 @CommandHandler(ReceiveDeliveryCommand)
-export class ReceiveDeliveryHandler implements ICommandHandler<ReceiveDeliveryCommand, PurchaseOrder> {
+export class ReceiveDeliveryHandler
+  implements ICommandHandler<ReceiveDeliveryCommand, PurchaseOrder>
+{
   private readonly logger = new Logger(ReceiveDeliveryHandler.name);
 
   constructor(
@@ -53,10 +68,11 @@ export class ReceiveDeliveryHandler implements ICommandHandler<ReceiveDeliveryCo
     private readonly stockMovementService: StockMovementService,
     // OutboxPublisher is provided app-wide by the @Global() FarmOutboxModule.
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly tierWatch: StockTierWatch,
   ) {}
 
   async execute(command: ReceiveDeliveryCommand): Promise<PurchaseOrder> {
-    const { input, tenantId, userId } = command;
+    const { input, tenantId } = command;
 
     const po = await this.poRepository.findOne({
       where: { id: input.purchaseOrderId, tenantId, isDeleted: false },
@@ -67,98 +83,114 @@ export class ReceiveDeliveryHandler implements ICommandHandler<ReceiveDeliveryCo
       throw new NotFoundException(`Purchase order "${input.purchaseOrderId}" not found`);
     }
 
-    if (po.status !== PurchaseOrderStatus.ORDERED && po.status !== PurchaseOrderStatus.PARTIALLY_RECEIVED) {
-      throw new BadRequestException(`PO must be in ORDERED or PARTIALLY_RECEIVED status to receive delivery`);
+    if (
+      po.status !== PurchaseOrderStatus.ORDERED &&
+      po.status !== PurchaseOrderStatus.PARTIALLY_RECEIVED
+    ) {
+      throw new BadRequestException(
+        `PO must be in ORDERED or PARTIALLY_RECEIVED status to receive delivery`,
+      );
     }
 
-    // Map category to StorageItemType
-    const itemTypeMap: Record<string, StorageItemType> = {
-      FEED: StorageItemType.FEED,
-      CHEMICAL: StorageItemType.CHEMICAL,
-      CONSUMABLE: StorageItemType.CONSUMABLE,
-      HEALTHCARE: StorageItemType.HEALTHCARE,
-    };
-    const storageItemType = itemTypeMap[po.category] || StorageItemType.CONSUMABLE;
+    // The category → ledger item type mapping is total (one SSoT, no fallback):
+    // an unmapped category is a compile error, not a receipt filed as CONSUMABLE.
+    const storageItemType = PURCHASE_ORDER_CATEGORY_ITEM_TYPE[po.category];
 
-    return this.dataSource.transaction(async (manager) => {
-      const poItemRepo = tenantManagerRepo(manager, PurchaseOrderItem, tenantId);
+    return this.dataSource.transaction((manager) =>
+      this.tierWatch.around(
+        manager,
+        tenantId,
+        { items: purchaseOrderStockItems(po), causationId: () => po.id },
+        () => this.receiveInTransaction(manager, command, po, storageItemType),
+      ),
+    );
+  }
 
-      for (const receiveItem of input.items) {
-        const poItem = po.items.find(i => i.itemId === receiveItem.itemId);
-        if (!poItem) {
-          throw new BadRequestException(`Item ${receiveItem.itemId} not found in PO`);
-        }
+  /** The receipt itself: one IN movement per line, line progress, PO status. */
+  private async receiveInTransaction(
+    manager: EntityManager,
+    command: ReceiveDeliveryCommand,
+    po: PurchaseOrder,
+    storageItemType: StorageItemType,
+  ): Promise<PurchaseOrder> {
+    const { input, tenantId, userId } = command;
+    const poItemRepo = tenantManagerRepo(manager, PurchaseOrderItem, tenantId);
 
-        const newReceived = Number(poItem.quantityReceived) + receiveItem.quantityReceived;
-        if (newReceived > Number(poItem.quantity)) {
-          throw new BadRequestException(
-            `Cannot receive ${receiveItem.quantityReceived} of ${poItem.itemName}. ` +
-            `Ordered: ${poItem.quantity}, Already received: ${poItem.quantityReceived}`
-          );
-        }
+    for (const receiveItem of input.items) {
+      const poItem = po.items.find((i) => i.itemId === receiveItem.itemId);
+      if (!poItem) {
+        throw new BadRequestException(`Item ${receiveItem.itemId} not found in PO`);
+      }
 
-        // Inventory mutation via the single stock sink: FEFO/lot-mix, the
-        // immutable movement row, and the Feed.quantity roll-up all happen
-        // inside recordMovement on THIS transaction's manager — a failure
-        // rolls back the whole receipt, PO progress included.
-        const movementResult = await this.stockMovementService.recordMovement(
-          manager,
-          {
-            movementType: MovementType.IN,
-            itemType: storageItemType,
-            itemId: poItem.itemId,
-            quantity: receiveItem.quantityReceived,
-            toLocationId: input.storageLocationId,
-            lotNumber: receiveItem.lotNumber,
-            expiryDate: receiveItem.expiryDate ? new Date(receiveItem.expiryDate) : undefined,
-            reference: `PO: ${po.orderNumber}`,
-            idempotencyKey: `po-receive-${poItem.id}-${newReceived}`,
-          },
-          {
-            tenantId,
-            userId,
-            // SEC-HIGH-051: direct operator-issued movement — the sink asserts
-            // assignment to the receiving location's site (MODULE_MANAGER+
-            // passes via the role hierarchy; the mutation is manager-gated
-            // today, so this is the fail-closed floor if roles ever widen).
-            siteAuthorization: {
-              sub: userId,
-              roles: command.userRoles,
-              assignedSiteIds: command.callerAssignedSiteIds,
-            },
-          },
+      const newReceived = Number(poItem.quantityReceived) + receiveItem.quantityReceived;
+      if (newReceived > Number(poItem.quantity)) {
+        throw new BadRequestException(
+          `Cannot receive ${receiveItem.quantityReceived} of ${poItem.itemName}. ` +
+            `Ordered: ${poItem.quantity}, Already received: ${poItem.quantityReceived}`,
         );
-
-        if (movementResult.idempotentHit) {
-          // This exact (poItem, cumulative) transition was already applied by
-          // a previous execution — skip the PO progress mutation too, so the
-          // ledger and the PO cannot drift apart on redelivery.
-          this.logger.log(
-            `Idempotent replay for PO item ${poItem.id} (key po-receive-${poItem.id}-${newReceived}); skipping progress mutation`,
-          );
-          continue;
-        }
-
-        poItem.quantityReceived = newReceived;
-        poItem.isFullyReceived = newReceived >= Number(poItem.quantity);
-        await poItemRepo.save(poItem);
-
-        await this.enqueueMovementRecorded(manager, movementResult.saved, tenantId, userId);
       }
 
-      // Update PO status
-      const allReceived = po.items.every(i => i.isFullyReceived);
-      if (allReceived) {
-        po.status = PurchaseOrderStatus.RECEIVED;
-        po.actualDeliveryDate = new Date();
-      } else {
-        po.status = PurchaseOrderStatus.PARTIALLY_RECEIVED;
+      // Inventory mutation via the single stock sink: FEFO/lot-mix, the
+      // immutable movement row, and the Feed.quantity roll-up all happen
+      // inside recordMovement on THIS transaction's manager — a failure
+      // rolls back the whole receipt, PO progress included.
+      const movementResult = await this.stockMovementService.recordMovement(
+        manager,
+        {
+          movementType: MovementType.IN,
+          itemType: storageItemType,
+          itemId: poItem.itemId,
+          quantity: receiveItem.quantityReceived,
+          toLocationId: input.storageLocationId,
+          lotNumber: receiveItem.lotNumber,
+          expiryDate: receiveItem.expiryDate ? new Date(receiveItem.expiryDate) : undefined,
+          reference: `PO: ${po.orderNumber}`,
+          idempotencyKey: `po-receive-${poItem.id}-${newReceived}`,
+        },
+        {
+          tenantId,
+          userId,
+          // SEC-HIGH-051: direct operator-issued movement — the sink asserts
+          // assignment to the receiving location's site (MODULE_MANAGER+
+          // passes via the role hierarchy; the mutation is manager-gated
+          // today, so this is the fail-closed floor if roles ever widen).
+          siteAuthorization: {
+            sub: userId,
+            roles: command.userRoles,
+            assignedSiteIds: command.callerAssignedSiteIds,
+          },
+        },
+      );
+
+      if (movementResult.idempotentHit) {
+        // This exact (poItem, cumulative) transition was already applied by
+        // a previous execution — skip the PO progress mutation too, so the
+        // ledger and the PO cannot drift apart on redelivery.
+        this.logger.log(
+          `Idempotent replay for PO item ${poItem.id} (key po-receive-${poItem.id}-${newReceived}); skipping progress mutation`,
+        );
+        continue;
       }
 
-      const savedPO = await tenantManagerRepo(manager, PurchaseOrder, tenantId).save(po);
-      this.logger.log(`Received delivery for PO ${po.orderNumber}: status=${savedPO.status}`);
-      return savedPO;
-    });
+      poItem.quantityReceived = newReceived;
+      poItem.isFullyReceived = newReceived >= Number(poItem.quantity);
+      await poItemRepo.save(poItem);
+
+      await this.enqueueMovementRecorded(manager, movementResult.saved, tenantId, userId);
+    }
+
+    // Update PO status
+    const allReceived = po.items.every((i) => i.isFullyReceived);
+    if (allReceived) {
+      po.status = PurchaseOrderStatus.RECEIVED;
+      po.actualDeliveryDate = new Date();
+    } else {
+      po.status = PurchaseOrderStatus.PARTIALLY_RECEIVED;
+    }
+
+    const savedPO = await tenantManagerRepo(manager, PurchaseOrder, tenantId).save(po);
+    this.logger.log(`Received delivery for PO ${po.orderNumber}: status=${savedPO.status}`);
+    return savedPO;
   }
 
   /**

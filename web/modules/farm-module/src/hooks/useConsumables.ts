@@ -32,6 +32,28 @@ export enum ConsumableStatus {
   DISCONTINUED = 'DISCONTINUED',
 }
 
+/**
+ * WHY (FARM-HIGH-337): LOW_STOCK / OUT_OF_STOCK are derived from the storage
+ * ledger and the API rejects them as input. WHAT: the statuses a form may
+ * send — AVAILABLE clears the DISCONTINUED override so the band is derived.
+ */
+export const CONSUMABLE_SETTABLE_STATUSES = [
+  ConsumableStatus.AVAILABLE,
+  ConsumableStatus.DISCONTINUED,
+] as const;
+export type ConsumableSettableStatus = (typeof CONSUMABLE_SETTABLE_STATUSES)[number];
+
+/**
+ * WHY: edit forms prefill from the stored status, which may be a derived band.
+ * WHAT: DISCONTINUED is kept; anything else maps to AVAILABLE.
+ */
+export function toConsumableSettableStatus(status: string): ConsumableSettableStatus {
+  return (
+    CONSUMABLE_SETTABLE_STATUSES.find((settable) => settable === status) ??
+    ConsumableStatus.AVAILABLE
+  );
+}
+
 export interface Consumable {
   id: string;
   tenantId: string;
@@ -70,7 +92,7 @@ export interface CreateConsumableInput {
   description?: string;
   brand?: string;
   supplierId?: string;
-  quantity?: number;
+  // FARM-HIGH-337: no quantity — stock moves through the storage ledger.
   minStock?: number;
   unitPrice?: number;
   currency?: string;
@@ -84,7 +106,8 @@ export interface CreateConsumableInput {
 
 export interface UpdateConsumableInput extends Partial<CreateConsumableInput> {
   id: string;
-  status?: ConsumableStatus;
+  /** Lifecycle-only (FARM-HIGH-337); the stock band is derived from stock. */
+  status?: ConsumableSettableStatus;
   isActive?: boolean;
 }
 

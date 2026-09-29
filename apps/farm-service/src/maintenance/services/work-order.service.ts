@@ -13,7 +13,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, Like, DataSource } from 'typeorm';
+import { Repository, Like, DataSource } from 'typeorm';
 import { randomUUID as uuidv4 } from 'crypto';
 import {
   WorkOrder,
@@ -26,7 +26,8 @@ import {
   CostSummary,
 } from '../entities/work-order.entity';
 import { MaintenanceSchedule } from '../entities/maintenance-schedule.entity';
-import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
+import { SparePartLedgerService } from './spare-part-ledger.service';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import {
   CreateWorkOrderInput,
   ChecklistItemInput,
@@ -64,9 +65,9 @@ export class WorkOrderService {
     private readonly workOrderRepository: Repository<WorkOrder>,
     @InjectRepository(MaintenanceSchedule)
     private readonly scheduleRepository: Repository<MaintenanceSchedule>,
-    @InjectRepository(SparePart)
-    private readonly sparePartRepository: Repository<SparePart>,
     private readonly dataSource: DataSource,
+    // FARM-HIGH-338: the single spare-part consumption path (storage ledger).
+    private readonly sparePartLedger: SparePartLedgerService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -306,12 +307,12 @@ export class WorkOrderService {
     input: CompleteWorkOrderInput,
     userId: string,
   ): Promise<WorkOrder> {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      const workOrder = await queryRunner.manager.findOne(WorkOrder, {
+    // One tenant transaction for the completion, the spare-part consumption
+    // (ledger OUT movements) and the schedule update: an insufficient part
+    // rolls the whole completion back instead of being clamped to zero.
+    return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+      const workOrder = await manager.findOne(WorkOrder, {
         where: { id: input.id, tenantId },
       });
 
@@ -337,50 +338,26 @@ export class WorkOrderService {
         }
       }
 
-      // Add used materials if provided
       if (input.usedMaterials) {
         workOrder.usedMaterials = [
           ...(workOrder.usedMaterials || []),
           ...this.transformUsedMaterials(input.usedMaterials),
         ];
-
-        // Batch fetch all spare parts to avoid N+1 queries
-        const materialIds = input.usedMaterials
-          .filter((m) => m.materialId)
-          .map((m) => m.materialId!);
-
-        if (materialIds.length > 0) {
-          const spareParts = await queryRunner.manager.find(SparePart, {
-            where: { id: In(materialIds), tenantId },
-          });
-
-          // Create a map for quick lookup
-          const sparePartMap = new Map(spareParts.map((sp) => [sp.id, sp]));
-
-          // Update spare part stock within transaction
-          for (const material of input.usedMaterials) {
-            if (material.materialId) {
-              const sparePart = sparePartMap.get(material.materialId);
-
-              if (sparePart) {
-                sparePart.quantity = Math.max(0, sparePart.quantity - material.quantity);
-                sparePart.lastUsedDate = new Date();
-
-                // Update status based on stock level
-                if (sparePart.quantity === 0) {
-                  sparePart.status = SparePartStatus.OUT_OF_STOCK;
-                } else if (sparePart.quantity <= sparePart.minStock) {
-                  sparePart.status = SparePartStatus.LOW_STOCK;
-                }
-              }
-            }
-          }
-
-          // Batch save all updated spare parts
-          if (spareParts.length > 0) {
-            await queryRunner.manager.save(spareParts);
-          }
-        }
+        // FARM-HIGH-338: spare parts leave stock through the ONE storage
+        // ledger (a persisted OUT movement each, fail-closed on shortage).
+        // Materials without a spare-part id are free-text consumables that
+        // carry cost only.
+        await this.sparePartLedger.consumeForWorkOrder(
+          manager,
+          tenantId,
+          workOrder,
+          input.usedMaterials.flatMap((material) =>
+            material.materialId
+              ? [{ sparePartId: material.materialId, quantity: material.quantity }]
+              : [],
+          ),
+          userId,
+        );
       }
 
       // Add labor records if provided
@@ -394,29 +371,22 @@ export class WorkOrderService {
       workOrder.complete(userId, input.completionNotes);
       workOrder.calculateCostSummary();
 
-      // Save work order within transaction
-      await queryRunner.manager.save(workOrder);
+      await manager.save(workOrder);
 
       // Update maintenance schedule if linked (within transaction)
       if (workOrder.maintenanceScheduleId) {
-        const schedule = await queryRunner.manager.findOne(MaintenanceSchedule, {
+        const schedule = await manager.findOne(MaintenanceSchedule, {
           where: { id: workOrder.maintenanceScheduleId, tenantId },
         });
 
         if (schedule) {
           schedule.markCompleted();
-          await queryRunner.manager.save(schedule);
+          await manager.save(schedule);
         }
       }
 
-      await queryRunner.commitTransaction();
       return workOrder;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 
   /**
@@ -686,57 +656,6 @@ export class WorkOrderService {
         notes: r.notes,
       };
     });
-  }
-
-  /**
-   * Yedek parça stoğunu günceller
-   * Optimized to batch fetch and save spare parts to avoid N+1 queries
-   */
-  private async updateSparePartStock(
-    tenantId: string,
-    materials: UsedMaterialInput[],
-    workOrderId: string,
-  ): Promise<void> {
-    // Collect all material IDs that need to be fetched
-    const materialIds = materials
-      .filter((m) => m.materialId)
-      .map((m) => m.materialId!);
-
-    if (materialIds.length === 0) {
-      return;
-    }
-
-    // Batch fetch all spare parts at once to avoid N+1 queries
-    const spareParts = await this.sparePartRepository.find({
-      where: { id: In(materialIds), tenantId },
-    });
-
-    // Create a map for quick lookup
-    const sparePartMap = new Map(spareParts.map((sp) => [sp.id, sp]));
-
-    // Update each spare part's stock
-    for (const material of materials) {
-      if (material.materialId) {
-        const sparePart = sparePartMap.get(material.materialId);
-
-        if (sparePart) {
-          sparePart.quantity = Math.max(0, sparePart.quantity - material.quantity);
-          sparePart.lastUsedDate = new Date();
-
-          // Update status based on stock level
-          if (sparePart.quantity === 0) {
-            sparePart.status = SparePartStatus.OUT_OF_STOCK;
-          } else if (sparePart.quantity <= sparePart.minStock) {
-            sparePart.status = SparePartStatus.LOW_STOCK;
-          }
-        }
-      }
-    }
-
-    // Batch save all updated spare parts at once
-    if (spareParts.length > 0) {
-      await this.sparePartRepository.save(spareParts);
-    }
   }
 
   /**

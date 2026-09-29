@@ -39,6 +39,28 @@ export enum ChemicalStatus {
   DISCONTINUED = 'DISCONTINUED',
 }
 
+/**
+ * WHY (FARM-HIGH-337): LOW_STOCK / OUT_OF_STOCK are derived from the storage
+ * ledger and the API rejects them as input. WHAT: the statuses a form may
+ * send — AVAILABLE clears a lifecycle override so the band is derived again.
+ */
+export const CHEMICAL_SETTABLE_STATUSES = [
+  ChemicalStatus.AVAILABLE,
+  ChemicalStatus.EXPIRED,
+  ChemicalStatus.DISCONTINUED,
+] as const;
+export type ChemicalSettableStatus = (typeof CHEMICAL_SETTABLE_STATUSES)[number];
+
+/**
+ * WHY: edit forms prefill from the stored status, which may be a derived band.
+ * WHAT: a lifecycle status is kept; anything else maps to AVAILABLE.
+ */
+export function toChemicalSettableStatus(status: string): ChemicalSettableStatus {
+  return (
+    CHEMICAL_SETTABLE_STATUSES.find((settable) => settable === status) ?? ChemicalStatus.AVAILABLE
+  );
+}
+
 // Document type enum
 export enum ChemicalDocumentType {
   MSDS = 'msds',
@@ -159,8 +181,8 @@ export interface CreateChemicalInput {
   concentration?: string;
   formulation?: string;
   supplierId?: string;
-  status?: ChemicalStatus;
-  quantity?: number;
+  // FARM-HIGH-337: no quantity (stock moves through the storage ledger) and no
+  // status on create — the API derives it; UpdateChemicalInput carries status.
   minStock?: number;
   usageProtocol?: UsageProtocol;
   safetyInfo?: SafetyInfo;
@@ -179,6 +201,8 @@ export interface CreateChemicalInput {
 
 export interface UpdateChemicalInput extends Partial<CreateChemicalInput> {
   id: string;
+  /** Lifecycle-only (FARM-HIGH-337); the stock band is derived from stock. */
+  status?: ChemicalSettableStatus;
   isActive?: boolean;
 }
 

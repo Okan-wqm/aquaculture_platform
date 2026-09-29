@@ -1,9 +1,12 @@
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { UpdatePurchaseOrderStatusCommand } from '../commands/update-purchase-order-status.command';
 import { PurchaseOrder, PurchaseOrderStatus } from '../entities/purchase-order.entity';
+import { StockTierWatch } from '../services/low-stock/stock-tier-watch.service';
+import { purchaseOrderStockItems } from '../services/purchase-order-item-type';
 
 /**
  * State machine for the generic updatePurchaseOrderStatus mutation (any
@@ -33,12 +36,20 @@ export const VALID_TRANSITIONS: Record<string, string[]> = {
 };
 
 @CommandHandler(UpdatePurchaseOrderStatusCommand)
-export class UpdatePurchaseOrderStatusHandler implements ICommandHandler<UpdatePurchaseOrderStatusCommand, PurchaseOrder> {
+export class UpdatePurchaseOrderStatusHandler
+  implements ICommandHandler<UpdatePurchaseOrderStatusCommand, PurchaseOrder>
+{
   private readonly logger = new Logger(UpdatePurchaseOrderStatusHandler.name);
 
   constructor(
     @InjectRepository(PurchaseOrder)
     private readonly poRepository: Repository<PurchaseOrder>,
+    private readonly dataSource: DataSource,
+    // A status change opens or closes the order's remainder (SUBMITTED ↔ DRAFT,
+    // CANCELLED, closed as RECEIVED): the pool position moves with no stock
+    // movement, so the change runs inside the tier watch (V-B1-5), which also
+    // re-projects the catalog status of every line item (V-B1-4).
+    private readonly tierWatch: StockTierWatch,
   ) {}
 
   async execute(command: UpdatePurchaseOrderStatusCommand): Promise<PurchaseOrder> {
@@ -60,12 +71,20 @@ export class UpdatePurchaseOrderStatusHandler implements ICommandHandler<UpdateP
       );
     }
 
-    po.status = input.status;
-    if (input.status === PurchaseOrderStatus.RECEIVED) {
-      po.actualDeliveryDate = new Date();
-    }
-
-    const saved = await this.poRepository.save(po);
+    const saved = await this.dataSource.transaction((manager) =>
+      this.tierWatch.around(
+        manager,
+        tenantId,
+        { items: purchaseOrderStockItems(po), causationId: () => po.id },
+        async () => {
+          po.status = input.status;
+          if (input.status === PurchaseOrderStatus.RECEIVED) {
+            po.actualDeliveryDate = new Date();
+          }
+          return tenantManagerRepo(manager, PurchaseOrder, tenantId).save(po);
+        },
+      ),
+    );
     this.logger.log(`PO ${po.orderNumber} status updated to ${input.status}`);
     return saved;
   }

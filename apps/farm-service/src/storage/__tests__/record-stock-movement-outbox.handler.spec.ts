@@ -2,6 +2,7 @@ import { RecordStockMovementHandler } from '../handlers/record-stock-movement.ha
 import { RecordStockMovementCommand } from '../commands/record-stock-movement.command';
 import { MovementType } from '../entities/stock-movement.entity';
 import { StorageItemType } from '../entities/storage-inventory.entity';
+import type { LowStockCrossing } from '../services/low-stock/low-stock.types';
 
 /**
  * Outbox emission for stock movements (ORPHAN-MEDIUM-266 + stock SSoT
@@ -13,6 +14,23 @@ import { StorageItemType } from '../entities/storage-inventory.entity';
  * in-process `inventory.lowStock` emit that feeds the STOCK_LOW auto-task
  * trigger — post-commit so a rolled-back movement can never spawn a task.
  */
+/** A pool-tier crossing as the sink reports it (plan K8). */
+function poolCrossing(severity: 'low_stock' | 'out_of_stock', onHand: number): LowStockCrossing {
+  return {
+    before: 'ok',
+    severity,
+    reading: {
+      level: 'pool',
+      itemType: StorageItemType.FEED,
+      itemId: 'feed1',
+      onHand,
+      onOrder: 0,
+      threshold: 20,
+      band: severity,
+    },
+  };
+}
+
 describe('RecordStockMovementHandler — transactional outbox emission', () => {
   const tenantId = 't1';
   const userId = 'u1';
@@ -62,7 +80,7 @@ describe('RecordStockMovementHandler — transactional outbox emission', () => {
 
   it('enqueues StockMovementRecorded to the outbox with the transaction manager', async () => {
     stockMovementService.recordMovement.mockResolvedValue({
-      saved, currentTotal: 50, idempotentHit: false, warnings: [], lowStock: null,
+      saved, idempotentHit: false, warnings: [], lowStockCrossings: [],
     });
 
     await handler.execute(command());
@@ -76,7 +94,7 @@ describe('RecordStockMovementHandler — transactional outbox emission', () => {
 
   it('does NOT enqueue on idempotent replay (events already enqueued by the original)', async () => {
     stockMovementService.recordMovement.mockResolvedValue({
-      saved, currentTotal: 0, idempotentHit: true, warnings: [], lowStock: null,
+      saved, idempotentHit: true, warnings: [], lowStockCrossings: [],
     });
 
     await handler.execute(command());
@@ -87,8 +105,8 @@ describe('RecordStockMovementHandler — transactional outbox emission', () => {
 
   it('does NOT enqueue LowStockDetected itself — the sink inside recordMovement owns it', async () => {
     stockMovementService.recordMovement.mockResolvedValue({
-      saved, currentTotal: 5, idempotentHit: false, warnings: [],
-      lowStock: { severity: 'low_stock', minimumThreshold: 20 },
+      saved, idempotentHit: false, warnings: [],
+      lowStockCrossings: [poolCrossing('low_stock', 5)],
     });
 
     await handler.execute(command());
@@ -99,8 +117,8 @@ describe('RecordStockMovementHandler — transactional outbox emission', () => {
 
   it('emits the in-process inventory.lowStock signal POST-COMMIT when the sink flagged low stock', async () => {
     stockMovementService.recordMovement.mockResolvedValue({
-      saved, currentTotal: 5, idempotentHit: false, warnings: [],
-      lowStock: { severity: 'low_stock', minimumThreshold: 20 },
+      saved, idempotentHit: false, warnings: [],
+      lowStockCrossings: [poolCrossing('low_stock', 5)],
     });
 
     await handler.execute(command());
@@ -123,8 +141,8 @@ describe('RecordStockMovementHandler — transactional outbox emission', () => {
 
   it('routes an out_of_stock result into the outOfStock bucket of the in-process signal', async () => {
     stockMovementService.recordMovement.mockResolvedValue({
-      saved, currentTotal: 0, idempotentHit: false, warnings: [],
-      lowStock: { severity: 'out_of_stock', minimumThreshold: 20 },
+      saved, idempotentHit: false, warnings: [],
+      lowStockCrossings: [poolCrossing('out_of_stock', 0)],
     });
 
     await handler.execute(command());
@@ -136,7 +154,7 @@ describe('RecordStockMovementHandler — transactional outbox emission', () => {
 
   it('never falls back to a direct eventBus publish (no eventBus dependency)', async () => {
     stockMovementService.recordMovement.mockResolvedValue({
-      saved, currentTotal: 50, idempotentHit: false, warnings: [], lowStock: null,
+      saved, idempotentHit: false, warnings: [], lowStockCrossings: [],
     });
     // Constructed with only (dataSource, stockMovementService, outboxPublisher,
     // eventEmitter) — no eventBus.

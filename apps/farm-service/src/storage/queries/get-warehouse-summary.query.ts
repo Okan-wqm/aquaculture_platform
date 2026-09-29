@@ -9,8 +9,12 @@
  * Tenant isolation: tenantId is extracted from JWT by the resolver
  * and passed as a constructor parameter -- never from user input.
  */
+import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
+
 export class GetWarehouseSummaryQuery {
   constructor(
     public readonly tenantId: string,
+    /** Scopes SITE low-stock rows to the caller's sites (plan K8). */
+    public readonly caller: SiteScopeCaller,
   ) {}
 }

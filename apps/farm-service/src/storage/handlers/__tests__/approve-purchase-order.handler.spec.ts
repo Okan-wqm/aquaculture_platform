@@ -15,7 +15,7 @@
  */
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { DataSource, EntityManager, Repository } from 'typeorm';
-import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import { createMockDataSource, createMockRepository, stub } from '@aquaculture/testing';
 
 // transaction()'s isolation-level union (e.g. 'SERIALIZABLE') is not re-exported
 // from the typeorm barrel; derive it from the overload itself so the mock impl
@@ -26,6 +26,7 @@ import { ApprovePurchaseOrderHandler } from '../approve-purchase-order.handler';
 import { ApprovePurchaseOrderCommand } from '../../commands/approve-purchase-order.command';
 import { VALID_TRANSITIONS } from '../update-purchase-order-status.handler';
 import { PurchaseOrder, PurchaseOrderStatus, PurchaseOrderCategory } from '../../entities/purchase-order.entity';
+import { StockTierWatch } from '../../services/low-stock/stock-tier-watch.service';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const CREATOR = '22222222-2222-4222-8222-222222222222';
@@ -36,6 +37,7 @@ describe('ApprovePurchaseOrderHandler', () => {
   let poRepository: jest.Mocked<Repository<PurchaseOrder>>;
   // Inner repo reached via tenantManagerRepo(manager, PurchaseOrder, tenantId).
   let innerPoRepo: jest.Mocked<Repository<PurchaseOrder>>;
+  let around: jest.Mock;
   const { mockDataSource, mockManager } = createMockDataSource();
 
   const makePo = (overrides: Partial<PurchaseOrder> = {}): PurchaseOrder =>
@@ -85,7 +87,15 @@ describe('ApprovePurchaseOrderHandler', () => {
       },
     );
 
-    handler = new ApprovePurchaseOrderHandler(poRepository, mockDataSource);
+    // Every status write runs inside the tier watch (V-B1-5); the double runs it.
+    around = jest.fn(
+      async (_m: unknown, _t: string, _s: unknown, command: () => Promise<unknown>) => command(),
+    );
+    handler = new ApprovePurchaseOrderHandler(
+      poRepository,
+      mockDataSource,
+      stub<StockTierWatch>({ around }),
+    );
   });
 
   it('throws NotFoundException when the purchase order does not exist', async () => {

@@ -62,7 +62,9 @@ export * from './useConsumables';
 export * from './usePurchaseOrders';
 export * from './useRegulatory';
 
-// useStorageInventory: useRecordStockMovement already exported by useMaintenance
+// useStorageInventory: its useRecordStockMovement is NOT re-exported — the
+// barrel's useRecordStockMovement is the spare-part one from useMaintenance
+// (recordSparePartStockMovement); storage screens import theirs directly.
 export {
   StorageItemType,
   MovementType,
@@ -81,7 +83,8 @@ export {
   useTransferStock,
 } from './useStorageInventory';
 
-// useStorageLocations: StorageLocation already exported by useMaintenance
+// useStorageLocations: its StorageLocation type is imported from the hook
+// file directly (useMaintenance's jsonb type is now SparePartBinDetail).
 export {
   StorageLocationType,
   type CreateStorageLocationInput,

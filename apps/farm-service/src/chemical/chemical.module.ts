@@ -19,6 +19,10 @@ import { RestoreModule } from '../common/services/restore.module';
 // create handler resolves the tenant default from (FARM-HIGH-151). No
 // cycle: FinanceModule imports no domain module.
 import { FinanceModule } from '../finance/finance.module';
+// InventoryModule exports CatalogStockProjector — the one writer of the
+// catalog quantity + stock status (FARM-HIGH-337). No cycle: InventoryModule
+// imports only FinanceModule, which imports no domain module.
+import { InventoryModule } from '../storage/storage.module';
 
 // Command Handlers
 import { CreateChemicalHandler } from './handlers/create-chemical.handler';
@@ -49,6 +53,7 @@ const QueryHandlers = [
     TypeOrmModule.forFeature([Chemical, ChemicalType, ChemicalSite, Supplier, Site]),
     RestoreModule,
     FinanceModule,
+    InventoryModule,
   ],
   providers: [
     ChemicalResolver,

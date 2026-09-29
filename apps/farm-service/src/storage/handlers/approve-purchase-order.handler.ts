@@ -20,15 +20,22 @@ import { Logger, NotFoundException, BadRequestException, ForbiddenException } fr
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { ApprovePurchaseOrderCommand } from '../commands/approve-purchase-order.command';
 import { PurchaseOrder, PurchaseOrderStatus } from '../entities/purchase-order.entity';
+import { StockTierWatch } from '../services/low-stock/stock-tier-watch.service';
+import { purchaseOrderStockItems } from '../services/purchase-order-item-type';
 
 @CommandHandler(ApprovePurchaseOrderCommand)
-export class ApprovePurchaseOrderHandler implements ICommandHandler<ApprovePurchaseOrderCommand, PurchaseOrder> {
+export class ApprovePurchaseOrderHandler
+  implements ICommandHandler<ApprovePurchaseOrderCommand, PurchaseOrder>
+{
   private readonly logger = new Logger(ApprovePurchaseOrderHandler.name);
 
   constructor(
     @InjectRepository(PurchaseOrder)
     private readonly poRepository: Repository<PurchaseOrder>,
     private readonly dataSource: DataSource,
+    // Every purchase-order status write runs inside the tier watch (V-B1-5), so
+    // an order's remainder never moves a pool tier unobserved.
+    private readonly tierWatch: StockTierWatch,
   ) {}
 
   async execute(command: ApprovePurchaseOrderCommand): Promise<PurchaseOrder> {
@@ -46,7 +53,7 @@ export class ApprovePurchaseOrderHandler implements ICommandHandler<ApprovePurch
     if (po.status !== PurchaseOrderStatus.SUBMITTED) {
       throw new BadRequestException(
         `Cannot approve a purchase order with status "${po.status}". ` +
-        `Only SUBMITTED purchase orders can be approved.`,
+          `Only SUBMITTED purchase orders can be approved.`,
       );
     }
 
@@ -57,27 +64,32 @@ export class ApprovePurchaseOrderHandler implements ICommandHandler<ApprovePurch
     if (po.createdBy === userId) {
       throw new ForbiddenException(
         'Separation of duties violation: the approver must be a different user ' +
-        'than the person who created the purchase order (SOC2 CC3.4).',
+          'than the person who created the purchase order (SOC2 CC3.4).',
       );
     }
 
     // Persist through the tenant-scoped path so tenantId is structurally enforced
     // on the write (same pattern as approve-inventory-count.handler.ts).
-    return this.dataSource.transaction(async (manager) => {
-      const poRepo = tenantManagerRepo(manager, PurchaseOrder, tenantId);
+    return this.dataSource.transaction((manager) =>
+      this.tierWatch.around(
+        manager,
+        tenantId,
+        { items: purchaseOrderStockItems(po), causationId: () => po.id },
+        async () => {
+          const poRepo = tenantManagerRepo(manager, PurchaseOrder, tenantId);
 
-      po.status = PurchaseOrderStatus.APPROVED;
-      po.approvedBy = userId;
-      po.approvedByName = userName;
-      po.approvedAt = new Date();
+          po.status = PurchaseOrderStatus.APPROVED;
+          po.approvedBy = userId;
+          po.approvedByName = userName;
+          po.approvedAt = new Date();
 
-      const saved = await poRepo.save(po);
+          const saved = await poRepo.save(po);
 
-      this.logger.log(
-        `PO ${po.orderNumber} approved by ${userId}, tenant ${tenantId}`,
-      );
+          this.logger.log(`PO ${po.orderNumber} approved by ${userId}, tenant ${tenantId}`);
 
-      return saved;
-    });
+          return saved;
+        },
+      ),
+    );
   }
 }

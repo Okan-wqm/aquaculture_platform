@@ -15,6 +15,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { graphqlClient, useAuth, createTenantQueryKey, useFeedbackMutation } from '@aquaculture/shared-ui';
+import type { LowStockTierRow } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -102,13 +103,21 @@ export interface AlertSummaryData {
   low: number;
 }
 
-/** Storage overview low stock alert */
-export interface LowStockAlert {
-  itemId: string;
+/**
+ * One short stock TIER from the storage ledger (plan K8): the tenant pool of an
+ * item, or one site below its site policy. The same item can appear once per
+ * tier, so `(itemId, level, siteId)` identifies a row (shared-ui
+ * `lowStockRowKey`, the same key the farm-module storage page uses).
+ */
+export interface LowStockAlert extends LowStockTierRow {
   itemName: string;
   itemType: string;
+  /** Physical on-hand of the tier. */
   currentQuantity: number;
+  /** Threshold of the tier: the site policy minimum, or the pool reorder threshold. */
   minStock: number;
+  /** Open purchase-order remainder counted toward the POOL position; 0 for SITE. */
+  onOrderQuantity: number;
   unit: string;
 }
 
@@ -116,6 +125,11 @@ export interface LowStockAlert {
 export interface StorageOverviewData {
   totalStockValue: number;
   totalItems: number;
+  /**
+   * Number of short tiers (= `lowStockAlerts.length` on the server): the pool
+   * row and each short site row of an item count once each — the same number
+   * the farm-module storage page shows as its low-stock alerts.
+   */
   lowStockAlertCount: number;
   recentMovementsCount: number;
   lowStockAlerts: LowStockAlert[];
@@ -337,8 +351,12 @@ const STORAGE_OVERVIEW_QUERY = `
         itemId
         itemName
         itemType
+        level
+        siteId
+        siteName
         currentQuantity
         minStock
+        onOrderQuantity
         unit
       }
     }

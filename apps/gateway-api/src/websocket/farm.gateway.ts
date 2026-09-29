@@ -13,7 +13,10 @@
  *
  * Subscription model (Phase B — coarse-grained):
  *   - Every authenticated client auto-joins its tenant room on connect
- *   - All farm domain events for a tenant are broadcast to that tenant's room
+ *   - All farm domain events for a tenant are broadcast to that tenant's room,
+ *     except SITE-tier LowStockDetected events: they carry one site's stock,
+ *     which only users assigned to that site may see, and no site-scoped room
+ *     exists here — the bridge withholds them (`low-stock-tenant-room.ts`)
  *   - Per-farm / per-batch room granularity is reserved for Phase E once
  *     FarmOwnershipService can verify resource ownership against farm-service
  *
@@ -35,6 +38,8 @@ import * as promClient from 'prom-client';
 import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
 import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
+
+import type { TenantRoomLowStockPayload } from './low-stock-tenant-room';
 
 /** Per-client state tracked by the gateway. */
 interface FarmClient {
@@ -287,9 +292,15 @@ export class FarmGateway
   /**
    * Broadcast a LowStockDetected alert (storage-ledger low-stock sink —
    * successor of FeedInventoryLow; both are bridged during the stock SSoT
-   * migration window).
+   * migration window) to the tenant room.
+   *
+   * WHY the parameter is `TenantRoomLowStockPayload`: this gateway has no
+   * site-scoped room, and a SITE-tier event carries one site's stock, which
+   * farm-service shows only to users assigned to that site (plan K8). The
+   * branded type is produced only by `tenantRoomLowStock` (pool or v1 events),
+   * so a site event cannot be passed here — the compiler rejects it.
    */
-  broadcastLowStockDetected(tenantId: string, payload: Record<string, unknown>): void {
+  broadcastLowStockDetected(tenantId: string, payload: TenantRoomLowStockPayload): void {
     this.emitFarmEvent(tenantId, 'lowStockDetected', payload);
   }
 

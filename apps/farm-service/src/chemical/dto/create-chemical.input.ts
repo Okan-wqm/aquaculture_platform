@@ -220,11 +220,8 @@ export class CreateChemicalInput {
   @MaxLength(50)
   unit!: string;
 
-  @Field(() => Float, { nullable: true })
-  @IsOptional()
-  @IsNumber()
-  quantity?: number;
-
+  // FARM-HIGH-337: no `quantity` — stock is the storage ledger's, and opening
+  // stock is a stock movement. minStock only moves the derived stock band.
   @Field(() => Float, { nullable: true })
   @IsOptional()
   @IsNumber()

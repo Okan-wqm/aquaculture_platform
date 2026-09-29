@@ -6,11 +6,9 @@ import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { TransferStockCommand } from '../commands/transfer-stock.command';
 import { StorageLocation } from '../entities/storage-location.entity';
-import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
+import { StorageInventory } from '../entities/storage-inventory.entity';
 import { StockMovement, MovementType } from '../entities/stock-movement.entity';
-import { Feed } from '../../feed/entities/feed.entity';
-import { Chemical } from '../../chemical/entities/chemical.entity';
-import { Consumable } from '../../consumable/entities/consumable.entity';
+import { describeStorageItem } from '../services/storage-item-catalog';
 
 @CommandHandler(TransferStockCommand)
 export class TransferStockHandler implements ICommandHandler<TransferStockCommand, StockMovement> {
@@ -23,12 +21,6 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
     private readonly inventoryRepository: Repository<StorageInventory>,
     @InjectRepository(StockMovement)
     private readonly movementRepository: Repository<StockMovement>,
-    @InjectRepository(Feed)
-    private readonly feedRepository: Repository<Feed>,
-    @InjectRepository(Chemical)
-    private readonly chemicalRepository: Repository<Chemical>,
-    @InjectRepository(Consumable)
-    private readonly consumableRepository: Repository<Consumable>,
     private readonly dataSource: DataSource,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
     private readonly siteAuth: SiteAuthorizationService,
@@ -83,13 +75,15 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
     this.siteAuth.assertSiteAssignment({ caller: siteCaller, siteId: fromLocation.siteId });
     this.siteAuth.assertSiteAssignment({ caller: siteCaller, siteId: toLocation.siteId });
 
-    // Get item name (read-only lookup, safe to run before the transaction)
-    const itemName = await this.getItemName(input.itemType as StorageItemType, input.itemId, tenantId);
-    if (!itemName) {
-      throw new NotFoundException(`${input.itemType} with ID "${input.itemId}" not found`);
-    }
-
     return this.dataSource.transaction(async (manager) => {
+      // The ONE exhaustive item lookup (storage-item-catalog.ts). The input
+      // type admits feed, chemical and consumable only (TRANSFERABLE_ITEM_TYPES).
+      const item = await describeStorageItem(manager, tenantId, input.itemType, input.itemId);
+      if (!item) {
+        throw new NotFoundException(`${input.itemType} with ID "${input.itemId}" not found`);
+      }
+      const itemName = item.name;
+
       const inventoryRepo = tenantManagerRepo(manager, StorageInventory, tenantId);
       const movementRepo = tenantManagerRepo(manager, StockMovement, tenantId);
 
@@ -100,7 +94,7 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
         where: {
           tenantId,
           storageLocationId: input.fromLocationId,
-          itemType: input.itemType as StorageItemType,
+          itemType: input.itemType,
           itemId: input.itemId,
           lotNumber: input.lotNumber ?? undefined,
         },
@@ -133,7 +127,7 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
         where: {
           tenantId,
           storageLocationId: input.toLocationId,
-          itemType: input.itemType as StorageItemType,
+          itemType: input.itemType,
           itemId: input.itemId,
           lotNumber: input.lotNumber ?? undefined,
         },
@@ -147,7 +141,7 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
         destInventory = inventoryRepo.create({
           tenantId,
           storageLocationId: input.toLocationId,
-          itemType: input.itemType as StorageItemType,
+          itemType: input.itemType,
           itemId: input.itemId,
           quantity: input.quantity,
           unit,
@@ -184,26 +178,5 @@ export class TransferStockHandler implements ICommandHandler<TransferStockComman
 
       return movementRepo.save(movement);
     });
-  }
-
-  private async getItemName(
-    itemType: StorageItemType, itemId: string, tenantId: string,
-  ): Promise<string | null> {
-    switch (itemType) {
-      case StorageItemType.FEED: {
-        const feed = await this.feedRepository.findOne({ where: { id: itemId, tenantId } });
-        return feed?.name ?? null;
-      }
-      case StorageItemType.CHEMICAL: {
-        const chem = await this.chemicalRepository.findOne({ where: { id: itemId, tenantId } });
-        return chem?.name ?? null;
-      }
-      case StorageItemType.CONSUMABLE: {
-        const cons = await this.consumableRepository.findOne({ where: { id: itemId, tenantId } });
-        return cons?.name ?? null;
-      }
-      default:
-        return null;
-    }
   }
 }

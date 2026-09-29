@@ -17,7 +17,10 @@ import {
   Int,
   Float,
   registerEnumType,
+  ResolveField,
+  Parent,
 } from '@nestjs/graphql';
+import { IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { Logger, UseGuards } from '@nestjs/common';
 import { DecimalScalar } from '@aquaculture/backend-common/graphql';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
@@ -43,6 +46,8 @@ import {
   StockMovementInput,
   SparePartFilterInput,
 } from '../dto/spare-part.dto';
+import { SparePartStockDataLoader } from '../dataloaders/spare-part-stock.dataloader';
+import type { SparePartActor } from '../services/spare-part-ledger.service';
 
 // Register enums for GraphQL
 registerEnumType(SparePartStatus, {
@@ -57,7 +62,19 @@ interface UserContext {
   sub: string;
   email: string;
   tenantId: string;
-  roles: string[];
+  roles: Role[];
+  assignedSiteIds?: string[];
+}
+
+/**
+ * The actor of a direct operator stock movement: the JWT caller, carrying the
+ * site scope the ledger sink checks each touched location against (SEC-HIGH-051).
+ */
+function operatorActor(user: UserContext): SparePartActor {
+  return {
+    userId: user.sub,
+    siteAuthorization: { sub: user.sub, roles: user.roles, assignedSiteIds: user.assignedSiteIds },
+  };
 }
 
 // ============================================================================
@@ -72,7 +89,8 @@ export class LowStockAlertResponse {
   @Field(() => SparePart)
   sparePart!: SparePart;
 
-  @Field(() => Int)
+  /** Ledger on-hand (FARM-HIGH-338); fractional counts are possible. */
+  @Field(() => Float)
   currentQuantity!: number;
 
   @Field(() => Int)
@@ -81,7 +99,8 @@ export class LowStockAlertResponse {
   @Field(() => Int)
   reorderPoint!: number;
 
-  @Field(() => Int)
+  /** reorderPoint − (on-hand + open orders), never negative. */
+  @Field(() => Float)
   deficit!: number;
 }
 
@@ -130,12 +149,18 @@ export class DeleteSparePartResponse {
 @InputType('BulkStockInItemInput')
 export class BulkStockInItemInput {
   @Field(() => ID)
+  @IsUUID()
   sparePartId!: string;
 
+  /** Received amount (> 0), booked as an IN movement at the part's location. */
   @Field(() => Int)
+  @IsInt()
+  @Min(1)
   quantity!: number;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   notes?: string;
 }
 
@@ -151,7 +176,37 @@ export class SparePartResolver {
   constructor(
     private readonly sparePartService: SparePartService,
     private readonly queryBus: QueryBus,
+    // FARM-HIGH-338: stock fields are derived from the storage ledger, batched.
+    private readonly stockLoader: SparePartStockDataLoader,
   ) {}
+
+  // -------------------------------------------------------------------------
+  // DERIVED STOCK FIELDS (FARM-HIGH-338)
+  // -------------------------------------------------------------------------
+  // WHY field resolvers: every surface that returns a SparePart — lists, look-
+  // ups, mutations, nested low-stock alerts — gets the ledger-derived values
+  // automatically; no handler can forget to fill them.
+
+  @ResolveField('quantity', () => Float, {
+    description: 'On-hand across every storage location, from the storage ledger',
+  })
+  async quantity(@Parent() part: SparePart): Promise<number> {
+    return (await this.stockLoader.load(part.id)).onHand;
+  }
+
+  @ResolveField('onOrderQuantity', () => Float, {
+    description: 'Unreceived remainder on open purchase orders',
+  })
+  async onOrderQuantity(@Parent() part: SparePart): Promise<number> {
+    return (await this.stockLoader.load(part.id)).onOrder;
+  }
+
+  @ResolveField('status', () => SparePartStatus, {
+    description: 'Derived: DISCONTINUED (inactive), OUT_OF_STOCK, ON_ORDER, LOW_STOCK, IN_STOCK',
+  })
+  async status(@Parent() part: SparePart): Promise<SparePartStatus> {
+    return (await this.stockLoader.load(part.id)).status;
+  }
 
   // -------------------------------------------------------------------------
   // QUERIES
@@ -273,7 +328,7 @@ export class SparePartResolver {
     @CurrentUser() user: UserContext,
   ): Promise<SparePart> {
     this.logger.log(`Creating spare part: ${input.name}`);
-    return this.sparePartService.create(tenantId, input, user.sub);
+    return this.sparePartService.create(tenantId, input, operatorActor(user));
   }
 
   @Mutation(() => SparePart)
@@ -322,7 +377,7 @@ export class SparePartResolver {
     this.logger.log(
       `Recording spare-part stock movement: ${input.sparePartId} - ${input.movementType} ${input.quantity}`,
     );
-    return this.sparePartService.recordStockMovement(tenantId, input, user.sub);
+    return this.sparePartService.recordStockMovement(tenantId, input, operatorActor(user));
   }
 
   @Mutation(() => [SparePart])
@@ -335,6 +390,6 @@ export class SparePartResolver {
     @Args('reason', { nullable: true }) reason?: string,
   ): Promise<SparePart[]> {
     this.logger.log(`Bulk stock in: ${items.length} items`);
-    return this.sparePartService.bulkStockIn(tenantId, items, user.sub, reason);
+    return this.sparePartService.bulkStockIn(tenantId, items, operatorActor(user), reason);
   }
 }

@@ -9141,6 +9141,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/di-request-scope.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/assignment-single-live.postgres.spec.ts",
       "prettier_managed": true
     },
@@ -9195,6 +9201,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/helpers/storage-handler-fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/helpers/tenant-schema-harness.ts",
       "prettier_managed": true
     },
@@ -9202,6 +9214,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/initial-stocking-composition.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/low-stock-ledger.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/low-stock-tier-watch.postgres.spec.ts",
       "prettier_managed": true
     },
     {
@@ -9238,6 +9262,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/site-tenant-isolation.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/spare-part-criticality.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/spare-part-list.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/spare-part-work-order-draw.postgres.spec.ts",
       "prettier_managed": true
     },
     {
@@ -10137,6 +10179,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/chemical/__tests__/chemical-input-stock-rule.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/chemical/__tests__/handlers/chemical-stock-projection.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/chemical/__tests__/handlers/get-chemical.handler.spec.ts",
       "prettier_managed": true
     },
@@ -10659,6 +10713,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/consumable/__tests__/consumable-input-stock-rule.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/consumable/__tests__/consumable-stock-projection.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/consumable/__tests__/get-consumable.handler.spec.ts",
       "prettier_managed": true
     },
@@ -10791,6 +10857,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/__tests__/farm-seed.stock-writer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/data-source.ts",
       "prettier_managed": true
     },
@@ -10816,6 +10888,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/entities/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/farm-seed.module.ts",
       "prettier_managed": true
     },
     {
@@ -10900,6 +10978,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/__tests__/1810500000000-RestoreFeedingClockLedgersInSource.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/__tests__/1811300000000-MoveSparePartStockToLedger.db-migrate.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/__tests__/1811300000000-MoveSparePartStockToLedger.postgres.spec.ts",
       "prettier_managed": true
     },
     {
@@ -11954,6 +12044,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1811100000000-CreateStorageItemSitePolicies.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1811200000000-AddSparePartLotMixItemType.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1811300000000-MoveSparePartStockToLedger.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -12819,6 +12927,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/farm/resolvers/farm.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feed/__tests__/feed-input-stock-rule.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feed/__tests__/feed-stock-projection.handler.spec.ts",
       "prettier_managed": true
     },
     {
@@ -15230,7 +15350,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/maintenance/__tests__/get-spare-part-criticality.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/maintenance/__tests__/maintenance-schedule-read-handlers.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/__tests__/spare-part-ledger.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -15242,7 +15374,43 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/maintenance/__tests__/spare-part-relocation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/__tests__/spare-part-stock.dataloader.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/__tests__/spare-part-stock.reader.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/__tests__/work-order-complete-spare-parts.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/__tests__/work-order-consumption.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/maintenance/__tests__/work-order-read-handlers.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/dataloaders/spare-part-stock.dataloader.ts",
       "prettier_managed": true
     },
     {
@@ -15345,6 +15513,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/maintenance/handlers/get-spare-part-by-part-number.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/handlers/get-spare-part-criticality.handler.ts",
       "prettier_managed": true
     },
     {
@@ -15477,6 +15651,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/maintenance/queries/get-spare-part-by-part-number.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/queries/get-spare-part-criticality.query.ts",
       "prettier_managed": true
     },
     {
@@ -15620,7 +15800,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/maintenance/services/spare-part-ledger.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/services/spare-part-stock.reader.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/services/spare-part-stock.sql.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/maintenance/services/spare-part.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/services/work-order-consumption.ts",
       "prettier_managed": true
     },
     {
@@ -16586,6 +16790,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/site/commands/restore-site.command.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/site/commands/update-site.command.ts",
       "prettier_managed": true
     },
@@ -16707,6 +16917,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/site/handlers/list-sites.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/site/handlers/restore-site.handler.ts",
       "prettier_managed": true
     },
     {
@@ -16994,6 +17210,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/catalog-stock-projector.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/storage/__tests__/feed-allocation.service.spec.ts",
       "prettier_managed": true
     },
@@ -17084,13 +17306,43 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/low-stock-evaluator.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/storage/__tests__/receive-delivery.handler.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/record-stock-movement-input.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/storage/__tests__/record-stock-movement-outbox.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/stock-band.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/stock-identity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/stock-ledger.reader.spec.ts",
       "prettier_managed": true
     },
     {
@@ -17108,7 +17360,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/stock-tier-watch.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/storage-item-site-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/storage/__tests__/trace-lot.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/transfer-stock-input.spec.ts",
       "prettier_managed": true
     },
     {
@@ -17139,6 +17409,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/commands/create-storage-location.command.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/commands/delete-storage-item-site-policy.command.ts",
       "prettier_managed": true
     },
     {
@@ -17187,6 +17463,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/commands/update-storage-location.command.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/commands/upsert-storage-item-site-policy.command.ts",
       "prettier_managed": true
     },
     {
@@ -17265,6 +17547,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/dto/storage-inventory.response.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/dto/storage-item-site-policy.input.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/dto/storage-item-site-policy.response.ts",
       "prettier_managed": true
     },
     {
@@ -17354,6 +17648,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/storage/entities/storage-item-site-policy.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/storage/entities/storage-location.entity.ts",
       "prettier_managed": true
     },
@@ -17397,6 +17697,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/handlers/create-storage-location.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/handlers/delete-storage-item-site-policy.handler.ts",
       "prettier_managed": true
     },
     {
@@ -17480,6 +17786,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/storage/handlers/list-storage-item-site-policies.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/storage/handlers/list-storage-locations.handler.ts",
       "prettier_managed": true
     },
@@ -17529,6 +17841,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/handlers/update-storage-location.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/handlers/upsert-storage-item-site-policy.handler.ts",
       "prettier_managed": true
     },
     {
@@ -17606,6 +17924,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/storage/queries/list-storage-item-site-policies.query.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/storage/queries/list-storage-locations.query.ts",
       "prettier_managed": true
     },
@@ -17630,6 +17954,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/storage/resolvers/storage-item-site-policy.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/catalog-stock-projector.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/storage/services/feed-allocation.service.ts",
       "prettier_managed": true
     },
@@ -17637,6 +17973,60 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/services/lot-mix.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/low-stock/low-stock-evaluator.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/low-stock/low-stock-event.factory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/low-stock/low-stock-listing.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/low-stock/low-stock.types.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/low-stock/stock-band.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/low-stock/stock-identity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/low-stock/stock-ledger.reader.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/low-stock/stock-tier-watch.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/purchase-order-item-type.ts",
       "prettier_managed": true
     },
     {
@@ -17655,6 +18045,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/services/stock-quantity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/services/storage-item-catalog.ts",
       "prettier_managed": true
     },
     {
@@ -20245,6 +20641,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/src/websocket/__tests__/farm-low-stock-tenant-room.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/src/websocket/__tests__/messaging.gateway.hydration.spec.ts",
       "prettier_managed": true
     },
@@ -20270,6 +20672,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/gateway-api/src/websocket/farm.gateway.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/gateway-api/src/websocket/low-stock-tenant-room.ts",
       "prettier_managed": true
     },
     {
@@ -44071,6 +44479,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/schemas/__tests__/low-stock-detected-tier.schema.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/schemas/__tests__/messaging-events.schema.spec.ts",
       "prettier_managed": true
     },
@@ -44258,6 +44672,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/upcasters/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/upcasters/low-stock-detected-v1-to-v2.upcaster.ts",
       "prettier_managed": true
     },
     {
@@ -52232,7 +52652,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "ec92fb48b9dae6f6720882614caa4c195580b3a19ba9dbf32783bad834666cb3",
+      "content_sha256": "5a1a9d36fbf0ed510498523ad8063f75f0a38a8b8fde15a53ce4d0e2139400f0",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -54511,6 +54931,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/dashboard/src/components/__tests__/OverviewWidgets.stock.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/dashboard/src/components/AlertsSummary.tsx",
       "prettier_managed": true
     },
@@ -54745,6 +55171,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/hooks/__tests__/settableCatalogStatus.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/hooks/__tests__/useCreateBatch.spec.tsx",
       "prettier_managed": true
     },
@@ -54782,6 +55214,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/hooks/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/hooks/stockReadModels.ts",
       "prettier_managed": true
     },
     {
@@ -55393,6 +55831,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/maintenance/components/SparePartStockMovementModal.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/maintenance/components/UpdateMeterReadingButton.tsx",
       "prettier_managed": true
     },
@@ -55436,6 +55880,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/production/BatchDetailPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/production/components/__tests__/AssignFeedsToBatchModal.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -56137,6 +56587,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/pages/storage/__tests__/low-stock-tiers.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/pages/storage/__tests__/StoragePage.spec.tsx",
       "prettier_managed": true
     },
@@ -56252,6 +56708,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/pages/storage/utils/expiry-utils.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/pages/storage/utils/low-stock-tiers.ts",
       "prettier_managed": true
     },
     {
@@ -56557,6 +57019,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/utils/__tests__/derived-stock-tone.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/utils/__tests__/list-view-state.spec.ts",
       "prettier_managed": true
     },
@@ -56564,6 +57032,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/utils/command-envelope.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/utils/derived-stock-tone.ts",
       "prettier_managed": true
     },
     {
@@ -63527,7 +64001,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "02d09b01578bdcb4be6329c109b4f25684fa040e8262a4a0283a92708459f60d",
+      "content_sha256": "1c4c24fb33d9b2a9293be930d51df0b72181321feabefe856607d478082f572b",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -63743,6 +64217,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/utils/__tests__/low-stock-tier.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/utils/__tests__/tenant-capabilities.spec.ts",
       "prettier_managed": true
     },
@@ -63828,6 +64308,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/utils/logout-cleanup.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/utils/low-stock-tier.ts",
       "prettier_managed": true
     },
     {

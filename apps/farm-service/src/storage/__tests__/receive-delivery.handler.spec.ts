@@ -18,7 +18,7 @@
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { DataSource, EntityManager, Repository } from 'typeorm';
-import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import { collaborator, createMockDataSource, createMockRepository } from '@aquaculture/testing';
 import { Role } from '@aquaculture/backend-common/decorators';
 
 type TransactionIsolationLevel = Parameters<DataSource['transaction']>[0];
@@ -29,6 +29,7 @@ import { PurchaseOrder, PurchaseOrderStatus, PurchaseOrderCategory } from '../en
 import { PurchaseOrderItem } from '../entities/purchase-order-item.entity';
 import { StorageItemType } from '../entities/storage-inventory.entity';
 import { MovementType } from '../entities/stock-movement.entity';
+import { StockTierWatch } from '../services/low-stock/stock-tier-watch.service';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const USER = '22222222-2222-4222-8222-222222222222';
@@ -43,6 +44,7 @@ describe('ReceiveDeliveryHandler', () => {
   let innerItemRepo: jest.Mocked<Repository<PurchaseOrderItem>>;
   let stockMovementService: { recordMovement: jest.Mock };
   let outboxPublisher: { enqueue: jest.Mock };
+  let tierWatch: { around: jest.Mock };
   const { mockDataSource, mockManager } = createMockDataSource();
 
   const makeItem = (overrides: Partial<PurchaseOrderItem> = {}): PurchaseOrderItem =>
@@ -127,11 +129,20 @@ describe('ReceiveDeliveryHandler', () => {
     stockMovementService = { recordMovement: jest.fn().mockResolvedValue(movementResult()) };
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
+    // The tier watch runs the receipt and re-projects every line item at the
+    // end (V-B1-4 / V-B1-5); its snapshots are pinned in
+    // stock-tier-watch.service.spec.ts and the Postgres lane.
+    tierWatch = {
+      around: jest.fn(
+        async (_m: unknown, _t: string, _s: unknown, command: () => Promise<unknown>) => command(),
+      ),
+    };
     handler = new ReceiveDeliveryHandler(
       poRepository as never,
       mockDataSource as never,
       stockMovementService as never,
       outboxPublisher as never,
+      collaborator<StockTierWatch>(tierWatch, 'StockTierWatch'),
     );
   });
 
@@ -238,6 +249,27 @@ describe('ReceiveDeliveryHandler', () => {
       NotFoundException,
     );
     expect(outboxPublisher.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('runs the whole receipt inside the tier watch for every line item (V-B1-4 / V-B1-5)', async () => {
+    // SCENARIO: a FEED order is received. EXPECTS: the movement AND the line
+    // progress run inside StockTierWatch scoped to the order's line items and
+    // caused by the order, so the catalog status is re-projected after the
+    // line's remainder shrank (the IN movement alone still counted it open).
+    poRepository.findOne.mockResolvedValue(makePo([makeItem()]));
+
+    await handler.execute(makeCommand([{ itemId: ITEM_A, quantityReceived: 40 }]));
+
+    expect(tierWatch.around).toHaveBeenCalledWith(
+      mockManager,
+      TENANT,
+      expect.objectContaining({ items: [{ itemType: StorageItemType.FEED, itemId: ITEM_A }] }),
+      expect.any(Function),
+    );
+    expect(tierWatch.around.mock.calls[0][2].causationId(undefined)).toBe(PO_ID);
+    expect(tierWatch.around.mock.invocationCallOrder[0]).toBeLessThan(
+      stockMovementService.recordMovement.mock.invocationCallOrder[0]!,
+    );
   });
 
   it('marks the PO RECEIVED with actualDeliveryDate when every item is fully received', async () => {

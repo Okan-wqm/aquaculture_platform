@@ -61,6 +61,12 @@ import { CreateFeedingRecordHandler } from '../../feeding/handlers/create-feedin
 import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
+import { LowStockEvaluator } from '../../storage/services/low-stock/low-stock-evaluator.service';
+import { StockLedgerReader } from '../../storage/services/low-stock/stock-ledger.reader';
+import { CatalogStockProjector } from '../../storage/services/catalog-stock-projector.service';
+import { PurchaseOrder } from '../../storage/entities/purchase-order.entity';
+import { PurchaseOrderItem } from '../../storage/entities/purchase-order-item.entity';
+import { StorageItemSitePolicy } from '../../storage/entities/storage-item-site-policy.entity';
 import { StockMutationLockAuthority } from '../../storage/services/stock-mutation-lock.authority';
 import { FeedingDayPlan } from '../../feeding-protocol/entities/feeding-day-plan.entity';
 import { FeedingMeal } from '../../feeding-protocol/entities/feeding-meal.entity';
@@ -154,6 +160,11 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         StorageInventory,
         StockMovement,
         StorageLotMix,
+        // Plan K8: the sink's low-stock evaluator reads open purchase orders
+        // (pool position) and site policies (site tier) in the same transaction.
+        PurchaseOrder,
+        PurchaseOrderItem,
+        StorageItemSitePolicy,
         // FeedingLedgerService owns feed cost for every caller (C-16) and reads
         // the tenant's default currency through FinanceSettingsService. Its
         // in-transaction variant does NOT swallow a missing row the way the
@@ -209,6 +220,10 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       // bu spec yazımların doğru tenant şemasına düştüğünü kanıtlıyor ve tahsis
       // motoru artık o yazım yolunun parçası.
       new FeedAllocationService(mutationLocks),
+      // Plan K8: the REAL two-tier evaluator and catalog projector — this spec
+      // proves the edge-triggered pool crossing lands in the right tenant.
+      new LowStockEvaluator(new StockLedgerReader()),
+      new CatalogStockProjector(new StockLedgerReader()),
     );
     // P-05 tek yem yazma yolu: handler artık GERÇEK FeedingLedgerService'e
     // delege eder (kayıt + batch aggregate + FEFO düşüm + outbox tek noktada).

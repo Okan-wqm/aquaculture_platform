@@ -555,6 +555,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'storage_locations',
       'consumables',
       'storage_inventory',
+      // Plan K8 tier 1: per-site distribution minimum (FARM-HIGH-336).
+      'storage_item_site_policies',
       'stock_movements',
       'purchase_orders',
       'purchase_order_items',

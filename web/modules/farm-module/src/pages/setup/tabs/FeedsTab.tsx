@@ -29,6 +29,9 @@ import {
   Feed,
   FeedType,
   FeedStatus,
+  FEED_SETTABLE_STATUSES,
+  type FeedSettableStatus,
+  toFeedSettableStatus,
   FloatingType,
   CreateFeedInput,
   FeedingCurvePoint,
@@ -70,12 +73,12 @@ const floatingTypeLabels: Record<string, string> = {
   SLOW_SINKING: 'Slow Sinking',
 };
 
-const statusLabels: Record<string, string> = {
-  AVAILABLE: 'Available',
-  LOW_STOCK: 'Low Stock',
-  OUT_OF_STOCK: 'Out of Stock',
-  EXPIRED: 'Expired',
-  DISCONTINUED: 'Discontinued',
+// FARM-HIGH-337: only the settable statuses are offered; Low / Out of Stock
+// are derived from stock movements and rejected by the API.
+const statusLabels: Record<FeedSettableStatus, string> = {
+  [FeedStatus.AVAILABLE]: 'Available (stock-derived)',
+  [FeedStatus.EXPIRED]: 'Expired',
+  [FeedStatus.DISCONTINUED]: 'Discontinued',
 };
 
 const documentTypeLabels: Record<string, string> = {
@@ -163,7 +166,7 @@ interface FeedFormData {
 
   // Ek Bilgiler
   notes: string;
-  status: string;
+  status: FeedSettableStatus;
 }
 
 const initialFormData: FeedFormData = {
@@ -208,7 +211,7 @@ const initialFormData: FeedFormData = {
   storageHumidityMax: '',
   storageRequirements: '',
   notes: '',
-  status: 'AVAILABLE',
+  status: FeedStatus.AVAILABLE,
 };
 
 // Collapsible Section Component
@@ -316,7 +319,7 @@ export const FeedsTab: React.FC = () => {
       unitPrice: formData.unitPrice ? Number(formData.unitPrice) : undefined,
       pricePerKg: formData.pricePerKg ? Number(formData.pricePerKg) : undefined,
       notes: formData.notes || undefined,
-      status: formData.status as FeedStatus,
+      status: formData.status,
       minFishWeightG: formData.minFishWeightG ? Number(formData.minFishWeightG) : undefined,
       maxFishWeightG: formData.maxFishWeightG ? Number(formData.maxFishWeightG) : undefined,
       storageTempMin: formData.storageTempMin !== '' ? Number(formData.storageTempMin) : undefined,
@@ -425,7 +428,7 @@ export const FeedsTab: React.FC = () => {
       storageHumidityMax: feed.storageHumidityMax ?? '',
       storageRequirements: feed.storageRequirements || '',
       notes: feed.notes || '',
-      status: feed.status || 'AVAILABLE',
+      status: toFeedSettableStatus(feed.status),
     });
     setIsModalOpen(true);
   };
@@ -1637,8 +1640,17 @@ export const FeedsTab: React.FC = () => {
                 <Select
                   label="Status"
                   value={formData.status}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-                  options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      status: toFeedSettableStatus(e.target.value),
+                    }))
+                  }
+                  options={FEED_SETTABLE_STATUSES.map((value) => ({
+                    value,
+                    label: statusLabels[value],
+                  }))}
+                  helperText="Low / out of stock is derived from stock movements (Storage page)."
                 />
               </div>
             </CollapsibleSection>

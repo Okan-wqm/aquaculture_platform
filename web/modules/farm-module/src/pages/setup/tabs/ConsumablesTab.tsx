@@ -11,9 +11,13 @@ import {
   Consumable,
   ConsumableCategory,
   ConsumableStatus,
+  CONSUMABLE_SETTABLE_STATUSES,
+  type ConsumableSettableStatus,
+  toConsumableSettableStatus,
   CreateConsumableInput,
 } from '../../../hooks/useConsumables';
 import { useSupplierList } from '../../../hooks/useSuppliers';
+import { derivedStockTone, STOCK_TONE_TEXT_CLASS } from '../../../utils/derived-stock-tone';
 import {
   FormField,
   Modal,
@@ -88,7 +92,6 @@ interface ConsumableFormData {
   brand: string;
   supplierId: string;
   minStock: number | '';
-  quantity: number | '';
   unitPrice: number | '';
   currency: string;
   storageTempMin: number | '';
@@ -97,7 +100,8 @@ interface ConsumableFormData {
   storageHumidityMax: number | '';
   storageRequirements: string;
   notes: string;
-  status: string;
+  /** Lifecycle-only; stock bands are derived (FARM-HIGH-337). */
+  status: ConsumableSettableStatus;
 }
 
 const initialFormData: ConsumableFormData = {
@@ -109,7 +113,6 @@ const initialFormData: ConsumableFormData = {
   brand: '',
   supplierId: '',
   minStock: '',
-  quantity: '',
   unitPrice: '',
   currency: 'NOK',
   storageTempMin: '',
@@ -118,7 +121,7 @@ const initialFormData: ConsumableFormData = {
   storageHumidityMax: '',
   storageRequirements: '',
   notes: '',
-  status: 'AVAILABLE',
+  status: ConsumableStatus.AVAILABLE,
 };
 
 // Collapsible Section Component
@@ -171,6 +174,8 @@ export const ConsumablesTab: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
 
   const consumables = consumablesData?.items || [];
+  // FARM-HIGH-337: stock is read-only here — it changes through stock movements.
+  const editingItem = editingId ? consumables.find((item) => item.id === editingId) : undefined;
 
   const filtered = consumables.filter((item) => {
     const matchesSearch =
@@ -214,7 +219,6 @@ export const ConsumablesTab: React.FC = () => {
       brand: item.brand || '',
       supplierId: item.supplierId || '',
       minStock: item.minStock ?? '',
-      quantity: item.quantity ?? '',
       unitPrice: item.unitPrice ?? '',
       currency: item.currency || 'NOK',
       storageTempMin: item.storageTempMin ?? '',
@@ -223,7 +227,7 @@ export const ConsumablesTab: React.FC = () => {
       storageHumidityMax: item.storageHumidityMax ?? '',
       storageRequirements: item.storageRequirements || '',
       notes: item.notes || '',
-      status: item.status || 'AVAILABLE',
+      status: toConsumableSettableStatus(item.status),
     });
     setIsModalOpen(true);
   };
@@ -268,7 +272,6 @@ export const ConsumablesTab: React.FC = () => {
         brand: formData.brand || undefined,
         supplierId: formData.supplierId || undefined,
         minStock: formData.minStock !== '' ? Number(formData.minStock) : undefined,
-        quantity: formData.quantity !== '' ? Number(formData.quantity) : undefined,
         unitPrice: formData.unitPrice !== '' ? Number(formData.unitPrice) : undefined,
         currency: formData.currency || undefined,
         storageTempMin:
@@ -286,7 +289,7 @@ export const ConsumablesTab: React.FC = () => {
       if (editingId) {
         await updateConsumable.mutateAsync({
           id: editingId,
-          status: formData.status as ConsumableStatus,
+          status: formData.status,
           ...input,
         });
       } else {
@@ -339,13 +342,10 @@ export const ConsumablesTab: React.FC = () => {
       header: 'Stock / Min',
       render: (_value, item) => (
         <>
-          <span
-            className={
-              item.quantity <= item.minStock
-                ? 'text-error-600 dark:text-error-400 font-medium'
-                : 'text-gray-900 dark:text-gray-100'
-            }
-          >
+          {/* WHY status, not quantity vs minStock: the ledger projection
+              derives the status (CatalogStockProjector); re-comparing the
+              catalog quantity here would be a second low-stock rule. */}
+          <span className={`font-medium ${STOCK_TONE_TEXT_CLASS[derivedStockTone(item.status)]}`}>
             {item.quantity}
           </span>
           <span className="text-gray-400 dark:text-gray-500"> / {item.minStock}</span>
@@ -599,16 +599,9 @@ export const ConsumablesTab: React.FC = () => {
                   </label>
                   <Input
                     fullWidth
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.quantity}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        quantity: e.target.value ? parseFloat(e.target.value) : '',
-                      }))
-                    }
+                    readOnly
+                    value={editingItem ? `${editingItem.quantity} ${editingItem.unit}` : '0'}
+                    helperText="Changed through stock movements (Storage page)."
                   />
                 </div>
                 <div>
@@ -771,12 +764,23 @@ export const ConsumablesTab: React.FC = () => {
                     rows={3}
                   />
                 </div>
-                <Select
-                  label="Status"
-                  value={formData.status}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-                  options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))}
-                />
+                {editingId && (
+                  <Select
+                    label="Status"
+                    value={formData.status}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        status: toConsumableSettableStatus(e.target.value),
+                      }))
+                    }
+                    options={CONSUMABLE_SETTABLE_STATUSES.map((value) => ({
+                      value,
+                      label: statusLabels[value],
+                    }))}
+                    helperText="Low / out of stock is derived from stock movements (Storage page)."
+                  />
+                )}
               </div>
             </CollapsibleSection>
           </div>

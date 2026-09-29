@@ -80,6 +80,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { CqrsModule } from '@platform/cqrs';
 import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
 import { DatabaseModule } from './database/database.module';
+import { FarmSeedModule } from './database/farm-seed.module';
 import { FarmMetricsModule } from './common/metrics/farm-metrics.module';
 import { FarmAppErrorFilter } from './common/errors/farm-app-error.filter';
 import { CacheableModule } from './common/cache/cacheable.module';
@@ -352,6 +353,8 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
     // Database module (audit, code generation, migration runner)
     DatabaseModule,
+    // Reference data + dev demo farm; demo stock goes through the ledger sink.
+    FarmSeedModule,
 
     // Domain Prometheus metrics — phase 5.3. Registers
     // FarmDomainMetricsService (counters + histograms) and the

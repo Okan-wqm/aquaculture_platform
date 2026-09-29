@@ -15,14 +15,7 @@ import {
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { DecimalScalar } from '@aquaculture/backend-common/graphql';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Float,
-  Int,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 // Note: Supplier and EquipmentType are referenced via string to avoid circular dependency
 // Type-only imports for TypeScript type checking
@@ -42,7 +35,16 @@ registerEnumType(SparePartStatus, {
   description: 'Yedek parça stok durumu',
 });
 
-export interface StorageLocation {
+/**
+ * Free-text shelf/bin detail inside the part's storage location.
+ *
+ * WHY renamed (FARM-HIGH-338): this jsonb blob used to be called
+ * `StorageLocation`, shadowing the storage module's entity, and was read as if
+ * it placed the part in a storage location. It never did — it is operator
+ * text. The physical place is `storageLocationId` (a real FK); this blob only
+ * says where on that location's shelves the part sits.
+ */
+export interface SparePartBinDetail {
   warehouse?: string;
   shelf?: string;
   bin?: string;
@@ -53,9 +55,12 @@ export interface StorageLocation {
 @Entity('spare_parts')
 @Index(['tenantId', 'partNumber'], { unique: true })
 @Index(['tenantId', 'code'], { unique: true })
-@Index(['tenantId', 'status'])
+@Index(['tenantId', 'legacyStatus'])
 @Index(['tenantId', 'equipmentTypeId'])
 @Index(['tenantId', 'supplierId'])
+// Named as migration 1811300000000 creates it (FK_spare_parts_storage_location
+// lives in the DDL only, like storage_inventory's location FK).
+@Index('IDX_spare_parts_tenant_storage_location', ['tenantId', 'storageLocationId'])
 export class SparePart {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -113,9 +118,16 @@ export class SparePart {
   @Column({ length: 100, nullable: true })
   manufacturer?: string;
 
-  @Field(() => Int)
-  @Column({ type: 'int', default: 0 })
-  quantity!: number; // Mevcut stok
+  /**
+   * LEGACY counter, never written (FARM-HIGH-338). Spare-part stock lives in
+   * the storage ledger; the GraphQL `quantity` field is resolved from it
+   * (SparePartResolver). Kept only until plan PR-A4 drops the column; the
+   * property name makes every stale reader a compile error, `insert: false` /
+   * `update: false` keep the ORM from ever writing it, and migration
+   * 1811300000000's trigger rejects any other writer (V-B1-7).
+   */
+  @Column({ type: 'int', default: 0, name: 'quantity', insert: false, update: false })
+  legacyQuantity!: number;
 
   @Field(() => Int)
   @Column({ type: 'int', default: 0 })
@@ -133,23 +145,47 @@ export class SparePart {
   @Column({ length: 20, default: 'piece' })
   unit!: string; // piece, set, box, kg, liter, meter
 
-  @Field(() => SparePartStatus)
+  /**
+   * LEGACY status, never written (FARM-HIGH-338). The GraphQL `status` field is
+   * DERIVED from ledger on-hand, open orders and `isActive`
+   * (deriveSparePartStatus). Dropped in plan PR-A4 with `legacyQuantity`;
+   * `insert: false` / `update: false` keep the ORM from writing it.
+   */
   @Column({
     type: 'enum',
     enum: SparePartStatus,
     default: SparePartStatus.IN_STOCK,
+    name: 'status',
+    insert: false,
+    update: false,
   })
-  status!: SparePartStatus;
+  legacyStatus!: SparePartStatus;
 
+  /**
+   * The storage location that physically holds this part — the ledger
+   * location its movements default to. Nullable: a part with no stock yet
+   * needs no location. Site = storage_locations.siteId.
+   */
+  @Field(() => ID, { nullable: true })
+  @Column('uuid', { nullable: true })
+  storageLocationId?: string | null;
+
+  /** Shelf/bin text inside the storage location (column `location`). */
   @Field(() => GraphQLJSON, { nullable: true })
-  @Column({ type: 'jsonb', nullable: true })
-  location?: StorageLocation;
+  @Column({ type: 'jsonb', nullable: true, name: 'location' })
+  binDetail?: SparePartBinDetail;
 
   @Field(() => Float, {
     nullable: true,
     deprecationReason: 'Use unitPriceDecimal (exact decimal string, ADR-0004).',
   })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
   unitPrice?: number;
 
   /** Exact-decimal wire form of `unitPrice` (ADR-0004 / DATA-MEDIUM-009). */

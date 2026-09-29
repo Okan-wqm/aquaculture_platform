@@ -157,6 +157,19 @@ describe('StockTransferPage — queue-first contract', () => {
     expect(screen.queryByText(/Queued for Sync/)).toBeNull();
   });
 
+  it('offers only the item types transferStock accepts (no healthcare, no spare part)', async () => {
+    // SCENARIO: the first wizard step. EXPECTS: feed, chemical and consumable are
+    // offered; healthcare and spare parts are not (the API refuses them, so a
+    // queued offline transfer of either would only ever fail).
+    render(createElement(StockTransferPage), { wrapper: wrapper(client) });
+
+    expect(await screen.findByRole('button', { name: /Consumable/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Feed/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Chemical/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Healthcare/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Spare/ })).toBeNull();
+  });
+
   it('renders "Already recorded" when the queue deduped a double-tap', async () => {
     h.addToQueue.mockResolvedValue({ status: 'duplicate', id: 'op-0' });
     render(createElement(StockTransferPage), { wrapper: wrapper(client) });

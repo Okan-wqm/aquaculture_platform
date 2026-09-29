@@ -11,6 +11,8 @@ import { ChemicalSite } from '../entities/chemical-site.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
 import { Site } from '../../site/entities/site.entity';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
+import { CatalogStockProjector } from '../../storage/services/catalog-stock-projector.service';
+import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 
 @CommandHandler(CreateChemicalCommand)
 export class CreateChemicalHandler implements ICommandHandler<CreateChemicalCommand, Chemical> {
@@ -19,8 +21,15 @@ export class CreateChemicalHandler implements ICommandHandler<CreateChemicalComm
   constructor(
     private readonly dataSource: DataSource,
     private readonly financeSettings: FinanceSettingsService,
+    private readonly stockProjector: CatalogStockProjector,
   ) {}
 
+  /**
+   * WHY (FARM-HIGH-337): a new chemical has no stock until a stock movement
+   * books it; seeding `quantity` from the input made a ledger-less writer.
+   * WHAT: creates the catalog row (quantity = column default 0), then projects
+   * quantity + status from the ledger in the SAME transaction.
+   */
   async execute(command: CreateChemicalCommand): Promise<Chemical> {
     const { input, tenantId, userId } = command;
 
@@ -82,7 +91,6 @@ export class CreateChemicalHandler implements ICommandHandler<CreateChemicalComm
         formulation: input.formulation,
         supplierId: input.supplierId,
         status: ChemicalStatus.AVAILABLE,
-        quantity: input.quantity ?? 0,
         minStock: input.minStock ?? 0,
         unit: input.unit,
         usageProtocol: input.usageProtocol,
@@ -120,9 +128,21 @@ export class CreateChemicalHandler implements ICommandHandler<CreateChemicalComm
       });
       await chemicalSiteRepo.save(chemicalSite);
 
-      this.logger.log(`Chemical "${savedChemical.name}" created with ID ${savedChemical.id}`);
+      // Last write in the transaction: the projector derives the stock band
+      // from the (empty) ledger and minStock.
+      await this.stockProjector.project(
+        queryRunner.manager,
+        tenantId,
+        StorageItemType.CHEMICAL,
+        savedChemical.id,
+      );
+      const projected = await chemicalRepo.findOneOrFail({
+        where: { id: savedChemical.id, tenantId },
+      });
 
-      return savedChemical;
+      this.logger.log(`Chemical "${projected.name}" created with ID ${projected.id}`);
+
+      return projected;
     });
   }
 }

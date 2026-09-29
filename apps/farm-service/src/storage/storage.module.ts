@@ -14,20 +14,27 @@ import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
 import { InventoryCount } from './entities/inventory-count.entity';
 import { InventoryCountItem } from './entities/inventory-count-item.entity';
 import { StorageLotMix } from './entities/storage-lot-mix.entity';
+import { StorageItemSitePolicy } from './entities/storage-item-site-policy.entity';
 import { LotMixService } from './services/lot-mix.service';
 import { StockMovementService } from './services/stock-movement.service';
 import { FeedAllocationService } from './services/feed-allocation.service';
 import { StockMutationLockAuthority } from './services/stock-mutation-lock.authority';
+import { StockLedgerReader } from './services/low-stock/stock-ledger.reader';
+import { LowStockEvaluator } from './services/low-stock/low-stock-evaluator.service';
+import { CatalogStockProjector } from './services/catalog-stock-projector.service';
+import { StockTierWatch } from './services/low-stock/stock-tier-watch.service';
 import { Site } from '../site/entities/site.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Chemical } from '../chemical/entities/chemical.entity';
 import { Consumable } from '../consumable/entities/consumable.entity';
+import { SparePart } from '../maintenance/entities/spare-part.entity';
 // FinanceModule exports the currency SSoT resolver (FARM-HIGH-151).
 import { FinanceModule } from '../finance/finance.module';
 
 import { StorageResolver } from './storage.resolver';
 import { InventoryCountResponseResolver } from './resolvers/inventory-count-response.resolver';
 import { StorageDecimalResolvers } from './resolvers/storage-decimal.resolver';
+import { StorageItemSitePolicyResolver } from './resolvers/storage-item-site-policy.resolver';
 
 import { CreateStorageLocationHandler } from './handlers/create-storage-location.handler';
 import { UpdateStorageLocationHandler } from './handlers/update-storage-location.handler';
@@ -42,6 +49,8 @@ import { UpdateInventoryCountHandler } from './handlers/update-inventory-count.h
 import { SubmitInventoryCountHandler } from './handlers/submit-inventory-count.handler';
 import { ApproveInventoryCountHandler } from './handlers/approve-inventory-count.handler';
 import { ApprovePurchaseOrderHandler } from './handlers/approve-purchase-order.handler';
+import { UpsertStorageItemSitePolicyHandler } from './handlers/upsert-storage-item-site-policy.handler';
+import { DeleteStorageItemSitePolicyHandler } from './handlers/delete-storage-item-site-policy.handler';
 
 import { GetStorageLocationHandler } from './handlers/get-storage-location.handler';
 import { ListStorageLocationsHandler } from './handlers/list-storage-locations.handler';
@@ -57,6 +66,7 @@ import { ListInventoryCountsHandler } from './handlers/list-inventory-counts.han
 import { GetInventoryCountHandler } from './handlers/get-inventory-count.handler';
 import { GetStorageLocationNameHandler } from './handlers/get-storage-location-name.handler';
 import { TraceLotHandler } from './handlers/trace-lot.handler';
+import { ListStorageItemSitePoliciesHandler } from './handlers/list-storage-item-site-policies.handler';
 
 const CommandHandlers = [
   CreateStorageLocationHandler,
@@ -72,6 +82,8 @@ const CommandHandlers = [
   UpdateInventoryCountHandler,
   SubmitInventoryCountHandler,
   ApproveInventoryCountHandler,
+  UpsertStorageItemSitePolicyHandler,
+  DeleteStorageItemSitePolicyHandler,
 ];
 
 const QueryHandlers = [
@@ -89,6 +101,7 @@ const QueryHandlers = [
   GetInventoryCountHandler,
   GetStorageLocationNameHandler,
   TraceLotHandler,
+  ListStorageItemSitePoliciesHandler,
 ];
 
 @Module({
@@ -102,15 +115,18 @@ const QueryHandlers = [
       InventoryCount,
       InventoryCountItem,
       StorageLotMix,
+      StorageItemSitePolicy,
       Site,
       Feed,
       Chemical,
       Consumable,
+      SparePart,
     ]),
     FinanceModule,
   ],
   providers: [
     StorageResolver,
+    StorageItemSitePolicyResolver,
     InventoryCountResponseResolver,
     ...StorageDecimalResolvers,
     LotMixService,
@@ -129,12 +145,30 @@ const QueryHandlers = [
     // Fiziksel stok mutasyonlarının TEK kilit protokolü — satır kilidi olmayan
     // (henüz var olmayan) fiziksel anahtarı da kapsar.
     StockMutationLockAuthority,
+    // Plan K8: the ledger reads, the ONE low-stock decision and the ONE
+    // catalog-projection writer. Exported so the maintenance and catalog
+    // modules route through the same rules instead of re-deriving them.
+    StockLedgerReader,
+    LowStockEvaluator,
+    CatalogStockProjector,
+    // V-B1-5: the low-stock edge trigger for commands that move a tier without
+    // moving stock (thresholds, open orders, site restore). Exported so the
+    // catalog, maintenance and site modules wrap their commands in it.
+    StockTierWatch,
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
     SiteAuthorizationService,
     MobileFeatureGuard,
     ...CommandHandlers,
     ...QueryHandlers,
   ],
-  exports: [TypeOrmModule, StockMovementService, StockMutationLockAuthority],
+  exports: [
+    TypeOrmModule,
+    StockMovementService,
+    StockMutationLockAuthority,
+    StockLedgerReader,
+    LowStockEvaluator,
+    CatalogStockProjector,
+    StockTierWatch,
+  ],
 })
 export class InventoryModule {}

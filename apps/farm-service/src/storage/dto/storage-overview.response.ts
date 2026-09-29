@@ -1,5 +1,7 @@
 import { ObjectType, Field, Float, Int, ID } from '@nestjs/graphql';
 
+import { LowStockLevel } from './warehouse-summary.response';
+
 @ObjectType()
 export class CategoryTotal {
   @Field()
@@ -41,6 +43,10 @@ export class LocationFillRate {
   fillPercentage!: number;
 }
 
+/**
+ * One stock tier at or below its threshold (plan K8), read from the ledger by
+ * LowStockEvaluator. `(itemId, level, siteId)` identifies a row.
+ */
 @ObjectType()
 export class LowStockAlert {
   @Field(() => ID)
@@ -52,11 +58,27 @@ export class LowStockAlert {
   @Field()
   itemType!: string;
 
+  @Field(() => LowStockLevel)
+  level!: LowStockLevel;
+
+  /** The short site for SITE rows; null for POOL rows. */
+  @Field(() => ID, { nullable: true })
+  siteId!: string | null;
+
+  @Field(() => String, { nullable: true })
+  siteName!: string | null;
+
+  /** Physical on-hand of the tier. */
   @Field(() => Float)
   currentQuantity!: number;
 
+  /** Threshold of the tier: site policy minimum, or the catalog reorder point. */
   @Field(() => Float)
   minStock!: number;
+
+  /** Open purchase-order remainder counted toward the POOL position; 0 for SITE. */
+  @Field(() => Float)
+  onOrderQuantity!: number;
 
   @Field()
   unit!: string;

@@ -4,7 +4,8 @@
  * CQRS query handler that aggregates warehouse KPI data for the AquaMobil
  * PWA hub page. Returns:
  * - Total distinct inventory items (feeds + chemicals + consumables)
- * - Low-stock alert count and the items themselves (capped at 10)
+ * - Low-stock tiers (pool + sites) from LowStockEvaluator and their count
+ *   (the list capped at 10; the count is the full count)
  * - Today's stock movement count and recent movements (capped at 10)
  *
  * Architectural decisions:
@@ -27,9 +28,11 @@ import { FEED_STOCKOUT_CRITICAL_DAYS } from '@platform/event-contracts';
 import { FORECAST_STALE_AFTER_MS } from '../../feeding-protocol/services/protocol-feed-forecast.service';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, MoreThanOrEqual } from 'typeorm';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { GetWarehouseSummaryQuery } from '../queries/get-warehouse-summary.query';
 import { StockMovement } from '../entities/stock-movement.entity';
-import { StorageItemType } from '../entities/storage-inventory.entity';
+import { LowStockEvaluator } from '../services/low-stock/low-stock-evaluator.service';
+import { listVisibleLowStock, VisibleLowStockRow } from '../services/low-stock/low-stock-listing';
 import { Feed } from '../../feed/entities/feed.entity';
 import { Chemical } from '../../chemical/entities/chemical.entity';
 import { Consumable } from '../../consumable/entities/consumable.entity';
@@ -40,6 +43,7 @@ import {
   WarehouseRecentMovement,
   WarehouseFeedCoverage,
   WarehouseFeedCoverageStatus,
+  LowStockLevel,
 } from '../dto/warehouse-summary.response';
 
 /** Maximum number of low-stock items and recent movements to return. */
@@ -52,12 +56,15 @@ export class GetWarehouseSummaryHandler
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    // Plan K8 / FARM-HIGH-335: the ONE low-stock decision (ledger, two tiers).
+    private readonly lowStockEvaluator: LowStockEvaluator,
+    private readonly siteAuth: SiteAuthorizationService,
   ) {}
 
   async execute(
     query: GetWarehouseSummaryQuery,
   ): Promise<WarehouseSummaryResponse> {
-    const { tenantId } = query;
+    const { tenantId, caller } = query;
 
     // Read through the fail-closed tenant boundary.
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
@@ -71,9 +78,7 @@ export class GetWarehouseSummaryHandler
         feedCount,
         chemicalCount,
         consumableCount,
-        lowStockFeeds,
-        lowStockChemicals,
-        lowStockConsumables,
+        lowStockRows,
         todaysMovementCount,
         recentMovements,
         feedCoverage,
@@ -81,25 +86,19 @@ export class GetWarehouseSummaryHandler
         this.countActiveFeeds(manager, tenantId),
         this.countActiveChemicals(manager, tenantId),
         this.countActiveConsumables(manager, tenantId),
-        this.getLowStockFeeds(manager, tenantId),
-        this.getLowStockChemicals(manager, tenantId),
-        this.getLowStockConsumables(manager, tenantId),
+        listVisibleLowStock(this.lowStockEvaluator, this.siteAuth, manager, tenantId, caller),
         this.getTodaysMovementCount(manager, tenantId),
         this.getRecentMovements(manager, tenantId),
         this.getFeedCoverage(manager, tenantId),
       ]);
 
-      const allLowStockItems: WarehouseLowStockItem[] = [
-        ...lowStockFeeds,
-        ...lowStockChemicals,
-        ...lowStockConsumables,
-      ];
-
+      // The count is the FULL count of short tiers; only the list is capped.
+      // (It used to count three already-capped lists, so it topped out at 30.)
       return {
         totalItems: feedCount + chemicalCount + consumableCount,
-        lowStockAlertCount: allLowStockItems.length,
+        lowStockAlertCount: lowStockRows.length,
         todaysMovementCount,
-        lowStockItems: allLowStockItems.slice(0, MOBILE_LIST_CAP),
+        lowStockItems: lowStockRows.slice(0, MOBILE_LIST_CAP).map(toWarehouseLowStockItem),
         recentMovements,
         feedCoverage,
       };
@@ -192,94 +191,6 @@ export class GetWarehouseSummaryHandler
   }
 
   /**
-   * Find feeds where current quantity is at or below minimum stock.
-   * Returns at most MOBILE_LIST_CAP items sorted by urgency (lowest ratio first).
-   */
-  private async getLowStockFeeds(
-    manager: EntityManager,
-    tenantId: string,
-  ): Promise<WarehouseLowStockItem[]> {
-    const feeds = await manager
-      .createQueryBuilder(Feed, 'f')
-      .select(['f.id', 'f.name', 'f.quantity', 'f.minStock', 'f.unit'])
-      .where('f.tenantId = :tenantId', { tenantId })
-      .andWhere('f.isDeleted = false')
-      .andWhere('f.isActive = true')
-      .andWhere('f.quantity <= f.minStock')
-      .andWhere('f.minStock > 0')
-      .orderBy('f.quantity / NULLIF(f.minStock, 0)', 'ASC')
-      .limit(MOBILE_LIST_CAP)
-      .getMany();
-
-    return feeds.map((f) => ({
-      id: f.id,
-      name: f.name,
-      itemType: StorageItemType.FEED,
-      currentQty: Number(f.quantity),
-      minQty: Number(f.minStock),
-      unit: f.unit,
-    }));
-  }
-
-  /**
-   * Find chemicals where current quantity is at or below minimum stock.
-   */
-  private async getLowStockChemicals(
-    manager: EntityManager,
-    tenantId: string,
-  ): Promise<WarehouseLowStockItem[]> {
-    const chemicals = await manager
-      .createQueryBuilder(Chemical, 'c')
-      .select(['c.id', 'c.name', 'c.quantity', 'c.minStock', 'c.unit'])
-      .where('c.tenantId = :tenantId', { tenantId })
-      .andWhere('c.isDeleted = false')
-      .andWhere('c.isActive = true')
-      .andWhere('c.quantity <= c.minStock')
-      .andWhere('c.minStock > 0')
-      .orderBy('c.quantity / NULLIF(c.minStock, 0)', 'ASC')
-      .limit(MOBILE_LIST_CAP)
-      .getMany();
-
-    return chemicals.map((c) => ({
-      id: c.id,
-      name: c.name,
-      itemType: StorageItemType.CHEMICAL,
-      currentQty: Number(c.quantity),
-      minQty: Number(c.minStock),
-      unit: c.unit,
-    }));
-  }
-
-  /**
-   * Find consumables where current quantity is at or below minimum stock.
-   */
-  private async getLowStockConsumables(
-    manager: EntityManager,
-    tenantId: string,
-  ): Promise<WarehouseLowStockItem[]> {
-    const consumables = await manager
-      .createQueryBuilder(Consumable, 'c')
-      .select(['c.id', 'c.name', 'c.quantity', 'c.minStock', 'c.unit'])
-      .where('c.tenantId = :tenantId', { tenantId })
-      .andWhere('c.isDeleted = false')
-      .andWhere('c.isActive = true')
-      .andWhere('c.quantity <= c.minStock')
-      .andWhere('c.minStock > 0')
-      .orderBy('c.quantity / NULLIF(c.minStock, 0)', 'ASC')
-      .limit(MOBILE_LIST_CAP)
-      .getMany();
-
-    return consumables.map((c) => ({
-      id: c.id,
-      name: c.name,
-      itemType: StorageItemType.CONSUMABLE,
-      currentQty: Number(c.quantity),
-      minQty: Number(c.minStock),
-      unit: c.unit,
-    }));
-  }
-
-  /**
    * Count stock movements performed today (since midnight UTC).
    * Uses performedAt rather than createdAt because a movement can
    * be back-dated when recording yesterday's activity.
@@ -331,4 +242,20 @@ export class GetWarehouseSummaryHandler
       createdAt: m.createdAt,
     }));
   }
+}
+
+/** Evaluator reading → mobile row (the reading carries the catalog label). */
+function toWarehouseLowStockItem({ reading, siteName }: VisibleLowStockRow): WarehouseLowStockItem {
+  return {
+    id: reading.itemId,
+    name: reading.itemName,
+    itemType: reading.itemType,
+    level: reading.level === 'site' ? LowStockLevel.SITE : LowStockLevel.POOL,
+    siteId: reading.level === 'site' ? reading.siteId : null,
+    siteName,
+    currentQty: reading.onHand,
+    minQty: reading.threshold,
+    onOrderQty: reading.level === 'pool' ? reading.onOrder : 0,
+    unit: reading.unit,
+  };
 }

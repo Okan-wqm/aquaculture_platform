@@ -70,11 +70,19 @@ interface StorageInventoryItem {
 // CONSTANTS
 // ============================================================================
 
-const ITEM_TYPES: Array<{ type: StorageItemType; label: string; emoji: string }> = [
+/**
+ * The item types `transferStock` accepts (farm-service TRANSFERABLE_ITEM_TYPES).
+ * WHY no HEALTHCARE or SPARE_PART: the transfer handler does not yet write
+ * through the stock ledger sink (FARM-HIGH-239), so the API refuses both — a
+ * queued offline transfer of either would only ever fail. Spare parts relocate
+ * through the manager-gated spare-part movement instead.
+ */
+type TransferableItemType = Extract<StorageItemType, 'FEED' | 'CHEMICAL' | 'CONSUMABLE'>;
+
+const ITEM_TYPES: Array<{ type: TransferableItemType; label: string; emoji: string }> = [
   { type: 'FEED', label: 'Feed', emoji: '🐟' },
   { type: 'CHEMICAL', label: 'Chemical', emoji: '🧪' },
   { type: 'CONSUMABLE', label: 'Consumable', emoji: '📦' },
-  { type: 'HEALTHCARE', label: 'Healthcare', emoji: '💊' },
 ];
 
 const TOTAL_STEPS = 5;

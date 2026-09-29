@@ -37,11 +37,29 @@ registerEnumType(WarehouseFeedCoverageStatus, {
 });
 
 /**
- * An inventory item that has fallen below its minimum stock threshold.
- * Displayed as alert cards on the mobile warehouse hub.
+ * Which stock tier a low-stock row describes (plan K8).
+ * SITE: one site's on-hand vs its distribution policy (transfer / site buy).
+ * POOL: the tenant's inventory position vs the catalog reorder threshold (buy).
+ */
+export enum LowStockLevel {
+  SITE = 'site',
+  POOL = 'pool',
+}
+
+registerEnumType(LowStockLevel, {
+  name: 'LowStockLevel',
+  description: 'Stock tier of a low-stock reading: one site, or the tenant pool',
+});
+
+/**
+ * One stock tier that is at or below its threshold, read from the storage
+ * ledger by LowStockEvaluator (never the denormalized catalog quantity).
+ * The same item can appear twice — once for the pool, once per short site —
+ * so `(id, level, siteId)` identifies a row, not `id` alone.
  */
 @ObjectType()
 export class WarehouseLowStockItem {
+  /** The stock item's id. */
   @Field(() => ID)
   id!: string;
 
@@ -51,11 +69,27 @@ export class WarehouseLowStockItem {
   @Field(() => StorageItemType)
   itemType!: StorageItemType;
 
+  @Field(() => LowStockLevel)
+  level!: LowStockLevel;
+
+  /** The short site for SITE rows; null for POOL rows. */
+  @Field(() => ID, { nullable: true })
+  siteId!: string | null;
+
+  @Field(() => String, { nullable: true })
+  siteName!: string | null;
+
+  /** Physical on-hand of the tier (site locations, or every location). */
   @Field(() => Float)
   currentQty!: number;
 
+  /** The threshold of the tier (site policy minimum, or catalog reorder point). */
   @Field(() => Float)
   minQty!: number;
+
+  /** Open purchase-order remainder counted toward the POOL position; 0 for SITE. */
+  @Field(() => Float)
+  onOrderQty!: number;
 
   @Field()
   unit!: string;
@@ -133,7 +167,7 @@ export class WarehouseSummaryResponse {
   @Field(() => Int)
   totalItems!: number;
 
-  /** Number of items currently below their minimum stock threshold. */
+  /** Number of stock tiers (pool + sites) currently at or below their threshold. */
   @Field(() => Int)
   lowStockAlertCount!: number;
 
@@ -141,7 +175,7 @@ export class WarehouseSummaryResponse {
   @Field(() => Int)
   todaysMovementCount!: number;
 
-  /** Items below their minimum stock level, capped at 10 for mobile. */
+  /** Tiers below their threshold, most urgent first, capped at 10 for mobile. */
   @Field(() => [WarehouseLowStockItem])
   lowStockItems!: WarehouseLowStockItem[];
 

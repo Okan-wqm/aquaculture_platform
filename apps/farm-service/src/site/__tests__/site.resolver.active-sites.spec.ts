@@ -1,16 +1,13 @@
 import { Role } from '@aquaculture/backend-common/decorators';
 import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
 import { Test, type TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { CommandBus, QueryBus } from '@platform/cqrs';
 
-import { RestoreService } from '../../common/services/restore.service';
 import {
   ACTIVE_SITE_COLLECTION_HARD_CAP,
   ActiveSiteCollectionLimitExceededError,
 } from '../handlers/get-active-site-access-catalog.handler';
 import { ListSitesQuery } from '../queries/list-sites.query';
-import { Site } from '../entities/site.entity';
 import { SiteResolver } from '../site.resolver';
 
 describe('SiteResolver activeSites compatibility contract', () => {
@@ -31,8 +28,6 @@ describe('SiteResolver activeSites compatibility contract', () => {
         SiteResolver,
         { provide: CommandBus, useValue: { execute: jest.fn() } },
         { provide: QueryBus, useValue: queryBus },
-        { provide: getRepositoryToken(Site), useValue: {} },
-        { provide: RestoreService, useValue: {} },
       ],
     }).compile();
     resolver = moduleRef.get(SiteResolver);

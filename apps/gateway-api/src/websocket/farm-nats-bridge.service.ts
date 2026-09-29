@@ -72,6 +72,7 @@ import { ConfigService } from '@nestjs/config';
 import { validateFarmEvent } from '@platform/event-contracts';
 
 import { FarmGateway } from './farm.gateway';
+import { tenantRoomLowStock } from './low-stock-tenant-room';
 
 // ============================================================================
 // Types
@@ -387,9 +388,24 @@ export class FarmNatsBridgeService implements OnModuleInit, OnModuleDestroy {
       case 'FeedInventoryLow':
         this.farmGateway.broadcastFeedInventoryLow(routingTenantId, event);
         break;
-      case 'LowStockDetected':
-        this.farmGateway.broadcastLowStockDetected(routingTenantId, event);
+      case 'LowStockDetected': {
+        // Plan K8: the tenant room carries only tenant-aggregate tiers (pool,
+        // or a tierless v1 event). A SITE tier names one site's stock, and
+        // this gateway has no site-scoped room to deliver it to only the users
+        // assigned to that site — so it is withheld, never widened.
+        const poolTier = tenantRoomLowStock(event);
+        if (poolTier === null) {
+          this.logger.debug({
+            message: 'LowStockDetected site tier withheld from the tenant room',
+            reason: 'no site-scoped room',
+            eventId: event.eventId,
+            tenantId: routingTenantId,
+          });
+          break;
+        }
+        this.farmGateway.broadcastLowStockDetected(routingTenantId, poolTier);
         break;
+      }
       case 'SiteCreated':
         this.farmGateway.broadcastSiteCreated(routingTenantId, event);
         break;

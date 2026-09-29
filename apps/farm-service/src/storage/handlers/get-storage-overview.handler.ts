@@ -2,7 +2,11 @@ import { numberOrUndefined, runInTenantRead } from '@aquaculture/backend-common/
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, MoreThanOrEqual } from 'typeorm';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { GetStorageOverviewQuery } from '../queries/get-storage-overview.query';
+import { LowStockEvaluator } from '../services/low-stock/low-stock-evaluator.service';
+import { listVisibleLowStock, VisibleLowStockRow } from '../services/low-stock/low-stock-listing';
+import { LowStockLevel } from '../dto/warehouse-summary.response';
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StockMovement } from '../entities/stock-movement.entity';
 import { Feed } from '../../feed/entities/feed.entity';
@@ -34,10 +38,13 @@ export class GetStorageOverviewHandler implements IQueryHandler<GetStorageOvervi
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    // Plan K8 / FARM-HIGH-335: the ONE low-stock decision (ledger, two tiers).
+    private readonly lowStockEvaluator: LowStockEvaluator,
+    private readonly siteAuth: SiteAuthorizationService,
   ) {}
 
   async execute(query: GetStorageOverviewQuery): Promise<StorageOverviewResponse> {
-    const { tenantId } = query;
+    const { tenantId, caller } = query;
 
     // Read through the fail-closed tenant boundary.
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
@@ -50,18 +57,14 @@ export class GetStorageOverviewHandler implements IQueryHandler<GetStorageOvervi
         consumableStats,
         locationFillRates,
         recentMovementsCount,
-        lowStockFeeds,
-        lowStockChemicals,
-        lowStockConsumables,
+        lowStockRows,
       ] = await Promise.all([
         this.getFeedStats(manager, tenantId),
         this.getChemicalStats(manager, tenantId),
         this.getConsumableStats(manager, tenantId),
         this.getLocationFillRates(manager, tenantId),
         this.getRecentMovementsCount(manager, tenantId),
-        this.getLowStockFeeds(manager, tenantId),
-        this.getLowStockChemicals(manager, tenantId),
-        this.getLowStockConsumables(manager, tenantId),
+        listVisibleLowStock(this.lowStockEvaluator, this.siteAuth, manager, tenantId, caller),
       ]);
 
       const categoryTotals: CategoryTotal[] = [
@@ -73,11 +76,7 @@ export class GetStorageOverviewHandler implements IQueryHandler<GetStorageOvervi
       const totalStockValue = categoryTotals.reduce((sum, c) => sum + c.totalValue, 0);
       const totalItems = categoryTotals.reduce((sum, c) => sum + c.itemCount, 0);
 
-      const lowStockAlerts: LowStockAlert[] = [
-        ...lowStockFeeds,
-        ...lowStockChemicals,
-        ...lowStockConsumables,
-      ];
+      const lowStockAlerts: LowStockAlert[] = lowStockRows.map(toLowStockAlert);
 
       return {
         totalStockValue,
@@ -183,64 +182,20 @@ export class GetStorageOverviewHandler implements IQueryHandler<GetStorageOvervi
       },
     });
   }
+}
 
-  private async getLowStockFeeds(manager: EntityManager, tenantId: string): Promise<LowStockAlert[]> {
-    const feeds = await manager
-      .createQueryBuilder(Feed, 'f')
-      .where('f.tenantId = :tenantId', { tenantId })
-      .andWhere('f.isDeleted = false')
-      .andWhere('f.isActive = true')
-      .andWhere('f.quantity <= f.minStock')
-      .andWhere('f.minStock > 0')
-      .getMany();
-
-    return feeds.map((f) => ({
-      itemId: f.id,
-      itemName: f.name,
-      itemType: 'feed',
-      currentQuantity: Number(f.quantity),
-      minStock: Number(f.minStock),
-      unit: f.unit,
-    }));
-  }
-
-  private async getLowStockChemicals(manager: EntityManager, tenantId: string): Promise<LowStockAlert[]> {
-    const chemicals = await manager
-      .createQueryBuilder(Chemical, 'c')
-      .where('c.tenantId = :tenantId', { tenantId })
-      .andWhere('c.isDeleted = false')
-      .andWhere('c.isActive = true')
-      .andWhere('c.quantity <= c.minStock')
-      .andWhere('c.minStock > 0')
-      .getMany();
-
-    return chemicals.map((c) => ({
-      itemId: c.id,
-      itemName: c.name,
-      itemType: 'chemical',
-      currentQuantity: Number(c.quantity),
-      minStock: Number(c.minStock),
-      unit: c.unit,
-    }));
-  }
-
-  private async getLowStockConsumables(manager: EntityManager, tenantId: string): Promise<LowStockAlert[]> {
-    const consumables = await manager
-      .createQueryBuilder(Consumable, 'c')
-      .where('c.tenantId = :tenantId', { tenantId })
-      .andWhere('c.isDeleted = false')
-      .andWhere('c.isActive = true')
-      .andWhere('c.quantity <= c.minStock')
-      .andWhere('c.minStock > 0')
-      .getMany();
-
-    return consumables.map((c) => ({
-      itemId: c.id,
-      itemName: c.name,
-      itemType: 'consumable',
-      currentQuantity: Number(c.quantity),
-      minStock: Number(c.minStock),
-      unit: c.unit,
-    }));
-  }
+/** Evaluator reading → web overview row. */
+function toLowStockAlert({ reading, siteName }: VisibleLowStockRow): LowStockAlert {
+  return {
+    itemId: reading.itemId,
+    itemName: reading.itemName,
+    itemType: reading.itemType,
+    level: reading.level === 'site' ? LowStockLevel.SITE : LowStockLevel.POOL,
+    siteId: reading.level === 'site' ? reading.siteId : null,
+    siteName,
+    currentQuantity: reading.onHand,
+    minStock: reading.threshold,
+    onOrderQuantity: reading.level === 'pool' ? reading.onOrder : 0,
+    unit: reading.unit,
+  };
 }

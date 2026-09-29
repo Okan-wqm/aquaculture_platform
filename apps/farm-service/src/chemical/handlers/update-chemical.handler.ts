@@ -8,13 +8,26 @@ import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-
 import { UpdateChemicalCommand } from '../commands/update-chemical.command';
 import { Chemical } from '../entities/chemical.entity';
 import { Supplier } from '../../supplier/entities/supplier.entity';
+import { StockTierWatch } from '../../storage/services/low-stock/stock-tier-watch.service';
+import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 
 @CommandHandler(UpdateChemicalCommand)
 export class UpdateChemicalHandler implements ICommandHandler<UpdateChemicalCommand, Chemical> {
   private readonly logger = new Logger(UpdateChemicalHandler.name);
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly tierWatch: StockTierWatch,
+  ) {}
 
+  /**
+   * WHY (FARM-HIGH-337): `quantity` and the stock band belong to the ledger
+   * projection; an edit of minStock or the lifecycle status must re-derive
+   * them, not leave them stale. WHAT: saves the catalog fields inside
+   * StockTierWatch (a raised minStock signals its pool crossing, V-B1-5), which
+   * re-projects quantity + status in the SAME transaction; returns the
+   * projected row.
+   */
   async execute(command: UpdateChemicalCommand): Promise<Chemical> {
     const { chemicalId, input, tenantId, userId } = command;
 
@@ -66,11 +79,23 @@ export class UpdateChemicalHandler implements ICommandHandler<UpdateChemicalComm
         updatedBy: userId,
       });
 
-      const updatedChemical = await chemicalRepo.save(chemical);
+      // A minStock change moves the pool tier without moving stock (V-B1-5):
+      // the watch signals the crossing through the one low-stock sink and
+      // re-projects quantity + status (the projector stays their one writer).
+      await this.tierWatch.around(
+        queryRunner.manager,
+        tenantId,
+        {
+          items: [{ itemType: StorageItemType.CHEMICAL, itemId: chemicalId }],
+          causationId: () => chemicalId,
+        },
+        () => chemicalRepo.save(chemical),
+      );
+      const projected = await chemicalRepo.findOneOrFail({ where: { id: chemicalId, tenantId } });
 
       this.logger.log(`Chemical ${chemicalId} updated successfully`);
 
-      return updatedChemical;
+      return projected;
     });
   }
 }

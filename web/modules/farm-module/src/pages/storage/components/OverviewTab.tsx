@@ -14,6 +14,7 @@ import {
   type DataTableColumn,
   Spinner,
   Button,
+  useI18n,
 } from '@aquaculture/shared-ui';
 import type { PieDataItem } from '@aquaculture/shared-ui';
 import {
@@ -25,6 +26,7 @@ import {
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
 import { usePendingDeliveries, PurchaseOrder } from '../../../hooks/usePurchaseOrders';
 import { ReceiveDeliveryModal } from './ReceiveDeliveryModal';
+import { lowStockRowKey, lowStockTierLabel } from '../utils/low-stock-tiers';
 import { ChevronDown, Clock, X } from 'lucide-react';
 
 const movementTypeBadge: Record<string, string> = {
@@ -91,6 +93,7 @@ const CATEGORY_CONFIG: Record<
 };
 
 export const OverviewTab: React.FC = () => {
+  const { t } = useI18n();
   const { data: overview, isLoading: overviewLoading } = useStorageOverview();
   const { data: movementsData } = useStockMovements();
   const { data: locations } = useStorageLocationList();
@@ -471,22 +474,26 @@ export const OverviewTab: React.FC = () => {
               Low Stock Alerts
             </h3>
           </div>
+          {/* One row per (item, tier, site): the pool and each short site are
+              separate decisions (reorder vs. transfer) — plan K8. */}
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {(overview?.lowStockAlerts || []).length === 0 ? (
               <div className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                 No low stock alerts
               </div>
             ) : (
-              overview?.lowStockAlerts.map((alert, idx) => (
+              overview?.lowStockAlerts.map((alert) => (
                 <div
-                  key={`${alert.itemId}-${idx}`}
+                  key={lowStockRowKey(alert)}
                   className="px-5 py-3 flex items-center justify-between"
                 >
                   <div>
                     <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                       {alert.itemName}
                     </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">{alert.itemType}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      {alert.itemType} · {lowStockTierLabel(alert, t)}
+                    </div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm">
@@ -504,6 +511,14 @@ export const OverviewTab: React.FC = () => {
                         / {alert.minStock} {alert.unit}
                       </span>
                     </div>
+                    {alert.level === 'POOL' && alert.onOrderQuantity > 0 && (
+                      <div className="text-xs text-info-600 dark:text-info-400">
+                        {t('storage.lowStock.onOrder', {
+                          quantity: alert.onOrderQuantity,
+                          unit: alert.unit,
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))

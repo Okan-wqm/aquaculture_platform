@@ -1,7 +1,7 @@
 /**
  * Purchase Order hooks for farm-module
  */
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   useAuth,
   graphqlClient,
@@ -9,6 +9,19 @@ import {
   createTenantInvalidationKey,
 } from '@aquaculture/shared-ui';
 import type { PaginationResultV1 } from '@platform/pagination-contracts';
+
+import { invalidateStockReadModels } from './stockReadModels';
+
+/** Purchase orders plus every read model their open remainder feeds. */
+async function invalidateOrdersAndStock(
+  queryClient: QueryClient,
+  tenantId: string | null | undefined,
+): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders') }),
+    invalidateStockReadModels(queryClient, tenantId),
+  ]);
+}
 
 // Types
 export enum PurchaseOrderCategory {
@@ -289,9 +302,9 @@ export function useUpdatePurchaseOrderStatus() {
       );
       return data.updatePurchaseOrderStatus;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders') });
-    },
+    // A status change moves the open-order remainder that spare-part status and
+    // the pool low-stock position read (plan K8 / FARM-HIGH-338).
+    onSuccess: () => invalidateOrdersAndStock(queryClient, tenantId),
   });
 }
 
@@ -309,12 +322,8 @@ export function useReceiveDelivery() {
       );
       return data.receiveDelivery;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockMovements') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageOverview') });
-    },
+    // A receipt moves stock into the ledger and shrinks the open-order remainder.
+    onSuccess: () => invalidateOrdersAndStock(queryClient, tenantId),
   });
 }
 
@@ -332,9 +341,9 @@ export function useCancelPurchaseOrder() {
       );
       return data.cancelPurchaseOrder;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders') });
-    },
+    // A status change moves the open-order remainder that spare-part status and
+    // the pool low-stock position read (plan K8 / FARM-HIGH-338).
+    onSuccess: () => invalidateOrdersAndStock(queryClient, tenantId),
   });
 }
 
@@ -358,9 +367,9 @@ export function useSubmitPurchaseOrder() {
       );
       return data.updatePurchaseOrderStatus;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders') });
-    },
+    // A status change moves the open-order remainder that spare-part status and
+    // the pool low-stock position read (plan K8 / FARM-HIGH-338).
+    onSuccess: () => invalidateOrdersAndStock(queryClient, tenantId),
   });
 }
 
@@ -383,8 +392,8 @@ export function useApprovePurchaseOrder() {
       );
       return data.approvePurchaseOrder;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'purchaseOrders') });
-    },
+    // A status change moves the open-order remainder that spare-part status and
+    // the pool low-stock position read (plan K8 / FARM-HIGH-338).
+    onSuccess: () => invalidateOrdersAndStock(queryClient, tenantId),
   });
 }

@@ -10,12 +10,16 @@ import {
 } from '@aquaculture/shared-ui';
 import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
+import { invalidateStockReadModels } from './stockReadModels';
+
 // Types
 export enum StorageItemType {
   FEED = 'FEED',
   CHEMICAL = 'CHEMICAL',
   CONSUMABLE = 'CONSUMABLE',
   HEALTHCARE = 'HEALTHCARE',
+  // FARM-HIGH-338: spare parts are storage-ledger stock (backend StorageItemType).
+  SPARE_PART = 'SPARE_PART',
 }
 
 export enum MovementType {
@@ -97,12 +101,28 @@ export interface LocationFillRate {
   fillPercentage: number;
 }
 
+/** Stock tier of a low-stock row (plan K8): one site, or the tenant pool. */
+export type LowStockLevel = 'SITE' | 'POOL';
+
+/**
+ * One short stock TIER read from the storage ledger (plan K8). The same item
+ * can appear twice — once for the pool, once per short site — so
+ * `(itemId, level, siteId)` identifies a row (see pages/storage/utils/low-stock-tiers.ts).
+ */
 export interface LowStockAlert {
   itemId: string;
   itemName: string;
   itemType: string;
+  level: LowStockLevel;
+  /** The short site for SITE rows; null for POOL rows. */
+  siteId: string | null;
+  siteName: string | null;
+  /** Physical on-hand of the tier. */
   currentQuantity: number;
+  /** Threshold of the tier: the site policy minimum, or the pool reorder threshold. */
   minStock: number;
+  /** Open purchase-order remainder counted toward the POOL position; 0 for SITE. */
+  onOrderQuantity: number;
   unit: string;
 }
 
@@ -133,8 +153,24 @@ export interface RecordStockMovementInput {
   idempotencyKey?: string;
 }
 
+/**
+ * The item types `transferStock` accepts — mirror of the backend
+ * `TRANSFERABLE_ITEM_TYPES` (farm-service transfer-stock.input.ts). Spare parts
+ * relocate through `recordSparePartStockMovement` (transfer); healthcare
+ * bookings are refused until the transfer handler writes through the ledger
+ * sink (FARM-HIGH-239).
+ */
+export const TRANSFERABLE_ITEM_TYPES = [
+  StorageItemType.FEED,
+  StorageItemType.CHEMICAL,
+  StorageItemType.CONSUMABLE,
+] as const;
+
+/** A storage item type the transfer form may send. */
+export type TransferableItemType = (typeof TRANSFERABLE_ITEM_TYPES)[number];
+
 export interface TransferStockInput {
-  itemType: StorageItemType;
+  itemType: TransferableItemType;
   itemId: string;
   quantity: number;
   fromLocationId: string;
@@ -196,8 +232,12 @@ const STORAGE_OVERVIEW_QUERY = `
         itemId
         itemName
         itemType
+        level
+        siteId
+        siteName
         currentQuantity
         minStock
+        onOrderQuantity
         unit
       }
     }
@@ -302,7 +342,7 @@ export function useStorageInventory(locationId?: string, itemType?: StorageItemT
     queryFn: async () => {
       const data = await graphqlClient.request<{ storageInventory: StorageInventoryItem[] }>(
         STORAGE_INVENTORY_QUERY,
-        { locationId, itemType }
+        { locationId, itemType },
       );
       return data.storageInventory;
     },
@@ -318,7 +358,7 @@ export function useStorageOverview() {
     queryKey: createTenantQueryKey(tenantId, 'storageOverview'),
     queryFn: async () => {
       const data = await graphqlClient.request<{ storageOverview: StorageOverview }>(
-        STORAGE_OVERVIEW_QUERY
+        STORAGE_OVERVIEW_QUERY,
       );
       return data.storageOverview;
     },
@@ -342,7 +382,7 @@ export function useStockMovements(filter?: {
     queryFn: async () => {
       const data = await graphqlClient.request<{ stockMovements: PaginatedMovementsResponse }>(
         STOCK_MOVEMENTS_QUERY,
-        { filter, pagination: { page: 1, limit: 100 } }
+        { filter, pagination: { page: 1, limit: 100 } },
       );
       return data.stockMovements;
     },
@@ -361,18 +401,12 @@ export function useRecordStockMovement() {
       if (!tenantId) throw new Error('Tenant context required. Please re-login.');
       const data = await graphqlClient.request<{ recordStockMovement: StockMovement }>(
         RECORD_STOCK_MOVEMENT_MUTATION,
-        { input }
+        { input },
       );
       return data.recordStockMovement;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockMovements') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageOverview') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'feeds', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'chemicals', 'list') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'consumables', 'list') });
-    },
+    // Every ledger-derived cache, spare parts included (FARM-HIGH-338).
+    onSuccess: () => invalidateStockReadModels(queryClient, tenantId),
   });
 }
 
@@ -395,10 +429,9 @@ export function useLotTrace(lotNumber: string | null) {
   return useQuery<StockMovement[]>({
     queryKey: createTenantQueryKey(tenantId, 'lotTrace', lotNumber),
     queryFn: async () => {
-      const data = await graphqlClient.request<{ traceLot: StockMovement[] }>(
-        TRACE_LOT_QUERY,
-        { lotNumber }
-      );
+      const data = await graphqlClient.request<{ traceLot: StockMovement[] }>(TRACE_LOT_QUERY, {
+        lotNumber,
+      });
       return data.traceLot;
     },
     enabled: !!token && !!tenantId && !!lotNumber && lotNumber.length >= 2,
@@ -416,14 +449,10 @@ export function useTransferStock() {
       if (!tenantId) throw new Error('Tenant context required. Please re-login.');
       const data = await graphqlClient.request<{ transferStock: StockMovement }>(
         TRANSFER_STOCK_MUTATION,
-        { input }
+        { input },
       );
       return data.transferStock;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageInventory') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'stockMovements') });
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'storageOverview') });
-    },
+    onSuccess: () => invalidateStockReadModels(queryClient, tenantId),
   });
 }

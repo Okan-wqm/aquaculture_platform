@@ -220,23 +220,29 @@ interface WireFeedInventoryLow extends WireBaseEvent {
 }
 
 /**
- * Storage-ledger low-stock signal (stock SSoT Phase 1). Emitted by the
- * single inventory-mutation sink (`StockMovementService.recordMovement`)
- * whenever an OUT/WASTE movement leaves the item's aggregate quantity at
- * or below its `minStock` — regardless of which caller (manual movement,
- * feeding deduction, adjustment) triggered the movement. Successor of the
- * legacy `FeedInventoryLow` (which only fired from the feed_inventory
- * branch); both are bridged during the migration window.
+ * Storage-ledger low-stock signal. Emitted by the single inventory-mutation
+ * sink (`StockMovementService.recordMovement`) when a movement makes a stock
+ * tier cross into a worse band — regardless of which caller (manual movement,
+ * feeding deduction, work-order consumption, adjustment) triggered it.
+ *
+ * WHY the tier fields are optional HERE while the domain type requires
+ * `level`: the gateway bridge validates the raw wire payload, and a v1 event
+ * (no tier) may still be in flight when v2 deploys. One schema therefore
+ * accepts both versions; the if/then/else below still forbids every mixed
+ * shape (a site event without its site, a pool event naming a site).
  */
 interface WireLowStockDetected extends WireBaseEvent {
   eventType: 'LowStockDetected';
-  itemType: 'feed' | 'chemical' | 'consumable' | 'healthcare';
+  itemType: 'feed' | 'chemical' | 'consumable' | 'healthcare' | 'spare_part';
   itemId: string;
   itemName: string;
   currentQuantity: number;
   unit: string;
   minimumThreshold?: number;
   severity: 'low_stock' | 'out_of_stock';
+  level?: 'site' | 'pool';
+  siteId?: string;
+  onOrderQuantity?: number | null;
 }
 
 interface WireFeedingProtocolAssigned extends WireBaseEvent {
@@ -1015,7 +1021,7 @@ export const lowStockDetectedSchema: JSONSchemaType<WireLowStockDetected> = {
     eventType: { type: 'string', const: 'LowStockDetected' },
     itemType: {
       type: 'string',
-      enum: ['feed', 'chemical', 'consumable', 'healthcare'],
+      enum: ['feed', 'chemical', 'consumable', 'healthcare', 'spare_part'],
     },
     itemId: UUID_SCHEMA,
     itemName: FREE_TEXT,
@@ -1023,6 +1029,9 @@ export const lowStockDetectedSchema: JSONSchemaType<WireLowStockDetected> = {
     unit: SHORT_CODE,
     minimumThreshold: { ...NON_NEGATIVE_NUMBER, nullable: true },
     severity: { type: 'string', enum: ['low_stock', 'out_of_stock'] },
+    level: { type: 'string', enum: ['site', 'pool'], nullable: true },
+    siteId: { ...UUID_SCHEMA, nullable: true },
+    onOrderQuantity: { ...NON_NEGATIVE_NUMBER, nullable: true },
   },
   required: [
     ...BASE_EVENT_REQUIRED,
@@ -1032,6 +1041,32 @@ export const lowStockDetectedSchema: JSONSchemaType<WireLowStockDetected> = {
     'currentQuantity',
     'unit',
     'severity',
+  ],
+  // INVARIANT: the tier is complete and unambiguous. If violated → the
+  // gateway drops the payload instead of broadcasting an ambiguous alert.
+  //   1. v2+ names its tier (a non-null `level`); only v1 may omit it.
+  //   2. a site event names a non-null site and carries no pool-only field;
+  //      every other event (pool, or v1 with no tier) never names a site.
+  //   3. a pool event carries its open-order remainder (`null` = unknown,
+  //      which only the v1 → v2 upcaster produces).
+  allOf: [
+    {
+      if: { properties: { version: { type: 'integer', minimum: 2 } }, required: ['version'] },
+      then: { required: ['level'], properties: { level: { type: 'string' } } },
+    },
+    {
+      if: { properties: { level: { const: 'site' } }, required: ['level'] },
+      then: {
+        required: ['siteId'],
+        properties: { siteId: { type: 'string' } },
+        not: { required: ['onOrderQuantity'] },
+      },
+      else: { not: { required: ['siteId'] } },
+    },
+    {
+      if: { properties: { level: { const: 'pool' } }, required: ['level'] },
+      then: { required: ['onOrderQuantity'] },
+    },
   ],
 };
 

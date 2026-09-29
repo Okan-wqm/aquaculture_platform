@@ -44,6 +44,20 @@ describe('stockMutationLockKey', () => {
     ).toBe(`aquaculture.stock-item/v1:${TENANT}:feed:${FEED_A}`);
   });
 
+  it('gives the HEALTHCARE and CONSUMABLE spellings of one item ONE key (plan K8)', () => {
+    // SCENARIO: one consumable booked as 'healthcare' by a PO receipt and as
+    // 'consumable' by a manual movement. EXPECTS: both movements serialise on
+    // the same lock, because the low-stock evaluator treats them as one stock.
+    const healthcare = stockMutationLockKey(TENANT, {
+      itemType: StorageItemType.HEALTHCARE,
+      itemId: FEED_A,
+    });
+    expect(healthcare).toBe(
+      stockMutationLockKey(TENANT, { itemType: StorageItemType.CONSUMABLE, itemId: FEED_A }),
+    );
+    expect(healthcare).toBe(`aquaculture.stock-item/v1:${TENANT}:consumable:${FEED_A}`);
+  });
+
   it('refuses a non-UUID identity rather than locking a key nobody else derives', () => {
     expect(() =>
       stockMutationLockKey('tenant-1', { itemType: StorageItemType.FEED, itemId: FEED_A }),

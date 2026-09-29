@@ -349,6 +349,22 @@ export const en = {
   'feedingV2.mealBoard.save': 'Save',
   'feedingV2.mealBoard.cancel': 'Cancel',
 
+  // ── Spare-part stock movement: ledger transfer (FARM-HIGH-338) ──
+  'maintenance.sparePartMovement.transfer': 'Transfer to another location',
+  'maintenance.sparePartMovement.destination': 'Receiving location',
+  'maintenance.sparePartMovement.destinationRequired':
+    'Choose the location that receives the stock.',
+  'maintenance.sparePartMovement.destinationPlaceholder': 'Choose a receiving location',
+
+  // ── Storage low-stock tiers (farm-module, plan K8) ──
+  'storage.lowStock.siteTier': 'Site: {site}',
+  'storage.lowStock.poolTier': 'All sites (pool)',
+  'storage.lowStock.siteBadge': 'SITE',
+  'storage.lowStock.onOrder': '+{quantity} {unit} on order',
+
+  // ── Dashboard stock widget (plan K8: one count per short tier) ──
+  'dashboard.stock.alertCount': '{count} low-stock alerts',
+
   // ── Messaging panel (FAZ 1) ──
   'messaging.overview': 'Overview',
   'messaging.title': 'Messages',

@@ -13,11 +13,32 @@ import {
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
 
+/**
+ * Ledger item category — the `item_type` discriminator of `storage_inventory`
+ * and `stock_movements`.
+ *
+ * WHY SPARE_PART is here (FARM-HIGH-338): a spare part is physical stock on a
+ * physical shelf, so it lives in the ONE inventory ledger instead of a second
+ * counter on `spare_parts.quantity` that no movement row ever backed.
+ * INVARIANT: every switch over this enum is exhaustive (`assertNeverItemType`)
+ * — a new category that some reader forgets is a compile error, not a silent
+ * `default: null`.
+ */
 export enum StorageItemType {
   FEED = 'feed',
   CHEMICAL = 'chemical',
   CONSUMABLE = 'consumable',
   HEALTHCARE = 'healthcare',
+  SPARE_PART = 'spare_part',
+}
+
+/**
+ * Compile-time exhaustiveness guard for switches over `StorageItemType`.
+ * WHY: a `default:` branch hides a forgotten category; this makes the forgotten
+ * case a type error at the switch that missed it.
+ */
+export function assertNeverItemType(itemType: never): never {
+  throw new Error(`Unhandled storage item type: ${String(itemType)}`);
 }
 
 registerEnumType(StorageItemType, {

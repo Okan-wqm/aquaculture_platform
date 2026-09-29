@@ -76,3 +76,25 @@ verify steps with the change's kernel. It publishes nothing and fails when the v
 valid. The lane's `aria-kernel` verdict job requires it. `aria-kernel/tests/test_state_compaction_gate.py`
 pins the two steps to the maintenance lane's byte for byte (name, id, env, run), so the gate cannot
 drift from the path it stands in for.
+
+## ARIA-HIGH-241
+
+The claim gate and the native task binding disagree about a request that names no anchor.
+`agent_invocations._anchor_refusal_reason` follows ORPHAN-CRITICAL-495 (11 of 17 mint paths pass no
+`target_sha`, and a missing anchor is not grounds for refusal), so such a request is claimable. But
+`ci_executor._native_task_binding_refusal` refused the same row as `target_revision_unavailable`
+(`elif not head.ok or not anchor`), and both managed-subscription call sites act on that refusal: the
+single-request path (`ci_executor.py:4106`) and the judge batch (`ci_executor_judge_batch.py:243`,
+which refuses every member with rows[0]'s anchor). The refusal is released harness-class, so every
+unanchored judge request burned drain budget and was re-queued without running. The 2026-09-27 audit
+counted 103 such rows and 27 `harness_failed` per drain.
+
+Rule: A request the claim gate admits is bound, not refused, by the executor. When the request names no
+anchor, the executor binds it at the observed HEAD and records that choice.
+
+Fix: the binding treats a missing anchor the way the claim gate does. It binds at the HEAD the probe
+observed, refuses only on a mismatch against an anchor that exists, and records the choice as
+`runtime_task_bound` with `anchor_source="observed_head"`. `test_ci_executor_live_path_smoke`
+mints an unanchored judge request with the kernel's own mint and runs the executor's native entry on
+real git. The binding holds and the fleet refuses by its own name. Without the fix the same test fails
+on the `runtime_task_binding_unavailable` row.

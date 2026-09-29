@@ -235,3 +235,41 @@ runner host. If it is started with a user token, each dispatch is refused by nam
 Operator step after merge (plan M3): remove `ARIA_GH_TOKEN` from the runner `.env`, confirm
 `gh auth status` as `gharunner` shows no operator login, restart the runner service, and revoke
 the PAT.
+
+## ARIA-HIGH-247
+
+The runner habitat in `scripts/aria/runner-habitat/systemd/` cannot be applied as written, so the
+drift gate in `scripts/aria/provision_runner.sh` can never pass. Its budgets were sized for a 7.8
+GiB droplet. On 2026-09-29 the host had 31.2 GiB and 8 CPUs, and `user-0.slice` (the operator's
+agent sessions) held 10.9 GB. Installing `user-.slice.d/50-aria-memory-discipline.conf`
+(`MemoryMax=3G`) would have made the cgroup OOM killer end those sessions at once. Apply mode also
+installs and enables `aria-gateway.service` and the telemetry timer (lines 164-182), a capability
+outside the runner habitat. The runner itself ran with no drop-in at all (`MemoryMax=infinity`,
+`OOMPolicy=stop`) until the operator installed `actions-runner.limits.conf` by hand on 2026-09-29.
+
+Rule: the repo copy of the habitat is what the host runs. Its budgets come from the host's measured
+capacity, and applying it installs only the habitat.
+
+## ARIA-HIGH-248
+
+A plan that converges in a cycle whose profile lacks `pr_create` can never be implemented. The
+implementation step runs only when the same cycle's convergence returns `converged`
+(`autonomy_orchestrator.py:2138`), and `cycle_phases/implementer.py` returns the no-op runner for
+any profile without the implementation permission. `CONVERGED` is terminal
+(`plan_convergence.py:73`), resume skips terminal plans, and no CLI verb implements an existing
+converged plan. Every standard cycle that converges a plan therefore strands it.
+
+Rule: a converged plan is implementable later by a cycle that holds the permission, or the standard
+profile does not converge plans it cannot implement.
+
+## ARIA-MEDIUM-249
+
+Two of the plan synthesizer's four candidate sources are dead, and the third ranks against its own
+contract. The ORPHAN scanner's heading pattern (`plan_synthesizer.py:517`,
+`^##\s+ORPHAN-([A-Z]+)-(\d+)\s*$`) matches none of the headings in
+`docs/reviews/orphan-findings.md`, which end in `— <title> — OPEN`. GitHub issue candidates are
+scanned but never converted: the conversion accepts only operator feedback, failing CI, ORPHAN and
+F-finding sources (`:1025`). The F-finding scanner documents oldest-first ordering, yet the merged
+sort orders by `age_seconds` ascending, so the newest finding wins.
+
+Rule: every source the synthesizer scans can produce a plan, and each ranks as documented.

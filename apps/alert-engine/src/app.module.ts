@@ -6,6 +6,7 @@ import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/ap
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { join } from 'path';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 import depthLimit from 'graphql-depth-limit';
 import {
   SourceSchemaBootstrapService,
@@ -191,9 +192,13 @@ const GRAPHQL_MAX_COMPLEXITY = 1000;
     // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
     // middleware (self-contained platform module — controller is @Public()).
     ServiceMetricsModule,
-    // ADMIN-HIGH-013: the outbox worker's relay and nightly cleanup route
-    // through the runner's heartbeat (and, for the cleanup, its lease).
-    // ScheduleModule itself arrives with OutboxModule.forFeature.
+    // WHY explicit (AUDITTRAIL-HIGH-008 / ALERT-CRITICAL-004): alert-engine owns
+    // a `@ScheduledJob` of its own — the default escalation policy reconcile.
+    // Its firing must not hinge on OutboxModule.forFeature happening to import
+    // the scheduler too; the service registers it like every other scheduler.
+    ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: the outbox worker's relay and nightly cleanup, and the
+    // default-policy reconcile, route through the runner's heartbeat and lease.
     ScheduledJobModule.forRoot({ serviceName: 'alert-engine' }),
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),

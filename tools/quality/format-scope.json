@@ -20569,6 +20569,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/src/websocket/__tests__/farm-low-stock-tenant-room.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/src/websocket/__tests__/messaging.gateway.hydration.spec.ts",
       "prettier_managed": true
     },
@@ -20594,6 +20600,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/gateway-api/src/websocket/farm.gateway.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/gateway-api/src/websocket/low-stock-tenant-room.ts",
       "prettier_managed": true
     },
     {

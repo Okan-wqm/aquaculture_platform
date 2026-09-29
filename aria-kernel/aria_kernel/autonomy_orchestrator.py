@@ -315,6 +315,10 @@ def _drain_next_cycle_queue(
             "required": True,
         }]
         allowed_scope: list[str] = ["aria-kernel/**", "aria-tools/**", ".claude/**"]
+        # A kernel-owned mission contract states how its answer establishes
+        # evidence (the self-change contract requires `details.evidence_paths`);
+        # the generic projection has only the refs resolved here.
+        kernel_contract = None
         if pressure_id.startswith("mission:"):
             # A mission-selection item: the queue key is the mission marker,
             # and the mission row itself carries the evidence refs its work
@@ -374,6 +378,7 @@ def _drain_next_cycle_queue(
                     prompt = contract.prompt
                     must_satisfy = contract.must_satisfy
                     allowed_scope = contract.allowed_scope
+                    kernel_contract = contract
         elif source_cycle and pressure_id:
             try:
                 pressure_record = explain_pressure(
@@ -384,11 +389,32 @@ def _drain_next_cycle_queue(
                     if isinstance(path, str) and path
                 ]
             except (ValueError, OSError):
-                # No stored pressure payload for that cycle — fall through to
-                # the queue-item marker so the mint still traces to something.
+                # No stored pressure payload for that cycle: no evidence.
                 evidence_refs = []
-        if not evidence_refs:
-            evidence_refs = [str(qid)]
+        # ARIA-HIGH-243 — the queue marker (`qi-<hex>`) never enters the
+        # evidence channel. The mint used to fall back to it as the sole ref,
+        # against the rule above: the planner cites only the envelope's refs,
+        # so it echoed the marker back and every answer was refused
+        # `agent_evidence_path_missing` (the 2026-09-27 audit's D6). A kernel
+        # contract mints with the refs its source holds, none included, since
+        # the contract asks the answer to establish them. A generic
+        # projection with no evidence is not plannable: the item is consumed
+        # and disclosed by name, and it is queued again once its source holds
+        # evidence (a mission when its work records refs, a pressure when a
+        # cycle stores its payload).
+        if not evidence_refs and kernel_contract is None:
+            mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
+            append_tools_governance(
+                base_dir,
+                "next_cycle_queue_item_unevidenced",
+                {
+                    "queue_item_id": qid,
+                    "pressure_id": pressure_id or None,
+                    "source_cycle_id": source_cycle or None,
+                },
+            )
+            consumed += 1
+            continue
         try:
             request = create_agent_invocation_request(
                 target_agent="aria-autonomy-planner",

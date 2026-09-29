@@ -3652,8 +3652,9 @@ def _accepted_native_runtime_result(
 def _native_task_binding_refusal(*, repo_root: Path, tools_dir: Path, request: dict[str, Any]) -> str | None:
     """Observe the actual checkout through existing binding and Git owners.
 
-    None when the checkout IS the request's task root at its anchor;
-    otherwise the named reason (``task_root_binding_unavailable`` /
+    None when the checkout IS the request's task root at its anchor, or at
+    its observed HEAD when the request names no anchor; otherwise the named
+    reason (``task_root_binding_unavailable`` /
     ``target_revision_unavailable`` / ``target_revision_mismatch``), recorded
     as a governance row and carried into the child's summary by the caller.
     A worktree of the bound repository passes the identity check (the
@@ -3667,6 +3668,15 @@ def _native_task_binding_refusal(*, repo_root: Path, tools_dir: Path, request: d
     every implementation request was ``target_revision_unavailable`` — the
     drain had already added its worktree at ``base_sha`` (ARIA-HIGH-124)
     and the child refused the tree it was standing in.
+
+    ARIA-HIGH-241 — a request that names no anchor (the read-only roles
+    minted without one; ORPHAN-CRITICAL-495: absence is not grounds for
+    refusal) is bound at the HEAD the probe observed, the same answer the
+    claim gate (``_anchor_refusal_reason``) already gives. This binding
+    refused it as ``target_revision_unavailable``, a harness-class release,
+    so every unanchored judge request burned the drain's budget and was
+    re-queued without running. The kernel chose the tree, so the choice is
+    recorded: ``runtime_task_bound`` with ``anchor_source="observed_head"``.
     """
     from aria_kernel.agent_invocations import _git_probe, request_anchor_sha
     from aria_kernel.evidence_probe import GitProbeSession
@@ -3687,17 +3697,24 @@ def _native_task_binding_refusal(*, repo_root: Path, tools_dir: Path, request: d
         observed_head = head.stdout or None
         if head.ok is None:
             reason = f"target_revision_unavailable:{head.unavailable_reason}"
-        elif not head.ok or not anchor:
+        elif not head.ok or not observed_head:
             reason = "target_revision_unavailable"
-        elif observed_head != anchor:
+        elif anchor and observed_head != anchor:
             reason = "target_revision_mismatch"
+    anchor_source = ("target_sha" if request.get("target_sha") else
+                     "implementation_ids.base_sha" if anchor else "observed_head")
     if reason is None:
+        if anchor is None:
+            append_tools_governance(tools_dir, "runtime_task_bound", {
+                "schema_version": 1, "request_id": request["request_id"],
+                "request_ledger_hash": request["ledger_hash"], "target_sha": observed_head,
+                "anchor_source": anchor_source, "observed_head_sha": observed_head,
+            })
         return None
     append_tools_governance(tools_dir, "runtime_task_binding_unavailable", {
         "schema_version": 1, "request_id": request["request_id"],
         "request_ledger_hash": request["ledger_hash"], "target_sha": anchor,
-        "anchor_source": ("target_sha" if request.get("target_sha") else
-                          "implementation_ids.base_sha" if anchor else None),
+        "anchor_source": anchor_source,
         "observed_head_sha": observed_head, "reason": reason,
     })
     return reason

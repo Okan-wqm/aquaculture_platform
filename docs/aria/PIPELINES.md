@@ -77,7 +77,8 @@ on the calibration bar (precision 1.0, confirmed-false-positive 0, recall
 - `adversarial_judgment` → **aria-adversarial-judge** (reads in REVERSE order;
   hunts counter-evidence)
 - `consensus_arbitration` → **aria-consensus-arbiter** (gate: ≥2 unique
-  judges, verdict agreement, mean confidence ≥ 0.80; otherwise `uncertainty`)
+  judges, verdict agreement, mean confidence ≥ 0.80; otherwise no verdict and a
+  `details.consensus.uncertainty_reason` from the closed vocabulary)
 - Supporting: `change_intelligence` → **aria-change-intelligence** (diff →
   revalidation impact map); `goldset_curation` → **aria-goldset-curator**
   (fixture proposals, operator-gated promotion; bar ≥20 TP / ≥10 FP per tool).

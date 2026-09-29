@@ -60,12 +60,23 @@ SCHEDULER_SCHEMA = "aria/mission-schedule/v1"
 SOURCE_RANK: dict[str, int] = {
     "capability_gap": 0,
     "finding": 1,
-    "shadow_run_summary": 2,
-    "pressure": 3,
+    # Plan 032 Faz 032i self-improvement missions (ARIA's own defects: a
+    # failing doctor organ, a stalled funnel, a delivery SLO gap, a
+    # quarantined MCP server). Below a confirmed product finding — the
+    # platform the operator ships outranks the tool that works on it — and
+    # above every broad or proactive source, because a broken ARIA makes
+    # each of those missions slower or blind. Cheap to honour: the mission
+    # holds the slot for one mint, then parks in HUMAN_REQUIRED (a waiting
+    # state) until a person adjudicates the proposal. Absent from this table
+    # it ranked with _UNRANKED_SOURCE — after everything, including
+    # hardening work that the missing organ could not even observe.
+    "self_improvement": 2,
+    "shadow_run_summary": 3,
+    "pressure": 4,
     # Charter §5 service-hardening missions: below the reactive sources by
     # design — a confirmed gap or finding outranks proactive hardening, and
     # hardening outranks nothing at all (_UNRANKED_SOURCE).
-    "service_hardening": 4,
+    "service_hardening": 5,
 }
 _UNRANKED_SOURCE = 90
 

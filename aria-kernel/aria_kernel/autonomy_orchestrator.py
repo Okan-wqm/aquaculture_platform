@@ -301,17 +301,31 @@ def _drain_next_cycle_queue(
         evidence_refs: list[str] = []
         source_cycle = str(item.get("source_cycle_id") or "")
         pressure_id = str(item.get("pressure_id") or "")
+        # The contract the mint declares. The generic queue projection is the
+        # default; a mission whose `next_action` is a kernel-owned pointer
+        # (`mission_dispatch.NEXT_ACTION_CONTRACTS`) mints ITS contract
+        # instead — a self_improvement mission asks for evidence_paths /
+        # problem / proposed_change so the accepted answer can reach
+        # `propose_self_change`. Before this, the pointer travelled as free
+        # prompt text and no kernel path ever read it (confirmed live
+        # 2026-09-12; the ORPHAN-694 class).
+        must_satisfy: list[dict[str, Any]] = [{
+            "id": "queue_item_projected",
+            "description": "Resolve the queued next-cycle item or produce a concrete blocked reason.",
+            "required": True,
+        }]
+        allowed_scope: list[str] = ["aria-kernel/**", "aria-tools/**", ".claude/**"]
         if pressure_id.startswith("mission:"):
             # A mission-selection item: the queue key is the mission marker,
             # and the mission row itself carries the evidence refs its work
             # accumulated. Resolving here keeps the drain's rule uniform —
             # refs come from the SOURCE record, never from the identifier.
             from .mission import fold_mission
+            from .mission_dispatch import contract_for_mission, in_flight_mission_request
 
+            mission_id = pressure_id.split(":", 1)[1]
             try:
-                mission_row = fold_mission(
-                    mission_id=pressure_id.split(":", 1)[1], base_dir=base_dir,
-                )
+                mission_row = fold_mission(mission_id=mission_id, base_dir=base_dir)
             except GovernanceError:
                 mission_row = None
             if mission_row:
@@ -319,6 +333,47 @@ def _drain_next_cycle_queue(
                     str(ref) for ref in (mission_row.get("evidence_refs") or [])
                     if isinstance(ref, str) and ref
                 ]
+                try:
+                    contract = contract_for_mission(
+                        mission_row=mission_row, queue_item_id=qid, source_cycle_id=source_cycle or None,
+                    )
+                except GovernanceError as exc:
+                    append_tools_governance(
+                        base_dir,
+                        "next_cycle_queue_projection_failed",
+                        {"queue_item_id": qid, "error": str(exc)},
+                    )
+                    continue
+                if contract is not None:
+                    # A kernel contract is asked once per MISSION, not once
+                    # per queue item: the scheduler re-selects a DISCOVERED
+                    # mission every cycle (nothing moves it until the answer
+                    # lands), and `append_pending` de-duplicates only among
+                    # pending rows, so the second cycle's item is a routine
+                    # duplicate of a question still in flight. The item is
+                    # consumed against the standing request — its answer is
+                    # the answer this item was queued for.
+                    standing = in_flight_mission_request(
+                        mission_id=mission_id, contract=contract, base_dir=base_dir,
+                    )
+                    if standing is not None:
+                        mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
+                        append_tools_governance(
+                            base_dir,
+                            "next_cycle_queue_item_mission_request_in_flight",
+                            {
+                                "queue_item_id": qid,
+                                "mission_id": mission_id,
+                                "request_id": standing.get("request_id"),
+                                "request_state": standing.get("request_state"),
+                                "contract_ids": sorted(contract.contract_ids),
+                            },
+                        )
+                        consumed += 1
+                        continue
+                    prompt = contract.prompt
+                    must_satisfy = contract.must_satisfy
+                    allowed_scope = contract.allowed_scope
         elif source_cycle and pressure_id:
             try:
                 pressure_record = explain_pressure(
@@ -339,12 +394,8 @@ def _drain_next_cycle_queue(
                 target_agent="aria-autonomy-planner",
                 role="maintenance_utility",
                 suggested_prompt=json.dumps(prompt, indent=2, sort_keys=True),
-                must_satisfy=[{
-                    "id": "queue_item_projected",
-                    "description": "Resolve the queued next-cycle item or produce a concrete blocked reason.",
-                    "required": True,
-                }],
-                allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
+                must_satisfy=must_satisfy,
+                allowed_scope=allowed_scope,
                 target_sha=target_sha,
                 evidence_refs=evidence_refs,
                 pressure_event_id=pressure_id or None,

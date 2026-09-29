@@ -540,6 +540,20 @@ def _pre_submit_validate_envelope(
             request=gate_request,
             response={**envelope, "role": role},
         )
+    # B6 — a self-change request shares `maintenance_utility` with the queue
+    # projection, so the gate keys on the CONTRACT the request declared
+    # (self_change_bridge.is_self_change_request), never on the role. Same
+    # doctrine as the judge branch: the check is the KERNEL's own validator,
+    # so the gate and the accepted-result bridge cannot disagree about what a
+    # well-formed answer is. Shape only — the authority boundary is judged
+    # by `propose_self_change` in the kernel, where a refusal is a ledger row.
+    from aria_kernel.self_change_bridge import is_self_change_request, validate_self_change_response
+
+    if is_self_change_request(request or {}):
+        return validate_self_change_response(
+            request=request or {},
+            response={**envelope, "role": role},
+        )
     if role in ("primary_plan", "challenger_plan"):
         plan_content = envelope.get("plan_content")
         if not isinstance(plan_content, dict):
@@ -3549,8 +3563,17 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             # re-judging usually succeeds), with the field-level errors in
             # the log line above so the operator sees WHICH field was wrong.
             # Plan-content violations keep their request-fault pricing.
+            from aria_kernel.self_change_bridge import (
+                SELF_CHANGE_CONTRACT_RELEASE_REASON,
+                is_self_change_request as _is_self_change_request,
+            )
+
             if _role_for_validation in ("evidence_judgment", "adversarial_judgment"):
                 _release_reason = "judge_verdict_contract_violation"
+            elif _is_self_change_request(request_envelope):
+                # B6 — same harness-class pricing as the judge contract: a
+                # missing `details.problem` says nothing about the mission.
+                _release_reason = SELF_CHANGE_CONTRACT_RELEASE_REASON
             else:
                 _release_reason = f"plan_content_invalid:{','.join(validation_errors)[:160]}"
             _release_claim(

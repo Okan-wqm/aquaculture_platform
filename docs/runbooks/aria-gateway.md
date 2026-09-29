@@ -63,11 +63,19 @@ pause|resume|cancel`.
 
 ## Schedules
 
+The daemon seeds the table on start from `aria_kernel/gateway/default_schedules.py`
+(`DEFAULT_SCHEDULES`: `doctor` every 30 min, `self_improve` 05:45 UTC, `economy` 05:50 UTC,
+`deliver` 06:30 UTC) — no `schedule add` is needed for the unattended lanes, and a store that has
+already been seeded records nothing on restart. `cycle`, `drain`, `daily_report`, `telemetry_export`,
+`inbox_drain` and `experiment_night` are operator-only (`OPERATOR_ONLY_ACTIONS` names the cadence
+owner of each: a workflow cron, the systemd timer, the tick, the auto-cycle); seeding them here would
+double-fire that owner. After seeding the ledger is the SSoT: `remove` is never resurrected, `pause`
+survives restarts, a re-`add` with another cron is kept and reported as drift
+(`gateway_daemon_started.schedules_drift`).
+
 ```bash
-aria-kernel schedule add --name nightly-cycle --action cycle --cron "0 2 * * *"
-aria-kernel schedule add --name nightly-drain --action drain --cron "30 2 * * *"
-aria-kernel schedule add --name doctor --action doctor --cron "*/30 * * * *"
 aria-kernel schedule list | pause | resume | remove --name <name>
+aria-kernel schedule add --name nightly-cycle --action cycle --cron "0 2 * * *"   # operator-only actions
 aria-kernel schedule run --action inbox_drain      # run one action now
 ```
 
@@ -77,7 +85,10 @@ is in effect. Every run lands on `gateway/schedules.jsonl` (`ran`) and `governan
 
 ## Health
 
-- `aria-kernel doctor` → organ `gateway` (heartbeat age, inbox backlog).
+- `aria-kernel doctor` → organ `gateway_heartbeat_fresh` FAILS when the heartbeat is older than
+  `HEARTBEAT_STALE_AFTER_BEATS` (5) beats of the cadence the beat declares (`poll_interval_seconds`),
+  or absent while a schedule table exists; organ `gateway` reports inbox backlog and the last beat.
+  A failing organ becomes a `doctor_fail` self-improvement signal on the next `self_improve` run.
 - `curl -s https://app.suderra.com/aria/status` → read-only JSON (no secrets).
 - `aria-kernel gateway status` → inbox counts + schedule table.
 - Stop cleanly: `touch /var/aqua-saas/aria-tools/ARIA_STOP` or `systemctl stop aria-gateway`.

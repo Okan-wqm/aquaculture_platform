@@ -10,6 +10,14 @@ pressure is operator-facing work, not schedulable work"); the mission path had
 re-opened the same door. This pins the guard so it cannot regress: a blocked
 candidate is REFUSED and recorded, never adopted; an identical-but-unblocked
 candidate still adopts.
+
+THE FIXTURES CARRY `recommended_action` (ORPHAN-MEDIUM-730). `pressure._pressure`
+REQUIRES that field, so every pressure the producer emits has one — and since
+the mission's closure contract is now read off the candidate's `next_action`,
+which `task._candidate_from_pressure` takes from exactly that field, a fixture
+without it exercises a shape the pipeline never produces and would be testing
+the blocked-guard against a candidate that is refused for a different reason.
+The refusal for a pressure that names no action has its own pin below.
 """
 from __future__ import annotations
 
@@ -48,12 +56,14 @@ class AdoptBlockedGuardTests(unittest.TestCase):
                     "pressure_id": "pe-blocked",
                     "score": 90,
                     "reason": "needs operator",
+                    "recommended_action": "ask the operator to release the hold",
                     "blocked_by": ["operator_feedback_required"],
                 },
                 {
                     "pressure_id": "pe-open",
                     "score": 80,
                     "reason": "schedulable",
+                    "recommended_action": "rerun discovery and inspect missing fates",
                     "blocked_by": [],
                 },
             ],
@@ -82,12 +92,53 @@ class AdoptBlockedGuardTests(unittest.TestCase):
         cycle_id = "cyc-2026-08-12b"
         self._write_pressures(
             cycle_id,
-            [{"pressure_id": "pe-solo", "score": 70, "reason": "go", "blocked_by": []}],
+            [{
+                "pressure_id": "pe-solo",
+                "score": 70,
+                "reason": "go",
+                "recommended_action": "rerun discovery and inspect missing fates",
+                "blocked_by": [],
+            }],
         )
         result = adopt_task_candidates(
             cycle_id=cycle_id, repo_hash=REPO_HASH, base_dir=self.base
         )
         self.assertEqual(result["adopted"], 1)
+        # The mission's forward pointer is the PRESSURE's own recommendation,
+        # not a restatement of its reason — the two are different strings in
+        # this fixture precisely so the difference is observable.
+        mission = list_open_missions(base_dir=self.base)[0]
+        self.assertEqual(
+            mission["next_action"], "rerun discovery and inspect missing fates"
+        )
+
+    def test_a_pressure_that_recommends_nothing_is_refused_not_minted(self) -> None:
+        """The blocked guard's sibling (ORPHAN-MEDIUM-730).
+
+        `_pressure` requires `recommended_action`, so this is a legacy or
+        hand-written row — and a mission opened from it would have to invent
+        its own instruction or restate the problem as one. It is refused and
+        disclosed, exactly like a blocked candidate.
+        """
+        cycle_id = "cyc-2026-08-19"
+        self._write_pressures(
+            cycle_id,
+            [{"pressure_id": "pe-mute", "score": 70, "reason": "something is wrong",
+              "blocked_by": []}],
+        )
+
+        result = adopt_task_candidates(
+            cycle_id=cycle_id, repo_hash=REPO_HASH, base_dir=self.base
+        )
+
+        self.assertEqual(result["adopted"], 0)
+        self.assertEqual(list_open_missions(base_dir=self.base), [])
+        reasons = [
+            row.get("details", {}).get("reason")
+            for row in load_jsonl(self.root / "governance.jsonl")
+            if row.get("kind") == "mission_candidate_refused"
+        ]
+        self.assertEqual(reasons, ["no_derivable_next_action"])
 
 
 if __name__ == "__main__":

@@ -27,6 +27,31 @@ The waiting states (blocked on revalidation, a capability, evidence, an
 external system, or a human) are deliberately OUTSIDE `ACTIVE_WIP_STATES`: a
 stuck mission releases its WIP slot rather than deadlocking the pipeline, and
 the wake condition records what would un-stick it.
+
+THE CLOSURE CONTRACT IS PART OF THE MINT, AND OF EVERY MOVE AFTER IT
+(ORPHAN-MEDIUM-730). `open_mission` refuses a mission that cannot say what
+happens next (``next_action``) and what would un-stick it
+(``wake_condition``), and `transition_mission` refuses to move a mission on
+without restating both — an omitting transition used to CLEAR what the mint
+had just required, so the class returned one event later.
+
+THE NUMBERS ARE THE STORE'S, RE-MEASURED (2026-08-19) RATHER THAN QUOTED. An
+earlier revision of this module asserted "28 opened events against 27
+violations, produced by the service-hardening seeder"; no such store exists on
+this machine and the measurement disproves the attribution.
+`aria-tools/missions/mission-events.jsonl` — the only mission ledger this
+repository has ever produced — holds 5 events, ALL of them ``opened``, every
+one carrying ``next_action: null`` and ``wake_condition: null``. Their source
+kinds are ``pressure`` x2 and ``shadow_run_summary`` x3: all five came from
+`adopt_task_candidates` below, and NONE from the seeder. `governance.jsonl`
+holds exactly one ``mission_closure_violation`` row, naming those same five.
+
+So the ingest path is the producer that actually filled the store, and the
+refusal has to be reachable FROM IT: a candidate whose own source cannot name
+a next action is disclosed as a refusal rather than minted as a mission
+nothing can advance. Re-opening a mission that predates the rule installs the
+contract instead of leaving it paralysed — except where a human owns it
+(`OPERATOR_HELD_STATES`), which no unattended writer may overwrite.
 """
 
 from __future__ import annotations
@@ -46,6 +71,7 @@ from .ledger import (
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
+    append_tools_governance_once,
     ensure_tools_dir,
     utc_now,
 )
@@ -81,6 +107,32 @@ TERMINAL_STATES: tuple[str, ...] = (
 )
 
 MISSION_STATES: tuple[str, ...] = MAINLINE_STATES + WAITING_STATES + TERMINAL_STATES
+
+# The states whose forward pointer belongs to a HUMAN, not to a writer.
+# WHAT it does: every unattended producer treats a mission in one of these
+# states as read-only for the closure contract — it may neither install one
+# nor heal a missing one. WHY it exists as a table rather than a literal:
+# the rule has two enforcement points (`set_closure_contract` refuses, and
+# `open_mission`'s heal declines), and a second copy of the membership test
+# is how two writers come to disagree about who owns a parked mission.
+#
+# Measured need: a mission parked in HUMAN_REQUIRED with the operator's own
+# ``next_action`` could be re-observed by the nightly seed phase and have that
+# sentence replaced by a machine-composed "Review the 1 path(s) changed in
+# farm-service this cycle…". The machine cannot move the mission (the
+# scheduler skips every WAITING state), so this is not a merge-authority
+# breach — but a machine writing over an operator's statement of what happens
+# next is exactly the authority line ARIA does not cross.
+#
+# The other waiting states are machine-owned (a missing capability, absent
+# evidence, an external system) and healing them is the intended behaviour.
+OPERATOR_HELD_STATES: frozenset[str] = frozenset({"HUMAN_REQUIRED"})
+
+# The step_id every mint-time heal writes under. Fixed rather than
+# caller-supplied so a healed row is greppable in the ledger as "the contract
+# a re-open installed" and cannot be confused with an operator's own
+# `mission set-contract`.
+MINT_HEAL_STEP_ID = "mint_heal"
 
 # WIP is counted over the states where a mission holds real resources — a
 # branch, a worker, a PR slot. Waiting states are excluded ON PURPOSE: a
@@ -285,6 +337,41 @@ def _validate_wake_condition(wake_condition: Any) -> dict[str, Any] | None:
     return validated
 
 
+def validate_closure_contract(
+    next_action: Any, wake_condition: Any
+) -> tuple[str, dict[str, Any]]:
+    """The two fields `assert_cycle_closure` fails an open mission for.
+
+    ORPHAN-MEDIUM-730 — measured on the store (2026-08-19): all 5 events in
+    `missions/mission-events.jsonl` are ``opened`` rows carrying
+    ``next_action: null`` and ``wake_condition: null``, so not one of those
+    missions could ever leave DISCOVERED, and `governance.jsonl` carries the
+    one violation row that names all five. The gate observed the class and no
+    writer ever refused it, which is a gate reporting weather.
+
+    So the contract is validated HERE — one function, called by the mint, by
+    every non-terminal transition, and by `set_closure_contract` — because a
+    rule enforced at only one of three doors is a rule the other two erase. A
+    mission that cannot say what happens next and what would un-stick it is
+    not a mission; it is a row, and rows that can never move are the exact
+    shape the closure gate exists to make impossible rather than visible.
+    """
+    if not isinstance(next_action, str) or not next_action.strip():
+        raise GovernanceError(
+            "the closure contract requires a non-empty next_action: a mission "
+            "that cannot say what happens next can never leave DISCOVERED"
+        )
+    if wake_condition is None:
+        raise GovernanceError(
+            "the closure contract requires a wake_condition: a mission that "
+            "cannot say what would un-stick it can never be woken"
+        )
+    validated = _validate_wake_condition(wake_condition)
+    if validated is None:  # pragma: no cover - None already refused above
+        raise GovernanceError("the closure contract requires a wake_condition")
+    return next_action.strip(), validated
+
+
 def _validate_bindings(bindings: Any) -> dict[str, list[Any]]:
     if not isinstance(bindings, dict) or not bindings:
         raise GovernanceError("bindings must be a non-empty object")
@@ -344,8 +431,11 @@ def _fold(events: list[dict[str, Any]], mission_id: str) -> dict[str, Any] | Non
                 "opened_count": 1,
                 "transition_count": 0,
                 "retry_rung": None,
-                "next_action": None,
-                "wake_condition": None,
+                # ORPHAN-MEDIUM-730 — the mint carries the forward pointer, so
+                # a mission is answerable to the closure gate from its first
+                # event rather than from its first transition.
+                "next_action": event.get("next_action"),
+                "wake_condition": event.get("wake_condition"),
                 "bindings": {},
                 "evidence_refs": [],
             }
@@ -356,6 +446,15 @@ def _fold(events: list[dict[str, Any]], mission_id: str) -> dict[str, Any] | Non
         if kind == "transition":
             state["state"] = event.get("to_state")
             state["transition_count"] += 1
+            # The transition RESTATES the contract; it never inherits the
+            # previous one. WHY overwriting is correct here: a forward
+            # pointer written for DISCOVERED is a lie once the mission is
+            # CONTRACTING, so carrying it forward would keep a stale
+            # instruction alive under a new state. What makes the overwrite
+            # safe is `transition_mission`, which refuses a non-terminal move
+            # that carries no contract and refuses a terminal move that
+            # carries one — so ``None`` here means "terminal, owes nothing",
+            # never "the writer forgot".
             state["next_action"] = event.get("next_action")
             state["wake_condition"] = event.get("wake_condition")
             if event.get("retry_rung") is not None:
@@ -372,7 +471,22 @@ def _fold(events: list[dict[str, Any]], mission_id: str) -> dict[str, Any] | Non
                         existing.append(value)
                 state["bindings"][key] = existing
         elif kind == "wake":
-            state["wake_condition"] = event.get("wake_condition")
+            # The contract is ONE thing, not two: a wake row that moved only
+            # half of it would leave the mission wake-able and still unable
+            # to say what to do once woken. WHAT the guard does: a wake row
+            # that carries less than the whole contract INSTALLS NOTHING
+            # rather than half-installing or clearing. WHY: `_fold` is the
+            # only reader every consumer sees, so a row missing a field would
+            # silently delete a contract the mission already had — the same
+            # clearing defect the transition branch above no longer allows,
+            # arriving through the other event kind. The write side cannot
+            # emit such a row (`set_closure_contract` validates both fields);
+            # a hand-edited ledger can, and then it moves nothing.
+            healed_action = event.get("next_action")
+            healed_wake = event.get("wake_condition")
+            if healed_action and healed_wake:
+                state["next_action"] = healed_action
+                state["wake_condition"] = healed_wake
     return state
 
 
@@ -431,12 +545,16 @@ def _append(
     )
 
 
-def _result(event: dict[str, Any], *, idempotent: bool) -> dict[str, Any]:
+def _result(event: dict[str, Any], *, idempotent: bool, **extra: Any) -> dict[str, Any]:
+    """``**extra`` carries a command's own verdict fields (`open_mission`
+    reports whether the re-open healed a contract-less mission and why not)
+    without every other command growing keys it has no opinion about."""
     return {
         "schema_version": 1,
         "mission_id": event.get("mission_id"),
         "idempotent": idempotent,
         "event": event,
+        **extra,
     }
 
 
@@ -451,6 +569,8 @@ def open_mission(
     source_id: str,
     repo_hash: str,
     title: str,
+    next_action: str,
+    wake_condition: dict[str, Any],
     capability: str | None = None,
     priority: int | None = None,
     target_project: str | None = None,
@@ -462,33 +582,188 @@ def open_mission(
     (charter §5): until now a service could only be smuggled inside
     ``source_id`` or the title, which no scheduler or report could query.
 
+    ``next_action`` and ``wake_condition`` are REQUIRED (ORPHAN-MEDIUM-730).
+    The mint is the FIRST of the three doors that enforce the contract — the
+    other two are `transition_mission` and `set_closure_contract` — because
+    refusing here alone was measured to buy exactly one event: the next legal
+    transition cleared what the mint had required. A producer that cannot
+    derive the contract from its own evidence must NOT mint; the honest
+    outcome is a disclosed refusal, not a mission nothing can ever advance.
+
     Idempotent by construction: the mission_id IS the identity, so a second
     open of the same source is a no-op returning the existing mission.
+
+    A RE-OPEN HEALS. Refusing contract-less mints only fixes the future: the
+    5 missions on the live store were opened before the mint required
+    anything, mission identity deliberately ignores the cycle, so re-seeding
+    them is a no-op that would leave them stuck forever. When the re-opened
+    mission is MISSING a contract, this sighting's contract is installed
+    through `set_closure_contract`. The heal lives here rather than at each
+    producer because both producers (`adopt_task_candidates` and the service
+    seed phase) need it and a copy in each is how two writers come to disagree
+    about when a stuck mission may be repaired.
+
+    Healing NEVER overwrites: a mission that already has a contract keeps the
+    one it has (the first sighting owns it; a producer that learned a better
+    one says so explicitly through `set_closure_contract`), and a mission in
+    `OPERATOR_HELD_STATES` is declined outright — a human owns that sentence.
+    The result reports ``healed`` and, when it declined, ``heal_declined``.
     """
     root = ensure_tools_dir(base_dir)
     mission_id = mission_id_for(source_kind, source_id, repo_hash)
     if not isinstance(title, str) or not title.strip():
         raise GovernanceError("open_mission requires a non-empty title")
+    action, wake = validate_closure_contract(next_action, wake_condition)
     key = _idempotency_key(mission_id, "genesis", "", "opened")
+    with state_transaction([events_path(root)]) as txn:
+        events = _load_events(root)
+        existing = _find_by_idempotency(events, key)
+        if existing is None:
+            event = _append(
+                txn,
+                root,
+                {
+                    "event": "opened",
+                    "mission_id": mission_id,
+                    "idempotency_key": key,
+                    "source_kind": source_kind,
+                    "source_id": source_id,
+                    "repo_hash": repo_hash,
+                    "title": title,
+                    "capability": capability,
+                    "priority": priority,
+                    "target_project": target_project,
+                    "next_action": action,
+                    "wake_condition": wake,
+                },
+            )
+            return _result(event, idempotent=False, healed=False, heal_declined=None)
+        state = _fold(events, mission_id)
+    # OUTSIDE the transaction on purpose: `set_closure_contract` takes the
+    # same file lock, and taking it twice from one thread would deadlock.
+    # What the gap can cost is bounded: two producers healing the same mission
+    # in the same instant either write the identical contract (identical
+    # idempotency key, the second folds into a no-op) or two contracts each
+    # derived from real evidence, of which the mission keeps the later. What
+    # cannot happen is a heal that CLEARS anything — `_heal_on_reopen` writes
+    # only when the contract is missing, and `_fold` ignores a wake row that
+    # names nothing.
+    verdict = _heal_on_reopen(
+        mission_id=mission_id,
+        state=state,
+        next_action=action,
+        wake_condition=wake,
+        root=root,
+    )
+    return _result(existing, idempotent=True, **verdict)
+
+
+def _heal_on_reopen(
+    *,
+    mission_id: str,
+    state: dict[str, Any] | None,
+    next_action: str,
+    wake_condition: dict[str, Any],
+    root: Path,
+) -> dict[str, Any]:
+    """Install a contract on a re-opened mission that has none, or say why not.
+
+    Returns the two verdict fields `open_mission` reports. Every ``False``
+    carries its reason, because "the nightly did not heal this mission" is a
+    fact an operator debugs and a silent skip is indistinguishable from a
+    mission that was never re-observed.
+    """
+    if state is None:  # pragma: no cover - the genesis row exists by construction
+        return {"healed": False, "heal_declined": "unknown_mission"}
+    if state.get("next_action") and state.get("wake_condition"):
+        return {"healed": False, "heal_declined": None}
+    if state["state"] in TERMINAL_STATES:
+        return {"healed": False, "heal_declined": "terminal"}
+    if state["state"] in OPERATOR_HELD_STATES:
+        return {"healed": False, "heal_declined": "operator_held"}
+    set_closure_contract(
+        mission_id=mission_id,
+        next_action=next_action,
+        wake_condition=wake_condition,
+        step_id=MINT_HEAL_STEP_ID,
+        base_dir=root,
+    )
+    return {"healed": True, "heal_declined": None}
+
+
+def set_closure_contract(
+    *,
+    mission_id: str,
+    next_action: str,
+    wake_condition: dict[str, Any],
+    step_id: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Install a forward pointer on a mission that is already open.
+
+    The FIRST producer of the ``wake`` event kind, which `EVENT_KINDS` has
+    declared and `_fold` has folded since Wave 2 with nothing on the write
+    side ever emitting one — dead vocabulary that the fold pretended to
+    support.
+
+    It exists because refusing contract-less mints heals only the future:
+    the missions already on the store were opened before the mint required
+    anything, and mission identity is deliberately stable across cycles, so
+    re-seeding them is idempotent and would leave them stuck forever. A
+    producer that re-observes such a mission and CAN derive the contract
+    installs it here, and the whole ledger converges instead of splitting
+    into a healthy new half and a permanently paralysed old one.
+
+    Refused on a terminal mission: a finished mission owes no next action,
+    and writing one would be the schema claiming work that will never run.
+
+    Refused on an `OPERATOR_HELD_STATES` mission for a different reason: the
+    forward pointer of a mission parked for a human IS the human's statement
+    of what happens next. Reproduced before this refusal existed — an
+    operator's "do not touch, awaiting my decision" was replaced by a
+    machine-composed "Review the 1 path(s) changed in farm-service this
+    cycle…" written by the unattended nightly seed phase. The machine cannot
+    move such a mission (the scheduler skips every waiting state), so this
+    was never a merge-authority breach; it was a machine overwriting an
+    operator, which is the same line one layer down.
+    """
+    root = ensure_tools_dir(base_dir)
+    if not isinstance(step_id, str) or not step_id.strip():
+        raise GovernanceError("set_closure_contract requires a step_id")
+    action, wake = validate_closure_contract(next_action, wake_condition)
+    canonical = json.dumps(
+        {"next_action": action, "wake_condition": wake},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    key = _idempotency_key(mission_id, step_id, canonical, "wake")
     with state_transaction([events_path(root)]) as txn:
         events = _load_events(root)
         existing = _find_by_idempotency(events, key)
         if existing is not None:
             return _result(existing, idempotent=True)
+        state = _fold(events, mission_id)
+        if state is None:
+            raise GovernanceError(f"unknown mission: {mission_id}")
+        if state["state"] in TERMINAL_STATES:
+            raise GovernanceError(
+                f"mission {mission_id} is terminal ({state['state']}); a finished "
+                "mission owes no next action"
+            )
+        if state["state"] in OPERATOR_HELD_STATES:
+            raise GovernanceError(
+                f"mission {mission_id} is {state['state']}; its next action is the "
+                "operator's statement and no writer may overwrite it"
+            )
         event = _append(
             txn,
             root,
             {
-                "event": "opened",
+                "event": "wake",
                 "mission_id": mission_id,
                 "idempotency_key": key,
-                "source_kind": source_kind,
-                "source_id": source_id,
-                "repo_hash": repo_hash,
-                "title": title,
-                "capability": capability,
-                "priority": priority,
-                "target_project": target_project,
+                "next_action": action,
+                "wake_condition": wake,
             },
         )
         return _result(event, idempotent=False)
@@ -514,6 +789,21 @@ def transition_mission(
     cannot distinguish every intermediate state, and a skip that says so is
     honest where a skip wearing a precise reason would be the schema lying
     about its own resolution. Backward moves always need an explicit edge.
+
+    THE CLOSURE CONTRACT IS PART OF THE MOVE (ORPHAN-MEDIUM-730). Both fields
+    were optional here and `_fold` overwrites them from the event, so ONE
+    legal transition that omitted them emptied a contract the mint had just
+    required — reproduced end to end: mint carries ``next_action='do the
+    thing'``; ``transition_mission(to_state="CONTRACTING")`` with no contract
+    folds to ``next_action=None, wake_condition=None``; `assert_cycle_closure`
+    then records ``missing: ['next_action', 'wake_condition']``. Refusing at
+    the mint alone therefore bought exactly one event of safety.
+
+    So a NON-TERMINAL move must restate both, and a TERMINAL move must carry
+    neither — a finished mission owes no next action, and recording one would
+    be the schema claiming work that will never run. That is the same split
+    `set_closure_contract` enforces, expressed once in
+    `validate_closure_contract` rather than re-derived per door.
     """
     root = ensure_tools_dir(base_dir)
     if to_state not in MISSION_STATES:
@@ -526,7 +816,18 @@ def transition_mission(
         raise GovernanceError(
             f"retry_rung {retry_rung!r} is outside the closed ladder {list(RETRY_LADDER)}"
         )
-    validated_wake = _validate_wake_condition(wake_condition)
+    if to_state in TERMINAL_STATES:
+        if next_action is not None or wake_condition is not None:
+            raise GovernanceError(
+                f"transition to {to_state} may not carry a closure contract; a "
+                "terminal mission owes no next action"
+            )
+        validated_action: str | None = None
+        validated_wake: dict[str, Any] | None = None
+    else:
+        validated_action, validated_wake = validate_closure_contract(
+            next_action, wake_condition
+        )
     key = _idempotency_key(mission_id, step_id, target_sha, f"transition:{to_state}")
     with state_transaction([events_path(root)]) as txn:
         events = _load_events(root)
@@ -570,7 +871,7 @@ def transition_mission(
                 "to_state": to_state,
                 "reason_code": reason_code,
                 "retry_rung": retry_rung,
-                "next_action": next_action,
+                "next_action": validated_action,
                 "wake_condition": validated_wake,
                 "evidence_refs": _strings(evidence_refs),
             },
@@ -672,19 +973,44 @@ def adopt_task_candidates(
     unusably-identified candidate is refused and RECORDED, never dropped in
     silence, because a candidate that vanishes without a trace is
     indistinguishable from one that was never generated.
+
+    THIS IS THE PRODUCER THAT FILLED THE LIVE STORE (ORPHAN-MEDIUM-730). All
+    5 events in `missions/mission-events.jsonl` are contract-less ``opened``
+    rows from here — ``pressure`` x2, ``shadow_run_summary`` x3 — and none
+    from the service seeder. The first attempt at the refusal made it
+    unreachable from exactly this path: it passed ``next_action=title``, and
+    since `UNUSABLE_SOURCE_IDS` already guarantees a non-empty ``source_id``,
+    the title was never empty and `open_mission` therefore never refused. A
+    mission whose "what happens next" is the restated defect (a finding's own
+    message) or a bare identifier satisfies the gate and still tells an agent
+    nothing to do.
+
+    So the forward pointer is READ off the candidate's ``next_action``, which
+    `task.py` composes from the SOURCE'S OWN evidence — a pressure's
+    ``recommended_action``, a finding's id and cited path, a gap's
+    recommendation. A candidate whose source cannot name one carries no
+    ``next_action``, and this function refuses it with
+    ``no_derivable_next_action`` through the same disclosure the other
+    refusals use. Nothing is composed here: a mission-layer reword would be
+    this module inventing an instruction it has no evidence for.
+
+    Re-adoption also HEALS, through `open_mission`: the 5 rows above were
+    written before any contract was required, and re-adopting them is a
+    no-op that would otherwise leave them stuck forever.
     """
     root = ensure_tools_dir(base_dir)
     payload = generate_task_candidates(
         cycle_id=cycle_id, base_dir=root, limit=limit
     )
     candidates = payload.get("tasks") if isinstance(payload, dict) else None
-    adopted = already = refused = 0
+    adopted = already = refused = healed = 0
     for candidate in candidates if isinstance(candidates, list) else []:
         if not isinstance(candidate, dict):
             refused += 1
             continue
         source = candidate.get("source")
         source_id = str(candidate.get("source_id") or "")
+        forward = _candidate_forward_pointer(candidate)
         reason = None
         if not isinstance(source, str) or not source.strip():
             reason = "missing_source"
@@ -702,6 +1028,16 @@ def adopt_task_candidates(
             # the store originate from task candidates carrying
             # blocked_by=["operator_feedback_required"].
             reason = "candidate_blocked"
+        elif forward is None:
+            # ORPHAN-MEDIUM-730 — the source could not name what to do next,
+            # so there is no mission to open. Ordered AFTER `candidate_blocked`
+            # because blocked-ness is the stronger statement about the same
+            # candidate: it is operator-facing work either way, and the
+            # operator debugging it wants the block named first. Disclosed
+            # like every other refusal, so a source that keeps producing
+            # unactionable work becomes visible instead of becoming a
+            # paralysed mission.
+            reason = "no_derivable_next_action"
         if reason is not None:
             refused += 1
             append_tools_governance(
@@ -716,15 +1052,30 @@ def adopt_task_candidates(
                 },
             )
             continue
+        title = str(candidate.get("title") or source_id)
+        # The title says WHAT the work is; `next_action` says what to DO, and
+        # they are different sentences read from different fields on purpose.
+        # The wake key is the candidate's identity because what un-sticks the
+        # mission is new evidence on exactly that pressure / finding / gap —
+        # and `UNUSABLE_SOURCE_IDS` has already refused the identities that
+        # identify nothing, so the key cannot collapse two unrelated missions
+        # onto one handle.
+        # `forward` is a string on this line: the refusal chain above is what
+        # makes the None case impossible here, and that chain is the whole
+        # reason the refusal is reachable from this producer at all.
         result = open_mission(
             source_kind=source,
             source_id=source_id,
             repo_hash=repo_hash,
-            title=str(candidate.get("title") or source_id),
+            title=title,
+            next_action=forward,
+            wake_condition={"kind": "evidence", "key": f"{source}:{source_id}"},
             base_dir=root,
         )
         if result["idempotent"]:
             already += 1
+            if result.get("healed"):
+                healed += 1
         else:
             adopted += 1
     return {
@@ -733,7 +1084,23 @@ def adopt_task_candidates(
         "adopted": adopted,
         "already_tracked": already,
         "refused": refused,
+        "healed": healed,
     }
+
+
+def _candidate_forward_pointer(candidate: dict[str, Any]) -> str | None:
+    """The candidate's own statement of what to DO, or ``None``.
+
+    ``None`` is a real answer, not a missing value: `task.py`'s builders emit
+    ``next_action`` only where the source's evidence names one, so its absence
+    is the source saying "I can describe this problem but not the work", and
+    the honest response is a disclosed refusal. Reading the field here — and
+    nowhere composing a fallback — is what keeps that refusal reachable.
+    """
+    forward = candidate.get("next_action")
+    if not isinstance(forward, str) or not forward.strip():
+        return None
+    return forward.strip()
 
 
 def active_wip_missions(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
@@ -802,6 +1169,21 @@ def assert_cycle_closure(*, base_dir: str | Path | None = None) -> dict[str, Any
     is a violation, and the violation is RECORDED as a governance event
     because a violation nobody recorded is a violation nobody will fix.
 
+    ORPHAN-MEDIUM-730 NARROWED WHAT THIS CAN STILL SEE, TWICE. `open_mission`
+    refuses a contract-less mint, so a freshly minted mission cannot appear
+    here; `transition_mission` refuses a non-terminal move that does not
+    restate the contract, so a legal move can no longer empty one either. What
+    remains reachable is exactly one shape: a row written BEFORE the rule
+    existed — the 5 ``opened`` rows measured on the live store, plus anything
+    hand-written into the ledger. Those heal the next time a producer
+    re-observes them (`open_mission` installs the contract on re-open), except
+    where `OPERATOR_HELD_STATES` says the sentence is a human's to write.
+
+    THE VIOLATION IS DISCLOSED ONCE PER DISTINCT VIOLATION SET. The same
+    unhealed backlog re-reported verbatim every night is the weather-reporting
+    this train exists to end; a violation set that CHANGED is a new fact and
+    gets its own row.
+
     This function observes and records. The DECISION of what a violation does
     to a cycle lives where the cycle seals — `run_enterprise_cycle`, not a
     phase: PLAN called for a `cycle_seal` phase and there is none, and a table
@@ -824,8 +1206,9 @@ def assert_cycle_closure(*, base_dir: str | Path | None = None) -> dict[str, Any
                 }
             )
     governance_recorded = False
+    already_disclosed = False
     if violations:
-        append_tools_governance(
+        disclosure = append_tools_governance_once(
             root,
             "mission_closure_violation",
             {
@@ -833,13 +1216,19 @@ def assert_cycle_closure(*, base_dir: str | Path | None = None) -> dict[str, Any
                 "violation_count": len(violations),
                 "violations": violations,
             },
+            # The claim IS the violation set: which missions, in which state,
+            # missing which field. The cycle it was noticed in is not part of
+            # the claim, which is why noticing it again changes nothing.
+            claim_keys=("violations",),
         )
-        governance_recorded = True
+        governance_recorded = bool(disclosure["appended"])
+        already_disclosed = not governance_recorded
     return {
         "schema_version": 1,
         "open_missions": len(list_open_missions(base_dir=root)),
         "violations": violations,
         "governance_recorded": governance_recorded,
+        "already_disclosed": already_disclosed,
     }
 
 
@@ -851,6 +1240,8 @@ __all__ = [
     "DEFAULT_WIP_CAP",
     "EVENT_KINDS",
     "FORWARD_SKIP_REASONS",
+    "MINT_HEAL_STEP_ID",
+    "OPERATOR_HELD_STATES",
     "WAITING_STATES",
     "MAINLINE_STATES",
     "MISSION_SCHEMA",
@@ -873,5 +1264,7 @@ __all__ = [
     "mission_id_for",
     "open_mission",
     "rebuild_mission_index",
+    "set_closure_contract",
     "transition_mission",
+    "validate_closure_contract",
 ]

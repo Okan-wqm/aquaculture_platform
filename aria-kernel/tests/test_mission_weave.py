@@ -71,11 +71,15 @@ class WeaveTestBase(unittest.TestCase):
         self.root = ensure_tools_dir(self.base)
 
     def _mission(self, source_id: str = "F-1") -> str:
+        # ORPHAN-MEDIUM-730 — the mint refuses a mission with no forward
+        # pointer, so the fixture derives one from the finding it opens.
         open_mission(
             source_kind="finding",
             source_id=source_id,
             repo_hash=REPO_HASH,
             title=f"close {source_id}",
+            next_action=f"close {source_id}",
+            wake_condition={"kind": "evidence", "key": f"finding:{source_id}"},
             base_dir=self.base,
         )
         return mission_id_for("finding", source_id, REPO_HASH)

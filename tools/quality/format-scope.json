@@ -9219,6 +9219,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/low-stock-tier-watch.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/mortality-cull-harvest-tenant-isolation.postgres.spec.ts",
       "prettier_managed": true
     },

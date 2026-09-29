@@ -14,7 +14,7 @@ import * as crypto from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { EntityManager, Repository, LessThan } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditEntryEntity } from './entities/audit-entry.entity';
 
@@ -342,6 +342,31 @@ export class AlertAuditService implements OnModuleInit {
       this.logger.error(`AUDIT: ${fullEntry.description}`);
     }
 
+    return fullEntry;
+  }
+
+  /**
+   * Record an audit entry INSIDE the caller's transaction (V-S1b-2).
+   *
+   * WHY: `log()` persists fire-and-forget with an in-memory fallback — right
+   * for high-volume operational events, wrong for a change that decides who is
+   * paged. A change to the default escalation policy, a default switch or a
+   * suppression window is audited on the SAME `manager` as the write, so the
+   * policy change and its audit row commit or roll back together.
+   */
+  async recordInTransaction(
+    manager: EntityManager,
+    entry: Omit<AuditEntry, 'id' | 'timestamp'>,
+  ): Promise<AuditEntry> {
+    const fullEntry: AuditEntry = {
+      id: this.generateId(),
+      timestamp: new Date(),
+      correlationId: this.getCurrentCorrelationId(),
+      ...entry,
+    };
+    await manager.save(AuditEntryEntity, this.toEntity(fullEntry));
+    this.updateMetrics(fullEntry);
+    this.eventEmitter.emit('audit.logged', fullEntry);
     return fullEntry;
   }
 

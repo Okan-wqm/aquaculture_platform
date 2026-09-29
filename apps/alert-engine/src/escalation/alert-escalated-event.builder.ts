@@ -1,4 +1,5 @@
 import {
+  ALERT_ESCALATED_EVENT_VERSION,
   ALERT_ESCALATED_TEXT_LIMITS,
   ALERT_RECIPIENT_QUERY_MAX_USER_IDS,
   UUID_PATTERN,
@@ -103,6 +104,7 @@ export function buildAlertEscalatedEvent(input: AlertEscalatedBuildInput): Alert
     ...createBaseEvent<AlertEscalatedEvent>('AlertEscalated', incident.tenantId, {
       aggregateId: incident.id,
       aggregateType: 'AlertIncident',
+      version: ALERT_ESCALATED_EVENT_VERSION,
     }),
     alertId: incident.id,
     escalationLevel: level,

@@ -1,14 +1,13 @@
-import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, Not, IsNull } from 'typeorm';
+import { Repository } from 'typeorm';
+import { UUID_PATTERN } from '@platform/event-contracts';
 import {
   EscalationPolicy,
   EscalationLevel,
   OnCallSchedule,
-  SuppressionWindow,
-  EscalationActionType,
-  NotificationChannel,
 } from '../database/entities/escalation-policy.entity';
+import type { NewSuppressionWindow } from '../database/entities/suppression-window';
 import { AlertSeverity } from '../database/entities/alert-rule.entity';
 import { ensureDefaultEscalationPolicy } from './default-escalation-policy';
 
@@ -40,7 +39,8 @@ export interface CreatePolicyDto {
   severity: AlertSeverity[];
   levels: EscalationLevel[];
   onCallSchedule?: OnCallSchedule[];
-  suppressionWindows?: SuppressionWindow[];
+  /** Stamped with id/creator/admin flag by EscalationPolicyWriter. */
+  suppressionWindows?: NewSuppressionWindow[];
   repeatIntervalMinutes?: number;
   maxRepeats?: number;
   isDefault?: boolean;
@@ -53,11 +53,23 @@ export interface CreatePolicyDto {
 }
 
 /**
- * Update policy DTO
+ * Update policy DTO. Suppression windows change only through their own write
+ * paths (which stamp the creator's role), never through a plain update.
  */
-export interface UpdatePolicyDto extends Partial<CreatePolicyDto> {
+export interface UpdatePolicyDto
+  extends Partial<Omit<CreatePolicyDto, 'tenantId' | 'suppressionWindows' | 'createdBy'>> {
   isActive?: boolean;
 }
+
+/** The fields `validatePolicy` checks (a full policy, a create or an update DTO). */
+export type PolicyValidationInput = Partial<
+  Pick<
+    CreatePolicyDto,
+    'name' | 'severity' | 'levels' | 'onCallSchedule' | 'repeatIntervalMinutes' | 'maxRepeats'
+  >
+>;
+
+const USER_ID = new RegExp(UUID_PATTERN);
 
 @Injectable()
 export class EscalationPolicyService {
@@ -70,104 +82,6 @@ export class EscalationPolicyService {
     @InjectRepository(EscalationPolicy)
     private readonly policyRepository: Repository<EscalationPolicy>,
   ) {}
-
-  /**
-   * Create new escalation policy
-   */
-  async createPolicy(dto: CreatePolicyDto): Promise<EscalationPolicy> {
-    this.logger.log(`Creating escalation policy: ${dto.name}`);
-
-    // Validate policy
-    const validation = this.validatePolicy(dto);
-    if (!validation.isValid) {
-      throw new ConflictException(`Invalid policy: ${validation.errors.join(', ')}`);
-    }
-
-    // If setting as default, unset other defaults
-    if (dto.isDefault) {
-      await this.unsetDefaultPolicies(dto.tenantId);
-    }
-
-    const policy = this.policyRepository.create({
-      ...dto,
-      isActive: true,
-    });
-
-    const saved = await this.policyRepository.save(policy);
-    this.invalidateCache(dto.tenantId);
-
-    return saved;
-  }
-
-  /**
-   * Update escalation policy
-   */
-  async updatePolicy(id: string, tenantId: string, dto: UpdatePolicyDto): Promise<EscalationPolicy> {
-    this.logger.log(`Updating escalation policy: ${id}`);
-
-    const policy = await this.policyRepository.findOne({
-      where: { id, tenantId },
-    });
-
-    if (!policy) {
-      throw new NotFoundException(`Policy ${id} not found`);
-    }
-
-    // INVARIANT (ALERT-CRITICAL-004): a tenant always has exactly one ACTIVE
-    // default policy — it is what pages people when nothing more specific
-    // matches. Switching it off or un-defaulting it would silently leave
-    // critical alarms with no ladder, so both are refused; the tenant makes
-    // another policy the default (which demotes this one) or edits this one.
-    if (policy.isDefault && dto.isDefault === false) {
-      throw new ConflictException(
-        'Cannot unset the default policy; make another policy the default instead',
-      );
-    }
-    if (policy.isDefault && dto.isActive === false) {
-      throw new ConflictException('Cannot deactivate the default policy');
-    }
-
-    // Validate if levels are being updated
-    if (dto.levels) {
-      const validation = this.validatePolicy({ ...policy, ...dto } as CreatePolicyDto);
-      if (!validation.isValid) {
-        throw new ConflictException(`Invalid policy: ${validation.errors.join(', ')}`);
-      }
-    }
-
-    // If setting as default, unset other defaults
-    if (dto.isDefault && !policy.isDefault) {
-      await this.unsetDefaultPolicies(tenantId);
-    }
-
-    Object.assign(policy, dto);
-    const saved = await this.policyRepository.save(policy);
-    this.invalidateCache(tenantId);
-
-    return saved;
-  }
-
-  /**
-   * Delete escalation policy
-   */
-  async deletePolicy(id: string, tenantId: string): Promise<void> {
-    this.logger.log(`Deleting escalation policy: ${id}`);
-
-    const policy = await this.policyRepository.findOne({
-      where: { id, tenantId },
-    });
-
-    if (!policy) {
-      throw new NotFoundException(`Policy ${id} not found`);
-    }
-
-    if (policy.isDefault) {
-      throw new ConflictException('Cannot delete default policy');
-    }
-
-    await this.policyRepository.remove(policy);
-    this.invalidateCache(tenantId);
-  }
 
   /**
    * Get policy by ID
@@ -338,7 +252,7 @@ export class EscalationPolicyService {
   /**
    * Validate policy configuration
    */
-  validatePolicy(dto: CreatePolicyDto | UpdatePolicyDto): PolicyValidationResult {
+  validatePolicy(dto: PolicyValidationInput): PolicyValidationResult {
     const errors: string[] = [];
     const warnings: string[] = [];
 
@@ -376,6 +290,13 @@ export class EscalationPolicyService {
 
           if (level.timeoutMinutes < 0) {
             errors.push(`Level ${level.level}: Timeout must be non-negative`);
+          }
+
+          // V-S1b-6: an explicit recipient must be a user id — free text names
+          // nobody and used to be dropped silently at delivery time.
+          const malformed = level.notifyUserIds.filter((id) => !USER_ID.test(id));
+          if (malformed.length > 0) {
+            errors.push(`Level ${level.level}: notifyUserIds must be user ids`);
           }
 
           // A level that pages nobody is a silent alarm: it needs explicit
@@ -421,8 +342,8 @@ export class EscalationPolicyService {
           errors.push('Time must be in HH:mm format');
         }
 
-        if (!schedule.userId) {
-          errors.push('On-call user ID is required');
+        if (!schedule.userId || !USER_ID.test(schedule.userId)) {
+          errors.push('On-call user ID must be a user id');
         }
       }
     }
@@ -435,70 +356,6 @@ export class EscalationPolicyService {
   }
 
   /**
-   * Add suppression window to policy
-   */
-  async addSuppressionWindow(
-    policyId: string,
-    tenantId: string,
-    window: SuppressionWindow,
-  ): Promise<EscalationPolicy> {
-    const policy = await this.getPolicy(policyId, tenantId);
-
-    if (!policy.suppressionWindows) {
-      policy.suppressionWindows = [];
-    }
-
-    policy.suppressionWindows.push(window);
-    const saved = await this.policyRepository.save(policy);
-    this.invalidateCache(tenantId);
-
-    return saved;
-  }
-
-  /**
-   * Remove suppression window from policy
-   */
-  async removeSuppressionWindow(
-    policyId: string,
-    tenantId: string,
-    windowId: string,
-  ): Promise<EscalationPolicy> {
-    const policy = await this.getPolicy(policyId, tenantId);
-
-    if (!policy.suppressionWindows) {
-      throw new NotFoundException(`Suppression window ${windowId} not found`);
-    }
-
-    const index = policy.suppressionWindows.findIndex(w => w.id === windowId);
-    if (index === -1) {
-      throw new NotFoundException(`Suppression window ${windowId} not found`);
-    }
-
-    policy.suppressionWindows.splice(index, 1);
-    const saved = await this.policyRepository.save(policy);
-    this.invalidateCache(tenantId);
-
-    return saved;
-  }
-
-  /**
-   * Update on-call schedule
-   */
-  async updateOnCallSchedule(
-    policyId: string,
-    tenantId: string,
-    schedule: OnCallSchedule[],
-  ): Promise<EscalationPolicy> {
-    const policy = await this.getPolicy(policyId, tenantId);
-
-    policy.onCallSchedule = schedule;
-    const saved = await this.policyRepository.save(policy);
-    this.invalidateCache(tenantId);
-
-    return saved;
-  }
-
-  /**
    * Get current on-call user for policy
    */
   async getCurrentOnCallUser(policyId: string, tenantId: string, date?: Date): Promise<string | null> {
@@ -507,50 +364,11 @@ export class EscalationPolicyService {
   }
 
   /**
-   * Check if currently in suppression window
-   */
-  async isInSuppressionWindow(policyId: string, tenantId: string, date?: Date): Promise<boolean> {
-    const policy = await this.getPolicy(policyId, tenantId);
-    return policy.isInSuppressionWindow(date);
-  }
-
-  /**
-   * Clone policy
-   */
-  async clonePolicy(id: string, tenantId: string, newName: string): Promise<EscalationPolicy> {
-    const source = await this.getPolicy(id, tenantId);
-
-    const cloned = this.policyRepository.create({
-      ...source,
-      id: undefined,
-      name: newName,
-      isDefault: false,
-      createdAt: undefined,
-      updatedAt: undefined,
-    });
-
-    const saved = await this.policyRepository.save(cloned);
-    this.invalidateCache(tenantId);
-
-    return saved;
-  }
-
-  /**
    * Get policies by severity
    */
   async getPoliciesBySeverity(tenantId: string, severity: AlertSeverity): Promise<EscalationPolicy[]> {
     const policies = await this.getPolicies(tenantId);
     return policies.filter(p => p.severity.includes(severity));
-  }
-
-  /**
-   * Unset default policies for tenant
-   */
-  private async unsetDefaultPolicies(tenantId: string): Promise<void> {
-    await this.policyRepository.update(
-      { tenantId, isDefault: true },
-      { isDefault: false },
-    );
   }
 
   // PE-12: Regex promoted to a static constant to avoid re-evaluation on every call.

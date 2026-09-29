@@ -3,9 +3,11 @@ import addFormats from 'ajv-formats';
 
 import {
   ALERT_DELIVERY_CHANNELS,
+  ALERT_ESCALATED_EVENT_VERSION,
   ALERT_RECIPIENT_ROLES,
   type AlertEscalatedEvent,
 } from '../alert-events';
+import { LEGACY_EVENT_SHAPE_MARKER } from '../upcasters/alert-escalated-legacy.upcaster';
 import {
   ALERT_RECIPIENT_QUERY_MAX_USER_IDS,
   ALERT_RECIPIENT_RESULT_MAX_USER_IDS,
@@ -66,6 +68,8 @@ const ALERT_ESCALATED_SCHEMA = {
   properties: {
     ...BASE_EVENT_PROPERTIES,
     eventType: { type: 'string', const: 'AlertEscalated' },
+    // V-S1a-11: only the delivery-carrying shape is admitted.
+    version: { type: 'integer', const: ALERT_ESCALATED_EVENT_VERSION },
     alertId: UUID_SCHEMA,
     escalationLevel: { type: 'integer', minimum: 1, maximum: 100 },
     // User ids only: the producer drops anything else before enqueueing, so
@@ -149,6 +153,11 @@ export type TrustBoundaryCheck<T> = { ok: true; value: T } | { ok: false; reason
 export function checkAlertEscalatedEvent(
   payload: unknown,
 ): TrustBoundaryCheck<AlertEscalatedEvent> {
+  // The terminal upcaster's marker gets its own reason: an operator reading
+  // the dead letter should see "legacy shape", not "additional property".
+  if (typeof payload === 'object' && payload !== null && LEGACY_EVENT_SHAPE_MARKER in payload) {
+    return { ok: false, reason: 'legacy AlertEscalated shape (v1/v2) carries no delivery fields' };
+  }
   return alertEscalatedValidator(payload)
     ? { ok: true, value: payload }
     : { ok: false, reason: firstError(alertEscalatedValidator) };

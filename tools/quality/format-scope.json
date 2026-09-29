@@ -4881,13 +4881,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/__tests__/integration/alarm-exactly-once.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/__tests__/integration/farm-signal-delivery.postgres.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/__tests__/integration/support/alert-postgres.harness.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/__tests__/support/alert-rule-query-builder.mock.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/__tests__/support/escalation-manager.harness.ts",
       "prettier_managed": true
     },
     {
@@ -4936,6 +4954,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/alert-engine/src/alert/event-handlers/__tests__/water-quality-critical.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/alert/event-handlers/farm-signal-outcome.ts",
       "prettier_managed": true
     },
     {
@@ -5043,6 +5067,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/alert/services/__tests__/rule-recipients.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/alert/services/__tests__/water-quality-critical-alert.service.spec.ts",
       "prettier_managed": true
     },
@@ -5085,6 +5115,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/alert/services/incident-escalation-failed.error.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/alert/services/low-stock-alert.service.ts",
       "prettier_managed": true
     },
@@ -5092,6 +5128,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/alert-engine/src/alert/services/mortality-alert.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/alert/services/rule-recipient-backfill.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/alert/services/rule-recipient-normalizer.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/alert/services/rule-targets.ts",
       "prettier_managed": true
     },
     {
@@ -5133,6 +5187,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/database/entities/__tests__/suppression-window.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/database/entities/alert-incident.entity.ts",
       "prettier_managed": true
     },
@@ -5146,6 +5206,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/alert-engine/src/database/entities/escalation-policy.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/database/entities/suppression-window.ts",
       "prettier_managed": true
     },
     {
@@ -5237,6 +5303,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/escalation/__tests__/alert-escalated-golden.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/escalation/__tests__/default-escalation-policy.spec.ts",
       "prettier_managed": true
     },
@@ -5255,7 +5327,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/escalation/__tests__/escalation-manager.floor-and-claims.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/escalation/__tests__/escalation-manager.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/escalation/__tests__/escalation-policy-writer.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5303,7 +5387,37 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/src/escalation/escalation-policy-writer.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/src/escalation/escalation-policy.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/escalation/escalation-state.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/escalation/first-level-plan.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/escalation/incident-escalation-claim.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/src/escalation/policy-coverage.ts",
       "prettier_managed": true
     },
     {
@@ -43915,6 +44029,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/__tests__/alarm-delivery-contracts.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/__tests__/alert-escalated-contract.spec.ts",
       "prettier_managed": true
     },
@@ -44474,6 +44594,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/upcasters/__tests__/upcasters.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/upcasters/alert-escalated-legacy.upcaster.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/upcasters/alert-triggered-v2-to-v3.upcaster.ts",
       "prettier_managed": true
     },
     {

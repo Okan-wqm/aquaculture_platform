@@ -52,6 +52,7 @@ import { join, relative, resolve } from 'node:path';
 
 import type { ValueTransformer } from 'typeorm';
 
+import { SUPPRESSION_WINDOWS_TRANSFORMER } from '../../apps/alert-engine/src/database/entities/suppression-window';
 import {
   BigIntStringTransformer,
   BigIntTransformer,
@@ -112,6 +113,12 @@ const TRANSFORMERS: readonly RegisteredTransformer[] = [
     // Both nullish branches short-circuit before the key is resolved, so the
     // probe name never has to name a real env var.
     create: () => createEncryptedColumnTransformer('INVARIANT_PROBE_ENCRYPTION_KEY'),
+  },
+  {
+    // escalation_policies.suppression_windows (jsonb): rehydrates stored ISO
+    // strings into Dates on read (V-S1a-2d); writes pass through untouched.
+    aliases: ['SUPPRESSION_WINDOWS_TRANSFORMER'],
+    create: () => SUPPRESSION_WINDOWS_TRANSFORMER,
   },
 ];
 

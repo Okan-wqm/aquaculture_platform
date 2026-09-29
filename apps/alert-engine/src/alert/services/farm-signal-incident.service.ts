@@ -9,6 +9,8 @@ import {
   TimelineEventType,
 } from '../../database/entities/alert-incident.entity';
 import { EscalationManagerService } from '../../escalation/escalation-manager.service';
+import { timelineEntry } from '../../escalation/incident-escalation-claim';
+import { IncidentEscalationFailedError } from './incident-escalation-failed.error';
 
 /**
  * Everything a farm-signal consumer must supply to open (or bump) an incident.
@@ -75,6 +77,31 @@ export function isSeverityEscalation(current: AlertSeverity, next: AlertSeverity
   return SEVERITY_RANK[next] > SEVERITY_RANK[current];
 }
 
+/** The severities in ascending rank — the SQL twin of {@link SEVERITY_RANK}. */
+const SEVERITY_ORDER: readonly AlertSeverity[] = (
+  Object.keys(SEVERITY_RANK) as AlertSeverity[]
+).sort((a, b) => SEVERITY_RANK[a] - SEVERITY_RANK[b]);
+
+const SEVERITIES: readonly string[] = Object.values(AlertSeverity);
+
+function isSeverity(value: unknown): value is AlertSeverity {
+  return typeof value === 'string' && SEVERITIES.includes(value);
+}
+
+/** The row the atomic occurrence bump hands back. */
+interface BumpedIncident {
+  escalationLevel: number;
+  severity: AlertSeverity;
+}
+
+function bumpedRowOf(raw: unknown): BumpedIncident | null {
+  const row: unknown = Array.isArray(raw) ? raw[0] : undefined;
+  if (typeof row !== 'object' || row === null) return null;
+  const { escalation_level: level, severity } = row as Record<string, unknown>;
+  if (typeof level !== 'number' || !isSeverity(severity)) return null;
+  return { escalationLevel: level, severity };
+}
+
 /**
  * FarmSignalIncidentService (FARM-LOW-144)
  *
@@ -128,6 +155,26 @@ export class FarmSignalIncidentService {
     @Inject(EscalationManagerService)
     private readonly escalationManager: Pick<EscalationManagerService, 'startEscalation'>,
   ) {}
+
+  /**
+   * Start the incident's escalation; any failure becomes an
+   * {@link IncidentEscalationFailedError}, which every farm-signal consumer
+   * re-drives — even for a reproducible signal (V-S1a-12).
+   */
+  private async escalate(
+    incident: AlertIncident,
+    severity: AlertSeverity,
+    spec: FarmSignalIncidentSpec,
+  ): Promise<void> {
+    try {
+      await this.escalationManager.startEscalation(incident, {
+        severity,
+        matchKey: spec.signalKey,
+      });
+    } catch (error) {
+      throw new IncidentEscalationFailedError(incident.id, error);
+    }
+  }
 
   /**
    * Bump the open incident for this rule + tenant, or create a new one, and
@@ -193,7 +240,7 @@ export class FarmSignalIncidentService {
         `(severity: ${spec.severity})`,
     );
 
-    await this.escalationManager.startEscalation(savedIncident, spec.severity, spec.signalKey);
+    await this.escalate(savedIncident, spec.severity, spec);
   }
 
   private findOpenIncident(spec: FarmSignalIncidentSpec): Promise<AlertIncident | null> {
@@ -207,54 +254,118 @@ export class FarmSignalIncidentService {
     });
   }
 
-  /** Record another occurrence on an open incident (see class doc for escalation). */
+  /**
+   * Record another occurrence on an open incident (see class doc for escalation).
+   *
+   * EXACTLY-ONCE (V-S1a-4): every write here is ONE atomic UPDATE — the
+   * occurrence counter is incremented in SQL, the severity rise is a
+   * conditional UPDATE only one delivery can win, and the level-0 retry claims
+   * `escalation_level = 0` inside the escalation. The old read-modify-save of
+   * the whole entity wrote a stale `escalation_level = 0` and timeline back over
+   * a concurrent escalation and let two deliveries both escalate.
+   */
   private async bumpIncident(existing: AlertIncident, spec: FarmSignalIncidentSpec): Promise<void> {
-    const escalated = isSeverityEscalation(existing.severity, spec.severity);
-    const previousSeverity = existing.severity;
-
-    existing.recordOccurrence(spec.triggeredAt);
-    // A site learnt later (an earlier event predates the field) fills in; a
-    // known site is never overwritten — one signal key names one place.
-    if (!existing.siteId && spec.siteId) {
-      existing.siteId = spec.siteId;
-    }
-
-    if (escalated) {
-      existing.severity = spec.severity;
-      // The description and breadcrumb describe the CURRENT state (e.g.
-      // "2 days of cover", not the 7 it was opened with) — an operator
-      // opening the incident must not read a stale reason for a critical
-      // page.
-      existing.description = spec.description;
-      existing.triggerData = spec.triggerData;
-      existing.addTimelineEvent({
-        type: TimelineEventType.ESCALATED,
-        description: `Severity raised ${previousSeverity} → ${spec.severity}: ${spec.description}`,
-        data: { previousSeverity, severity: spec.severity },
-      });
-    }
-
-    const saved = await this.incidentRepository.save(existing);
-
-    if (escalated) {
-      this.logger.warn(
-        `Escalated ${spec.signalLabel} incident ${saved.id} for ${spec.signalKey}: ` +
-          `${previousSeverity} → ${spec.severity} (occurrences: ${saved.occurrenceCount})`,
-      );
-      // Re-run the ladder so the policy matched for the NEW severity engages.
-      await this.escalationManager.startEscalation(saved, spec.severity, spec.signalKey);
+    const bumped = await this.incidentRepository
+      .createQueryBuilder()
+      .update(AlertIncident)
+      .set({
+        occurrenceCount: () => 'occurrence_count + 1',
+        lastOccurredAt: () =>
+          'GREATEST(COALESCE(last_occurred_at, CAST(:occurredAt AS timestamp)), CAST(:occurredAt AS timestamp))',
+        // A site learnt later (an earlier event predates the field) fills in; a
+        // known site is never overwritten — one signal key names one place.
+        siteId: () => 'COALESCE(site_id, CAST(:siteId AS uuid))',
+      })
+      .where('id = :id', { id: existing.id })
+      .setParameters({ occurredAt: spec.triggeredAt, siteId: spec.siteId })
+      // A string, not an array: `returning([...])` takes PROPERTY paths and
+      // silently drops names it cannot map, which would return no row at all.
+      .returning('"escalation_level", "severity"')
+      .execute();
+    const row = bumpedRowOf(bumped.raw);
+    if (!row) {
+      // The incident vanished between the lookup and the bump (erasure).
+      this.logger.warn(`Incident ${existing.id} disappeared before its occurrence was recorded`);
       return;
     }
 
-    if (saved.escalationLevel === 0) {
-      // Never escalated (no policy then, or a failed first level) — retry.
-      await this.escalationManager.startEscalation(saved, saved.severity, spec.signalKey);
+    if (
+      isSeverityEscalation(row.severity, spec.severity) &&
+      (await this.raiseSeverity(existing, spec))
+    ) {
+      this.logger.warn(
+        `Escalated ${spec.signalLabel} incident ${existing.id} for ${spec.signalKey}: ` +
+          `${row.severity} → ${spec.severity}`,
+      );
+      existing.severity = spec.severity;
+      existing.description = spec.description;
+      existing.triggerData = spec.triggerData;
+      existing.escalationLevel = 0;
+      // Re-run the ladder so the policy matched for the NEW severity engages.
+      // The rise re-armed the level to 0, so every concurrent occurrence may
+      // try — exactly one claims it.
+      await this.escalate(existing, spec.severity, spec);
+      return;
+    }
+
+    if (row.escalationLevel === 0) {
+      // Never escalated (no policy then, or a failed first level) — retry. The
+      // escalation claims level 0 → 1, so a concurrent retry pages once.
+      existing.severity = row.severity;
+      await this.escalate(existing, row.severity, spec);
       return;
     }
 
     this.logger.debug(
-      `Updated existing ${spec.signalLabel} incident ${existing.id} for ${spec.signalKey} ` +
-        `(occurrences: ${existing.occurrenceCount})`,
+      `Recorded another ${spec.signalLabel} occurrence on incident ${existing.id} for ${spec.signalKey}`,
     );
+  }
+
+  /**
+   * Raise the incident to `spec.severity` if it is still below it and open,
+   * and re-arm its ladder (escalation level back to 0). The conditional UPDATE
+   * makes the rise exactly-once: of two concurrent deliveries of a more severe
+   * occurrence, only one gets `true`; the page itself is then the level-0 claim.
+   */
+  private async raiseSeverity(
+    existing: AlertIncident,
+    spec: FarmSignalIncidentSpec,
+  ): Promise<boolean> {
+    const rank = SEVERITY_ORDER.map((severity) => `'${severity}'`).join(', ');
+    const result = await this.incidentRepository
+      .createQueryBuilder()
+      .update(AlertIncident)
+      .set({
+        severity: spec.severity,
+        // The description and breadcrumb describe the CURRENT state (e.g. "2
+        // days of cover", not the 7 it was opened with) — an operator opening
+        // the incident must not read a stale reason for a critical page.
+        description: spec.description,
+        // Re-arm the ladder: the new severity's level 1 is claimed from 0,
+        // exactly once, whichever concurrent occurrence gets there first.
+        escalationLevel: 0,
+        triggerData: () => 'CAST(:triggerData AS jsonb)',
+        timeline: () => `COALESCE("timeline", '[]'::jsonb) || CAST(:entry AS jsonb)`,
+      })
+      .where('id = :id', { id: existing.id })
+      .andWhere('status IN (:...open)', { open: FarmSignalIncidentService.ACTIVE_STATUSES })
+      .andWhere(
+        `array_position(ARRAY[${rank}]::text[], CAST(severity AS text)) < ` +
+          `array_position(ARRAY[${rank}]::text[], CAST(:next AS text))`,
+        { next: spec.severity },
+      )
+      .setParameter('triggerData', JSON.stringify(spec.triggerData))
+      .setParameter(
+        'entry',
+        JSON.stringify([
+          timelineEntry(
+            TimelineEventType.ESCALATED,
+            `Severity raised to ${spec.severity}: ${spec.description}`,
+            { severity: spec.severity },
+          ),
+        ]),
+      )
+      .execute();
+    return (result.affected ?? 0) === 1;
   }
 }

@@ -7,8 +7,12 @@ import {
 } from '@nestjs/graphql';
 import { Logger } from '@nestjs/common';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
-import { EscalationPolicy, SuppressionWindow } from '../../database/entities/escalation-policy.entity';
+import { EscalationPolicy } from '../../database/entities/escalation-policy.entity';
 import { EscalationPolicyService } from '../../escalation/escalation-policy.service';
+import {
+  EscalationPolicyWriter,
+  type PolicyActor,
+} from '../../escalation/escalation-policy-writer.service';
 import {
   CreateEscalationPolicyInput,
   UpdateEscalationPolicyInput,
@@ -16,7 +20,6 @@ import {
   UpdateOnCallScheduleInput,
   ClonePolicyInput,
 } from '../dto/escalation-policy.dto';
-import { randomUUID as uuidv4 } from 'crypto';
 
 /**
  * User context interface
@@ -29,6 +32,19 @@ interface UserContext {
 }
 
 /**
+ * The policy writer's actor. TENANT_ADMIN (or SUPER_ADMIN above it) may change
+ * the default policy and create windows that can silence HIGH alarms (V-S1b-2).
+ */
+function policyActorOf(user: UserContext): PolicyActor {
+  return {
+    userId: user.sub,
+    isTenantAdmin: user.roles.some(
+      (role) => role === Role.TENANT_ADMIN || role === Role.SUPER_ADMIN,
+    ),
+  };
+}
+
+/**
  * Escalation Policy Resolver
  * GraphQL resolver for escalation policy CRUD and management operations
  */
@@ -38,6 +54,9 @@ export class EscalationPolicyResolver {
 
   constructor(
     private readonly escalationPolicyService: EscalationPolicyService,
+    // Every policy mutation goes through the writer: coverage invariant,
+    // TENANT_ADMIN-only default changes, audited (V-S1a-2, V-S1b-2).
+    private readonly policyWriter: EscalationPolicyWriter,
   ) {}
 
   // ========================================================================
@@ -104,21 +123,22 @@ export class EscalationPolicyResolver {
     this.logger.log(`Creating escalation policy: ${input.name}`);
 
     const { suppressionWindows, ...rest } = input;
-    return await this.escalationPolicyService.createPolicy({
-      ...rest,
-      tenantId,
-      createdBy: user.sub,
-      suppressionWindows: suppressionWindows?.map(w => ({
-        id: uuidv4(),
-        name: w.name,
-        startTime: new Date(w.startTime),
-        endTime: new Date(w.endTime),
-        reason: w.reason,
+    return await this.policyWriter.createPolicy(
+      {
+        ...rest,
+        tenantId,
         createdBy: user.sub,
-        isRecurring: w.isRecurring,
-        recurringPattern: w.recurringPattern,
-      })),
-    });
+        suppressionWindows: suppressionWindows?.map((w) => ({
+          name: w.name,
+          startTime: new Date(w.startTime),
+          endTime: new Date(w.endTime),
+          reason: w.reason,
+          isRecurring: w.isRecurring,
+          recurringPattern: w.recurringPattern,
+        })),
+      },
+      policyActorOf(user),
+    );
   }
 
   /**
@@ -129,11 +149,12 @@ export class EscalationPolicyResolver {
   async updateEscalationPolicy(
     @Args('input') input: UpdateEscalationPolicyInput,
     @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<EscalationPolicy> {
     this.logger.log(`Updating escalation policy: ${input.policyId}`);
 
     const { policyId, ...updates } = input;
-    return await this.escalationPolicyService.updatePolicy(policyId, tenantId, updates);
+    return await this.policyWriter.updatePolicy(policyId, tenantId, updates, policyActorOf(user));
   }
 
   /**
@@ -144,9 +165,10 @@ export class EscalationPolicyResolver {
   async deleteEscalationPolicy(
     @Args('policyId', { type: () => ID }) policyId: string,
     @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<boolean> {
     this.logger.log(`Deleting escalation policy: ${policyId}`);
-    await this.escalationPolicyService.deletePolicy(policyId, tenantId);
+    await this.policyWriter.deletePolicy(policyId, tenantId, policyActorOf(user));
     return true;
   }
 
@@ -162,21 +184,18 @@ export class EscalationPolicyResolver {
   ): Promise<EscalationPolicy> {
     this.logger.log(`Adding suppression window to policy: ${input.policyId}`);
 
-    const window: SuppressionWindow = {
-      id: uuidv4(),
-      name: input.window.name,
-      startTime: new Date(input.window.startTime),
-      endTime: new Date(input.window.endTime),
-      reason: input.window.reason,
-      createdBy: user.sub,
-      isRecurring: input.window.isRecurring,
-      recurringPattern: input.window.recurringPattern,
-    };
-
-    return await this.escalationPolicyService.addSuppressionWindow(
+    return await this.policyWriter.addSuppressionWindow(
       input.policyId,
       tenantId,
-      window,
+      {
+        name: input.window.name,
+        startTime: new Date(input.window.startTime),
+        endTime: new Date(input.window.endTime),
+        reason: input.window.reason,
+        isRecurring: input.window.isRecurring,
+        recurringPattern: input.window.recurringPattern,
+      },
+      policyActorOf(user),
     );
   }
 
@@ -189,13 +208,15 @@ export class EscalationPolicyResolver {
     @Args('policyId', { type: () => ID }) policyId: string,
     @Args('windowId', { type: () => ID }) windowId: string,
     @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<EscalationPolicy> {
     this.logger.log(`Removing suppression window ${windowId} from policy: ${policyId}`);
 
-    return await this.escalationPolicyService.removeSuppressionWindow(
+    return await this.policyWriter.removeSuppressionWindow(
       policyId,
       tenantId,
       windowId,
+      policyActorOf(user),
     );
   }
 
@@ -207,13 +228,15 @@ export class EscalationPolicyResolver {
   async updateOnCallSchedule(
     @Args('input') input: UpdateOnCallScheduleInput,
     @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<EscalationPolicy> {
     this.logger.log(`Updating on-call schedule for policy: ${input.policyId}`);
 
-    return await this.escalationPolicyService.updateOnCallSchedule(
+    return await this.policyWriter.updateOnCallSchedule(
       input.policyId,
       tenantId,
       input.schedule,
+      policyActorOf(user),
     );
   }
 
@@ -225,13 +248,15 @@ export class EscalationPolicyResolver {
   async cloneEscalationPolicy(
     @Args('input') input: ClonePolicyInput,
     @Tenant() tenantId: string,
+    @CurrentUser() user: UserContext,
   ): Promise<EscalationPolicy> {
     this.logger.log(`Cloning escalation policy: ${input.policyId} as "${input.newName}"`);
 
-    return await this.escalationPolicyService.clonePolicy(
+    return await this.policyWriter.clonePolicy(
       input.policyId,
       tenantId,
       input.newName,
+      policyActorOf(user),
     );
   }
 }

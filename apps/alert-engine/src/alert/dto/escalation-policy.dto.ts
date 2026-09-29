@@ -70,6 +70,8 @@ export class EscalationLevelInput {
   @IsArray()
   // The delivery contract carries at most this many explicit ids per level.
   @ArrayMaxSize(ALERT_RECIPIENT_QUERY_MAX_USER_IDS)
+  // V-S1b-6: user ids only — free text names nobody and was dropped at delivery.
+  @IsUUID('all', { each: true })
   notifyUserIds!: string[];
 
   @Field(() => [String], { nullable: true })
@@ -126,13 +128,12 @@ export class OnCallScheduleInput {
   endTime!: string;
 
   @Field()
-  @IsString()
-  @IsNotEmpty()
+  @IsUUID('all')
   userId!: string;
 
   @Field({ nullable: true })
-  @IsString()
   @IsOptional()
+  @IsUUID('all')
   backupUserId?: string;
 }
 

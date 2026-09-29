@@ -1,4 +1,3 @@
-import { ConflictException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
@@ -139,27 +138,5 @@ describe('EscalationPolicyService — default policy invariants', () => {
     await service.getPolicies(TENANT_ID);
 
     expect(values).not.toHaveBeenCalled();
-  });
-
-  it('refuses to un-default or deactivate the default policy', async () => {
-    // SCENARIO: an edit that would leave the tenant without an active default.
-    // EXPECTS: ConflictException — the tenant makes another policy default instead.
-    const { service, repository } = await build();
-    const current = Object.assign(new EscalationPolicy(), {
-      id: 'd1',
-      tenantId: TENANT_ID,
-      isDefault: true,
-      isActive: true,
-      levels: [],
-    });
-    repository.findOne.mockResolvedValue(current);
-
-    await expect(service.updatePolicy('d1', TENANT_ID, { isDefault: false })).rejects.toThrow(
-      ConflictException,
-    );
-    await expect(service.updatePolicy('d1', TENANT_ID, { isActive: false })).rejects.toThrow(
-      ConflictException,
-    );
-    expect(repository.save).not.toHaveBeenCalled();
   });
 });

@@ -36,7 +36,36 @@ export const AUTH_USER_QUERY_SUBJECTS = {
    * `ai_personas:<tier>` forwarded to ai-service).
    */
   RESOLVE_CALLER_CAPABILITIES: 'request.auth.user.resolveCallerCapabilities',
+  /**
+   * Decision 7 (sensor-rule recipients): which of these e-mail addresses belong
+   * to an ACTIVE user of the tenant, and which user. alert-engine asks when a
+   * rule is written (and in the backfill of existing rules) so a person named
+   * by e-mail is stored as a user id — paged once, by the incident's
+   * escalation — instead of also receiving the rule's external e-mail.
+   * Tenant-scoped and ids-only, like every query on this surface.
+   */
+  RESOLVE_TENANT_USER_IDS_BY_EMAIL: 'request.auth.user.resolveTenantUserIdsByEmail',
 } as const;
+
+/** Upper bound of e-mail addresses per resolve query (a rule's recipient list). */
+export const RESOLVE_USER_IDS_BY_EMAIL_MAX = 100;
+
+/** Query for {@link AUTH_USER_QUERY_SUBJECTS.RESOLVE_TENANT_USER_IDS_BY_EMAIL}. */
+export interface ResolveTenantUserIdsByEmailQuery {
+  tenantId: string;
+  emails: string[];
+}
+
+/**
+ * The matches: one entry per address that is an ACTIVE user of the tenant
+ * (compared case-insensitively). An address with no active user in THIS tenant
+ * is simply absent — platform-wide existence never leaks.
+ */
+export interface ResolveTenantUserIdsByEmailResult {
+  success: boolean;
+  matches: Array<{ email: string; userId: string }>;
+  error?: string;
+}
 
 /**
  * Hard upper bound on userIds per query — a single admission check

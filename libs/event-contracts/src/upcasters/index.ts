@@ -4,6 +4,11 @@ export type { EventUpcaster } from './event-upcaster';
 export { sensorReadingUpcaster } from './sensor-reading.upcaster';
 export { sensorReadingV2ToV3Upcaster } from './sensor-reading-v2-to-v3.upcaster';
 export { alertTriggeredUpcaster } from './alert-triggered.upcaster';
+export { alertTriggeredV2ToV3Upcaster } from './alert-triggered-v2-to-v3.upcaster';
+export {
+  alertEscalatedUpcaster,
+  LEGACY_EVENT_SHAPE_MARKER,
+} from './alert-escalated-legacy.upcaster';
 export { batchHarvestedUpcaster } from './batch-harvested-v1-to-v2.upcaster';
 export { createTimestampUpcaster } from './timestamp-to-string.upcaster';
 
@@ -11,6 +16,8 @@ import { EventUpcasterRegistry } from './event-upcaster';
 import { sensorReadingUpcaster } from './sensor-reading.upcaster';
 import { sensorReadingV2ToV3Upcaster } from './sensor-reading-v2-to-v3.upcaster';
 import { alertTriggeredUpcaster } from './alert-triggered.upcaster';
+import { alertTriggeredV2ToV3Upcaster } from './alert-triggered-v2-to-v3.upcaster';
+import { alertEscalatedUpcaster } from './alert-escalated-legacy.upcaster';
 import { batchHarvestedUpcaster } from './batch-harvested-v1-to-v2.upcaster';
 import { createTimestampUpcaster } from './timestamp-to-string.upcaster';
 
@@ -49,6 +56,10 @@ export function createDefaultRegistry(): EventUpcasterRegistry {
   // up both transforms.
   registry.register(sensorReadingV2ToV3Upcaster);
   registry.register(alertTriggeredUpcaster);
+  // Decision 7: v3 names the incident (external-target delivery key).
+  registry.register(alertTriggeredV2ToV3Upcaster);
+  // V-S1a-11: the pre-delivery AlertEscalated shape ends here (terminal).
+  registry.register(alertEscalatedUpcaster);
   registry.register(batchHarvestedUpcaster);
 
   // Timestamp + aggregateId version bump upcasters (v1→v2)

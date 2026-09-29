@@ -1,4 +1,4 @@
-import { EventUpcasterRegistry, createDefaultRegistry } from '../index';
+import { EventUpcasterRegistry, LEGACY_EVENT_SHAPE_MARKER, createDefaultRegistry } from '../index';
 import { sensorReadingUpcaster } from '../sensor-reading.upcaster';
 import { alertTriggeredUpcaster } from '../alert-triggered.upcaster';
 import { batchHarvestedUpcaster } from '../batch-harvested-v1-to-v2.upcaster';
@@ -20,7 +20,12 @@ describe('EventUpcasterRegistry', () => {
     // v3 is the current SensorReading schema (Scope B Phase S1.1
     // added optional federation correlation fields). A v3 event
     // round-trips unchanged through the registry.
-    const event = { eventType: 'SensorReading', version: 3, sensorId: 's1', readingTemperature: 25 };
+    const event = {
+      eventType: 'SensorReading',
+      version: 3,
+      sensorId: 's1',
+      readingTemperature: 25,
+    };
     expect(registry.upcast(event)).toEqual(event);
   });
 
@@ -282,7 +287,9 @@ describe('AlertTriggered upcaster edge cases', () => {
     registry = createDefaultRegistry();
   });
 
-  it('should not re-upcast an event already at version 2', () => {
+  it('lifts a v2 event to v3, keyed by its history id (decision 7)', () => {
+    // SCENARIO: a v2 AlertTriggered in flight across the deploy names no incident.
+    // EXPECTS: v3 with incidentId = alertId — it delivers once per trigger, as v2 did.
     const v2 = {
       eventType: 'AlertTriggered',
       version: 2,
@@ -292,9 +299,16 @@ describe('AlertTriggered upcaster edge cases', () => {
 
     const result = registry.upcast(v2);
 
-    expect(result['version']).toBe(2);
+    expect(result['version']).toBe(3);
+    expect(result['incidentId']).toBe('a1');
     expect(result['triggerSensorId']).toBe('s1');
     expect(result['triggeringData']).toBeUndefined();
+  });
+
+  it('leaves a v3 event untouched', () => {
+    const v3 = { eventType: 'AlertTriggered', version: 3, alertId: 'a1', incidentId: 'i1' };
+
+    expect(registry.upcast(v3)).toEqual(v3);
   });
 
   it('should handle an unexpected version number higher than target', () => {
@@ -429,10 +443,37 @@ describe('AlertTriggered v1→v2 upcaster', () => {
 
     const result = registry.upcast(v1);
 
-    expect(result['version']).toBe(2);
+    expect(result['version']).toBe(3);
     expect(result['triggerSensorId']).toBe('s1');
     expect(result['triggerValue']).toBe(99);
     expect(result['triggeringData']).toBeUndefined();
+    expect(result['incidentId']).toBe('a1');
+  });
+});
+
+describe('AlertEscalated legacy shape (V-S1a-11) — terminal upcaster', () => {
+  it('marks a v1 (and v2) pre-delivery event legacy on its way to v3', () => {
+    // SCENARIO: an AlertEscalated published before the delivery fields existed.
+    // EXPECTS: v3 plus the legacy marker — the boundary check refuses it with a
+    //          reason instead of it passing as a current event.
+    const registry = createDefaultRegistry();
+    for (const version of [1, 2]) {
+      const result = registry.upcast({
+        eventType: 'AlertEscalated',
+        version,
+        alertId: 'a1',
+        escalatedTo: [],
+      });
+      expect(result['version']).toBe(3);
+      expect(result[LEGACY_EVENT_SHAPE_MARKER]).toEqual(expect.any(String));
+    }
+  });
+
+  it('leaves a current (v3) AlertEscalated untouched', () => {
+    const registry = createDefaultRegistry();
+    const v3 = { eventType: 'AlertEscalated', version: 3, alertId: 'a1' };
+
+    expect(registry.upcast(v3)).toEqual(v3);
   });
 });
 

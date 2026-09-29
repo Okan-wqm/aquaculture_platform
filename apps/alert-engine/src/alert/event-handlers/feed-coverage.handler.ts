@@ -7,8 +7,7 @@
  * tenant search_path bağlamı burada kurulur (FcrAlertEventHandler emsali).
  */
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
-import { requiresDurableDelivery } from '@platform/event-contracts';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import type {
   BaseEvent,
   FeedStockoutForecastEvent,
@@ -18,6 +17,7 @@ import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/da
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
 
 import { FeedCoverageAlertService } from '../services/feed-coverage-alert.service';
+import { farmSignalFailureOutcome } from './farm-signal-outcome';
 
 @Injectable()
 export class FeedCoverageEventHandler implements IEventHandler<BaseEvent>, OnModuleInit {
@@ -81,9 +81,7 @@ export class FeedCoverageEventHandler implements IEventHandler<BaseEvent>, OnMod
       // `FeedStockoutForecast` + `FeedTransitionUpcoming` registry'de
       // `reproducible` — ertesi 07:00 süpürmesi snapshot'ı yeniden hesaplayıp
       // hâlâ geçerli olan sinyali yeniden yayar (W7 / D-B5).
-      return outcomeForError('feed-coverage', error, {
-        reproducible: !requiresDurableDelivery(event.eventType),
-      });
+      return farmSignalFailureOutcome('feed-coverage', event.eventType, error);
     }
   }
 }

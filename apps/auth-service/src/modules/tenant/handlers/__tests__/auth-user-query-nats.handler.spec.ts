@@ -2,12 +2,14 @@ import { Global, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
-import { DataSource } from 'typeorm';
+import { collaborator } from '@aquaculture/testing';
+import { DataSource, Repository } from 'typeorm';
 
 import { AUTH_USER_QUERY_SUBJECTS } from '@platform/event-contracts';
 
 import { AuditModule } from '../../../../audit/audit.module';
 import { AuditLog } from '../../../../audit/audit-log.entity';
+import { AuditLogService } from '../../../../audit/audit-log.service';
 import { User } from '../../../authentication/entities/user.entity';
 import { AuthUserQueryNatsHandler } from '../auth-user-query-nats.handler';
 import { ScheduledJobTestModule } from '@aquaculture/backend-common/scheduling/testing';
@@ -46,8 +48,8 @@ function makeHandler(rows: UserRow[]): {
   const find = jest.fn().mockResolvedValue(rows);
   const audit = { log: jest.fn().mockResolvedValue(undefined) };
   const handler = new AuthUserQueryNatsHandler(
-    { find } as never,
-    audit as never,
+    collaborator<Repository<User>>({ find }, 'userRepository'),
+    collaborator<AuditLogService>(audit, 'auditLogService'),
   );
   return { handler, audit, find };
 }
@@ -73,9 +75,7 @@ describe('AuthUserQueryNatsHandler', () => {
   it('scopes the lookup to the tenant — a cross-tenant userId is invalid, not leaked', async () => {
     // U2 is omitted from the result set => belongs to another tenant (or
     // does not exist); both must collapse to invalidUserIds identically.
-    const { handler, find, audit } = makeHandler([
-      { id: U1, tenantId: TENANT, isActive: true },
-    ]);
+    const { handler, find, audit } = makeHandler([{ id: U1, tenantId: TENANT, isActive: true }]);
     const result = await handler.validateTenantMembership({
       tenantId: TENANT,
       userIds: [U1, U2],
@@ -91,9 +91,7 @@ describe('AuthUserQueryNatsHandler', () => {
   });
 
   it('requireActive=true pushes inactive members to inactiveUserIds AND forces allValid=false', async () => {
-    const { handler } = makeHandler([
-      { id: U1, tenantId: TENANT, isActive: false },
-    ]);
+    const { handler } = makeHandler([{ id: U1, tenantId: TENANT, isActive: false }]);
     const result = await handler.validateTenantMembership({
       tenantId: TENANT,
       userIds: [U1],
@@ -136,16 +134,12 @@ describe('AuthUserQueryNatsHandler', () => {
       .useValue({ create: jest.fn(), save: jest.fn() })
       .compile();
 
-    expect(moduleRef.get(AuthUserQueryNatsHandler)).toBeInstanceOf(
-      AuthUserQueryNatsHandler,
-    );
+    expect(moduleRef.get(AuthUserQueryNatsHandler)).toBeInstanceOf(AuthUserQueryNatsHandler);
     await moduleRef.close();
   });
 
   it('requireActive=false keeps an inactive member valid', async () => {
-    const { handler } = makeHandler([
-      { id: U1, tenantId: TENANT, isActive: false },
-    ]);
+    const { handler } = makeHandler([{ id: U1, tenantId: TENANT, isActive: false }]);
     const result = await handler.validateTenantMembership({
       tenantId: TENANT,
       userIds: [U1],
@@ -154,5 +148,52 @@ describe('AuthUserQueryNatsHandler', () => {
     expect(result.allValid).toBe(true);
     expect(result.validUserIds).toEqual([U1]);
     expect(result.inactiveUserIds).toEqual([]);
+  });
+});
+
+describe('AuthUserQueryNatsHandler.resolveTenantUserIdsByEmail (decision 7)', () => {
+  async function build(users: Array<{ id: string; email: string }>): Promise<{
+    handler: AuthUserQueryNatsHandler;
+    chain: Record<string, jest.Mock>;
+  }> {
+    const chain: Record<string, jest.Mock> = {};
+    for (const step of ['select', 'where', 'andWhere']) chain[step] = jest.fn(() => chain);
+    chain['getMany'] = jest.fn(async () => users);
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        AuthUserQueryNatsHandler,
+        { provide: getRepositoryToken(User), useValue: { createQueryBuilder: () => chain } },
+        { provide: AuditLogService, useValue: { log: jest.fn() } },
+      ],
+    }).compile();
+    return { handler: moduleRef.get(AuthUserQueryNatsHandler), chain };
+  }
+
+  it('matches ACTIVE users of THIS tenant, case-insensitively, and answers ids only', async () => {
+    // SCENARIO: a rule names "Ops@Example.com"; the user is stored lower-case.
+    // EXPECTS: the query is bound to the tenant and active users; the match comes
+    //          back as { email, userId } and nothing else.
+    const { handler, chain } = await build([{ id: U1, email: 'ops@example.com' }]);
+
+    const result = await handler.resolveTenantUserIdsByEmail({
+      tenantId: TENANT,
+      emails: ['Ops@Example.com', 'outside@partner.test'],
+    });
+
+    expect(result).toEqual({ success: true, matches: [{ email: 'ops@example.com', userId: U1 }] });
+    expect(chain['where']).toHaveBeenCalledWith('user.tenantId = :tenantId', { tenantId: TENANT });
+    expect(chain['andWhere']).toHaveBeenCalledWith('user.isActive = true');
+    expect(chain['andWhere']).toHaveBeenCalledWith('LOWER(user.email) IN (:...emails)', {
+      emails: ['ops@example.com', 'outside@partner.test'],
+    });
+  });
+
+  it('refuses a malformed payload at the trust boundary without querying', async () => {
+    const { handler, chain } = await build([]);
+
+    const result = await handler.resolveTenantUserIdsByEmail({ tenantId: 'x', emails: [] });
+
+    expect(result.success).toBe(false);
+    expect(chain['getMany']).not.toHaveBeenCalled();
   });
 });

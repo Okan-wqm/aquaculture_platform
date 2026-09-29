@@ -3,7 +3,7 @@
   "eventType": "AlertEscalated",
   "timestamp": "2026-09-29T04:12:00.000Z",
   "tenantId": "7f6b08ab-90e2-46d3-8a11-2b3c4d5e6f70",
-  "version": 1,
+  "version": 3,
   "aggregateId": "0b9e7c1a-1111-4d2e-9a3b-5c6d7e8f9a0b",
   "aggregateType": "AlertIncident",
   "alertId": "0b9e7c1a-1111-4d2e-9a3b-5c6d7e8f9a0b",

@@ -7,11 +7,13 @@ import type { BaseEvent } from '@platform/event-contracts';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import {
   EscalationManagerService,
+  EscalationStart,
   EscalationState,
   AcknowledgmentRecord,
   NotificationRecord,
   ESCALATION_EVENTS,
 } from '../escalation-manager.service';
+import { AlertAuditService } from '../../audit/alert-audit.service';
 import { EscalationPolicyService } from '../escalation-policy.service';
 import {
   EscalationPolicy,
@@ -30,6 +32,22 @@ import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 // the escalation's tenant context, which requires a canonical tenant UUID.
 const TENANT_ID = '7f6b08ab-90e2-46d3-8a11-2b3c4d5e6f70';
 
+/** A first escalation of a HIGH incident. */
+const HIGH_START: EscalationStart = { severity: AlertSeverity.HIGH };
+
+/**
+ * The claim's query-builder chain (V-S1a-4). `execute` answers how many rows
+ * the conditional UPDATE claimed: 1 = this caller won the level.
+ */
+function claimQueryBuilder(affected = 1): Record<string, jest.Mock> {
+  const qb: Record<string, jest.Mock> = {};
+  for (const step of ['update', 'set', 'where', 'andWhere', 'setParameter', 'returning']) {
+    qb[step] = jest.fn(() => qb);
+  }
+  qb['execute'] = jest.fn().mockResolvedValue({ affected, raw: [] });
+  return qb;
+}
+
 describe('EscalationManagerService', () => {
   let service: EscalationManagerService;
   let incidentRepository: jest.Mocked<Repository<AlertIncident>>;
@@ -38,7 +56,8 @@ describe('EscalationManagerService', () => {
   let redisService: jest.Mocked<RedisService>;
   // Transaction manager mock (ALERT-CRITICAL-001): escalation-level write +
   // AlertEscalated enqueue commit atomically on this single manager.
-  let txManager: { save: jest.Mock };
+  let txManager: { createQueryBuilder: jest.Mock };
+  let claim: Record<string, jest.Mock>;
   let outbox: { enqueue: jest.Mock };
 
   // In-memory store for Redis mock
@@ -84,7 +103,7 @@ describe('EscalationManagerService', () => {
       return undefined;
     }),
     getCurrentOnCall: jest.fn().mockReturnValue(undefined),
-    isInSuppressionWindow: jest.fn().mockReturnValue(false),
+    suppresses: jest.fn().mockReturnValue(false),
   };
 
   const mockIncident: Partial<AlertIncident> = {
@@ -161,9 +180,8 @@ describe('EscalationManagerService', () => {
       }),
     };
 
-    txManager = {
-      save: jest.fn().mockImplementation((_entity: unknown, row: unknown) => row),
-    };
+    claim = claimQueryBuilder();
+    txManager = { createQueryBuilder: jest.fn(() => claim) };
     outbox = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
     // Structural typing of the transaction callback against the mock manager
@@ -204,6 +222,7 @@ describe('EscalationManagerService', () => {
         },
         { provide: DataSource, useValue: mockDataSource },
         { provide: OutboxPublisher, useValue: outbox },
+        { provide: AlertAuditService, useValue: { log: jest.fn() } },
       ],
     }).compile();
 
@@ -227,42 +246,64 @@ describe('EscalationManagerService', () => {
   });
 
   describe('startEscalation', () => {
-    it('should start escalation for an incident', async () => {
-      const result = await service.startEscalation(
-        mockIncident as AlertIncident,
-        AlertSeverity.HIGH,
-      );
+    it('claims level 1, pages and keeps the ladder state', async () => {
+      // SCENARIO: a HIGH incident matching the policy.
+      // EXPECTS: 'escalated', one AlertEscalated, an active level-1 ladder in Redis.
+      const outcome = await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
-      expect(result).toBeDefined();
-      expect(result?.incidentId).toBe('incident-1');
-      expect(result?.currentLevel).toBe(1);
-      expect(result?.isComplete).toBe(false);
+      expect(outcome).toBe('escalated');
+      expect(outbox.enqueue).toHaveBeenCalledTimes(1);
+      const state = await service.getEscalationState('incident-1');
+      expect(state).toMatchObject({ incidentId: 'incident-1', currentLevel: 1, isComplete: false });
     });
 
-    it('should return null when no matching policy found', async () => {
+    it('pages nobody twice when a concurrent delivery already claimed level 1', async () => {
+      // SCENARIO: the conditional UPDATE claims no row (another delivery won).
+      // EXPECTS: 'already-claimed' and NO AlertEscalated from this caller.
+      claim['execute']!.mockResolvedValue({ affected: 0, raw: [] });
+
+      const outcome = await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
+
+      expect(outcome).toBe('already-claimed');
+      expect(outbox.enqueue).not.toHaveBeenCalled();
+    });
+
+    it('uses the tenant-admin hard floor for a HIGH incident no policy covers', async () => {
+      // SCENARIO: no policy matches a HIGH incident (V-S1a-2c).
+      // EXPECTS: escalated to TENANT_ADMIN tenant-wide by push + e-mail.
       policyService.findMatchingPolicy.mockResolvedValue(null);
 
-      const result = await service.startEscalation(
-        mockIncident as AlertIncident,
-        AlertSeverity.HIGH,
-      );
+      const outcome = await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
-      expect(result).toBeNull();
+      expect(outcome).toBe('escalated');
+      const [event] = outbox.enqueue.mock.calls[0] as [Record<string, unknown>];
+      expect(event).toMatchObject({
+        tenantWideRecipientRoles: ['TENANT_ADMIN'],
+        channels: ['push', 'email'],
+      });
     });
 
-    it('should return null and emit suppressed event when in suppression window', async () => {
-      const suppressedPolicy = {
+    it('is not covered when no policy matches a WARNING incident', async () => {
+      policyService.findMatchingPolicy.mockResolvedValue(null);
+
+      const outcome = await service.startEscalation(mockIncident as AlertIncident, {
+        severity: AlertSeverity.WARNING,
+      });
+
+      expect(outcome).toBe('not-covered');
+      expect(outbox.enqueue).not.toHaveBeenCalled();
+    });
+
+    it('returns suppressed and emits the suppressed event when a window silences the policy', async () => {
+      const suppressedPolicy: Partial<EscalationPolicy> = {
         ...mockPolicy,
-        isInSuppressionWindow: jest.fn().mockReturnValue(true),
+        suppresses: jest.fn().mockReturnValue(true),
       };
-      policyService.findMatchingPolicy.mockResolvedValue(suppressedPolicy as unknown as EscalationPolicy);
+      policyService.findMatchingPolicy.mockResolvedValue(suppressedPolicy as EscalationPolicy);
 
-      const result = await service.startEscalation(
-        mockIncident as AlertIncident,
-        AlertSeverity.HIGH,
-      );
+      const outcome = await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
-      expect(result).toBeNull();
+      expect(outcome).toBe('suppressed');
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         ESCALATION_EVENTS.SUPPRESSED,
         expect.any(Object),
@@ -270,14 +311,14 @@ describe('EscalationManagerService', () => {
     });
 
     it('should set escalation timeout', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       // Verify timer was set by checking if escalation happens after timeout
       expect(await service.isEscalating('incident-1')).toBe(true);
     });
 
     it('should emit escalated event', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         ESCALATION_EVENTS.ESCALATED,
@@ -291,17 +332,17 @@ describe('EscalationManagerService', () => {
 
   describe('executeEscalationLevel', () => {
     it('should execute escalation for specified level', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       const result = await service.executeEscalationLevel(
         mockIncident as AlertIncident,
         mockPolicy as EscalationPolicy,
         1,
+        0,
       );
 
       expect(result.success).toBe(true);
       expect(result.toLevel).toBe(1);
-      expect(result.actions).toHaveLength(1);
     });
 
     it('should fail for non-existent level', async () => {
@@ -309,6 +350,7 @@ describe('EscalationManagerService', () => {
         mockIncident as AlertIncident,
         mockPolicy as EscalationPolicy,
         99,
+        98,
       );
 
       expect(result.success).toBe(false);
@@ -316,29 +358,41 @@ describe('EscalationManagerService', () => {
     });
 
     it('should update incident escalation level', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       await service.executeEscalationLevel(
         mockIncident as AlertIncident,
         mockPolicy as EscalationPolicy,
         1,
+        0,
       );
 
-      // The escalation-level write now goes through the transaction manager
-      // (atomic with the AlertEscalated outbox enqueue), not the bare repo.
-      expect(txManager.save).toHaveBeenCalledWith(AlertIncident, mockIncident);
+      // V-S1a-4: the level is CLAIMED by a conditional UPDATE on the
+      // transaction manager (atomic with the outbox enqueue), never a
+      // full-entity save of a stale read.
+      expect(txManager.createQueryBuilder).toHaveBeenCalled();
+      expect(claim['andWhere']).toHaveBeenCalledWith('escalation_level = :fromLevel', {
+        fromLevel: 0,
+      });
+      expect(claim['execute']).toHaveBeenCalled();
     });
 
     it('should include correct target users', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
-      const result = await service.executeEscalationLevel(
+      await service.executeEscalationLevel(
         mockIncident as AlertIncident,
         mockPolicy as EscalationPolicy,
         1,
+        0,
       );
 
-      expect(result.actions[0]?.targetUsers).toContain('user-1');
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        ESCALATION_EVENTS.ESCALATED,
+        expect.objectContaining({
+          action: expect.objectContaining({ targetUsers: expect.arrayContaining(['user-1']) }),
+        }),
+      );
     });
   });
 
@@ -348,6 +402,7 @@ describe('EscalationManagerService', () => {
         mockIncident as AlertIncident,
         mockPolicy as EscalationPolicy,
         1,
+        0,
       );
 
       expect(outbox.enqueue).toHaveBeenCalledTimes(1);
@@ -355,9 +410,9 @@ describe('EscalationManagerService', () => {
         BaseEvent,
         EntityManager,
       ];
-      // Enqueued on the SAME manager the escalation-level write used.
+      // Enqueued on the SAME manager the escalation-level claim used.
       expect(passedManager).toBe(txManager);
-      expect(txManager.save).toHaveBeenCalledWith(AlertIncident, mockIncident);
+      expect(claim['execute']).toHaveBeenCalled();
     });
 
     it('builds the AlertEscalated event with its contract fields', async () => {
@@ -365,6 +420,7 @@ describe('EscalationManagerService', () => {
         mockIncident as AlertIncident,
         mockPolicy as EscalationPolicy,
         1,
+        0,
       );
 
       const [event] = outbox.enqueue.mock.calls[0] as [Record<string, unknown>];
@@ -385,6 +441,7 @@ describe('EscalationManagerService', () => {
         mockIncident as AlertIncident,
         mockPolicy as EscalationPolicy,
         1,
+        0,
       );
 
       // The enqueue failure propagates out of dataSource.transaction → caught
@@ -402,7 +459,7 @@ describe('EscalationManagerService', () => {
 
   describe('escalateToNextLevel', () => {
     it('should escalate to next level', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       const result = await service.escalateToNextLevel('incident-1');
 
@@ -418,7 +475,7 @@ describe('EscalationManagerService', () => {
 
     it('should repeat current level when max level reached', async () => {
       // Start at level 2 (max)
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       // Manually set to level 2 via Redis store
       const state = await service.getEscalationState('incident-1');
@@ -433,7 +490,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should complete escalation when max repeats reached', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       const state = await service.getEscalationState('incident-1');
       if (state) {
@@ -452,7 +509,7 @@ describe('EscalationManagerService', () => {
 
   describe('acknowledgeEscalation', () => {
     it('should acknowledge escalation', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       const result = await service.acknowledgeEscalation('incident-1', 'user-1', 'Acknowledged');
 
@@ -466,7 +523,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should record acknowledgment', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       await service.acknowledgeEscalation('incident-1', 'user-1', 'Acknowledged');
 
@@ -476,7 +533,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should emit acknowledged event', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       await service.acknowledgeEscalation('incident-1', 'user-1');
 
@@ -490,7 +547,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should cancel escalation timeout', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       await service.acknowledgeEscalation('incident-1', 'user-1');
 
@@ -502,7 +559,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should update incident status', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       await service.acknowledgeEscalation('incident-1', 'user-1');
 
@@ -512,7 +569,7 @@ describe('EscalationManagerService', () => {
 
   describe('completeEscalation', () => {
     it('should complete escalation', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       await service.completeEscalation('incident-1', 'resolved');
 
@@ -521,7 +578,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should emit completed event', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       await service.completeEscalation('incident-1', 'resolved');
 
@@ -537,7 +594,7 @@ describe('EscalationManagerService', () => {
 
   describe('getEscalationState', () => {
     it('should return escalation state', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       const state = await service.getEscalationState('incident-1');
 
@@ -554,13 +611,13 @@ describe('EscalationManagerService', () => {
 
   describe('isEscalating', () => {
     it('should return true for active escalation', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       expect(await service.isEscalating('incident-1')).toBe(true);
     });
 
     it('should return false for completed escalation', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
       await service.completeEscalation('incident-1', 'resolved');
 
       expect(await service.isEscalating('incident-1')).toBe(false);
@@ -573,13 +630,13 @@ describe('EscalationManagerService', () => {
 
   describe('isAcknowledged', () => {
     it('should return false for new escalation', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       expect(await service.isAcknowledged('incident-1')).toBe(false);
     });
 
     it('should return true after acknowledgment', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
       await service.acknowledgeEscalation('incident-1', 'user-1');
 
       expect(await service.isAcknowledged('incident-1')).toBe(true);
@@ -588,7 +645,7 @@ describe('EscalationManagerService', () => {
 
   describe('pauseEscalation', () => {
     it('should pause escalation', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       const result = await service.pauseEscalation('incident-1');
 
@@ -602,7 +659,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should prevent automatic escalation', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       await service.pauseEscalation('incident-1');
 
@@ -616,7 +673,7 @@ describe('EscalationManagerService', () => {
 
   describe('resumeEscalation', () => {
     it('should resume paused escalation', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
       await service.pauseEscalation('incident-1');
 
       const result = await service.resumeEscalation('incident-1');
@@ -633,7 +690,7 @@ describe('EscalationManagerService', () => {
 
   describe('recordNotification', () => {
     it('should record notification', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       await service.recordNotification('incident-1', {
         userId: 'user-1',
@@ -662,7 +719,7 @@ describe('EscalationManagerService', () => {
 
   describe('recordNotificationDelivery', () => {
     it('should record successful delivery', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       await service.recordNotification('incident-1', {
         userId: 'user-1',
@@ -681,7 +738,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should record failed delivery', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       await service.recordNotification('incident-1', {
         userId: 'user-1',
@@ -703,7 +760,7 @@ describe('EscalationManagerService', () => {
 
   describe('getEscalationMetrics', () => {
     it('should return escalation metrics', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       const metrics = await service.getEscalationMetrics('incident-1');
 
@@ -720,7 +777,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should track notification counts', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       await service.recordNotification('incident-1', {
         userId: 'user-1',
@@ -737,7 +794,7 @@ describe('EscalationManagerService', () => {
 
   describe('cleanupCompletedEscalations', () => {
     it('should cleanup old completed escalations', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
       await service.completeEscalation('incident-1', 'resolved');
 
       // Advance time
@@ -750,7 +807,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should not cleanup recent completed escalations', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
       await service.completeEscalation('incident-1', 'resolved');
 
       const cleaned = await service.cleanupCompletedEscalations();
@@ -760,7 +817,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should not cleanup active escalations', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       jest.advanceTimersByTime(25 * 60 * 60 * 1000);
 
@@ -773,7 +830,7 @@ describe('EscalationManagerService', () => {
 
   describe('getActiveEscalations', () => {
     it('should return active escalations', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       const active = await service.getActiveEscalations();
 
@@ -781,7 +838,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should not include completed escalations', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
       await service.completeEscalation('incident-1', 'resolved');
 
       const active = await service.getActiveEscalations();
@@ -792,7 +849,7 @@ describe('EscalationManagerService', () => {
 
   describe('getStatistics', () => {
     it('should return escalation statistics', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       const stats = await service.getStatistics();
 
@@ -802,7 +859,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should track acknowledged escalations', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
       await service.acknowledgeEscalation('incident-1', 'user-1');
 
       const stats = await service.getStatistics();
@@ -811,7 +868,7 @@ describe('EscalationManagerService', () => {
     });
 
     it('should track completed escalations', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
       await service.completeEscalation('incident-1', 'resolved');
 
       const stats = await service.getStatistics();
@@ -823,7 +880,7 @@ describe('EscalationManagerService', () => {
 
   describe('timeout handling', () => {
     it('should escalate to next level on timeout', async () => {
-      await service.startEscalation(mockIncident as AlertIncident, AlertSeverity.HIGH);
+      await service.startEscalation(mockIncident as AlertIncident, HIGH_START);
 
       // Clear previous emit calls
       eventEmitter.emit.mockClear();

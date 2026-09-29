@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { ALERT_ESCALATED_EVENT_VERSION } from '../alert-events';
 import { PLATFORM_EVENT_REGISTRY } from '../platform-event-registry';
+import { LEGACY_EVENT_SHAPE_MARKER } from '../upcasters';
 import {
   checkAlertEscalatedEvent,
   checkAlertRecipientQuery,
@@ -36,6 +38,23 @@ describe('AlertEscalated contract', () => {
     const drifted = JSON.parse(JSON.stringify({ ...(fixture as object), ...change }));
     const result = checkAlertEscalatedEvent(drifted);
     expect(result.ok).toBe(false);
+  });
+
+  it('admits only the delivery-carrying version (V-S1a-11)', () => {
+    // SCENARIO: a producer that forgot to stamp ALERT_ESCALATED_EVENT_VERSION.
+    // EXPECTS: refused — the createBaseEvent default (1) would be upcast to 2, the
+    //          version of the pre-delivery shape.
+    const drifted = { ...(fixture as object), version: 1 };
+    expect(checkAlertEscalatedEvent(drifted).ok).toBe(false);
+    expect(ALERT_ESCALATED_EVENT_VERSION).toBe(3);
+  });
+
+  it("refuses the terminal upcaster's legacy marker with a legacy-shape reason", () => {
+    const legacy = { ...(fixture as object), [LEGACY_EVENT_SHAPE_MARKER]: 'AlertEscalated<=v2' };
+    expect(checkAlertEscalatedEvent(legacy)).toEqual({
+      ok: false,
+      reason: expect.stringContaining('legacy'),
+    });
   });
 
   it('keeps the recipient expansion to ids only, in both directions', () => {

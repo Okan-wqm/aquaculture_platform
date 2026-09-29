@@ -3,6 +3,7 @@ import {
   toEventIso,
   AlertTriggeredEvent,
   AlertResolvedEvent,
+  ALERT_TRIGGERED_EVENT_VERSION,
 } from '@platform/event-contracts';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
@@ -22,6 +23,8 @@ import {
 } from '../../database/entities/alert-incident.entity';
 import { EscalationManagerService } from '../../escalation/escalation-manager.service';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { IncidentEscalationFailedError } from './incident-escalation-failed.error';
+import { directPersonTargetsOf } from './rule-targets';
 
 /**
  * Sensor reading data structure
@@ -337,9 +340,10 @@ export class AlertEvaluationService {
     // incident persisted but the operator never notified of, e.g., a
     // dissolved-oxygen crash. No try/catch wraps the enqueue: a failed
     // enqueue MUST propagate so the transaction rolls back.
-    let newIncident: AlertIncident | null = null;
+    let incident: AlertIncident | null = null;
+    let duplicate = false;
     try {
-      newIncident = await this.dataSource.transaction(async (manager) => {
+      incident = await this.dataSource.transaction(async (manager) => {
         const savedHistory = await manager.save(AlertHistory, history);
 
         // Create or update an AlertIncident to feed the escalation pipeline.
@@ -357,6 +361,7 @@ export class AlertEvaluationService {
           reading,
           condition,
           savedHistory.id,
+          created.id,
           message,
         );
         await this.outboxPublisher.enqueue(event, manager);
@@ -367,29 +372,57 @@ export class AlertEvaluationService {
       // Task 1.5 idempotency: a unique-violation on (rule_id,
       // source_event_id) means this exact source reading already fired —
       // the redelivered event is acknowledged as processed, not re-fired.
-      if ((error as { code?: string }).code === '23505') {
-        this.logger.debug(
-          `Alert for rule ${rule.id} already fired for source event ` +
-            `${reading.sourceEventId} — duplicate suppressed`,
-        );
-        return;
+      if ((error as { code?: string }).code !== '23505') {
+        throw error;
       }
-      throw error;
+      this.logger.debug(
+        `Alert for rule ${rule.id} already fired for source event ` +
+          `${reading.sourceEventId} — duplicate suppressed`,
+      );
+      duplicate = true;
     }
 
-    // Start the escalation pipeline only for freshly-created incidents, and
-    // only AFTER the trigger has durably committed. Escalation manages its
-    // own Redis-backed timers/state outside this transaction, so it must run
-    // post-commit — never inside it (a rollback would orphan the timers).
-    if (newIncident) {
-      this.escalationManager
-        .startEscalation(newIncident, condition.severity, rule.id, reading.farmId)
-        .catch((err: Error) => {
-          this.logger.error(
-            `Failed to start escalation for incident ${newIncident.id}: ${err.message}`,
-          );
-        });
+    // Decision 7 (V-S1a-7): a sensor-rule incident pages PEOPLE through the
+    // escalation path only — awaited, claim-guarded (exactly once), with the
+    // rule's own user-id recipients joined to level 1. Its external targets
+    // (raw e-mail, SMS, webhook) are delivered from the AlertTriggered event
+    // enqueued above, keyed by the incident. Escalation runs post-commit (it
+    // owns Redis timers a rollback would orphan) and only while the incident
+    // is still at level 0: a redelivery of the same reading (the duplicate
+    // branch) or a later reading on the open incident retries a first page
+    // that failed, and the level-0 claim keeps that retry from paging twice.
+    const open = incident ?? (duplicate ? await this.findOpenRuleIncident(rule, reading) : null);
+    if (!open || open.escalationLevel !== 0) return;
+    try {
+      await this.escalationManager.startEscalation(open, {
+        severity: open.severity,
+        matchKey: rule.id,
+        farmId: reading.farmId,
+        directTargets: directPersonTargetsOf(rule),
+      });
+    } catch (error) {
+      // Release the cooldown so the redelivery this error triggers re-runs
+      // the trigger instead of stopping at the cooldown gate.
+      if (rule.cooldownMinutes > 0) {
+        await this.redisService.del(`cooldown:${reading.tenantId}:${rule.id}`);
+      }
+      throw new IncidentEscalationFailedError(open.id, error);
     }
+  }
+
+  /** The rule's open incident in this tenant (for a redelivered reading). */
+  private findOpenRuleIncident(
+    rule: AlertRule,
+    reading: SensorReadingData,
+  ): Promise<AlertIncident | null> {
+    return this.incidentRepository.findOne({
+      where: {
+        ruleId: rule.id,
+        tenantId: reading.tenantId,
+        status: In([IncidentStatus.NEW, IncidentStatus.ACKNOWLEDGED, IncidentStatus.INVESTIGATING]),
+      },
+      order: { createdAt: 'DESC' },
+    });
   }
 
   /**
@@ -407,7 +440,7 @@ export class AlertEvaluationService {
     condition: AlertCondition,
     savedHistory: AlertHistory,
     message: string,
-  ): Promise<AlertIncident | null> {
+  ): Promise<AlertIncident> {
     // Look for an existing open incident for this rule + tenant.
     const activeStatuses: IncidentStatus[] = [
       IncidentStatus.NEW,
@@ -425,15 +458,23 @@ export class AlertEvaluationService {
     });
 
     if (existingIncident) {
-      // Bump occurrence count on the existing incident.
-      existingIncident.recordOccurrence(new Date(reading.timestamp));
-      await manager.save(AlertIncident, existingIncident);
+      // V-S1a-4: an atomic counter bump — never a full-entity save of a stale
+      // read, which wrote an old escalation level/timeline back over a
+      // concurrent escalation.
+      await manager
+        .createQueryBuilder()
+        .update(AlertIncident)
+        .set({
+          occurrenceCount: () => 'occurrence_count + 1',
+          lastOccurredAt: new Date(reading.timestamp),
+        })
+        .where('id = :id', { id: existingIncident.id })
+        .execute();
       this.logger.debug(
-        `Updated existing incident ${existingIncident.id} for rule ${rule.id} ` +
-          `(occurrences: ${existingIncident.occurrenceCount})`,
+        `Recorded another occurrence on incident ${existingIncident.id} for rule ${rule.id}`,
       );
-      // No new incident → no fresh escalation pipeline to start post-commit.
-      return null;
+      // Returned so a never-escalated (level 0) incident retries its page.
+      return existingIncident;
     }
 
     // No active incident – create a new one.
@@ -498,15 +539,17 @@ export class AlertEvaluationService {
     reading: SensorReadingData,
     condition: AlertCondition,
     alertId: string,
+    incidentId: string,
     message: string,
   ): AlertTriggeredEvent {
     return {
       ...createBaseEvent<AlertTriggeredEvent>('AlertTriggered', reading.tenantId, {
         aggregateId: alertId,
         aggregateType: 'Alert',
-        version: 2,
+        version: ALERT_TRIGGERED_EVENT_VERSION,
       }),
       alertId,
+      incidentId,
       ruleId: rule.id,
       ruleName: rule.name,
       severity: condition.severity,

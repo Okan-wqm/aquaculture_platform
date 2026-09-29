@@ -9,8 +9,10 @@ import {
   AUTH_USER_QUERY_SUBJECTS,
   ListTenantUserIdsQuery,
   ListTenantUserIdsResult,
+  ResolveTenantUserIdsByEmailResult,
   ValidateTenantMembershipQuery,
   ValidateTenantMembershipResult,
+  validateResolveTenantUserIdsByEmailQuerySchema,
   validateTenantMembershipQuerySchema,
 } from '@platform/event-contracts';
 
@@ -179,6 +181,48 @@ export class AuthUserQueryNatsHandler {
         error instanceof Error ? error.stack : String(error),
       );
       return { success: false, userIds: [], error: 'Unable to list tenant users' };
+    }
+  }
+
+  /**
+   * Decision 7: which e-mail addresses are ACTIVE users of this tenant.
+   * alert-engine normalises a sensor rule's recipients with it, so a person
+   * named by e-mail is stored as a user id and paged once (by escalation).
+   *
+   * Tenant-scoped (`tenantId` in the WHERE clause — another tenant's user is
+   * never matched), active users only, ids only; addresses compared
+   * case-insensitively (the `LOWER(email)` unique index). The broker grants
+   * this subject to alert_engine alone (services.yaml).
+   */
+  @MessagePattern(AUTH_USER_QUERY_SUBJECTS.RESOLVE_TENANT_USER_IDS_BY_EMAIL)
+  async resolveTenantUserIdsByEmail(
+    @Payload() payload: unknown,
+  ): Promise<ResolveTenantUserIdsByEmailResult> {
+    if (!validateResolveTenantUserIdsByEmailQuerySchema(payload)) {
+      return { success: false, matches: [], error: 'Invalid resolve-by-email payload' };
+    }
+    const lowered = Array.from(new Set(payload.emails.map((email) => email.trim().toLowerCase())));
+    if (lowered.length === 0) {
+      return { success: true, matches: [] };
+    }
+    try {
+      const users: Array<{ id: string; email: string }> = await this.userRepository
+        .createQueryBuilder('user')
+        .select(['user.id', 'user.email'])
+        .where('user.tenantId = :tenantId', { tenantId: payload.tenantId })
+        .andWhere('user.isActive = true')
+        .andWhere('LOWER(user.email) IN (:...emails)', { emails: lowered })
+        .getMany();
+      return {
+        success: true,
+        matches: users.map((user) => ({ email: user.email.toLowerCase(), userId: user.id })),
+      };
+    } catch (error) {
+      this.logger.error(
+        `resolveTenantUserIdsByEmail failed for tenant=${payload.tenantId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return { success: false, matches: [], error: 'Unable to resolve users by e-mail' };
     }
   }
 }

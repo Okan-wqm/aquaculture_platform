@@ -14,6 +14,7 @@ import {
 } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
 import { AlertEvaluationService } from './alert-evaluation.service';
+import { RuleRecipientNormalizer } from './rule-recipient-normalizer.service';
 
 /**
  * Create alert rule data
@@ -46,6 +47,8 @@ export class AlertRuleService {
     @InjectRepository(AlertHistory)
     private readonly historyRepository: Repository<AlertHistory>,
     private readonly evaluationService: AlertEvaluationService,
+    // Decision 7: a person named by e-mail is stored as a user id.
+    private readonly recipientNormalizer: RuleRecipientNormalizer,
   ) {}
 
   /**
@@ -66,8 +69,12 @@ export class AlertRuleService {
       );
     }
 
+    const recipients = data.recipients
+      ? (await this.recipientNormalizer.normalize(data.tenantId, data.recipients)).recipients
+      : undefined;
     const rule = this.ruleRepository.create({
       ...data,
+      recipients,
       isActive: true,
       cooldownMinutes: data.cooldownMinutes ?? 5,
     });
@@ -156,7 +163,9 @@ export class AlertRuleService {
       rule.notificationChannels = updates.notificationChannels;
     }
     if (updates.recipients !== undefined) {
-      rule.recipients = updates.recipients;
+      rule.recipients = (
+        await this.recipientNormalizer.normalize(tenantId, updates.recipients)
+      ).recipients;
     }
     if (updates.cooldownMinutes !== undefined) {
       rule.cooldownMinutes = updates.cooldownMinutes;

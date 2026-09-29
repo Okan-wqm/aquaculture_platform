@@ -10,6 +10,11 @@ import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import type { AlertRecipientRole } from '@platform/event-contracts';
 import { AlertSeverity } from './alert-rule.entity';
+import {
+  SUPPRESSION_WINDOWS_TRANSFORMER,
+  windowsSuppress,
+  type SuppressionWindowRecord,
+} from './suppression-window';
 
 /**
  * Escalation action type
@@ -155,10 +160,11 @@ export class OnCallSchedule {
 }
 
 /**
- * Suppression window
+ * Suppression window. Stored as a `jsonb` array element and always rehydrated
+ * through `SUPPRESSION_WINDOWS_TRANSFORMER`, so `startTime`/`endTime` are Dates.
  */
 @ObjectType('SuppressionWindow')
-export class SuppressionWindow {
+export class SuppressionWindow implements SuppressionWindowRecord {
   @Field()
   id!: string;
 
@@ -176,6 +182,13 @@ export class SuppressionWindow {
 
   @Field()
   createdBy!: string;
+
+  /**
+   * True only when a TENANT_ADMIN created the window — the only kind that may
+   * silence a HIGH alarm (ALERT-3). CRITICAL is never silenced by any window.
+   */
+  @Field()
+  createdByTenantAdmin!: boolean;
 
   @Field()
   isRecurring!: boolean;
@@ -232,7 +245,14 @@ export class EscalationPolicy {
   onCallSchedule?: OnCallSchedule[];
 
   @Field(() => [SuppressionWindow], { nullable: true })
-  @Column({ name: 'suppression_windows', type: 'jsonb', nullable: true })
+  @Column({
+    name: 'suppression_windows',
+    type: 'jsonb',
+    nullable: true,
+    // V-S1a-2d: jsonb hands timestamps back as strings; the transformer is the
+    // one place they become Dates, so no reader can call `.getTime()` on a string.
+    transformer: SUPPRESSION_WINDOWS_TRANSFORMER,
+  })
   suppressionWindows?: SuppressionWindow[];
 
   @Field(() => Int)
@@ -321,21 +341,12 @@ export class EscalationPolicy {
   }
 
   /**
-   * Check whether `date` falls within any suppression window.
-   *
-   * Contract: `SuppressionWindow.startTime` and `endTime` MUST be stored and
-   * retrieved as UTC values (PostgreSQL `timestamptz` columns are always UTC).
-   * `date` defaults to `new Date()` which is always UTC-based in Node.js.
-   * Using `.getTime()` for explicit numeric comparison avoids any implicit
-   * Date coercion that could mask a timezone mismatch.
+   * Does a suppression window silence an alarm of `severity` now? CRITICAL:
+   * never; HIGH: only a TENANT_ADMIN window; lower: any active window
+   * (ALERT-3, V-S1b-2 — see `windowsSuppress`).
    */
-  isInSuppressionWindow(date: Date = new Date()): boolean {
-    if (!this.suppressionWindows?.length) return false;
-
-    const nowMs = date.getTime();
-    return this.suppressionWindows.some(
-      w => nowMs >= w.startTime.getTime() && nowMs <= w.endTime.getTime()
-    );
+  suppresses(severity: AlertSeverity, date: Date = new Date()): boolean {
+    return windowsSuppress(this.suppressionWindows, severity, date);
   }
 
   appliesTo(severity: AlertSeverity, ruleId?: string, farmId?: string): boolean {

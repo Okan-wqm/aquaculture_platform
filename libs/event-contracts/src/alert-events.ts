@@ -29,7 +29,17 @@ export type AlertSeverityLevel =
  */
 export interface AlertTriggeredEvent extends BaseEvent {
   eventType: 'AlertTriggered';
+  /** The AlertHistory row of this trigger. */
   alertId: string;
+  /**
+   * The AlertIncident this trigger opened or joined (v3, decision 7). It is
+   * the delivery key of the rule's EXTERNAL targets (raw e-mail, SMS,
+   * webhook): notification-service sends each target once per incident, so a
+   * later trigger that only bumps the open incident sends nothing new. People
+   * (user-id recipients) are never paged from this event — the incident's
+   * escalation (`AlertEscalated`) pages them.
+   */
+  incidentId: string;
   ruleId: string;
   ruleName: string;
   severity: AlertSeverityLevel;
@@ -99,6 +109,14 @@ export type AlertRecipientRole = (typeof ALERT_RECIPIENT_ROLES)[number];
  * `siteId: null` means the incident has no site; site-scoped roles then widen to
  * the whole tenant so a missing site can never silence an alarm.
  */
+/**
+ * Wire versions of the two alarm hand-offs (V-S1a-11). A producer stamps these
+ * — never the `createBaseEvent` default of 1, which the timestamp upcaster
+ * turns into 2, the version the pre-delivery AlertEscalated shape carries.
+ */
+export const ALERT_ESCALATED_EVENT_VERSION = 3;
+export const ALERT_TRIGGERED_EVENT_VERSION = 3;
+
 export interface AlertEscalatedEvent extends BaseEvent {
   eventType: 'AlertEscalated';
   /** The escalated AlertIncident id. */

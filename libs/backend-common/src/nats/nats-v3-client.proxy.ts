@@ -93,7 +93,15 @@ export class NatsV3Client extends ClientProxy {
       const packet = this.assignPacketId(partialPacket);
       const channel = this.normalizePattern(partialPacket.pattern);
       const serialized = this.serializer.serialize(packet);
-      const inbox = createInbox(this.options.inboxPrefix);
+      // SEC-HIGH-098: fall back to the scoped prefix derived from the
+      // service identity — a bare _INBOX subscription is denied by the
+      // NATS ACL and silently drops every request-reply cycle.
+      const scopedPrefix =
+        this.options.inboxPrefix ??
+        (this.options.serviceName
+          ? `_INBOX${this.options.serviceName.toUpperCase().replace(/-/g, '_')}.`
+          : undefined);
+      const inbox = createInbox(scopedPrefix);
       // Inline non-async callback (contextually typed by @nats-io MsgCallback) that
       // fire-and-forgets the async reply handling — mirrors the server strategy's
       // subscribe pattern and avoids the Promise<void>-vs-void mismatch a returned

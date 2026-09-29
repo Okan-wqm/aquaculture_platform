@@ -193,6 +193,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   private readonly telemetryStreamName: string;
   private readonly streamReplicas: number;
   private readonly clientId: string;
+  private readonly serviceName: string;
   private reconnectPolicy: NatsReconnectPolicy | null = null;
 
   /** Optional event upcaster registry for v1→v2+ event schema migration */
@@ -257,6 +258,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     // Same SERVICE_NAME across scaled instances enables JetStream queue-group
     // semantics: messages are load-balanced, not duplicated.
     const serviceName = this.configService.get<string>('SERVICE_NAME', os.hostname());
+    this.serviceName = serviceName;
     this.clientId = this.configService.get<string>('NATS_CLIENT_ID', `aquaculture-${serviceName}`);
     // ADR-015: TLS / auth config is read inside `connect()` via the shared
     // `buildNatsConnectionOptions()` factory. Production security enforcement
@@ -510,7 +512,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       // Override only the fields where this class's identity matters:
       // `name` becomes the durable JetStream consumer identity
       // (see ARCH-020 comment in constructor).
-      const factoryOptions = buildNatsConnectionOptions(this.clientId);
+      const factoryOptions = buildNatsConnectionOptions(this.serviceName);
       const reconnectPolicy: NatsReconnectPolicy = {
         perConnectionAttemptBudget: parseReconnectAttempts(factoryOptions.maxReconnectAttempts),
         initialDelayMs: parseReconnectWaitMs(factoryOptions.reconnectTimeWait),

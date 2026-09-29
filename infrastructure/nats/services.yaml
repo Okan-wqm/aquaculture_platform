@@ -27,8 +27,8 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - request.auth.user.validateTenantMembership
   - request.auth.>
   - $JS.API.STREAM.INFO.>
@@ -142,8 +142,8 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - request.farm.createTask
   - request.farm.getTankRegistry
   - request.farm.getBatchOverview
@@ -194,8 +194,8 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - request.sensor.>
   - telemetry.>
   - sensor.lookup.by-topic
@@ -218,8 +218,8 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - policy.ingest_backend.>
   - _INBOXSENSOR_INGESTION.>
   - $JS.API.STREAM.INFO.>
@@ -327,8 +327,8 @@ services:
   - request.auth.public.requestPasswordReset
   - request.auth.public.resetPassword
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - events.*.ServiceErrorCaptured
   - events.security.events.>
   - events.*.TenantOnboardingAck
@@ -357,8 +357,8 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - events.>
   - st.language.>
   - _INBOXGATEWAY_SERVICE.>
@@ -385,8 +385,8 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - commands.notification.sendEmail
   - commands.notification.sendPush
   - $JS.API.STREAM.INFO.>
@@ -415,8 +415,8 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - request.ai.chat
   - request.ai.executeAction
   - request.ai.generateEmbeddings
@@ -457,8 +457,8 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - request.billing.admin.>
   - request.billing.tenant.>
   - _INBOXBILLINGCFG.>
@@ -487,8 +487,8 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -533,8 +533,8 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -592,8 +592,8 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - request.messaging.verifyMembership
   - request.messaging.getChannelMembers
   - request.messaging.getMessageBatch
@@ -631,8 +631,8 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -651,8 +651,8 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - events.platform.schema-migration.>
   - events.security.events.>
   - $JS.API.STREAM.INFO.>
@@ -679,8 +679,8 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - config.runtime.get
   - config.runtime.get_secret
   - config.marine_credentials.resolve
@@ -706,8 +706,8 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   - events.*.ServiceErrorCaptured
+  - $JS.API.INFO
   subscribe:
-  - _INBOX.>
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
   - $JS.API.STREAM.UPDATE.>
@@ -723,7 +723,6 @@ services:
   - $JS.API.CONSUMER.>
   - _INBOX.>
   subscribe:
-  - _INBOX.>
   - dlq.>
   - $JS.API.CONSUMER.>
   - _INBOXDLQ_REPLAYER.>

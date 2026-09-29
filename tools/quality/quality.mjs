@@ -313,16 +313,32 @@ function managed(path, cls, owner) {
 }
 
 function excluded(path, cls, owner, reason) {
-  return {
+  const entry = {
     path,
     class: cls,
     prettier_managed: false,
     owner,
     reason,
-    source_of_truth: cls === 'generated' ? 'generator' : 'committed_hash',
+    review_required: true,
+  };
+  // A GENERATED file's authority is its generator (npm for package-lock.json,
+  // codegen, tsc for tools/eslint-rules/dist), and each already has its own
+  // gate that re-runs the generator and diffs. Pinning its bytes here added no
+  // control — the only remedy `checkManifest` offers is "regenerate", which
+  // recomputes the pin — but it made every legitimate regeneration stale this
+  // manifest. That is why no Dependabot npm PR could ever go green: a bot that
+  // rewrites package-lock.json cannot rerun this generator.
+  //
+  // A committed_hash file (archive, runtime evidence) is different: its bytes
+  // ARE the authority, nothing regenerates them, and a changed pin is a visible
+  // review signal that historical evidence was edited. Those keep the hash.
+  // `lockfile-bump-manifest-stability.spec.ts` holds both halves.
+  if (cls === 'generated') return { ...entry, source_of_truth: 'generator' };
+  return {
+    ...entry,
+    source_of_truth: 'committed_hash',
     hash_policy: 'sha256',
     content_sha256: existsSync(join(REPO_ROOT, path)) ? fileSha(path) : null,
-    review_required: true,
   };
 }
 
@@ -840,7 +856,12 @@ function cargoWorkspaceMembers() {
 
 function buildRustManifest() {
   const toolchain = parseRustToolchainToml();
-  const lockPath = join(REPO_ROOT, 'Cargo.lock');
+  // NO Cargo.lock DIGEST. This manifest describes the toolchain
+  // (`authority: rust-toolchain.toml`); its readers — resolve-toolchain.mjs and
+  // checkRustToolchain — use channel/components/targets only. A lockfile hash
+  // here had no reader, and it went stale on every dependency bump, so every
+  // Dependabot cargo PR failed sens lint/build/test on it. Cargo.lock integrity
+  // is enforced by `cargo --locked`, not by a copy of its hash.
   return {
     schema_version: 1,
     generated_by: 'tools/quality/quality.mjs rust-toolchain generate',
@@ -848,7 +869,6 @@ function buildRustManifest() {
     channel: toolchain.channel,
     components: toolchain.components,
     targets: toolchain.targets,
-    cargo_lock_sha256: existsSync(lockPath) ? sha256(readFileSync(lockPath)) : null,
     workspace_members: cargoWorkspaceMembers(),
   };
 }

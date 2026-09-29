@@ -1076,8 +1076,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "6b5033fc845a685d5d0e665dcfb565aa8009b83db6a55b3bff05cc64e93915c4",
-      "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
       "prettier_managed": false,
@@ -19759,8 +19757,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "9b4707514ef77465b927fdf14956d1858b427d821ab706e5c00711db44c86185",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
       "prettier_managed": false,
@@ -31139,8 +31135,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "ae0fb13c5ba591961503749fe487e233b1548368182663fde6006a8b881d4323",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "docs/aria/generated/harness-parity.md",
       "prettier_managed": false,
@@ -31150,8 +31144,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f0a9e54af7228ccad6257da2a1c66347632e7cf3956e55116364fd6da65200b4",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "docs/aria/generated/JUDGE-DIGEST.md",
       "prettier_managed": false,
@@ -37948,6 +37940,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/infra-expert/2026-09-29-dependabot-red.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/infra/2026-06-30-farm-canary-masked-rejection.md",
       "prettier_managed": true
     },
@@ -39714,8 +39712,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "fcc93344aa742f0a4d8e4f5ac8102c77785e5e6a1a4fbb6ba488864f3056befc",
-      "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "e2e/package-lock.json",
       "prettier_managed": false,
@@ -40295,8 +40291,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "cafe227f8267e6610f89a5daebd206650ba0cfca3b7b4c45aa89bb00d8d7bff6",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
       "prettier_managed": false,
@@ -40330,8 +40324,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "97a3f3fa9f7072678b0d7618ecd9773664bed5a36199e9abb932b785e412b5da",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
       "prettier_managed": false,
@@ -40533,8 +40525,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "215410627a604f4ed0760d3957903a931dacd0446561f1cd0e34a4c250deccb0",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/alarm-core/src/generated/alarm_core_wasm_bg.wasm.d.ts",
       "prettier_managed": false,
@@ -40544,8 +40534,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "41691b2a74542088c16d26dad29d34a71916de882432599bb53a365fd72df40c",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/alarm-core/src/generated/alarm_core_wasm.d.ts",
       "prettier_managed": false,
@@ -40555,8 +40543,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "da4dd0c58e0bb18783dce50fadbe6828e40979eb6b6c78a255d9ed12e0e44651",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/alarm-core/src/generated/alarm_core_wasm.js",
       "prettier_managed": false,
@@ -44904,8 +44890,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "0ee2447e30cf6e6f3ec824764e64f9b059e6ca6802b06da7b10139e6db9360a0",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/protocol-codec/src/generated/protocol_codec_wasm_bg.wasm.d.ts",
       "prettier_managed": false,
@@ -44915,8 +44899,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "0b1bb5a5cd08fc048544bd22beb2973e77875b130f219e2b91f4bd522458972f",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/protocol-codec/src/generated/protocol_codec_wasm.d.ts",
       "prettier_managed": false,
@@ -44926,8 +44908,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "84d45cd31c6501739dcecce7a3f4b714d4587668c6576749c54751fc11da3492",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "libs/protocol-codec/src/generated/protocol_codec_wasm.js",
       "prettier_managed": false,
@@ -45939,8 +45919,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "fc470a5ebd81ea0b33c179c7c6242ee3c8934570ddd77e0bca2853cf442dafb9",
-      "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
       "prettier_managed": false,
@@ -50311,8 +50289,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "20de2d63c7e07e8ff18a5ad3f6dc4134d29456b0f0bdd758092d7c1e75dc0c42",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/index.d.ts",
       "prettier_managed": false,
@@ -50322,8 +50298,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "afb022efd16d04da4f5659021953034055851104784a9dcde2b2fec02f163425",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/index.js",
       "prettier_managed": false,
@@ -50333,8 +50307,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "a2f35026d4f0f228d9e5dbb76bcb6111564ee57e9a5dc118ae0c095f785aaf4a",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-actor-in-input-dto.d.ts",
       "prettier_managed": false,
@@ -50344,8 +50316,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "9ea72ea093f02b59588a7440ac40372c6a6f6ad3f2046a2bfe290b850a620097",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-actor-in-input-dto.js",
       "prettier_managed": false,
@@ -50355,8 +50325,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "7a028b95821a099bed65c17159d2d180e6a5596b202fdbe1f84bd98c0825d89d",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-bare-graphql-query-string.d.ts",
       "prettier_managed": false,
@@ -50366,8 +50334,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "6ff386e50f29a09b5c490377314107ddbd0e0dd001d4ba46b8256d93691fa6db",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-bare-graphql-query-string.js",
       "prettier_managed": false,
@@ -50377,8 +50343,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "85dc0498615d0779c0aa2d92d372795624d9be60f3bfd94e7143868cfd1ba22a",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-bare-tenant-query-key.d.ts",
       "prettier_managed": false,
@@ -50388,8 +50352,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "afb61135b1b30e93f75951fa9c86413e714507f58f1f1e6767da3f4cac15fd01",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-bare-tenant-query-key.js",
       "prettier_managed": false,
@@ -50399,8 +50361,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "acffa2fc4438ed57e2ea70fd350dd8e2c3bbcb000192ad4e1ea64679d97b2c36",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-claude-sdk-raw-call.d.ts",
       "prettier_managed": false,
@@ -50410,8 +50370,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f26e82fbd74d862876c60adc5e1954ce8b234b4b88f8e411617f5849d4df4d2d",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-claude-sdk-raw-call.js",
       "prettier_managed": false,
@@ -50421,8 +50379,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "35a8b80244ee31bf6ecd2ba91179d14816bed9d4a3efc6168a99fb9ac8444713",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-direct-event-publish.d.ts",
       "prettier_managed": false,
@@ -50432,8 +50388,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "d3f997c6a79328d2b2076594dd9b28d27c036670134920ef7c69ced5390b1715",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-direct-event-publish.js",
       "prettier_managed": false,
@@ -50443,8 +50397,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "340edecdf31c4feffd4b83b7e1585f149dedde97c2b05a968b4564f5ef055c47",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-high-cardinality-metric-label.d.ts",
       "prettier_managed": false,
@@ -50454,8 +50406,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "75464bbecc5f5b7c0a8c00363de65943ee73ff6a305a0f60ec3a75a24fdb5e2c",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-high-cardinality-metric-label.js",
       "prettier_managed": false,
@@ -50465,8 +50415,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "54404347775a64bc234cc1d94428fbc82fd54cf4f29949cba14a5b457557b45f",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-unpinned-ssrf-fetch.d.ts",
       "prettier_managed": false,
@@ -50476,8 +50424,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "da18f61f686bcd92b6b06c5bb8190a5c038bb684ee8814d7d3b5fa8a2ee0865a",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-unpinned-ssrf-fetch.js",
       "prettier_managed": false,
@@ -50487,8 +50433,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5b58308b097492c803b2236fcae883a1b3d6eac27d3a965a2650db4155dc7df5",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-unsandboxed-html-frame.d.ts",
       "prettier_managed": false,
@@ -50498,8 +50442,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f861c4921441d8dc9e020a624aa8354accc60c7e85f55e8c33aaeb7e5d0c65bc",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-unsandboxed-html-frame.js",
       "prettier_managed": false,
@@ -50509,8 +50451,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "126887d1e48debda843e9aa508a000fc70163f640acf613c2622ea753c5419ea",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-unverified-tenant-param.d.ts",
       "prettier_managed": false,
@@ -50520,8 +50460,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "8545add2a93b16ea9c8afe8513e5cabb8c26fd3111abb971691bf3020153828a",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-unverified-tenant-param.js",
       "prettier_managed": false,
@@ -50531,8 +50469,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "1b5bbe41afedb5f9a8b1edeec626b32fdcef2bee6967206ea307c0653d3ffb0b",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/require-entity-schema.d.ts",
       "prettier_managed": false,
@@ -50542,8 +50478,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "ddc1e39c00848e45985adf607afd7b0b86b199380161fc3b528c67e4e6c0d326",
-      "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/require-entity-schema.js",
       "prettier_managed": false,
@@ -51035,6 +50969,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/local-rumqttc-fork-hygiene.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lockfile-bump-manifest-stability.spec.ts",
       "prettier_managed": true
     },
     {
@@ -51717,8 +51657,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "2433b7ee39a667efa4ee75fe8957f96e76c0148327a2c5d10cd1081f6a0d231d",
-      "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",
       "prettier_managed": false,
@@ -52232,8 +52170,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "ec92fb48b9dae6f6720882614caa4c195580b3a19ba9dbf32783bad834666cb3",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
       "prettier_managed": false,
@@ -54325,8 +54261,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "6c3d329fe0770212918f8ba68df6e60348bf1981f8f46992197032a4f18e0360",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",
       "prettier_managed": false,
@@ -57894,8 +57828,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "dd548302bbb8826d47b2e3ac5f7fab5863d337da3897cdb489f7e02541aea5a9",
-      "hash_policy": "sha256",
       "owner": "frontend-bundle-owner",
       "path": "web/modules/sensor-module/public/libs/aquaculture-nodes.umd.js",
       "prettier_managed": false,
@@ -63527,8 +63459,6 @@
     },
     {
       "class": "generated",
-      "content_sha256": "02d09b01578bdcb4be6329c109b4f25684fa040e8262a4a0283a92708459f60d",
-      "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
       "prettier_managed": false,

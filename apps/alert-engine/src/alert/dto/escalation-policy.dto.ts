@@ -15,13 +15,33 @@ import {
   ValidateNested,
   Matches,
   IsDateString,
+  IsIn,
+  ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ALERT_RECIPIENT_QUERY_MAX_USER_IDS } from '@platform/event-contracts';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import {
   EscalationActionType,
+  EscalationRecipientRole,
+  EscalationRecipientScope,
   NotificationChannel,
 } from '../../database/entities/escalation-policy.entity';
+
+// ============================================================================
+// Escalation Role Target Input (ALERT-CRITICAL-004)
+// ============================================================================
+
+@InputType()
+export class EscalationRoleTargetInput {
+  @Field(() => EscalationRecipientRole)
+  @IsIn(Object.values(EscalationRecipientRole))
+  role!: EscalationRecipientRole;
+
+  @Field(() => EscalationRecipientScope)
+  @IsEnum(EscalationRecipientScope)
+  scope!: EscalationRecipientScope;
+}
 
 // ============================================================================
 // Escalation Level Input
@@ -48,12 +68,23 @@ export class EscalationLevelInput {
 
   @Field(() => [String])
   @IsArray()
+  // The delivery contract carries at most this many explicit ids per level.
+  @ArrayMaxSize(ALERT_RECIPIENT_QUERY_MAX_USER_IDS)
+  // V-S1b-6: user ids only — free text names nobody and was dropped at delivery.
+  @IsUUID('all', { each: true })
   notifyUserIds!: string[];
 
   @Field(() => [String], { nullable: true })
   @IsArray()
   @IsOptional()
   notifyTeamIds?: string[];
+
+  @Field(() => [EscalationRoleTargetInput], { nullable: true })
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => EscalationRoleTargetInput)
+  notifyRoles?: EscalationRoleTargetInput[];
 
   @Field(() => [NotificationChannel])
   @IsArray()
@@ -97,13 +128,12 @@ export class OnCallScheduleInput {
   endTime!: string;
 
   @Field()
-  @IsString()
-  @IsNotEmpty()
+  @IsUUID('all')
   userId!: string;
 
   @Field({ nullable: true })
-  @IsString()
   @IsOptional()
+  @IsUUID('all')
   backupUserId?: string;
 }
 

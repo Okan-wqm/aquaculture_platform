@@ -7,6 +7,7 @@ import {
   Index,
   ManyToOne,
   JoinColumn,
+  Check,
 } from 'typeorm';
 import * as crypto from 'crypto';
 import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
@@ -83,6 +84,16 @@ export class IncidentTimelineEvent {
  */
 @ObjectType()
 @Entity('alert_incidents')
+// INVARIANT (ALERT-CRITICAL-009): an incident is owned by EXACTLY one identity —
+// an alert rule (rule_id, FK) or a farm signal (signal_key). If violated → an
+// incident no escalation policy or dedup query can attribute.
+@Check('CHK_alert_incidents_rule_xor_signal', 'num_nonnulls(rule_id, signal_key) = 1')
+// INVARIANT: at most one OPEN incident per farm condition per tenant, so two
+// concurrent deliveries of one signal can never open two alarms.
+@Index('uq_alert_incidents_open_signal', ['tenantId', 'signalKey'], {
+  unique: true,
+  where: `signal_key IS NOT NULL AND status IN ('NEW', 'ACKNOWLEDGED', 'INVESTIGATING')`,
+})
 @Index(['tenantId', 'status'])
 @Index(['severity'])
 @Index(['createdAt'])
@@ -96,10 +107,26 @@ export class AlertIncident {
   @Index()
   tenantId!: string;
 
-  @Field()
-  @Column({ name: 'rule_id' })
+  /**
+   * The alert rule that raised a rule-driven (sensor) incident; NULL for a
+   * farm-signal incident. FK to `alert_rules` — referential integrity for rule
+   * incidents is kept (ALERT-CRITICAL-009).
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ name: 'rule_id', type: 'uuid', nullable: true })
   @Index()
-  ruleId!: string;
+  ruleId!: string | null;
+
+  /**
+   * The farm condition a farm-signal incident is about — the platform
+   * `signalKey()` (`water:equipment:{id}`, `mortality:batch:{id}`, …); NULL for a
+   * rule-driven incident. WHY a separate column: a farm signal owns no
+   * AlertRule (the farm owns its thresholds), and forcing its identity into the
+   * uuid FK column made every farm-signal insert fail (ALERT-CRITICAL-009).
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ name: 'signal_key', type: 'varchar', length: 200, nullable: true })
+  signalKey?: string | null;
 
   @Field()
   @Column({ name: 'title' })
@@ -128,6 +155,16 @@ export class AlertIncident {
   @Field({ nullable: true })
   @Column({ name: 'farm_id', nullable: true })
   farmId?: string;
+
+  /**
+   * Site the incident belongs to (ALERT-MEDIUM-007) — carried from the farm
+   * event so escalation can page the people assigned to THAT site. NULL when
+   * the signal has no site (pool-level stock, unit-level feeding signals, a
+   * site-less department); site-scoped recipients then widen to the tenant.
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ name: 'site_id', type: 'uuid', nullable: true })
+  siteId?: string | null;
 
   @Field({ nullable: true })
   @Column({ name: 'pond_id', nullable: true })

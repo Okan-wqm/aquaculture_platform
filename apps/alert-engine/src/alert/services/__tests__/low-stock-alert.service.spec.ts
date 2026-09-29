@@ -1,3 +1,4 @@
+import { signalKey } from '@platform/event-contracts';
 import { LowStockAlertService } from '../low-stock-alert.service';
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
 import type { LowStockDetectedEvent } from '@platform/event-contracts';
@@ -43,12 +44,12 @@ describe('LowStockAlertService', () => {
     service = new LowStockAlertService(historyRepository as never, farmSignalIncident as never);
   });
 
-  it('records an AlertHistory row with a per-item synthetic rule identity', async () => {
+  it('records an AlertHistory row keyed to the item pool-tier stock signal', async () => {
     await service.recordLowStockAlert(makeEvent());
 
     expect(historyRepository.save).toHaveBeenCalledTimes(1);
     const row = historyRepository.create.mock.calls[0][0];
-    expect(row.ruleId).toBe('system:low-stock:feed:feed-1');
+    expect(row.ruleId).toBe(signalKey({ kind: 'stock', scope: { level: 'pool' }, itemId: 'feed-1' }));
     expect(row.tenantId).toBe(tenantId);
     expect(row.severity).toBe(AlertSeverity.WARNING);
     expect(row.message).toContain('Grower 4mm');
@@ -76,7 +77,9 @@ describe('LowStockAlertService', () => {
     const spec = farmSignalIncident.ensureIncident.mock.calls[0][0];
     expect(spec).toMatchObject({
       tenantId,
-      ruleId: 'system:low-stock:feed:feed-1',
+      signalKey: signalKey({ kind: 'stock', scope: { level: 'pool' }, itemId: 'feed-1' }),
+      // The event reports the tenant-wide total (pool tier) — no site owns it.
+      siteId: null,
       title: 'Low Stock (feed): Grower 4mm',
       severity: AlertSeverity.WARNING,
       signalLabel: 'low-stock',
@@ -85,10 +88,12 @@ describe('LowStockAlertService', () => {
     expect(spec.triggeredAt).toEqual(new Date('2026-07-16T10:00:00.000Z'));
   });
 
-  it('keys the rule identity by item type + id so different items never dedup together', async () => {
+  it('keys the signal by item so different items never dedup together', async () => {
+    // SCENARIO: a second, different item runs low.
+    // EXPECTS: its own pool-tier key (ALERT-MEDIUM-006: stock:pool:{itemId}).
     await service.recordLowStockAlert(makeEvent({ itemType: 'chemical', itemId: 'chem-9', itemName: 'Chlorine' }));
 
     const spec = farmSignalIncident.ensureIncident.mock.calls[0][0];
-    expect(spec.ruleId).toBe('system:low-stock:chemical:chem-9');
+    expect(spec.signalKey).toBe(signalKey({ kind: 'stock', scope: { level: 'pool' }, itemId: 'chem-9' }));
   });
 });

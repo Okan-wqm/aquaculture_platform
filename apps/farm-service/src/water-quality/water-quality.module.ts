@@ -16,7 +16,9 @@
  */
 import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
+import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { Module } from '@nestjs/common';
+import { ClientsModule } from '@nestjs/microservices';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
@@ -35,6 +37,10 @@ import { Equipment } from '../equipment/entities/equipment.entity';
 // Service
 import { WaterQualityService } from './water-quality.service';
 import { WaterTemperatureService } from './services/water-temperature.service';
+import {
+  FARM_AUTH_NATS_CLIENT,
+  MeasurementActorService,
+} from './services/measurement-actor.service';
 import { FeedingProtocolCoreModule } from '../feeding-protocol/feeding-protocol-core.module';
 
 // Resolvers
@@ -112,10 +118,21 @@ const CommandHandlers = [
     RegulatoryModule,
     EquipmentModule,
     FinanceModule,
+    // V-S1b-5: auth-service membership query for a `measuredBy` override. The
+    // client is the farm_service mTLS identity (ADR-015); services.yaml grants
+    // it exactly `request.auth.user.validateTenantMembership`.
+    ClientsModule.register([
+      {
+        name: FARM_AUTH_NATS_CLIENT,
+        customClass: NatsV3Client,
+        options: { serviceName: 'farm-service' },
+      },
+    ]),
   ],
   controllers: [GetWaterQualityOverviewResponder, WaterQualityAiQueryResponder],
   providers: [
     WaterQualityService,
+    MeasurementActorService,
     // Etkin sıcaklık zinciri (sensör→manuel→none) — effectiveUnitTemperatures sorgusu okur.
     WaterTemperatureService,
     // W8/FARM-MEDIUM-284 — stateless checker (ProtocolRateService emsali):

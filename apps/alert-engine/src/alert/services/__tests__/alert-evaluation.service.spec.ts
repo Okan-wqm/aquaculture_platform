@@ -12,6 +12,7 @@ import {
 import { AlertHistory } from '../../entities/alert-history.entity';
 import { AlertIncident, IncidentStatus } from '../../../database/entities/alert-incident.entity';
 import { EscalationManagerService } from '../../../escalation/escalation-manager.service';
+import { IncidentEscalationFailedError } from '../incident-escalation-failed.error';
 import { RedisService } from '@aquaculture/backend-common/redis';
 
 /**
@@ -30,10 +31,19 @@ import { RedisService } from '@aquaculture/backend-common/redis';
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 
 /** A transaction mock whose callback receives the shared mock manager. */
-function createMockManager(): { save: jest.Mock; findOne: jest.Mock } {
+function createMockManager(): {
+  save: jest.Mock;
+  findOne: jest.Mock;
+  createQueryBuilder: jest.Mock;
+} {
+  // The atomic occurrence bump's builder chain (V-S1a-4).
+  const bump: Record<string, jest.Mock> = {};
+  for (const step of ['update', 'set', 'where']) bump[step] = jest.fn(() => bump);
+  bump['execute'] = jest.fn().mockResolvedValue({ affected: 1, raw: [] });
   return {
     save: jest.fn().mockImplementation((_entity: unknown, row: unknown) => row),
     findOne: jest.fn().mockResolvedValue(null),
+    createQueryBuilder: jest.fn(() => bump),
   };
 }
 
@@ -43,6 +53,8 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
   let outbox: { enqueue: jest.Mock };
   let escalationManager: { startEscalation: jest.Mock };
   let incidentFind: jest.Mock;
+  let incidentFindOne: jest.Mock;
+  let redisDel: jest.Mock;
 
   const rule: Partial<AlertRule> = {
     id: 'rule-1',
@@ -88,8 +100,10 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
     outbox = overrides.outboxOverride ?? {
       enqueue: jest.fn().mockResolvedValue(undefined),
     };
-    escalationManager = { startEscalation: jest.fn().mockResolvedValue(null) };
+    escalationManager = { startEscalation: jest.fn().mockResolvedValue('escalated') };
     incidentFind = jest.fn().mockResolvedValue([]);
+    incidentFindOne = jest.fn().mockResolvedValue(null);
+    redisDel = jest.fn().mockResolvedValue(1);
 
     // Structural typing of the transaction callback against the mock manager
     // shape — cast-free. `useValue` is untyped so this literal is accepted by
@@ -133,6 +147,7 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
               return incident;
             }),
             find: incidentFind,
+            findOne: incidentFindOne,
           },
         },
         { provide: DataSource, useValue: mockDataSource },
@@ -143,6 +158,7 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
             get: jest.fn().mockResolvedValue(null),
             set: jest.fn().mockResolvedValue(undefined),
             setNx: jest.fn().mockResolvedValue(true),
+            del: redisDel,
             deletePattern: jest.fn().mockResolvedValue(undefined),
           },
         },
@@ -168,15 +184,17 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
       expect(manager.save).toHaveBeenCalledWith(AlertIncident, expect.anything());
     });
 
-    it('keeps the existing flat fields and version 2 on the built event', async () => {
+    it('keeps the flat fields, stamps version 3 and names the incident on the built event', async () => {
       await buildService();
 
       await service.evaluateSensorReading(reading);
 
       const [event] = outbox.enqueue.mock.calls[0] as [Record<string, unknown>];
       expect(event['eventType']).toBe('AlertTriggered');
-      expect(event['version']).toBe(2);
+      expect(event['version']).toBe(3);
       expect(event['alertId']).toBe('history-1');
+      // Decision 7: the rule's external targets are delivered once per INCIDENT.
+      expect(event['incidentId']).toBe('incident-1');
       expect(event['ruleId']).toBe('rule-1');
       expect(event['ruleName']).toBe('DO Crash');
       expect(event['severity']).toBe('critical');
@@ -188,12 +206,70 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
       expect(event['triggerThreshold']).toBe(4);
     });
 
-    it('starts escalation only after the trigger has committed', async () => {
+    it('awaits the first escalation of the new incident — the ONE pager of its people (decision 7)', async () => {
       await buildService();
 
       await service.evaluateSensorReading(reading);
 
       expect(escalationManager.startEscalation).toHaveBeenCalledTimes(1);
+      expect(escalationManager.startEscalation).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'incident-1' }),
+        expect.objectContaining({
+          severity: AlertSeverity.CRITICAL,
+          matchKey: 'rule-1',
+          // 'operator@example.com' is an external target, not a person.
+          directTargets: undefined,
+        }),
+      );
+    });
+
+    it("joins the rule's user-id recipients to the escalation's level 1", async () => {
+      // SCENARIO: the rule names a user id and an outside address.
+      // EXPECTS: the user id rides the escalation (push/e-mail per the rule's
+      //          channels); the address stays on AlertTriggered for the external path.
+      await buildService();
+      const person = '55555555-5555-4555-8555-555555555555';
+      triggeringRule.recipients = [person, 'operator@example.com'];
+      triggeringRule.notificationChannels = ['email', 'sms'];
+      try {
+        await service.evaluateSensorReading(reading);
+      } finally {
+        triggeringRule.recipients = ['operator@example.com'];
+        triggeringRule.notificationChannels = ['email'];
+      }
+
+      expect(escalationManager.startEscalation.mock.calls[0]?.[1]).toMatchObject({
+        directTargets: { userIds: [person], channels: ['EMAIL'] },
+      });
+    });
+
+    it('does not re-page when the reading only bumps an already-escalated open incident', async () => {
+      // SCENARIO: an open incident for the rule at escalation level 1.
+      // EXPECTS: an atomic counter bump and NO second escalation.
+      await buildService();
+      manager.findOne.mockResolvedValue({ id: 'incident-open', escalationLevel: 1 });
+
+      await service.evaluateSensorReading(reading);
+
+      expect(manager.createQueryBuilder).toHaveBeenCalled();
+      expect(escalationManager.startEscalation).not.toHaveBeenCalled();
+    });
+
+    it('re-drives a failed first page: releases the cooldown and throws an escalation failure', async () => {
+      // SCENARIO: the trigger committed, the escalation failed.
+      // EXPECTS: the cooldown claim is released (so the redelivery re-runs the
+      //          trigger) and IncidentEscalationFailedError reaches the handler.
+      await buildService();
+      triggeringRule.cooldownMinutes = 5;
+      escalationManager.startEscalation.mockRejectedValueOnce(new Error('policy lookup down'));
+      try {
+        await expect(service.evaluateSensorReading(reading)).rejects.toBeInstanceOf(
+          IncidentEscalationFailedError,
+        );
+      } finally {
+        triggeringRule.cooldownMinutes = 0;
+      }
+      expect(redisDel).toHaveBeenCalledWith(`cooldown:${TENANT_ID}:rule-1`);
     });
 
     it('rolls back the trigger when the outbox enqueue rejects', async () => {
@@ -250,6 +326,26 @@ describe('AlertEvaluationService — transactional outbox (ALERT-CRITICAL-001)',
 
       expect(outbox.enqueue).not.toHaveBeenCalled();
       expect(escalationManager.startEscalation).not.toHaveBeenCalled();
+    });
+
+    it('retries the page of a redelivered reading whose incident was never escalated', async () => {
+      // SCENARIO: the first delivery committed the trigger but its page failed;
+      //           the redelivery hits the (rule_id, source_event_id) duplicate.
+      // EXPECTS: the open level-0 incident is escalated now (claim-guarded).
+      await buildService();
+      manager.save.mockRejectedValueOnce(Object.assign(new Error('duplicate'), { code: '23505' }));
+      incidentFindOne.mockResolvedValue({
+        id: 'incident-1',
+        escalationLevel: 0,
+        severity: AlertSeverity.CRITICAL,
+      });
+
+      await service.evaluateSensorReading(reading);
+
+      expect(escalationManager.startEscalation).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'incident-1' }),
+        expect.objectContaining({ matchKey: 'rule-1' }),
+      );
     });
   });
 

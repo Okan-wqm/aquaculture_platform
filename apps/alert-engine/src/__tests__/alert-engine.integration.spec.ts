@@ -17,6 +17,7 @@ import { TemplateRendererService } from '../notification/template-renderer.servi
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { createRedisServiceMock } from './support/redis-service.mock';
 import { OutboxPublisher } from '@platform/outbox';
+import { AlertAuditService } from '../audit/alert-audit.service';
 
 // Entities — `RuleEvaluationContext` was renamed to `EvaluationContext`
 // in rule-evaluator.service. The rules-engine's enum is `AlertOperator`
@@ -94,7 +95,7 @@ describe('Alert Engine Integration', () => {
     getMaxLevel: jest.fn().mockReturnValue(1),
     hasNextLevel: jest.fn().mockReturnValue(false),
     getCurrentOnCall: jest.fn().mockReturnValue(undefined),
-    isInSuppressionWindow: jest.fn().mockReturnValue(false),
+    suppresses: jest.fn().mockReturnValue(false),
   };
 
   beforeEach(async () => {
@@ -187,9 +188,24 @@ describe('Alert Engine Integration', () => {
           provide: OutboxPublisher,
           useValue: { enqueue: jest.fn().mockResolvedValue(undefined) },
         },
+        { provide: AlertAuditService, useValue: { log: jest.fn() } },
         {
           provide: DataSource,
           useValue: {
+            // The escalation-level write and the AlertEscalated enqueue share one
+            // transaction. Without this double the enqueue used to fail silently
+            // (a swallowed error); a failed first level now throws, as it must.
+            // The level claim (V-S1a-4) is a conditional UPDATE on this manager.
+            transaction: (
+              cb: (manager: { createQueryBuilder: jest.Mock }) => Promise<unknown>,
+            ): Promise<unknown> => {
+              const claim: Record<string, jest.Mock> = {};
+              for (const step of ['update', 'set', 'where', 'andWhere', 'setParameter', 'returning']) {
+                claim[step] = jest.fn(() => claim);
+              }
+              claim['execute'] = jest.fn(async () => ({ affected: 1, raw: [] }));
+              return cb({ createQueryBuilder: jest.fn(() => claim) });
+            },
             createQueryRunner: jest.fn().mockReturnValue({
               connect: jest.fn(),
               startTransaction: jest.fn(),
@@ -339,13 +355,13 @@ describe('Alert Engine Integration', () => {
       incidentRepository.findOne.mockResolvedValue(incident);
       incidentRepository.save.mockImplementation(async (i) => i as AlertIncident);
 
-      const state = await escalationManager.startEscalation(
-        incident,
-        AlertSeverity.HIGH,
-        'rule-1',
-      );
+      const outcome = await escalationManager.startEscalation(incident, {
+        severity: AlertSeverity.HIGH,
+        matchKey: 'rule-1',
+      });
 
-      expect(state).toBeDefined();
+      expect(outcome).toBe('escalated');
+      const state = await escalationManager.getEscalationState('incident-1');
       expect(state?.currentLevel).toBe(1);
       expect(state?.isComplete).toBe(false);
     });
@@ -353,7 +369,9 @@ describe('Alert Engine Integration', () => {
     it('should acknowledge escalation', async () => {
       const incident = new AlertIncident();
       incident.id = 'incident-1';
-      incident.tenantId = 'tenant-1';
+      // Acknowledgement reads the incident in its tenant context (timer paths do
+      // too), which needs a canonical tenant UUID.
+      incident.tenantId = '7f6b08ab-90e2-46d3-8a11-2b3c4d5e6f70';
       incident.title = 'Test Alert';
       incident.status = IncidentStatus.NEW;
       incident.timeline = [];
@@ -362,7 +380,7 @@ describe('Alert Engine Integration', () => {
       incidentRepository.findOne.mockResolvedValue(incident);
       incidentRepository.save.mockImplementation(async (i) => i as AlertIncident);
 
-      await escalationManager.startEscalation(incident, AlertSeverity.HIGH);
+      await escalationManager.startEscalation(incident, { severity: AlertSeverity.HIGH });
 
       const acknowledged = await escalationManager.acknowledgeEscalation(
         'incident-1',
@@ -967,14 +985,13 @@ describe('Alert Engine Integration', () => {
       incidentRepository.save.mockImplementation(async (i) => i as AlertIncident);
 
       // Start escalation
-      const state = await escalationManager.startEscalation(
-        incident,
-        AlertSeverity.HIGH,
-        'rule-1',
-      );
+      const outcome = await escalationManager.startEscalation(incident, {
+        severity: AlertSeverity.HIGH,
+        matchKey: 'rule-1',
+      });
 
-      expect(state).toBeDefined();
-      expect(state?.currentLevel).toBe(1);
+      expect(outcome).toBe('escalated');
+      expect((await escalationManager.getEscalationState('incident-persist'))?.currentLevel).toBe(1);
 
       // Simulate restart by getting state from storage
       const retrievedState = escalationManager.getEscalationState('incident-persist');
@@ -1096,7 +1113,7 @@ describe('Alert Engine Integration', () => {
       incidentRepository.findOne.mockResolvedValue(incident);
       incidentRepository.save.mockImplementation(async (i) => i as AlertIncident);
 
-      await escalationManager.startEscalation(incident, AlertSeverity.HIGH);
+      await escalationManager.startEscalation(incident, { severity: AlertSeverity.HIGH });
 
       // Simulate time passing beyond timeout (15 minutes)
       jest.advanceTimersByTime(16 * 60 * 1000);

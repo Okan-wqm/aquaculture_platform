@@ -78,6 +78,12 @@ export interface DeliveryPosition {
   readonly deliveryCount: number;
   /** Consumer `max_deliver`; `<= 0` means unlimited (never exhausted). */
   readonly maxDeliver: number;
+  /**
+   * Cap of one redelivery backoff step for this consumer. Absent → the bus-wide
+   * {@link MAX_REDELIVERY_BACKOFF_MS}; a life-safety consumer carries a longer
+   * cap (`LIFE_SAFETY_REDELIVERY`) so its budget outlives an outage.
+   */
+  readonly maxBackoffMs?: number;
 }
 
 /** What the bus does with the JetStream message after folding every handler. */
@@ -93,10 +99,13 @@ export type MessageDisposition =
 
 export const MAX_REDELIVERY_BACKOFF_MS = 30_000;
 
-/** Exponential redelivery backoff: 1s, 2s, 4s … capped at 30s. */
-export function redeliveryBackoffMs(deliveryCount: number): number {
+/** Exponential redelivery backoff: 1s, 2s, 4s … capped at `maxBackoffMs` (30s by default). */
+export function redeliveryBackoffMs(
+  deliveryCount: number,
+  maxBackoffMs: number = MAX_REDELIVERY_BACKOFF_MS,
+): number {
   const exponent = Math.max(0, deliveryCount);
-  return Math.min(1000 * Math.pow(2, exponent), MAX_REDELIVERY_BACKOFF_MS);
+  return Math.min(1000 * Math.pow(2, exponent), maxBackoffMs);
 }
 
 /** True when a retry would exceed the consumer's delivery budget. */
@@ -153,7 +162,7 @@ export function foldHandlerOutcomes(
     }
     return {
       kind: 'nak',
-      backoffMs: redeliveryBackoffMs(position.deliveryCount),
+      backoffMs: redeliveryBackoffMs(position.deliveryCount, position.maxBackoffMs),
       reason: retry.reason,
     };
   }

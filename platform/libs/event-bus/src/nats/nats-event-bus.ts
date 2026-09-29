@@ -36,7 +36,11 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EventUpcasterRegistry, validateEventBySubject } from '@platform/event-contracts';
+import {
+  EventUpcasterRegistry,
+  requiresLifeSafetyRedelivery,
+  validateEventBySubject,
+} from '@platform/event-contracts';
 
 import {
   EVENT_DEAD_LETTER_SINK,
@@ -54,10 +58,12 @@ import {
 } from '../interfaces/event-bus.interface';
 import {
   HandlerOutcome,
+  MAX_REDELIVERY_BACKOFF_MS,
   foldHandlerOutcomes,
   outcomeForError,
   redeliveryBackoffMs,
 } from '../interfaces/handler-outcome';
+import { LIFE_SAFETY_REDELIVERY } from '../interfaces/redelivery-policy';
 import {
   buildSystemEventSubject,
   buildTenantEventSubject,
@@ -994,7 +1000,14 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     // Task 2: wildcard subscriptions route by the same registry as publish.
     const subject = buildRoutedWildcardSubject(eventType);
-    await this.subscribeTo(subject, handler, options);
+    // V-S1a-3 (Tier-2, automatic): a life-safety event type carries the
+    // hour-long redelivery budget whoever subscribes to it — a consumer cannot
+    // forget it and dead-letter an alarm inside a 30-second outage.
+    const effective: SubscriptionOptions | undefined =
+      options?.redelivery === undefined && requiresLifeSafetyRedelivery(eventType)
+        ? { ...options, redelivery: LIFE_SAFETY_REDELIVERY }
+        : options;
+    await this.subscribeTo(subject, handler, effective);
   }
 
   /**
@@ -1422,7 +1435,15 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
    * kept redelivering on the other.
    */
   private maxDeliverFor(subject: string): number {
-    return this.subscriptionOptions.get(subject)?.maxRetries ?? this.dlqAfterDeliveries;
+    const options = this.subscriptionOptions.get(subject);
+    return options?.redelivery?.maxDeliveries ?? options?.maxRetries ?? this.dlqAfterDeliveries;
+  }
+
+  /** Cap of one redelivery backoff step for a subject (the bus default unless its budget names one). */
+  private maxBackoffFor(subject: string): number {
+    return (
+      this.subscriptionOptions.get(subject)?.redelivery?.maxBackoffMs ?? MAX_REDELIVERY_BACKOFF_MS
+    );
   }
 
   private async processConsumerMessage(subject: string, msg: JsMsg): Promise<void> {
@@ -1476,7 +1497,11 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       // (identical value); 1 on the first delivery.
       const deliveryCount = msg.info?.deliveryCount ?? 1;
       const maxDeliver = this.maxDeliverFor(subject);
-      const disposition = foldHandlerOutcomes(outcomes, { deliveryCount, maxDeliver });
+      const disposition = foldHandlerOutcomes(outcomes, {
+        deliveryCount,
+        maxDeliver,
+        maxBackoffMs: this.maxBackoffFor(subject),
+      });
       this.deliveryMetrics.observeDisposition(event.eventType, disposition.kind);
 
       switch (disposition.kind) {
@@ -1502,7 +1527,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
             deliveryCount,
           );
           if (!preserved) {
-            msg.nak(redeliveryBackoffMs(deliveryCount));
+            msg.nak(redeliveryBackoffMs(deliveryCount, this.maxBackoffFor(subject)));
             return;
           }
           await this.deadLetter(subject, event, disposition, deliveryCount, maxDeliver);
@@ -1552,7 +1577,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     const deliveryCount = msg.info?.deliveryCount ?? 0;
 
     if (deliveryCount < this.maxDeliverFor(subject)) {
-      msg.nak(redeliveryBackoffMs(deliveryCount));
+      msg.nak(redeliveryBackoffMs(deliveryCount, this.maxBackoffFor(subject)));
       return;
     }
 
@@ -1564,7 +1589,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       deliveryCount,
     );
     if (!preserved) {
-      msg.nak(redeliveryBackoffMs(deliveryCount));
+      msg.nak(redeliveryBackoffMs(deliveryCount, this.maxBackoffFor(subject)));
       return;
     }
     msg.term(failureClass);

@@ -19,6 +19,10 @@ import {
 import { MESSAGING_EVENT_SCHEMAS, type MessagingEventType } from './messaging-events.schema';
 import { SENSOR_EVENT_SCHEMAS, type SensorEventType } from './sensor-events.schema';
 import { TENANT_EVENT_SCHEMAS, type TenantEventType } from './tenant-events.schema';
+import {
+  WATER_QUALITY_EVENT_SCHEMAS,
+  type WaterQualityEventType,
+} from './water-quality-events.schema';
 
 /**
  * @module EventContractsValidator
@@ -110,6 +114,18 @@ const messagingValidators = new Map<MessagingEventType, ValidateFunction>();
 for (const [eventType, schema] of Object.entries(MESSAGING_EVENT_SCHEMAS)) {
   const validator = ajv.compile(schema as AnySchema);
   messagingValidators.set(eventType as MessagingEventType, validator);
+}
+
+/**
+ * Water-quality validator cache (ALERT-MEDIUM-007). `WaterQualityCritical` is
+ * the life-safety alarm whose `siteId` decides who is paged; compiled here so
+ * the bus-level `validateEventBySubject` checks it for every consumer.
+ */
+const waterQualityValidators = new Map<WaterQualityEventType, ValidateFunction>();
+
+for (const [eventType, schema] of Object.entries(WATER_QUALITY_EVENT_SCHEMAS)) {
+  const validator = ajv.compile(schema as AnySchema);
+  waterQualityValidators.set(eventType as WaterQualityEventType, validator);
 }
 
 /**
@@ -491,6 +507,7 @@ export function validateEventBySubject(
     farmValidators,
     sensorValidators,
     messagingValidators,
+    waterQualityValidators,
   ];
   for (const registry of registries) {
     const validator = registry.get(eventType);

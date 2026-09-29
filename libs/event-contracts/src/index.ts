@@ -54,6 +54,11 @@ export * from './edge-device-events';
 // Cross-cutting: every service's captured defects (ADMIN-HIGH-014).
 export * from './error-events';
 export * from './water-quality-events';
+// ALERT-MEDIUM-006: the ONE identity of a farm condition (incident ruleId,
+// task subject key, AI suggestion/finding key) — branded, builder-only.
+export * from './signal-key';
+// ALERT-CRITICAL-004: notification-service → auth-service alarm recipient expansion.
+export * from './alert-recipient-queries';
 export * from './messaging-events';
 export * from './messaging-event-registry';
 // Socket.IO wire envelopes (gateway → client) — SSoT for hydrated WS payloads.

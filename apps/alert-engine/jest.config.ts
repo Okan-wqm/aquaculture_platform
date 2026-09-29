@@ -7,4 +7,6 @@ export default {
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: '../../coverage/apps/alert-engine',
+  // Testcontainers suites run in the `test:integration` lane only.
+  testPathIgnorePatterns: ['/node_modules/', '\\.postgres\\.spec\\.ts$'],
 };

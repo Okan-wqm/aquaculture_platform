@@ -13,6 +13,7 @@
  * incident spec is handed to the SSoT. The dedup/escalation behaviour itself is
  * proven once in farm-signal-incident.service.spec.ts.
  */
+import { signalKey } from '@platform/event-contracts';
 import { createMockRepository } from '@aquaculture/testing';
 import { createBaseEvent } from '@platform/event-contracts';
 import type { MortalityAlertRaisedEvent } from '@platform/event-contracts';
@@ -79,7 +80,8 @@ describe('MortalityAlertService', () => {
     const saved = historyRepo.save.mock.calls[0]?.[0] as AlertHistory;
     expect(saved.tenantId).toBe(TENANT_ID);
     expect(saved.severity).toBe(AlertSeverity.CRITICAL);
-    expect(saved.ruleId).toBe('system:mortality:cumulative_rate');
+    // ALERT-MEDIUM-006: per batch, never tenant-wide per alert type.
+    expect(saved.ruleId).toBe(signalKey({ kind: 'mortality', batchId: BATCH_ID }));
     expect(saved.triggeredAt).toBeInstanceOf(Date);
   });
 
@@ -102,10 +104,10 @@ describe('MortalityAlertService', () => {
     expect(farmSignalIncident.ensureIncident).toHaveBeenCalledTimes(1);
     const spec = farmSignalIncident.ensureIncident.mock.calls[0]?.[0] as FarmSignalIncidentSpec;
     expect(spec.tenantId).toBe(TENANT_ID);
-    expect(spec.ruleId).toBe('system:mortality:cumulative_rate');
+    expect(spec.signalKey).toBe(signalKey({ kind: 'mortality', batchId: BATCH_ID }));
     expect(spec.severity).toBe(AlertSeverity.CRITICAL);
     expect(spec.signalLabel).toBe('mortality');
-    expect(spec.title).toBe(`High Mortality (cumulative_rate): batch ${BATCH_ID}`);
+    expect(spec.title).toBe(`High Mortality: batch ${BATCH_ID}`);
     expect(spec.description).toBe('Cumulative mortality rate 12.00% is critical');
     expect(spec.triggeredAt).toEqual(new Date('2026-06-10T08:00:00.000Z'));
     // The audit row id is threaded into the incident breadcrumb.

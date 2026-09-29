@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import type { FCRAlertEvent } from '@platform/event-contracts';
+import { signalKey, type FCRAlertEvent, type SignalKey } from '@platform/event-contracts';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
 import { FarmSignalIncidentService } from './farm-signal-incident.service';
@@ -36,9 +36,9 @@ export class FcrAlertService {
     return alertLevel === 'critical' ? AlertSeverity.CRITICAL : AlertSeverity.WARNING;
   }
 
-  /** Deterministic synthetic rule identity grouping FCR alerts per batch. */
-  private syntheticRuleId(event: FCRAlertEvent): string {
-    return `system:fcr:${event.batchId}`;
+  /** The batch's FCR condition key (ALERT-MEDIUM-006). */
+  private signalKeyOf(event: FCRAlertEvent): SignalKey {
+    return signalKey({ kind: 'fcr', batchId: event.batchId });
   }
 
   private buildMessage(event: FCRAlertEvent): string {
@@ -56,7 +56,7 @@ export class FcrAlertService {
    */
   async recordFcrAlert(event: FCRAlertEvent): Promise<void> {
     const severity = this.mapSeverity(event.alertLevel);
-    const ruleId = this.syntheticRuleId(event);
+    const key = this.signalKeyOf(event);
     const ruleName = 'FCR Threshold';
     const triggeredAt = new Date(event.timestamp);
     const message = this.buildMessage(event);
@@ -73,7 +73,7 @@ export class FcrAlertService {
     };
 
     const history = this.historyRepository.create({
-      ruleId,
+      ruleId: key,
       ruleName,
       tenantId: event.tenantId,
       severity,
@@ -85,7 +85,9 @@ export class FcrAlertService {
 
     await this.farmSignalIncident.ensureIncident({
       tenantId: event.tenantId,
-      ruleId,
+      signalKey: key,
+      // FCRAlert names a batch, not a site.
+      siteId: null,
       title: `${ruleName}: batch ${event.batchId}`,
       description: message,
       severity,

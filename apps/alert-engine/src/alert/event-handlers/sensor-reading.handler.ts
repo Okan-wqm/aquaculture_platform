@@ -1,14 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
-import {
-  PARAMETER_BY_READING_FIELD,
-  requiresDurableDelivery,
-  type SensorReadingEvent,
-} from '@platform/event-contracts';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
+import { PARAMETER_BY_READING_FIELD, type SensorReadingEvent } from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
 import { AlertEvaluationService } from '../services/alert-evaluation.service';
+import { farmSignalFailureOutcome } from './farm-signal-outcome';
 
 // UUID validation imported from @aquaculture/backend-common (isValidUUID)
 
@@ -144,9 +141,10 @@ export class SensorReadingEventHandler implements IEventHandler<SensorReadingEve
       // subject for no gain", with the next reading seconds later re-evaluating
       // every rule. Deferring keeps one authority over delivery semantics; a
       // one-shot event routed through this handler still rethrows.
-      return outcomeForError('SensorReading', error, {
-        reproducible: !requiresDurableDelivery(event.eventType),
-      });
+      // A failed sensor-rule PAGE (IncidentEscalationFailedError) is re-driven
+      // even though a reading is reproducible: the incident is already open, so
+      // the next reading would only bump it (decision 7, V-S1a-7).
+      return farmSignalFailureOutcome('SensorReading', event.eventType, error);
     }
   }
 }

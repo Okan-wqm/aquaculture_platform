@@ -1,19 +1,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { NotFoundException, ConflictException } from '@nestjs/common';
-import {
-  EscalationPolicyService,
-  CreatePolicyDto,
-  UpdatePolicyDto,
-} from '../escalation-policy.service';
+import { NotFoundException } from '@nestjs/common';
+import { EscalationPolicyService, CreatePolicyDto } from '../escalation-policy.service';
 import {
   EscalationPolicy,
   EscalationLevel,
   EscalationActionType,
+  EscalationRecipientRole,
+  EscalationRecipientScope,
   NotificationChannel,
-  OnCallSchedule,
-  SuppressionWindow,
 } from '../../database/entities/escalation-policy.entity';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 
@@ -25,7 +21,7 @@ describe('EscalationPolicyService', () => {
     level: 1,
     name: 'Level 1 - Initial Response',
     timeoutMinutes: 15,
-    notifyUserIds: ['user-1', 'user-2'],
+    notifyUserIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2'],
     notifyTeamIds: ['team-1'],
     channels: [NotificationChannel.EMAIL, NotificationChannel.SLACK],
     action: EscalationActionType.NOTIFY,
@@ -50,7 +46,7 @@ describe('EscalationPolicyService', () => {
     getMaxLevel: jest.fn().mockReturnValue(1),
     hasNextLevel: jest.fn().mockReturnValue(false),
     getCurrentOnCall: jest.fn().mockReturnValue(undefined),
-    isInSuppressionWindow: jest.fn().mockReturnValue(false),
+    suppresses: jest.fn().mockReturnValue(false),
   };
 
   beforeEach(async () => {
@@ -80,142 +76,6 @@ describe('EscalationPolicyService', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
-  });
-
-  describe('createPolicy', () => {
-    const validDto: CreatePolicyDto = {
-      tenantId: 'tenant-1',
-      name: 'New Policy',
-      severity: [AlertSeverity.HIGH],
-      levels: [mockEscalationLevel],
-      repeatIntervalMinutes: 5,
-      maxRepeats: 3,
-    };
-
-    it('should create a valid policy', async () => {
-      repository.create.mockReturnValue(mockPolicy as EscalationPolicy);
-      repository.save.mockResolvedValue(mockPolicy as EscalationPolicy);
-
-      const result = await service.createPolicy(validDto);
-
-      expect(repository.create).toHaveBeenCalled();
-      expect(repository.save).toHaveBeenCalled();
-      expect(result).toEqual(mockPolicy);
-    });
-
-    it('should throw ConflictException for invalid policy', async () => {
-      const invalidDto: CreatePolicyDto = {
-        tenantId: 'tenant-1',
-        name: '',
-        severity: [],
-        levels: [],
-      };
-
-      await expect(service.createPolicy(invalidDto)).rejects.toThrow(ConflictException);
-    });
-
-    it('should unset other defaults when creating default policy', async () => {
-      const defaultDto: CreatePolicyDto = {
-        ...validDto,
-        isDefault: true,
-      };
-
-      repository.create.mockReturnValue({ ...mockPolicy, isDefault: true } as EscalationPolicy);
-      repository.save.mockResolvedValue({ ...mockPolicy, isDefault: true } as EscalationPolicy);
-
-      await service.createPolicy(defaultDto);
-
-      expect(repository.update).toHaveBeenCalledWith(
-        { tenantId: 'tenant-1', isDefault: true },
-        { isDefault: false },
-      );
-    });
-
-    it('should invalidate cache after creation', async () => {
-      repository.create.mockReturnValue(mockPolicy as EscalationPolicy);
-      repository.save.mockResolvedValue(mockPolicy as EscalationPolicy);
-
-      // Prime the cache
-      repository.find.mockResolvedValue([mockPolicy as EscalationPolicy]);
-      await service.getPolicies('tenant-1');
-
-      await service.createPolicy(validDto);
-
-      // Cache should be invalidated, so find should be called again
-      await service.getPolicies('tenant-1');
-      expect(repository.find).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  describe('updatePolicy', () => {
-    it('should update an existing policy', async () => {
-      repository.findOne.mockResolvedValue(mockPolicy as EscalationPolicy);
-      repository.save.mockResolvedValue({ ...mockPolicy, name: 'Updated' } as EscalationPolicy);
-
-      const updateDto: UpdatePolicyDto = { name: 'Updated' };
-      const result = await service.updatePolicy('policy-1', 'tenant-1', updateDto);
-
-      expect(repository.save).toHaveBeenCalled();
-      expect(result.name).toBe('Updated');
-    });
-
-    it('should throw NotFoundException for non-existent policy', async () => {
-      repository.findOne.mockResolvedValue(null);
-
-      await expect(
-        service.updatePolicy('non-existent', 'tenant-1', { name: 'Updated' }),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should validate levels when updating', async () => {
-      repository.findOne.mockResolvedValue(mockPolicy as EscalationPolicy);
-
-      const invalidUpdate: UpdatePolicyDto = {
-        levels: [], // Invalid - empty levels
-      };
-
-      await expect(
-        service.updatePolicy('policy-1', 'tenant-1', invalidUpdate),
-      ).rejects.toThrow(ConflictException);
-    });
-
-    it('should unset other defaults when setting as default', async () => {
-      repository.findOne.mockResolvedValue({ ...mockPolicy, isDefault: false } as EscalationPolicy);
-      repository.save.mockResolvedValue({ ...mockPolicy, isDefault: true } as EscalationPolicy);
-
-      await service.updatePolicy('policy-1', 'tenant-1', { isDefault: true });
-
-      expect(repository.update).toHaveBeenCalledWith(
-        { tenantId: 'tenant-1', isDefault: true },
-        { isDefault: false },
-      );
-    });
-  });
-
-  describe('deletePolicy', () => {
-    it('should delete a non-default policy', async () => {
-      repository.findOne.mockResolvedValue({ ...mockPolicy, isDefault: false } as EscalationPolicy);
-
-      await service.deletePolicy('policy-1', 'tenant-1');
-
-      expect(repository.remove).toHaveBeenCalled();
-    });
-
-    it('should throw NotFoundException for non-existent policy', async () => {
-      repository.findOne.mockResolvedValue(null);
-
-      await expect(service.deletePolicy('non-existent', 'tenant-1')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('should throw ConflictException when deleting default policy', async () => {
-      repository.findOne.mockResolvedValue({ ...mockPolicy, isDefault: true } as EscalationPolicy);
-
-      await expect(service.deletePolicy('policy-1', 'tenant-1')).rejects.toThrow(
-        ConflictException,
-      );
-    });
   });
 
   describe('getPolicy', () => {
@@ -317,7 +177,10 @@ describe('EscalationPolicyService', () => {
       expect(result).toBeDefined();
     });
 
-    it('should return default policy when no specific match', async () => {
+    it('does not fall back to the default policy for a severity it does not list', async () => {
+      // SCENARIO: the only policy is the default and it covers LOW; a CRITICAL arrives.
+      // EXPECTS: no match — a policy's severity list is its contract (the old
+      //          fallback paged LOW recipients for anything, ALERT-CRITICAL-004).
       const defaultPolicy = {
         ...mockPolicy,
         isDefault: true,
@@ -334,7 +197,7 @@ describe('EscalationPolicyService', () => {
         AlertSeverity.CRITICAL,
       );
 
-      expect(result?.isDefault).toBe(true);
+      expect(result).toBeNull();
     });
 
     it('should prioritize specific rule match', async () => {
@@ -575,7 +438,9 @@ describe('EscalationPolicyService', () => {
       expect(result.errors.some(e => e.includes('channel'))).toBe(true);
     });
 
-    it('should warn for level with no users', () => {
+    it('rejects a level that pages nobody', () => {
+      // SCENARIO: a level with no users, no role targets and no on-call schedule.
+      // EXPECTS: an error, not a warning — such a level is a silent alarm.
       const dto: CreatePolicyDto = {
         tenantId: 'tenant-1',
         name: 'Test',
@@ -587,7 +452,29 @@ describe('EscalationPolicyService', () => {
 
       const result = service.validatePolicy(dto);
 
-      expect(result.warnings.some(w => w.includes('users'))).toBe(true);
+      expect(result.isValid).toBe(false);
+      expect(result.errors.some(e => e.includes('recipient'))).toBe(true);
+    });
+
+    it('accepts a level whose only recipients are role targets', () => {
+      // SCENARIO: the seeded default shape — roles instead of explicit users.
+      // EXPECTS: valid.
+      const dto: CreatePolicyDto = {
+        tenantId: 'tenant-1',
+        name: 'Test',
+        severity: [AlertSeverity.HIGH],
+        levels: [
+          {
+            ...mockEscalationLevel,
+            notifyUserIds: [],
+            notifyRoles: [
+              { role: EscalationRecipientRole.TENANT_ADMIN, scope: EscalationRecipientScope.TENANT },
+            ],
+          },
+        ],
+      };
+
+      expect(service.validatePolicy(dto).isValid).toBe(true);
     });
 
     it('should fail for negative repeat interval', () => {
@@ -602,6 +489,19 @@ describe('EscalationPolicyService', () => {
       const result = service.validatePolicy(dto);
 
       expect(result.isValid).toBe(false);
+    });
+
+    it('rejects a free-text explicit recipient (V-S1b-6)', () => {
+      // SCENARIO: an e-mail typed where a user id belongs.
+      // EXPECTS: refused at write — it would name nobody at delivery time.
+      const result = service.validatePolicy({
+        name: 'Typo',
+        severity: [AlertSeverity.CRITICAL],
+        levels: [{ ...mockEscalationLevel, notifyUserIds: ['night.shift@farm.example'] }],
+      });
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors.some((e) => e.includes('notifyUserIds must be user ids'))).toBe(true);
     });
 
     it('should validate on-call schedule time format', () => {
@@ -624,99 +524,6 @@ describe('EscalationPolicyService', () => {
 
       expect(result.isValid).toBe(false);
       expect(result.errors.some(e => e.includes('HH:mm'))).toBe(true);
-    });
-  });
-
-  describe('addSuppressionWindow', () => {
-    it('should add suppression window to policy', async () => {
-      const policy = { ...mockPolicy, suppressionWindows: [] } as EscalationPolicy;
-      repository.findOne.mockResolvedValue(policy);
-      repository.save.mockImplementation(async (p) => p as EscalationPolicy);
-
-      const window: SuppressionWindow = {
-        id: 'window-1',
-        name: 'Maintenance Window',
-        startTime: new Date(),
-        endTime: new Date(Date.now() + 3600000),
-        reason: 'Scheduled maintenance',
-        createdBy: 'admin',
-        isRecurring: false,
-      };
-
-      const result = await service.addSuppressionWindow('policy-1', 'tenant-1', window);
-
-      expect(result.suppressionWindows).toContain(window);
-    });
-
-    it('should initialize suppressionWindows array if undefined', async () => {
-      const policy = { ...mockPolicy, suppressionWindows: undefined } as EscalationPolicy;
-      repository.findOne.mockResolvedValue(policy);
-      repository.save.mockImplementation(async (p) => p as EscalationPolicy);
-
-      const window: SuppressionWindow = {
-        id: 'window-1',
-        name: 'Test',
-        startTime: new Date(),
-        endTime: new Date(),
-        createdBy: 'admin',
-        isRecurring: false,
-      };
-
-      const result = await service.addSuppressionWindow('policy-1', 'tenant-1', window);
-
-      expect(result.suppressionWindows).toBeDefined();
-      expect(result.suppressionWindows).toHaveLength(1);
-    });
-  });
-
-  describe('removeSuppressionWindow', () => {
-    it('should remove suppression window from policy', async () => {
-      const window: SuppressionWindow = {
-        id: 'window-1',
-        name: 'Test',
-        startTime: new Date(),
-        endTime: new Date(),
-        createdBy: 'admin',
-        isRecurring: false,
-      };
-
-      const policy = { ...mockPolicy, suppressionWindows: [window] } as EscalationPolicy;
-      repository.findOne.mockResolvedValue(policy);
-      repository.save.mockImplementation(async (p) => p as EscalationPolicy);
-
-      const result = await service.removeSuppressionWindow('policy-1', 'tenant-1', 'window-1');
-
-      expect(result.suppressionWindows).toHaveLength(0);
-    });
-
-    it('should throw NotFoundException for non-existent window', async () => {
-      const policy = { ...mockPolicy, suppressionWindows: [] } as EscalationPolicy;
-      repository.findOne.mockResolvedValue(policy);
-
-      await expect(
-        service.removeSuppressionWindow('policy-1', 'tenant-1', 'window-1'),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  describe('updateOnCallSchedule', () => {
-    it('should update on-call schedule', async () => {
-      const policy = { ...mockPolicy } as EscalationPolicy;
-      repository.findOne.mockResolvedValue(policy);
-      repository.save.mockImplementation(async (p) => p as EscalationPolicy);
-
-      const schedule: OnCallSchedule[] = [
-        {
-          dayOfWeek: 1,
-          startTime: '09:00',
-          endTime: '17:00',
-          userId: 'user-1',
-        },
-      ];
-
-      const result = await service.updateOnCallSchedule('policy-1', 'tenant-1', schedule);
-
-      expect(result.onCallSchedule).toEqual(schedule);
     });
   });
 
@@ -745,47 +552,6 @@ describe('EscalationPolicyService', () => {
       const result = await service.getCurrentOnCallUser('policy-1', 'tenant-1');
 
       expect(result).toBeNull();
-    });
-  });
-
-  describe('isInSuppressionWindow', () => {
-    it('should return true when in suppression window', async () => {
-      const policy = {
-        ...mockPolicy,
-        isInSuppressionWindow: jest.fn().mockReturnValue(true),
-      } as unknown as EscalationPolicy;
-
-      repository.findOne.mockResolvedValue(policy);
-
-      const result = await service.isInSuppressionWindow('policy-1', 'tenant-1');
-
-      expect(result).toBe(true);
-    });
-
-    it('should return false when not in suppression window', async () => {
-      const policy = {
-        ...mockPolicy,
-        isInSuppressionWindow: jest.fn().mockReturnValue(false),
-      } as unknown as EscalationPolicy;
-
-      repository.findOne.mockResolvedValue(policy);
-
-      const result = await service.isInSuppressionWindow('policy-1', 'tenant-1');
-
-      expect(result).toBe(false);
-    });
-  });
-
-  describe('clonePolicy', () => {
-    it('should clone policy with new name', async () => {
-      repository.findOne.mockResolvedValue(mockPolicy as EscalationPolicy);
-      repository.create.mockImplementation((p) => p as EscalationPolicy);
-      repository.save.mockImplementation(async (p) => ({ ...p, id: 'new-id' } as EscalationPolicy));
-
-      const result = await service.clonePolicy('policy-1', 'tenant-1', 'Cloned Policy');
-
-      expect(result.name).toBe('Cloned Policy');
-      expect(result.isDefault).toBe(false);
     });
   });
 

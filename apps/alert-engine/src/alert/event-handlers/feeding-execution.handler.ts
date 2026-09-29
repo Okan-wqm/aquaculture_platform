@@ -17,8 +17,7 @@
  * abone olmak DERLENMEZ.
  */
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
-import { requiresDurableDelivery } from '@platform/event-contracts';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import type {
   BaseEvent,
   ConsumedFarmSignalEventType,
@@ -32,6 +31,7 @@ import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/da
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
 
 import { FeedingExecutionAlertService } from '../services/feeding-execution-alert.service';
+import { farmSignalFailureOutcome } from './farm-signal-outcome';
 
 /**
  * `ConsumedFarmSignalEventType` ile tiplenmiştir — buraya sınıflandırılmamış bir
@@ -116,9 +116,7 @@ export class FeedingExecutionEventHandler implements IEventHandler<BaseEvent>, O
       // Yeniden fırlat → NAK + backoff → tükenince platform dead-letter akışı (AQUACULTURE_DLQ).
       // Yeniden üretilebilir sinyal: 06:00 üretimi aynı tespiti yarın tekrar
       // yapar, zehirli mesajı sonsuz yeniden teslime sokmanın faydası yok.
-      return outcomeForError('feeding-execution', error, {
-        reproducible: !requiresDurableDelivery(event.eventType),
-      });
+      return farmSignalFailureOutcome('feeding-execution', event.eventType, error);
     }
   }
 }

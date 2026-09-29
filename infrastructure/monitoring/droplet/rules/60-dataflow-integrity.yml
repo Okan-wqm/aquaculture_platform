@@ -65,6 +65,33 @@ groups:
           description: "Delivery path erroring; join notification.notification_logs by (channel,status) for the failing channel."
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
 
+      # Life-safety alarm delivery (ALERT-CRITICAL-004, V-S1a-2/3/5). A farm
+      # alarm that left its normal path — a CRITICAL/HIGH incident no policy
+      # covered (hard floor used), a policy that resolved to nobody (widened to
+      # tenant admins), or nobody at all (dead-lettered) — used to end in a log
+      # line. These page on the first occurrence.
+      - alert: LifeSafetyAlarmDegraded
+        expr: |
+          sum by (app, reason, severity) (increase(life_safety_alarm_degraded_total{namespace="aquaculture"}[15m])) > 0
+        labels:
+          severity: critical
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: "{{ $labels.app }}: a {{ $labels.severity }} farm alarm left its normal delivery path ({{ $labels.reason }})"
+          description: "no_policy_match = the tenant's escalation policies did not cover the severity (tenant admins paged by the hard floor); widened_to_tenant_admins = the policy's targets resolved to nobody; no_recipients = nobody could be paged and the alarm was dead-lettered."
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+      - alert: LifeSafetyAlarmDeadLettered
+        expr: |
+          sum by (app, event_type) (increase(event_bus_dead_letter_total{namespace="aquaculture",event_type=~"AlertEscalated|AlertTriggered|WaterQualityCritical|MortalityAlertRaised|LowStockDetected|FeedStockoutForecast|FeedTransitionUpcoming|UnfedUnitDetected|FCRAlert|MealMissed|MealUnderfed|MealFed|MealSkipped|MealWindowUpcoming|FeedingWindowReadiness|FeedTypeTransitioned|FeedingDailySummary|FeedingProtocolAssigned|FeedingProtocolAssignmentPaused"}[15m])) > 0
+        labels:
+          severity: critical
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: "{{ $labels.app }} dead-lettered a life-safety {{ $labels.event_type }} event"
+          description: "The event exhausted its hour-long life-safety redelivery budget (LIFE_SAFETY_REDELIVERY) or was terminated by its handler; the alarm it carried did not reach anyone. The envelope is on the AQUACULTURE_DLQ stream."
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
   # W-C — the tenant isolation watchdog scans every ten minutes and, until
   # now, told only the log file. These rules read the gauges the scan
   # publishes so a breach pages someone, and so a watchdog that stopped

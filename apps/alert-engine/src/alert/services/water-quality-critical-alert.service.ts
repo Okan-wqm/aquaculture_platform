@@ -1,7 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import type { WaterQualityCriticalEvent } from '@platform/event-contracts';
+import {
+  signalKey,
+  waterQualityMeasuredUnit,
+  type SignalKey,
+  type WaterQualityCriticalEvent,
+} from '@platform/event-contracts';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
 import { FarmSignalIncidentService } from './farm-signal-incident.service';
@@ -34,11 +39,13 @@ interface CriticalParameter {
  * shape): a farm producer cannot supply alert-engine `alertId`/`ruleId`/
  * channels, so a deterministic synthetic rule identity is used.
  *
- * SYNTHETIC RULE IDENTITY:
- *   `system:water-quality:{tankId|equipmentId|'unknown'}` — scoped to the
- *   affected tank so repeated criticals for the SAME tank bump one open
- *   incident (occurrence count) while different tanks escalate independently;
- *   life-safety triage is per tank, not per tenant.
+ * RULE IDENTITY (ALERT-MEDIUM-006): `signalKey({ kind: 'water', equipmentId })`
+ *   → `water:equipment:{id}` — scoped to the affected unit (a tank IS
+ *   equipment; a legacy tank id is used when the event names no equipment), so
+ *   repeated criticals for the SAME unit bump one open incident while different
+ *   units escalate independently; life-safety triage is per unit, not per
+ *   tenant. A measurement naming no unit at all is keyed by the measurement
+ *   itself — it still pages, it just cannot merge with another reading.
  */
 @Injectable()
 export class WaterQualityCriticalAlertService {
@@ -55,9 +62,17 @@ export class WaterQualityCriticalAlertService {
     private readonly farmSignalIncident: Pick<FarmSignalIncidentService, 'ensureIncident'>,
   ) {}
 
-  /** Deterministic synthetic rule identity — per affected tank/equipment. */
-  private syntheticRuleId(event: WaterQualityCriticalEvent): string {
-    return `system:water-quality:${event.tankId ?? event.equipmentId ?? 'unknown'}`;
+  /**
+   * The condition's signal key — per affected unit (see class doc). The unit is
+   * picked by the contract's `waterQualityMeasuredUnit`, the same function the
+   * farm write path resolves the site from (V-S1a-10), so the incident key and
+   * the site on the event always describe one unit.
+   */
+  private signalKeyOf(event: WaterQualityCriticalEvent): SignalKey {
+    const unitId = waterQualityMeasuredUnit(event);
+    return unitId
+      ? signalKey({ kind: 'water', equipmentId: unitId })
+      : signalKey({ kind: 'water-measurement', measurementId: event.measurementId });
   }
 
   /**
@@ -113,7 +128,10 @@ export class WaterQualityCriticalAlertService {
    * before calling).
    */
   async recordCriticalWaterQuality(event: WaterQualityCriticalEvent): Promise<void> {
-    const ruleId = this.syntheticRuleId(event);
+    const key = this.signalKeyOf(event);
+    // Absent on events published before the field existed, and for a
+    // measurement whose unit resolves to no site — both mean "no site".
+    const siteId = event.siteId ?? null;
     const ruleName = 'Water Quality Critical';
     const triggeredAt = new Date(event.measuredAt);
     const parameters = this.parseCriticalParameters(event.criticalParametersJson);
@@ -124,13 +142,16 @@ export class WaterQualityCriticalAlertService {
       measurementId: event.measurementId,
       tankId: event.tankId,
       equipmentId: event.equipmentId,
+      siteId,
+      // The person who recorded the measurement (absent for sensor readings).
+      recordedBy: event.userId ?? null,
       criticalParameterCount: event.criticalParameterCount,
       criticalParameters: parameters,
       causationId: event.causationId,
     };
 
     const history = this.historyRepository.create({
-      ruleId,
+      ruleId: key,
       ruleName,
       tenantId: event.tenantId,
       // The producer only publishes this event when parameters crossed their
@@ -152,7 +173,8 @@ export class WaterQualityCriticalAlertService {
     // event once parameters cross their critical bounds.
     await this.farmSignalIncident.ensureIncident({
       tenantId: event.tenantId,
-      ruleId,
+      signalKey: key,
+      siteId,
       title: `${ruleName}: ${location}`,
       description: message,
       severity: AlertSeverity.CRITICAL,

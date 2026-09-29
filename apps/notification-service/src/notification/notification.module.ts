@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { DeviceToken } from './entities/device-token.entity';
 import { NotificationLog } from './entities/notification-log.entity';
+import { AlertEscalatedEventHandler } from './event-handlers/alert-escalated.handler';
 import { AlertTriggeredEventHandler } from './event-handlers/alert-triggered.handler';
 import { AuthEventHandler } from './event-handlers/auth-event.handler';
 import { BillingEventHandler } from './event-handlers/billing-event.handler';
@@ -25,6 +26,7 @@ import { NotificationRetentionService } from './services/notification-retention.
 import { PushService } from './services/push.service';
 import { RetrySchedulerService } from './services/retry-scheduler.service';
 import { SmsService } from './services/sms.service';
+import { UserContactDirectory } from './services/user-contact-directory.service';
 
 /**
  * Notification Module
@@ -53,6 +55,7 @@ import { SmsService } from './services/sms.service';
     InAppNotificationService,
     DeadLetterQueueService,
     NotificationLogDeadLetterSink,
+    UserContactDirectory,
 
     // Scheduled jobs
     NotificationRetentionService,
@@ -60,6 +63,8 @@ import { SmsService } from './services/sms.service';
 
     // Event Handlers
     AlertTriggeredEventHandler,
+    // ALERT-CRITICAL-004: escalated farm/sensor alarms reach a person.
+    AlertEscalatedEventHandler,
     AuthEventHandler,
     BillingEventHandler,
     TaskEventHandler,

@@ -4,7 +4,6 @@ import { signedFetch } from '@aquaculture/backend-common/http';
 import { BadRequestException, Controller, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { InjectRepository } from '@nestjs/typeorm';
 import {
   NOTIFICATION_COMMAND_SUBJECTS,
   type NotificationCommandChannel,
@@ -14,11 +13,9 @@ import {
   type NotificationSendPushCommand,
   type NotificationSendResult,
 } from '@platform/event-contracts';
-import { Repository } from 'typeorm';
-
-import { DeviceToken } from '../entities/device-token.entity';
 import { NotificationChannel } from '../entities/notification-log.entity';
 import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
+import { UserContactDirectory } from '../services/user-contact-directory.service';
 
 interface RenderedNotificationTemplate {
   subject: string;
@@ -33,18 +30,15 @@ interface RenderedNotificationTemplate {
 @Controller()
 export class NotificationCommandHandler {
   private readonly logger = new Logger(NotificationCommandHandler.name);
-  private readonly authServiceUrl: string;
   private readonly hrServiceUrl: string;
 
   constructor(
     private readonly dispatcher: NotificationDispatcherService,
-    @InjectRepository(DeviceToken)
-    private readonly deviceTokenRepository: Repository<DeviceToken>,
+    // User → device token / e-mail is owned by the directory (one resolver for
+    // the command bus and the alarm path — ALERT-CRITICAL-004).
+    private readonly contacts: UserContactDirectory,
     private readonly configService: ConfigService,
   ) {
-    this.authServiceUrl = this.configService
-      .get<string>('AUTH_SERVICE_INTERNAL_URL', 'http://auth-service:3000')
-      .replace(/\/+$/, '');
     this.hrServiceUrl = this.configService
       .get<string>('HR_SERVICE_INTERNAL_URL', 'http://hr-service:3000')
       .replace(/\/+$/, '');
@@ -184,18 +178,12 @@ export class NotificationCommandHandler {
     channel: NotificationChannel,
   ): Promise<{ value: string; logRef?: string }> {
     if (channel === NotificationChannel.PUSH) {
-      const deviceToken = await this.deviceTokenRepository.findOne({
-        where: {
-          tenantId,
-          userId,
-        },
-        order: { lastSeenAt: 'DESC', createdAt: 'DESC' },
-      });
-      if (!deviceToken) {
+      const token = await this.contacts.latestPushToken(tenantId, userId);
+      if (!token) {
         throw new BadRequestException('No active push device token found for recipient user');
       }
       return {
-        value: deviceToken.token,
+        value: token,
         logRef: `userId:${userId}`,
       };
     }
@@ -206,26 +194,13 @@ export class NotificationCommandHandler {
       );
     }
 
-    const response = await signedFetch(
-      `${this.authServiceUrl}/api/v1/internal/users/${encodeURIComponent(userId)}/pii`,
-      {
-        method: 'GET',
-        serviceName: 'notification-service',
-        tenantId,
-        audience: 'auth-service',
-        headers: { 'content-type': 'application/json' },
-      },
-    );
-    if (!response.ok) {
-      throw new BadRequestException(
-        `Unable to resolve user email recipient: HTTP ${response.status}`,
-      );
-    }
-    const body = (await response.json()) as { email?: string };
-    if (!body.email) {
-      throw new BadRequestException('Resolved user recipient has no email');
-    }
-    return { value: body.email, logRef: `userId:${userId}` };
+    // The command contract reports an unresolvable recipient as a validation
+    // failure (the command names someone who cannot be reached), whatever the
+    // directory's own retry classification is.
+    const email = await this.contacts.email(tenantId, userId).catch((error: unknown) => {
+      throw new BadRequestException(error instanceof Error ? error.message : String(error));
+    });
+    return { value: email, logRef: `userId:${userId}` };
   }
 
   private async resolveTenantContactRef(

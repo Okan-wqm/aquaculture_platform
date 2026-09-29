@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import type { MortalityAlertRaisedEvent } from '@platform/event-contracts';
+import { signalKey, type MortalityAlertRaisedEvent } from '@platform/event-contracts';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
 import { FarmSignalIncidentService } from './farm-signal-incident.service';
@@ -23,12 +23,15 @@ import { FarmSignalIncidentService } from './farm-signal-incident.service';
  *   answer to "wire a REAL consumer": the dead farm-internal high-mortality
  *   alert now produces a real, escalatable incident.
  *
- * SYNTHETIC RULE IDENTITY:
- *   `AlertHistory.ruleId` / `AlertIncident.ruleId` are plain string columns
- *   (NOT foreign keys — see entities). A mortality alert has no AlertRule, so a
- *   deterministic sentinel `system:mortality:{alertType}` is used. It groups
- *   mortality alerts of the same type under the existing `[ruleId, triggeredAt]`
- *   index (used by the incident-dedup query) without fabricating a rule row.
+ * RULE IDENTITY (ALERT-MEDIUM-006):
+ *   A mortality alert has no AlertRule; its identity is the platform signal
+ *   key `mortality:batch:{batchId}`, stored as `AlertHistory.ruleId` (a plain
+ *   string column) and `AlertIncident.signalKey` (ALERT-CRITICAL-009). It used to
+ *   be `system:mortality:{alertType}` — TENANT-WIDE per alert type — so deaths
+ *   in batch B bumped the open incident titled for batch A and nobody was paged
+ *   for B. One batch is one condition: single-event, daily-rate and cumulative
+ *   alerts of that batch feed one incident whose severity only rises, and the
+ *   alert type stays on the history row and the breadcrumb.
  */
 @Injectable()
 export class MortalityAlertService {
@@ -50,11 +53,6 @@ export class MortalityAlertService {
     return severity === 'critical' ? AlertSeverity.CRITICAL : AlertSeverity.WARNING;
   }
 
-  /** Deterministic synthetic rule identity grouping mortality alerts by type. */
-  private syntheticRuleId(alertType: MortalityAlertRaisedEvent['alertType']): string {
-    return `system:mortality:${alertType}`;
-  }
-
   private syntheticRuleName(alertType: MortalityAlertRaisedEvent['alertType']): string {
     return `High Mortality (${alertType})`;
   }
@@ -66,14 +64,18 @@ export class MortalityAlertService {
    */
   async recordMortalityAlert(event: MortalityAlertRaisedEvent): Promise<void> {
     const severity = this.mapSeverity(event.severity);
-    const ruleId = this.syntheticRuleId(event.alertType);
+    const key = signalKey({ kind: 'mortality', batchId: event.batchId });
     const ruleName = this.syntheticRuleName(event.alertType);
+    // Absent on events published before the field existed / a site-less tank.
+    const siteId = event.siteId ?? null;
     const triggeredAt = new Date(event.recordedAt);
 
     const triggeringData: Record<string, unknown> = {
       source: 'farm.mortality',
       batchId: event.batchId,
       tankId: event.tankId,
+      siteId,
+      recordedBy: event.userId ?? null,
       alertType: event.alertType,
       mortalityRate: event.mortalityRate,
       reason: event.reason,
@@ -81,7 +83,7 @@ export class MortalityAlertService {
     };
 
     const history = this.historyRepository.create({
-      ruleId,
+      ruleId: key,
       ruleName,
       tenantId: event.tenantId,
       severity,
@@ -94,8 +96,9 @@ export class MortalityAlertService {
     // Shape the mortality-specific incident and hand it to the shared lifecycle.
     await this.farmSignalIncident.ensureIncident({
       tenantId: event.tenantId,
-      ruleId,
-      title: `${ruleName}: batch ${event.batchId}`,
+      signalKey: key,
+      siteId,
+      title: `High Mortality: batch ${event.batchId}`,
       description: event.message,
       severity,
       triggeredAt,

@@ -137,11 +137,18 @@ function outermostCatchBodies(methodBody: string): string[] {
   return bodies;
 }
 
-/** A catch body that neither returns an outcome nor rethrows. */
+/**
+ * A catch body that neither returns an outcome nor rethrows. The outcome may
+ * come from the bus's `outcomeForError` or from `farmSignalFailureOutcome` —
+ * alert-engine's farm-signal rule, which wraps `outcomeForError` and always
+ * re-drives a failed page (V-S1a-12); `feeding-event-delivery-semantics.spec.ts`
+ * pins that it defers to the contract.
+ */
 function swallows(body: string): boolean {
   return !(
     /\bHandlerOutcome\s*\./.test(body) ||
     /\boutcomeForError\s*\(/.test(body) ||
+    /\bfarmSignalFailureOutcome\s*\(/.test(body) ||
     /\bthrow\b/.test(body)
   );
 }

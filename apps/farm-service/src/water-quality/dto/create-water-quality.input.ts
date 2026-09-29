@@ -46,7 +46,18 @@ export class CreateWaterQualityInput extends MobileCommandEnvelopeInput {
   @IsUUID()
   pondId?: string;
 
-  @Field(() => ID, { nullable: true, description: 'Site ID' })
+  /**
+   * DEPRECATED — an assertion, never a source (V-S1a-1 / V-S1b-1). The site is
+   * derived from the measured unit; a value that differs from it (or a unit
+   * with no site) is refused with 400. Kept in the schema only because
+   * AquaMobil's offline queue may still hold payloads that carry it.
+   */
+  @Field(() => ID, {
+    nullable: true,
+    description: 'Site ID (assertion only; the site is derived from the measured unit)',
+    deprecationReason:
+      'The site is derived from equipmentId/tankId. A differing value is rejected.',
+  })
   @IsOptional()
   @IsUUID()
   siteId?: string;
@@ -66,6 +77,11 @@ export class CreateWaterQualityInput extends MobileCommandEnvelopeInput {
   @IsHumanMeasurementSource()
   source!: MeasurementSource;
 
+  /**
+   * Who took the reading — a data field, not the event actor (V-S1b-5). Omitted
+   * or equal to the caller → the caller. Another user → MODULE_MANAGER+ only,
+   * and it must name an active user of the tenant.
+   */
   @Field(() => ID, { nullable: true, description: 'Ölçümü yapan kullanıcı' })
   @IsOptional()
   @IsUUID()

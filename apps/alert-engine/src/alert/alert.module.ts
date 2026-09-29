@@ -1,4 +1,6 @@
+import { NatsV3Client } from '@aquaculture/backend-common/nats';
 import { Module } from '@nestjs/common';
+import { ClientsModule } from '@nestjs/microservices';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
@@ -18,12 +20,20 @@ import { FcrAlertService } from './services/fcr-alert.service';
 import { FeedCoverageAlertService } from './services/feed-coverage-alert.service';
 import { FeedingExecutionAlertService } from './services/feeding-execution-alert.service';
 import { WaterQualityCriticalAlertService } from './services/water-quality-critical-alert.service';
+import {
+  ALERT_AUTH_NATS_CLIENT,
+  RuleRecipientNormalizer,
+} from './services/rule-recipient-normalizer.service';
+import { RuleRecipientBackfillService } from './services/rule-recipient-backfill.service';
 import { AlertAuditService } from '../audit/alert-audit.service';
 
 // Escalation services
 import { EscalationManagerService } from '../escalation/escalation-manager.service';
 import { EscalationPolicyService } from '../escalation/escalation-policy.service';
+import { EscalationPolicyWriter } from '../escalation/escalation-policy-writer.service';
 import { AcknowledgmentTrackerService } from '../escalation/acknowledgment-tracker.service';
+import { DefaultPolicyProvisioningHandler } from '../escalation/default-policy-provisioning.handler';
+import { DefaultPolicyReconcilerService } from '../escalation/default-policy-reconciler.service';
 
 // Event Handlers
 import { SensorReadingEventHandler } from './event-handlers/sensor-reading.handler';
@@ -62,6 +72,16 @@ import { EscalationPolicyResolver } from './resolvers/escalation-policy.resolver
       EscalationPolicy,
       AuditEntryEntity,
     ]),
+    // Decision 7: auth-service user queries (rule recipient normalisation) on
+    // the alert_engine mTLS identity; services.yaml grants exactly
+    // `request.auth.user.resolveTenantUserIdsByEmail`.
+    ClientsModule.register([
+      {
+        name: ALERT_AUTH_NATS_CLIENT,
+        customClass: NatsV3Client,
+        options: { serviceName: 'alert-engine' },
+      },
+    ]),
   ],
   providers: [
     // Services
@@ -75,11 +95,22 @@ import { EscalationPolicyResolver } from './resolvers/escalation-policy.resolver
     FeedingExecutionAlertService,
     WaterQualityCriticalAlertService,
     AlertAuditService,
+    // Decision 7: sensor-rule recipients — people as user ids (write path +
+    // hourly backfill of existing rules).
+    RuleRecipientNormalizer,
+    RuleRecipientBackfillService,
 
     // Escalation services
     EscalationPolicyService,
+    // V-S1a-2 / V-S1b-2: every policy write (coverage invariant, admin-only
+    // default changes, audited in the same transaction).
+    EscalationPolicyWriter,
     EscalationManagerService,
     AcknowledgmentTrackerService,
+    // ALERT-CRITICAL-004: every tenant has a default escalation policy —
+    // seeded on TenantProvisioned and re-asserted by a periodic reconcile.
+    DefaultPolicyProvisioningHandler,
+    DefaultPolicyReconcilerService,
 
     // Event Handlers
     SensorReadingEventHandler,

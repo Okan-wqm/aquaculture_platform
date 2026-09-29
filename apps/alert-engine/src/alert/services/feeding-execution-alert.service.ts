@@ -17,12 +17,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import type {
-  FeedTypeTransitionedEvent,
-  FeedingWindowReadinessEvent,
-  MealMissedEvent,
-  MealUnderfedEvent,
-  UnfedUnitDetectedEvent,
+import {
+  signalKey,
+  type FeedTypeTransitionedEvent,
+  type FeedingWindowReadinessEvent,
+  type MealMissedEvent,
+  type MealUnderfedEvent,
+  type UnfedUnitDetectedEvent,
 } from '@platform/event-contracts';
 
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
@@ -41,7 +42,7 @@ export class FeedingExecutionAlertService {
   ) {}
 
   async recordMealUnderfed(event: MealUnderfedEvent): Promise<void> {
-    const ruleId = `system:meal-underfed:${event.unitId}`;
+    const key = signalKey({ kind: 'meal-underfed', unitId: event.unitId });
     const ruleName = 'Meal Underfed';
     const triggeredAt = new Date(event.timestamp);
     const scopeLabel = event.scope === 'day' ? 'gün toplamında' : 'öğünde';
@@ -52,7 +53,7 @@ export class FeedingExecutionAlertService {
 
     const history = await this.historyRepository.save(
       this.historyRepository.create({
-        ruleId,
+        ruleId: key,
         ruleName,
         tenantId: event.tenantId,
         severity: AlertSeverity.WARNING,
@@ -76,7 +77,9 @@ export class FeedingExecutionAlertService {
 
     await this.farmSignalIncident.ensureIncident({
       tenantId: event.tenantId,
-      ruleId,
+      signalKey: key,
+      // The event names a unit, not a site; site-scoped recipients widen.
+      siteId: null,
       title: `${ruleName}: ${event.unitCode}`,
       description: message,
       severity: AlertSeverity.WARNING,
@@ -95,7 +98,7 @@ export class FeedingExecutionAlertService {
   }
 
   async recordMealMissed(event: MealMissedEvent): Promise<void> {
-    const ruleId = `system:meal-missed:${event.unitId}`;
+    const key = signalKey({ kind: 'meal-missed', unitId: event.unitId });
     const ruleName = 'Meal Missed';
     const triggeredAt = new Date(event.timestamp);
     const message =
@@ -104,7 +107,7 @@ export class FeedingExecutionAlertService {
 
     const history = await this.historyRepository.save(
       this.historyRepository.create({
-        ruleId,
+        ruleId: key,
         ruleName,
         tenantId: event.tenantId,
         severity: AlertSeverity.WARNING,
@@ -124,7 +127,9 @@ export class FeedingExecutionAlertService {
 
     await this.farmSignalIncident.ensureIncident({
       tenantId: event.tenantId,
-      ruleId,
+      signalKey: key,
+      // The event names a unit, not a site; site-scoped recipients widen.
+      siteId: null,
       title: `${ruleName}: ${event.unitCode}`,
       description: message,
       severity: AlertSeverity.WARNING,
@@ -141,7 +146,7 @@ export class FeedingExecutionAlertService {
   }
 
   async recordUnfedUnit(event: UnfedUnitDetectedEvent): Promise<void> {
-    const ruleId = `system:unfed-unit:${event.unitId}`;
+    const key = signalKey({ kind: 'unfed-unit', unitId: event.unitId });
     const ruleName = 'Unfed Unit Detected';
     const triggeredAt = new Date(event.timestamp);
     const reasonLabel: Record<UnfedUnitDetectedEvent['reason'], string> = {
@@ -162,7 +167,7 @@ export class FeedingExecutionAlertService {
 
     const history = await this.historyRepository.save(
       this.historyRepository.create({
-        ruleId,
+        ruleId: key,
         ruleName,
         tenantId: event.tenantId,
         severity: AlertSeverity.CRITICAL,
@@ -183,7 +188,8 @@ export class FeedingExecutionAlertService {
 
     await this.farmSignalIncident.ensureIncident({
       tenantId: event.tenantId,
-      ruleId,
+      signalKey: key,
+      siteId: event.siteId,
       title: `${ruleName}: ${event.unitCode}`,
       description: message,
       severity: AlertSeverity.CRITICAL,
@@ -216,7 +222,7 @@ export class FeedingExecutionAlertService {
    * tek açık incident beslenir.
    */
   async recordFeedingWindowReadiness(event: FeedingWindowReadinessEvent): Promise<void> {
-    const ruleId = `system:feeding-window-oxygen:${event.unitId}`;
+    const key = signalKey({ kind: 'feeding-window-oxygen', unitId: event.unitId });
     const ruleName = 'Pre-Meal Oxygen Guard';
     const triggeredAt = new Date(event.timestamp);
     const message =
@@ -233,7 +239,7 @@ export class FeedingExecutionAlertService {
 
     const history = await this.historyRepository.save(
       this.historyRepository.create({
-        ruleId,
+        ruleId: key,
         ruleName,
         tenantId: event.tenantId,
         severity: AlertSeverity.WARNING,
@@ -257,7 +263,9 @@ export class FeedingExecutionAlertService {
 
     await this.farmSignalIncident.ensureIncident({
       tenantId: event.tenantId,
-      ruleId,
+      signalKey: key,
+      // The event names a unit, not a site; site-scoped recipients widen.
+      siteId: null,
       title: `${ruleName}: ${event.unitCode}`,
       description: message,
       severity: AlertSeverity.WARNING,
@@ -280,7 +288,7 @@ export class FeedingExecutionAlertService {
     const triggeredAt = new Date(event.timestamp);
     await this.historyRepository.save(
       this.historyRepository.create({
-        ruleId: `system:feed-transition:${event.unitId}`,
+        ruleId: signalKey({ kind: 'feed-transition', unitId: event.unitId }),
         ruleName: 'Feed Type Transitioned',
         tenantId: event.tenantId,
         severity: AlertSeverity.INFO,

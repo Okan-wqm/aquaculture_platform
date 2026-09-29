@@ -1,11 +1,16 @@
 import { signedFetch } from '@aquaculture/backend-common/http';
+import { stub } from '@aquaculture/testing';
 import { ConfigService } from '@nestjs/config';
 import type {
   NotificationSendEmailCommand,
   NotificationSendPushCommand,
 } from '@platform/event-contracts';
 
+import type { Repository } from 'typeorm';
+
+import type { DeviceToken } from '../entities/device-token.entity';
 import { NotificationChannel } from '../entities/notification-log.entity';
+import { UserContactDirectory } from '../services/user-contact-directory.service';
 
 import { NotificationCommandHandler } from './notification-command.handler';
 
@@ -33,7 +38,7 @@ function createHandler() {
 
   const handler = new NotificationCommandHandler(
     dispatcher as never,
-    deviceTokenRepository as never,
+    new UserContactDirectory(stub<Repository<DeviceToken>>(deviceTokenRepository), configService),
     configService,
   );
 

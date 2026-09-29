@@ -35,6 +35,33 @@ Same triage as above; additionally check `retryCount` distribution vs `OUTBOX_MA
 `(channel, status)` for the failing window; check provider credentials and the
 retry scheduler (`retry-scheduler.service.ts`, every 5 min).
 
+## LifeSafetyAlarmDegraded (critical)
+
+A farm alarm (critical water quality, mortality, stock-out) did not take its
+normal path to a person. `reason` says which floor caught it:
+
+- `no_policy_match` (alert-engine): the tenant's active escalation policies do
+  not cover the severity. Tenant admins were paged by the hard floor. The
+  policy writer refuses such a policy set, so look for a direct database edit:
+  `SELECT id, name, severity, is_active, rule_ids, farm_ids FROM
+tenant_<uuid>.escalation_policies;`
+- `widened_to_tenant_admins` (notification-service): the policy's role/site/user
+  targets resolved to nobody (no active holder, nobody assigned to the site).
+  Tenant admins were paged instead. Fix the policy targets or the site
+  assignments.
+- `no_recipients` (notification-service): not even a tenant admin is active.
+  The alarm is on the dead-letter stream — nobody was paged. Page the tenant
+  by other means, then restore an active admin.
+
+## LifeSafetyAlarmDeadLettered (critical)
+
+A life-safety event exhausted its hour-long redelivery budget
+(`LIFE_SAFETY_REDELIVERY`, `platform/libs/event-bus/src/interfaces/redelivery-policy.ts`)
+or was terminated by its handler. Read the envelope on the `AQUACULTURE_DLQ`
+stream (subject carries the tenant and event type) and the service log line
+`dead-lettered (retry exhausted|terminated)`; fix the dependency that was down
+(auth-service, the database, Redis) and replay the envelope.
+
 ## Signal hygiene
 
 When a condition clears, close the ARIA side:

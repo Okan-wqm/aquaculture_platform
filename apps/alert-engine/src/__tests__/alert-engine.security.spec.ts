@@ -4,28 +4,87 @@ import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { RulesEngineService } from '../rules-engine/rules-engine.service';
-import { RuleEvaluatorService, type EvaluationContext } from '../rules-engine/rule-evaluator.service';
-import { RiskCalculatorService, type RiskCalculationContext } from '../risk-scoring/risk-calculator.service';
+import {
+  RuleEvaluatorService,
+  type EvaluationContext,
+} from '../rules-engine/rule-evaluator.service';
+import {
+  RiskCalculatorService,
+  type RiskCalculationContext,
+} from '../risk-scoring/risk-calculator.service';
 import { ImpactAnalyzerService } from '../risk-scoring/impact-analyzer.service';
 import { SeverityClassifierService } from '../risk-scoring/severity-classifier.service';
-import { EscalationPolicyService, type CreatePolicyDto } from '../escalation/escalation-policy.service';
-import { NotificationDispatcherService, type ChannelHandler } from '../notification/notification-dispatcher.service';
+import {
+  EscalationPolicyService,
+  type CreatePolicyDto,
+} from '../escalation/escalation-policy.service';
+import { AlertAuditService } from '../audit/alert-audit.service';
+import {
+  EscalationPolicyWriter,
+  type PolicyActor,
+} from '../escalation/escalation-policy-writer.service';
+import {
+  NotificationDispatcherService,
+  type ChannelHandler,
+} from '../notification/notification-dispatcher.service';
 import { ChannelRouterService } from '../notification/channel-router.service';
-import { TemplateRendererService, type NotificationTemplate, type TemplateContext } from '../notification/template-renderer.service';
+import {
+  TemplateRendererService,
+  type NotificationTemplate,
+  type TemplateContext,
+} from '../notification/template-renderer.service';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { createRedisServiceMock } from './support/redis-service.mock';
 
 // Same import-path migration as the integration spec — see PR-43.
 // `LogicalOperator` was removed from alert-rule.entity (rules-engine
 // concern, not entity).
-import { AlertRule, AlertSeverity, AlertOperator } from '../database/entities/alert-rule.entity';
+import { AlertRule, AlertSeverity } from '../database/entities/alert-rule.entity';
 import { AlertIncident, IncidentStatus } from '../database/entities/alert-incident.entity';
-import { EscalationPolicy, EscalationLevel, NotificationChannel, EscalationActionType } from '../database/entities/escalation-policy.entity';
+import {
+  EscalationPolicy,
+  EscalationLevel,
+  NotificationChannel,
+  EscalationActionType,
+} from '../database/entities/escalation-policy.entity';
 
 /**
  * Security tests for Alert Engine
  * Tests tenant isolation, input validation, injection prevention, and access control
  */
+const TENANT_ADMIN: PolicyActor = { userId: 'admin-1', isTenantAdmin: true };
+
+/** An EscalationPolicyWriter whose transaction sees exactly `current`. */
+async function policyWriter(current: EscalationPolicy[]): Promise<EscalationPolicyWriter> {
+  const manager = {
+    find: jest.fn(async () => current),
+    create: jest.fn((_entity: unknown, row: object) => Object.assign(new EscalationPolicy(), row)),
+    save: jest.fn(async (_entity: unknown, row: unknown) => row),
+    update: jest.fn(),
+    remove: jest.fn(),
+  };
+  const moduleRef = await Test.createTestingModule({
+    providers: [
+      EscalationPolicyWriter,
+      {
+        provide: getRepositoryToken(EscalationPolicy),
+        useValue: {
+          manager: { transaction: (cb: (m: typeof manager) => Promise<unknown>) => cb(manager) },
+        },
+      },
+      {
+        provide: EscalationPolicyService,
+        useValue: {
+          validatePolicy: () => ({ isValid: true, errors: [], warnings: [] }),
+          invalidateCache: jest.fn(),
+        },
+      },
+      { provide: AlertAuditService, useValue: { recordInTransaction: jest.fn() } },
+    ],
+  }).compile();
+  return moduleRef.get(EscalationPolicyWriter);
+}
+
 describe('Alert Engine Security', () => {
   let rulesEngine: RulesEngineService;
   let ruleEvaluator: RuleEvaluatorService;
@@ -103,7 +162,9 @@ describe('Alert Engine Security', () => {
     impactAnalyzer = module.get<ImpactAnalyzerService>(ImpactAnalyzerService);
     severityClassifier = module.get<SeverityClassifierService>(SeverityClassifierService);
     escalationPolicyService = module.get<EscalationPolicyService>(EscalationPolicyService);
-    notificationDispatcher = module.get<NotificationDispatcherService>(NotificationDispatcherService);
+    notificationDispatcher = module.get<NotificationDispatcherService>(
+      NotificationDispatcherService,
+    );
     channelRouter = module.get<ChannelRouterService>(ChannelRouterService);
     templateRenderer = module.get<TemplateRendererService>(TemplateRendererService);
 
@@ -114,12 +175,8 @@ describe('Alert Engine Security', () => {
 
   describe('Tenant Isolation', () => {
     it('should filter rules by tenant ID', async () => {
-      const tenant1Rules = [
-        { id: 'rule-1', tenantId: 'tenant-1', name: 'Rule 1', isActive: true },
-      ];
-      const tenant2Rules = [
-        { id: 'rule-2', tenantId: 'tenant-2', name: 'Rule 2', isActive: true },
-      ];
+      const tenant1Rules = [{ id: 'rule-1', tenantId: 'tenant-1', name: 'Rule 1', isActive: true }];
+      const tenant2Rules = [{ id: 'rule-2', tenantId: 'tenant-2', name: 'Rule 2', isActive: true }];
 
       // The engine loads rules through a tenant-scoped query builder, binding
       // `tenantId` into the WHERE clause. Model that: capture the bound tenantId
@@ -140,11 +197,7 @@ describe('Alert Engine Security', () => {
           // qb is intentionally `any` (a structural query-builder stand-in), so
           // the partial seed rows flow through without an unsafe cast.
           getMany: async () =>
-            tenantId === 'tenant-1'
-              ? tenant1Rules
-              : tenantId === 'tenant-2'
-                ? tenant2Rules
-                : [],
+            tenantId === 'tenant-1' ? tenant1Rules : tenantId === 'tenant-2' ? tenant2Rules : [],
         };
         return qb;
       });
@@ -173,9 +226,7 @@ describe('Alert Engine Security', () => {
     it('should not allow cross-tenant policy access', async () => {
       policyRepository.findOne.mockResolvedValue(null);
 
-      await expect(
-        escalationPolicyService.getPolicy('policy-1', 'wrong-tenant'),
-      ).rejects.toThrow();
+      await expect(escalationPolicyService.getPolicy('policy-1', 'wrong-tenant')).rejects.toThrow();
     });
 
     it('should filter policies by tenant in findMatchingPolicy', async () => {
@@ -229,17 +280,20 @@ describe('Alert Engine Security', () => {
         tenantId: 'tenant-1',
         name: '',
         severity: [AlertSeverity.HIGH],
-        levels: [{
-          level: 1,
-          name: 'Level 1',
-          timeoutMinutes: 15,
-          notifyUserIds: ['user-1'],
-          channels: [NotificationChannel.EMAIL],
-          action: EscalationActionType.NOTIFY,
-        }],
+        levels: [
+          {
+            level: 1,
+            name: 'Level 1',
+            timeoutMinutes: 15,
+            notifyUserIds: ['user-1'],
+            channels: [NotificationChannel.EMAIL],
+            action: EscalationActionType.NOTIFY,
+          },
+        ],
       };
 
-      await expect(escalationPolicyService.createPolicy(invalidDto)).rejects.toThrow();
+      // The writer refuses every write this validation fails (EscalationPolicyWriter).
+      expect(escalationPolicyService.validatePolicy(invalidDto).isValid).toBe(false);
     });
 
     it('should reject invalid severity values', async () => {
@@ -247,17 +301,20 @@ describe('Alert Engine Security', () => {
         tenantId: 'tenant-1',
         name: 'Test Policy',
         severity: [], // Empty severity array
-        levels: [{
-          level: 1,
-          name: 'Level 1',
-          timeoutMinutes: 15,
-          notifyUserIds: ['user-1'],
-          channels: [NotificationChannel.EMAIL],
-          action: EscalationActionType.NOTIFY,
-        }],
+        levels: [
+          {
+            level: 1,
+            name: 'Level 1',
+            timeoutMinutes: 15,
+            notifyUserIds: ['user-1'],
+            channels: [NotificationChannel.EMAIL],
+            action: EscalationActionType.NOTIFY,
+          },
+        ],
       };
 
-      await expect(escalationPolicyService.createPolicy(invalidDto)).rejects.toThrow();
+      // The writer refuses every write this validation fails (EscalationPolicyWriter).
+      expect(escalationPolicyService.validatePolicy(invalidDto).isValid).toBe(false);
     });
 
     it('should reject non-sequential escalation levels', async () => {
@@ -266,12 +323,27 @@ describe('Alert Engine Security', () => {
         name: 'Test Policy',
         severity: [AlertSeverity.HIGH],
         levels: [
-          { level: 1, name: 'Level 1', timeoutMinutes: 15, notifyUserIds: ['user-1'], channels: [NotificationChannel.EMAIL], action: EscalationActionType.NOTIFY },
-          { level: 3, name: 'Level 3', timeoutMinutes: 30, notifyUserIds: ['user-2'], channels: [NotificationChannel.EMAIL], action: EscalationActionType.NOTIFY }, // Skips level 2
+          {
+            level: 1,
+            name: 'Level 1',
+            timeoutMinutes: 15,
+            notifyUserIds: ['user-1'],
+            channels: [NotificationChannel.EMAIL],
+            action: EscalationActionType.NOTIFY,
+          },
+          {
+            level: 3,
+            name: 'Level 3',
+            timeoutMinutes: 30,
+            notifyUserIds: ['user-2'],
+            channels: [NotificationChannel.EMAIL],
+            action: EscalationActionType.NOTIFY,
+          }, // Skips level 2
         ],
       };
 
-      await expect(escalationPolicyService.createPolicy(invalidDto)).rejects.toThrow();
+      // The writer refuses every write this validation fails (EscalationPolicyWriter).
+      expect(escalationPolicyService.validatePolicy(invalidDto).isValid).toBe(false);
     });
 
     it('should reject negative timeout values', async () => {
@@ -279,14 +351,16 @@ describe('Alert Engine Security', () => {
         tenantId: 'tenant-1',
         name: 'Test Policy',
         severity: [AlertSeverity.HIGH],
-        levels: [{
-          level: 1,
-          name: 'Level 1',
-          timeoutMinutes: -5, // Invalid negative value
-          notifyUserIds: ['user-1'],
-          channels: [NotificationChannel.EMAIL],
-          action: EscalationActionType.NOTIFY,
-        }],
+        levels: [
+          {
+            level: 1,
+            name: 'Level 1',
+            timeoutMinutes: -5, // Invalid negative value
+            notifyUserIds: ['user-1'],
+            channels: [NotificationChannel.EMAIL],
+            action: EscalationActionType.NOTIFY,
+          },
+        ],
       };
 
       const validation = escalationPolicyService.validatePolicy(dto);
@@ -298,14 +372,16 @@ describe('Alert Engine Security', () => {
         tenantId: 'tenant-1',
         name: 'Test Policy',
         severity: [AlertSeverity.HIGH],
-        levels: [{
-          level: 1,
-          name: 'Level 1',
-          timeoutMinutes: 15,
-          notifyUserIds: ['user-1'],
-          channels: [NotificationChannel.EMAIL],
-          action: EscalationActionType.NOTIFY,
-        }],
+        levels: [
+          {
+            level: 1,
+            name: 'Level 1',
+            timeoutMinutes: 15,
+            notifyUserIds: ['user-1'],
+            channels: [NotificationChannel.EMAIL],
+            action: EscalationActionType.NOTIFY,
+          },
+        ],
         onCallSchedule: [
           {
             dayOfWeek: 1,
@@ -318,7 +394,7 @@ describe('Alert Engine Security', () => {
 
       const validation = escalationPolicyService.validatePolicy(dto);
       expect(validation.isValid).toBe(false);
-      expect(validation.errors.some(e => e.includes('HH:mm'))).toBe(true);
+      expect(validation.errors.some((e) => e.includes('HH:mm'))).toBe(true);
     });
   });
 
@@ -385,11 +461,11 @@ describe('Alert Engine Security', () => {
 
     it('should validate custom templates', () => {
       const maliciousTemplate: NotificationTemplate = {
-        id: '',  // Invalid empty ID
-        name: '',  // Invalid empty name
+        id: '', // Invalid empty ID
+        name: '', // Invalid empty name
         channel: NotificationChannel.EMAIL,
-        subjectTemplate: '',  // Invalid for email
-        bodyTemplate: '',  // Invalid empty body
+        subjectTemplate: '', // Invalid for email
+        bodyTemplate: '', // Invalid empty body
       };
 
       const validation = templateRenderer.validateTemplate(maliciousTemplate);
@@ -497,23 +573,27 @@ describe('Alert Engine Security', () => {
 
   describe('Authorization Checks', () => {
     it('should verify policy belongs to tenant before update', async () => {
-      policyRepository.findOne.mockResolvedValue(null);
+      // The writer loads only the caller tenant's policies (FOR UPDATE), so a
+      // foreign id is simply not found.
+      const writer = await policyWriter([]);
 
       await expect(
-        escalationPolicyService.updatePolicy('policy-1', 'wrong-tenant', { name: 'Updated' }),
+        writer.updatePolicy('policy-1', 'wrong-tenant', { name: 'Updated' }, TENANT_ADMIN),
       ).rejects.toThrow('not found');
     });
 
     it('should prevent deletion of default policy', async () => {
-      policyRepository.findOne.mockResolvedValue({
-        id: 'policy-1',
-        tenantId: 'tenant-1',
-        isDefault: true,
-      } as EscalationPolicy);
+      const writer = await policyWriter([
+        Object.assign(new EscalationPolicy(), {
+          id: 'policy-1',
+          tenantId: 'tenant-1',
+          isDefault: true,
+        }),
+      ]);
 
-      await expect(
-        escalationPolicyService.deletePolicy('policy-1', 'tenant-1'),
-      ).rejects.toThrow('Cannot delete default policy');
+      await expect(writer.deletePolicy('policy-1', 'tenant-1', TENANT_ADMIN)).rejects.toThrow(
+        'Cannot delete default policy',
+      );
     });
 
     it('should verify incident belongs to tenant before operations', async () => {
@@ -544,15 +624,17 @@ describe('Alert Engine Security', () => {
 
     it('should limit concurrent notification processing', async () => {
       const mockHandler: ChannelHandler = {
-        send: jest.fn().mockImplementation(() =>
-          new Promise(resolve => setTimeout(() => resolve({ success: true }), 10))
-        ),
+        send: jest
+          .fn()
+          .mockImplementation(
+            () => new Promise((resolve) => setTimeout(() => resolve({ success: true }), 10)),
+          ),
       };
 
       notificationDispatcher.registerHandler(NotificationChannel.EMAIL, mockHandler);
 
       const userIds = Array.from({ length: 100 }, (_, i) => `user-${i}`);
-      userIds.forEach(userId => {
+      userIds.forEach((userId) => {
         channelRouter.setUserPreferences({
           userId,
           enabledChannels: [NotificationChannel.EMAIL],
@@ -587,15 +669,19 @@ describe('Alert Engine Security', () => {
       // the cast through `unknown as AlertCondition[]` preserves the
       // negative-test intent (the evaluator must fail closed on
       // bad data, not propagate the type-system blockage).
-      const malformedRule: Partial<AlertRule> = {
-        id: 'rule-1',
-        tenantId: 'tenant-1',
-        name: 'Malformed Rule',
-        isActive: true,
-        conditions: [
-          { parameter: '', operator: 'INVALID' as unknown as AlertOperator, threshold: 0, severity: AlertSeverity.LOW },
-        ],
-      };
+      // The malformed rule arrives the way bad data does — as untyped JSON — so
+      // no cast is needed to smuggle an operator the enum does not know.
+      const malformedRule: Partial<AlertRule> = JSON.parse(
+        JSON.stringify({
+          id: 'rule-1',
+          tenantId: 'tenant-1',
+          name: 'Malformed Rule',
+          isActive: true,
+          conditions: [
+            { parameter: '', operator: 'INVALID', threshold: 0, severity: AlertSeverity.LOW },
+          ],
+        }),
+      );
 
       // Should not throw. The evaluator returns a structured EvaluationResult
       // (async); its fail-closed contract is `matched === false` on bad data —
@@ -627,10 +713,10 @@ describe('Alert Engine Security', () => {
       expect(incident.timeline.length).toBe(3);
 
       // All events should have user ID for auditing
-      expect(incident.timeline.every(e => e.userId)).toBe(true);
+      expect(incident.timeline.every((e) => e.userId)).toBe(true);
 
       // All events should have timestamps
-      expect(incident.timeline.every(e => e.timestamp instanceof Date)).toBe(true);
+      expect(incident.timeline.every((e) => e.timestamp instanceof Date)).toBe(true);
     });
 
     it('should generate unique event IDs', () => {
@@ -646,7 +732,7 @@ describe('Alert Engine Security', () => {
         incident.addComment('user-1', `Comment ${i}`);
       }
 
-      const ids = incident.timeline.map(e => e.id);
+      const ids = incident.timeline.map((e) => e.id);
       const uniqueIds = new Set(ids);
 
       expect(uniqueIds.size).toBe(100);

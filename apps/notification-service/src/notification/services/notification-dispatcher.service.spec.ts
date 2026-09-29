@@ -1,6 +1,11 @@
 import { NotificationChannel } from '../entities/notification-log.entity';
 
-import { NotificationDispatcherService } from './notification-dispatcher.service';
+import { LIFE_SAFETY_REDELIVERY } from '@platform/event-bus';
+
+import {
+  DEFAULT_COMMAND_RECEIPT_LEASE_MS,
+  NotificationDispatcherService,
+} from './notification-dispatcher.service';
 
 type CommandInput = Parameters<NotificationDispatcherService['dispatchCommandNotification']>[0];
 type MockManager = { query: jest.Mock };
@@ -155,5 +160,84 @@ describe('NotificationDispatcherService command receipts', () => {
     expect(rateLimit).not.toHaveBeenCalled();
     expect(sendNotification).not.toHaveBeenCalled();
     expect(dataSource.query).not.toHaveBeenCalled();
+  });
+});
+
+describe('NotificationDispatcherService — life-safety delivery (V-S1a-3, V-S1a-6)', () => {
+  function freshReceipt(dataSource: { transaction: jest.Mock }): void {
+    // No receipt yet: the INSERT path claims it.
+    const manager = { query: jest.fn().mockResolvedValue([]) };
+    dataSource.transaction.mockImplementation((callback: (m: MockManager) => unknown) =>
+      Promise.resolve(callback(manager)),
+    );
+  }
+
+  it('declares a held receipt TRANSIENT so the alarm is re-driven, not dead-lettered', async () => {
+    // SCENARIO: a crashed send still holds the receipt when the redelivery arrives.
+    // EXPECTS: NotificationReceiptHeldError, failureClass transient (a plain 409 was
+    //          a permanent "domain rejection" to the event bus).
+    const { service, dataSource } = createService();
+    const input = commandInput();
+    const manager = {
+      query: jest.fn().mockResolvedValueOnce([
+        {
+          payloadHash: hashFor(service, input),
+          status: 'STARTED',
+          externalId: null,
+          updatedAt: new Date(),
+        },
+      ]),
+    };
+    dataSource.transaction.mockImplementation((callback: (m: MockManager) => unknown) =>
+      Promise.resolve(callback(manager)),
+    );
+
+    await expect(service.dispatchCommandNotification(input)).rejects.toEqual(
+      expect.objectContaining({ name: 'NotificationReceiptHeldError', failureClass: 'transient' }),
+    );
+  });
+
+  it('never consults the tenant rate limit for a CRITICAL/HIGH alarm send', async () => {
+    // SCENARIO: a power failure pages every tank at once; the tenant budget is spent.
+    // EXPECTS: the alarm send bypasses the limiter and goes out.
+    const { service, dataSource, rateLimit, sendNotification } = createService();
+    freshReceipt(dataSource);
+    rateLimit.mockResolvedValue(false);
+
+    await expect(
+      service.dispatchCommandNotification({ ...commandInput(), lifeSafetyAlarm: true }),
+    ).resolves.toEqual({ externalId: 'provider-message-1', replayed: false });
+    expect(rateLimit).not.toHaveBeenCalled();
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns a limiter outage into a TRANSIENT failure and releases the receipt', async () => {
+    // SCENARIO: Redis is down in production; the limiter cannot answer.
+    // EXPECTS: NotificationRateLimiterUnavailableError (transient) and the receipt
+    //          marked FAILED (re-claimable) — it used to be an untyped 400 that
+    //          dead-lettered the page.
+    const { service, dataSource, rateLimit, sendNotification } = createService();
+    freshReceipt(dataSource);
+    rateLimit.mockRejectedValue(new Error('Notification rate limiter is unavailable'));
+
+    await expect(service.dispatchCommandNotification(commandInput())).rejects.toEqual(
+      expect.objectContaining({
+        name: 'NotificationRateLimiterUnavailableError',
+        failureClass: 'transient',
+      }),
+    );
+    expect(sendNotification).not.toHaveBeenCalled();
+    expect(dataSource.query).toHaveBeenCalledWith(
+      expect.stringContaining("SET status = 'FAILED'"),
+      expect.any(Array),
+    );
+  });
+
+  it('refuses to boot with a receipt lease the life-safety redelivery cannot outwait', () => {
+    // SCENARIO: NOTIFICATION_COMMAND_RECEIPT_LEASE_MS = 5 min (the redelivery step cap).
+    // EXPECTS: boot fails fast; the 2-minute default boots.
+    const { service } = createService();
+    expect(() => service.onModuleInit()).toThrow(/must stay below the life-safety/);
+    expect(DEFAULT_COMMAND_RECEIPT_LEASE_MS).toBeLessThan(LIFE_SAFETY_REDELIVERY.maxBackoffMs);
   });
 });

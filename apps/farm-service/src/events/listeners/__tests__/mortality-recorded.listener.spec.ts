@@ -12,19 +12,39 @@
  */
 import { createMockRepository } from '@aquaculture/testing';
 import { RedisService } from '@aquaculture/backend-common/redis';
-import { createBaseEvent } from '@platform/event-contracts';
+import { createBaseEvent, validateEventBySubject } from '@platform/event-contracts';
 import type { IEventBus } from '@platform/event-bus';
 import type { MortalityRecordedEvent } from '@platform/event-contracts';
 
 import { Batch } from '../../../batch/entities/batch.entity';
 import { MortalityRecord, MortalityCause } from '../../../batch/entities/mortality-record.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
+import type {
+  DailyMortality,
+  MortalityAlertContextReader,
+} from '../mortality-alert-context.reader';
 import { MortalityRecordedListener } from '../mortality-recorded.listener';
 import { makeMockEventBus } from './make-mock-event-bus';
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const BATCH_ID = '22222222-2222-4222-8222-222222222222';
 const TANK_ID = '33333333-3333-4333-8333-333333333333';
+const SITE_ID = '44444444-4444-4444-8444-444444444444';
+
+/** The alert-context reader double (its real queries run in the Postgres spec). */
+type ContextDouble = jest.Mocked<Pick<MortalityAlertContextReader, 'dailyMortality' | 'siteOf'>>;
+
+function quietDay(overrides: Partial<DailyMortality> = {}): DailyMortality {
+  return {
+    day: '2026-06-10',
+    todayCount: 0,
+    todayRate: 0,
+    isCurrentDay: true,
+    weeklyAverage: 0,
+    trend: 'stable',
+    ...overrides,
+  };
+}
 
 type BusDouble = jest.Mocked<IEventBus>;
 
@@ -45,6 +65,7 @@ interface PublishedFollowUp {
   causationId?: string;
   correlationId?: string;
   recordedAt?: unknown;
+  siteId?: string;
 }
 
 function makeBus(): BusDouble {
@@ -106,10 +127,13 @@ function makeListener(opts: {
   mortalityRecords?: Array<Partial<MortalityRecord>>;
   tankBatch?: Partial<TankBatch> | null;
   redis?: RedisDouble;
+  daily?: DailyMortality;
+  siteId?: string | null;
 }): {
   listener: MortalityRecordedListener;
   batchRepo: jest.Mocked<import('typeorm').Repository<Batch>>;
   mortalityRepo: jest.Mocked<import('typeorm').Repository<MortalityRecord>>;
+  alertContext: ContextDouble;
 } {
   const batchRepo = createMockRepository<Batch>();
   batchRepo.findOne.mockResolvedValue(
@@ -124,14 +148,20 @@ function makeListener(opts: {
 
   // makeMockEventBus() returns a fully-typed jest.Mocked<IEventBus>, so it slots
   // straight into the optional EVENT_BUS constructor arg with no cast.
+  const alertContext: ContextDouble = {
+    dailyMortality: jest.fn().mockResolvedValue(opts.daily ?? quietDay()),
+    siteOf: jest.fn().mockResolvedValue(opts.siteId === undefined ? SITE_ID : opts.siteId),
+  };
+
   const listener = new MortalityRecordedListener(
     batchRepo,
     mortalityRepo,
     tankBatchRepo,
+    alertContext,
     opts.bus,
     opts.redis,
   );
-  return { listener, batchRepo, mortalityRepo };
+  return { listener, batchRepo, mortalityRepo, alertContext };
 }
 
 describe('MortalityRecordedListener (NATS contract migration)', () => {
@@ -168,7 +198,7 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
     });
   });
 
-  it('publishes a critical cumulative-rate alert when newMortalityRate exceeds the critical threshold', async () => {
+  it('publishes a critical cumulative-rate alert when this record CROSSES the critical threshold', async () => {
     const bus = makeBus();
     const { listener } = makeListener({
       bus,
@@ -176,8 +206,8 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
       mortalityRecords: [],
     });
 
-    // newMortalityRate 12% ≥ cumulativeRateCritical (10%).
-    await listener.handle(makeEvent({ quantity: 5, newMortalityRate: 12 }));
+    // 10 of 50 total deaths: rate before = 12 · 40/50 = 9.6% < 10% ≤ 12% now.
+    await listener.handle(makeEvent({ quantity: 10, newMortalityRate: 12 }));
 
     const cumulative = publishedEvents(bus).find(
       (e) => e.eventType === 'MortalityAlertRaised' && e.alertType === 'cumulative_rate',
@@ -211,8 +241,8 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
 
   it('reports a downstream failure as a retry outcome (bounded by the bus, then dead-lettered)', async () => {
     const bus = makeBus();
-    const { listener, mortalityRepo } = makeListener({ bus });
-    mortalityRepo.find.mockRejectedValue(new Error('db down'));
+    const { listener, alertContext } = makeListener({ bus });
+    alertContext.dailyMortality.mockRejectedValue(new Error('db down'));
 
     await expect(listener.handle(makeEvent())).resolves.toEqual(
       expect.objectContaining({ kind: 'retry' }),
@@ -223,10 +253,22 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
     const { listener } = makeListener({});
     const alerts = listener.evaluateMortalityAlerts(
       makeEvent({ quantity: 100, newMortalityRate: 6 }),
-      { todayRate: 1.5 },
+      { todayRate: 1.5, isCurrentDay: true },
     );
     const types = alerts.map((a) => a.type).sort();
     expect(types).toEqual(['cumulative_rate', 'daily_rate', 'single_event']);
+  });
+
+  it('raises no live daily-rate alarm for a backdated record (V-S1a-9)', () => {
+    // SCENARIO: a record stored under an earlier day whose day-rate would breach critical.
+    // EXPECTS: no daily_rate alert — the day's rate against today's population is not a
+    //          live condition; the single-event and cumulative checks still apply.
+    const { listener } = makeListener({});
+    const alerts = listener.evaluateMortalityAlerts(
+      makeEvent({ quantity: 100, newMortalityRate: 6 }),
+      { todayRate: 4, isCurrentDay: false },
+    );
+    expect(alerts.map((a) => a.type).sort()).toEqual(['cumulative_rate', 'single_event']);
   });
 
   // ── Blocker 1 / 7: each alert carries a DISTINCT, fresh eventId ──────────
@@ -321,16 +363,93 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
   it('releases the claim on failure so a redelivery can retry', async () => {
     const bus = makeBus();
     const redis = makeRedis(true);
-    const { listener, mortalityRepo } = makeListener({
+    const { listener, alertContext } = makeListener({
       bus,
       batch: { currentQuantity: 8000 },
       redis,
     });
     // Force the side-effecting path to throw inside the try.
-    mortalityRepo.find.mockRejectedValueOnce(new Error('tenant query boom'));
+    alertContext.dailyMortality.mockRejectedValueOnce(new Error('tenant query boom'));
 
     await listener.handle(makeEvent({ quantity: 300, newMortalityRate: 12 }));
 
     expect(redis.del).toHaveBeenCalledTimes(1);
+  });
+
+  // ── FARM-HIGH-334: daily rate from the stored-day window ──────────────────
+  it('fires a daily-rate alert from the day the triggering record is stored under', async () => {
+    // SCENARIO: today's deaths are 1.2% of the population at the start of the day.
+    // EXPECTS: a critical daily_rate alert (the old midnight filter saw 0 deaths).
+    const bus = makeBus();
+    const { listener } = makeListener({
+      bus,
+      daily: quietDay({ todayCount: 12, todayRate: 1.2 }),
+    });
+
+    await listener.handle(makeEvent({ quantity: 12, newMortalityRate: 0.5 }));
+
+    const daily = publishedEvents(bus).find(
+      (e) => e.eventType === 'MortalityAlertRaised' && e.alertType === 'daily_rate',
+    );
+    expect(daily).toMatchObject({ severity: 'critical' });
+  });
+
+  it('does not re-fire the cumulative alert for a batch already above the threshold', async () => {
+    // SCENARIO: a batch at 10.8% cumulative records 5 more deaths (now 12%).
+    // EXPECTS: no cumulative_rate alert — the crossing happened earlier; late-cycle
+    //          5–10% mortality must not page on every record.
+    const bus = makeBus();
+    const { listener } = makeListener({ bus });
+
+    await listener.handle(makeEvent({ quantity: 5, newTotalMortality: 50, newMortalityRate: 12 }));
+
+    const cumulative = publishedEvents(bus).filter(
+      (e) => e.eventType === 'MortalityAlertRaised' && e.alertType === 'cumulative_rate',
+    );
+    expect(cumulative).toHaveLength(0);
+  });
+
+  it('names the tank site on every raised alert (ALERT-MEDIUM-007)', async () => {
+    // SCENARIO: a breaching record in a tank of a known site.
+    // EXPECTS: each MortalityAlertRaised carries the site, so its managers are paged.
+    const bus = makeBus();
+    const { listener } = makeListener({ bus, siteId: SITE_ID });
+
+    await listener.handle(makeEvent({ quantity: 300, newMortalityRate: 12 }));
+
+    const alerts = publishedEvents(bus).filter((e) => e.eventType === 'MortalityAlertRaised');
+    expect(alerts.length).toBeGreaterThan(0);
+    for (const alert of alerts) expect(alert.siteId).toBe(SITE_ID);
+  });
+
+  it('raises alerts the consumer-side bus schema accepts, with the site (ALERT-MEDIUM-007)', async () => {
+    // SCENARIO: alert-engine's bus validates MortalityAlertRaised by subject before
+    //           its handler runs; the new siteId must be a declared field.
+    // EXPECTS: every raised alert, in its wire form, is valid — a field the schema
+    //          does not know would dead-letter the alarm instead of paging anyone.
+    const bus = makeBus();
+    const { listener } = makeListener({ bus, siteId: SITE_ID });
+
+    await listener.handle(makeEvent({ quantity: 300, newMortalityRate: 12 }));
+
+    const alerts = publishedEvents(bus).filter((e) => e.eventType === 'MortalityAlertRaised');
+    expect(alerts.length).toBeGreaterThan(0);
+    for (const alert of alerts) {
+      const wire: unknown = JSON.parse(JSON.stringify(alert));
+      expect(validateEventBySubject(`events.${TENANT_ID}.MortalityAlertRaised`, wire)).toEqual({
+        valid: true,
+      });
+    }
+  });
+
+  it('omits the site when the tank resolves to none', async () => {
+    const bus = makeBus();
+    const { listener } = makeListener({ bus, siteId: null });
+
+    await listener.handle(makeEvent({ quantity: 300, newMortalityRate: 12 }));
+
+    const alert = publishedEvents(bus).find((e) => e.eventType === 'MortalityAlertRaised');
+    expect(alert).toBeDefined();
+    expect(alert?.siteId).toBeUndefined();
   });
 });

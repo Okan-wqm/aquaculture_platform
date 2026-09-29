@@ -1,6 +1,11 @@
 import Ajv, { type ValidateFunction } from 'ajv';
 
-import { VALIDATE_TENANT_MEMBERSHIP_MAX_USER_IDS } from '../auth-user-queries';
+import {
+  RESOLVE_USER_IDS_BY_EMAIL_MAX,
+  VALIDATE_TENANT_MEMBERSHIP_MAX_USER_IDS,
+  type ResolveTenantUserIdsByEmailQuery,
+  type ResolveTenantUserIdsByEmailResult,
+} from '../auth-user-queries';
 
 import { UUID_SCHEMA } from './common.schema';
 
@@ -86,6 +91,43 @@ const RESOLVE_CALLER_CAPABILITIES_RESULT_SCHEMA = {
   },
 } as const;
 
+const RESOLVE_USER_IDS_BY_EMAIL_QUERY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tenantId', 'emails'],
+  properties: {
+    tenantId: UUID_SCHEMA,
+    emails: {
+      type: 'array',
+      items: { type: 'string', minLength: 3, maxLength: 320 },
+      maxItems: RESOLVE_USER_IDS_BY_EMAIL_MAX,
+    },
+  },
+} as const;
+
+const RESOLVE_USER_IDS_BY_EMAIL_RESULT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['success', 'matches'],
+  properties: {
+    success: { type: 'boolean' },
+    matches: {
+      type: 'array',
+      maxItems: RESOLVE_USER_IDS_BY_EMAIL_MAX,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['email', 'userId'],
+        properties: {
+          email: { type: 'string', maxLength: 320 },
+          userId: UUID_SCHEMA,
+        },
+      },
+    },
+    error: { type: 'string', maxLength: 500 },
+  },
+} as const;
+
 // Compile once at module load (same amortisation rationale as
 // validator.ts — the admission path runs on every channel mutation).
 const ajv = new Ajv({ strict: false, allErrors: true });
@@ -105,3 +147,9 @@ export const validateResolveCallerCapabilitiesQuerySchema: ValidateFunction = aj
 export const validateResolveCallerCapabilitiesResultSchema: ValidateFunction = ajv.compile(
   RESOLVE_CALLER_CAPABILITIES_RESULT_SCHEMA,
 );
+
+export const validateResolveTenantUserIdsByEmailQuerySchema: ValidateFunction<ResolveTenantUserIdsByEmailQuery> =
+  ajv.compile<ResolveTenantUserIdsByEmailQuery>(RESOLVE_USER_IDS_BY_EMAIL_QUERY_SCHEMA);
+
+export const validateResolveTenantUserIdsByEmailResultSchema: ValidateFunction<ResolveTenantUserIdsByEmailResult> =
+  ajv.compile<ResolveTenantUserIdsByEmailResult>(RESOLVE_USER_IDS_BY_EMAIL_RESULT_SCHEMA);

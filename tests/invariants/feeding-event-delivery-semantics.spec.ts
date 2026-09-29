@@ -173,16 +173,28 @@ describe('INVARIANT: feeding event delivery semantics', () => {
   it('every alert-engine handler defers to requiresDurableDelivery in its catch block', () => {
     expect(statSync(ALERT_HANDLER_DIR).isDirectory()).toBe(true);
 
+    // `farmSignalFailureOutcome` is the handlers' shared failure rule; it
+    // defers to the contract itself (asserted below), so calling it IS the
+    // deferral (V-S1a-12: it also re-drives a failed page on any signal).
     const violations = tsFiles(ALERT_HANDLER_DIR)
       .filter((file) => {
         const source = readFileSync(file, 'utf-8');
         // Only handlers that actually catch need the deferral; one that lets
         // errors propagate is already correct for the strict class.
-        return /}\s*catch\s*\(/.test(source) && !/requiresDurableDelivery\s*\(/.test(source);
+        return (
+          /}\s*catch\s*\(/.test(source) &&
+          !/requiresDurableDelivery\s*\(/.test(source) &&
+          !/farmSignalFailureOutcome\s*\(/.test(source)
+        );
       })
       .map((file) => basename(file));
 
     expect(violations).toEqual([]);
+  });
+
+  it('the shared farm-signal failure rule itself defers to requiresDurableDelivery', () => {
+    const source = readFileSync(join(ALERT_HANDLER_DIR, 'farm-signal-outcome.ts'), 'utf-8');
+    expect(source).toMatch(/requiresDurableDelivery\s*\(/);
   });
 
   it('no alert-engine event handler still carries the blanket swallow comment', () => {

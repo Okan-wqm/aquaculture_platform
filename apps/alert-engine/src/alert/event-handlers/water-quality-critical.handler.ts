@@ -1,10 +1,10 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
-import { requiresDurableDelivery } from '@platform/event-contracts';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import type { WaterQualityCriticalEvent } from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
 import { WaterQualityCriticalAlertService } from '../services/water-quality-critical-alert.service';
+import { farmSignalFailureOutcome } from './farm-signal-outcome';
 
 /**
  * WaterQualityCriticalEventHandler (FARM-MEDIUM-118)
@@ -97,9 +97,7 @@ export class WaterQualityCriticalEventHandler
       // measurement at write time. A manual reading may be the only one for
       // hours, so "the next reading will re-raise it" is not a guarantee, and a
       // lost critical water-quality signal is a life-safety miss.
-      return outcomeForError('water-quality-critical', error, {
-        reproducible: !requiresDurableDelivery(event.eventType),
-      });
+      return farmSignalFailureOutcome('water-quality-critical', event.eventType, error);
     }
   }
 }

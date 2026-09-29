@@ -1,10 +1,10 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
-import { requiresDurableDelivery } from '@platform/event-contracts';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import type { FCRAlertEvent } from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
 import { FcrAlertService } from '../services/fcr-alert.service';
+import { farmSignalFailureOutcome } from './farm-signal-outcome';
 
 /**
  * FcrAlertEventHandler (feeding-protocol cycle, C-1)
@@ -79,9 +79,7 @@ export class FcrAlertEventHandler implements IEventHandler<FCRAlertEvent>, OnMod
       // the trend from feeding_records every evening, so a lost delivery costs
       // a day of latency, not the fact itself. Classification lives in the
       // event contract, not in this comment.
-      return outcomeForError('FCRAlert', error, {
-        reproducible: !requiresDurableDelivery(event.eventType),
-      });
+      return farmSignalFailureOutcome('FCRAlert', event.eventType, error);
     }
   }
 }

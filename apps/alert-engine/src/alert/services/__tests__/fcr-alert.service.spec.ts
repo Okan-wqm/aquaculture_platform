@@ -1,3 +1,4 @@
+import { signalKey } from '@platform/event-contracts';
 import { FcrAlertService } from '../fcr-alert.service';
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
 import type { FCRAlertEvent } from '@platform/event-contracts';
@@ -48,7 +49,7 @@ describe('FcrAlertService', () => {
 
     expect(historyRepository.save).toHaveBeenCalledTimes(1);
     const row = historyRepository.create.mock.calls[0][0];
-    expect(row.ruleId).toBe('system:fcr:batch-1');
+    expect(row.ruleId).toBe(signalKey({ kind: 'fcr', batchId: 'batch-1' }));
     expect(row.tenantId).toBe(tenantId);
     expect(row.severity).toBe(AlertSeverity.WARNING);
     expect(row.message).toContain('1.72');
@@ -79,7 +80,8 @@ describe('FcrAlertService', () => {
     const spec = farmSignalIncident.ensureIncident.mock.calls[0][0];
     expect(spec).toMatchObject({
       tenantId,
-      ruleId: 'system:fcr:batch-1',
+      signalKey: signalKey({ kind: 'fcr', batchId: 'batch-1' }),
+      siteId: null,
       title: 'FCR Threshold: batch batch-1',
       severity: AlertSeverity.WARNING,
       signalLabel: 'fcr',
@@ -92,6 +94,6 @@ describe('FcrAlertService', () => {
     await service.recordFcrAlert(makeEvent({ batchId: 'batch-9' }));
 
     const spec = farmSignalIncident.ensureIncident.mock.calls[0][0];
-    expect(spec.ruleId).toBe('system:fcr:batch-9');
+    expect(spec.signalKey).toBe(signalKey({ kind: 'fcr', batchId: 'batch-9' }));
   });
 });

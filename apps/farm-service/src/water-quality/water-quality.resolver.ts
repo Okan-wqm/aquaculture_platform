@@ -306,9 +306,13 @@ export class WaterQualityResolver {
       tenantId,
       {
         ...input,
-        measuredBy: input.measuredBy || user.sub,
+        // GraphQL admits an explicit null for optional inputs; absent and null
+        // both mean "not asserted" / "the caller took the reading".
+        siteId: input.siteId ?? undefined,
+        measuredBy: input.measuredBy ?? undefined,
       },
-      // SEC-HIGH-051: thread the caller's JWT claims for the object-level site check.
+      // SEC-HIGH-051: thread the caller's JWT claims for the object-level site
+      // check; V-S1b-5: the same caller is the critical event's actor.
       { sub: user.sub, roles: user.roles, assignedSiteIds: user.assignedSiteIds },
     );
   }

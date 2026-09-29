@@ -51,11 +51,13 @@ import {
   type MortalityAlertRaisedEvent,
   type MortalityRecordedEvent,
 } from '@platform/event-contracts';
-import { MoreThan, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 
 import { Batch } from '../../batch/entities/batch.entity';
 import { MortalityRecord } from '../../batch/entities/mortality-record.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { MortalityAlertContextReader } from './mortality-alert-context.reader';
+import { cumulativeRateCrossing } from './mortality-alert-window';
 
 /**
  * Alert thresholds for mortality events
@@ -108,6 +110,11 @@ export class MortalityRecordedListener
     private readonly mortalityRecordRepository: Repository<MortalityRecord>,
     @InjectRepository(TankBatch)
     private readonly tankBatchRepository: Repository<TankBatch>,
+    // FARM-HIGH-334 / ALERT-MEDIUM-007: the daily window (as stored dates) and
+    // the tank's site are read through one collaborator the unit specs double
+    // and the Postgres spec runs for real.
+    @Inject(MortalityAlertContextReader)
+    private readonly alertContext: Pick<MortalityAlertContextReader, 'dailyMortality' | 'siteOf'>,
     // EVENT_BUS is provided globally by EventBusModule (@Global). @Optional()
     // keeps the listener constructible in unit tests / NATS-less harnesses;
     // subscription is then skipped with a warning rather than crashing boot.
@@ -187,11 +194,13 @@ export class MortalityRecordedListener
     try {
       await withTenantContext(event.tenantId, async () => {
         // 1. Re-derive daily mortality trend from the tenant's records.
-        const dailyMortality = await this.calculateDailyMortality(event);
+        const dailyMortality = await this.alertContext.dailyMortality(event);
 
-        // 2. Evaluate alert thresholds and publish any breaches.
+        // 2. Evaluate alert thresholds and publish any breaches, naming the
+        //    tank's site so the alarm pages that site's people (ALERT-MEDIUM-007).
         const alerts = this.evaluateMortalityAlerts(event, dailyMortality);
-        await this.publishMortalityAlerts(event, alerts);
+        const siteId = alerts.length > 0 ? await this.alertContext.siteOf(event) : null;
+        await this.publishMortalityAlerts(event, alerts, siteId);
 
         // 3. Refresh batch mortality-by-cause statistics.
         await this.refreshBatchMortalityStats(event);
@@ -256,78 +265,12 @@ export class MortalityRecordedListener
   }
 
   /**
-   * Calculate daily / weekly mortality trend for the batch from its records.
-   *
-   * The contract event carries `newTotalMortality` and `newMortalityRate`
-   * (post-write cumulative figures) but NOT the per-day rate, so the per-day
-   * figures are derived from the tenant's mortality_records rows.
-   */
-  private async calculateDailyMortality(event: MortalityRecordedEvent): Promise<{
-    todayCount: number;
-    todayRate: number;
-    weeklyAverage: number;
-    trend: 'increasing' | 'stable' | 'decreasing';
-  }> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const weekAgo = new Date(today);
-    weekAgo.setDate(weekAgo.getDate() - 7);
-
-    const todayRecords = await this.mortalityRecordRepository.find({
-      where: {
-        batchId: event.batchId,
-        tenantId: event.tenantId,
-        recordDate: MoreThan(today),
-      },
-    });
-    const todayCount = todayRecords.reduce((sum, r) => sum + r.count, 0);
-
-    const weekRecords = await this.mortalityRecordRepository.find({
-      where: {
-        batchId: event.batchId,
-        tenantId: event.tenantId,
-        recordDate: MoreThan(weekAgo),
-      },
-      order: { recordDate: 'ASC' },
-    });
-    const weeklyTotal = weekRecords.reduce((sum, r) => sum + r.count, 0);
-    const weeklyAverage = weeklyTotal / 7;
-
-    const threeDaysAgo = new Date(today.getTime() - 3 * 24 * 60 * 60 * 1000);
-    const firstHalf = weekRecords
-      .filter((r) => new Date(r.recordDate) < threeDaysAgo)
-      .reduce((sum, r) => sum + r.count, 0);
-    const secondHalf = weekRecords
-      .filter((r) => new Date(r.recordDate) >= threeDaysAgo)
-      .reduce((sum, r) => sum + r.count, 0);
-
-    let trend: 'increasing' | 'stable' | 'decreasing' = 'stable';
-    if (secondHalf > firstHalf * 1.5) {
-      trend = 'increasing';
-    } else if (secondHalf < firstHalf * 0.5) {
-      trend = 'decreasing';
-    }
-
-    // Today's rate against the batch quantity that existed BEFORE this event:
-    // re-derive from the batch's current quantity + this event's quantity.
-    const batch = await this.batchRepository.findOne({
-      where: { id: event.batchId, tenantId: event.tenantId },
-    });
-    const quantityBeforeMortality = (batch?.currentQuantity ?? 0) + event.quantity;
-    const todayRate =
-      quantityBeforeMortality > 0 ? (todayCount / quantityBeforeMortality) * 100 : 0;
-
-    return { todayCount, todayRate, weeklyAverage, trend };
-  }
-
-  /**
    * Evaluate the configured thresholds against this event + trend and return
    * the breached alerts. Pure (no I/O) so it is trivially unit-testable.
    */
   evaluateMortalityAlerts(
     event: MortalityRecordedEvent,
-    dailyMortality: { todayRate: number },
+    dailyMortality: { todayRate: number; isCurrentDay: boolean },
   ): MortalityAlert[] {
     const thresholds = DEFAULT_THRESHOLDS;
     const alerts: MortalityAlert[] = [];
@@ -340,7 +283,17 @@ export class MortalityRecordedListener
       });
     }
 
-    if (dailyMortality.todayRate >= thresholds.dailyMortalityCritical) {
+    // V-S1a-9: the daily rate is a LIVE alarm only for the current day. A
+    // backdated record's day is measured against today's population
+    // (`currentQuantity`), which is not the population of that day, and paging
+    // someone now for yesterday's rate is not a live condition; the record
+    // still counts toward the cumulative rate and the trend.
+    if (!dailyMortality.isCurrentDay) {
+      this.logger.log(
+        `[MortalityRecorded] batch=${event.batchId}: record is backdated — daily-rate alarm ` +
+          'not evaluated live',
+      );
+    } else if (dailyMortality.todayRate >= thresholds.dailyMortalityCritical) {
       alerts.push({
         type: 'daily_rate',
         severity: 'critical',
@@ -354,13 +307,19 @@ export class MortalityRecordedListener
       });
     }
 
-    if (event.newMortalityRate >= thresholds.cumulativeRateCritical) {
+    // FARM-HIGH-334: edge-triggered — only the record that CROSSES a threshold
+    // raises it; later records of an already-elevated batch do not re-fire.
+    const crossing = cumulativeRateCrossing(event, {
+      warning: thresholds.cumulativeRateWarning,
+      critical: thresholds.cumulativeRateCritical,
+    });
+    if (crossing === 'critical') {
       alerts.push({
         type: 'cumulative_rate',
         severity: 'critical',
         message: `Cumulative mortality rate ${event.newMortalityRate.toFixed(2)}% is critical`,
       });
-    } else if (event.newMortalityRate >= thresholds.cumulativeRateWarning) {
+    } else if (crossing === 'warning') {
       alerts.push({
         type: 'cumulative_rate',
         severity: 'warning',
@@ -393,6 +352,7 @@ export class MortalityRecordedListener
   private async publishMortalityAlerts(
     event: MortalityRecordedEvent,
     alerts: MortalityAlert[],
+    siteId: string | null,
   ): Promise<void> {
     if (alerts.length === 0 || !this.eventBus) {
       return;
@@ -415,6 +375,7 @@ export class MortalityRecordedListener
         }),
         batchId: event.batchId,
         tankId: event.tankId,
+        ...(siteId === null ? {} : { siteId }),
         alertType: alert.type,
         severity: alert.severity,
         message: alert.message,

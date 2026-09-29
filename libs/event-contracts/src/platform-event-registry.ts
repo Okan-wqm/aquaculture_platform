@@ -87,10 +87,14 @@ export const PLATFORM_EVENT_REGISTRY = {
     kind: 'event',
     subject: 'events.{tenantId}.TenantProvisioned',
     producer: 'admin-api-service',
-    consumers: ['messaging-service', 'gateway-api'],
+    // alert-engine seeds the tenant's default escalation policy (ALERT-CRITICAL-004).
+    consumers: ['messaging-service', 'gateway-api', 'alert-engine'],
     schema: 'libs/event-contracts/src/tenant-events.ts#TenantProvisionedEvent',
     fixture: 'libs/event-contracts/fixtures/tenant-provisioned.json',
-    acl: { publish: ['admin-api-service'], subscribe: ['messaging-service', 'gateway-api'] },
+    acl: {
+      publish: ['admin-api-service'],
+      subscribe: ['messaging-service', 'gateway-api', 'alert-engine'],
+    },
     piiClass: 'operational',
     durability: 'outbox',
     backendOnly: true,
@@ -210,6 +214,23 @@ export const PLATFORM_EVENT_REGISTRY = {
     schema: 'libs/event-contracts/src/water-quality-events.ts#WaterQualityCriticalEvent',
     fixture: 'libs/event-contracts/fixtures/water-quality-critical.json',
     acl: { publish: ['farm-service'], subscribe: ['alert-engine'] },
+    piiClass: 'operational',
+    durability: 'outbox',
+    backendOnly: true,
+    retention: 'alert-retention',
+  },
+  AlertEscalated: {
+    type: 'AlertEscalated',
+    kind: 'event',
+    subject: 'events.{tenantId}.AlertEscalated',
+    producer: 'alert-engine',
+    // ALERT-CRITICAL-004: the alarm path's delivery hand-off. notification-service
+    // validates it with checkAlertEscalatedEvent and expands its role targets
+    // through auth-service; consuming the wildcard needs no services.yaml row.
+    consumers: ['notification-service'],
+    schema: 'libs/event-contracts/src/alert-events.ts#AlertEscalatedEvent',
+    fixture: 'libs/event-contracts/fixtures/alert-escalated.json',
+    acl: { publish: ['alert-engine'], subscribe: ['notification-service'] },
     piiClass: 'operational',
     durability: 'outbox',
     backendOnly: true,

@@ -241,7 +241,10 @@ export type CreateWaterQualityInput = {
   relatedSensorReadingId?: string | null | undefined;
   /** Optional mobile command payload schema version */
   schemaVersion?: string | null | undefined;
-  /** Site ID */
+  /**
+   * Site ID (assertion only; the site is derived from the measured unit)
+   * @deprecated The site is derived from equipmentId/tankId. A differing value is rejected.
+   */
   siteId?: string | null | undefined;
   /** Ölçüm kaynağı (makine kaynakları reddedilir) */
   source: WaterQualityMeasurementSource;

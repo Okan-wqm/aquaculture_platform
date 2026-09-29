@@ -1,4 +1,5 @@
 import { Public } from '@aquaculture/backend-common/decorators';
+import { SecurityEventService } from '@aquaculture/backend-common/security';
 import type { TenantRequest } from '@aquaculture/backend-common/types';
 import {
   BadRequestException,
@@ -50,6 +51,8 @@ export class InternalAuthController {
     configService: ConfigService,
     private readonly actionTokenResolver: ActionTokenResolver,
     private readonly alertRecipients: AlertRecipientDirectoryService,
+    // V-S1b-8 (OWASP A09): a refused internal caller is a security signal.
+    private readonly securityEvents: SecurityEventService,
   ) {
     // DEPLOY-HIGH-016: resolved once, at boot. Reading it per request meant a
     // misconfigured deployment surfaced as a wrong link in somebody's inbox
@@ -62,7 +65,7 @@ export class InternalAuthController {
     @Param('userId') userId: string,
     @Req() request: TenantRequest,
   ): Promise<{ email: string; firstName?: string; lastName?: string }> {
-    const scope = this.requireNotificationService(request);
+    const scope = await this.requireNotificationService(request);
     const user = await this.userRepository.findOne({ where: { id: userId } });
     // SEC-HIGH-159: a tenant-bound caller sees only its tenant's users; a
     // platform-scoped caller sees only platform principals (super admins with
@@ -89,7 +92,7 @@ export class InternalAuthController {
     @Req() request: TenantRequest,
   ): Promise<{ name: string }> {
     // A platform-scoped call has no tenant to describe; the binding must match.
-    this.requireNotificationService(request, tenantId);
+    await this.requireNotificationService(request, tenantId);
     const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
     if (!tenant) {
       throw new NotFoundException('Tenant not found');
@@ -111,7 +114,7 @@ export class InternalAuthController {
     @Body() body: unknown,
     @Req() request: TenantRequest,
   ): Promise<AlertRecipientResult> {
-    this.requireNotificationService(request, tenantId);
+    await this.requireNotificationService(request, tenantId);
     const query = checkAlertRecipientQuery(body);
     if (!query.ok) {
       throw new BadRequestException(`Invalid alert recipient query: ${query.reason}`);
@@ -124,7 +127,7 @@ export class InternalAuthController {
     @Param('actionTokenId') actionTokenId: string,
     @Req() request: TenantRequest,
   ): Promise<{ actionUrl: string }> {
-    const scope = this.requireNotificationService(request);
+    const scope = await this.requireNotificationService(request);
     // SEC-HIGH-158: the link carries the ActionToken row id and nothing else.
     // The legacy branch that treated this id as a token HASH and rotated a
     // fresh raw token into the URL is gone: every producer now mints an
@@ -163,13 +166,18 @@ export class InternalAuthController {
    * (`expectedTenantId`) the caller must be bound to exactly that tenant; a
    * platform-scoped caller has no tenant to describe.
    */
-  private requireNotificationService(
+  private async requireNotificationService(
     request: TenantRequest,
     expectedTenantId?: string,
-  ): EventTenantScope {
+  ): Promise<EventTenantScope> {
     const identity = request.verifiedIdentity;
     if (!identity || identity.serviceName !== 'notification-service') {
-      throw new ForbiddenException('Internal notification service identity is required');
+      return this.refuse(
+        identity?.serviceName,
+        expectedTenantId,
+        'caller-not-allowed',
+        'Internal notification service identity is required',
+      );
     }
 
     let scope: EventTenantScope;
@@ -177,19 +185,57 @@ export class InternalAuthController {
       scope = identity.tenantId === '' ? PLATFORM_SCOPE : tenantScopeOf(identity.tenantId);
     } catch (error) {
       if (error instanceof InvalidEventTenantScopeError) {
-        throw new ForbiddenException('Tenant binding is not a tenant id');
+        return this.refuse(
+          identity.serviceName,
+          expectedTenantId,
+          'tenant-binding-invalid',
+          'Tenant binding is not a tenant id',
+        );
       }
       throw error;
     }
 
     if (expectedTenantId !== undefined) {
       if (scope.kind !== 'tenant') {
-        throw new ForbiddenException('Tenant-bound internal request is required');
+        return this.refuse(
+          identity.serviceName,
+          expectedTenantId,
+          'tenant-binding-missing',
+          'Tenant-bound internal request is required',
+        );
       }
       if (scope.tenantId !== expectedTenantId) {
-        throw new ForbiddenException('Tenant binding does not match request path');
+        return this.refuse(
+          identity.serviceName,
+          expectedTenantId,
+          'tenant-binding-mismatch',
+          'Tenant binding does not match request path',
+        );
       }
     }
     return scope;
+  }
+
+  /**
+   * Refuse an internal caller and record it (V-S1b-8, OWASP A09). A signed
+   * identity that reaches this controller as the wrong service, or bound to a
+   * tenant other than the one it asks about, is either a misconfigured caller
+   * or a compromised one — both must be visible to the security pipeline, not
+   * only to the caller as a 403. The machine-readable `reasonCode` lets alerts
+   * branch on the cause; the response stays generic.
+   */
+  private async refuse(
+    serviceName: string | undefined,
+    requestedTenantId: string | undefined,
+    reasonCode: string,
+    reason: string,
+  ): Promise<never> {
+    await this.securityEvents.publishServiceIdentityRejected({
+      serviceName,
+      tenantId: requestedTenantId,
+      reason: `Internal auth endpoint refused the caller: ${reason}`,
+      reasonCode,
+    });
+    throw new ForbiddenException(reason);
   }
 }

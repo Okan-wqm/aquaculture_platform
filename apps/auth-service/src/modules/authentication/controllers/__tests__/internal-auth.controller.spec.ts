@@ -24,6 +24,7 @@ import { User } from '../../entities/user.entity';
 import { ActionTokenResolver } from '../../services/action-token-resolver.service';
 import { AlertRecipientDirectoryService } from '../../services/alert-recipient-directory.service';
 import { InternalAuthController } from '../internal-auth.controller';
+import { SecurityEventService } from '@aquaculture/backend-common/security';
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_TENANT_ID = '33333333-3333-4333-8333-333333333333';
@@ -65,6 +66,7 @@ describe('InternalAuthController', () => {
   const tenantRepository = { findOne: jest.fn() };
   const actionTokenRepository = { findOne: jest.fn() };
   const alertRecipients = { resolve: jest.fn() };
+  const securityEvents = { publishServiceIdentityRejected: jest.fn(async () => undefined) };
   let controller: InternalAuthController;
 
   beforeEach(async () => {
@@ -77,6 +79,7 @@ describe('InternalAuthController', () => {
         { provide: getRepositoryToken(Tenant), useValue: tenantRepository },
         { provide: getRepositoryToken(ActionToken), useValue: actionTokenRepository },
         { provide: AlertRecipientDirectoryService, useValue: alertRecipients },
+        { provide: SecurityEventService, useValue: securityEvents },
         {
           provide: ConfigService,
           useValue: new ConfigService({ FRONTEND_URL: 'https://app.example.com/' }),
@@ -112,6 +115,14 @@ describe('InternalAuthController', () => {
         controller.resolveAlertRecipients(OTHER_TENANT_ID, query, request(identity())),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(alertRecipients.resolve).not.toHaveBeenCalled();
+      // V-S1b-8: the refusal is a security signal, not only a 403.
+      expect(securityEvents.publishServiceIdentityRejected).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serviceName: 'notification-service',
+          tenantId: OTHER_TENANT_ID,
+          reasonCode: 'tenant-binding-mismatch',
+        }),
+      );
     });
 
     it('refuses any service other than notification-service', async () => {
@@ -123,6 +134,9 @@ describe('InternalAuthController', () => {
         ),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(alertRecipients.resolve).not.toHaveBeenCalled();
+      expect(securityEvents.publishServiceIdentityRejected).toHaveBeenCalledWith(
+        expect.objectContaining({ serviceName: 'farm-service', reasonCode: 'caller-not-allowed' }),
+      );
     });
 
     it('rejects a body outside the contract schema (unknown role, extra keys)', async () => {

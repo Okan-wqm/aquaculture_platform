@@ -633,6 +633,11 @@ GRANT EXECUTE ON FUNCTION platform.list_active_tenant_schema_mappings() TO farm_
 -- which binds each schema to the ledger's full tenant UUID. Read-only mapping,
 -- SECURITY DEFINER — no direct access to admin.tenant_schemas is granted.
 -- (USAGE on the platform schema comes from 008's per-service-role loop.)
+-- Hand-written like the farm_service grant above: the per-service EXECUTE
+-- grants on the tenant-mapping functions are not derived from one registry —
+-- PLAT-MEDIUM-920 (docs/reviews/architectural-arbiter/2026-09-29-ai-tracking-program.md)
+-- tracks that drift (messaging and sensor call the function without a grant);
+-- this line must move into that registry when it lands.
 GRANT EXECUTE ON FUNCTION platform.list_active_tenant_schema_mappings() TO alert_service;
 GRANT EXECUTE ON FUNCTION platform.list_retained_tenant_schema_mappings() TO farm_service;
 

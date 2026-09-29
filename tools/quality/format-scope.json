@@ -6562,6 +6562,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/services/__tests__/alert-recipient-directory.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/services/__tests__/alert-recipient-directory.service.spec.ts",
       "prettier_managed": true
     },

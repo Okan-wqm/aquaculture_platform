@@ -30,6 +30,7 @@ import { AuthenticationService } from './services/authentication.service';
 import { MfaService } from './services/mfa.service';
 import { TokenService } from './services/token.service';
 import { WebAuthnService } from './services/webauthn.service';
+import { SecurityEventService } from '@aquaculture/backend-common/security';
 
 @Module({
   imports: [
@@ -61,6 +62,8 @@ import { WebAuthnService } from './services/webauthn.service';
     ActionTokenResolver,
     // ALERT-CRITICAL-004: alarm recipient expansion for notification-service.
     AlertRecipientDirectoryService,
+    // V-S1b-8: internal-endpoint refusals are published as security events.
+    SecurityEventService,
     TokenService,
     MfaService,
     WebAuthnService,

@@ -1,6 +1,7 @@
 import { Role } from '@aquaculture/backend-common/decorators';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { ALERT_RECIPIENT_RESULT_MAX_USER_IDS } from '@platform/event-contracts';
 import { In } from 'typeorm';
 
 import { UserSiteAssignment } from '../../entities/user-site-assignment.entity';
@@ -87,7 +88,8 @@ describe('AlertRecipientDirectoryService', () => {
       NOW,
     );
 
-    expect(result).toEqual({ userIds: [ADMIN, MANAGER_AT_SITE].sort(), truncated: false });
+    // V-S1b-7: ranked — the site's own manager first, tenant-wide holders after.
+    expect(result).toEqual({ userIds: [MANAGER_AT_SITE, ADMIN], truncated: false });
     // Every lookup is tenant-scoped and ACTIVE-only.
     for (const call of users.find.mock.calls) {
       expect(call[0].where).toMatchObject({ tenantId: TENANT_ID, isActive: true });
@@ -141,5 +143,53 @@ describe('AlertRecipientDirectoryService', () => {
       select: ['id'],
       where: { tenantId: TENANT_ID, isActive: true, id: In([ADMIN, foreign]) },
     });
+  });
+
+  it('widens a site role nobody at the site holds to the tenant (V-S1a-5)', async () => {
+    // SCENARIO: no manager is assigned to the incident's site.
+    // EXPECTS: every active manager of the tenant is paged instead of none.
+    const { service, assignments } = await build();
+    assignments.find.mockResolvedValue([]);
+
+    const result = await service.resolve(
+      TENANT_ID,
+      { tenantWideRoles: [], siteRoles: ['MODULE_MANAGER'], siteId: SITE_ID, userIds: [] },
+      NOW,
+    );
+
+    expect(result.userIds).toEqual([MANAGER_AT_SITE, MANAGER_ELSEWHERE, MANAGER_EXPIRED].sort());
+  });
+
+  it("cuts tenant-wide holders before the site's own managers at the cap (V-S1b-7)", async () => {
+    // SCENARIO: more tenant admins than the cap, plus one site manager whose id
+    //           sorts last.
+    // EXPECTS: the site manager is kept; the truncation eats tenant-wide admins.
+    const lastSorting = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const admins = Array.from(
+      { length: ALERT_RECIPIENT_RESULT_MAX_USER_IDS + 5 },
+      (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+    );
+    const { service, users, assignments } = await build();
+    users.find.mockImplementation(async (options: { where: { role?: unknown } }) => {
+      const roles = JSON.stringify(options.where.role);
+      if (roles.includes(Role.MODULE_MANAGER)) return [{ id: lastSorting }];
+      return admins.map((id) => ({ id }));
+    });
+    assignments.find.mockResolvedValue([assignment(lastSorting)]);
+
+    const result = await service.resolve(
+      TENANT_ID,
+      {
+        tenantWideRoles: ['TENANT_ADMIN'],
+        siteRoles: ['MODULE_MANAGER'],
+        siteId: SITE_ID,
+        userIds: [],
+      },
+      NOW,
+    );
+
+    expect(result.truncated).toBe(true);
+    expect(result.userIds).toHaveLength(ALERT_RECIPIENT_RESULT_MAX_USER_IDS);
+    expect(result.userIds[0]).toBe(lastSorting);
   });
 });

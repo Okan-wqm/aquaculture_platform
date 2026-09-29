@@ -69,7 +69,9 @@ describe('Tenant Isolation Static Analysis', () => {
       // parks a historical feeding record whose unit was occupied by nobody on
       // that date (FARM-HIGH-240). tenant_localization and feeding_job_runs do
       // NOT fan out: they are cross-tenant ledgers in farm's infrastructureTables.
-      expect(tenantTotal).toBe(197);
+      // 197 → 198: storage_item_site_policies, the per-site stock minimum of the
+      // two-tier stock model (plan K8, FARM-HIGH-336). Per-tenant, so it fans out.
+      expect(tenantTotal).toBe(198);
     });
 
     it('every module should have a sourceSchema', () => {
@@ -127,7 +129,8 @@ describe('Tenant Isolation Static Analysis', () => {
       // farm_incident_media. 91 → 95: environmental scene, versioned coverage
       // assessment, sync-state, and metric-outcome SSoT. 96 → 97:
       // feeding_record_attribution_quarantine (see the tenantTotal note above).
-      expect(counts['farm']).toBe(97);
+      // 97 → 98: storage_item_site_policies (plan K8, FARM-HIGH-336).
+      expect(counts['farm']).toBe(98);
       expect(counts['hr']).toBe(29);
       expect(counts['hydroponics']).toBe(1);
       expect(counts['alert']).toBe(4);

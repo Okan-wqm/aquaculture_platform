@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `1c36b9d6322f2ca2177a55a89691da109cd8a9e1340b5287d2e753b9c41b4a64`
+Registry tip: `28dcef3a3827b701bcc9dd68dbd2509682851955f8521725f2a6e09b799bbf37`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -283,6 +283,8 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
 | `ARIA-CRITICAL-214` | OPEN | 2026-09-26 | claude | real-open |
 | `ARIA-CRITICAL-215` | OPEN | 2026-09-26 | claude | real-open |
 | `ARIA-CRITICAL-216` | OPEN | 2026-09-26 | claude | real-open |
+| `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
+| `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ARIA-CRITICAL-246` | OPEN | 2026-09-29 | claude | real-open |
 
 ## Mutation Rules
@@ -425,6 +427,16 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
   deadline 2026-10-31
   (`docs/reviews/claude/2026-09-26-aria-merge-lane-review.md`).
 
+- `ALERT-CRITICAL-004` (2026-09-29, ai-service program plan review): farm-signal incidents (critical
+  water quality, mortality, low stock, feed stockout) reach nobody — no tenant has an escalation
+  policy (live DB: 0) and nothing consumes `AlertEscalated`. Real open work, owner
+  alert-engine-expert (registry owner_user okan), deadline 2026-10-15; closed by plan PR-S1
+  (`docs/reviews/alert-engine-expert/2026-09-29-ai-tracking-program.md`).
+- `ALERT-CRITICAL-009` (2026-09-29, found by the PR-S1 implementer): every farm-signal incident
+  insert fails because `alert_incidents.rule_id` is a uuid NOT NULL foreign key to `alert_rules`
+  while farm signals use synthetic keys — the likely reason the live DB holds 0 incidents. Real open
+  work, owner alert-engine-expert (registry owner_user okan), deadline 2026-10-15; closed by plan
+  PR-S1 (`docs/reviews/alert-engine-expert/2026-09-29-ai-tracking-program.md`).
 - `ARIA-CRITICAL-246` (2026-09-29, ARIA sync risks): ARIA could author its own operator approval,
   because every kernel GitHub write ran on the ambient credential, and the lanes exported the
   operator's PAT. Real open work until the identity PR merges (`github_writes` door, lanes without

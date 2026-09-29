@@ -44,6 +44,10 @@ description: >-
 # re-aimed at this transport in the same commit so it cannot pass vacuously.
 
 inputs:
+  bind-tools-root:
+    description: Bind and export the restored tools root for writer lanes.
+    required: false
+    default: 'true'
   bootstrap-ack:
     description: >-
       Operator acknowledgement authorising creation of the `aria/state` branch
@@ -70,9 +74,9 @@ outputs:
     value: ${{ steps.restore.outputs.bootstrap }}
   tools-root:
     description: >-
-      The store-resident aria-tools root the lane must bind to. Emitted rather
-      than restated by each caller: a second copy of the path convention is how
-      two roots drift. Also EXPORTED as `ARIA_TOOLS_DIR` — see the binding step.
+      The restored store-resident aria-tools root. Emitted rather than restated
+      by each caller: a second copy of the path convention is how two roots
+      drift. Exported as `ARIA_TOOLS_DIR` only when `bind-tools-root` is `true`.
     value: ${{ steps.restore.outputs.tools-root }}
   workspace-root:
     description: The store-resident workspace root for this repository.
@@ -84,6 +88,20 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Validate ARIA restore mode
+      shell: bash
+      env:
+        ARIA_BIND_TOOLS_ROOT: ${{ inputs.bind-tools-root }}
+      run: |
+        set -euo pipefail
+        case "$ARIA_BIND_TOOLS_ROOT" in
+          true|false) ;;
+          *)
+            echo "::error::bind-tools-root must be the literal true or false." >&2
+            exit 1
+            ;;
+        esac
+
     - name: Check out the aria/state store
       id: restore
       shell: bash
@@ -115,61 +133,8 @@ runs:
             fh.write(f"workspace-root={verdict['workspace_root']}\n")
             fh.write(f"findings-root={verdict['findings_root']}\n")
 
-        # THE BINDING, exported rather than described. Three roots have to
-        # agree; a lane that got two right would look like it was working
-        # while a third of ARIA's memory kept dying with the runner. The
-        # kernel emits the whole mapping from `store_environment`, so the
-        # workflow never restates the path convention — and cannot restate
-        # two thirds of it.
-        #
-        # Exporting is load-bearing, not convenience. `aria-tools/` in the
-        # CHECKOUT carries a tracked `repo_identity.json`, so `tools_dir()`'s
-        # walk-up would find it and every ledger would be written to the tree
-        # that dies with the runner — a silent success, which is the failure
-        # mode this whole PR exists to end. With the binding in the job
-        # environment and `set -u` at every callsite, an absent binding is a
-        # failed step instead.
-        with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
-            for key, value in sorted(verdict["environment"].items()):
-                fh.write(f"{key}={value}\n")
         print(f"aria/state checked out ({signal}); tools root {verdict['tools_root']}")
         PY
-          # A CHECKED-OUT STORE IS NOT YET A USABLE TOOLS ROOT, and this is the
-          # one definition of making it one.
-          #
-          # `repo_identity.json` records an absolute `bound_repo_root`, so it is
-          # machine-local binding state and the shared branch deliberately does
-          # not carry it (see state_manifest.py, where declaring it would have
-          # been the tempting wrong fix). What arrives from the branch is
-          # therefore a tools root full of covered state with NO identity —
-          # exactly the shape `ensure_tools_dir` rejects as
-          # `ambiguous_tools_root`.
-          #
-          # ORPHAN-HIGH-556 — this step used to run `migrate-tools-bootstrap`,
-          # and it is a BIND, not a migration. The two shared one code path
-          # because the tree could not state its own contract version: that
-          # version lived only in the host-local identity file, so a restored
-          # tree reported 0 and a healthy v3 tree was migrated from nothing
-          # EVERY NIGHT — a whole-tree backup, a rewrite of every covered
-          # ledger, and nine ceremony rows, measured. `tools_contract.json` now
-          # travels with the tree, so `bind-tools-root` mints this host's
-          # identity and stops. It still delegates to the migration when one is
-          # genuinely required, and records that it did.
-          #
-          # No `--acknowledge`: nobody is present at 01:00, and a flag the
-          # automation always sets acknowledges nothing. The delegated
-          # migration still requires one, where a tree is actually rewritten.
-          #
-          # HERE rather than in each lane, because only one lane had it. The
-          # producer ran the bootstrap; the executor never did, so the first
-          # executor run against a restored store would have died on
-          # `ambiguous_tools_root` at the lease check — the RC-6 drift shape
-          # exactly, one lane carrying a step the other needed just as much.
-          PYTHONPATH=aria-kernel python3 -m aria_kernel \
-            integrity bind-tools-root \
-            --tools-dir "$(python3 -c 'import json,os,sys; print(json.load(open(sys.argv[1]))["tools_root"])' "$VERDICT")" \
-            --workspace-root "$PWD" \
-            --reason "bind the restored aria/state store to this checkout"
         else
           STATUS=$?
           # 3 is the kernel's REFUSAL code — an unacknowledged bootstrap or an
@@ -210,3 +175,26 @@ runs:
           head -c 4000 "${VERDICT}.err" >&2 || true
           exit "$STATUS"
         fi
+
+    - name: Bind restored tools root for writer lanes
+      if: ${{ inputs.bind-tools-root == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        VERDICT="${RUNNER_TEMP}/aria-state-checkout.json"
+        PYTHONPATH=aria-kernel python3 -m aria_kernel \
+          integrity bind-tools-root \
+          --tools-dir "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tools_root"])' "$VERDICT")" \
+          --workspace-root "$PWD" \
+          --reason "bind the restored aria/state store to this checkout"
+        python3 - "$VERDICT" <<'PY'
+        import json
+        import os
+        import sys
+
+        with open(sys.argv[1], encoding="utf-8") as fh:
+            verdict = json.load(fh)
+        with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+            for key, value in sorted(verdict["environment"].items()):
+                fh.write(f"{key}={value}\n")
+        PY

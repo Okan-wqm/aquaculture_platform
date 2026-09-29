@@ -539,6 +539,7 @@ def verify_workflow_preflight(
         reasons.append("audit_reason_missing")
         failure_classes.append("workflow_preflight_contract")
 
+    normalized_audit_artifact_path: str | None = None
     if job_contract is not None:
         # ADR-036 contracted path — bind the verdict to the per-job contract.
         if tuple(sorted(network)) != tuple(sorted(job_contract.network_policy)):
@@ -555,6 +556,7 @@ def verify_workflow_preflight(
                 workspace=workspace,
                 external_roots=external_roots,
             )
+            normalized_audit_artifact_path = audit_label
             if not re.fullmatch(job_contract.preflight_artifact_path_pattern, audit_label):
                 reasons.append(f"preflight_artifact_path_mismatch:{audit_label}")
                 failure_classes.append("workflow_preflight_contract")
@@ -633,7 +635,7 @@ def verify_workflow_preflight(
         network_policy=network,
         allowed_write_roots=roots,
         path_allowlist=allowlist,
-        external_root_allowlist=external_roots,
+        external_root_allowlist=tuple("runner-temp" for _ in external_roots),
         token_provenance=token_provenance,
         dlp_mode=dlp_mode,
         audit_reason=audit_reason,
@@ -641,7 +643,7 @@ def verify_workflow_preflight(
         contract_hash=contract_digest,
         runtime_write_paths=roots,
         network_enforcement_evidence=network_enforcement_evidence,
-        audit_artifact_path=str(audit_artifact_path) if audit_artifact_path is not None else None,
+        audit_artifact_path=normalized_audit_artifact_path,
         worktree_clean=worktree_clean,
         dlp_scan_clean=dlp_scan_clean,
         valid=not failure_classes,

@@ -1343,8 +1343,47 @@ class ReCheckoutSafety(StateStoreTestCase):
     ) -> None:
         store = self._bootstrap()
         self._seed_surface(store, "")
+        lifecycle_target = (
+            state_store._git_common_directory(store.root)
+            / state_store._LIFECYCLE_LOCK_TARGET
+        ).resolve()
+        real_lifecycle_lock = state_store._state_store_lifecycle_lock
+        real_exclusive_lock = state_store.with_exclusive_lock
+        active_depth = 0
+        max_depth = 0
+        lifecycle_acquisitions: list[Path] = []
 
-        with mock.patch.object(state_store, "GIT_TIMEOUT_SECONDS", 0.1):
+        @contextmanager
+        def instrumented_lifecycle_lock(repo_root: Path):
+            nonlocal active_depth, max_depth
+            with real_lifecycle_lock(repo_root) as handle:
+                active_depth += 1
+                max_depth = max(max_depth, active_depth)
+                try:
+                    yield handle
+                finally:
+                    active_depth -= 1
+
+        @contextmanager
+        def instrumented_exclusive_lock(path, **kwargs):
+            candidate = Path(path).resolve()
+            if candidate.name == state_store._LIFECYCLE_LOCK_TARGET:
+                self.assertEqual(candidate, lifecycle_target)
+                lifecycle_acquisitions.append(candidate)
+                if len(lifecycle_acquisitions) > 1:
+                    raise AssertionError("lifecycle lock acquired more than once")
+            with real_exclusive_lock(path, **kwargs) as handle:
+                yield handle
+
+        with mock.patch.object(
+            state_store,
+            "_state_store_lifecycle_lock",
+            instrumented_lifecycle_lock,
+        ), mock.patch.object(
+            state_store,
+            "with_exclusive_lock",
+            instrumented_exclusive_lock,
+        ):
             result = state_store.publish_with_contention_replay(
                 store,
                 snapshot_id="snap-nested-lifecycle",
@@ -1355,6 +1394,8 @@ class ReCheckoutSafety(StateStoreTestCase):
 
         self.assertTrue(result["published"])
         self.assertEqual(result["attempts"], 1)
+        self.assertGreaterEqual(max_depth, 2)
+        self.assertEqual(lifecycle_acquisitions, [lifecycle_target])
 
     def test_a_directory_that_is_not_a_worktree_refuses(self) -> None:
         store_dir = self.repo.parent / "not-a-worktree"

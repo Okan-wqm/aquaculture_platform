@@ -11,7 +11,10 @@
     "candidate_detection": {},
     "candidate_observations": {},
     "completed_at": {},
-    "cycle_attempts": {},
+    "cycle_attempts": {
+      "const": 30,
+      "type": "integer"
+    },
     "cycle_ledger_summary": {},
     "cycles": {},
     "disallowed_actions_observed": {},
@@ -19,13 +22,20 @@
     "discovery_summary": {},
     "evidence_bundle": {},
     "evidence_bundle_hash": {},
-    "failed_cycles": {},
+    "failed_cycles": {
+      "maximum": 30,
+      "minimum": 0,
+      "type": "integer"
+    },
     "failure_reports": {},
     "finding_summary": {},
     "generated_at": {},
     "manifest_tail_hashes": {},
     "memory_summary": {},
-    "min_valid_cycles": {},
+    "min_valid_cycles": {
+      "const": 20,
+      "type": "integer"
+    },
     "pressure_summary": {},
     "profile": {},
     "schema_version": {},
@@ -34,7 +44,16 @@
     "target_ref": {},
     "tools_dir": {},
     "triage_summary": {},
-    "valid_cycles": {},
+    "valid_cycles": {
+      "maximum": 30,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "workflow_run_attempt": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "workflow_run_id": {},
     "workspace_base": {},
     "workspace_root": {}
   },
@@ -45,6 +64,8 @@
     "completed_at",
     "target_ref",
     "base_commit_sha",
+    "workflow_run_id",
+    "workflow_run_attempt",
     "cycle_attempts",
     "valid_cycles",
     "failed_cycles",

@@ -83,21 +83,60 @@ class WorkflowAbortGate:
 
 
 @dataclass(frozen=True)
+class WorkflowPermissionRequirement:
+    values: tuple[tuple[str, str], ...]
+    exact: bool = True
+
+
+@dataclass(frozen=True)
+class WorkflowStepRequirement:
+    name: str
+    occurrences: int = 1
+    step_id: str | None = None
+    condition: str | None = None
+    required_run_markers: tuple[str, ...] = ()
+    forbidden_run_markers: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class WorkflowActionRequirement:
+    step_name: str
+    uses: str
+    required_inputs: tuple[tuple[str, str], ...] = ()
+    forbidden_inputs: tuple[str, ...] = ()
+    occurrences: int = 1
+
+
+@dataclass(frozen=True)
+class WorkflowUploadRequirement:
+    step_name: str
+    uses: str
+    artifact_name_pattern: str
+    path_patterns: tuple[str, ...]
+    condition: str
+    if_no_files_found: str
+    retention_days: int
+    occurrences: int = 1
+
+
+@dataclass(frozen=True)
 class WorkflowJobContract:
     job_id: str
     preflight_step: str
     first_governed_mutation_step: str
     allowed_write_path_patterns: tuple[str, ...]
     preflight_artifact_path_pattern: str
-    upload_artifact_name_pattern: str
-    upload_artifact_path_patterns: tuple[str, ...]
-    retention_days: int
-    required_permissions: tuple[tuple[str, str], ...]
+    permissions: WorkflowPermissionRequirement
     token_source: str
     network_policy: tuple[str, ...]
     dlp_artifact: str
     clean_worktree_policy: str
+    upload: WorkflowUploadRequirement | None = None
     external_root_allowlist: tuple[str, ...] = ()
+    preflight_profile: str | None = None
+    preflight_audit_reason: str | None = None
+    network_enforcement_evidence: str | None = None
+    exact_runtime_write_paths: tuple[str, ...] = ()
     # Minimum effective ``timeout-minutes`` for a job whose steps run
     # ``autonomy burn-in observe``. A burn-in is all-or-nothing (the kernel
     # pins 30 cycle attempts; a partial run yields ZERO ladder evidence), so a
@@ -132,11 +171,15 @@ class WorkflowJobContract:
     # reasons gets edited until it stops complaining — which is how the thing
     # it was pinning ends up moved.
     #
-    # ``required_steps`` — steps that must EXIST in the job.
-    required_steps: tuple[str, ...] = ()
+    # Typed steps and actions declare exact occurrences and behavior without
+    # retaining a parallel path-only representation.
+    steps: tuple[WorkflowStepRequirement, ...] = ()
+    actions: tuple[WorkflowActionRequirement, ...] = ()
+    exact_step_set: bool = False
     # ``step_order`` — (earlier, later) pairs; both must exist and the first
     # must appear strictly before the second.
     step_order: tuple[tuple[str, str], ...] = ()
+    step_adjacency: tuple[tuple[str, str], ...] = ()
     # ``abort_gate`` — the lease/kill gate whose guard every later step must
     # carry (see WorkflowAbortGate). ``None`` = this job has no such gate.
     abort_gate: WorkflowAbortGate | None = None
@@ -172,6 +215,9 @@ _REQUEST_ID = r"\$\{\{\s*steps\.pending\.outputs\.request_id\s*\}\}"
 _REPORT_DATE = r"[0-9]{4}-[0-9]{2}-[0-9]{2}"
 _REPORT_DATE_EXPR = r"\$\{\{\s*steps\.target\.outputs\.date\s*\}\}"
 
+# GitHub's v7.0.1 upload action, pinned by immutable commit SHA.
+UPLOAD_ARTIFACT_ACTION = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+
 
 # Step names quoted from the live YAMLs. Named constants because each one is
 # referenced from several ordering pairs below, and a typo'd literal would
@@ -205,6 +251,28 @@ _CYCLE_LEASE_STEP = "Pre-flight - cross-host autonomous-loop lease check"
 # kept describing the lane after the lane changed.
 _CYCLE_WORK_STEP = "Run the nightly cycle under the resolved profile"
 
+_OPERATIONAL_PREFLIGHT_STEP = "Persist enterprise workflow preflight"
+_OPERATIONAL_CHECKOUT_STEP = "Checkout source"
+_OPERATIONAL_SETUP_KERNEL_STEP = "Set up ARIA kernel"
+_OPERATIONAL_SETUP_NODE_STEP = "Set up Node.js"
+_OPERATIONAL_RESTORE_STEP = _RESTORE_STEP
+_OPERATIONAL_REQUIRE_RESTORE_STEP = "Require published ARIA state restore"
+_OPERATIONAL_INITIAL_STATE_STEP = "Verify restored ARIA state reference"
+_OPERATIONAL_BURN_IN_STEP = "Run observe burn-in proof"
+_OPERATIONAL_POSTFLIGHT_STEP = "Verify post-run source and state immutability"
+_OPERATIONAL_MANIFEST_STEP = "Write ARIA operational proof manifest"
+_OPERATIONAL_DLP_STEP = "Scan staged ARIA operational proof for secrets"
+_OPERATIONAL_VERIFY_STEP = "Verify complete ARIA operational proof"
+_OPERATIONAL_UPLOAD_STEP = "Upload ARIA operational proof"
+
+_OPERATIONAL_FORBIDDEN_WRITER_MARKERS = (
+    "state publish",
+    "publish_state(",
+    "bind-tools-root",
+    "GITHUB_ENV",
+    "Path.write_text",
+)
+
 # The two steps that decide and then DECLARE the night's authority. Contracted
 # because their ORDER is the boundary: a run that reached the work step
 # without resolving the profile would be running an unbounded one, and a run
@@ -232,25 +300,175 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
         job_contracts=(
             WorkflowJobContract(
                 job_id="proof",
-                preflight_step="Persist enterprise workflow preflight",
-                first_governed_mutation_step="Run observe burn-in proof",
+                preflight_step=_OPERATIONAL_PREFLIGHT_STEP,
+                first_governed_mutation_step=_OPERATIONAL_RESTORE_STEP,
                 allowed_write_path_patterns=(
+                    rf"^{_STORE_ROOT}(/.*)?$",
+                    rf"^{_STORE_ROOT}\.writers\.jsonl$",
+                    rf"^{_RUNNER_TEMP}/aria-state-checkout\.json$",
+                    rf"^{_RUNNER_TEMP}/aria-state-checkout\.json\.err$",
                     rf"^{_RUNNER_TEMP}/aria-operational-proof$",
+                    rf"^{_RUNNER_TEMP}/aria-operational-proof-tools$",
+                    rf"^{_RUNNER_TEMP}/aria-operational-proof-workspaces$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-operational-proof/workflow-preflight\.json$",
-                upload_artifact_name_pattern=r"^aria-operational-proof-\$\{\{\s*github\.sha\s*\}\}$",
-                upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/aria-operational-proof$",),
-                retention_days=365,
-                required_permissions=(("contents", "read"),),
+                permissions=WorkflowPermissionRequirement((("contents", "read"),)),
                 token_source="github_actions_artifact_token",
-                network_policy=("github_artifact",),
+                network_policy=("github_artifact", "github_git"),
                 dlp_artifact="workflow-preflight.json",
                 clean_worktree_policy="pre_and_post",
+                upload=WorkflowUploadRequirement(
+                    step_name=_OPERATIONAL_UPLOAD_STEP,
+                    uses=UPLOAD_ARTIFACT_ACTION,
+                    artifact_name_pattern=r"^aria-operational-proof-\$\{\{\s*github\.sha\s*\}\}$",
+                    path_patterns=(rf"^{_RUNNER_TEMP}/aria-operational-proof$",),
+                    condition="always() && steps.dlp.outcome == 'success'",
+                    if_no_files_found="error",
+                    retention_days=365,
+                ),
                 external_root_allowlist=("RUNNER_TEMP",),
+                preflight_profile="strict",
+                preflight_audit_reason="persist ARIA observe burn-in proof artifact",
+                network_enforcement_evidence=(
+                    "canonical aria/state restore and final artifact upload"
+                ),
+                exact_runtime_write_paths=(
+                    ".aria-state-store",
+                    ".aria-state-store.writers.jsonl",
+                    "runner-temp/aria-state-checkout.json",
+                    "runner-temp/aria-state-checkout.json.err",
+                    "runner-temp/aria-operational-proof",
+                    "runner-temp/aria-operational-proof-tools",
+                    "runner-temp/aria-operational-proof-workspaces",
+                ),
                 # MOCK-mode burn-in (dry-run cycles, minutes-scale); the live
                 # YAML's measured 90-minute combined suite + burn-in budget
                 # satisfies this burn-in floor.
                 burn_in_timeout_floor_minutes=30,
+                job_timeout_minutes=90,
+                steps=(
+                    WorkflowStepRequirement(
+                        name="Install dependencies",
+                        forbidden_run_markers=_OPERATIONAL_FORBIDDEN_WRITER_MARKERS,
+                    ),
+                    WorkflowStepRequirement(
+                        name="Compile ARIA kernel",
+                        forbidden_run_markers=_OPERATIONAL_FORBIDDEN_WRITER_MARKERS,
+                    ),
+                    WorkflowStepRequirement(
+                        name="Run ARIA unit and invariant suite",
+                        forbidden_run_markers=_OPERATIONAL_FORBIDDEN_WRITER_MARKERS,
+                    ),
+                    WorkflowStepRequirement(
+                        name="Run ARIA docs/runtime SSoT invariant",
+                        forbidden_run_markers=_OPERATIONAL_FORBIDDEN_WRITER_MARKERS,
+                    ),
+                    WorkflowStepRequirement(
+                        name=_OPERATIONAL_PREFLIGHT_STEP,
+                        forbidden_run_markers=_OPERATIONAL_FORBIDDEN_WRITER_MARKERS,
+                    ),
+                    WorkflowStepRequirement(
+                        name=_OPERATIONAL_REQUIRE_RESTORE_STEP,
+                        required_run_markers=(
+                            'RESTORED" != "true',
+                            '-n "$BOOTSTRAP"',
+                        ),
+                        forbidden_run_markers=_OPERATIONAL_FORBIDDEN_WRITER_MARKERS,
+                    ),
+                    WorkflowStepRequirement(
+                        name=_OPERATIONAL_INITIAL_STATE_STEP,
+                        required_run_markers=(
+                            "operational_proof capture-state --stage initial",
+                        ),
+                        forbidden_run_markers=_OPERATIONAL_FORBIDDEN_WRITER_MARKERS,
+                    ),
+                    WorkflowStepRequirement(
+                        name=_OPERATIONAL_BURN_IN_STEP,
+                        required_run_markers=(
+                            "set -euo pipefail",
+                            "integrity migrate-tools-bootstrap",
+                            "set +e",
+                            "BURN_STATUS=$?",
+                            "POSTPROCESS_STATUS=0",
+                            "operational_proof write-failure-summary",
+                            'if [ "$BURN_STATUS" -ne 0 ]; then',
+                            'exit "$BURN_STATUS"',
+                            'exit "$POSTPROCESS_STATUS"',
+                        ),
+                        forbidden_run_markers=_OPERATIONAL_FORBIDDEN_WRITER_MARKERS,
+                    ),
+                    WorkflowStepRequirement(
+                        name=_OPERATIONAL_POSTFLIGHT_STEP,
+                        condition="always()",
+                        required_run_markers=(
+                            "operational_proof capture-state --stage final",
+                        ),
+                        forbidden_run_markers=_OPERATIONAL_FORBIDDEN_WRITER_MARKERS,
+                    ),
+                    WorkflowStepRequirement(
+                        name=_OPERATIONAL_MANIFEST_STEP,
+                        condition="always()",
+                        required_run_markers=("operational_proof write-manifest",),
+                        forbidden_run_markers=_OPERATIONAL_FORBIDDEN_WRITER_MARKERS,
+                    ),
+                    WorkflowStepRequirement(
+                        name=_OPERATIONAL_DLP_STEP,
+                        step_id="dlp",
+                        condition="always()",
+                        required_run_markers=("operational_proof scan-dlp",),
+                        forbidden_run_markers=_OPERATIONAL_FORBIDDEN_WRITER_MARKERS,
+                    ),
+                    WorkflowStepRequirement(
+                        name=_OPERATIONAL_VERIFY_STEP,
+                        condition="always()",
+                        required_run_markers=("operational_proof verify",),
+                        forbidden_run_markers=_OPERATIONAL_FORBIDDEN_WRITER_MARKERS,
+                    ),
+                ),
+                actions=(
+                    WorkflowActionRequirement(
+                        step_name=_OPERATIONAL_CHECKOUT_STEP,
+                        uses="actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+                        required_inputs=(
+                            ("persist-credentials", "false"),
+                            ("fetch-depth", "0"),
+                        ),
+                    ),
+                    WorkflowActionRequirement(
+                        step_name=_OPERATIONAL_SETUP_KERNEL_STEP,
+                        uses="./.github/actions/setup-aria-kernel",
+                    ),
+                    WorkflowActionRequirement(
+                        step_name=_OPERATIONAL_SETUP_NODE_STEP,
+                        uses="actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+                        required_inputs=(("node-version", "22"), ("cache", "npm")),
+                    ),
+                    WorkflowActionRequirement(
+                        step_name=_OPERATIONAL_RESTORE_STEP,
+                        uses="./.github/actions/restore-aria-state",
+                        required_inputs=(("bind-tools-root", "false"),),
+                        forbidden_inputs=("bootstrap-ack",),
+                    ),
+                ),
+                exact_step_set=True,
+                step_order=(
+                    (_OPERATIONAL_PREFLIGHT_STEP, _OPERATIONAL_RESTORE_STEP),
+                    (_OPERATIONAL_RESTORE_STEP, _OPERATIONAL_REQUIRE_RESTORE_STEP),
+                    (_OPERATIONAL_REQUIRE_RESTORE_STEP, _OPERATIONAL_INITIAL_STATE_STEP),
+                    (_OPERATIONAL_INITIAL_STATE_STEP, _OPERATIONAL_BURN_IN_STEP),
+                    (_OPERATIONAL_BURN_IN_STEP, _OPERATIONAL_POSTFLIGHT_STEP),
+                    (_OPERATIONAL_POSTFLIGHT_STEP, _OPERATIONAL_MANIFEST_STEP),
+                    (_OPERATIONAL_MANIFEST_STEP, _OPERATIONAL_DLP_STEP),
+                    (_OPERATIONAL_DLP_STEP, _OPERATIONAL_VERIFY_STEP),
+                    (_OPERATIONAL_VERIFY_STEP, _OPERATIONAL_UPLOAD_STEP),
+                ),
+                step_adjacency=(
+                    (_OPERATIONAL_BURN_IN_STEP, _OPERATIONAL_POSTFLIGHT_STEP),
+                    (_OPERATIONAL_POSTFLIGHT_STEP, _OPERATIONAL_MANIFEST_STEP),
+                    (_OPERATIONAL_MANIFEST_STEP, _OPERATIONAL_DLP_STEP),
+                    (_OPERATIONAL_DLP_STEP, _OPERATIONAL_VERIFY_STEP),
+                    (_OPERATIONAL_VERIFY_STEP, _OPERATIONAL_UPLOAD_STEP),
+                ),
             ),
         ),
     ),
@@ -280,7 +498,6 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     rf"^{_STORE_ROOT}(/.*)?$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-agent-executor-preflight\.json$",
-                upload_artifact_name_pattern=rf"^aria-response-{_REQUEST_ID}$",
                 # These pins used to spell the envelope path themselves —
                 # `outputs/<request_id>.json` — while `agent_invocations.py`
                 # names it `outputs/<group>/<round>-<role>-<request_id>.md`.
@@ -290,11 +507,6 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # died on upload after its work had succeeded. The producer
                 # now publishes the real paths as step outputs, and what this
                 # pins is that derivation: the workflow may not re-guess.
-                upload_artifact_path_patterns=(
-                    r"^\$\{\{ steps\.executor\.outputs\.envelope_path \}\}$",
-                    r"^\$\{\{ steps\.executor\.outputs\.transcript_path \}\}$",
-                ),
-                retention_days=7,
                 # contents:write is what the cutover costs: the lane publishes
                 # by pushing `aria/state`. The blast radius is bounded on the
                 # SERVER — the branch ruleset blocks force-pushes and deletions,
@@ -302,22 +514,53 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # append a commit that descends from the tip, which is exactly
                 # what publishing is. actions:read remains for run/job
                 # introspection; it no longer fetches state.
-                required_permissions=(("contents", "write"), ("actions", "read")),
+                permissions=WorkflowPermissionRequirement(
+                    (("contents", "write"), ("actions", "read"))
+                ),
                 token_source="github_actions_artifact_token",
                 network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-agent-executor-preflight.json",
                 clean_worktree_policy="pre_and_post",
+                upload=WorkflowUploadRequirement(
+                    step_name="Upload response envelope (artefact)",
+                    uses=UPLOAD_ARTIFACT_ACTION,
+                    artifact_name_pattern=rf"^aria-response-{_REQUEST_ID}$",
+                    path_patterns=(
+                        r"^\$\{\{ steps\.executor\.outputs\.envelope_path \}\}$",
+                        r"^\$\{\{ steps\.executor\.outputs\.transcript_path \}\}$",
+                    ),
+                    condition=(
+                        "steps.lease_check.outputs.blocked != 'true' && "
+                        "steps.pending.outputs.request_id != '' && "
+                        "steps.executor.outputs.drained != '0'"
+                    ),
+                    if_no_files_found="error",
+                    retention_days=7,
+                ),
                 external_root_allowlist=("RUNNER_TEMP",),
                 job_timeout_minutes=150,
-                required_steps=(
-                    _EXECUTOR_RESTORE_STEP,
-                    _EXECUTOR_LEASE_STEP,
-                    _EXECUTOR_BREAKER_QUARANTINE_STEP,
-                    _EXECUTOR_PENDING_STEP,
-                    _EXECUTOR_WORK_STEP,
-                    _PUBLISH_STEP,
-                    "Quarantine unverified ARIA state",
-                    "Fail when ARIA state was not published",
+                steps=tuple(
+                    WorkflowStepRequirement(name=name)
+                    for name in (
+                        _EXECUTOR_RESTORE_STEP,
+                        _EXECUTOR_LEASE_STEP,
+                        _EXECUTOR_BREAKER_QUARANTINE_STEP,
+                        _EXECUTOR_PENDING_STEP,
+                        _EXECUTOR_WORK_STEP,
+                        _PUBLISH_STEP,
+                        "Quarantine unverified ARIA state",
+                        "Fail when ARIA state was not published",
+                    )
+                ),
+                actions=(
+                    WorkflowActionRequirement(
+                        step_name="Cache ARIA state tree (non-authoritative)",
+                        uses=UPLOAD_ARTIFACT_ACTION,
+                    ),
+                    WorkflowActionRequirement(
+                        step_name="Quarantine unverified ARIA state",
+                        uses=UPLOAD_ARTIFACT_ACTION,
+                    ),
                 ),
                 step_order=(
                     # ORPHAN-CRITICAL-469 itself: the restore must precede the
@@ -389,32 +632,43 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # bury the accumulated tree under a bootstrap-empty one. Pinning
                 # `-<run_id>` here means a future edit back to a fixed name
                 # fails the contract rather than silently restoring the hazard.
-                upload_artifact_name_pattern=rf"^aria-state-cache-{_RUN_ID}$",
                 # ORPHAN-720 — the forensic copy EXCLUDES the four pre-rename
                 # `genesis:<hash>` records: GitHub's uploader rejects ':' in
                 # paths and renaming a ledger-referenced record would break
                 # hash-chained refs. Pinning the exclusion line means a future
                 # edit that silently drops it fails the contract instead of
                 # resurrecting the every-sealed-run-red failure mode.
-                upload_artifact_path_patterns=(
-                    rf"^{_STORE_ROOT}$",
-                    rf"^!{_STORE_ROOT}/tools/human-required/genesis:\*$",
-                ),
-                retention_days=30,
                 # checks:read + pull-requests:read — ORPHAN-HIGH-626: the
                 # pr_ci_scan phase reads the check verdicts of ARIA's own
                 # open PRs. Read-only pair; the write blast radius is
                 # unchanged (contents:write on refs, ruleset-bounded).
-                required_permissions=(
-                    ("contents", "write"),
-                    ("actions", "read"),
-                    ("checks", "read"),
-                    ("pull-requests", "read"),
+                permissions=WorkflowPermissionRequirement(
+                    (
+                        ("contents", "write"),
+                        ("actions", "read"),
+                        ("checks", "read"),
+                        ("pull-requests", "read"),
+                    )
                 ),
                 token_source="github_actions_artifact_token",
                 network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-auto-cycle-preflight.json",
                 clean_worktree_policy="pre_and_post",
+                upload=WorkflowUploadRequirement(
+                    step_name="Cache ARIA state tree (non-authoritative)",
+                    uses=UPLOAD_ARTIFACT_ACTION,
+                    artifact_name_pattern=rf"^aria-state-cache-{_RUN_ID}$",
+                    path_patterns=(
+                        rf"^{_STORE_ROOT}$",
+                        rf"^!{_STORE_ROOT}/tools/human-required/genesis:\*$",
+                    ),
+                    condition=(
+                        "always() && steps.lease_check.outputs.blocked != 'true' && "
+                        "steps.integrity.outputs.state_valid == 'true'"
+                    ),
+                    if_no_files_found="error",
+                    retention_days=30,
+                ),
                 external_root_allowlist=("RUNNER_TEMP",),
                 # Operator decision (2026-08-13): the night's window is
                 # unbounded — the 360-minute platform ceiling, one value for
@@ -427,15 +681,24 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # carries the same declared constraints — a reference
                 # implementation that is itself unpinned is a reference that
                 # drifts, and the consumer would be corrected to match it.
-                required_steps=(
-                    _CYCLE_RESTORE_STEP,
-                    _CYCLE_LEASE_STEP,
-                    _CYCLE_PROFILE_GATE_STEP,
-                    _CYCLE_RESOLVED_PREFLIGHT_STEP,
-                    _CYCLE_WORK_STEP,
-                    _PUBLISH_STEP,
-                    "Quarantine unverified ARIA state",
-                    "Fail on unverified ARIA state",
+                steps=tuple(
+                    WorkflowStepRequirement(name=name)
+                    for name in (
+                        _CYCLE_RESTORE_STEP,
+                        _CYCLE_LEASE_STEP,
+                        _CYCLE_PROFILE_GATE_STEP,
+                        _CYCLE_RESOLVED_PREFLIGHT_STEP,
+                        _CYCLE_WORK_STEP,
+                        _PUBLISH_STEP,
+                        "Quarantine unverified ARIA state",
+                        "Fail on unverified ARIA state",
+                    )
+                ),
+                actions=(
+                    WorkflowActionRequirement(
+                        step_name="Quarantine unverified ARIA state",
+                        uses=UPLOAD_ARTIFACT_ACTION,
+                    ),
                 ),
                 step_order=(
                     (_CYCLE_RESTORE_STEP, _CYCLE_LEASE_STEP),
@@ -478,14 +741,11 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     rf"^{_STORE_ROOT}(/.*)?$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-agent-eval-preflight\.json$",
-                upload_artifact_name_pattern=rf"^aria-agent-eval-proof-{_RUN_ID_ATTEMPT}$",
-                upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/aria-agent-eval-preflight\.json$",),
-                retention_days=7,
                 # `contents: write` is what persistence costs. The token can
                 # only append a commit descending from the aria/state tip —
                 # which is what publishing is — and the branch is the only
                 # thing it may touch.
-                required_permissions=(("contents", "write"),),
+                permissions=WorkflowPermissionRequirement((("contents", "write"),)),
                 token_source="github_actions_artifact_token",
                 # The eval still reaches no third-party network; the fixtures
                 # are local. `github_git` is the state branch fetch and push,
@@ -494,6 +754,15 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-agent-eval-preflight.json",
                 clean_worktree_policy="pre_and_post",
+                upload=WorkflowUploadRequirement(
+                    step_name="Upload eval preflight proof",
+                    uses=UPLOAD_ARTIFACT_ACTION,
+                    artifact_name_pattern=rf"^aria-agent-eval-proof-{_RUN_ID_ATTEMPT}$",
+                    path_patterns=(rf"^{_RUNNER_TEMP}/aria-agent-eval-preflight\.json$",),
+                    condition="",
+                    if_no_files_found="error",
+                    retention_days=7,
+                ),
                 external_root_allowlist=("RUNNER_TEMP",),
             ),
         ),
@@ -518,18 +787,24 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     rf"^{_STORE_ROOT}(/.*)?$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-daily-report-generate-preflight\.json$",
-                upload_artifact_name_pattern=rf"^aria-daily-report-{_REPORT_DATE_EXPR}$",
-                upload_artifact_path_patterns=(
-                    rf"^aria-tools/reports/daily/{_REPORT_DATE_EXPR}\.md$",
-                ),
-                retention_days=365,
-                required_permissions=(("contents", "read"),),
+                permissions=WorkflowPermissionRequirement((("contents", "read"),)),
                 token_source="github_actions_artifact_token",
                 # `github_git` is the aria/state restore — a different
                 # credential and blast radius from artifact upload.
                 network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-daily-report-generate-preflight.json",
                 clean_worktree_policy="pre_and_post",
+                upload=WorkflowUploadRequirement(
+                    step_name="Upload report as artifact",
+                    uses=UPLOAD_ARTIFACT_ACTION,
+                    artifact_name_pattern=rf"^aria-daily-report-{_REPORT_DATE_EXPR}$",
+                    path_patterns=(
+                        rf"^aria-tools/reports/daily/{_REPORT_DATE_EXPR}\.md$",
+                    ),
+                    condition="",
+                    if_no_files_found="error",
+                    retention_days=365,
+                ),
                 external_root_allowlist=("RUNNER_TEMP",),
             ),
             WorkflowJobContract(
@@ -538,20 +813,28 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 first_governed_mutation_step="Open or update daily report PR",
                 allowed_write_path_patterns=(rf"^aria-tools/reports/daily/{_REPORT_DATE}\.md$",),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-daily-report-preflight\.json$",
-                upload_artifact_name_pattern=rf"^aria-daily-report-commit-preflight-{_RUN_ID_ATTEMPT}$",
-                upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/aria-daily-report-preflight\.json$",),
-                retention_days=365,
                 # This job's governed mutation IS opening a pull request, so it
                 # needs the same pair finding-state-sweep declares. The contract
                 # and the YAML both omitted it, which is why the parity check
                 # stayed green while every scheduled run died on "Resource not
                 # accessible by integration": parity proves the two agree, not
                 # that either is sufficient for the step named right above.
-                required_permissions=(("contents", "write"), ("pull-requests", "write")),
+                permissions=WorkflowPermissionRequirement(
+                    (("contents", "write"), ("pull-requests", "write"))
+                ),
                 token_source="github_app:installation",
                 network_policy=("github_api",),
                 dlp_artifact="aria-daily-report-preflight.json",
                 clean_worktree_policy="pre_and_post",
+                upload=WorkflowUploadRequirement(
+                    step_name="Upload commit-report preflight proof",
+                    uses=UPLOAD_ARTIFACT_ACTION,
+                    artifact_name_pattern=rf"^aria-daily-report-commit-preflight-{_RUN_ID_ATTEMPT}$",
+                    path_patterns=(rf"^{_RUNNER_TEMP}/aria-daily-report-preflight\.json$",),
+                    condition="",
+                    if_no_files_found="error",
+                    retention_days=365,
+                ),
                 external_root_allowlist=("RUNNER_TEMP",),
             ),
         ),
@@ -579,18 +862,24 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     rf"^{_RUNNER_TEMP}/aria-merge-authority-preflight\.json$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-merge-authority-preflight\.json$",
-                upload_artifact_name_pattern=rf"^aria-merge-authority-proof-{_RUN_ID_ATTEMPT}$",
-                upload_artifact_path_patterns=(
-                    rf"^{_RUNNER_TEMP}/aria-merge-authority-preflight\.json$",
-                ),
-                retention_days=7,
-                required_permissions=(("contents", "read"),),
+                permissions=WorkflowPermissionRequirement((("contents", "read"),)),
                 token_source="github_actions_artifact_token",
                 # The lane reads the repo (checkout) and uploads its proof
                 # artifact; it pushes no state and opens no PR.
                 network_policy=("github_artifact",),
                 dlp_artifact="aria-merge-authority-preflight.json",
                 clean_worktree_policy="pre_and_post",
+                upload=WorkflowUploadRequirement(
+                    step_name="Upload merge-authority preflight proof",
+                    uses=UPLOAD_ARTIFACT_ACTION,
+                    artifact_name_pattern=rf"^aria-merge-authority-proof-{_RUN_ID_ATTEMPT}$",
+                    path_patterns=(
+                        rf"^{_RUNNER_TEMP}/aria-merge-authority-preflight\.json$",
+                    ),
+                    condition="",
+                    if_no_files_found="error",
+                    retention_days=7,
+                ),
                 external_root_allowlist=("RUNNER_TEMP",),
                 job_timeout_minutes=30,
             ),
@@ -617,16 +906,24 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     rf"^{_STORE_ROOT}(/.*)?$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-readiness-claim-preflight\.json$",
-                upload_artifact_name_pattern=rf"^aria-readiness-claim-proof-{_RUN_ID_ATTEMPT}$",
-                upload_artifact_path_patterns=(
-                    rf"^{_RUNNER_TEMP}/aria-readiness-claim-preflight\.json$",
+                permissions=WorkflowPermissionRequirement(
+                    (("contents", "write"), ("actions", "read"))
                 ),
-                retention_days=7,
-                required_permissions=(("contents", "write"), ("actions", "read")),
                 token_source="github_actions_artifact_token",
                 network_policy=("github_api", "github_artifact", "github_git"),
                 dlp_artifact="aria-readiness-claim-preflight.json",
                 clean_worktree_policy="pre_and_post",
+                upload=WorkflowUploadRequirement(
+                    step_name="Upload readiness-claim preflight proof",
+                    uses=UPLOAD_ARTIFACT_ACTION,
+                    artifact_name_pattern=rf"^aria-readiness-claim-proof-{_RUN_ID_ATTEMPT}$",
+                    path_patterns=(
+                        rf"^{_RUNNER_TEMP}/aria-readiness-claim-preflight\.json$",
+                    ),
+                    condition="steps.pr.outputs.skip != 'true'",
+                    if_no_files_found="error",
+                    retention_days=7,
+                ),
                 external_root_allowlist=("RUNNER_TEMP",),
                 job_timeout_minutes=15,
             ),
@@ -642,14 +939,25 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 first_governed_mutation_step="Apply sweep",
                 allowed_write_path_patterns=(r"^docs/reviews/_registry/findings\.jsonl$",),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/finding-state-sweep-preflight\.json$",
-                upload_artifact_name_pattern=rf"^finding-state-sweep-proof-{_RUN_ID_ATTEMPT}$",
-                upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/finding-state-sweep-preflight\.json$",),
-                retention_days=365,
-                required_permissions=(("contents", "write"), ("pull-requests", "write")),
+                permissions=WorkflowPermissionRequirement(
+                    (("contents", "write"), ("pull-requests", "write"))
+                ),
                 token_source="github_app:installation",
                 network_policy=("github_api",),
                 dlp_artifact="finding-state-sweep-preflight.json",
                 clean_worktree_policy="pre_and_post",
+                upload=WorkflowUploadRequirement(
+                    step_name="Upload sweep preflight proof",
+                    uses=UPLOAD_ARTIFACT_ACTION,
+                    artifact_name_pattern=rf"^finding-state-sweep-proof-{_RUN_ID_ATTEMPT}$",
+                    path_patterns=(rf"^{_RUNNER_TEMP}/finding-state-sweep-preflight\.json$",),
+                    condition=(
+                        "steps.plan.outputs.has_changes == 'true' && "
+                        "steps.plan.outputs.dry_run != 'true'"
+                    ),
+                    if_no_files_found="error",
+                    retention_days=365,
+                ),
                 external_root_allowlist=("RUNNER_TEMP",),
             ),
         ),
@@ -666,14 +974,22 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     r"^docs/reviews/rule-health/[0-9]{4}-[0-9]{2}-[0-9]{2}-rule-health-[0-9]{4}-[0-9]{2}\.md$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/rule-health-report-preflight\.json$",
-                upload_artifact_name_pattern=rf"^rule-health-report-proof-{_RUN_ID_ATTEMPT}$",
-                upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/rule-health-report-preflight\.json$",),
-                retention_days=365,
-                required_permissions=(("contents", "write"), ("pull-requests", "write")),
+                permissions=WorkflowPermissionRequirement(
+                    (("contents", "write"), ("pull-requests", "write"))
+                ),
                 token_source="github_app:installation",
                 network_policy=("github_api",),
                 dlp_artifact="rule-health-report-preflight.json",
                 clean_worktree_policy="pre_and_post",
+                upload=WorkflowUploadRequirement(
+                    step_name="Upload rule-health preflight proof",
+                    uses=UPLOAD_ARTIFACT_ACTION,
+                    artifact_name_pattern=rf"^rule-health-report-proof-{_RUN_ID_ATTEMPT}$",
+                    path_patterns=(rf"^{_RUNNER_TEMP}/rule-health-report-preflight\.json$",),
+                    condition="",
+                    if_no_files_found="error",
+                    retention_days=365,
+                ),
                 external_root_allowlist=("RUNNER_TEMP",),
             ),
         ),
@@ -792,13 +1108,18 @@ def cycle_wall_clock_cap_seconds(workflow_id: str, *, job_id: str | None = None)
 
 __all__ = [
     "AUDITED_WORKFLOW_EXCLUSIONS",
+    "UPLOAD_ARTIFACT_ACTION",
     "WALL_CLOCK_RESERVE_MINUTES",
     "WORKFLOW_CONTRACTS",
     "cycle_wall_clock_cap_seconds",
     "AuditedWorkflowExclusion",
     "WorkflowAbortGate",
+    "WorkflowActionRequirement",
     "WorkflowContract",
     "WorkflowJobContract",
+    "WorkflowPermissionRequirement",
+    "WorkflowStepRequirement",
+    "WorkflowUploadRequirement",
     "workflow_contract_hash",
     "workflow_contract_registry",
     "workflow_hash",

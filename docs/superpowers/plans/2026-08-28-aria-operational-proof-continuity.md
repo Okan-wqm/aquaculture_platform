@@ -47,7 +47,8 @@ Nx invariants, GitHub Actions YAML, Git worktrees, GitHub CLI.
 - A valid burn-in cycle requires `state_continuity.status == "ok"`,
   `reference_kind == "state_branch"`, `blocks_action is False`, and no
   recovery evidence at all.
-- Artifact upload uses `if: always()` and uploads only the curated proof root;
+- Artifact upload uses `if: always() && steps.dlp.outcome == 'success'` and
+  uploads only the curated proof root after the final DLP step succeeds;
   diagnostic preservation never changes a non-zero burn-in exit to success.
 - The final proof is accepted only by the canonical Operational Proof verifier:
   it enforces the closed success-file allowlist, exact target SHA, run ID, and
@@ -1101,6 +1102,16 @@ the manifest. The manifest binds target SHA, run ID, run attempt, hash and size
 of every other staged file, plus hash references to the initial state,
 postflight state, and burn-in report.
 
+If any pre-burn step leaves an incomplete file world without an allowed
+failure path, `write-manifest` first materializes the canonical bounded
+`proof-failure-summary.json` through the same descriptor-relative atomic
+writer, then writes the failed manifest. The explicit burn failure path calls
+the corresponding `write-failure-summary` CLI; workflow heredocs and pathname
+writers are forbidden. A planted symlink, non-regular output, or multi-link
+inode is refused without changing its external target. This preserves the
+original failed job conclusion while allowing clean DLP and failed-diagnostic
+upload.
+
 The verifier rechecks that closed world; exact SHA/run ID/attempt everywhere;
 the inner bundle and passed verdict; both clean, valid state records; live-tip
 proof; absent host identity; and equality of initial/final source head, store
@@ -1108,6 +1119,44 @@ head, remote tip, snapshot ID/root, and writer hash/size. It invokes the
 canonical DLP scanner on every final regular file including the outer manifest.
 It is the sole outer acceptance authority; shell `jq` assertions are
 diagnostic.
+
+The inner evidence bundle is also closed: exact top-level schema, exact unique
+fixed-plus-bounded-failure artifact records, normalized paths, canonical bare
+SHA-256, non-boolean non-negative size, and equality with both the report hash
+map and same-descriptor snapshots. Producer and verifier share one acceptance
+derivation over cycle rows, cycle statuses/evidence, cycle-ledger v2 terminal
+IDs, and recomputed disallowed-action deltas; stored counters and booleans are
+claims, never authority. The persisted workflow preflight is the full closed
+22-field verdict and is checked from descriptor-pinned bytes by the same
+structured validator used by workflow contracts, including exact Operational
+Proof IDs/profile/DLP/token/network/hashes and the seven normalized runtime
+write paths.
+
+Cycle-ledger terminal IDs include only the current attempted set and preserve
+duplicates so acceptance can require exactly one terminal row per attempt;
+unrelated historical rows remain visible only in global counts. Disallowed
+snapshots require the exact canonical surface set, exact patterns, closed
+aggregate/file records, strict counts, unique normalized matching paths, and
+recomputed aggregate hashes. One shared nested duplicate-key-rejecting JSON
+bytes loader owns every outer, inner, burn, and preflight artifact. Workflow
+attempts in Operational Proof are strict positive non-boolean integers; generic
+burn evidence may retain attempt zero, but all counts and cycle evidence remain
+strict non-boolean integers. The canonical generated burn-in report schema
+publishes the same integer, const, and range constraints instead of leaving
+those fields unconstrained.
+
+Disallowed snapshots use the manifest's component-aware matcher and canonical
+sorted records. Production enumerates candidate subtrees by directory
+descriptor, refuses symlink/non-regular/multi-link entries before
+classification, and derives JSONL rows, tail, size, and hash from one
+`O_NOFOLLOW` descriptor snapshot. One closed status-discriminated cycle
+validator owns producer serialization and verifier admission; no-op proves
+zero work only and never waives strict counter, nested-schema, continuity, or
+cycle-ID validity. Before verdict branching, every inner JSON artifact is
+decoded by the shared duplicate-key-rejecting loader and checked against its
+exact manifest-tail, candidate-mirror, or canonical failure-record semantics.
+Failure paths stay ordered and unique and correspond exactly to failed cycle
+IDs; they are never set-deduplicated.
 
 - [ ] **Step 9: Pin Operational Proof topology before editing YAML**
 
@@ -1133,8 +1182,9 @@ exactly `(("contents", "read"),)`, the canonical action exactly once with
 outside the canonical action call. Pin every ordering edge through the final
 verifier, `contents: read`,
 `job_timeout_minutes=90`, network policy `("github_artifact", "github_git")`,
-and exact `always()` conditions on postflight, manifest writing, DLP,
-verification, and upload. The upload is exactly once, uses the SHA-pinned
+exact `always()` conditions on postflight, manifest writing, DLP, and
+verification. Give the DLP step `id: dlp`; the upload condition is exactly
+`always() && steps.dlp.outcome == 'success'`. The upload is exactly once, uses the SHA-pinned
 `UPLOAD_ARTIFACT_ACTION`, names `aria-operational-proof-${{ github.sha }}`,
 contains only `${{ runner.temp }}/aria-operational-proof/`, has
 `if-no-files-found: error`, and retains for 365 days.
@@ -1207,9 +1257,13 @@ sibling's SHA-256/size rather than omitting it from the mutation proof.
 
 - [ ] **Step 12: Preserve failure evidence and its original exit**
 
-The burn-in shell step uses `set -uo pipefail`, captures `BURN_STATUS`, copies
-only the bound burn-in output directory into the proof root, verifies a full
-bundle when present, and otherwise writes `proof-failure-summary.json`. Exit
+The burn-in shell step uses `set -euo pipefail` through scratch-directory
+creation and bootstrap migration, then uses `set +e` before it captures
+`BURN_STATUS`. It copies only the bound burn-in output directory into the proof
+root, verifies a full bundle when present, and otherwise writes
+`proof-failure-summary.json` through the canonical secure CLI. Pre-burn
+failures that occur before this explicit branch are materialized by the
+always-running manifest writer when no allowed failure path exists. Exit
 selection is exact:
 
 ```bash
@@ -1231,7 +1285,7 @@ No file-writing step follows final DLP except the platform upload action. A
 failed burn-in or postflight can preserve only the bounded failed diagnostics
 listed in Step 8 and can never mint a passing verifier result.
 
-The upload step also uses `if: always()` and only:
+The upload step uses `if: always() && steps.dlp.outcome == 'success'` and only:
 
 ```yaml
 path: ${{ runner.temp }}/aria-operational-proof/

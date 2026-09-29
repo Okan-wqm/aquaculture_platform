@@ -40,7 +40,7 @@ def runtime_inventory(workspace_root: str | Path) -> dict[str, Any]:
                     {
                         "job_id": job.job_id,
                         "first_governed_mutation_step": job.first_governed_mutation_step,
-                        "retention_days": job.retention_days,
+                        "retention_days": job.upload.retention_days if job.upload else 0,
                         "token_source": job.token_source,
                     }
                     for job in contract.job_contracts

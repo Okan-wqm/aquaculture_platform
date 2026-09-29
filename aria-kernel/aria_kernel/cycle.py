@@ -644,25 +644,20 @@ def run_enterprise_cycle(
             reference_manifest_root=continuity.get("reference_manifest_root"),
         )
 
-        # ATTEMPT THE REPAIR BEFORE THE FREEZE. `reset_breaker` requires an
-        # operator approval ref and truncates the failure ledger, so a freeze
-        # followed by a successful recovery would leave a row only a human
-        # could clear — the exact manual step recovery exists to remove. See
-        # `restore_and_replay` for the full argument; it deviates from PLAN
-        # §2.5's stated ordering deliberately and says so.
-        recovery = restore_and_replay(
-            Path(workspace_root), diagnosed, base_dir=root, cycle_id=cycle_id
-        )
-        # The verdict stays as the phase recorded it. A recovered gap is a gap
-        # that HAPPENED, and rewriting `blocks_action` to False would make the
-        # cycle row claim the tree was continuous all along — the run's own
-        # history edited to match its outcome. What the recovery changes is
-        # what this cycle DOES, not what it says it saw.
-        continuity = {**continuity, "recovery": recovery.as_event()}
-        context.results["state_continuity"] = continuity
-        if recovery.resolved:
-            emit_progress("state_gap_recovered", cycle_id=cycle_id, reason=recovery.reason)
-        else:
+        recovery_resolved = False
+        if context.mode != "burn_in":
+            # Standard cycles preserve the reference-first recovery path. A
+            # burn-in is evidence about the restored state and may never alter
+            # that state to manufacture a passing observation.
+            recovery = restore_and_replay(
+                Path(workspace_root), diagnosed, base_dir=root, cycle_id=cycle_id
+            )
+            continuity = {**continuity, "recovery": recovery.as_event()}
+            context.results["state_continuity"] = continuity
+            recovery_resolved = recovery.resolved
+            if recovery_resolved:
+                emit_progress("state_gap_recovered", cycle_id=cycle_id, reason=recovery.reason)
+        if not recovery_resolved:
             freeze_autonomous_writes(diagnosed, base_dir=root, cycle_id=cycle_id)
             emit_progress("cycle_aborted", cycle_id=cycle_id, reason="state_integrity_gap")
             event = _aborted_event(cycle_id, git_head_sha_at_cycle=git_head_sha_at_cycle)

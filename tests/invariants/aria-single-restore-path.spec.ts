@@ -41,6 +41,7 @@
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { parse } from 'yaml';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const WORKFLOW_DIR = join(REPO_ROOT, '.github', 'workflows');
@@ -115,6 +116,73 @@ function ciFiles(): { rel: string; body: string }[] {
 }
 
 describe('ARIA state has a single restore path (RC-6)', () => {
+  it('rejects an invalid bind mode before canonical checkout', () => {
+    const action = parse(readFileSync(join(REPO_ROOT, RESTORE_ACTION, 'action.yml'), 'utf8')) as {
+      runs: { steps: Array<{ name: string; run?: string }> };
+    };
+    const names = action.runs.steps.map((step) => step.name);
+    expect(names.slice(0, 2)).toEqual([
+      'Validate ARIA restore mode',
+      'Check out the aria/state store',
+    ]);
+    const validation = action.runs.steps[0].run ?? '';
+    expect(validation).toContain('true|false');
+    expect(validation).not.toContain('aria_kernel state checkout');
+  });
+
+  it('keeps writer binding default-on', () => {
+    const action = parse(readFileSync(join(REPO_ROOT, RESTORE_ACTION, 'action.yml'), 'utf8')) as {
+      inputs: Record<string, { default?: string }>;
+      outputs: Record<string, { description?: string }>;
+      runs: { steps: Array<{ name: string; if?: string }> };
+    };
+    expect(action.inputs['bind-tools-root']?.default).toBe('true');
+    const binding = action.runs.steps.find(
+      (step) => step.name === 'Bind restored tools root for writer lanes',
+    );
+    expect(binding?.if?.replace(/\s+/g, '')).toBe("${{inputs.bind-tools-root=='true'}}");
+    expect(action.outputs['tools-root']?.description).toContain(
+      'only when `bind-tools-root` is `true`',
+    );
+    expect(action.outputs['tools-root']?.description).not.toContain('must bind');
+  });
+
+  it('skips binding and environment export for read-only consumers', () => {
+    const action = parse(readFileSync(join(REPO_ROOT, RESTORE_ACTION, 'action.yml'), 'utf8')) as {
+      runs: { steps: Array<{ name: string; run?: string }> };
+    };
+    const checkout = action.runs.steps.find(
+      (step) => step.name === 'Check out the aria/state store',
+    );
+    const binding = action.runs.steps.find(
+      (step) => step.name === 'Bind restored tools root for writer lanes',
+    );
+    expect(checkout?.run).not.toContain('integrity bind-tools-root');
+    expect(checkout?.run).not.toContain('GITHUB_ENV');
+    expect(binding?.run).toContain('integrity bind-tools-root');
+    expect(binding?.run).toContain('GITHUB_ENV');
+  });
+
+  it('models Operational Proof as a read-only canonical-restore consumer', () => {
+    const workflow = parse(
+      readFileSync(join(WORKFLOW_DIR, 'aria-operational-proof.yml'), 'utf8'),
+    ) as { jobs: { proof: { steps: Array<Record<string, unknown>> } } };
+    const restores = workflow.jobs.proof.steps.filter(
+      (step) => step.uses === `./${RESTORE_ACTION}`,
+    );
+    expect(restores).toHaveLength(1);
+    expect(restores[0].with).toEqual({ 'bind-tools-root': 'false' });
+  });
+
+  it('keeps Operational Proof outside the state-carrying publisher set', () => {
+    expect(STATE_CARRYING_WORKFLOWS).not.toContain('aria-operational-proof.yml');
+    const proof = executableYaml(
+      readFileSync(join(WORKFLOW_DIR, 'aria-operational-proof.yml'), 'utf8'),
+    );
+    expect(proof).not.toContain('state publish');
+    expect(proof).not.toContain('publish_state(');
+  });
+
   it('has exactly one implementation that restores the state store', () => {
     const implementations = ciFiles()
       .filter(({ body }) => RESTORES_THE_STATE_STORE.test(executableYaml(body)))

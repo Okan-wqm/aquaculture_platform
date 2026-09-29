@@ -327,6 +327,10 @@ def store_environment(store: StateStore, repo_hash: str) -> dict[str, str]:
     }
 
 
+def state_writer_attestation_path(store: "StateStore") -> Path:
+    return store.root.parent / f"{store.root.name}.writers.jsonl"
+
+
 def _attest_state_writer(store: "StateStore", *, action: str) -> None:
     """ORPHAN-MEDIUM-767 — attribute every LOCAL state-tree materialization.
 
@@ -346,7 +350,7 @@ def _attest_state_writer(store: "StateStore", *, action: str) -> None:
         import json as _json
         from datetime import datetime, timezone
 
-        ledger = store.root.parent / f"{store.root.name}.writers.jsonl"
+        ledger = state_writer_attestation_path(store)
         row = {
             "recorded_at": datetime.now(timezone.utc).isoformat(),
             "action": action,
@@ -5548,6 +5552,7 @@ __all__ = [
     "snapshot_path",
     "store_environment",
     "store_roots",
+    "state_writer_attestation_path",
     "tools_root",
     "verify_state_store",
     "workspace_root",

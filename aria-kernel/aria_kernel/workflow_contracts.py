@@ -30,27 +30,25 @@ from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 
+from .secure_artifact_io import load_json_object_bytes
+from .tool_registry import GovernanceError
 from .workflow_contract_registry import (
     AUDITED_WORKFLOW_EXCLUSIONS,
+    UPLOAD_ARTIFACT_ACTION,
     WORKFLOW_CONTRACTS,
     AuditedWorkflowExclusion,
+    WorkflowActionRequirement,
     WorkflowAbortGate,
     WorkflowContract,
     WorkflowJobContract,
+    WorkflowPermissionRequirement,
+    WorkflowStepRequirement,
+    WorkflowUploadRequirement,
     workflow_contract_hash,
     workflow_contract_registry,
     workflow_hash,
     workflow_job_contract_hash,
 )
-
-
-# D4 (ADR-036) — main's live YAMLs pin actions/upload-artifact at v7.0.1
-# (043fb46d…), verified via `gh api`. The canonical 13b94c505 blob carried the
-# stale ea165f8d… pin which would reject every live workflow; we unify on the
-# real v7.0.1 SHA. The trailing "# v7.0.1" comment in the YAML `uses:` scalar is
-# part of the parsed value under yaml.safe_load, so the comparison normalizes
-# the inline comment before matching (see ``_uses_action_id``).
-UPLOAD_ARTIFACT_ACTION = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 
 
 @dataclass(frozen=True)
@@ -367,7 +365,14 @@ def _verify_job_contract(
     _verify_permissions(
         job_id=job_contract.job_id,
         actual=job.get("permissions") if isinstance(job.get("permissions"), dict) else top_permissions,
-        required=dict(job_contract.required_permissions),
+        requirement=job_contract.permissions,
+        reasons=reasons,
+        failure_classes=failure_classes,
+    )
+    _verify_required_actions(
+        job_id=job_contract.job_id,
+        steps=steps,
+        requirements=job_contract.actions,
         reasons=reasons,
         failure_classes=failure_classes,
     )
@@ -400,6 +405,18 @@ def _strip_expression_wrapper(text: str) -> str:
     if text.startswith("${{") and text.endswith("}}"):
         return text[3:-2]
     return text
+
+
+def _normalize_condition(text: str) -> str:
+    """Normalize equivalent GitHub ``if`` spellings for exact contracts."""
+    return _collapse(_strip_expression_wrapper(text.strip()).strip())
+
+
+def _executable_run_block(run_block: str) -> str:
+    """Return executable lines only; comments cannot satisfy marker gates."""
+    return "\n".join(
+        line for line in run_block.splitlines() if not line.lstrip().startswith("#")
+    )
 
 
 def _top_level_disjuncts(condition: str) -> list[str]:
@@ -489,10 +506,65 @@ def _verify_declared_steps(
     for idx, step in named_steps:
         first_index.setdefault(str(step.get("name")), idx)
 
-    for required in job_contract.required_steps:
-        if required not in first_index:
-            reasons.append(f"workflow_required_step_missing:{job_id}:{required}")
-            failure_classes.append("workflow_contract_steps")
+    for requirement in job_contract.steps:
+        matches = [
+            step
+            for _, step in named_steps
+            if step.get("name") == requirement.name
+        ]
+        if len(matches) != requirement.occurrences:
+            reasons.append(
+                f"workflow_step_occurrences_mismatch:{job_id}:{requirement.name}:"
+                f"{len(matches)}!={requirement.occurrences}"
+            )
+            failure_classes.append("workflow_step_requirement")
+            continue
+        for step in matches:
+            if (
+                requirement.step_id is not None
+                and str(step.get("id") or "") != requirement.step_id
+            ):
+                reasons.append(
+                    f"workflow_step_id_mismatch:{job_id}:{requirement.name}"
+                )
+                failure_classes.append("workflow_step_requirement")
+            if requirement.condition is not None and _normalize_condition(
+                str(step.get("if") or "")
+            ) != _normalize_condition(requirement.condition):
+                reasons.append(
+                    f"workflow_step_condition_mismatch:{job_id}:{requirement.name}"
+                )
+                failure_classes.append("workflow_step_requirement")
+            run_block = _executable_run_block(str(step.get("run") or ""))
+            for marker in requirement.required_run_markers:
+                if marker not in run_block:
+                    reasons.append(
+                        f"workflow_step_run_marker_missing:{job_id}:{requirement.name}:{marker}"
+                    )
+                    failure_classes.append("workflow_step_requirement")
+            for marker in requirement.forbidden_run_markers:
+                if marker in run_block:
+                    reasons.append(
+                        f"workflow_step_run_marker_forbidden:{job_id}:{requirement.name}:{marker}"
+                    )
+                    failure_classes.append("workflow_step_requirement")
+
+    if job_contract.exact_step_set:
+        declared_names = {
+            requirement.name for requirement in job_contract.steps
+        } | {
+            requirement.step_name for requirement in job_contract.actions
+        }
+        if job_contract.upload is not None:
+            declared_names.add(job_contract.upload.step_name)
+        actual_names = [
+            str(step.get("name"))
+            for step in steps
+            if isinstance(step, dict) and isinstance(step.get("name"), str)
+        ]
+        if len(actual_names) != len(steps) or set(actual_names) != declared_names:
+            reasons.append(f"workflow_exact_step_set_mismatch:{job_id}")
+            failure_classes.append("workflow_exact_step_set")
 
     for earlier, later in job_contract.step_order:
         absent = [name for name in (earlier, later) if name not in first_index]
@@ -505,6 +577,18 @@ def _verify_declared_steps(
                 f"workflow_step_out_of_order:{job_id}:{earlier!r}_must_precede_{later!r}"
             )
             failure_classes.append("workflow_contract_ordering")
+
+    for earlier, later in job_contract.step_adjacency:
+        absent = [name for name in (earlier, later) if name not in first_index]
+        if absent:
+            reasons.append(f"workflow_adjacent_step_missing:{job_id}:{absent}")
+            failure_classes.append("workflow_step_adjacency")
+            continue
+        if first_index[later] != first_index[earlier] + 1:
+            reasons.append(
+                f"workflow_steps_not_adjacent:{job_id}:{earlier!r}:{later!r}"
+            )
+            failure_classes.append("workflow_step_adjacency")
 
     _verify_abort_gate(
         job_id=job_id,
@@ -713,7 +797,7 @@ def _verify_permissions(
     *,
     job_id: str,
     actual: dict[str, Any],
-    required: dict[str, str],
+    requirement: WorkflowPermissionRequirement,
     reasons: list[str],
     failure_classes: list[str],
 ) -> None:
@@ -721,14 +805,20 @@ def _verify_permissions(
         reasons.append(f"workflow_permissions_missing:{job_id}")
         failure_classes.append("workflow_permissions")
         return
+    required = dict(requirement.values)
     for key, value in required.items():
         if actual.get(key) != value:
             reasons.append(f"workflow_permission_mismatch:{job_id}:{key}:{actual.get(key)!r}!={value!r}")
             failure_classes.append("workflow_permissions")
-    for key, value in actual.items():
-        if value == "write" and required.get(key) != "write":
-            reasons.append(f"workflow_uncontracted_write_permission:{job_id}:{key}")
+    if requirement.exact:
+        for key in sorted(set(actual) - set(required)):
+            reasons.append(f"workflow_undeclared_permission:{job_id}:{key}")
             failure_classes.append("workflow_permissions")
+    else:
+        for key, value in actual.items():
+            if value == "write" and required.get(key) != "write":
+                reasons.append(f"workflow_uncontracted_write_permission:{job_id}:{key}")
+                failure_classes.append("workflow_permissions")
 
 
 def _uses_action_id(value: Any) -> str:
@@ -741,6 +831,51 @@ def _uses_action_id(value: Any) -> str:
     return text.strip()
 
 
+def _verify_required_actions(
+    *,
+    job_id: str,
+    steps: list[Any],
+    requirements: tuple[WorkflowActionRequirement, ...],
+    reasons: list[str],
+    failure_classes: list[str],
+) -> None:
+    for requirement in requirements:
+        matches = [
+            step
+            for step in steps
+            if isinstance(step, dict) and step.get("name") == requirement.step_name
+        ]
+        if len(matches) != requirement.occurrences:
+            reasons.append(
+                f"workflow_action_occurrences_mismatch:{job_id}:{requirement.step_name}:"
+                f"{len(matches)}!={requirement.occurrences}"
+            )
+            failure_classes.append("workflow_required_action")
+            continue
+        for step in matches:
+            uses = _uses_action_id(step.get("uses"))
+            if uses != requirement.uses:
+                reasons.append(
+                    f"workflow_action_uses_mismatch:{job_id}:{requirement.step_name}:"
+                    f"{uses}!={requirement.uses}"
+                )
+                failure_classes.append("workflow_required_action")
+            with_block = step.get("with") if isinstance(step.get("with"), dict) else {}
+            for key, value in requirement.required_inputs:
+                if str(with_block.get(key) or "") != value:
+                    reasons.append(
+                        f"workflow_action_input_mismatch:{job_id}:{requirement.step_name}:"
+                        f"{key}"
+                    )
+                    failure_classes.append("workflow_required_action")
+            for key in requirement.forbidden_inputs:
+                if key in with_block:
+                    reasons.append(
+                        f"workflow_action_forbidden_input:{job_id}:{requirement.step_name}:{key}"
+                    )
+                    failure_classes.append("workflow_required_action")
+
+
 def _verify_upload_artifact_step(
     *,
     job_id: str,
@@ -749,36 +884,55 @@ def _verify_upload_artifact_step(
     reasons: list[str],
     failure_classes: list[str],
 ) -> None:
-    if not job_contract.upload_artifact_path_patterns:
+    requirement = job_contract.upload
+    if requirement is None:
         return
     upload_steps = [
         step for step in steps
         if isinstance(step, dict) and _uses_action_id(step.get("uses")).startswith("actions/upload-artifact@")
     ]
-    if not upload_steps:
-        reasons.append(f"workflow_upload_artifact_step_missing:{job_id}")
-        failure_classes.append("workflow_artifact_upload")
-        return
-    matching_step = None
+    declared_upload_names = {requirement.step_name} | {
+        action.step_name
+        for action in job_contract.actions
+        if action.uses.startswith("actions/upload-artifact@")
+    }
     for step in upload_steps:
         uses = _uses_action_id(step.get("uses"))
         if uses != UPLOAD_ARTIFACT_ACTION:
             reasons.append(f"workflow_upload_artifact_not_sha_pinned:{job_id}:{uses}")
             failure_classes.append("workflow_artifact_upload")
-        with_block = step.get("with") if isinstance(step.get("with"), dict) else {}
-        name = str(with_block.get("name") or "")
-        paths = _normalize_artifact_paths(with_block.get("path"))
-        if re.fullmatch(job_contract.upload_artifact_name_pattern, name) and _paths_match_contract(
-            paths,
-            job_contract.upload_artifact_path_patterns,
-        ):
-            matching_step = step
-    if matching_step is None:
-        reasons.append(f"workflow_upload_artifact_contract_mismatch:{job_id}")
+        if step.get("name") not in declared_upload_names:
+            reasons.append(f"workflow_upload_artifact_extra:{job_id}:{step.get('name')}")
+            failure_classes.append("workflow_artifact_upload")
+    matching_steps = [
+        step for step in upload_steps if step.get("name") == requirement.step_name
+    ]
+    if len(matching_steps) != requirement.occurrences:
+        reasons.append(
+            f"workflow_upload_artifact_occurrences_mismatch:{job_id}:"
+            f"{len(matching_steps)}!={requirement.occurrences}"
+        )
         failure_classes.append("workflow_artifact_upload")
         return
+    matching_step = matching_steps[0]
+    if _uses_action_id(matching_step.get("uses")) != requirement.uses:
+        reasons.append(f"workflow_upload_artifact_uses_mismatch:{job_id}")
+        failure_classes.append("workflow_artifact_upload")
+    if _normalize_condition(str(matching_step.get("if") or "")) != _normalize_condition(
+        requirement.condition
+    ):
+        reasons.append(f"workflow_upload_artifact_condition_mismatch:{job_id}")
+        failure_classes.append("workflow_artifact_upload")
     with_block = matching_step.get("with") if isinstance(matching_step.get("with"), dict) else {}
-    if str(with_block.get("if-no-files-found") or "") != "error":
+    name = str(with_block.get("name") or "")
+    if re.fullmatch(requirement.artifact_name_pattern, name) is None:
+        reasons.append(f"workflow_upload_artifact_name_mismatch:{job_id}")
+        failure_classes.append("workflow_artifact_upload")
+    paths = _normalize_artifact_paths(with_block.get("path"))
+    if not _paths_match_contract(paths, requirement.path_patterns):
+        reasons.append(f"workflow_upload_artifact_path_mismatch:{job_id}")
+        failure_classes.append("workflow_artifact_upload")
+    if str(with_block.get("if-no-files-found") or "") != requirement.if_no_files_found:
         reasons.append(f"workflow_upload_artifact_if_no_files_not_error:{job_id}")
         failure_classes.append("workflow_artifact_upload")
     retention = with_block.get("retention-days")
@@ -786,9 +940,12 @@ def _verify_upload_artifact_step(
         retention_days = int(str(retention))
     except (TypeError, ValueError):
         retention_days = 0
-    if retention_days < job_contract.retention_days:
-        reasons.append(f"artifact_retention_below_contract:{job_id}:{job_contract.retention_days}")
-        failure_classes.append("workflow_artifact_retention")
+    if retention_days != requirement.retention_days:
+        reasons.append(
+            f"artifact_retention_mismatch:{job_id}:"
+            f"{retention_days}!={requirement.retention_days}"
+        )
+        failure_classes.append("workflow_artifact_upload")
 
 
 def _normalize_artifact_paths(value: Any) -> tuple[str, ...]:
@@ -877,51 +1034,167 @@ def _verify_preflight_artifact(
     workflow_hash: str,
     contract_hash: str | None,
 ) -> tuple[list[str], list[str]]:
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return ([f"dlp_artifact_unreadable:{path.name}"], ["workflow_dlp_proof_missing"])
+    return verify_workflow_preflight_artifact_bytes(
+        data,
+        contract=contract,
+        job_contract=job_contract,
+        workflow_hash=workflow_hash,
+        contract_hash=contract_hash,
+    )
+
+
+_WORKFLOW_PREFLIGHT_ARTIFACT_KEYS = {
+    "schema_version", "workflow_id", "job_id", "profile",
+    "kill_switch_active", "network_policy", "allowed_write_roots",
+    "path_allowlist", "external_root_allowlist", "token_provenance",
+    "dlp_mode", "audit_reason", "valid", "workflow_hash", "contract_hash",
+    "runtime_write_paths", "network_enforcement_evidence",
+    "audit_artifact_path", "worktree_clean", "dlp_scan_clean",
+    "failure_classes", "reasons",
+}
+
+
+def _normalized_external_artifact_path(
+    value: object,
+    external_roots: object,
+) -> str | None:
+    if not isinstance(value, str) or not isinstance(external_roots, list):
+        return None
+    raw = value.strip()
+    if raw.startswith("runner-temp/"):
+        return raw
+    if len(external_roots) != 1 or not isinstance(external_roots[0], str):
+        return None
+    root = Path(external_roots[0])
+    target = Path(raw)
+    if not root.is_absolute() or not target.is_absolute():
+        return None
+    try:
+        relative = target.relative_to(root).as_posix()
+    except ValueError:
+        return None
+    if not relative or any(part in {"", ".", ".."} for part in relative.split("/")):
+        return None
+    return f"runner-temp/{relative}"
+
+
+def verify_workflow_preflight_artifact_bytes(
+    data: bytes,
+    *,
+    contract: WorkflowContract,
+    job_contract: WorkflowJobContract,
+    workflow_hash: str,
+    contract_hash: str | None,
+) -> tuple[list[str], list[str]]:
+    """Validate persisted preflight bytes for both registry and proof lanes."""
     reasons: list[str] = []
     failures: list[str] = []
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return ([f"dlp_artifact_unparseable:{path.name}"], ["workflow_dlp_proof_missing"])
-    if payload.get("schema_version") != 1:
-        reasons.append("workflow_preflight_artifact_schema_version_mismatch")
-        failures.append("workflow_dlp_proof_missing")
+        payload = load_json_object_bytes(data)
+    except GovernanceError:
+        return (["workflow_preflight_artifact_unparseable"], ["workflow_dlp_proof_missing"])
+    def reject(reason: str, failure: str = "workflow_dlp_proof_missing") -> None:
+        reasons.append(reason)
+        failures.append(failure)
+
+    if set(payload) != _WORKFLOW_PREFLIGHT_ARTIFACT_KEYS:
+        reject("workflow_preflight_artifact_schema_invalid")
+    if (
+        not isinstance(payload.get("schema_version"), int)
+        or isinstance(payload.get("schema_version"), bool)
+        or payload.get("schema_version") != 1
+    ):
+        reject("workflow_preflight_artifact_schema_version_mismatch")
     if payload.get("workflow_id") != contract.workflow_id:
-        reasons.append("workflow_preflight_artifact_workflow_id_mismatch")
-        failures.append("workflow_dlp_proof_missing")
+        reject("workflow_preflight_artifact_workflow_id_mismatch")
     if payload.get("job_id") != job_contract.job_id:
-        reasons.append("workflow_preflight_artifact_job_id_mismatch")
-        failures.append("workflow_dlp_proof_missing")
+        reject("workflow_preflight_artifact_job_id_mismatch")
+    if job_contract.preflight_profile and payload.get("profile") != job_contract.preflight_profile:
+        reject("workflow_preflight_artifact_profile_mismatch")
+    if payload.get("kill_switch_active") is not False:
+        reject("workflow_preflight_artifact_kill_switch_active")
     if payload.get("valid") is not True:
-        reasons.append("workflow_preflight_artifact_not_valid")
-        failures.append("workflow_dlp_proof_missing")
-    if payload.get("dlp_scan_clean") is not True:
-        reasons.append("workflow_preflight_artifact_dlp_not_clean")
-        failures.append("workflow_dlp_proof_missing")
+        reject("workflow_preflight_artifact_not_valid")
+    if payload.get("failure_classes") != [] or payload.get("reasons") != []:
+        reject("workflow_preflight_artifact_failures_present")
+    if payload.get("dlp_mode") != "fail_closed" or payload.get("dlp_scan_clean") is not True:
+        reject("workflow_preflight_artifact_dlp_not_clean")
+    if payload.get("worktree_clean") is not True:
+        reject("workflow_preflight_artifact_worktree_not_clean")
     observed_token = str(payload.get("token_provenance") or "")
     if observed_token != job_contract.token_source:
-        reasons.append(f"workflow_preflight_artifact_token_mismatch:{observed_token}!={job_contract.token_source}")
-        failures.append("workflow_token_source")
-    observed_network = tuple(payload.get("network_policy") or ())
-    if tuple(sorted(observed_network)) != tuple(sorted(job_contract.network_policy)):
-        reasons.append("workflow_preflight_artifact_network_policy_mismatch")
-        failures.append("workflow_network_policy")
-    if not payload.get("workflow_hash"):
-        reasons.append("workflow_preflight_artifact_workflow_hash_missing")
-        failures.append("workflow_dlp_proof_missing")
-    elif payload.get("workflow_hash") != workflow_hash:
-        reasons.append("workflow_preflight_artifact_workflow_hash_mismatch")
-        failures.append("workflow_dlp_proof_missing")
-    if payload.get("contract_hash") != contract_hash:
-        reasons.append("workflow_preflight_artifact_contract_hash_mismatch")
-        failures.append("workflow_dlp_proof_missing")
-    runtime_paths = tuple(str(item) for item in payload.get("runtime_write_paths") or ())
-    if not runtime_paths or not all(
-        any(re.fullmatch(pattern, item) for pattern in job_contract.allowed_write_path_patterns)
-        for item in runtime_paths
+        reject(
+            f"workflow_preflight_artifact_token_mismatch:{observed_token}!={job_contract.token_source}",
+            "workflow_token_source",
+        )
+    network_value = payload.get("network_policy")
+    network_typed = (
+        isinstance(network_value, list)
+        and all(isinstance(item, str) for item in network_value)
+    )
+    observed_network = tuple(network_value) if network_typed else ()
+    if (
+        not network_typed
+        or tuple(sorted(observed_network))
+        != tuple(sorted(job_contract.network_policy))
     ):
-        reasons.append("workflow_preflight_artifact_runtime_paths_mismatch")
-        failures.append("path_allowlist_violation")
+        reject("workflow_preflight_artifact_network_policy_mismatch", "workflow_network_policy")
+    if not payload.get("workflow_hash"):
+        reject("workflow_preflight_artifact_workflow_hash_missing")
+    elif payload.get("workflow_hash") != workflow_hash:
+        reject("workflow_preflight_artifact_workflow_hash_mismatch")
+    if payload.get("contract_hash") != contract_hash:
+        reject("workflow_preflight_artifact_contract_hash_mismatch")
+    if (
+        job_contract.preflight_audit_reason is not None
+        and payload.get("audit_reason") != job_contract.preflight_audit_reason
+    ):
+        reject("workflow_preflight_artifact_audit_reason_mismatch")
+    if (
+        job_contract.network_enforcement_evidence is not None
+        and payload.get("network_enforcement_evidence")
+        != job_contract.network_enforcement_evidence
+    ):
+        reject("workflow_preflight_artifact_network_evidence_mismatch", "workflow_network_policy")
+    runtime_value = payload.get("runtime_write_paths")
+    roots_value = payload.get("allowed_write_roots")
+    allowlist_value = payload.get("path_allowlist")
+    runtime_paths = tuple(runtime_value) if isinstance(runtime_value, list) else ()
+    roots = tuple(roots_value) if isinstance(roots_value, list) else ()
+    allowlist = tuple(allowlist_value) if isinstance(allowlist_value, list) else ()
+    exact_paths = job_contract.exact_runtime_write_paths
+    if exact_paths:
+        paths_valid = runtime_paths == roots == allowlist == exact_paths
+    else:
+        paths_valid = (
+            bool(runtime_paths)
+            and runtime_paths == roots == allowlist
+            and all(
+                isinstance(item, str)
+                and any(re.fullmatch(pattern, item) for pattern in job_contract.allowed_write_path_patterns)
+                for item in runtime_paths
+            )
+        )
+    if not paths_valid:
+        reject("workflow_preflight_artifact_runtime_paths_mismatch", "path_allowlist_violation")
+    if (
+        job_contract.external_root_allowlist
+        and payload.get("external_root_allowlist") != ["runner-temp"]
+    ):
+        reject("workflow_preflight_artifact_external_roots_mismatch", "path_allowlist_violation")
+    audit_label = _normalized_external_artifact_path(
+        payload.get("audit_artifact_path"),
+        payload.get("external_root_allowlist"),
+    )
+    if audit_label is None or not re.fullmatch(
+        job_contract.preflight_artifact_path_pattern,
+        audit_label,
+    ):
+        reject("workflow_preflight_artifact_audit_path_mismatch", "path_allowlist_violation")
     return reasons, failures
 
 
@@ -943,13 +1216,18 @@ __all__ = [
     "UPLOAD_ARTIFACT_ACTION",
     "WORKFLOW_CONTRACTS",
     "AuditedWorkflowExclusion",
+    "WorkflowActionRequirement",
     "WorkflowContract",
     "WorkflowContractVerdict",
     "WorkflowJobContract",
+    "WorkflowPermissionRequirement",
     "WorkflowRegistryVerdict",
+    "WorkflowStepRequirement",
+    "WorkflowUploadRequirement",
     "discover_aria_workflows",
     "generated_workflow_inventory",
     "verify_workflow_contract",
+    "verify_workflow_preflight_artifact_bytes",
     "verify_workflow_registry",
     "workflow_contract_hash",
     "workflow_contract_registry",

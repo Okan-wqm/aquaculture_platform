@@ -34,6 +34,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -47,6 +48,7 @@ from aria_kernel.cycle import (
     run_enterprise_cycle,
 )
 from aria_kernel.ledger import load_jsonl
+from aria_kernel.memory_gap import RecoveryResult
 from aria_kernel.tool_registry import GovernanceError
 
 # The observe set. This is the SSoT's expected projection, restated as a
@@ -185,6 +187,64 @@ class ModeExecutionTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _blocking_phases(self):
+        return tuple(
+            replace(
+                phase,
+                runner=lambda _context: {
+                    "status": "critical",
+                    "reference_kind": "state_branch",
+                    "reasons": ["fixture_gap"],
+                    "lost_surfaces": ["runs"],
+                    "current_manifest_root": "sha256:" + "1" * 64,
+                    "reference_manifest_root": "sha256:" + "2" * 64,
+                    "blocks_action": True,
+                    "recovery": None,
+                },
+            )
+            if phase.name == "state_continuity"
+            else phase
+            for phase in CYCLE_PHASES
+        )
+
+    def test_burn_in_never_attempts_continuity_recovery(self) -> None:
+        with (
+            patch.object(cycle_mod, "CYCLE_PHASES", self._blocking_phases()),
+            patch("aria_kernel.memory_gap.restore_and_replay") as restore_and_replay,
+            patch("aria_kernel.memory_gap.freeze_autonomous_writes") as freeze_autonomous_writes,
+        ):
+            state = run_enterprise_cycle(
+                workspace_root=self.repo,
+                cycle_id="cycle-burnin-blocking-continuity",
+                base_dir=self.tools,
+                workspace_base=self.tmp / "ws",
+                mode="burn_in",
+            )
+
+        restore_and_replay.assert_not_called()
+        freeze_autonomous_writes.assert_called_once()
+        self.assertEqual(state["status"], "aborted")
+
+    def test_standard_cycle_still_attempts_continuity_recovery(self) -> None:
+        recovery = RecoveryResult(resolved=True, reason="fixture_recovered")
+        with (
+            patch.object(cycle_mod, "CYCLE_PHASES", self._blocking_phases()),
+            patch(
+                "aria_kernel.memory_gap.restore_and_replay", return_value=recovery
+            ) as restore_and_replay,
+            patch("aria_kernel.memory_gap.freeze_autonomous_writes") as freeze_autonomous_writes,
+        ):
+            state = run_enterprise_cycle(
+                workspace_root=self.repo,
+                cycle_id="cycle-standard-recovered-continuity",
+                base_dir=self.tools,
+                discovery_only=True,
+            )
+
+        restore_and_replay.assert_called_once()
+        freeze_autonomous_writes.assert_not_called()
+        self.assertEqual(state["status"], "completed")
 
     def test_a_burn_in_cycle_runs_the_observe_set_and_nothing_else(self) -> None:
         state = run_enterprise_cycle(

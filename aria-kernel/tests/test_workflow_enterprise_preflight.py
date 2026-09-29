@@ -7,6 +7,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+
+import aria_kernel.workflow_contract_registry as workflow_registry
+
 from aria_kernel.preflight import verify_workflow_preflight
 from aria_kernel.workflow_contract_registry import (
     _EXECUTOR_LEASE_STEP,
@@ -36,6 +40,28 @@ def _write_runtime_workflow(root: Path, workflow_id: str) -> None:
 
 
 class WorkflowEnterprisePreflightTests(unittest.TestCase):
+    def test_operational_proof_early_failure_summary_uses_secure_cli_before_upload(self) -> None:
+        workflow_path = (
+            Path(__file__).resolve().parents[2]
+            / ".github/workflows/aria-operational-proof.yml"
+        )
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["proof"]["steps"]
+        burn = next(step for step in steps if step.get("name") == "Run observe burn-in proof")
+        manifest_index = next(
+            index for index, step in enumerate(steps)
+            if step.get("name") == "Write ARIA operational proof manifest"
+        )
+        dlp_index = next(
+            index for index, step in enumerate(steps)
+            if step.get("name") == "Scan staged ARIA operational proof for secrets"
+        )
+        upload = next(step for step in steps if step.get("name") == "Upload ARIA operational proof")
+        self.assertNotIn("Path.write_text", burn["run"])
+        self.assertIn("operational_proof write-failure-summary", burn["run"])
+        self.assertLess(manifest_index, dlp_index)
+        self.assertEqual(upload["if"], "${{ always() && steps.dlp.outcome == 'success' }}")
+
     def test_upload_artifact_action_pins_live_v7_0_1_sha(self) -> None:
         # D4 (ADR-036) — the registry verifier must enforce the REAL live pin
         # (043fb46d… v7.0.1), not the canonical's stale ea165f8d… pin.
@@ -256,77 +282,56 @@ jobs:
         # Security assertion #3 (preserved from main's 9) — the structured DLP
         # proof artifact is validated (workflow_id/job_id/valid/dlp/token/network/
         # workflow_hash/contract_hash/runtime_write_paths).
-        with tempfile.TemporaryDirectory() as tmp:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as runner_tmp,
+        ):
             root = Path(tmp)
             workflow = root / ".github" / "workflows" / "aria-operational-proof.yml"
             workflow.parent.mkdir(parents=True)
             workflow.write_text(
-                """
-name: ARIA Operational Proof
-permissions:
-  contents: read
-jobs:
-  proof:
-    permissions:
-      contents: read
-    timeout-minutes: 35
-    steps:
-      - name: Persist enterprise workflow preflight
-        run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          from aria_kernel.preflight import verify_workflow_preflight
-          verify_workflow_preflight(
-              workflow_id="aria-operational-proof",
-              job_id="proof",
-              profile="standard",
-              workspace_root=os.environ["GITHUB_WORKSPACE"],
-              allowed_write_roots=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
-              path_allowlist=[str(Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof")],
-              network_policy=["github_artifact"],
-              network_enforcement_evidence="GitHub artifact upload only",
-              token_provenance="github_actions_artifact_token",
-              require_github_app=False,
-              dlp_mode="fail_closed",
-              dlp_scan_clean=True,
-              audit_reason="unit test operational proof",
-              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-operational-proof" / "workflow-preflight.json",
-              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
-          )
-          PY
-      - name: Run observe burn-in proof
-        run: python3 -m aria_kernel autonomy burn-in observe --cycles 30
-      - name: Upload ARIA operational proof
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: aria-operational-proof-${{ github.sha }}
-          path: ${{ runner.temp }}/aria-operational-proof/
-          if-no-files-found: error
-          retention-days: 365
-""",
+                (
+                    Path(__file__).resolve().parents[2]
+                    / ".github/workflows/aria-operational-proof.yml"
+                ).read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
-            artifact_dir = root / "artifacts"
-            artifact_dir.mkdir()
-            (artifact_dir / "workflow-preflight.json").write_text(
-                json.dumps(
-                    {
-                        "workflow_id": "aria-operational-proof",
-                        "job_id": "proof",
-                        "schema_version": 1,
-                        "valid": True,
-                        "dlp_scan_clean": True,
-                        "token_provenance": "github_actions_artifact_token",
-                        "network_policy": ["github_artifact"],
-                        "workflow_hash": workflow_hash(workflow),
-                        "contract_hash": workflow_job_contract_hash("aria-operational-proof", "proof"),
-                        "runtime_write_paths": ["runner-temp/aria-operational-proof"],
-                    }
+            runner_temp = Path(runner_tmp)
+            artifact_dir = runner_temp / "aria-operational-proof"
+            artifact_dir.mkdir(parents=True)
+            roots = [
+                str(root / ".aria-state-store"),
+                str(root / ".aria-state-store.writers.jsonl"),
+                str(runner_temp / "aria-state-checkout.json"),
+                str(runner_temp / "aria-state-checkout.json.err"),
+                str(artifact_dir),
+                str(runner_temp / "aria-operational-proof-tools"),
+                str(runner_temp / "aria-operational-proof-workspaces"),
+            ]
+            with patch(
+                "aria_kernel.preflight._git_worktree_clean",
+                return_value=True,
+            ):
+                produced = verify_workflow_preflight(
+                    workflow_id="aria-operational-proof",
+                    job_id="proof",
+                    profile="strict",
+                    workspace_root=root,
+                    allowed_write_roots=roots,
+                    path_allowlist=roots,
+                    network_policy=["github_artifact", "github_git"],
+                    network_enforcement_evidence=(
+                        "canonical aria/state restore and final artifact upload"
+                    ),
+                    token_provenance="github_actions_artifact_token",
+                    require_github_app=False,
+                    dlp_mode="fail_closed",
+                    dlp_scan_clean=True,
+                    audit_reason="persist ARIA observe burn-in proof artifact",
+                    audit_artifact_path=artifact_dir / "workflow-preflight.json",
+                    external_root_allowlist=[str(runner_temp)],
                 )
-                + "\n",
-                encoding="utf-8",
-            )
+            self.assertTrue(produced.valid, produced.reasons)
             verdict = verify_workflow_contract(
                 workflow_id="aria-operational-proof",
                 workspace_root=root,
@@ -469,6 +474,154 @@ jobs:
         self.assertFalse(verdict.valid)
         self.assertIn("workflow_dlp_proof_missing", verdict.failure_classes)
         self.assertIn("workflow_preflight_artifact_workflow_hash_missing", verdict.reasons)
+
+
+class TypedWorkflowContractTests(unittest.TestCase):
+    def _typed_verdict(self, mutate_job):
+        permission = workflow_registry.WorkflowPermissionRequirement(
+            values=(("contents", "read"),),
+        )
+        required_step = workflow_registry.WorkflowStepRequirement(
+            name="Guarded step",
+            condition="always()",
+            required_run_markers=("required command",),
+            forbidden_run_markers=("forbidden command",),
+        )
+        required_action = workflow_registry.WorkflowActionRequirement(
+            step_name="Restore state",
+            uses="./.github/actions/example",
+            required_inputs=(("bind-tools-root", "false"),),
+            forbidden_inputs=("bootstrap-ack",),
+        )
+        upload = workflow_registry.WorkflowUploadRequirement(
+            step_name="Upload proof",
+            uses=UPLOAD_ARTIFACT_ACTION,
+            artifact_name_pattern=r"^proof$",
+            path_patterns=(r"^proof$",),
+            condition="always()",
+            if_no_files_found="error",
+            retention_days=7,
+        )
+        job_contract = workflow_registry.WorkflowJobContract(
+            job_id="proof",
+            preflight_step="Preflight",
+            first_governed_mutation_step="Mutation",
+            allowed_write_path_patterns=(r"^proof$",),
+            preflight_artifact_path_pattern=r"^proof/preflight\.json$",
+            permissions=permission,
+            token_source="github_actions_artifact_token",
+            network_policy=("github_artifact",),
+            dlp_artifact="none",
+            clean_worktree_policy="pre_and_post",
+            upload=upload,
+            steps=(required_step,),
+            actions=(required_action,),
+        )
+        contract = workflow_registry.WorkflowContract(
+            workflow_id="typed-unit",
+            workflow_file=".github/workflows/typed-unit.yml",
+            job_contracts=(job_contract,),
+        )
+        job = {
+            "permissions": {"contents": "read"},
+            "steps": [
+                {
+                    "name": "Preflight",
+                    "run": "\n".join(
+                        (
+                            "verify_workflow_preflight(",
+                            'workflow_id="typed-unit",',
+                            'job_id="proof",',
+                            'audit_artifact_path="proof/preflight.json",',
+                            'token_provenance="github_actions_artifact_token",',
+                            'network_policy=["github_artifact"],',
+                            'network_enforcement_evidence="artifact upload",',
+                            ")",
+                        )
+                    ),
+                },
+                {
+                    "name": "Restore state",
+                    "uses": "./.github/actions/example",
+                    "with": {"bind-tools-root": "false"},
+                },
+                {"name": "Mutation", "run": "echo mutation"},
+                {
+                    "name": "Guarded step",
+                    "if": "${{   always()   }}",
+                    "run": "# forbidden command in a comment\nrequired command",
+                },
+                {
+                    "name": "Upload proof",
+                    "if": "${{ always() }}",
+                    "uses": UPLOAD_ARTIFACT_ACTION,
+                    "with": {
+                        "name": "proof",
+                        "path": "proof/",
+                        "if-no-files-found": "error",
+                        "retention-days": 7,
+                    },
+                },
+            ],
+        }
+        mutate_job(job)
+        workflow = {"name": "typed unit", "jobs": {"proof": job}}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / contract.workflow_file
+            path.parent.mkdir(parents=True)
+            path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+            return verify_workflow_contract(
+                workflow_id="typed-unit",
+                workspace_root=root,
+                contract_registry={"typed-unit": contract},
+            )
+
+    def test_required_action_contract_enforces_uses_occurrences_and_inputs(self) -> None:
+        mutations = (
+            lambda job: job["steps"][1].update({"uses": "./.github/actions/drifted"}),
+            lambda job: job["steps"].insert(2, dict(job["steps"][1])),
+            lambda job: job["steps"][1]["with"].update({"bind-tools-root": "true"}),
+            lambda job: job["steps"][1]["with"].update({"bootstrap-ack": "yes"}),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                verdict = self._typed_verdict(mutate)
+                self.assertIn("workflow_required_action", verdict.failure_classes)
+
+    def test_step_contract_enforces_occurrence_condition_and_run_markers(self) -> None:
+        mutations = (
+            lambda job: job["steps"].append(dict(job["steps"][3])),
+            lambda job: job["steps"][3].update({"if": "success()"}),
+            lambda job: job["steps"][3].update({"run": "echo missing"}),
+            lambda job: job["steps"][3].update({"run": "forbidden command"}),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                verdict = self._typed_verdict(mutate)
+                self.assertIn("workflow_step_requirement", verdict.failure_classes)
+
+    def test_permission_contract_rejects_every_undeclared_scope(self) -> None:
+        verdict = self._typed_verdict(
+            lambda job: job["permissions"].update({"actions": "read"})
+        )
+        self.assertIn("workflow_permissions", verdict.failure_classes)
+
+    def test_upload_contract_rejects_extra_or_non_always_uploads(self) -> None:
+        mutations = (
+            lambda job: job["steps"].append(
+                {
+                    "name": "Extra upload",
+                    "uses": UPLOAD_ARTIFACT_ACTION,
+                    "with": {"name": "extra", "path": "extra"},
+                }
+            ),
+            lambda job: job["steps"][4].update({"if": "success()"}),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                verdict = self._typed_verdict(mutate)
+                self.assertIn("workflow_artifact_upload", verdict.failure_classes)
 
 
 class BurnInTimeoutFloorTests(unittest.TestCase):
@@ -772,7 +925,8 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
     def test_deleting_publish_or_quarantine_is_rejected(self) -> None:
         # Every required step, derived from the contract — a hardcoded trio
         # would stop covering a step the day one is added.
-        for step_name in WORKFLOW_CONTRACTS[self._EXECUTOR].job_contracts[0].required_steps:
+        for requirement in WORKFLOW_CONTRACTS[self._EXECUTOR].job_contracts[0].steps:
+            step_name = requirement.name
             with self.subTest(step=step_name):
                 verdict = self._mutated_verdict(
                     self._EXECUTOR,
@@ -782,9 +936,9 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
                     ],
                 )
                 self.assertFalse(verdict.valid)
-                self.assertIn("workflow_contract_steps", verdict.failure_classes)
+                self.assertIn("workflow_step_requirement", verdict.failure_classes)
                 self.assertIn(
-                    f"workflow_required_step_missing:executor:{step_name}",
+                    f"workflow_step_occurrences_mismatch:executor:{step_name}:0!=1",
                     verdict.reasons,
                 )
 
@@ -979,6 +1133,217 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
                     "abort_gate, so nothing checks that its later steps carry "
                     "the guard — `exit 0` does not abort a GitHub Actions job",
                 )
+
+
+class OperationalProofTopologyTests(unittest.TestCase):
+    WORKFLOW_ID = "aria-operational-proof"
+    PREFLIGHT = "Persist enterprise workflow preflight"
+    RESTORE = "Restore ARIA state from the aria/state branch"
+    INITIAL = "Verify restored ARIA state reference"
+    BURN = "Run observe burn-in proof"
+    POSTFLIGHT = "Verify post-run source and state immutability"
+    MANIFEST = "Write ARIA operational proof manifest"
+    DLP = "Scan staged ARIA operational proof for secrets"
+    VERIFY = "Verify complete ARIA operational proof"
+    UPLOAD = "Upload ARIA operational proof"
+
+    def _mutated_verdict(self, mutate_steps=None, mutate_job=None):
+        repo = Path(__file__).resolve().parents[2]
+        contract = WORKFLOW_CONTRACTS[self.WORKFLOW_ID]
+        job_id = contract.job_contracts[0].job_id
+        workflow = yaml.safe_load(
+            (repo / contract.workflow_file).read_text(encoding="utf-8")
+        )
+        job = dict(workflow["jobs"][job_id])
+        if mutate_steps is not None:
+            job["steps"] = mutate_steps(list(job["steps"]))
+        if mutate_job is not None:
+            job = mutate_job(job)
+        workflow["jobs"][job_id] = job
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / contract.workflow_file
+            target.parent.mkdir(parents=True)
+            target.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+            return verify_workflow_contract(
+                workflow_id=self.WORKFLOW_ID, workspace_root=root,
+            )
+
+    @staticmethod
+    def _index(steps, name):
+        return next(
+            (index for index, step in enumerate(steps)
+             if isinstance(step, dict) and step.get("name") == name),
+            None,
+        )
+
+    def _move_after(self, steps, moved_name, anchor_name):
+        moved = self._index(steps, moved_name)
+        anchor = self._index(steps, anchor_name)
+        if moved is None or anchor is None:
+            return steps
+        step = steps.pop(moved)
+        anchor = self._index(steps, anchor_name)
+        steps.insert(anchor + 1, step)
+        return steps
+
+    def test_operational_proof_restore_before_preflight_is_rejected(self) -> None:
+        def mutate(steps):
+            restore = self._index(steps, self.RESTORE)
+            preflight = self._index(steps, self.PREFLIGHT)
+            if restore is not None and preflight is not None:
+                step = steps.pop(restore)
+                preflight = self._index(steps, self.PREFLIGHT)
+                steps.insert(preflight, step)
+            return steps
+        verdict = self._mutated_verdict(mutate_steps=mutate)
+        self.assertIn("workflow_contract_ordering", verdict.failure_classes)
+
+    def test_operational_proof_restore_action_drift_is_rejected(self) -> None:
+        def mutate(steps):
+            index = self._index(steps, self.RESTORE)
+            if index is not None:
+                steps[index]["uses"] = "./.github/actions/not-the-restore"
+            return steps
+        verdict = self._mutated_verdict(mutate_steps=mutate)
+        self.assertIn("workflow_required_action", verdict.failure_classes)
+
+    def test_operational_proof_store_verification_after_burn_in_is_rejected(self) -> None:
+        verdict = self._mutated_verdict(
+            mutate_steps=lambda steps: self._move_after(steps, self.INITIAL, self.BURN)
+        )
+        self.assertIn("workflow_contract_ordering", verdict.failure_classes)
+
+    def test_operational_proof_postflight_after_upload_is_rejected(self) -> None:
+        verdict = self._mutated_verdict(
+            mutate_steps=lambda steps: self._move_after(steps, self.POSTFLIGHT, self.UPLOAD)
+        )
+        self.assertIn("workflow_contract_ordering", verdict.failure_classes)
+
+    def test_operational_proof_final_dlp_after_upload_is_rejected(self) -> None:
+        verdict = self._mutated_verdict(
+            mutate_steps=lambda steps: self._move_after(steps, self.DLP, self.UPLOAD)
+        )
+        self.assertIn("workflow_contract_ordering", verdict.failure_classes)
+
+    def test_operational_proof_write_permission_is_rejected(self) -> None:
+        def mutate(job):
+            job["permissions"] = {"contents": "write"}
+            return job
+        verdict = self._mutated_verdict(mutate_job=mutate)
+        self.assertIn("workflow_permissions", verdict.failure_classes)
+
+    def test_operational_proof_scratch_or_store_upload_is_rejected(self) -> None:
+        for path in (
+            "${{ runner.temp }}/aria-operational-proof-tools/",
+            ".aria-state-store/",
+        ):
+            with self.subTest(path=path):
+                def mutate(steps, upload_path=path):
+                    index = self._index(steps, self.UPLOAD)
+                    steps[index]["with"]["path"] = upload_path
+                    return steps
+                verdict = self._mutated_verdict(mutate_steps=mutate)
+                self.assertIn("workflow_artifact_upload", verdict.failure_classes)
+
+    def test_operational_proof_upload_runs_always_and_only_uploads_curated_proof(self) -> None:
+        contract = WORKFLOW_CONTRACTS[self.WORKFLOW_ID].job_contracts[0]
+        upload = contract.upload
+        self.assertIsNotNone(upload)
+        self.assertEqual(
+            upload.condition,
+            "always() && steps.dlp.outcome == 'success'",
+        )
+        self.assertEqual(upload.path_patterns, (r"^runner-temp/aria-operational-proof$",))
+        verdict = self._mutated_verdict(lambda steps: steps)
+        self.assertTrue(verdict.valid, verdict.reasons)
+
+    def test_operational_proof_dlp_has_bound_id_and_gates_upload(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        contract = WORKFLOW_CONTRACTS[self.WORKFLOW_ID]
+        workflow = yaml.safe_load(
+            (repo / contract.workflow_file).read_text(encoding="utf-8")
+        )
+        steps = workflow["jobs"]["proof"]["steps"]
+        dlp = steps[self._index(steps, self.DLP)]
+        upload = steps[self._index(steps, self.UPLOAD)]
+        self.assertEqual(dlp.get("id"), "dlp")
+        self.assertEqual(
+            upload.get("if"),
+            "${{ always() && steps.dlp.outcome == 'success' }}",
+        )
+
+    def test_operational_proof_rejects_undeclared_executable_or_action_step(self) -> None:
+        mutations = (
+            {
+                "name": "Late undeclared writer",
+                "if": "always()",
+                "run": 'echo mutation > "$RUNNER_TEMP/aria-operational-proof/unexpected.txt"',
+            },
+            {
+                "name": "Late undeclared action",
+                "if": "always()",
+                "uses": "./.github/actions/restore-aria-state",
+            },
+        )
+        for inserted in mutations:
+            with self.subTest(step=inserted["name"]):
+                def mutate(steps, step=inserted):
+                    upload = self._index(steps, self.UPLOAD)
+                    steps.insert(upload, dict(step))
+                    return steps
+                verdict = self._mutated_verdict(mutate_steps=mutate)
+                self.assertIn("workflow_exact_step_set", verdict.failure_classes)
+
+    def test_operational_proof_terminal_chain_requires_adjacency(self) -> None:
+        for earlier, later in ((self.DLP, self.VERIFY), (self.VERIFY, self.UPLOAD)):
+            with self.subTest(edge=(earlier, later)):
+                def mutate(steps, before=earlier):
+                    compile_index = self._index(steps, "Compile ARIA kernel")
+                    compile_step = steps.pop(compile_index)
+                    before_index = self._index(steps, before)
+                    steps.insert(before_index + 1, compile_step)
+                    return steps
+                verdict = self._mutated_verdict(mutate_steps=mutate)
+                self.assertIn("workflow_step_adjacency", verdict.failure_classes)
+
+    def test_operational_proof_burn_in_preserves_original_failure_status(self) -> None:
+        def mutate(steps):
+            index = self._index(steps, self.BURN)
+            if index is not None:
+                steps[index]["run"] = str(steps[index].get("run") or "").replace(
+                    'exit "$BURN_STATUS"', 'exit "$POSTPROCESS_STATUS"'
+                )
+            return steps
+        verdict = self._mutated_verdict(mutate_steps=mutate)
+        self.assertIn("workflow_step_requirement", verdict.failure_classes)
+
+    def test_operational_proof_bootstrap_is_strict_before_status_capture(self) -> None:
+        def mutate(steps):
+            index = self._index(steps, self.BURN)
+            if index is not None:
+                steps[index]["run"] = str(steps[index].get("run") or "").replace(
+                    "set -euo pipefail",
+                    "set -uo pipefail",
+                )
+            return steps
+        verdict = self._mutated_verdict(mutate_steps=mutate)
+        self.assertIn("workflow_step_requirement", verdict.failure_classes)
+
+    def test_operational_proof_every_post_burn_step_runs_always(self) -> None:
+        for name in (self.POSTFLIGHT, self.MANIFEST, self.DLP, self.VERIFY, self.UPLOAD):
+            with self.subTest(step=name):
+                def mutate(steps, step_name=name):
+                    index = self._index(steps, step_name)
+                    if index is not None:
+                        steps[index].pop("if", None)
+                    return steps
+                verdict = self._mutated_verdict(mutate_steps=mutate)
+                expected = (
+                    "workflow_artifact_upload" if name == self.UPLOAD
+                    else "workflow_step_requirement"
+                )
+                self.assertIn(expected, verdict.failure_classes)
 
 
 if __name__ == "__main__":

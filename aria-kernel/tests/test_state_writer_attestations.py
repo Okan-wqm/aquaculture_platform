@@ -15,7 +15,11 @@ import shutil
 import unittest
 from pathlib import Path
 
-from aria_kernel.state_store import checkout_state_store, publish_state
+from aria_kernel.state_store import (
+    checkout_state_store,
+    publish_state,
+    state_writer_attestation_path,
+)
 from tests.test_state_store import REPO_HASH, StateStoreTestCase
 
 
@@ -29,6 +33,19 @@ def _writer_rows(store) -> list[dict]:
 
 
 class StateWriterAttestationTests(unittest.TestCase):
+    def test_writer_attestation_path_is_the_canonical_ignored_sibling(self) -> None:
+        harness = StateStoreTestCase("run")
+        harness.setUp()
+        try:
+            store = harness._bootstrap()
+            self.assertEqual(
+                state_writer_attestation_path(store),
+                store.root.parent / f"{store.root.name}.writers.jsonl",
+            )
+            self.assertNotEqual(state_writer_attestation_path(store).parent, store.root)
+        finally:
+            harness.doCleanups()
+
     def test_bootstrap_and_restore_attest_outside_the_store_tree(self) -> None:
         harness = StateStoreTestCase("run")
         harness.setUp()

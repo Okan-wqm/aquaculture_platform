@@ -49,7 +49,8 @@ const input: CompleteWorkOrderInput = {
 
 describe('WorkOrderService.complete — spare-part consumption', () => {
   it('hands only the spare-part materials to the ledger, in the completion transaction', async () => {
-    // SCENARIO: one catalogued part + one free-text consumable. EXPECTS: one ledger call with part-1 × 2.
+    // SCENARIO: one catalogued part + one free-text consumable. EXPECTS: one ledger call
+    // with part-1 × 2, handed the work order itself (its asset decides the draw site, V-B1-9).
     const consume = jest.fn().mockResolvedValue(undefined);
     const { service, mockManager } = build(consume);
 
@@ -58,7 +59,7 @@ describe('WorkOrderService.complete — spare-part consumption', () => {
     expect(consume).toHaveBeenCalledWith(
       mockManager,
       TENANT,
-      'wo-1',
+      expect.objectContaining({ id: 'wo-1' }),
       [{ sparePartId: 'part-1', quantity: 2 }],
       'tech-1',
     );

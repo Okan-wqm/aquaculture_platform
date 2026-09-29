@@ -9273,6 +9273,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/spare-part-work-order-draw.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/stock-reconstruction.postgres.spec.ts",
       "prettier_managed": true
     },
@@ -15368,6 +15374,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/maintenance/__tests__/work-order-consumption.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/maintenance/__tests__/work-order-read-handlers.spec.ts",
       "prettier_managed": true
     },
@@ -15783,6 +15795,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/maintenance/services/spare-part.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/services/work-order-consumption.ts",
       "prettier_managed": true
     },
     {

@@ -10,6 +10,7 @@ import { EntityManager, ObjectLiteral, Repository, SelectQueryBuilder } from 'ty
 
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageInventory, StorageItemType } from '../../storage/entities/storage-inventory.entity';
+import { StorageLocation } from '../../storage/entities/storage-location.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
 import { StockMutationLockAuthority } from '../../storage/services/stock-mutation-lock.authority';
 import { SparePart } from '../entities/spare-part.entity';
@@ -42,7 +43,14 @@ function part(over: Partial<SparePart> = {}): SparePart {
   });
 }
 
-function harness(opts: { atLocation?: string; parts?: SparePart[] } = {}): {
+interface Row {
+  storageLocationId: string;
+  quantity: number;
+  lotNumber?: string;
+  receivedDate?: Date;
+}
+
+function harness(opts: { atLocation?: string; parts?: SparePart[]; siteRows?: Row[] } = {}): {
   ledger: SparePartLedgerService;
   manager: EntityManager;
   recordMovement: jest.Mock;
@@ -77,6 +85,29 @@ function harness(opts: { atLocation?: string; parts?: SparePart[] } = {}): {
       stub<Repository<StorageInventory>>({
         metadata: tenantMetadata<StorageInventory>(),
         createQueryBuilder: jest.fn(() => qb),
+        // The work-order draw candidates at the site (V-B1-9).
+        find: jest.fn().mockResolvedValue(
+          (opts.siteRows ?? []).map((row) => ({
+            ...row,
+            lotNumber: row.lotNumber ?? null,
+            receivedDate: row.receivedDate ?? null,
+            expiryDate: null,
+          })),
+        ),
+      }),
+    ],
+    [
+      StorageLocation,
+      stub<Repository<StorageLocation>>({
+        metadata: tenantMetadata<StorageLocation>(),
+        // The part's home location lies at site-1.
+        findOne: jest.fn().mockResolvedValue({ id: LOC, siteId: 'site-1' }),
+        // The live locations of site-1.
+        find: jest.fn().mockResolvedValue(
+          [...new Set((opts.siteRows ?? []).map((row) => row.storageLocationId))].map((id) => ({
+            id,
+          })),
+        ),
       }),
     ],
     [
@@ -303,16 +334,23 @@ describe('SparePartLedgerService — every writer produces a ledger movement', (
   });
 
   it('consumes work-order materials as OUT movements, without the operator site gate', async () => {
-    // SCENARIO: WO uses 2 of part-1. EXPECTS: OUT 2 from LOC, reference WO:<id>, ctx has no siteAuthorization, part saved.
-    const { ledger, manager, recordMovement, partSave } = harness({ parts: [part()] });
+    // SCENARIO: WO uses 2 of part-1, the home holds 4. EXPECTS: OUT 2 from LOC,
+    // reference WO:<id>, ctx has no siteAuthorization, the part lock taken, part saved.
+    const { ledger, manager, recordMovement, partSave, acquire } = harness({
+      parts: [part()],
+      siteRows: [{ storageLocationId: LOC, quantity: 4 }],
+    });
     await ledger.consumeForWorkOrder(
       manager,
       TENANT,
-      'wo-1',
+      { id: 'wo-1' },
       [{ sparePartId: 'part-1', quantity: 2 }],
       USER,
     );
 
+    expect(acquire).toHaveBeenCalledWith(manager, TENANT, [
+      { itemType: StorageItemType.SPARE_PART, itemId: 'part-1' },
+    ]);
     expect(recordMovement).toHaveBeenCalledWith(
       manager,
       expect.objectContaining({
@@ -325,13 +363,69 @@ describe('SparePartLedgerService — every writer produces a ledger movement', (
     );
     expect(partSave).toHaveBeenCalled();
   });
+
+  it('draws across the site: home location first, then the oldest received store (V-B1-9)', async () => {
+    // SCENARIO: the home LOC holds 2, OTHER_LOC 5 (received in January), a third
+    // store 5 (received in February), all at the part's site; the WO uses 8.
+    // EXPECTS: three OUT slices — 2 from home, 5 from OTHER_LOC, 1 from the third.
+    const { ledger, manager, recordMovement } = harness({
+      parts: [part()],
+      siteRows: [
+        { storageLocationId: 'loc-3', quantity: 5, receivedDate: new Date('2026-02-01') },
+        { storageLocationId: OTHER_LOC, quantity: 5, receivedDate: new Date('2026-01-01') },
+        { storageLocationId: LOC, quantity: 2, receivedDate: new Date('2026-03-01') },
+      ],
+    });
+
+    await ledger.consumeForWorkOrder(
+      manager,
+      TENANT,
+      { id: 'wo-1' },
+      [{ sparePartId: 'part-1', quantity: 8 }],
+      USER,
+    );
+
+    expect(
+      recordMovement.mock.calls.map(([, input]) => [input.fromLocationId, input.quantity]),
+    ).toEqual([
+      [LOC, 2],
+      [OTHER_LOC, 5],
+      ['loc-3', 1],
+    ]);
+  });
+
+  it('fails only when the whole site holds too little, before any movement', async () => {
+    // SCENARIO: the site holds 1 + 2 = 3; the WO uses 4. EXPECTS: 400 naming the
+    // site total, no movement booked (the completion rolls back).
+    const { ledger, manager, recordMovement } = harness({
+      parts: [part()],
+      siteRows: [
+        { storageLocationId: LOC, quantity: 1 },
+        { storageLocationId: OTHER_LOC, quantity: 2 },
+      ],
+    });
+
+    await expect(
+      ledger.consumeForWorkOrder(
+        manager,
+        TENANT,
+        { id: 'wo-1' },
+        [{ sparePartId: 'part-1', quantity: 4 }],
+        USER,
+      ),
+    ).rejects.toThrow('Available: 3, requested: 4');
+    expect(recordMovement).not.toHaveBeenCalled();
+  });
 });
 
 describe('SparePartLedgerService — fail-closed', () => {
   it('propagates the sink refusal on insufficient stock (no clamping to zero)', async () => {
     // SCENARIO: the sink rejects an OUT larger than the shelf. EXPECTS: the error surfaces, so the
     // caller's transaction (work-order completion) rolls back.
-    const { ledger, manager, recordMovement } = harness({ parts: [part()] });
+    const { ledger, manager, recordMovement } = harness({
+      parts: [part()],
+      siteRows: [{ storageLocationId: LOC, quantity: 2 }],
+    });
     recordMovement.mockRejectedValueOnce(
       new BadRequestException('Insufficient stock. Available: 1 piece, Requested: 2 piece'),
     );
@@ -340,7 +434,7 @@ describe('SparePartLedgerService — fail-closed', () => {
       ledger.consumeForWorkOrder(
         manager,
         TENANT,
-        'wo-1',
+        { id: 'wo-1' },
         [{ sparePartId: 'part-1', quantity: 2 }],
         USER,
       ),
@@ -372,7 +466,7 @@ describe('SparePartLedgerService — fail-closed', () => {
       ledger.consumeForWorkOrder(
         manager,
         TENANT,
-        'wo-1',
+        { id: 'wo-1' },
         [{ sparePartId: 'ghost', quantity: 1 }],
         USER,
       ),

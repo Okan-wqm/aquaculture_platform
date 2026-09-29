@@ -350,7 +350,7 @@ export class WorkOrderService {
         await this.sparePartLedger.consumeForWorkOrder(
           manager,
           tenantId,
-          workOrder.id,
+          workOrder,
           input.usedMaterials.flatMap((material) =>
             material.materialId
               ? [{ sparePartId: material.materialId, quantity: material.quantity }]

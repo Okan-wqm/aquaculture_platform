@@ -16,7 +16,7 @@
  * part registration).
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { EntityManager, In } from 'typeorm';
+import { EntityManager, In, MoreThan } from 'typeorm';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
 
@@ -30,6 +30,12 @@ import {
 import { StockMutationLockAuthority } from '../../storage/services/stock-mutation-lock.authority';
 import { SparePart } from '../entities/spare-part.entity';
 import type { StockMovementInput } from '../dto/spare-part.dto';
+import {
+  compileSparePartDraw,
+  type SparePartDrawCandidate,
+  type WorkOrderAssetRef,
+  workOrderSiteId,
+} from './work-order-consumption';
 
 /** Who performs a movement. Operator movements carry their site scope. */
 export interface SparePartActor {
@@ -256,12 +262,21 @@ export class SparePartLedgerService {
    * internal consequence of an operation the caller is already authorised for
    * (completing the work order); gating it on the store's site would block a
    * technician from using a part issued to them. The insufficient-stock rule is
-   * NOT relaxed: the sink throws, and the completion rolls back.
+   * NOT relaxed: the draw refuses a site that holds too little, the sink
+   * refuses a short row, and the completion rolls back.
+   *
+   * WHY across the site (V-B1-9): receipts and transfers put a part in other
+   * stores than its home, so drawing from the home alone failed while the part
+   * lay in the next store. The draw covers the work order's site — its asset's
+   * site, or the part's home site for an unplaced asset — home location first,
+   * then the oldest stock (`compileSparePartDraw`), one OUT movement per slice.
+   * INVARIANT: planned under the part's stock mutation lock, so no concurrent
+   * movement changes the rows between the plan and its slices.
    */
   async consumeForWorkOrder(
     manager: EntityManager,
     tenantId: string,
-    workOrderId: string,
+    workOrder: WorkOrderAssetRef,
     materials: readonly ConsumedMaterial[],
     userId: string,
   ): Promise<void> {
@@ -270,25 +285,91 @@ export class SparePartLedgerService {
       where: { tenantId, id: In(materials.map((material) => material.sparePartId)) },
     });
     const byId = new Map(parts.map((part) => [part.id, part]));
+    const assetSiteId = await workOrderSiteId(manager, tenantId, workOrder);
     for (const material of materials) {
       const part = byId.get(material.sparePartId);
       if (!part) throw new NotFoundException(`Yedek parça bulunamadı: ${material.sparePartId}`);
       this.requirePositive(material.quantity);
-      await this.stockMovements.recordMovement(
-        manager,
-        {
-          movementType: MovementType.OUT,
-          itemType: StorageItemType.SPARE_PART,
-          itemId: part.id,
-          quantity: material.quantity,
-          fromLocationId: this.requireLocation(part, undefined),
-          reference: `WO:${workOrderId}`,
-        },
-        { tenantId, userId },
+      await this.mutationLocks.acquire(manager, tenantId, [
+        { itemType: StorageItemType.SPARE_PART, itemId: part.id },
+      ]);
+      const siteId = assetSiteId ?? (await this.homeSiteId(manager, tenantId, part));
+      const candidates = await this.drawCandidates(manager, tenantId, part.id, siteId);
+      const slices = compileSparePartDraw(
+        candidates,
+        material.quantity,
+        part.storageLocationId,
+        part.code,
       );
+      for (const slice of slices) {
+        await this.stockMovements.recordMovement(
+          manager,
+          {
+            movementType: MovementType.OUT,
+            itemType: StorageItemType.SPARE_PART,
+            itemId: part.id,
+            quantity: slice.quantity,
+            fromLocationId: slice.storageLocationId,
+            lotNumber: slice.lotNumber,
+            reference: `WO:${workOrder.id}`,
+          },
+          { tenantId, userId },
+        );
+      }
       part.lastUsedDate = new Date();
     }
     await tenantManagerRepo(manager, SparePart, tenantId).saveMany(parts);
+  }
+
+  /** The site of the part's home location (the draw site of an unplaced asset). */
+  private async homeSiteId(
+    manager: EntityManager,
+    tenantId: string,
+    part: SparePart,
+  ): Promise<string> {
+    const homeId = this.requireLocation(part, undefined);
+    const home = await tenantManagerRepo(manager, StorageLocation, tenantId).findOne({
+      where: { id: homeId, tenantId },
+      select: ['id', 'siteId'],
+    });
+    if (!home) throw new NotFoundException(`Storage location "${homeId}" not found`);
+    return home.siteId;
+  }
+
+  /**
+   * The part's usable rows at one site: live locations only (FARM-MEDIUM-293),
+   * positive and unexpired — the rows the sink's decrement can draw.
+   */
+  private async drawCandidates(
+    manager: EntityManager,
+    tenantId: string,
+    partId: string,
+    siteId: string,
+  ): Promise<SparePartDrawCandidate[]> {
+    const locations = await tenantManagerRepo(manager, StorageLocation, tenantId).find({
+      where: { tenantId, siteId, isDeleted: false },
+      select: ['id'],
+    });
+    if (locations.length === 0) return [];
+    const rows = await tenantManagerRepo(manager, StorageInventory, tenantId).find({
+      where: {
+        tenantId,
+        itemType: StorageItemType.SPARE_PART,
+        itemId: partId,
+        storageLocationId: In(locations.map((location) => location.id)),
+        quantity: MoreThan(0),
+      },
+    });
+    const now = Date.now();
+    return rows
+      .filter((row) => !row.expiryDate || new Date(row.expiryDate).getTime() > now)
+      .map((row) => ({
+        storageLocationId: row.storageLocationId,
+        lotNumber: row.lotNumber ?? null,
+        quantity: Number(row.quantity),
+        receivedDate: row.receivedDate ?? null,
+        expiryDate: row.expiryDate ?? null,
+      }));
   }
 
   private requireLocation(part: SparePart, explicit: string | undefined): string {

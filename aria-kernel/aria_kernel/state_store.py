@@ -302,6 +302,19 @@ def store_roots(store: StateStore, repo_hash: str) -> dict[str, Path]:
     }
 
 
+# ARIA-MEDIUM-066 — the binding's NAMES, importable without a store. The
+# validation lane withholds exactly this set from every child it spawns and
+# reports the decision by name (``validation_env``); ``store_environment``
+# builds its export from the same tuple, so a binding added below without a
+# name here raises at export time instead of leaking through a second list.
+STORE_ENVIRONMENT_NAMES: tuple[str, ...] = (
+    "ARIA_WORKSPACE_BASE",
+    "ARIA_REPO_STATE_ROOT",
+    "ARIA_TOOLS_DIR",
+    "ARIA_STATE_STORE_ROOT",
+)
+
+
 def store_environment(store: StateStore, repo_hash: str) -> dict[str, str]:
     """The exact environment a lane must run with to write into the store.
 
@@ -323,7 +336,7 @@ def store_environment(store: StateStore, repo_hash: str) -> dict[str, str]:
     would be invisible at the callsite and impossible to test without
     leaking into the rest of the process.
     """
-    return {
+    bindings = {
         "ARIA_WORKSPACE_BASE": (store.root / WORKSPACE_SUBDIR).as_posix(),
         "ARIA_REPO_STATE_ROOT": findings_root(store).as_posix(),
         "ARIA_TOOLS_DIR": tools_root(store).as_posix(),
@@ -331,6 +344,10 @@ def store_environment(store: StateStore, repo_hash: str) -> dict[str, str]:
         # it without having to reconstruct the path convention.
         "ARIA_STATE_STORE_ROOT": store.root.as_posix(),
     }
+    # Keyed by the exported tuple so the name list and the export cannot
+    # disagree silently: a name without a value fails here, a value without a
+    # name fails ``test_validation_env``.
+    return {name: bindings[name] for name in STORE_ENVIRONMENT_NAMES}
 
 
 def _attest_state_writer(store: "StateStore", *, action: str) -> None:
@@ -5607,6 +5624,7 @@ __all__ = [
     "SNAPSHOT_FILENAME",
     "STATE_BRANCH",
     "STORE_DIRNAME",
+    "STORE_ENVIRONMENT_NAMES",
     "StateStore",
     "StateStoreError",
     "StateStoreRefusal",

@@ -36,6 +36,10 @@ AUTHORITY_SURFACES: tuple[str, ...] = (
     "aria-kernel/aria_kernel/hooks.py",
     "aria-kernel/aria_kernel/claude_settings.py",
     "aria-kernel/aria_kernel/agent_env.py",
+    # ARIA-MEDIUM-066 — decides what a validation child may see; the same
+    # class of envelope as agent_env, so a self-change may not re-admit the
+    # store bindings or a credential to its own test runs.
+    "aria-kernel/aria_kernel/validation_env.py",
     "aria-kernel/aria_kernel/delivery_credentials.py",
     "aria-kernel/aria_kernel/gh_token_factory.py",
     "aria-kernel/aria_kernel/control.py",

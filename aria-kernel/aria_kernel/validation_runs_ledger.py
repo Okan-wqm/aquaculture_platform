@@ -197,6 +197,7 @@ def record_validation_run(
     timed_out: bool = False,
     base_dir: str | Path | None = None,
     input_binding: dict[str, Any] | None = None,
+    spawn_environment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Plan 026R §D.1 — record an executed validation command on the
     append-only ``validation-runs.jsonl`` ledger.
@@ -223,6 +224,13 @@ def record_validation_run(
     ``status`` is NOT a parameter: it is derived from
     ``exit_code``/``timed_out`` so the write side cannot disagree with
     the numbers it is stamping.
+
+    ``spawn_environment`` (ARIA-MEDIUM-066) is the names-only report of the
+    environment the runner BUILT for the child —
+    ``validation_env.ValidationEnvReport.to_ledger()``. The lane that spawns
+    always passes it; a caller recording a run executed elsewhere may not
+    know it, so the column is optional on the surface and REQUIRED at the
+    spawn seam. A value is never accepted: the column carries names.
 
     Self-attestation reject (Plan 026R §D.1 round-1 fix):
 
@@ -282,6 +290,7 @@ def record_validation_run(
         )
     log = Path(log_path)
     binding = _validated_input_binding(input_binding) if input_binding is not None else None
+    environment = _validated_spawn_environment(spawn_environment) if spawn_environment is not None else None
     log_hash = _hash_log_file(log)
     row = {
         "$schema": VALIDATION_RUN_SCHEMA,
@@ -303,6 +312,8 @@ def record_validation_run(
         "completed_at": completed_at,
         "recorded_at": utc_now(),
     }
+    if environment is not None:
+        row["spawn_environment"] = environment
     if input_binding is not None:
         from .runtime_artifacts import ArtifactRefV2 as _ArtifactRefV2
         from .state_manifest import surface_for_relative_path as _surface_for_relative_path
@@ -330,6 +341,50 @@ def record_validation_run(
         row,
         expected_surface="validation_runs",
     )
+
+
+# Bounds of the names-only environment report. An environment variable NAME is
+# never longer than this in any runner ARIA runs on, and a runner carrying more
+# than this many names in one class is not a runner this lane recognises — the
+# write refuses rather than truncating, because a truncated "what the child
+# saw" is a claim the merge gate would then honour.
+_SPAWN_ENVIRONMENT_NAME_LIMIT = 256
+_SPAWN_ENVIRONMENT_LIST_LIMIT = 1024
+_SPAWN_ENVIRONMENT_NAME_LISTS = ("passed", "declared", "dropped_secret_shaped", "dropped_store_bindings")
+
+
+def _validated_spawn_environment(value: dict[str, Any]) -> dict[str, Any]:
+    """Admit the names-only spawn report (ARIA-MEDIUM-066) before serialization.
+
+    The shape is closed: exactly the report's keys, sorted unique name lists,
+    a non-negative count. A name is a printable ASCII token without ``=`` —
+    the one character an environment name cannot contain — so a value that
+    was mistaken for a name is refused, not recorded.
+    """
+    def invalid(detail: str) -> None:
+        raise GovernanceError(f"validation_spawn_environment_invalid:{detail}")
+
+    keys = {"schema_version", "dropped_count", *_SPAWN_ENVIRONMENT_NAME_LISTS}
+    if type(value) is not dict or set(value) != keys:
+        invalid("keys")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        invalid("schema_version")
+    count = value["dropped_count"]
+    if type(count) is not int or count < 0:
+        invalid("dropped_count")
+    result: dict[str, Any] = {"schema_version": 1, "dropped_count": count}
+    for key in _SPAWN_ENVIRONMENT_NAME_LISTS:
+        names = value[key]
+        if type(names) is not list or len(names) > _SPAWN_ENVIRONMENT_LIST_LIMIT:
+            invalid(key)
+        for name in names:
+            if (type(name) is not str or not 0 < len(name) <= _SPAWN_ENVIRONMENT_NAME_LIMIT
+                    or not name.isascii() or not name.isprintable() or "=" in name):
+                invalid(key)
+        if names != sorted(set(names)):
+            invalid(key)
+        result[key] = list(names)
+    return result
 
 
 def _validated_input_binding(value: dict[str, Any]) -> dict[str, Any]:

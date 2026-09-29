@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "public-write-endpoint-without-allowlist:apps/admin-api-service/src/auth/password-reset.controller.ts:98",
+    "judgment_group_id": "judge:security-boundary-adapter:finding:50f83851c8f64e4eb476787f26e1daa0588151ac751f8e73a1d4b1521ac95da5",
+    "kind": "consensus_escalation",
+    "run_id": "2ac65894-6357-4097-bf7d-4b23a92249e4",
+    "tool_id": "security-boundary-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'public-write-endpoint-without-allowlist:apps/admin-api-service/src/auth/password-reset.controller.ts:98' (tool 'security-boundary-adapter', run '2ac65894-6357-4097-bf7d-4b23a92249e4'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-09-29T14:55:44Z",
+  "request_id": "consensus-7e5215bb3c532e5b",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-02T14:55:44Z",
+  "status": "open"
+}

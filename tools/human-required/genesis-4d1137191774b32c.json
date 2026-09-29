@@ -1,0 +1,44 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "capability_gap_key": "shadow_run:lint-rules-adapter",
+    "capability_resolution": {
+      "decision": "request",
+      "row_id": "capability-resolution:f07199ee69cebd474f7506b0"
+    },
+    "capability_resolution_ref": "capability-resolution:f07199ee69cebd474f7506b0",
+    "cycle_id": "cyc-20260929T143339Z-auto",
+    "evidence_refs": [
+      "apps/admin-api-service/jest.config.ts",
+      "apps/admin-api-service/src/analytics/analytics.module.ts",
+      "apps/admin-api-service/src/analytics/controllers/analytics.controller.ts",
+      "apps/admin-api-service/src/analytics/controllers/dto/reports.dto.ts",
+      "apps/admin-api-service/src/analytics/controllers/index.ts",
+      "apps/admin-api-service/src/analytics/controllers/reports.controller.ts",
+      "apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts",
+      "apps/admin-api-service/src/analytics/entities/external/index.ts",
+      "apps/admin-api-service/src/analytics/entities/external/invoice.entity.ts",
+      "apps/admin-api-service/src/analytics/entities/external/subscription.entity.ts",
+      "apps/admin-api-service/src/analytics/entities/external/tenant.entity.ts",
+      "apps/admin-api-service/src/analytics/entities/external/user.entity.ts",
+      "apps/admin-api-service/src/analytics/entities/index.ts",
+      "apps/admin-api-service/src/analytics/index.ts",
+      "apps/admin-api-service/src/analytics/services/analytics-snapshot.scheduler.ts",
+      "apps/admin-api-service/src/analytics/services/analytics.service.ts",
+      "apps/admin-api-service/src/analytics/services/index.ts",
+      "apps/admin-api-service/src/analytics/services/reports.service.ts",
+      "apps/admin-api-service/src/app.module.ts",
+      "apps/admin-api-service/src/audit/audit.controller.ts"
+    ],
+    "gap_id": "gap-c4cb70a74342",
+    "kind": "genesis_candidate",
+    "valid_cycles": 1
+  },
+  "reason": "capability gap 'shadow_run:lint-rules-adapter' proposes agent genesis; panel adjudication required (resolver decision: request).",
+  "recorded_at": "2026-09-29T16:27:07Z",
+  "request_id": "genesis-4d1137191774b32c",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-06T16:27:07Z",
+  "status": "open"
+}

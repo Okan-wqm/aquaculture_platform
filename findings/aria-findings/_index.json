@@ -155,10 +155,22 @@
       "source_event_id": "finding:F-013:emitted",
       "source_ledger_hash": "sha256:f5f6e5dc0b826657e8b3ddc039be74294cc4622c3148e4221efd2ab7a748bde5",
       "status": "OPEN"
+    },
+    {
+      "claim_summary": "AI consensus confirmed true positive at web/modules/admin-panel/vite.config.ts (tool bundle-budget-adapter, finding bundle-budget:no-budget:web/modules/admin-panel, confidence 0.825)",
+      "claim_type": "wrong_code",
+      "created_at": "2026-09-29T16:25:53Z",
+      "evidence_chain_id": "chain_86d45f5cb7c4b838",
+      "finding_id": "F-014",
+      "path": "F-014.json",
+      "severity": "MEDIUM",
+      "source_event_id": "finding:F-014:emitted",
+      "source_ledger_hash": "sha256:5e1bb3c500701fa135d94f05fde80f1336c7126635aad7dfeef48e2bbe35ce88",
+      "status": "OPEN"
     }
   ],
-  "generated_at": "2026-09-20T17:40:34Z",
+  "generated_at": "2026-09-29T16:25:53Z",
   "schema_version": 2,
   "source_ledger": "aria-findings/finding-events.jsonl",
-  "source_ledger_tip_hash": "sha256:f5f6e5dc0b826657e8b3ddc039be74294cc4622c3148e4221efd2ab7a748bde5"
+  "source_ledger_tip_hash": "sha256:5e1bb3c500701fa135d94f05fde80f1336c7126635aad7dfeef48e2bbe35ce88"
 }

@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "security-source-without-test:apps/hr-service/src/finance/resolvers/hr-finance.resolver.ts",
+    "judgment_group_id": "judge:test-gap-adapter:finding:9b2b9affdcf2bfa02d119c5fed8f0a73dcb6e885169f221edefdc1b8ea5004e5",
+    "kind": "consensus_escalation",
+    "run_id": "d090521b-ac6a-4a03-a9ad-d3ad6248b171",
+    "tool_id": "test-gap-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'security-source-without-test:apps/hr-service/src/finance/resolvers/hr-finance.resolver.ts' (tool 'test-gap-adapter', run 'd090521b-ac6a-4a03-a9ad-d3ad6248b171'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-09-29T14:55:54Z",
+  "request_id": "consensus-fe736d25c0ec62e6",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-06T14:55:54Z",
+  "status": "open"
+}

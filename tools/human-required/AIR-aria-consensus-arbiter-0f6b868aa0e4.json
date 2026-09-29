@@ -1,0 +1,17 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "kind": "lease_lifecycle",
+    "request_id": "AIR-aria-consensus-arbiter-0f6b868aa0e4",
+    "requeue_count": 14,
+    "role": "consensus_arbitration",
+    "target_agent": "aria-consensus-arbiter"
+  },
+  "reason": "lease lifecycle exhausted requeues for request 'AIR-aria-consensus-arbiter-0f6b868aa0e4' (requeue_count=14); operator follow-up required.",
+  "recorded_at": "2026-09-29T15:11:13Z",
+  "request_id": "AIR-aria-consensus-arbiter-0f6b868aa0e4",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-02T15:11:13Z",
+  "status": "open"
+}

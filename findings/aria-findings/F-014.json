@@ -1,0 +1,91 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "AI consensus confirmed true positive at web/modules/admin-panel/vite.config.ts (tool bundle-budget-adapter, finding bundle-budget:no-budget:web/modules/admin-panel, confidence 0.825)",
+  "claim_type": "wrong_code",
+  "closes_in_commit": null,
+  "created_at": "2026-09-29T16:25:53Z",
+  "evidence_chain_id": "chain_86d45f5cb7c4b838",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/modules/admin-panel/vite.config.ts",
+        "content_hash": "sha256:c6cbe3200bb425858405c43be13147f1e862daf1f17f4e02e115e42235c7431c",
+        "envelope_hash": "sha256:01861416bfc68452701dff00b77851660d6dd139624dc56b72a4a57254e43f6c",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": null,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "4243df80890450f7a0b364ed854b9e89272be726",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/modules/admin-panel/vite.config.ts"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/modules/admin-panel/vite.config.ts",
+        "content_hash": "sha256:c6cbe3200bb425858405c43be13147f1e862daf1f17f4e02e115e42235c7431c",
+        "envelope_hash": "sha256:6b4be524ef2d3d7447c14465936df87170210818a02a9e083f9b70ae2b8b379b",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 47,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "4243df80890450f7a0b364ed854b9e89272be726",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/modules/admin-panel/vite.config.ts:47"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/modules/admin-panel/vite.config.ts",
+        "content_hash": "sha256:c6cbe3200bb425858405c43be13147f1e862daf1f17f4e02e115e42235c7431c",
+        "envelope_hash": "sha256:14be08203f6e422f4e656a6d7d8b2b793497efb91c465f1aadde5ac834334f72",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 56,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "4243df80890450f7a0b364ed854b9e89272be726",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/modules/admin-panel/vite.config.ts:56"
+    }
+  ],
+  "facts": [
+    "finding_fingerprint=finding:f93a3312b0d3bab60c8d3d2b30d936553988dcf1ab99691a58dc999f252bb6f6",
+    "judgment_group_id=judge:bundle-budget-adapter:finding:f93a3312b0d3bab60c8d3d2b30d936553988dcf1ab99691a58dc999f252bb6f6",
+    "consensus_run_id=c2e35b5d-e074-4356-b833-1bf3a66ebe25"
+  ],
+  "finding_id": "F-014",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": "c2e35b5d-e074-4356-b833-1bf3a66ebe25",
+  "originating_skill": "ai_consensus:judgment_pipeline",
+  "recommendation": null,
+  "related_specialized_agent_domains": [
+    "accessibility-auditor",
+    "frontend-expert"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "web/modules/admin-panel/vite.config.ts"
+    ]
+  },
+  "service": "web:admin-panel",
+  "services": [
+    "web:admin-panel"
+  ],
+  "severity": "MEDIUM",
+  "source_event_id": "finding:F-014:emitted",
+  "source_ledger_hash": "sha256:5e1bb3c500701fa135d94f05fde80f1336c7126635aad7dfeef48e2bbe35ce88",
+  "status": "OPEN"
+}

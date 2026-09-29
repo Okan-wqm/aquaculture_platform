@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "migration-without-test:apps/hr-service/src/database/migrations/1802200000000-DropPayrollCurrencyDefault.ts",
+    "judgment_group_id": "judge:test-gap-adapter:finding:d1acd7d66ab31b5a2f8c87059330792b94cf02b4f97e85acb8a568c97a7ae103",
+    "kind": "consensus_escalation",
+    "run_id": "df56f381-bb0e-4402-b3ce-1bc3a5e96fac",
+    "tool_id": "test-gap-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'migration-without-test:apps/hr-service/src/database/migrations/1802200000000-DropPayrollCurrencyDefault.ts' (tool 'test-gap-adapter', run 'df56f381-bb0e-4402-b3ce-1bc3a5e96fac'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-09-29T14:55:56Z",
+  "request_id": "consensus-cfd47a6213a42973",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-06T14:55:56Z",
+  "status": "open"
+}

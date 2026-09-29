@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "doc-staleness:missing:docs/reviews/compliance-expert/2026-04-28-core-platform-review.md:235:apps/auth-service/src/modules/gdpr/services/data-subject-request.service.ts",
+    "judgment_group_id": "judge:doc-staleness-adapter:finding:494b1f7e8408772243eb169595660824c694be8fc2494b624536a65ad64764db",
+    "kind": "consensus_escalation",
+    "run_id": "1710fe2e-111a-4ab0-af0a-39c591ff6c2f",
+    "tool_id": "doc-staleness-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'doc-staleness:missing:docs/reviews/compliance-expert/2026-04-28-core-platform-review.md:235:apps/auth-service/src/modules/gdpr/services/data-subject-request.service.ts' (tool 'doc-staleness-adapter', run '1710fe2e-111a-4ab0-af0a-39c591ff6c2f'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-09-29T14:56:02Z",
+  "request_id": "consensus-88e84beab844157b",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-06T14:56:02Z",
+  "status": "open"
+}

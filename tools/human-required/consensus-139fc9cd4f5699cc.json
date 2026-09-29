@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "security-source-without-test:apps/messaging-service/src/health/health.controller.ts",
+    "judgment_group_id": "judge:test-gap-adapter:finding:413998a8b0d87dc8952e9e7c9acafd0b0773c915c1166f4949fbe35972669145",
+    "kind": "consensus_escalation",
+    "run_id": "df56f381-bb0e-4402-b3ce-1bc3a5e96fac",
+    "tool_id": "test-gap-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'security-source-without-test:apps/messaging-service/src/health/health.controller.ts' (tool 'test-gap-adapter', run 'df56f381-bb0e-4402-b3ce-1bc3a5e96fac'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-09-29T14:55:58Z",
+  "request_id": "consensus-139fc9cd4f5699cc",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-06T14:55:58Z",
+  "status": "open"
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "doc-staleness:missing:docs/reviews/tenant-cost-attribution-expert/2026-04-28-core-platform-review.md:291:infrastructure/monitoring/prometheus/cost-metrics.yml",
+    "judgment_group_id": "judge:doc-staleness-adapter:finding:90045466a5189572fb3101304a65c3cd366321fc5a855ff8c13381f3a592fdce",
+    "kind": "consensus_escalation",
+    "run_id": "605e35ac-3107-405b-87fb-bdb713dab19e",
+    "tool_id": "doc-staleness-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'doc-staleness:missing:docs/reviews/tenant-cost-attribution-expert/2026-04-28-core-platform-review.md:291:infrastructure/monitoring/prometheus/cost-metrics.yml' (tool 'doc-staleness-adapter', run '605e35ac-3107-405b-87fb-bdb713dab19e'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-09-29T14:56:06Z",
+  "request_id": "consensus-cb6054cdd530fb0e",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-06T14:56:06Z",
+  "status": "open"
+}

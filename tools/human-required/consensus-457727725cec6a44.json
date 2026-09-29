@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "doc-staleness:missing:docs/FUXA_GAP_IMPLEMENTATION_PLAN.md:285:apps/sensor-service/src/scada-runtime/services/api-key.service.ts",
+    "judgment_group_id": "judge:doc-staleness-adapter:finding:5938f172ba0f2bee3f777d353aa4501665fa4d196034d4c4fc7083d0e1ad0469",
+    "kind": "consensus_escalation",
+    "run_id": "605e35ac-3107-405b-87fb-bdb713dab19e",
+    "tool_id": "doc-staleness-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'doc-staleness:missing:docs/FUXA_GAP_IMPLEMENTATION_PLAN.md:285:apps/sensor-service/src/scada-runtime/services/api-key.service.ts' (tool 'doc-staleness-adapter', run '605e35ac-3107-405b-87fb-bdb713dab19e'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-09-29T14:56:04Z",
+  "request_id": "consensus-457727725cec6a44",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-06T14:56:04Z",
+  "status": "open"
+}

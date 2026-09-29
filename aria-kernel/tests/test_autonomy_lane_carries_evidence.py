@@ -117,7 +117,7 @@ class BlockedPressureNeverReachesTheQueueTest(unittest.TestCase):
 
 
 class MintedRequestsCarryParseableEvidenceTest(unittest.TestCase):
-    def _drain_one(self, tmp: str, *, with_pressure_payload: bool) -> dict:
+    def _drain_one(self, tmp: str, *, with_pressure_payload: bool, governance: list | None = None) -> dict:
         root = Path(tmp)
         (root / "pressure").mkdir(parents=True)
         if with_pressure_payload:
@@ -136,6 +136,11 @@ class MintedRequestsCarryParseableEvidenceTest(unittest.TestCase):
             captured.update(kwargs)
             return {"request_id": "AIR-x"}
 
+        rows = governance if governance is not None else []
+
+        def record_governance(_base_dir, kind, details, **_kwargs):
+            rows.append((kind, details))
+
         item = {
             "queue_item_id": "qi-test",
             "pressure_id": "pressure:migration-surface-repeat:repetition",
@@ -151,7 +156,7 @@ class MintedRequestsCarryParseableEvidenceTest(unittest.TestCase):
              patch.object(ao, "mark_consumed"), \
              patch.object(ao, "_find_projected_queue_request", return_value=None), \
              patch("aria_kernel.agent_invocations.create_agent_invocation_request", fake_create), \
-             patch("aria_kernel.tool_registry.append_tools_governance"):
+             patch("aria_kernel.tool_registry.append_tools_governance", side_effect=record_governance):
             self._invoke_drain(root)
         return captured
 
@@ -177,11 +182,22 @@ class MintedRequestsCarryParseableEvidenceTest(unittest.TestCase):
             "pressure:migration-surface-repeat:repetition",
         )
 
-    def test_a_missing_pressure_payload_falls_back_to_the_queue_marker(self) -> None:
+    def test_a_missing_pressure_payload_mints_nothing_and_says_so(self) -> None:
+        # ARIA-HIGH-243 — the mint fell back to the queue marker as the sole
+        # evidence ref; the planner echoed it and every answer was refused
+        # `agent_evidence_path_missing`. An item with no evidence is now
+        # consumed and disclosed by name, and no request is minted.
+        governance: list = []
         with TemporaryDirectory() as tmp:
-            captured = self._drain_one(tmp, with_pressure_payload=False)
+            captured = self._drain_one(tmp, with_pressure_payload=False, governance=governance)
 
-        self.assertEqual(captured.get("evidence_refs"), ["qi-test"])
+        self.assertEqual(captured, {}, "no request is minted without evidence")
+        queue_rows = [row for row in governance if row[0].startswith("next_cycle_queue")]
+        self.assertEqual(queue_rows, [("next_cycle_queue_item_unevidenced", {
+            "queue_item_id": "qi-test",
+            "pressure_id": "pressure:migration-surface-repeat:repetition",
+            "source_cycle_id": "cyc-1",
+        })])
 
 
 class DrainResolvesTheWorkspaceLikeItsSiblingsTest(unittest.TestCase):

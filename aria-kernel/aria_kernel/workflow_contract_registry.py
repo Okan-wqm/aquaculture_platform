@@ -882,7 +882,9 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
     "aria-kernel": AuditedWorkflowExclusion(
         workflow_id="aria-kernel",
         reason="test-only kernel validation workflow; writes only ephemeral ./.aria-ci, "
-        "verifies a clean worktree post-run, and uploads no governed ARIA artifact",
+        "verifies a clean worktree post-run, and uploads no governed ARIA artifact; its "
+        "state job restores aria/state read-only (contents: read, no bootstrap-ack) and "
+        "compacts a throwaway copy it never publishes (ARIA-HIGH-240)",
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),

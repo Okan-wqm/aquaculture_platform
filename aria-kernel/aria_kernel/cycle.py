@@ -1689,6 +1689,19 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
             arbiter_requests += len(anchoring.get("minted") or [])
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "anchoring", "reason": str(exc)[:200]})
+    # CE-1 — the (tool_id, rule) class lifecycle, recorded BEFORE promotion
+    # so a class that crossed its fifth distinct instance on the rows minted
+    # above promotes its remaining instances in the SAME cycle instead of
+    # waiting a night. The ledger is the transition log; the enforcement
+    # paths re-derive, so a failure here costs the audit row, never a
+    # verdict.
+    finding_class_summary: dict[str, Any] = {}
+    try:
+        from .finding_classes import record_finding_classes
+
+        finding_class_summary = record_finding_classes(base_dir=context.base_dir)
+    except GovernanceError as exc:
+        blocked.append({"tool_id": "-", "step": "finding_classes", "reason": str(exc)[:200]})
     # D3 (Kapalı Döngü) — accepted consensus becomes a durable finding.
     # Runs AFTER the per-tool consensus loop so any row minted this cycle
     # is promotable immediately; idempotent via the promotions ledger.
@@ -1722,6 +1735,8 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         "consensus_rows": consensus_rows,
         "arbiter_requests_minted": arbiter_requests,
         "promoted_findings": promotion_summary.get("promoted_count", 0),
+        "promoted_via_class": promotion_summary.get("via_class_count", 0),
+        "finding_class_transitions": finding_class_summary.get("recorded_count", 0),
         "rule_defect_findings": rule_defect_summary.get("committed_count", 0),
         "target_sha": target_sha,
         "blocked": blocked,

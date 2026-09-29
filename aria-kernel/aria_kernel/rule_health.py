@@ -7,13 +7,21 @@ matcher defect (a composed decorator the token test cannot see), and those
 diagnoses terminated in the feedback ledger — the rule kept firing, the
 judges kept re-refuting it, and no repair work item ever existed.
 
-Three read-time derivations (the ledger stores outcomes, never scores):
+Five read-time derivations (the ledger stores outcomes, never scores):
 
 * `rule_stats` — per (tool_id, rule) TP/FP/judged counts from
   GROUND-TRUTH-BEARING feedback only (operator verdicts and ANCHOR
   consensus — JJ-1; a lone judge's unconfirmed opinion, and now an
   unexamined 2-judge pair, move nothing here — the deliberate contrast
   with tool_health.compute_metrics is documented in ORPHAN-CRITICAL-643).
+* `rule_instance_verdicts` — the same ground truth counted by INSTANCE
+  instead of by judgment: which distinct fingerprints each rule was
+  settled on, each way. `rule_stats` counts JUDGMENTS (an anchor upgrade
+  re-judging one fingerprint moves it twice, by design — that is what a
+  health rate measures), and CE-1's class verdict must not be reachable
+  by re-judging one noisy instance five times. Both derivations walk ONE
+  reader (`_ground_truth_rule_rows`) so the two counts can never disagree
+  about which rows are ground truth.
 * `quarantined_rules` — rules whose measured FP rate crosses the threshold
   with enough evidence; the sampler stops judging their findings.
 * `commit_rule_defect_findings` — a quarantined rule auto-commits ONE
@@ -24,6 +32,7 @@ Small on purpose — operator preference: files stay short.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -60,26 +69,75 @@ def _fingerprint_rules(base_dir: str | Path | None) -> dict[str, str]:
     return mapping
 
 
-def rule_stats(base_dir: str | Path | None = None) -> dict[tuple[str, str], dict[str, int]]:
-    """Per (tool_id, rule): {'true_positive', 'false_positive', 'judged'}."""
+def _ground_truth_rule_rows(
+    base_dir: str | Path | None,
+) -> Iterator[tuple[tuple[str, str], str, str]]:
+    """((tool_id, rule), verdict, fingerprint) for every ground-truth verdict.
+
+    The single ground-truth reader behind BOTH derivations below. Written
+    once for the JJ-1 reason: the eligibility predicate had five copies and
+    tightening it reached four of them; a second copy of the "which rows
+    count" loop would re-open exactly that seam between the health rate and
+    the class verdict computed from it.
+    """
     rules_by_fingerprint = _fingerprint_rules(base_dir)
-    stats: dict[tuple[str, str], dict[str, int]] = {}
     for row in load_feedback(base_dir=base_dir):
         if not is_ground_truth_row(row):
             continue
         verdict = row.get("verdict")
         if verdict not in ("true_positive", "false_positive"):
             continue
-        rule = rules_by_fingerprint.get(str(row.get("finding_fingerprint") or ""))
+        fingerprint = str(row.get("finding_fingerprint") or "")
+        rule = rules_by_fingerprint.get(fingerprint)
         if not rule:
             continue
-        key = (str(row.get("tool_id") or ""), rule)
+        yield (str(row.get("tool_id") or ""), rule), str(verdict), fingerprint
+
+
+def rule_measurements(
+    base_dir: str | Path | None = None,
+) -> tuple[dict[tuple[str, str], dict[str, int]], dict[tuple[str, str], dict[str, set[str]]]]:
+    """(judgment counts, distinct instances) from ONE pass over the ground truth.
+
+    Both per-rule derivations in one walk because the class layer put them
+    on the per-RUN path: `record_raw_findings_for_run` resolves suppression
+    for every finding a run produces, and each walk parses the whole raw and
+    feedback ledgers. The aggregation lives here once; `rule_stats` and
+    `rule_instance_verdicts` are the two views of it.
+    """
+    stats: dict[tuple[str, str], dict[str, int]] = {}
+    instances: dict[tuple[str, str], dict[str, set[str]]] = {}
+    for key, verdict, fingerprint in _ground_truth_rule_rows(base_dir):
         bucket = stats.setdefault(
             key, {"true_positive": 0, "false_positive": 0, "judged": 0}
         )
         bucket[verdict] += 1
         bucket["judged"] += 1
-    return stats
+        seen = instances.setdefault(
+            key, {"true_positive": set(), "false_positive": set()}
+        )
+        seen[verdict].add(fingerprint)
+    return stats, instances
+
+
+def rule_stats(base_dir: str | Path | None = None) -> dict[tuple[str, str], dict[str, int]]:
+    """Per (tool_id, rule): {'true_positive', 'false_positive', 'judged'}."""
+    return rule_measurements(base_dir)[0]
+
+
+def rule_instance_verdicts(
+    base_dir: str | Path | None = None,
+) -> dict[tuple[str, str], dict[str, set[str]]]:
+    """Per (tool_id, rule): the DISTINCT instance fingerprints settled each way.
+
+    An INSTANCE is a fingerprint — path and line are hashed into it, so five
+    fingerprints are five places in the repository, not one place judged five
+    times. CE-1's class verdict is spent against this count and never against
+    `rule_stats`' judgment count, because a class verdict suppresses (or
+    promotes) every FUTURE instance of the rule and the evidence for that has
+    to be breadth across the repo, not depth on one line.
+    """
+    return rule_measurements(base_dir)[1]
 
 
 def quarantined_rules(
@@ -87,10 +145,17 @@ def quarantined_rules(
     *,
     min_judged: int = MIN_JUDGED_FOR_QUARANTINE,
     max_fp_rate: float = MAX_FP_RATE,
+    stats: dict[tuple[str, str], dict[str, int]] | None = None,
 ) -> set[tuple[str, str]]:
-    """Rules whose measured FP rate earns exclusion from judgment sampling."""
+    """Rules whose measured FP rate earns exclusion from judgment sampling.
+
+    `stats` lets a caller that ALREADY measured pass its own table in rather
+    than pay for a second walk; the threshold logic stays here, so there is
+    still exactly one definition of what quarantine means.
+    """
     quarantined: set[tuple[str, str]] = set()
-    for key, bucket in rule_stats(base_dir).items():
+    measured = rule_stats(base_dir) if stats is None else stats
+    for key, bucket in measured.items():
         judged = bucket["judged"]
         if judged < min_judged:
             continue

@@ -216,7 +216,7 @@ def record_raw_findings_for_run(
     raw_findings = findings if isinstance(findings, list) else run.get("runner", {}).get("raw_findings_sample", [])
     if not isinstance(raw_findings, list) or not raw_findings:
         return
-    confirmed_false_positives = _confirmed_false_positive_fingerprints(base_dir)
+    layers = suppression_layers(base_dir)
     # Plan 023 v3 §C-6 — scope-out mutation also marks raw findings as
     # invalid_evidence. Plan 022 §C-5 added scope_out_mutations to the
     # runner envelope and triggered immediate quarantine via
@@ -230,7 +230,17 @@ def record_raw_findings_for_run(
         if not isinstance(finding, dict):
             continue
         fingerprint = finding_fingerprint(run["tool_id"], finding)
-        suppressed = confirmed_false_positives.get(fingerprint)
+        # CE-1 — a new instance of a confirmed-false-positive CLASS is still
+        # RECORDED here (raw is the observation ledger; refusing to write it
+        # would erase the evidence that could later contradict the class),
+        # and it is recorded as suppressed, which is what keeps it out of
+        # judged-sampling and out of the operator's queue.
+        suppressed = suppression_for(
+            tool_id=str(run["tool_id"]),
+            rule=str(finding.get("rule") or ""),
+            fingerprint=fingerprint,
+            layers=layers,
+        )
         status = "raw"
         if run.get("status") in ("evidence_error", "scope_violation") or has_scope_out:
             status = "invalid_evidence"
@@ -263,11 +273,19 @@ def record_findings_for_run(run: dict[str, Any], base_dir: str | Path | None = N
     findings = run.get("emitted_findings", [])
     if not isinstance(findings, list) or not findings:
         return
+    # Resolved once per run, not once per finding: the pre-CE-1 line below
+    # re-walked the whole feedback ledger for every emitted finding.
+    layers = suppression_layers(base_dir)
     for finding in findings:
         if not isinstance(finding, dict):
             continue
         fingerprint = finding_fingerprint(run["tool_id"], finding)
-        suppressed = _confirmed_false_positive_fingerprints(base_dir).get(fingerprint)
+        suppressed = suppression_for(
+            tool_id=str(run["tool_id"]),
+            rule=str(finding.get("rule") or ""),
+            fingerprint=fingerprint,
+            layers=layers,
+        )
         # E15-a — mint-time service dimension, derived from the paths the
         # finding itself cites (operator direction: findings organised by
         # microservice, so per-service audits and service-specific agents
@@ -488,7 +506,7 @@ def record_operator_feedback_batch(
                 severity=str(verdict.get("severity") or item.get("severity") or "medium"),
                 note=str(verdict.get("note") or verdict.get("rationale") or "batch operator verdict"),
                 affected_belief_ids=_optional_string_list(verdict.get("affected_belief_ids")),
-                evidence_refs=_optional_string_list(verdict.get("evidence_refs")) or _evidence_refs_from_item(item),
+                evidence_refs=_optional_string_list(verdict.get("evidence_refs")) or evidence_refs_from_item(item),
                 rationale=str(verdict.get("rationale") or ""),
                 judgment_group_id=str(verdict.get("judgment_group_id") or sample_id),
                 finding_fingerprint=str(item.get("finding_fingerprint") or ""),
@@ -839,6 +857,14 @@ def _sampleable_raw_findings(
     # `_confirmed_false_positive_fingerprints` is a dict (fingerprint →
     # suppressing row); only its keys matter for the settled test.
     settled_fingerprints = set(confirmed_false_positive_fingerprints) | _promoted_fingerprints(base_dir)
+    # CE-1 — a CLASS that carries a verdict stops consuming judge budget:
+    # confirmed_fp instances are suppressed and confirmed_tp instances are
+    # promoted via_class, so re-judging either buys nothing, while the
+    # `observing` and `mixed` classes are the ones nobody understands yet.
+    # Function-level import for the same module-cycle reason as below.
+    from .finding_classes import settled_class_keys
+
+    settled_classes = settled_class_keys(base_dir)
     # D4 — a rule whose measured FP rate earned quarantine stops consuming
     # judge capacity entirely; its repair work item already exists
     # (rule_health.commit_rule_defect_findings). Function-level import
@@ -866,6 +892,8 @@ def _sampleable_raw_findings(
             continue
         if (tool_id, str(finding.get("rule") or "").strip()) in quarantined:
             continue
+        if (tool_id, str(finding.get("rule") or "").strip()) in settled_classes:
+            continue
         candidates.append(_sample_item_from_finding(tool_id, run_id, row.get("cycle_id"), finding_id, finding, fingerprint))
     if candidates:
         return _cap_candidates_by_rule(candidates, limit=50)
@@ -885,6 +913,8 @@ def _sampleable_raw_findings(
             if fingerprint in settled_fingerprints:
                 continue
             if (tool_id, str(finding.get("rule") or "").strip()) in quarantined:
+                continue
+            if (tool_id, str(finding.get("rule") or "").strip()) in settled_classes:
                 continue
             candidates.append(_sample_item_from_finding(tool_id, run_id, run.get("cycle_id"), finding_id, finding, fingerprint))
     return _cap_candidates_by_rule(candidates, limit=50)
@@ -1101,7 +1131,14 @@ def _resolve_batch_verdict_key(verdict: dict[str, Any], by_finding_id: dict[str,
     return _batch_key(matches[0])
 
 
-def _evidence_refs_from_item(item: dict[str, Any]) -> list[str]:
+def evidence_refs_from_item(item: dict[str, Any]) -> list[str]:
+    """Repo-path evidence refs off a sample item or a raw finding.
+
+    Public because CE-1's class-promotion candidates are built from raw
+    findings and must produce byte-identical refs to the instance lane —
+    a second normaliser is how two lanes end up disagreeing about which
+    file a finding cites.
+    """
     refs = []
     if isinstance(item.get("path"), str) and item["path"]:
         refs.append(item["path"])
@@ -1117,6 +1154,61 @@ def _valid_string_list(value: Any) -> bool:
 
 def _optional_string_list(value: Any) -> list[str]:
     return [str(item) for item in value] if _valid_string_list(value) else []
+
+
+def suppression_layers(base_dir: str | Path | None) -> dict[str, Any]:
+    """Both layers of confirmed-false-positive memory, resolved once per batch.
+
+    CE-1 — the INSTANCE layer (`_confirmed_false_positive_fingerprints`) is
+    unchanged: an operator verdict or an ANCHOR consensus on this exact
+    fingerprint. The CLASS layer is the new one: a (tool_id, rule) that five
+    DISTINCT instances were settled against. Both are read here, together,
+    because the alternative — a second module that also decides "is this
+    finding suppressed?" — is the exact shape that made suppression
+    eligibility drift across five readers before JJ-1 (ORPHAN-HIGH-731).
+    There is one suppression decision point, and it is `suppression_for`.
+
+    Batched (not per-finding) because a run records hundreds of findings and
+    each layer walks a whole ledger.
+    """
+    from .finding_classes import confirmed_false_positive_classes
+
+    return {
+        "instance": _confirmed_false_positive_fingerprints(base_dir),
+        "class": confirmed_false_positive_classes(base_dir),
+    }
+
+
+def suppression_for(
+    *,
+    tool_id: str,
+    rule: str,
+    fingerprint: str,
+    layers: dict[str, Any],
+) -> dict[str, Any] | None:
+    """The suppressing record for this finding, or None — instance first.
+
+    Instance beats class, always: a verdict spent on THIS line is more
+    specific than a verdict about the rule, and the returned record says
+    which one spoke (`suppression_scope`) so a suppressed finding can always
+    be traced back to the judgement that silenced it.
+    """
+    instance = layers["instance"].get(fingerprint)
+    if instance is not None:
+        return instance
+    state = layers["class"].get((tool_id, str(rule or "").strip()))
+    if state is None:
+        return None
+    return {
+        "suppression_scope": "class",
+        "tool_id": state["tool_id"],
+        "rule": state["rule"],
+        "lifecycle": state["lifecycle"],
+        "judged": state["judged"],
+        "distinct_false_positive_instances": state[
+            "distinct_false_positive_instances"
+        ],
+    }
 
 
 def _confirmed_false_positive_fingerprints(base_dir: str | Path | None) -> dict[str, dict[str, Any]]:
@@ -1155,6 +1247,7 @@ def _confirmed_false_positive_fingerprints(base_dir: str | Path | None) -> dict[
         fingerprint = str(row.get("finding_fingerprint") or "")
         if fingerprint:
             confirmed[fingerprint] = {
+                "suppression_scope": "instance",
                 "source_type": row.get("source_type") or "human",
                 "judge_count": consensus_judge_count(row),
                 "judges_voted": consensus_judges_voted(row),
@@ -1287,6 +1380,10 @@ _DECLARED_SURFACE_BY_FILENAME: dict[str, str] = {
     # declared roster (they died at job teardown before).
     "findings.jsonl": "findings",
     "promotions.jsonl": "promotions",
+    # CE-1 — the class lifecycle ledger. Declared for the ORPHAN-670 reason:
+    # an unrostered ledger dies at job teardown, and a class verdict that
+    # does not survive the night is a verdict nothing can audit.
+    "finding-classes.jsonl": "finding_classes",
 }
 
 

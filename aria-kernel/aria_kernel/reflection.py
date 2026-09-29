@@ -1341,6 +1341,40 @@ def _render_rule_health_section(root: Path) -> list[str]:
     return lines
 
 
+def _render_finding_class_section(root: Path) -> list[str]:
+    """CE-1 — the class ledger's first reader: WHEN each class last flipped.
+
+    Reads the recorded TRANSITIONS rather than re-deriving the lifecycle,
+    because the question the operator brings to a report is historical
+    ("what changed, and on what evidence") — the enforcement paths read the
+    derivation. Silent until a class has moved at least once.
+    """
+    try:
+        from .finding_classes import recorded_class_states
+
+        recorded = recorded_class_states(root)
+    except Exception:
+        return []
+    if not recorded:
+        return []
+    lines = [
+        "## Finding Classes",
+        "",
+        "| Tool | Rule | Lifecycle | Was | TP instances | FP instances | Recorded |",
+        "| --- | --- | --- | --- | ---: | ---: | --- |",
+    ]
+    for (tool_id, rule), row in sorted(recorded.items()):
+        lines.append(
+            f"| {tool_id} | {rule} | {row.get('lifecycle')} | "
+            f"{row.get('previous_lifecycle') or '-'} | "
+            f"{row.get('distinct_true_positive_instances', 0)} | "
+            f"{row.get('distinct_false_positive_instances', 0)} | "
+            f"{row.get('recorded_at')} |"
+        )
+    lines.append("")
+    return lines
+
+
 def _render_duel_ratings_section(root: Path) -> list[str]:
     """Z6 — read-time Bradley-Terry scores over the duel ledger.
 
@@ -1526,6 +1560,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         *_render_replay_recall_section(reflection),
         *_render_duel_ratings_section(root),
         *_render_rule_health_section(root),
+        *_render_finding_class_section(root),
         "## Committed Findings",
         "",
         f"- Total: {reflection.get('committed_findings', {}).get('total', 0)}",

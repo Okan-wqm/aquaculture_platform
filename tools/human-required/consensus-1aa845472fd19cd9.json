@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "doc-staleness:missing:docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109:apps/admin-api-service/src/impersonation/services/impersonation.service.ts",
+    "judgment_group_id": "judge:doc-staleness-adapter:finding:7a24af1267c22ae9a8cbe1bc8dab1f6e58b760a5df7e06b670244c019401c177",
+    "kind": "consensus_escalation",
+    "run_id": "1710fe2e-111a-4ab0-af0a-39c591ff6c2f",
+    "tool_id": "doc-staleness-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'doc-staleness:missing:docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md:109:apps/admin-api-service/src/impersonation/services/impersonation.service.ts' (tool 'doc-staleness-adapter', run '1710fe2e-111a-4ab0-af0a-39c591ff6c2f'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-09-29T21:52:15Z",
+  "request_id": "consensus-1aa845472fd19cd9",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-02T21:52:15Z",
+  "status": "open"
+}

@@ -9,14 +9,18 @@
   },
   "ledger_hashes": {
     "external_feedback": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "governance": "61cad1955e842c07d63ef8e6f2addde90f33d3207ae97c86e266f0c380bd3316",
-    "missed_signals": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "pressure": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "governance": "ad9233abab2ffecb5b069bd8aeb78e63b1d1bac49b8b1b852b4cb349a7ba085f",
+    "missed_signals": "5f912c3928302a6f6d2350c9a90c4116d10d33401af3b16459d2aa27678313da",
+    "pressure": "a72f10c28e52816c1d1efc79aa33b895469df7eef4f3fe54d36eb48555cecfab",
     "pressure_state": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "since_migration_events": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "unknowns": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "vocabulary_rejections": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
-  "pressure_evidence_fingerprints_emitted": [],
+  "pressure_evidence_fingerprints_emitted": [
+    "sha256:960fd86f0bdef66e6d595b27d958311819c3a5ccfe0058f55b06f45d6a47cb5e",
+    "sha256:9cc40ec975fde5876e27650604da223812aca73d9df8d717d418829370f00a71",
+    "sha256:db2688089964c8487486ed95c03e73fff5442a39d4731be63a7a776b25d7f350"
+  ],
   "schema_version": 2
 }

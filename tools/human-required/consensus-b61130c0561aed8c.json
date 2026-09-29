@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "doc-staleness:missing:docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:597:apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts",
+    "judgment_group_id": "judge:doc-staleness-adapter:finding:dc6038680fee1c772362fd15d9d7298a0e60374cbf405b7137ea92a3f1775dc9",
+    "kind": "consensus_escalation",
+    "run_id": "1710fe2e-111a-4ab0-af0a-39c591ff6c2f",
+    "tool_id": "doc-staleness-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'doc-staleness:missing:docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:597:apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts' (tool 'doc-staleness-adapter', run '1710fe2e-111a-4ab0-af0a-39c591ff6c2f'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-09-29T21:52:17Z",
+  "request_id": "consensus-b61130c0561aed8c",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-02T21:52:17Z",
+  "status": "open"
+}

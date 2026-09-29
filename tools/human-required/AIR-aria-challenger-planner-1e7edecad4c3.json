@@ -1,0 +1,19 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "claim_id": "claim_f7541b3e298a17ce",
+    "code": "agent_refused:evidence",
+    "kind": "executor_escalation",
+    "reason_class": "evidence",
+    "reason_summary": "The request carries exactly one evidence_refs[] entry, 'gh-run-list:ci-run-36455014546', which is not a repo-relative path[:line] and which this prompt's own excerpt renderer marked skipped=\"malformed_ref\". No workflow source, no failing job or step name, and no run-log text were delivered, so there is no admissible ground from which to independently diagnose the named failure. Citing the one supplied ref would be rejected at submit as agent_evidence_ref_malformed / agent_evidence_not_repo_verif...",
+    "request_id": "AIR-aria-challenger-planner-1e7edecad4c3",
+    "stage": "agent_refusal"
+  },
+  "reason": "agent_refused:evidence: the agent refused the request; its summary is on the record",
+  "recorded_at": "2026-09-29T22:40:10Z",
+  "request_id": "AIR-aria-challenger-planner-1e7edecad4c3",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-06T22:40:10Z",
+  "status": "open"
+}

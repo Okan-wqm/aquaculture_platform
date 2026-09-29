@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "migration-without-test:apps/alert-engine/src/database/migrations/1800000000000-Baseline.ts",
+    "judgment_group_id": "judge:test-gap-adapter:finding:91d00db749b85f3f76696d0109c132e6549d7b5b096a4786e0544f06c4062c8c",
+    "kind": "consensus_escalation",
+    "run_id": "31f76115-1fd5-49e3-ab0a-789a0f32994c",
+    "tool_id": "test-gap-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'migration-without-test:apps/alert-engine/src/database/migrations/1800000000000-Baseline.ts' (tool 'test-gap-adapter', run '31f76115-1fd5-49e3-ab0a-789a0f32994c'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-09-29T21:52:12Z",
+  "request_id": "consensus-626b46e98512ba47",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-02T21:52:12Z",
+  "status": "open"
+}

@@ -15326,6 +15326,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/maintenance/__tests__/spare-part-relocation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/maintenance/__tests__/spare-part-stock.dataloader.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/maintenance/__tests__/spare-part-stock.reader.spec.ts",
       "prettier_managed": true
     },
@@ -17223,6 +17235,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/__tests__/receive-delivery.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/record-stock-movement-input.spec.ts",
       "prettier_managed": true
     },
     {
@@ -56869,6 +56887,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/farm-module/src/utils/__tests__/derived-stock-tone.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/farm-module/src/utils/__tests__/list-view-state.spec.ts",
       "prettier_managed": true
     },
@@ -56876,6 +56900,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/farm-module/src/utils/command-envelope.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/farm-module/src/utils/derived-stock-tone.ts",
       "prettier_managed": true
     },
     {

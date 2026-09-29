@@ -11,6 +11,7 @@ import { EntityManager, ObjectLiteral, Repository, SelectQueryBuilder } from 'ty
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StorageInventory, StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
+import { StockMutationLockAuthority } from '../../storage/services/stock-mutation-lock.authority';
 import { SparePart } from '../entities/spare-part.entity';
 import { SparePartLedgerService } from '../services/spare-part-ledger.service';
 import type { StockMovementInput } from '../dto/spare-part.dto';
@@ -46,13 +47,26 @@ function harness(opts: { atLocation?: string; parts?: SparePart[] } = {}): {
   manager: EntityManager;
   recordMovement: jest.Mock;
   partSave: jest.Mock;
+  acquire: jest.Mock;
+  order: string[];
 } {
+  // Shared call log: proves the lock is taken BEFORE the count baseline is read.
+  const order: string[] = [];
   const recordMovement = jest.fn().mockResolvedValue({ lowStockCrossings: [] });
+  const acquire = jest.fn();
+  acquire.mockImplementation(async () => {
+    order.push('lock');
+  });
   const qb = stub<SelectQueryBuilder<StorageInventory>>({});
   qb.where = jest.fn(() => qb);
   qb.andWhere = jest.fn(() => qb);
   qb.select = jest.fn(() => qb);
-  qb.getRawOne = jest.fn().mockResolvedValue({ total: opts.atLocation ?? '0' });
+  const getRawOne = jest.fn();
+  getRawOne.mockImplementation(async () => {
+    order.push('read');
+    return { total: opts.atLocation ?? '0' };
+  });
+  qb.getRawOne = getRawOne;
   const partSave = jest.fn();
   partSave.mockImplementation(async (rows: unknown) => rows);
   const partCreate = jest.fn();
@@ -81,8 +95,18 @@ function harness(opts: { atLocation?: string; parts?: SparePart[] } = {}): {
     if (!repo) throw new Error(`unexpected repository ${String(entity)}`);
     return repo;
   });
-  const ledger = new SparePartLedgerService(stub<StockMovementService>({ recordMovement }));
-  return { ledger, manager: stub<EntityManager>({ getRepository }), recordMovement, partSave };
+  const ledger = new SparePartLedgerService(
+    stub<StockMovementService>({ recordMovement }),
+    stub<StockMutationLockAuthority>({ acquire }),
+  );
+  return {
+    ledger,
+    manager: stub<EntityManager>({ getRepository }),
+    recordMovement,
+    partSave,
+    acquire,
+    order,
+  };
 }
 
 const actor = { userId: USER };
@@ -154,6 +178,7 @@ describe('SparePartLedgerService — every writer produces a ledger movement', (
 
   it('turns a counted adjustment into the signed difference at that location', async () => {
     // SCENARIO: 4 on the shelf, counted 7 → +3 IN side; counted 1 → −3 OUT side; counted 4 → nothing.
+    // EXPECTS: the signed difference, with the baseline read under the item lock.
     const up = harness({ atLocation: '4' });
     await up.ledger.recordMovement(
       up.manager,
@@ -181,6 +206,12 @@ describe('SparePartLedgerService — every writer produces a ledger movement', (
       quantity: 3,
       fromLocationId: LOC,
     });
+
+    // The baseline is read under the item lock, never before it.
+    expect(down.acquire).toHaveBeenCalledWith(down.manager, TENANT, [
+      { itemType: StorageItemType.SPARE_PART, itemId: 'part-1' },
+    ]);
+    expect(down.order).toEqual(['lock', 'read']);
 
     const same = harness({ atLocation: '4' });
     await same.ledger.recordMovement(
@@ -300,5 +331,41 @@ describe('SparePartLedgerService — fail-closed', () => {
         USER,
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('SparePartLedgerService.assertRelocatable — stock never stranded by a re-home', () => {
+  it('refuses to move the home while stock still sits there, reading under the item lock', async () => {
+    // SCENARIO: 4 on hand at the current home LOC; the manager re-points it to OTHER_LOC.
+    // EXPECTS: BadRequest (transfer first), the baseline read taken after the item lock.
+    const { ledger, manager, acquire, order } = harness({ atLocation: '4' });
+    await expect(ledger.assertRelocatable(manager, TENANT, part(), OTHER_LOC)).rejects.toThrow(
+      /transfer that stock before changing the location/,
+    );
+    expect(acquire).toHaveBeenCalledWith(manager, TENANT, [
+      { itemType: StorageItemType.SPARE_PART, itemId: 'part-1' },
+    ]);
+    expect(order).toEqual(['lock', 'read']);
+  });
+
+  it('allows the re-home of an empty home, a first home and a no-op', async () => {
+    // SCENARIO: home empty; part without a home; same home again.
+    // EXPECTS: all resolve; the last two read nothing at all.
+    const empty = harness({ atLocation: '0' });
+    await expect(
+      empty.ledger.assertRelocatable(empty.manager, TENANT, part(), null),
+    ).resolves.toBeUndefined();
+
+    const first = harness({ atLocation: '9' });
+    await first.ledger.assertRelocatable(
+      first.manager,
+      TENANT,
+      part({ storageLocationId: null }),
+      OTHER_LOC,
+    );
+    const same = harness({ atLocation: '9' });
+    await same.ledger.assertRelocatable(same.manager, TENANT, part(), LOC);
+    expect(first.order).toEqual([]);
+    expect(same.order).toEqual([]);
   });
 });

@@ -352,12 +352,18 @@ export class SparePartFilterInput {
   @IsBoolean()
   isActive?: boolean;
 
-  @Field(() => Boolean, { nullable: true, description: 'Stok < minStock' })
+  @Field(() => Boolean, {
+    nullable: true,
+    description: 'Derived status LOW_STOCK: ledger on-hand + open orders at or below reorderPoint',
+  })
   @IsOptional()
   @IsBoolean()
   isLowStock?: boolean;
 
-  @Field(() => Boolean, { nullable: true, description: 'Stok = 0' })
+  @Field(() => Boolean, {
+    nullable: true,
+    description: 'Derived status OUT_OF_STOCK: ledger on-hand 0',
+  })
   @IsOptional()
   @IsBoolean()
   isOutOfStock?: boolean;

@@ -15,14 +15,7 @@ import {
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { DecimalScalar } from '@aquaculture/backend-common/graphql';
-import {
-  ObjectType,
-  Field,
-  ID,
-  Float,
-  Int,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 // Note: Supplier and EquipmentType are referenced via string to avoid circular dependency
 // Type-only imports for TypeScript type checking
@@ -65,6 +58,9 @@ export interface SparePartBinDetail {
 @Index(['tenantId', 'legacyStatus'])
 @Index(['tenantId', 'equipmentTypeId'])
 @Index(['tenantId', 'supplierId'])
+// Named as migration 1811300000000 creates it (FK_spare_parts_storage_location
+// lives in the DDL only, like storage_inventory's location FK).
+@Index('IDX_spare_parts_tenant_storage_location', ['tenantId', 'storageLocationId'])
 export class SparePart {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -178,7 +174,13 @@ export class SparePart {
     nullable: true,
     deprecationReason: 'Use unitPriceDecimal (exact decimal string, ADR-0004).',
   })
-  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 15,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
   unitPrice?: number;
 
   /** Exact-decimal wire form of `unitPrice` (ADR-0004 / DATA-MEDIUM-009). */

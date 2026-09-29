@@ -41,6 +41,7 @@ import {
 } from '../../hooks/useMaintenance';
 import { useStorageLocationList } from '../../hooks/useStorageLocations';
 import { isBlockingError } from '../../utils/list-view-state';
+import { derivedStockTone, STOCK_TONE_TEXT_CLASS } from '../../utils/derived-stock-tone';
 import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   SparePartStockMovementModal,
@@ -342,14 +343,11 @@ export const SparePartsPage: React.FC = () => {
       header: 'Miktar',
       render: (_value, item) => (
         <>
+          {/* WHY status, not quantity vs minStock/reorderPoint: the backend
+              derives it with the ONE spare-part rule (reorderPoint vs on-hand +
+              open orders); a second client-side rule would disagree with it. */}
           <span
-            className={`text-sm font-medium ${
-              item.quantity <= item.minStock
-                ? 'text-error-600 dark:text-error-400'
-                : item.quantity <= item.reorderPoint
-                  ? 'text-warning-600 dark:text-warning-400'
-                  : 'text-gray-900 dark:text-gray-100'
-            }`}
+            className={`text-sm font-medium ${STOCK_TONE_TEXT_CLASS[derivedStockTone(item.status)]}`}
           >
             {item.quantity} {item.unit}
           </span>

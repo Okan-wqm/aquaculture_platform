@@ -1,10 +1,37 @@
 import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { InputType, Field, Float, ID } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
-import { IsDate, IsEnum, IsNumber, IsOptional, IsString, IsUUID, Max, MaxDate, MaxLength, Min } from 'class-validator';
+import {
+  IsDate,
+  IsEnum,
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxDate,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 import { MovementType } from '../entities/stock-movement.entity';
 import { StorageItemType } from '../entities/storage-inventory.entity';
+
+/**
+ * Item types the generic storage movement accepts.
+ *
+ * WHY SPARE_PART is excluded (FARM-HIGH-338): spare parts joined the ledger,
+ * which put them in `StorageItemType` — and so in this MODULE_USER mutation.
+ * Their quantity-changing movements (in / out / count) belong to
+ * `recordSparePartStockMovement`, gated to MODULE_MANAGER / TENANT_ADMIN;
+ * accepting them here would let a MODULE_USER bypass that gate. Relocation
+ * (`transferStock`, both legs site-scoped) and work-order consumption stay open.
+ * INVARIANT: if violated → a role below manager changes spare-part stock.
+ */
+export const GENERIC_MOVEMENT_ITEM_TYPES: readonly StorageItemType[] = Object.values(
+  StorageItemType,
+).filter((itemType) => itemType !== StorageItemType.SPARE_PART);
 
 @InputType()
 export class RecordStockMovementInput extends MobileCommandEnvelopeInput {
@@ -12,8 +39,13 @@ export class RecordStockMovementInput extends MobileCommandEnvelopeInput {
   @IsEnum(MovementType)
   movementType!: MovementType;
 
-  @Field(() => StorageItemType)
+  @Field(() => StorageItemType, {
+    description: 'Any stock category except SPARE_PART (use recordSparePartStockMovement)',
+  })
   @IsEnum(StorageItemType)
+  @IsIn(GENERIC_MOVEMENT_ITEM_TYPES, {
+    message: 'spare_part stock moves through recordSparePartStockMovement',
+  })
   itemType!: StorageItemType;
 
   @Field(() => ID)
@@ -67,7 +99,10 @@ export class RecordStockMovementInput extends MobileCommandEnvelopeInput {
    * Frontend should generate this via crypto.randomUUID() before the first
    * submission attempt and include the same key on every retry.
    */
-  @Field({ nullable: true, description: 'Client-generated idempotency key to prevent duplicate movements' })
+  @Field({
+    nullable: true,
+    description: 'Client-generated idempotency key to prevent duplicate movements',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(64)
@@ -89,8 +124,7 @@ export class RecordStockMovementInput extends MobileCommandEnvelopeInput {
    */
   @Field({
     nullable: true,
-    description:
-      'Authoritative event date for FEFO as-of scoping. Defaults to now when omitted.',
+    description: 'Authoritative event date for FEFO as-of scoping. Defaults to now when omitted.',
   })
   @IsOptional()
   @Type(() => Date)

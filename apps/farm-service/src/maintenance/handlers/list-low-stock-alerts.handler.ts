@@ -4,17 +4,16 @@
  * WHY ledger-derived (FARM-HIGH-338 / FARM-4): a spare part is due for
  * reordering when its INVENTORY POSITION (ledger on-hand + open purchase-order
  * remainder) reaches its reorder point, or when it is physically out. That is
- * the same pool rule every other stock item uses (`poolStockBand`), so an
- * order already placed suppresses the alert instead of the stale status
- * column deciding.
+ * the same pool rule every other stock item uses (`poolStockBand`, applied
+ * once in `deriveSparePartStatus`), so an order already placed suppresses the
+ * alert instead of the stale status column deciding.
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { DataSource } from 'typeorm';
 
-import { poolStockBand } from '../../storage/services/low-stock/stock-band';
-import { SparePart } from '../entities/spare-part.entity';
+import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
 import { LowStockAlert } from '../services/spare-part.service';
 import { requireStockView, SparePartStockReader } from '../services/spare-part-stock.reader';
 import { ListLowStockAlertsQuery } from '../queries/list-low-stock-alerts.query';
@@ -38,7 +37,13 @@ export class ListLowStockAlertsHandler implements IQueryHandler<ListLowStockAler
       const alerts: LowStockAlert[] = [];
       for (const part of parts) {
         const view = requireStockView(stock, part.id);
-        if (poolStockBand(view.onHand, view.onOrder, part.reorderPoint) === 'ok') continue;
+        // The ONE spare-part rule (deriveSparePartStatus): due when LOW or OUT.
+        if (
+          view.status !== SparePartStatus.LOW_STOCK &&
+          view.status !== SparePartStatus.OUT_OF_STOCK
+        ) {
+          continue;
+        }
         alerts.push({
           sparePart: part,
           currentQuantity: view.onHand,

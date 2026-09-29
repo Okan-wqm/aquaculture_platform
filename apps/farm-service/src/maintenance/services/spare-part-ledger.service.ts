@@ -27,6 +27,7 @@ import {
   MovementContext,
   StockMovementService,
 } from '../../storage/services/stock-movement.service';
+import { StockMutationLockAuthority } from '../../storage/services/stock-mutation-lock.authority';
 import { SparePart } from '../entities/spare-part.entity';
 import type { StockMovementInput } from '../dto/spare-part.dto';
 
@@ -45,7 +46,12 @@ export interface ConsumedMaterial {
 
 @Injectable()
 export class SparePartLedgerService {
-  constructor(private readonly stockMovements: StockMovementService) {}
+  constructor(
+    private readonly stockMovements: StockMovementService,
+    // The item lock the sink takes; an adjustment takes it BEFORE reading the
+    // count baseline so no concurrent movement lands between read and write.
+    private readonly mutationLocks: StockMutationLockAuthority,
+  ) {}
 
   /**
    * Assert a storage location exists, is live and belongs to this tenant.
@@ -63,6 +69,36 @@ export class SparePartLedgerService {
     if (!location) throw new NotFoundException(`Storage location "${locationId}" not found`);
     if (location.isDeleted) {
       throw new BadRequestException(`Storage location "${locationId}" is deleted`);
+    }
+  }
+
+  /**
+   * Re-home a part (`storageLocationId`) only when its current home holds no
+   * stock.
+   * WHY: the home is where every later movement defaults to; re-pointing it
+   * while stock still sits at the old home strands that stock — a count at the
+   * new home reads 0 and books a phantom IN. The stock moves first
+   * (`transferStock`), then the home.
+   * INVARIANT: read under the item lock, so no concurrent receipt lands at the
+   * old home between the check and the re-home.
+   */
+  async assertRelocatable(
+    manager: EntityManager,
+    tenantId: string,
+    part: SparePart,
+    nextLocationId: string | null,
+  ): Promise<void> {
+    const current = part.storageLocationId ?? null;
+    if (current === null || current === nextLocationId) return;
+    await this.mutationLocks.acquire(manager, tenantId, [
+      { itemType: StorageItemType.SPARE_PART, itemId: part.id },
+    ]);
+    const onHand = await this.onHandAtLocation(manager, tenantId, part.id, current);
+    if (onHand > 0) {
+      throw new BadRequestException(
+        `Spare part ${part.code} still holds ${onHand} ${part.unit} at its storage location; ` +
+          'transfer that stock before changing the location',
+      );
     }
   }
 
@@ -137,6 +173,13 @@ export class SparePartLedgerService {
         part.lastUsedDate = new Date();
         return;
       case 'adjustment': {
+        // INVARIANT: the counted delta is computed under the item's mutation
+        // lock (the same advisory lock the sink re-takes; xact locks stack).
+        // If violated → a movement committed between this read and the
+        // adjustment is silently undone or doubled by a stale delta.
+        await this.mutationLocks.acquire(manager, tenantId, [
+          { itemType: StorageItemType.SPARE_PART, itemId: part.id },
+        ]);
         const onHand = await this.onHandAtLocation(manager, tenantId, part.id, locationId);
         const delta = input.quantity - onHand;
         if (delta === 0) return;

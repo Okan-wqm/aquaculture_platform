@@ -13,6 +13,7 @@ import { EntityManager } from 'typeorm';
 
 import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import { StockLedgerReader } from '../../storage/services/low-stock/stock-ledger.reader';
+import { poolStockBand } from '../../storage/services/low-stock/stock-band';
 import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
 
 /** Derived stock of one spare part. */
@@ -24,26 +25,57 @@ export interface SparePartStockView {
   status: SparePartStatus;
 }
 
-/** The catalog facts the status derivation needs. */
-export type SparePartStockFacts = Pick<SparePart, 'id' | 'isActive' | 'minStock'>;
+/**
+ * The catalog columns the status derivation reads — THE select list of every
+ * partial load that feeds `read()`.
+ * WHY the type is derived from this list (not the other way round): a loader
+ * that selects columns by hand can omit one the rule needs; TypeORM then
+ * hands back `undefined`, `Number(undefined)` is NaN and `poolStockBand`
+ * silently reads "not reorder-controlled" (the part never shows LOW_STOCK).
+ * INVARIANT: a new fact is added HERE, so every loader selecting
+ * `SPARE_PART_STOCK_FACT_COLUMNS` loads it; if violated → a derived status
+ * computed from a missing column.
+ */
+export const SPARE_PART_STOCK_FACT_COLUMNS = [
+  'id',
+  'isActive',
+  'reorderPoint',
+] as const satisfies readonly (keyof SparePart)[];
+
+/** The catalog facts the status derivation needs (see the column list above). */
+export type SparePartStockFacts = Pick<SparePart, (typeof SPARE_PART_STOCK_FACT_COLUMNS)[number]>;
 
 /**
- * Derive a spare part's status from the ledger.
- * WHY: status used to be a stored field any update could overwrite; WHAT:
- *   inactive → DISCONTINUED; on-hand ≤ 0 → OUT_OF_STOCK (physical fact, even
- *   with an order open); open order → ON_ORDER; on-hand ≤ minStock →
- *   LOW_STOCK; else IN_STOCK.
+ * THE spare-part stock rule — every spare-part surface (GraphQL `status`, the
+ * low-stock list, the list filters, the summary, the daily cron) reads it.
+ *
+ * WHY one rule (FARM-HIGH-335 / FARM-4): the status used `minStock`, the
+ * low-stock list used `reorderPoint` and the list filter a third comparison, so
+ * one part could be LOW on one screen and fine on the next. A spare part's buy
+ * trigger is its reorder point compared with its INVENTORY POSITION (ledger
+ * on-hand + open purchase-order remainder) — the same `poolStockBand` the
+ * `LowStockDetected` pool tier uses for it (storage-item-catalog.ts), so an
+ * order that covers the shortfall suppresses LOW (ON_ORDER) and one that does
+ * not leaves it LOW. `minStock` is the displayed safety stock, not a trigger.
+ * WHAT: inactive → DISCONTINUED; on-hand ≤ 0 → OUT_OF_STOCK (fish-farm
+ * pumps cannot run on an order); position ≤ reorderPoint → LOW_STOCK; an open
+ * order otherwise → ON_ORDER; else IN_STOCK.
  */
 export function deriveSparePartStatus(
-  part: Pick<SparePart, 'isActive' | 'minStock'>,
+  part: Pick<SparePart, 'isActive' | 'reorderPoint'>,
   onHand: number,
   onOrder: number,
 ): SparePartStatus {
   if (!part.isActive) return SparePartStatus.DISCONTINUED;
-  if (onHand <= 0) return SparePartStatus.OUT_OF_STOCK;
-  if (onOrder > 0) return SparePartStatus.ON_ORDER;
-  if (onHand <= part.minStock) return SparePartStatus.LOW_STOCK;
-  return SparePartStatus.IN_STOCK;
+  const band = poolStockBand(onHand, onOrder, Number(part.reorderPoint));
+  switch (band) {
+    case 'out_of_stock':
+      return SparePartStatus.OUT_OF_STOCK;
+    case 'low_stock':
+      return SparePartStatus.LOW_STOCK;
+    case 'ok':
+      return onOrder > 0 ? SparePartStatus.ON_ORDER : SparePartStatus.IN_STOCK;
+  }
 }
 
 /**
@@ -80,10 +112,10 @@ export class SparePartStockReader {
       itemType: StorageItemType.SPARE_PART,
       itemIds: parts.map((part) => part.id),
     };
-    const [onHandRows, onOrderRows] = await Promise.all([
-      this.ledger.onHandBySite(manager, tenantId, scope),
-      this.ledger.onOrder(manager, tenantId, scope),
-    ]);
+    // Sequential: `manager` is the caller's transactional connection, which runs
+    // one query at a time (pg queues parallel calls and deprecates doing so).
+    const onHandRows = await this.ledger.onHandBySite(manager, tenantId, scope);
+    const onOrderRows = await this.ledger.onOrder(manager, tenantId, scope);
 
     const onHand = new Map<string, number>();
     for (const row of onHandRows)

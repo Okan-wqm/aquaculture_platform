@@ -57,7 +57,11 @@ export class SparePartService {
    * Register a part. WHY one transaction: the opening balance is a ledger IN
    * movement; if it fails (bad location) the part must not exist either.
    */
-  async create(tenantId: string, input: CreateSparePartInput, actor: SparePartActor): Promise<SparePart> {
+  async create(
+    tenantId: string,
+    input: CreateSparePartInput,
+    actor: SparePartActor,
+  ): Promise<SparePart> {
     this.logger.log(`Creating spare part for tenant: ${tenantId}`);
     if (input.openingQuantity > 0 && !input.storageLocationId) {
       throw new BadRequestException(
@@ -104,7 +108,13 @@ export class SparePartService {
       );
 
       if (input.openingQuantity > 0) {
-        await this.ledger.recordOpeningBalance(manager, tenantId, saved, input.openingQuantity, actor);
+        await this.ledger.recordOpeningBalance(
+          manager,
+          tenantId,
+          saved,
+          input.openingQuantity,
+          actor,
+        );
       }
       this.logger.log(`Spare part created: ${saved.code}`);
       return saved;
@@ -115,7 +125,11 @@ export class SparePartService {
    * Update catalogue fields. Stock and status are NOT here (FARM-HIGH-338):
    * stock moves only through the ledger and the status is derived from it.
    */
-  async update(tenantId: string, input: UpdateSparePartInput, updatedBy: string): Promise<SparePart> {
+  async update(
+    tenantId: string,
+    input: UpdateSparePartInput,
+    updatedBy: string,
+  ): Promise<SparePart> {
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
       const repo = tenantManagerRepo(manager, SparePart, tenantId);
@@ -128,10 +142,13 @@ export class SparePartService {
         }
       }
       // undefined = unchanged; null = no default location; an id = re-home.
+      // Either change is refused while stock still sits at the current home.
       if (input.storageLocationId === null) {
+        await this.ledger.assertRelocatable(manager, tenantId, sparePart, null);
         sparePart.storageLocationId = null;
       } else if (input.storageLocationId !== undefined) {
         await this.ledger.assertLocation(manager, tenantId, input.storageLocationId);
+        await this.ledger.assertRelocatable(manager, tenantId, sparePart, input.storageLocationId);
         sparePart.storageLocationId = input.storageLocationId;
       }
 

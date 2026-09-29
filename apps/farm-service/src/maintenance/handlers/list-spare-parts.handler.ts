@@ -18,7 +18,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { DataSource } from 'typeorm';
 
-import { SparePart } from '../entities/spare-part.entity';
+import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
 import { ListSparePartsQuery } from '../queries/list-spare-parts.query';
 import {
   requireStockView,
@@ -77,8 +77,9 @@ export class ListSparePartsHandler implements IQueryHandler<ListSparePartsQuery>
       let rows = candidates.filter((part) => {
         const view = viewOf(part);
         if (filter?.status?.length && !filter.status.includes(view.status)) return false;
-        if (filter?.isLowStock && !(view.onHand > 0 && view.onHand <= part.minStock)) return false;
-        if (filter?.isOutOfStock && view.onHand > 0) return false;
+        // The ONE derivation (deriveSparePartStatus) decides both filters.
+        if (filter?.isLowStock && view.status !== SparePartStatus.LOW_STOCK) return false;
+        if (filter?.isOutOfStock && view.status !== SparePartStatus.OUT_OF_STOCK) return false;
         return true;
       });
 

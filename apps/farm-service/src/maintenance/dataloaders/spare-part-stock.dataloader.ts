@@ -18,7 +18,11 @@ import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/
 import { createTenantScopedDataLoader } from '@aquaculture/backend-common/dataloader';
 
 import { SparePart } from '../entities/spare-part.entity';
-import { SparePartStockReader, SparePartStockView } from '../services/spare-part-stock.reader';
+import {
+  SPARE_PART_STOCK_FACT_COLUMNS,
+  SparePartStockReader,
+  SparePartStockView,
+} from '../services/spare-part-stock.reader';
 
 @Injectable({ scope: Scope.REQUEST })
 export class SparePartStockDataLoader {
@@ -35,9 +39,11 @@ export class SparePartStockDataLoader {
           'farm',
           tenantId,
           async (queryRunner) => {
+            // The reader's own column list: the partial load cannot miss a
+            // column the status rule reads (reorderPoint, FARM-4).
             const parts = await tenantManagerRepo(queryRunner.manager, SparePart, tenantId).find({
               where: { tenantId, id: In([...partIds]) },
-              select: ['id', 'isActive', 'minStock'],
+              select: [...SPARE_PART_STOCK_FACT_COLUMNS],
             });
             return this.reader.read(queryRunner.manager, tenantId, parts);
           },

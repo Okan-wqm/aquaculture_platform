@@ -358,6 +358,9 @@ export const tr: Record<MessageKey, string> = {
   'storage.lowStock.siteBadge': 'SİTE',
   'storage.lowStock.onOrder': '+{quantity} {unit} siparişte',
 
+  // ── Dashboard stock widget (plan K8: one count per short tier) ──
+  'dashboard.stock.alertCount': '{count} düşük stok uyarısı',
+
   // ── Messaging panel (FAZ 1) ──
   'messaging.overview': 'Genel Bakış',
   'messaging.title': 'Mesajlar',

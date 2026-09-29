@@ -185,6 +185,10 @@ export {
   tenantScopedStorageKey,
   sweepTenantScopedStorage,
 } from './utils/tenant-scoped-storage-namespace';
+// Low-stock tier rows (plan K8): one row identity + tier label for every
+// remote that lists storageOverview.lowStockAlerts (farm-module, dashboard).
+export { lowStockRowKey, lowStockTierLabel } from './utils/low-stock-tier';
+export type { LowStockTierLevel, LowStockTierRow } from './utils/low-stock-tier';
 
 // ============================================================================
 // I18n Infrastructure — FE-HIGH-020

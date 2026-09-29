@@ -1,15 +1,17 @@
 /**
- * Low-stock tiers on the web (plan K8, FARM-HIGH-336).
+ * Low-stock tiers on the storage page (plan K8, FARM-HIGH-336).
  *
  * WHY: the storage overview returns one row per short TIER — the tenant pool
  * of an item and, separately, each site below its site policy — so the same
  * item can appear twice. Keying by `itemId` alone kept whichever row came last
- * and badged every site's rows with it. This module is the ONE place that says
- * which tier a row is and which inventory rows it concerns.
+ * and badged every site's rows with it. This module says which inventory rows
+ * a tier concerns; the row identity and the tier label are the design system's
+ * (`lowStockRowKey` / `lowStockTierLabel` in shared-ui), shared with the
+ * dashboard stock widget so the two lists cannot key or name a tier differently.
  */
-import type { I18nContextValue } from '@aquaculture/shared-ui';
-
 import type { LowStockAlert } from '../../../hooks/useStorageInventory';
+
+export { lowStockRowKey, lowStockTierLabel } from '@aquaculture/shared-ui';
 
 /** The alerts that concern one inventory row. */
 export interface RowLowStock {
@@ -22,22 +24,6 @@ export interface RowLowStock {
 export interface LowStockIndex {
   /** Tiers that concern an inventory row of `itemId` at a location of `siteId`. */
   forRow(itemId: string, siteId: string | undefined): RowLowStock;
-}
-
-/** Stable React key: one row per (item, tier, site). */
-export function lowStockRowKey(alert: LowStockAlert): string {
-  return `${alert.itemId}:${alert.level}:${alert.siteId ?? 'pool'}`;
-}
-
-/**
- * Human label of the tier: the site's name, or the tenant pool.
- * WHY `t` is a parameter: the label is user-visible text, so it goes through
- * the shared-ui message catalog (FE-HIGH-089) in the viewer's language.
- */
-export function lowStockTierLabel(alert: LowStockAlert, t: I18nContextValue['t']): string {
-  return alert.level === 'SITE'
-    ? t('storage.lowStock.siteTier', { site: alert.siteName ?? alert.siteId ?? '-' })
-    : t('storage.lowStock.poolTier');
 }
 
 /**

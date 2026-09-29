@@ -54847,6 +54847,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/dashboard/src/components/__tests__/OverviewWidgets.stock.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/dashboard/src/components/AlertsSummary.tsx",
       "prettier_managed": true
     },
@@ -64127,6 +64133,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/utils/__tests__/low-stock-tier.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/utils/__tests__/tenant-capabilities.spec.ts",
       "prettier_managed": true
     },
@@ -64212,6 +64224,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/utils/logout-cleanup.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/utils/low-stock-tier.ts",
       "prettier_managed": true
     },
     {

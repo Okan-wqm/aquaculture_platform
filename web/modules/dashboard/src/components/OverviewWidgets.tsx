@@ -6,7 +6,17 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Badge, chartChrome, colors, formatNumber, Button } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Badge,
+  chartChrome,
+  colors,
+  formatNumber,
+  Button,
+  lowStockRowKey,
+  lowStockTierLabel,
+  useI18n,
+} from '@aquaculture/shared-ui';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   useTodaysTasks,
@@ -367,7 +377,15 @@ interface StockWidgetProps {
   refetch: () => void;
 }
 
+/**
+ * WHY: `lowStockAlerts` holds one row per short TIER (the tenant pool of an
+ * item, and each site below its site policy, plan K8), so one item can be
+ * listed twice. WHAT: rows keyed by (item, tier, site) through the shared-ui
+ * key, each labelled with its tier (site name or pool); the badge shows the
+ * server's tier count, the number the farm-module storage page shows.
+ */
 const StockWidget: React.FC<StockWidgetProps> = ({ overview, isLoading, isError, refetch }) => {
+  const { t } = useI18n();
   if (isLoading) return <WidgetSkeleton />;
   if (isError) return <ErrorWidget title="Stok Durumu" onRetry={refetch} />;
 
@@ -382,7 +400,9 @@ const StockWidget: React.FC<StockWidgetProps> = ({ overview, isLoading, isError,
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Stok Durumu</h3>
         <Badge variant={overview.lowStockAlertCount > 0 ? 'error' : 'success'}>
-          {overview.lowStockAlertCount > 0 ? `${overview.lowStockAlertCount} Kritik` : 'Normal'}
+          {overview.lowStockAlertCount > 0
+            ? t('dashboard.stock.alertCount', { count: overview.lowStockAlertCount })
+            : 'Normal'}
         </Badge>
       </div>
       <div className="space-y-3">
@@ -392,15 +412,30 @@ const StockWidget: React.FC<StockWidgetProps> = ({ overview, isLoading, isError,
           const isLow = percentage < 100;
 
           return (
-            <div key={stock.itemId} className="space-y-1">
+            <div key={lowStockRowKey(stock)} className="space-y-1">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500 dark:text-gray-400">{stock.itemName}</span>
+                <span className="text-gray-500 dark:text-gray-400">
+                  {stock.itemName}
+                  <span className="ml-1 text-gray-400 dark:text-gray-500">
+                    · {lowStockTierLabel(stock, t)}
+                  </span>
+                </span>
                 <span
                   className={`font-medium ${isLow ? 'text-error-600 dark:text-error-400' : 'text-gray-900 dark:text-gray-100'}`}
                 >
                   {stock.currentQuantity.toFixed(0)} / {stock.minStock.toFixed(0)} {stock.unit}
                 </span>
               </div>
+              {/* A pool tier compares on-hand + open orders; show the orders
+                  so a covered shortfall does not read as unexplained. */}
+              {stock.level === 'POOL' && stock.onOrderQuantity > 0 && (
+                <div className="text-xs text-info-600 dark:text-info-400">
+                  {t('storage.lowStock.onOrder', {
+                    quantity: stock.onOrderQuantity,
+                    unit: stock.unit,
+                  })}
+                </div>
+              )}
               <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${

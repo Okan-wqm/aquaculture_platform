@@ -362,6 +362,9 @@ export const en = {
   'storage.lowStock.siteBadge': 'SITE',
   'storage.lowStock.onOrder': '+{quantity} {unit} on order',
 
+  // ── Dashboard stock widget (plan K8: one count per short tier) ──
+  'dashboard.stock.alertCount': '{count} low-stock alerts',
+
   // ── Messaging panel (FAZ 1) ──
   'messaging.overview': 'Overview',
   'messaging.title': 'Messages',

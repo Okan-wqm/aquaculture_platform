@@ -33,7 +33,8 @@ from aria_kernel.feedback_store import record_operator_feedback
 from aria_kernel.ledger import append_declared_jsonl, load_jsonl
 from aria_kernel.memory import list_memory, validate_repo_evidence
 from aria_kernel.pressure import explain_pressure, run_pressure
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, transition_tool, get_tool
+from aria_kernel.tool_registry import GovernanceError, transition_tool, get_tool
+from tests._helpers.production_shaped import cycle_workspace
 
 FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
@@ -161,23 +162,27 @@ def self_output_tool():
 class EnterpriseCycleTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name) / "workspace"
-        self.root.mkdir()
-        (self.root / "src").mkdir()
-        (self.root / "src/app.ts").write_text("export const app = true;\n", encoding="utf-8")
-        (self.root / "package.json").write_text('{"name":"fixture"}\n', encoding="utf-8")
-        (self.root / "nx.json").write_text('{"affected":{}}\n', encoding="utf-8")
-        self.tools_dir = ensure_tools_dir(Path(self.tmp.name) / "aria-tools")
+        # The shared cycle fixture: a git repository with the three fixture
+        # files committed. This class used to build a bare directory and
+        # `git init` it only in the tests that asked; the full cycles ran on
+        # a workspace with no history, which the twin now refuses
+        # (`twin.HISTORY_UNAVAILABLE`) — a failed phase outcome that fails
+        # the cycle and skips every later `halt_sequence` phase (memory,
+        # pressure, ...), which is what those cycles were asserting on.
+        # Discovery runs in `committed` mode by default, so a test that
+        # edits the tree afterwards commits the edit (`commit_working_tree`)
+        # for the same reason the bare directory used to be scanned whole.
+        fixture = cycle_workspace(Path(self.tmp.name))
+        self.root = fixture.workspace_root
+        self.tools_dir = fixture.tools_dir
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def init_git_repo(self):
-        subprocess.run(["git", "init"], cwd=self.root, check=True, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "aria@example.test"], cwd=self.root, check=True, capture_output=True)
-        subprocess.run(["git", "config", "user.name", "ARIA Test"], cwd=self.root, check=True, capture_output=True)
-        subprocess.run(["git", "add", "."], cwd=self.root, check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "initial"], cwd=self.root, check=True, capture_output=True)
+    def commit_working_tree(self):
+        """Commit every change in the fixture tree so `committed` discovery sees it."""
+        subprocess.run(["git", "add", "-A"], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "fixture: working tree"], cwd=self.root, check=True, capture_output=True)
 
     def test_discovery_writes_fates_and_completion_proof(self):
         result = run_discovery(workspace_root=self.root, cycle_id="cycle-1", base_dir=self.tools_dir)
@@ -188,7 +193,6 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertTrue((self.tools_dir / "discovery/cycle-1/SNAPSHOT.json").exists())
 
     def test_committed_snapshot_blocks_dirty_git_workspace(self):
-        self.init_git_repo()
         (self.root / "src/untracked.ts").write_text("export const dirty = true;\n", encoding="utf-8")
         stderr = StringIO()
         with redirect_stderr(stderr):
@@ -199,7 +203,6 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertIn("discovery_dirty_tree_skipped", governance)
 
     def test_working_tree_snapshot_includes_untracked_files(self):
-        self.init_git_repo()
         (self.root / "src/untracked.ts").write_text("export const dirty = true;\n", encoding="utf-8")
         result = run_discovery(
             workspace_root=self.root,
@@ -265,7 +268,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         )
         beta_schema = schemas / "beta_event.json"
         beta_schema.write_text('{"type":"object"}\n', encoding="utf-8")
-        self.init_git_repo()
+        self.commit_working_tree()
         plan_id = "ordinary-cycle-schema-swap"
         cycle_id = "cycle-native-schema-swap"
 
@@ -361,7 +364,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         )
         beta_schema = schemas / "beta_event.json"
         beta_schema.write_text('{"type":"object"}\n', encoding="utf-8")
-        self.init_git_repo()
+        self.commit_working_tree()
         plan_id = "ordinary-persistent-schema-obligation"
         initial_cycle = "cycle-obligation-introduced"
         followup_cycle = "cycle-obligation-unrepaired"
@@ -475,7 +478,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         )
         schema = schemas / "alpha_event.json"
         schema.write_text('{"type":"object"}\n', encoding="utf-8")
-        self.init_git_repo()
+        self.commit_working_tree()
         return schema
 
     def _native_baseline_context(self, plan_id: str, cycle_id: str):
@@ -626,7 +629,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         (schemas / "alpha_event.json").write_text(
             '{"type":"object"}\n', encoding="utf-8",
         )
-        self.init_git_repo()
+        self.commit_working_tree()
         plan_id = "ordinary-cycle-schema-clean"
         cycle_id = "cycle-native-schema-clean"
         result = run_cycle(
@@ -897,6 +900,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         migration_dir.mkdir(parents=True)
         for index in range(5):
             (migration_dir / f"178800000000{index}-Example.ts").write_text("export class M{}\n", encoding="utf-8")
+        self.commit_working_tree()
         run_discovery(workspace_root=self.root, cycle_id="cycle-pressure", base_dir=self.tools_dir)
         payload = run_pressure(cycle_id="cycle-pressure", base_dir=self.tools_dir)
         self.assertEqual(payload["summary"]["repetition"], 1)
@@ -972,6 +976,7 @@ class EnterpriseCycleTests(unittest.TestCase):
     def test_missing_concrete_evidence_becomes_stale_after_three_cycles(self):
         run_cycle(workspace_root=self.root, cycle_id="cycle-stale-1", base_dir=self.tools_dir)
         (self.root / "nx.json").unlink()
+        self.commit_working_tree()
         for index in range(2, 5):
             run_cycle(workspace_root=self.root, cycle_id=f"cycle-stale-{index}", base_dir=self.tools_dir)
         beliefs = {row["belief_id"]: row for row in list_memory(kind="beliefs", base_dir=self.tools_dir)}
@@ -1162,6 +1167,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         first = run_cycle_diff(cycle_id="cycle-diff-1", base_dir=self.tools_dir)
         self.assertTrue(first["baseline"])
         (self.root / "src/app.ts").write_text("export const app = false;\n", encoding="utf-8")
+        self.commit_working_tree()
         run_discovery(workspace_root=self.root, cycle_id="cycle-diff-2", base_dir=self.tools_dir)
         second = run_cycle_diff(cycle_id="cycle-diff-2", base_dir=self.tools_dir)
         self.assertFalse(second["baseline"])
@@ -1264,6 +1270,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         migration_dir.mkdir(parents=True)
         for index in range(5):
             (migration_dir / f"178800000000{index}-Example.ts").write_text("export class M{}\n", encoding="utf-8")
+        self.commit_working_tree()
         run_cycle(workspace_root=self.root, cycle_id="cycle-cli-explain", base_dir=self.tools_dir)
         pressure = run_pressure(cycle_id="cycle-cli-explain", base_dir=self.tools_dir)["pressures"][0]
         with redirect_stdout(StringIO()):

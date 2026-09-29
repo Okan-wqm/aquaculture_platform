@@ -5,6 +5,9 @@ survived a fully green suite for one reason: the fixture constructed an input
 production never produces.
 
     ORPHAN-CRITICAL-494  fixture: full clone          production: depth-1 shallow
+                         (until 2026-09-12; every kernel lane now checks out
+                         the whole history and the kernel refuses a shallow
+                         one — tests/invariants/test_kernel_lanes_check_out_full_history.py)
     ORPHAN-CRITICAL-495  fixture: request + target_sha  production: 11 of 17 mint
                                                         paths omit it
     ORPHAN-CRITICAL-495  fixture: request + cycle_id    production: 15 of 17 omit it
@@ -24,7 +27,10 @@ HONEST LABELLING, because overclaiming is how the above survived:
   and carry no literal of their own.
 * :func:`cycle_workspace` is a plain single-sourced fixture, NOT a derived
   value. It exists so the workspace shape lives in one place instead of being
-  re-typed per test file; it does not claim to be what production sees.
+  re-typed per test file; it does not claim to be what production sees — with
+  one exception it shares with production by construction: it is a git
+  repository with history, because a cycle workspace that is not one is an
+  input production never produces (see the function).
 """
 
 from __future__ import annotations
@@ -39,7 +45,7 @@ from aria_kernel.agent_invocations import create_agent_invocation_request
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.workflow_contract_registry import cycle_wall_clock_cap_seconds
 
-from .git_fixtures import make_local_git_repo
+from .git_fixtures import make_repo_with_initial_commit
 
 _ARIA_POC = Path(__file__).resolve().parents[2].parent / "tools" / "aria-poc"
 
@@ -64,30 +70,39 @@ class CycleFixture:
     tools_dir: Path
 
 
-def cycle_workspace(tmp: Path, *, git: bool = False) -> CycleFixture:
+# The minimum ``run_discovery`` needs to produce a non-empty FATES set: one
+# source file, a package manifest and an nx manifest.
+_CYCLE_WORKSPACE_FILES: dict[str, str] = {
+    "src/app.ts": "export const app = true;\n",
+    "package.json": '{"name":"fixture"}\n',
+    "nx.json": '{"affected":{}}\n',
+}
+
+
+def cycle_workspace(tmp: Path) -> CycleFixture:
     """A workspace + tools dir shaped like the one a cycle discovers.
 
-    Single-sourced, not production-derived — see the module docstring. The
-    contents are the minimum ``run_discovery`` needs to produce a non-empty
-    FATES set: one source file, a package manifest and an nx manifest.
+    Single-sourced, not production-derived — see the module docstring.
 
-    ``git=True`` initialises a real repository through
-    :func:`git_fixtures.make_local_git_repo`, which also disables auto-gc so
-    teardown cannot race a detached ``git gc`` (ORPHAN-LOW-301). Reused rather
-    than re-implemented, because a second git-init helper is exactly the
-    duplication this module exists to remove.
+    Always a git repository with the fixture files COMMITTED, never a bare
+    directory. The cycle reads the checkout's history, not only its tree:
+    the ``twin_refresh`` phase derives churn and co-change from ``git log``
+    and refuses a workspace whose history cannot be read
+    (``twin.HISTORY_UNAVAILABLE``) — a refusal that is a failed phase
+    outcome, fails the cycle's runtime status, and skips every later
+    ``halt_sequence`` phase. Until 2026-09-12 this fixture offered a
+    ``git=False`` default that produced exactly that workspace, and the
+    twin silently published an empty map for it; a directory with no
+    history is the input-production-never-produces class this module
+    exists to remove, so the choice is gone rather than defaulted.
+
+    Built through :func:`git_fixtures.make_repo_with_initial_commit`, which
+    also disables auto-gc so teardown cannot race a detached ``git gc``
+    (ORPHAN-LOW-301). Reused rather than re-implemented, because a second
+    git-init helper is exactly the duplication this module exists to
+    remove.
     """
-    if git:
-        workspace = make_local_git_repo(tmp, name="workspace")
-    else:
-        workspace = tmp / "workspace"
-        workspace.mkdir(parents=True, exist_ok=True)
-
-    (workspace / "src").mkdir(parents=True, exist_ok=True)
-    (workspace / "src" / "app.ts").write_text("export const app = true;\n", encoding="utf-8")
-    (workspace / "package.json").write_text('{"name":"fixture"}\n', encoding="utf-8")
-    (workspace / "nx.json").write_text('{"affected":{}}\n', encoding="utf-8")
-
+    workspace = make_repo_with_initial_commit(tmp, _CYCLE_WORKSPACE_FILES, name="workspace")
     return CycleFixture(
         workspace_root=workspace,
         tools_dir=ensure_tools_dir(tmp / "aria-tools"),

@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from .genesis_policy import source_qualification_policy
+from .git_probe import refuse_shallow_checkout
 from .impact_graph import _project_for_path, _project_graph, build_service_analysis_order
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .snapshot import (
@@ -78,8 +79,22 @@ def build_twin_map(
     history_limit: int = HISTORY_COMMIT_LIMIT,
     discovery: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Full build of the twin map from the repository at HEAD."""
+    """Full build of the twin map from the repository at HEAD.
+
+    Refuses a shallow checkout (``GovernanceError`` naming
+    ``SHALLOW_CHECKOUT_REFUSAL``) at the entry, before any layer is read: a
+    partial clone cannot say what recurred, and a build refused here costs
+    nothing. ``refresh_twin_map`` refuses at its own entry the same way, so
+    both publishers share one contract. A workspace whose history cannot be
+    read at all (not a repository, unborn, no git) is refused next, as
+    ``HISTORY_UNAVAILABLE``, before the parse layers run.
+    """
     root = _existing_root(workspace_root)
+    _refuse_shallow_checkout(root)
+    # History first: it is one `git log`, and it is the layer that can be
+    # refused (HISTORY_UNAVAILABLE), so a workspace with no readable history
+    # is turned away before the parse layers spend anything on it.
+    history = _history_layers(root, history_limit=history_limit)
     graph = _project_graph(root=root, nx_graph_file=Path(nx_graph_file) if nx_graph_file else None)
     order = build_service_analysis_order(graph)
     layer_of = {entry["project"]: entry["layer"] for entry in order["order"]}
@@ -94,7 +109,6 @@ def build_twin_map(
         for name, meta in graph["projects"].items()
     }
     tested_by = _tested_by_edges(root, _iter_test_files(root))
-    history = _history_layers(root, history_limit=history_limit)
     twin = {
         "schema_version": TWIN_SCHEMA_VERSION,
         "generated_at": utc_now(),
@@ -138,8 +152,18 @@ def refresh_twin_map(
     or for all tests when source membership changes their resolution.
     Churn/co-change absorb exactly the commits in
     ``indexed_sha..HEAD``.
+
+    Refuses a shallow checkout (``GovernanceError`` naming
+    ``SHALLOW_CHECKOUT_REFUSAL``) before reading or writing anything: a
+    partial clone cannot say what recurred.
     """
     root = _existing_root(workspace_root)
+    # Refused at the entry, before the anchor test: on a shallow checkout the
+    # prior anchor is unknown as a matter of course (its history was cut), so
+    # the test below would route every refresh into a full rebuild, which
+    # refuses at its own entry; refusing here as well covers the noop path,
+    # so no refresh on a partial clone can certify the map as current.
+    _refuse_shallow_checkout(root)
     tools = ensure_tools_dir(base_dir)
     prior = read_twin_map(base_dir=tools)
     head = _head_sha(root)
@@ -734,11 +758,40 @@ def _tested_by_edges(root: Path, test_files: list[Path]) -> dict[str, list[str]]
 
 
 def _history_layers(root: Path, *, history_limit: int) -> dict[str, Any]:
+    """Churn + co-change over the last ``history_limit`` commits at HEAD.
+
+    Both layers are RECURRENCE counts (``CHURN_MIN_COUNT`` /
+    ``CO_CHANGE_MIN_COUNT``), so they need the commits to be there to recur
+    in. Two ways the commits can be missing, and neither is published as a
+    map:
+
+    - A shallow checkout hands ``git log`` one commit, the thresholds are
+      never reached, and the layers come back ``churn={}`` /
+      ``co_change=[]`` — indistinguishable from a repository whose files
+      genuinely never recur. That is exactly what the nightly lane
+      published as a healthy map until 2026-09-12 (actions/checkout
+      defaulted to depth 1). Both publishers (``build_twin_map``,
+      ``refresh_twin_map``) refuse that clone at their entry, before
+      reaching here.
+    - ``git log`` fails outright — a workspace that is not a repository, an
+      unborn one, no git binary. This function used to swallow that and
+      return the same empty layers with ``commit_count=0``, and the build
+      went on to publish them under ``indexed_sha ''``: a map that looked
+      healthy and described nothing. It is refused by name instead
+      (``HISTORY_UNAVAILABLE``); the cycle's ``twin_refresh`` phase is
+      ``record_and_continue``, so the refusal lands as the phase's outcome
+      row and the prior map stays untouched.
+    """
     args = ["log", "--name-only", "--pretty=format:%H", f"-n{history_limit}"]
     try:
         output = _git(root, *args)
-    except subprocess.CalledProcessError:
-        return {"churn": {}, "co_change": [], "commit_count": 0}
+    except (subprocess.CalledProcessError, OSError) as exc:
+        detail = exc.stderr.strip() if isinstance(exc, subprocess.CalledProcessError) else str(exc)
+        raise GovernanceError(
+            f"{HISTORY_UNAVAILABLE}: git log failed in {root} ({detail}); the "
+            "churn and co-change layers are derived from history and a map "
+            "without them must not be published"
+        ) from exc
     churn: dict[str, int] = {}
     pair_counts: dict[tuple[str, str], int] = {}
     commit_count = 0
@@ -790,6 +843,35 @@ def _existing_root(workspace_root: str | Path) -> Path:
     if not root.exists():
         raise GovernanceError(f"workspace root does not exist: {workspace_root}")
     return root
+
+
+# The reasons a consumer (cycle outcome row, operator log) sees when the twin
+# refuses to publish. Named once each so the refusal is grep-able end to end;
+# the shallow case is the history-unavailable case with its cause known.
+HISTORY_UNAVAILABLE = "twin_history_unavailable"
+SHALLOW_CHECKOUT_REFUSAL = "twin_history_unavailable_shallow"
+
+
+def _refuse_shallow_checkout(root: Path) -> None:
+    """Refuse to derive history from a checkout that holds part of it.
+
+    The probe is ``git_probe.is_shallow_checkout`` — shared with the
+    executor's anchor gate, so the two history readers cannot disagree about
+    one clone. Every ARIA lane checks the code repository out with
+    ``fetch-depth: 0`` (pinned by
+    ``tests/invariants/test_kernel_lanes_check_out_full_history``), so in
+    production this never fires. It exists for the case the lane invariant
+    cannot reach — an operator clone, a re-shallowed persistent workspace —
+    where the alternative is a map that looks healthy and says nothing. A
+    workspace that is not a repository is not shallow; its ``git log`` fails
+    and ``_history_layers`` refuses it as ``HISTORY_UNAVAILABLE``.
+    """
+    refuse_shallow_checkout(
+        root,
+        reason=SHALLOW_CHECKOUT_REFUSAL,
+        needs="the churn and co-change layers need the full history and a "
+              "map without them must not be published",
+    )
 
 
 def _write_map(tools_root: Path, twin: dict[str, Any]) -> None:
@@ -921,6 +1003,8 @@ def intent_context_for_files(
 
 
 __all__ = [
+    "HISTORY_UNAVAILABLE",
+    "SHALLOW_CHECKOUT_REFUSAL",
     "TWIN_MAP_RELPATH",
     "build_twin_map",
     "intent_context_for_files",

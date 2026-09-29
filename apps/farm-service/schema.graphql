@@ -6834,10 +6834,12 @@ input SparePartFilterInput {
   manufacturer: String
   isActive: Boolean
 
-  """Stok < minStock"""
+  """
+  Derived status LOW_STOCK: ledger on-hand + open orders at or below reorderPoint
+  """
   isLowStock: Boolean
 
-  """Stok = 0"""
+  """Derived status OUT_OF_STOCK: ledger on-hand 0"""
   isOutOfStock: Boolean
   searchTerm: String
 }
@@ -9153,6 +9155,10 @@ input RecordStockMovementInput {
   """Optional mobile command payload schema version"""
   schemaVersion: String
   movementType: MovementType!
+
+  """
+  Any stock category except SPARE_PART (use recordSparePartStockMovement)
+  """
   itemType: StorageItemType!
   itemId: ID!
   quantity: Float!
@@ -11948,7 +11954,7 @@ input UpsertStorageItemSitePolicyInput {
   itemType: StorageItemType!
   itemId: ID!
 
-  """Minimum on-hand the site must hold (> 0)"""
+  """Minimum on-hand the site must hold (>= 0.01, 2 decimals)"""
   minStock: Float!
 }
 

@@ -18568,6 +18568,7 @@ export type RecordStockMovementInput = {
   /** Client-generated idempotency key to prevent duplicate movements */
   idempotencyKey?: InputMaybe<Scalars['String']['input']>;
   itemId: Scalars['ID']['input'];
+  /** Any stock category except SPARE_PART (use recordSparePartStockMovement) */
   itemType: StorageItemType;
   lotNumber?: InputMaybe<Scalars['String']['input']>;
   /** Authoritative event date for FEFO as-of scoping. Defaults to now when omitted. */
@@ -20341,9 +20342,9 @@ export type SparePartBinDetailInput = {
 export type SparePartFilterInput = {
   equipmentTypeId?: InputMaybe<Scalars['ID']['input']>;
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
-  /** Stok < minStock */
+  /** Derived status LOW_STOCK: ledger on-hand + open orders at or below reorderPoint */
   isLowStock?: InputMaybe<Scalars['Boolean']['input']>;
-  /** Stok = 0 */
+  /** Derived status OUT_OF_STOCK: ledger on-hand 0 */
   isOutOfStock?: InputMaybe<Scalars['Boolean']['input']>;
   manufacturer?: InputMaybe<Scalars['String']['input']>;
   searchTerm?: InputMaybe<Scalars['String']['input']>;
@@ -24361,7 +24362,7 @@ export type UpdateWorkerInput = {
 export type UpsertStorageItemSitePolicyInput = {
   itemId: Scalars['ID']['input'];
   itemType: StorageItemType;
-  /** Minimum on-hand the site must hold (> 0) */
+  /** Minimum on-hand the site must hold (>= 0.01, 2 decimals) */
   minStock: Scalars['Float']['input'];
   siteId: Scalars['ID']['input'];
 };

@@ -735,6 +735,7 @@ export type RecordStockMovementInput = {
   /** Client-generated idempotency key to prevent duplicate movements */
   idempotencyKey?: string | null | undefined;
   itemId: string;
+  /** Any stock category except SPARE_PART (use recordSparePartStockMovement) */
   itemType: StorageItemType;
   lotNumber?: string | null | undefined;
   /** Authoritative event date for FEFO as-of scoping. Defaults to now when omitted. */

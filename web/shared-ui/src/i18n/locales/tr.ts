@@ -346,6 +346,12 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.mealBoard.save': 'Kaydet',
   'feedingV2.mealBoard.cancel': 'Vazgeç',
 
+  // ── Storage low-stock tiers (farm-module, plan K8) ──
+  'storage.lowStock.siteTier': 'Site: {site}',
+  'storage.lowStock.poolTier': 'Tüm siteler (havuz)',
+  'storage.lowStock.siteBadge': 'SİTE',
+  'storage.lowStock.onOrder': '+{quantity} {unit} siparişte',
+
   // ── Messaging panel (FAZ 1) ──
   'messaging.overview': 'Genel Bakış',
   'messaging.title': 'Mesajlar',

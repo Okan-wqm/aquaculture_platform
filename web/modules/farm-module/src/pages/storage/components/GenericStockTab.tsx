@@ -25,7 +25,14 @@ import { useStorageLocationList } from '../../../hooks/useStorageLocations';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
 import { indexLowStock, lowStockTierLabel, type RowLowStock } from '../utils/low-stock-tiers';
 import { getExpiryRowClass, isExpired, isExpiringSoon } from '../utils/expiry-utils';
-import { DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  type DataTableColumn,
+  type I18nContextValue,
+  Spinner,
+  Button,
+  useI18n,
+} from '@aquaculture/shared-ui';
 import { Search as SearchIcon } from 'lucide-react';
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -74,6 +81,7 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
   const [searchTerm, setSearchTerm] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [modalDefaults, setModalDefaults] = useState<ModalDefaults>({});
+  const { t } = useI18n();
 
   const { data: inventory, isLoading, error, refetch } = useStorageInventory(undefined, itemType);
 
@@ -141,7 +149,7 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
         key: col,
         header: COLUMN_HEADERS[col],
         className: getCellClassName(col),
-        render: (_value, item) => renderCell(col, item, rowLowStock(item)),
+        render: (_value, item) => renderCell(col, item, rowLowStock(item), t),
       }),
     ),
     {
@@ -290,6 +298,7 @@ function renderCell(
     notes?: string;
   },
   lowStock: RowLowStock,
+  t: I18nContextValue['t'],
 ): React.ReactNode {
   switch (col) {
     case 'itemName':
@@ -309,9 +318,9 @@ function renderCell(
                     ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
                     : 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
                 }`}
-                title={`${lowStockTierLabel(alert)}: ${alert.currentQuantity} / min ${alert.minStock} ${alert.unit}`}
+                title={`${lowStockTierLabel(alert, t)}: ${alert.currentQuantity} / min ${alert.minStock} ${alert.unit}`}
               >
-                {alert.level === 'SITE' ? 'SITE ' : ''}
+                {alert.level === 'SITE' ? `${t('storage.lowStock.siteBadge')} ` : ''}
                 {alert.currentQuantity === 0 ? 'OUT OF STOCK' : 'LOW STOCK'}
               </span>
             ),

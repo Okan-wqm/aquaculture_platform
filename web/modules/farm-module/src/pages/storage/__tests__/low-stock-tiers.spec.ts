@@ -2,6 +2,7 @@
  * low-stock-tiers — which inventory rows a low-stock tier concerns (plan K8).
  */
 import { describe, expect, it } from 'vitest';
+import type { I18nContextValue } from '@aquaculture/shared-ui';
 
 import type { LowStockAlert } from '../../../hooks/useStorageInventory';
 import { indexLowStock, lowStockRowKey, lowStockTierLabel } from '../utils/low-stock-tiers';
@@ -41,8 +42,11 @@ describe('indexLowStock', () => {
   it('keys and labels the tiers so the same item never collapses into one row', () => {
     // SCENARIO: the pool and site-A rows of one item. EXPECTS: distinct keys
     // and labels that name the site or the pool.
+    // The label is catalog text: a recording translator shows the key and the
+    // interpolated site name the page hands to useI18n().t.
+    const t: I18nContextValue['t'] = (key, vars) => `${key}${vars ? JSON.stringify(vars) : ''}`;
     expect(lowStockRowKey(pool)).not.toBe(lowStockRowKey(siteA));
-    expect(lowStockTierLabel(siteA)).toBe('Site: A');
-    expect(lowStockTierLabel(pool)).toBe('All sites (pool)');
+    expect(lowStockTierLabel(siteA, t)).toBe('storage.lowStock.siteTier{"site":"A"}');
+    expect(lowStockTierLabel(pool, t)).toBe('storage.lowStock.poolTier');
   });
 });

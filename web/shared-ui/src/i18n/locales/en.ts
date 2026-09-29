@@ -349,6 +349,12 @@ export const en = {
   'feedingV2.mealBoard.save': 'Save',
   'feedingV2.mealBoard.cancel': 'Cancel',
 
+  // ── Storage low-stock tiers (farm-module, plan K8) ──
+  'storage.lowStock.siteTier': 'Site: {site}',
+  'storage.lowStock.poolTier': 'All sites (pool)',
+  'storage.lowStock.siteBadge': 'SITE',
+  'storage.lowStock.onOrder': '+{quantity} {unit} on order',
+
   // ── Messaging panel (FAZ 1) ──
   'messaging.overview': 'Overview',
   'messaging.title': 'Messages',

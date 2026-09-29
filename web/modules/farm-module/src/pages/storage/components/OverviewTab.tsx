@@ -14,6 +14,7 @@ import {
   type DataTableColumn,
   Spinner,
   Button,
+  useI18n,
 } from '@aquaculture/shared-ui';
 import type { PieDataItem } from '@aquaculture/shared-ui';
 import {
@@ -92,6 +93,7 @@ const CATEGORY_CONFIG: Record<
 };
 
 export const OverviewTab: React.FC = () => {
+  const { t } = useI18n();
   const { data: overview, isLoading: overviewLoading } = useStorageOverview();
   const { data: movementsData } = useStockMovements();
   const { data: locations } = useStorageLocationList();
@@ -472,6 +474,8 @@ export const OverviewTab: React.FC = () => {
               Low Stock Alerts
             </h3>
           </div>
+          {/* One row per (item, tier, site): the pool and each short site are
+              separate decisions (reorder vs. transfer) — plan K8. */}
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {(overview?.lowStockAlerts || []).length === 0 ? (
               <div className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
@@ -479,8 +483,6 @@ export const OverviewTab: React.FC = () => {
               </div>
             ) : (
               overview?.lowStockAlerts.map((alert) => (
-                // One row per (item, tier, site): the pool and each short site are
-                // separate decisions (reorder vs. transfer) — plan K8.
                 <div
                   key={lowStockRowKey(alert)}
                   className="px-5 py-3 flex items-center justify-between"
@@ -490,7 +492,7 @@ export const OverviewTab: React.FC = () => {
                       {alert.itemName}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {alert.itemType} · {lowStockTierLabel(alert)}
+                      {alert.itemType} · {lowStockTierLabel(alert, t)}
                     </div>
                   </div>
                   <div className="text-right">
@@ -511,7 +513,10 @@ export const OverviewTab: React.FC = () => {
                     </div>
                     {alert.level === 'POOL' && alert.onOrderQuantity > 0 && (
                       <div className="text-xs text-info-600 dark:text-info-400">
-                        +{alert.onOrderQuantity} {alert.unit} on order
+                        {t('storage.lowStock.onOrder', {
+                          quantity: alert.onOrderQuantity,
+                          unit: alert.unit,
+                        })}
                       </div>
                     )}
                   </div>

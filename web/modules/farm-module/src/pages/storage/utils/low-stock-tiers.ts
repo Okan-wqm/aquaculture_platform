@@ -7,6 +7,8 @@
  * and badged every site's rows with it. This module is the ONE place that says
  * which tier a row is and which inventory rows it concerns.
  */
+import type { I18nContextValue } from '@aquaculture/shared-ui';
+
 import type { LowStockAlert } from '../../../hooks/useStorageInventory';
 
 /** The alerts that concern one inventory row. */
@@ -27,11 +29,15 @@ export function lowStockRowKey(alert: LowStockAlert): string {
   return `${alert.itemId}:${alert.level}:${alert.siteId ?? 'pool'}`;
 }
 
-/** Human label of the tier: the site's name, or the tenant pool. */
-export function lowStockTierLabel(alert: LowStockAlert): string {
+/**
+ * Human label of the tier: the site's name, or the tenant pool.
+ * WHY `t` is a parameter: the label is user-visible text, so it goes through
+ * the shared-ui message catalog (FE-HIGH-089) in the viewer's language.
+ */
+export function lowStockTierLabel(alert: LowStockAlert, t: I18nContextValue['t']): string {
   return alert.level === 'SITE'
-    ? `Site: ${alert.siteName ?? alert.siteId ?? '-'}`
-    : 'All sites (pool)';
+    ? t('storage.lowStock.siteTier', { site: alert.siteName ?? alert.siteId ?? '-' })
+    : t('storage.lowStock.poolTier');
 }
 
 /**

@@ -15,8 +15,10 @@
  * To enforce tenant isolation, the batch iterates over the verified tenant
  * schema ledger (`listActiveTenantSchemaIdentities()`) and pins
  * transaction-local `search_path` to the tenant's schema for every batch
- * query. The tank registry fetch sends the tenantId and verifies that the
- * tenant-bound reply names the same tenant (K10).
+ * query. The tank registry is read through TankRegistryClient, which sends
+ * the ledger tenantId and verifies that the tenant-bound reply names the same
+ * tenant (K10). Every row written carries that tenantId (K10 layer 5: the
+ * knowledge store is tenant-schema AND tenant-keyed).
  *
  * MSGFIX-FAZ2 (2026-09-16) DELIBERATE DECISION — this cron stays env-gated
  * OFF (MESSAGING_AI_KNOWLEDGE_CRON_ENABLED, default 'false') and the service
@@ -34,11 +36,7 @@ import {
   ScheduledJobRunner,
   type ScheduledJobExecutor,
 } from '@aquaculture/backend-common/scheduling';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, QueryRunner } from 'typeorm';
-import { ClientProxy } from '@nestjs/microservices';
-import { firstValueFrom, timeout, catchError, of } from 'rxjs';
-import { verifyTenantBoundReply } from '@platform/event-contracts';
+import { DataSource, QueryRunner } from 'typeorm';
 import {
   bindTenantRlsContext,
   listActiveTenantSchemaIdentities,
@@ -51,13 +49,11 @@ import {
 } from '../entities/message-entity-reference.entity';
 import { KnowledgeEntry, KnowledgeCategory } from '../entities/knowledge-entry.entity';
 import { AiPrivacyService } from './ai-privacy.service';
+import { TankRegistryClient, type TankRegistryEntry } from './tank-registry.client';
 import {
   MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV,
   messagingAiFlagEnabled,
 } from '../ai-trigger.config';
-
-/** NATS request timeout in milliseconds (30 seconds). */
-const NATS_TIMEOUT_MS = 30_000;
 
 /** Regex patterns for extracting tank code references from messages. */
 const TANK_CODE_PATTERNS: RegExp[] = [/\bTank[-\s]?([A-Z]\d{1,3})\b/gi, /\b([A-Z]\d{1,2})\b/g];
@@ -86,35 +82,6 @@ const INCIDENT_KEYWORDS = [
   'alarm',
   'emergency',
 ];
-
-/**
- * Tank registry entry from farm-service.
- */
-interface TankRegistryEntry {
-  id: string;
-  code: string;
-  name: string;
-}
-
-const TANK_REGISTRY_SUBJECT = 'request.farm.getTankRegistry';
-
-/** Contract guard for the registry rows this pipeline reads (farm may send more fields). */
-function isTankRegistry(value: unknown): value is TankRegistryEntry[] {
-  return (
-    Array.isArray(value) &&
-    value.every(
-      (row: unknown) =>
-        typeof row === 'object' &&
-        row !== null &&
-        'id' in row &&
-        typeof row.id === 'string' &&
-        'code' in row &&
-        typeof row.code === 'string' &&
-        'name' in row &&
-        typeof row.name === 'string',
-    )
-  );
-}
 
 /**
  * Raw message for knowledge processing.
@@ -148,14 +115,12 @@ export class KnowledgeExtractionService implements OnModuleInit {
    */
   private readonly cronEnabled = messagingAiFlagEnabled(MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV);
 
+  // WHY no repositories are injected: every tenant read and write of this
+  // pipeline runs on the per-tenant QueryRunner it pins (K10 layer 5) — an
+  // injected repository would be an ambient, tenant-unbound handle.
   constructor(
-    @InjectRepository(MessageEntityReference)
-    private readonly entityRefRepo: Repository<MessageEntityReference>,
-    @InjectRepository(KnowledgeEntry)
-    private readonly knowledgeRepo: Repository<KnowledgeEntry>,
     private readonly dataSource: DataSource,
-    @Inject('NATS_SERVICE')
-    private readonly natsClient: ClientProxy,
+    private readonly tankRegistryClient: TankRegistryClient,
     private readonly privacyService: AiPrivacyService,
     @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
@@ -296,11 +261,11 @@ export class KnowledgeExtractionService implements OnModuleInit {
       // canonical tenant UUID from the schema-mapping ledger (the fail-closed,
       // GUC-asserted responder key — no longer recovered from message rows,
       // which required reading BEFORE the boundary was fully established).
-      const tankRegistry = await this.fetchTankRegistry(tenantId);
+      const tankRegistry = await this.tankRegistryClient.fetch(tenantId);
 
       for (const msg of messages) {
         try {
-          await this.processMessage(msg, tankRegistry, queryRunner);
+          await this.processMessage(msg, tenantId, tankRegistry, queryRunner);
         } catch (err: unknown) {
           const errMessage = err instanceof Error ? err.message : String(err);
           this.logger.warn(
@@ -326,11 +291,13 @@ export class KnowledgeExtractionService implements OnModuleInit {
    * to ensure all writes go to the correct tenant.
    *
    * @param msg - The message to process
+   * @param tenantId - The ledger tenant this batch is bound to (every row written carries it)
    * @param tankRegistry - The tenant's tank registry for validation
    * @param queryRunner - QueryRunner with tenant-scoped search_path
    */
   private async processMessage(
     msg: ProcessableMessage,
+    tenantId: string,
     tankRegistry: TankRegistryEntry[],
     queryRunner: QueryRunner,
   ): Promise<void> {
@@ -351,7 +318,10 @@ export class KnowledgeExtractionService implements OnModuleInit {
       });
 
       if (!existing) {
+        // K10 layer 5: the reference is keyed to the batch's ledger tenant
+        // (tenantId is NOT NULL — a row without it never persisted).
         const ref = queryRunner.manager.create(MessageEntityReference, {
+          tenantId,
           messageId: msg.id,
           messageCreatedAt: msg.createdAt,
           entityType: DomainEntityType.TANK,
@@ -372,6 +342,7 @@ export class KnowledgeExtractionService implements OnModuleInit {
       }));
 
       const entry = queryRunner.manager.create(KnowledgeEntry, {
+        tenantId,
         sourceMessageId: msg.id,
         sourceMessageCreatedAt: msg.createdAt,
         category,
@@ -424,57 +395,5 @@ export class KnowledgeExtractionService implements OnModuleInit {
     if (hasWq) return KnowledgeCategory.WATER_QUALITY_NOTE;
 
     return null;
-  }
-
-  /**
-   * Fetch the tenant's tank registry from farm-service via NATS request-reply.
-   * Returns an empty array if farm-service is unavailable (graceful degradation).
-   *
-   * ORPHAN-MEDIUM-336: sends the canonical tenant UUID — the key the
-   * `request.farm.getTankRegistry` responder validates and feeds to its
-   * fail-closed, RLS-GUC-asserted `runInTenantRead`.
-   *
-   * K10 (MT-HIGH-062): the reply is the tenant-bound envelope. WHY verify it
-   * here: the registry decides which tank ids are written into THIS tenant's
-   * entity references and knowledge entries, so a registry served for another
-   * tenant would plant foreign ids in this tenant's knowledge. A mismatch is
-   * logged as a boundary violation and treated as "no registry".
-   *
-   * @param tenantId - Authoritative tenant UUID (from the schema-mapping ledger)
-   */
-  private async fetchTankRegistry(tenantId: string): Promise<TankRegistryEntry[]> {
-    const reply = await firstValueFrom(
-      this.natsClient.send<unknown>('request.farm.getTankRegistry', { tenantId }).pipe(
-        timeout(NATS_TIMEOUT_MS),
-        catchError((err: unknown) => {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          this.logger.warn(`Failed to fetch tank registry for tenant ${tenantId}: ${errMsg}`);
-          return of(null);
-        }),
-      ),
-    );
-    if (reply === null) return [];
-
-    const verdict = verifyTenantBoundReply(reply, tenantId, isTankRegistry);
-    switch (verdict.kind) {
-      case 'data':
-        return verdict.data;
-      case 'tenant_mismatch':
-        this.logger.error({
-          msg: 'tenant_mismatch: tank registry reply served for another tenant was discarded',
-          subject: TANK_REGISTRY_SUBJECT,
-          expectedTenantId: tenantId,
-          servedTenantId: verdict.servedTenantId,
-        });
-        return [];
-      case 'error':
-        this.logger.warn(`Tank registry unavailable for tenant ${tenantId}: ${verdict.error}`);
-        return [];
-      case 'malformed':
-        this.logger.warn(
-          `Tank registry reply for tenant ${tenantId} was malformed (${verdict.reason})`,
-        );
-        return [];
-    }
   }
 }

@@ -1,8 +1,16 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import yaml from 'js-yaml';
 
 import { FARM_AI_QUERY_SUBJECTS } from '../../libs/event-contracts/src/farm-ai-queries';
+import {
+  aiRequestSubjects,
+  allTs,
+  code,
+  offenders,
+  publishGrants,
+  REPO_ROOT,
+  respondersBySubject,
+  sources,
+} from './helpers/ai-tenant-boundary-sources';
 
 /**
  * Platform-wide invariant — K10 "no AI agent can ever bring back another
@@ -14,7 +22,8 @@ import { FARM_AI_QUERY_SUBJECTS } from '../../libs/event-contracts/src/farm-ai-q
  *
  *   A. ai-service tool code cannot reach the raw NATS transport: only
  *      TenantBoundNatsClient sends, only the boundary module owns the token,
- *      tools import no transport, and no tool writes a `tenantId` property.
+ *      tools import no transport, no tool writes a `tenantId` property, and
+ *      tool code has no database path of its own (no TypeORM).
  *   B. A TenantBinding is minted in ONE file (tool-context.factory.ts), is
  *      never cast, and no ToolExecutionContext is assembled by hand.
  *   C. Every AI-facing `request.*` subject ai_service may publish is answered
@@ -22,64 +31,18 @@ import { FARM_AI_QUERY_SUBJECTS } from '../../libs/event-contracts/src/farm-ai-q
  *      it served.
  *   D. AI Redis keys: every AI key literal lives in a registered key module,
  *      and every builder there puts the tenant first (proved by calling it
- *      with two tenants).
+ *      with two tenants). Long-lived in-memory state (a process-wide
+ *      Map/Set/cache every tenant shares) exists only where a reviewed entry
+ *      says why it cannot hand one tenant's data to another.
  *
  * The per-tool schema walk (no tenant/schema parameter at any depth) needs the
  * Nest module graph and lives next to it:
  * apps/ai-service/src/tenant-boundary/__tests__/tool-schema-tenant-free.spec.ts.
+ * The data layer behind these responders (runInTenantRead) and the reply check
+ * of every non-ai-service consumer are ai-tenant-boundary-data-layer.spec.ts.
  */
 
-const REPO_ROOT = resolve(__dirname, '..', '..');
 const AI_SRC = 'apps/ai-service/src';
-
-function read(path: string): string {
-  return readFileSync(resolve(REPO_ROOT, path), 'utf-8');
-}
-
-/** Non-test TypeScript sources under `path` (skips __tests__, fixtures, specs). */
-function sources(path: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(resolve(REPO_ROOT, path))) {
-    const child = `${path}/${entry}`;
-    if (statSync(resolve(REPO_ROOT, child)).isDirectory()) {
-      if (entry === '__tests__' || entry === 'node_modules' || entry === 'dist') continue;
-      out.push(...sources(child));
-    } else if (
-      entry.endsWith('.ts') &&
-      !entry.endsWith('.spec.ts') &&
-      !entry.endsWith('.test.ts')
-    ) {
-      out.push(child);
-    }
-  }
-  return out;
-}
-
-/** Every TypeScript file under `path`, tests included. */
-function allTs(path: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(resolve(REPO_ROOT, path))) {
-    const child = `${path}/${entry}`;
-    if (statSync(resolve(REPO_ROOT, child)).isDirectory()) {
-      if (entry === 'node_modules' || entry === 'dist') continue;
-      out.push(...allTs(child));
-    } else if (entry.endsWith('.ts')) {
-      out.push(child);
-    }
-  }
-  return out;
-}
-
-/** Source with block and line comments removed (string contents kept). */
-function code(path: string): string {
-  return read(path)
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
-}
-
-function offenders(files: string[], pattern: RegExp): string[] {
-  return files.filter((file) => pattern.test(code(file)));
-}
 
 describe('INVARIANT (K10 / MT-HIGH-062): AI tenant boundary', () => {
   const aiSources = sources(AI_SRC);
@@ -91,13 +54,28 @@ describe('INVARIANT (K10 / MT-HIGH-062): AI tenant boundary', () => {
 
   describe('A. tool code reaches other services only through TenantBoundNatsClient', () => {
     it('tool sources import no NATS transport and name no raw client token', () => {
-      // SCENARIO: a tool that injects ClientProxy / NatsV3Client / 'NATS_SERVICE' could build its own payload.
-      // EXPECTS: none of the transport entry points appears under tools/.
+      // SCENARIO: a tool that injects ClientProxy / NatsV3Client / 'NATS_SERVICE', the
+      //           platform event bus (its NatsRequestReply.requestTyped is a raw request-reply)
+      //           or a @nats-io connection could build its own payload and pick the tenant.
+      // EXPECTS: none of the transport entry points appears under tools/ — by package name
+      //          or by a relative path into the library.
       expect(toolSources.length).toBeGreaterThan(50);
       expect(
         offenders(
           toolSources,
-          /@nestjs\/microservices|@aquaculture\/backend-common\/nats|\bClientProxy\b|\bNatsV3Client\b|['"]NATS_SERVICE['"]|AI_TENANT_BOUND_TRANSPORT/,
+          /@nestjs\/microservices|@aquaculture\/backend-common\/nats|backend-common\/src\/nats|@platform\/event-bus|libs\/event-bus|@nats-io\/|\bClientProxy\b|\bNatsV3Client\b|\bNatsRequestReply\b|['"]NATS_SERVICE['"]|AI_TENANT_BOUND_TRANSPORT/,
+        ),
+      ).toEqual([]);
+    });
+
+    it('tool code has no database path of its own — no TypeORM, DataSource or QueryRunner', () => {
+      // SCENARIO: a tool holds a DataSource and reads tenant rows with its own search_path.
+      // EXPECTS: none — tenant data reaches a tool only as a tenant-bound reply from the
+      //          owning service, which reads inside runInTenantRead (K10 layer 4).
+      expect(
+        offenders(
+          toolSources,
+          /from\s+'(?:typeorm|@nestjs\/typeorm)'|\bDataSource\b|\bQueryRunner\b|\bEntityManager\b/,
         ),
       ).toEqual([]);
     });
@@ -120,13 +98,7 @@ describe('INVARIANT (K10 / MT-HIGH-062): AI tenant boundary', () => {
       // WHY: tools name their subject in the TenantBoundNatsClient call, which the
       // generic `.send(` scan of e2e/tests/integration/nats-invariants.spec.ts cannot
       // see — a subject missing its grant would time out at runtime, silently.
-      interface Manifest {
-        services: Array<{ name: string; publish?: string[] }>;
-      }
-      const grants =
-        (yaml.load(read('infrastructure/nats/services.yaml')) as Manifest).services.find(
-          (service) => service.name === 'ai_service',
-        )?.publish ?? [];
+      const grants = publishGrants('ai_service');
       const constants = new Map<string, string>(Object.entries(FARM_AI_QUERY_SUBJECTS));
       const requested = new Set<string>();
       for (const file of toolSources) {
@@ -161,52 +133,17 @@ describe('INVARIANT (K10 / MT-HIGH-062): AI tenant boundary', () => {
   });
 
   describe('C. AI-facing responders reply through respondTenantBound', () => {
-    interface ServicesManifest {
-      services: Array<{ name: string; publish?: string[] }>;
-    }
-    const manifest = yaml.load(read('infrastructure/nats/services.yaml')) as ServicesManifest;
-    const aiRequestSubjects = (
-      manifest.services.find((service) => service.name === 'ai_service')?.publish ?? []
-    ).filter((subject) => subject.startsWith('request.'));
-    const constantValue = new Map<string, string>(
-      Object.entries(FARM_AI_QUERY_SUBJECTS).map(([key, value]) => [
-        `FARM_AI_QUERY_SUBJECTS.${key}`,
-        value,
-      ]),
-    );
-    const responderSources = readdirSync(resolve(REPO_ROOT, 'apps')).flatMap((app) =>
-      statSync(resolve(REPO_ROOT, `apps/${app}/src`), { throwIfNoEntry: false })?.isDirectory()
-        ? sources(`apps/${app}/src`)
-        : [],
-    );
-
-    /** subject → handler bodies (text from its @MessagePattern to the next decorator/class end). */
-    const handlers = new Map<string, string[]>();
-    for (const file of responderSources) {
-      const text = code(file);
-      if (!text.includes('@MessagePattern(')) continue;
-      const decorators = [...text.matchAll(/@MessagePattern\(\s*([^)]+?)\s*\)/g)];
-      decorators.forEach((match, index) => {
-        const raw = match[1] ?? '';
-        const literal = /^['"]([^'"]+)['"]$/.exec(raw)?.[1];
-        const resolved = literal ?? constantValue.get(raw);
-        const subjectConst = /^const SUBJECT = ['"]([^'"]+)['"]/m.exec(text)?.[1];
-        const subject = resolved ?? (raw === 'SUBJECT' ? subjectConst : undefined);
-        if (subject === undefined) return;
-        const start = match.index ?? 0;
-        const end = decorators[index + 1]?.index ?? text.length;
-        handlers.set(subject, [...(handlers.get(subject) ?? []), text.slice(start, end)]);
-      });
-    }
+    const subjects = aiRequestSubjects();
+    const handlers = respondersBySubject();
 
     it('ai_service publishes AI-facing request subjects (sanity)', () => {
-      expect(aiRequestSubjects.length).toBeGreaterThanOrEqual(46);
+      expect(subjects.length).toBeGreaterThanOrEqual(46);
     });
 
-    it.each(aiRequestSubjects)('%s is answered only through respondTenantBound', (subject) => {
+    it.each(subjects)('%s is answered only through respondTenantBound', (subject) => {
       const bodies = handlers.get(subject) ?? [];
       expect({ subject, responders: bodies.length }).toEqual({ subject, responders: 1 });
-      for (const body of bodies) {
+      for (const { body } of bodies) {
         expect({ subject, tenantBound: body.includes('respondTenantBound(') }).toEqual({
           subject,
           tenantBound: true,
@@ -229,6 +166,66 @@ describe('INVARIANT (K10 / MT-HIGH-062): AI tenant boundary', () => {
       // EXPECTS: no AI key literal outside the key modules.
       const files = AI_ROOTS.flatMap(sources).filter((file) => !KEY_MODULES.includes(file));
       expect(offenders(files, AI_KEY_LITERAL)).toEqual([]);
+    });
+
+    /**
+     * Every long-lived Map/Set/LRU cache in the AI roots (class field,
+     * constructor-assigned, or module-level), keyed `<file>#<name>`, with WHY
+     * one process-wide instance cannot hand one tenant's data to another. A
+     * new one fails the next test until it is reviewed and listed here.
+     */
+    const AI_PROCESS_STATE: Readonly<Record<string, string>> = {
+      [`${AI_SRC}/app.module.ts#complexityCache`]:
+        'GraphQL operation document -> complexity score; holds no tenant data',
+      [`${AI_SRC}/cost/rate-limit.service.ts#localCounters`]:
+        'keyed by aiRateLimitKey, whose tenant-first shape the builder test below proves',
+      [`${AI_SRC}/cost/token-budget.service.ts#localCounters`]:
+        'keyed by aiTokenBudgetKey, whose tenant-first shape the builder test below proves',
+      [`${AI_SRC}/agent/providers/anthropic.provider.ts#clients`]:
+        'SDK clients keyed by a hash of the API key; a client carries no conversation or tool data',
+      [`${AI_SRC}/agent/providers/openai.provider.ts#clients`]:
+        'SDK clients keyed by a hash of the API key; a client carries no conversation or tool data',
+      [`${AI_SRC}/agent/providers/llm-provider.factory.ts#registry`]:
+        'static provider-id -> provider registry built at boot',
+      [`${AI_SRC}/tools/tool-registry.service.ts#tools`]: 'static tool registry built at boot',
+      [`${AI_SRC}/tools/tool-registry.service.ts#metadataCache`]:
+        'static tool metadata built at boot',
+      'mcp/farm-management/src/graphql/client.ts#cache':
+        'keyed by buildCacheKey, which leads with the session tenant (graphql-client-cache-key.test.ts)',
+    };
+    const STATE_ROOTS = [...AI_ROOTS, 'mcp/farm-management/src'];
+    // A Map/WeakMap/LRU cache, or an EMPTY Set (one that accumulates entries at
+    // runtime). A Set built from a literal list is static configuration.
+    const CONTAINER = String.raw`new\s+(?:(?:Map|WeakMap|LRUCache)\b|Set\s*(?:<[^>\n]*>)?\(\s*\))`;
+    // Type annotations stay on one line, so a match cannot run across members.
+    const STATE_PATTERNS = [
+      // class field: `private readonly cache = new Map…`
+      new RegExp(
+        String.raw`^[ \t]+(?:(?:private|protected|public|static|readonly)[ \t]+)+(\w+)[ \t]*(?::[^=;\n]+)?=\s*${CONTAINER}`,
+        'gm',
+      ),
+      // constructor-assigned: `this.registry = new Map…`
+      new RegExp(String.raw`this\.(\w+)[ \t]*=\s*${CONTAINER}`, 'g'),
+      // module-level: `const complexityCache = new Map…`
+      new RegExp(
+        String.raw`^(?:export[ \t]+)?(?:const|let)[ \t]+(\w+)[ \t]*(?::[^=;\n]+)?=\s*${CONTAINER}`,
+        'gm',
+      ),
+    ];
+
+    it('every long-lived in-memory map/cache in an AI root is reviewed as tenant-safe', () => {
+      // SCENARIO: someone adds `private cache = new Map<string, Reply>()` to an AI service.
+      // EXPECTS: it fails until AI_PROCESS_STATE names why it cannot mix tenants.
+      const found = new Set<string>();
+      for (const file of STATE_ROOTS.flatMap(sources)) {
+        const text = code(file);
+        for (const pattern of STATE_PATTERNS) {
+          for (const match of text.matchAll(pattern)) found.add(`${file}#${match[1] ?? ''}`);
+        }
+      }
+      expect([...found].filter((entry) => !(entry in AI_PROCESS_STATE)).sort()).toEqual([]);
+      // Self-expiry: an entry for state that no longer exists is a claim about nothing.
+      expect(Object.keys(AI_PROCESS_STATE).filter((entry) => !found.has(entry))).toEqual([]);
     });
 
     const TENANT_A = '11111111-1111-4111-8111-111111111111';

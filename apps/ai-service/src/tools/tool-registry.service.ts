@@ -68,7 +68,8 @@ export class ToolRegistryService implements OnModuleInit {
 
       // K10 (MT-HIGH-062): no tool may offer the model a way to name a tenant
       // or schema. Refusing to boot makes such a tool undeployable, not just
-      // detectable (tests/invariants/ai-tenant-boundary.spec.ts walks the same list).
+      // detectable (tenant-boundary/__tests__/tool-schema-tenant-free.spec.ts
+      // walks every registered tool's schema with the same check).
       const tenantParameters = findTenantScopedParameters(metadata.inputSchema);
       if (tenantParameters.length > 0) {
         throw new Error(

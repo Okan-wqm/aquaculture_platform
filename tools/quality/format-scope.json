@@ -4143,19 +4143,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/ai-service/src/tools/core/__tests__/base-tenant-tool.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/ai-service/src/tools/core/__tests__/tool-executor.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/ai-service/src/tools/core/base-tenant-tool.ts",
       "prettier_managed": true
     },
     {
@@ -9226,12 +9214,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/__tests__/di-graph.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/farm-service/src/__tests__/e2e/ai-query-tenant-boundary.postgres.spec.ts",
       "prettier_managed": true
     },
     {
@@ -14925,6 +14907,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/growth/responders/growth-ai-query.responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/growth/services/cumulative-fcr.reader.ts",
       "prettier_managed": true
     },
     {
@@ -23845,6 +23833,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/ai/queries/__tests__/get-sentiment-trends.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/ai/queries/__tests__/search-similar-messages.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/ai/queries/get-sentiment-trends.handler.ts",
       "prettier_managed": true
     },
@@ -23942,6 +23942,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/ai/services/knowledge-extraction.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/ai/services/tank-registry.client.ts",
       "prettier_managed": true
     },
     {
@@ -47811,6 +47817,60 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/ai-tenant-redteam/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/ai-tenant-redteam/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/ai-tenant-redteam/src/ai-tenant-redteam.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/ai-tenant-redteam/src/helpers/ai-agent.harness.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/ai-tenant-redteam/src/helpers/farm-two-tenant.harness.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/ai-tenant-redteam/src/helpers/in-process-nats.transport.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/ai-tenant-redteam/src/helpers/scripted-attacker.provider.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/ai-tenant-redteam/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/ai-tenant-redteam/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/e2e/v11-compat/forroutes-wildcard.e2e-spec.ts",
       "prettier_managed": true
     },
@@ -48118,6 +48178,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/agent-size-limit.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/ai-tenant-boundary-data-layer.spec.ts",
       "prettier_managed": true
     },
     {
@@ -48832,6 +48898,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/helm-dependency-single-path.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/helpers/ai-tenant-boundary-sources.ts",
       "prettier_managed": true
     },
     {

@@ -7,13 +7,20 @@
  * Results are restricted to channels the requesting user belongs to,
  * enforcing data isolation at the query level.
  *
+ * K10 layer 5 (PR-T1, MT-HIGH-062): this is the AI retrieval (RAG) read. The
+ * channel scope and the vector search run inside ONE fail-closed
+ * `runInTenantRead` (tenant search_path + RLS GUC pinned and asserted), and
+ * every table is also filtered by the request tenant, so no ambient pooled
+ * connection decides whose messages are searched.
+ *
  * @see ADR-012 section 12.1 (Embedding Pipeline)
  * @see ADR-012 section 12.5 (AI Privacy Framework - Embedding search scope)
  */
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger, Inject } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, type QueryRunner } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
 
 import { SearchSimilarMessagesQuery } from './search-similar-messages.query';
@@ -28,8 +35,23 @@ const NATS_TIMEOUT_MS = 30_000;
  */
 export interface SimilarMessage {
   /** The matching message (partial — only includes fields from the similarity query). */
-  message: Pick<Message, 'id' | 'channelId' | 'senderId' | 'content' | 'contentType' | 'createdAt' | 'isDeleted'>;
+  message: Pick<
+    Message,
+    'id' | 'channelId' | 'senderId' | 'content' | 'contentType' | 'createdAt' | 'isDeleted'
+  >;
   /** Cosine similarity score (0.0 to 1.0, higher = more similar). */
+  similarity: number;
+}
+
+/** One row of the similarity query. */
+interface SimilarityRow {
+  id: string;
+  channelId: string;
+  senderId: string;
+  content: string | null;
+  contentType: string;
+  createdAt: Date;
+  isDeleted: boolean;
   similarity: number;
 }
 
@@ -60,9 +82,7 @@ export class SearchSimilarMessagesHandler
    * 2. Find user's channel memberships
    * 3. Run pgvector cosine similarity search with channel scope
    */
-  async execute(
-    query: SearchSimilarMessagesQuery,
-  ): Promise<SimilarMessage[]> {
+  async execute(query: SearchSimilarMessagesQuery): Promise<SimilarMessage[]> {
     const { tenantId, userId, queryText, channelId, limit } = query;
 
     // MSG-HIGH-061: the search text is tenant content leaving messaging toward
@@ -70,11 +90,7 @@ export class SearchSimilarMessagesHandler
     // egress-gate SSoT the chat path uses (tenant AI master switch + user
     // consent). A disabled tenant / non-consented user gets no AI search and no
     // content leaves.
-    const egressAllowed = await this.egressGate.isAllowed(
-      tenantId,
-      userId,
-      'semantic-search',
-    );
+    const egressAllowed = await this.egressGate.isAllowed(tenantId, userId, 'semantic-search');
     if (!egressAllowed) {
       this.logger.debug(
         `Semantic search denied by egress gate (tenant AI off or no consent) — returning empty`,
@@ -89,47 +105,43 @@ export class SearchSimilarMessagesHandler
       return [];
     }
 
-    // 2. Get user's accessible channel IDs
-    const channelIds = await this.getUserChannelIds(userId, channelId);
-    if (channelIds.length === 0) {
-      return [];
-    }
-
-    // 3. Perform pgvector cosine similarity search
-    // SECURITY: Include tenantId in WHERE clause to prevent cross-tenant
-    // semantic search. Without this filter, vector search returns results
-    // from all tenants — cross-tenant information disclosure.
-    // @see MSG-HIGH-042 (vector search missing tenantId filter)
+    // 2 + 3. The user's channel scope and the pgvector cosine search, read
+    // inside ONE tenant boundary (K10 layer 5). The embedding request above
+    // stays OUTSIDE it, so no transaction is held open across a NATS call.
+    // SECURITY: every table is ALSO filtered by tenantId — without it a vector
+    // search returns results from all tenants (MSG-HIGH-042).
     const vectorStr = `[${queryEmbedding.join(',')}]`;
     const cappedLimit = Math.min(limit, 50);
-
-    const results: Array<{
-      id: string;
-      channelId: string;
-      senderId: string;
-      content: string | null;
-      contentType: string;
-      createdAt: Date;
-      isDeleted: boolean;
-      similarity: number;
-    }> = await this.dataSource.query(
-      `SELECT
-        m."id",
-        m."channelId",
-        m."senderId",
-        m."content",
-        m."contentType",
-        m."createdAt",
-        m."isDeleted",
-        1 - (m."embedding" <=> $1::vector) as "similarity"
-      FROM "messages" m
-      WHERE m."embedding" IS NOT NULL
-        AND m."isDeleted" = false
-        AND m."tenantId" = $2::uuid
-        AND m."channelId" = ANY($3::uuid[])
-      ORDER BY m."embedding" <=> $1::vector
-      LIMIT $4`,
-      [vectorStr, query.tenantId, channelIds, cappedLimit],
+    const results = await runInTenantRead(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner): Promise<SimilarityRow[]> => {
+        const channelIds = await this.getUserChannelIds(queryRunner, tenantId, userId, channelId);
+        if (channelIds.length === 0) {
+          return [];
+        }
+        const rows: SimilarityRow[] = await queryRunner.query(
+          `SELECT
+            m."id",
+            m."channelId",
+            m."senderId",
+            m."content",
+            m."contentType",
+            m."createdAt",
+            m."isDeleted",
+            1 - (m."embedding" <=> $1::vector) as "similarity"
+          FROM "messages" m
+          WHERE m."embedding" IS NOT NULL
+            AND m."isDeleted" = false
+            AND m."tenantId" = $2::uuid
+            AND m."channelId" = ANY($3::uuid[])
+          ORDER BY m."embedding" <=> $1::vector
+          LIMIT $4`,
+          [vectorStr, tenantId, channelIds, cappedLimit],
+        );
+        return rows;
+      },
     );
 
     return results.map((row) => ({
@@ -149,9 +161,7 @@ export class SearchSimilarMessagesHandler
   /**
    * Generate an embedding vector for the query text via ai-service NATS.
    */
-  private async generateQueryEmbedding(
-    text: string,
-  ): Promise<number[] | null> {
+  private async generateQueryEmbedding(text: string): Promise<number[] | null> {
     const response = await firstValueFrom(
       this.natsClient
         .send<EmbeddingResponse>('request.ai.generateEmbeddings', {
@@ -175,29 +185,32 @@ export class SearchSimilarMessagesHandler
   }
 
   /**
-   * Get channel IDs the user is an active member of.
-   * If channelId is specified, validates the user is a member and returns just that.
+   * Channel IDs the user is an active member of, read through the caller's
+   * tenant-bound query runner. If channelId is specified, validates the user is
+   * a member and returns just that.
    */
   private async getUserChannelIds(
+    queryRunner: QueryRunner,
+    tenantId: string,
     userId: string,
     channelId: string | null,
   ): Promise<string[]> {
     if (channelId) {
       // Validate membership in the specific channel
-      const membership: Array<{ channelId: string }> = await this.dataSource.query(
+      const membership: Array<{ channelId: string }> = await queryRunner.query(
         `SELECT "channelId" FROM "channel_members"
-         WHERE "userId" = $1 AND "channelId" = $2 AND "leftAt" IS NULL
+         WHERE "tenantId" = $1 AND "userId" = $2 AND "channelId" = $3 AND "leftAt" IS NULL
          LIMIT 1`,
-        [userId, channelId],
+        [tenantId, userId, channelId],
       );
       return membership.map((m) => m.channelId);
     }
 
     // Get all channels the user belongs to
-    const memberships: Array<{ channelId: string }> = await this.dataSource.query(
+    const memberships: Array<{ channelId: string }> = await queryRunner.query(
       `SELECT "channelId" FROM "channel_members"
-       WHERE "userId" = $1 AND "leftAt" IS NULL`,
-      [userId],
+       WHERE "tenantId" = $1 AND "userId" = $2 AND "leftAt" IS NULL`,
+      [tenantId, userId],
     );
     return memberships.map((m) => m.channelId);
   }

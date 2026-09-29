@@ -1,13 +1,14 @@
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { Test } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 import { of } from 'rxjs';
+import { SecurityEventService } from '@aquaculture/backend-common/security';
 
 import { AiPrivacyService } from '../ai-privacy.service';
 import { KnowledgeEntry } from '../../entities/knowledge-entry.entity';
 import { KnowledgeExtractionService } from '../knowledge-extraction.service';
 import { MessageEntityReference } from '../../entities/message-entity-reference.entity';
 import { MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV } from '../../ai-trigger.config';
+import { TankRegistryClient } from '../tank-registry.client';
 import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
 import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 
@@ -40,6 +41,8 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
     data: rows,
   });
   const send = jest.fn().mockReturnValue(of(registryReply(TENANT_ID, [])));
+  /** K10 layer 3: a foreign reply is reported as a TenantAccessDenied security event. */
+  const publishTenantAccessDenied = jest.fn().mockResolvedValue(undefined);
   /** Content of the one message the sweep reads — tests that exercise tank references override it. */
   let messageContent = 'routine status update';
   let lastQueryRunner: { manager: { create: jest.Mock } } | undefined;
@@ -95,6 +98,8 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
   };
 
   let service: KnowledgeExtractionService;
+  /** The REAL TankRegistryClient the service is wired with (its logger is a spy target). */
+  let registryClient: TankRegistryClient;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -106,15 +111,16 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
     const moduleRef = await Test.createTestingModule({
       providers: [
         KnowledgeExtractionService,
-        { provide: getRepositoryToken(MessageEntityReference), useValue: {} },
-        { provide: getRepositoryToken(KnowledgeEntry), useValue: {} },
         { provide: DataSource, useValue: dataSource },
+        TankRegistryClient,
         { provide: 'NATS_SERVICE', useValue: { send } },
+        { provide: SecurityEventService, useValue: { publishTenantAccessDenied } },
         { provide: AiPrivacyService, useValue: {} },
         { provide: ScheduledJobRunner, useValue: createScheduledJobTestExecutor().executor },
       ],
     }).compile();
     service = moduleRef.get(KnowledgeExtractionService);
+    registryClient = moduleRef.get(TankRegistryClient);
   });
 
   afterEach(() => {
@@ -154,6 +160,31 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
     );
   });
 
+  it('keys every knowledge row it writes to the ledger tenant (K10 layer 5)', async () => {
+    // SCENARIO: a feeding note names tank A1, which is in this tenant's bound registry.
+    // EXPECTS: both the entity reference and the knowledge entry carry the batch's ledger
+    //          tenantId (NOT NULL column — a row without it never persisted).
+    messageContent = 'Tank A1 fed 12 kg pellet';
+    send.mockReturnValue(
+      of(
+        registryReply(TENANT_ID, [
+          { id: 'tank-a1', code: 'A1', name: 'Tank A1', status: 'ACTIVE' },
+        ]),
+      ),
+    );
+
+    await service.processHourlyBatch();
+
+    expect(lastQueryRunner?.manager.create).toHaveBeenCalledWith(
+      MessageEntityReference,
+      expect.objectContaining({ tenantId: TENANT_ID, entityId: 'tank-a1' }),
+    );
+    expect(lastQueryRunner?.manager.create).toHaveBeenCalledWith(
+      KnowledgeEntry,
+      expect.objectContaining({ tenantId: TENANT_ID, sourceMessageId: 'msg-1' }),
+    );
+  });
+
   it('discards a registry reply served for another tenant — no foreign tank id reaches this tenant', async () => {
     // SCENARIO: the message names tank A1; the reply carries A1 but names another tenant.
     // EXPECTS: nothing is written from that registry and the boundary violation is logged.
@@ -165,7 +196,9 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
         ]),
       ),
     );
-    const errorSpy = jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
+    const errorSpy = jest
+      .spyOn(registryClient['logger'], 'error')
+      .mockImplementation(() => undefined);
 
     await service.processHourlyBatch();
 
@@ -173,6 +206,13 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
     expect(errorSpy).toHaveBeenCalledWith(
       expect.objectContaining({ expectedTenantId: TENANT_ID, servedTenantId: OTHER_TENANT_ID }),
     );
+    // K10 layer 3: the same security event ai-service writes — ids only, never the rows.
+    expect(publishTenantAccessDenied).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      requestedTenantId: OTHER_TENANT_ID,
+      reason: 'knowledge_extraction_reply_tenant_mismatch:request.farm.getTankRegistry',
+    });
+    expect(JSON.stringify(publishTenantAccessDenied.mock.calls)).not.toContain('foreign-tank');
     errorSpy.mockRestore();
   });
 
@@ -185,6 +225,7 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
     await service.processHourlyBatch();
 
     expect(lastQueryRunner?.manager.create).not.toHaveBeenCalled();
+    expect(publishTenantAccessDenied).not.toHaveBeenCalled();
   });
 });
 
@@ -196,10 +237,10 @@ describe('KnowledgeExtractionService — MSGFIX-FAZ0 cron ceasefire (default OFF
     const moduleRef = await Test.createTestingModule({
       providers: [
         KnowledgeExtractionService,
-        { provide: getRepositoryToken(MessageEntityReference), useValue: {} },
-        { provide: getRepositoryToken(KnowledgeEntry), useValue: {} },
         { provide: DataSource, useValue: dataSource },
+        TankRegistryClient,
         { provide: 'NATS_SERVICE', useValue: { send } },
+        { provide: SecurityEventService, useValue: { publishTenantAccessDenied: jest.fn() } },
         { provide: AiPrivacyService, useValue: {} },
         { provide: ScheduledJobRunner, useValue: createScheduledJobTestExecutor().executor },
       ],

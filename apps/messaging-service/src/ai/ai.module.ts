@@ -17,6 +17,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ClientsModule } from '@nestjs/microservices';
 import { NatsV3Client } from '@aquaculture/backend-common/nats';
+import { SecurityEventService } from '@aquaculture/backend-common/security';
 
 // Feature module dependencies
 import { ChannelModule } from '../channel/channel.module';
@@ -35,6 +36,7 @@ import { AiEgressGateService } from './services/ai-egress-gate.service';
 import { AiPrivacyService } from './services/ai-privacy.service';
 import { AiCallerCapabilitiesService } from './services/ai-caller-capabilities.service';
 import { KnowledgeExtractionService } from './services/knowledge-extraction.service';
+import { TankRegistryClient } from './services/tank-registry.client';
 import { AiChatBridgeService } from './services/ai-chat-bridge.service';
 import { AiPersonasRegistryService } from './services/ai-personas-registry.service';
 // MSGFIX-FAZ0: env-driven AI kill-switch (MESSAGING_AI_TRIGGER_ENABLED, default OFF).
@@ -75,6 +77,11 @@ const services = [
   // effective resourcePermissions, NATS + 60s Redis cache, fail-closed).
   AiCallerCapabilitiesService,
   KnowledgeExtractionService,
+  // K10 (MT-HIGH-062): the knowledge pipeline's tenant-bound registry read;
+  // a reply served for another tenant is discarded and reported as a
+  // TenantAccessDenied security event (SecurityEventService below).
+  TankRegistryClient,
+  SecurityEventService,
   AiChatBridgeService,
   AiPersonasRegistryService,
 ];

@@ -23,7 +23,7 @@ import { Batch } from '../entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { BatchCostCalculatorService } from '../services/batch-cost-calculator.service';
-import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
+import { readCumulativeFcr } from '../../growth/services/cumulative-fcr.reader';
 
 @Injectable()
 @QueryHandler(GetBatchPerformanceQuery)
@@ -34,34 +34,48 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly costCalculator: BatchCostCalculatorService,
-    private readonly fcrCalculation: FCRCalculationService,
   ) {}
 
   async execute(query: GetBatchPerformanceQuery): Promise<BatchPerformanceResult> {
     const { tenantId, batchId } = query;
 
-    // Batch bul — read through the fail-closed tenant boundary so a lost/wrong
-    // pooled-connection search_path raises instead of silently resolving the
-    // source schema (→ NotFound / empty for a record that actually exists).
-    const batch = await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
-      queryRunner.manager.findOne(Batch, {
-        where: { id: batchId, tenantId },
-        relations: ['species'],
-      }),
+    // WHY one boundary for every read (K10 layer 4, MT-HIGH-062 — the AI
+    // get_batch_performance tool lands here): the batch, its species, the FCR
+    // ledger and the cost axes are all read inside ONE fail-closed
+    // runInTenantRead transaction, so a lost/wrong pooled-connection
+    // search_path raises instead of silently resolving another schema, and an
+    // id that is not this tenant's is NotFound before anything else is read.
+    const { batch, species, cumulativeFCR, costBreakdown } = await runInTenantRead(
+      this.dataSource,
+      'farm',
+      tenantId,
+      async (queryRunner) => {
+        const found = await queryRunner.manager.findOne(Batch, {
+          where: { id: batchId, tenantId },
+          relations: ['species'],
+        });
+        if (!found) {
+          throw new NotFoundException(`Batch ${batchId} bulunamadı`);
+        }
+        return {
+          batch: found,
+          species:
+            found.species ||
+            (await queryRunner.manager.findOne(Species, {
+              where: { id: found.speciesId, tenantId },
+            })),
+          // FCR — the single authority is readCumulativeFcr, which reads
+          // net-exited biomass (mortality + cull + harvest + transfer-out −
+          // transfer-in) from the TankOperation ledger. The previous
+          // batch.calculateFCR(mortalityBiomass) only credited mortality
+          // biomass and used the stored snapshot, overstating FCR (FARM-HIGH-007).
+          cumulativeFCR: await readCumulativeFcr(queryRunner.manager, batchId, tenantId),
+          // Full cost breakdown (phase 2.3): treatment, labour and equipment
+          // axes on top of purchase + feed, with `warnings` for partial data.
+          costBreakdown: await this.costCalculator.compute(found, queryRunner.manager),
+        };
+      },
     );
-
-    if (!batch) {
-      throw new NotFoundException(`Batch ${batchId} bulunamadı`);
-    }
-
-    // Species bilgileri — same fail-closed boundary for the relation fallback.
-    const species =
-      batch.species ||
-      (await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
-        queryRunner.manager.findOne(Species, {
-          where: { id: batch.speciesId, tenantId },
-        }),
-      ));
 
     // Weight calculations
     const initialAvgWeightG = batch.weight.initial.avgWeight;
@@ -88,12 +102,6 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
       ? ((avgDailyGrowthG - targetDailyGrowthG) / targetDailyGrowthG) * 100
       : 0;
 
-    // FCR — the single authority is FcrCalculationService.calculateCumulativeFCR,
-    // which reads net-exited biomass (mortality + cull + harvest + transfer-out
-    // − transfer-in) from the TankOperation ledger. The previous
-    // batch.calculateFCR(mortalityBiomass) only credited mortality biomass and
-    // used the stored snapshot, overstating FCR (FARM-HIGH-007).
-    const cumulativeFCR = await this.fcrCalculation.calculateCumulativeFCR(batchId, tenantId);
     const actualFCR = cumulativeFCR.fcr;
     const targetFCR = batch.fcr.target;
     const fcrVariance = actualFCR - targetFCR;
@@ -107,13 +115,9 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
     const totalFeedCost = Number(batch.totalFeedCost);
     const avgDailyFeedKg = daysInProduction > 0 ? totalFeedConsumedKg / daysInProduction : 0;
 
-    // Cost calculations — full breakdown via BatchCostCalculatorService
-    // (phase 2.3). Previous implementation was
-    //   totalCost = purchaseCost + totalFeedCost
-    // which understated treatment, labour, and equipment amortization
-    // axes entirely. The service fan-outs to health_events + work_orders
-    // and exposes a `warnings` array so the UI can flag partial data.
-    const costBreakdown = await this.costCalculator.compute(batch);
+    // Cost calculations — the breakdown read above (the previous
+    // `purchaseCost + totalFeedCost` understated treatment, labour and
+    // equipment amortization entirely).
     const purchaseCost = costBreakdown.purchaseCost;
     const totalCost = costBreakdown.totalCost;
     const costPerKg = costBreakdown.costPerKg;

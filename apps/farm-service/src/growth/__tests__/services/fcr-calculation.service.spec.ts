@@ -83,11 +83,27 @@ describe('FCRCalculationService', () => {
     createQueryBuilder: jest.fn(),
     manager: { query: mockGrowthMeasurementQuery },
   };
+  const mockBatchFindOne = jest.fn();
   const mockBatchRepository = {
-    findOne: jest.fn(),
+    findOne: mockBatchFindOne,
     // Toplu yol (`getTargetFCRForBatches`) batch'leri `find` ile ön-yükler.
     find: jest.fn(),
-    manager: { query: mockManagerQuery },
+    // calculateCumulativeFCR runs readCumulativeFcr on this manager
+    // (cumulative-fcr.reader.ts — K10 layer 4: the reader reads only through the
+    // manager it is handed). The double routes each entity to the per-entity
+    // doubles the tests already program, so the expectations below are unchanged.
+    manager: {
+      query: mockManagerQuery,
+      findOne: jest.fn(
+        (entity: unknown, options: unknown): Promise<unknown> =>
+          entity === Batch ? mockBatchFindOne(options) : Promise.resolve(null),
+      ),
+      createQueryBuilder: jest.fn((entity: unknown) =>
+        entity === TankOperation
+          ? mockTankOperationRepository.createQueryBuilder()
+          : mockFeedingRecordRepository.createQueryBuilder(),
+      ),
+    },
   };
 
   const mockSpeciesRepository = {
@@ -165,10 +181,6 @@ describe('FCRCalculationService', () => {
         {
           provide: getRepositoryToken(FeedingProgramTank),
           useValue: mockFeedingProgramTankRepository,
-        },
-        {
-          provide: getRepositoryToken(TankOperation),
-          useValue: mockTankOperationRepository,
         },
       ],
     }).compile();

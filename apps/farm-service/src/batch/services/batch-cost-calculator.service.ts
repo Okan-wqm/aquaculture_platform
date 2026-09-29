@@ -47,8 +47,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import type { EntityManager } from 'typeorm';
 
 import { Batch } from '../entities/batch.entity';
 import { HealthEvent } from '../../fish-health/entities/health-event.entity';
@@ -84,13 +83,7 @@ const DEFAULT_USEFUL_LIFE_DAYS = 5 * 365;
 export class BatchCostCalculatorService {
   private readonly logger = new Logger(BatchCostCalculatorService.name);
 
-  constructor(
-    @InjectRepository(HealthEvent)
-    private readonly healthEventRepo: Repository<HealthEvent>,
-    @InjectRepository(WorkOrder)
-    private readonly workOrderRepo: Repository<WorkOrder>,
-    private readonly configService: ConfigService,
-  ) {}
+  constructor(private readonly configService: ConfigService) {}
 
   /**
    * Compute the breakdown for the given batch.
@@ -98,8 +91,15 @@ export class BatchCostCalculatorService {
    * @param batch hydrated Batch entity (already read by the caller;
    *              the service never does its own batch lookup to keep
    *              transaction scope in the caller's hands)
+   * @param manager the caller's tenant-bound EntityManager — WHY: the
+   *              treatment + labour axes read health_events and work_orders
+   *              inside the caller's `runInTenantRead` transaction (search_path
+   *              + RLS GUC pinned and asserted), never on an ambient pooled
+   *              connection (K10 layer 4, MT-HIGH-062: the AI
+   *              get_batch_performance tool reaches this through
+   *              GetBatchPerformanceHandler).
    */
-  async compute(batch: Batch): Promise<BatchCostBreakdown> {
+  async compute(batch: Batch, manager: EntityManager): Promise<BatchCostBreakdown> {
     const warnings: string[] = [];
 
     const purchaseCost = Number(batch.purchaseCost ?? 0);
@@ -108,8 +108,8 @@ export class BatchCostCalculatorService {
     const feedCost = Number(batch.totalFeedCost ?? 0);
     if (!batch.totalFeedCost) warnings.push('Missing aggregated feed cost');
 
-    const treatmentCost = await this.sumTreatmentCost(batch, warnings);
-    const labourCost = await this.sumLabourCost(batch, warnings);
+    const treatmentCost = await this.sumTreatmentCost(manager, batch, warnings);
+    const labourCost = await this.sumLabourCost(manager, batch, warnings);
     const equipmentAmortization = this.estimateEquipmentAmortization(
       batch,
       warnings,
@@ -153,10 +153,11 @@ export class BatchCostCalculatorService {
   }
 
   private async sumTreatmentCost(
+    manager: EntityManager,
     batch: Batch,
     warnings: string[],
   ): Promise<number> {
-    const events = await this.healthEventRepo.find({
+    const events = await manager.find(HealthEvent, {
       where: { tenantId: batch.tenantId, batchId: batch.id },
       select: ['estimatedCost'],
     });
@@ -184,11 +185,12 @@ export class BatchCostCalculatorService {
   }
 
   private async sumLabourCost(
+    manager: EntityManager,
     batch: Batch,
     warnings: string[],
   ): Promise<number> {
-    const orders = await this.workOrderRepo
-      .createQueryBuilder('wo')
+    const orders = await manager
+      .createQueryBuilder(WorkOrder, 'wo')
       .where('wo.tenantId = :tenantId', { tenantId: batch.tenantId })
       // relatedAsset is JSONB; narrow by batchId to avoid scanning every
       // work order in the tenant.

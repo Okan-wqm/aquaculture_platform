@@ -258,6 +258,56 @@ const NON_PROVENANCE_TS_PROJECTS = [
   'tools/scripts',
 ];
 
+/**
+ * K10 (MT-HIGH-062): the NATS transport entry points AI tool code must never
+ * import. WHY: a tool that can name a transport can build its own payload and
+ * pick the tenant a request serves; TenantBoundNatsClient is the only sender
+ * that writes the bound tenant itself and verifies the reply's tenant.
+ * WHAT: ai-service's own restricted paths (read from its per-project policy,
+ * so the two cannot drift) plus the transports and TypeORM (a tool holding a
+ * DataSource would read tenant rows outside the owner's runInTenantRead).
+ */
+const AI_SERVICE_LINT_POLICY = PROJECT_LINT_OVERRIDES.find((p) => p.dir === 'apps/ai-service');
+if (AI_SERVICE_LINT_POLICY === undefined) {
+  throw new Error('eslint.config.mjs: apps/ai-service lint policy not found (K10 tool boundary)');
+}
+const AI_TOOL_TRANSPORT_MESSAGE =
+  'K10 / MT-HIGH-062: AI tool code reaches other services only through TenantBoundNatsClient ' +
+  '(apps/ai-service/src/tenant-boundary), which writes the bound tenant into the request and ' +
+  'refuses a reply served for another tenant. Inject TenantBoundNatsClient instead.';
+const AI_TOOL_DATABASE_MESSAGE =
+  'K10 / MT-HIGH-062: AI tool code has no database path of its own. Tenant data reaches a tool ' +
+  'only as a tenant-bound reply from the owning service (read inside runInTenantRead); request ' +
+  'it through TenantBoundNatsClient.';
+const aiToolTransportBoundaryBlock = {
+  files: ['apps/ai-service/src/tools/**/*.ts'],
+  ignores: ['apps/ai-service/src/tools/**/__tests__/**', 'apps/ai-service/src/tools/**/*.spec.ts'],
+  rules: {
+    'no-restricted-imports': [
+      'error',
+      {
+        paths: [
+          ...AI_SERVICE_LINT_POLICY.rules['no-restricted-imports'][1].paths,
+          { name: '@nestjs/microservices', message: AI_TOOL_TRANSPORT_MESSAGE },
+          { name: '@aquaculture/backend-common/nats', message: AI_TOOL_TRANSPORT_MESSAGE },
+          // The platform event bus exports NatsRequestReply (a raw request-reply).
+          { name: '@platform/event-bus', message: AI_TOOL_TRANSPORT_MESSAGE },
+          { name: 'typeorm', message: AI_TOOL_DATABASE_MESSAGE },
+          { name: '@nestjs/typeorm', message: AI_TOOL_DATABASE_MESSAGE },
+        ],
+        patterns: [
+          { group: ['@nats-io/*'], message: AI_TOOL_TRANSPORT_MESSAGE },
+          {
+            group: ['**/tenant-boundary/tenant-bound-nats.client'],
+            importNames: ['AI_TENANT_BOUND_TRANSPORT'],
+            message: AI_TOOL_TRANSPORT_MESSAGE,
+          },
+        ],
+      },
+    ],
+  },
+};
+
 const nonProvenanceParserBlocks = NON_PROVENANCE_TS_PROJECTS.map((dir) => ({
   files: [`${dir}/**/*.ts`, `${dir}/**/*.tsx`],
   languageOptions: {
@@ -665,6 +715,14 @@ export default [
 
   // ── The 30 per-project policies (former root:true .eslintrc.cjs), verbatim. ──
   ...perProjectBlocks,
+
+  // ── K10 / MT-HIGH-062: AI tool code reaches other services ONLY through
+  //    TenantBoundNatsClient. Author-time twin of
+  //    tests/invariants/ai-tenant-boundary.spec.ts §A (which scans the same
+  //    tree on every PR). Placed AFTER perProjectBlocks so it wins for tools/**;
+  //    it re-states ai-service's own restricted paths because a later block
+  //    replaces a rule's options rather than merging them. ──
+  aiToolTransportBoundaryBlock,
 
   // ── Non-provenance TS lint projects: scoped parser pins (OOM root-cause fix).
   //    See NON_PROVENANCE_TS_PROJECTS above. Placed after perProjectBlocks and

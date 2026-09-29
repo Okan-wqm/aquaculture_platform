@@ -18,7 +18,7 @@ import { GetGrowthAnalysisQuery, GrowthAnalysisResult } from '../queries/get-gro
 import { GrowthMeasurement } from '../entities/growth-measurement.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
-import { FCRCalculationService } from '../services/fcr-calculation.service';
+import { readCumulativeFcr } from '../services/cumulative-fcr.reader';
 
 @Injectable()
 @QueryHandler(GetGrowthAnalysisQuery)
@@ -28,7 +28,6 @@ export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysis
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly fcrCalculation: FCRCalculationService,
   ) {}
 
   async execute(query: GetGrowthAnalysisQuery): Promise<GrowthAnalysisResult> {
@@ -103,11 +102,14 @@ export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysis
       ? (biomassGainKg / initialBiomassKg) * 100
       : 0;
 
-    // FCR bilgileri — single authority is FcrCalculationService, which derives
+    // FCR bilgileri — single authority is readCumulativeFcr, which derives
     // realized growth from the TankOperation ledger + the live count. The old
     // `batch.fcr?.actual || batch.calculateFCR(0)` fallback used the entity's
     // naive weight-gain formula (ledger-blind), overstating FCR (FARM-HIGH-007).
-    const cumulativeFcrResult = await this.fcrCalculation.calculateCumulativeFCR(batchId, tenantId);
+    // K10 layer 4 (MT-HIGH-062 — the AI get_growth_analysis tool lands here):
+    // read through THIS runInTenantRead transaction's manager, never an
+    // ambient pooled connection.
+    const cumulativeFcrResult = await readCumulativeFcr(queryRunner.manager, batchId, tenantId);
     const cumulativeFCR = cumulativeFcrResult.fcr;
     const targetFCR = batch.fcr?.target || 1.5;
     const fcrVariancePercent = ((cumulativeFCR - targetFCR) / targetFCR) * 100;

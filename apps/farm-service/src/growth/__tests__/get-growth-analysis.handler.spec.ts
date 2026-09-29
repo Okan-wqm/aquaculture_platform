@@ -4,22 +4,25 @@ import { createMockDataSource } from '@aquaculture/testing';
 
 import { GetGrowthAnalysisQuery } from '../queries/get-growth-analysis.query';
 import { GetGrowthAnalysisHandler } from '../query-handlers/get-growth-analysis.handler';
-import type { FCRCalculationService } from '../services/fcr-calculation.service';
+import { readCumulativeFcr } from '../services/cumulative-fcr.reader';
+
+// The cumulative-FCR authority is a collaborator of the handler (its own spec
+// lives with FCRCalculationService); here it is a double so the test can assert
+// WHICH manager it reads through.
+jest.mock('../services/cumulative-fcr.reader', () => ({ readCumulativeFcr: jest.fn() }));
+const readFcr = jest.mocked(readCumulativeFcr);
 
 describe('GetGrowthAnalysisHandler', () => {
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const batchId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
   const speciesId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
-  type FcrMock = Pick<FCRCalculationService, 'calculateCumulativeFCR'>;
+  const givenFcr = (fcr: number): void => {
+    readFcr.mockResolvedValue({ fcr, totalFeed: 100, totalGrowth: 60, removedBiomassKg: 0 });
+  };
 
-  const makeFcr = (fcr: number): FcrMock => ({
-    calculateCumulativeFCR: jest.fn().mockResolvedValue({
-      fcr,
-      totalFeed: 100,
-      totalGrowth: 60,
-      removedBiomassKg: 0,
-    }),
+  beforeEach(() => {
+    readFcr.mockReset();
   });
 
   const makeBatch = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
@@ -66,8 +69,8 @@ describe('GetGrowthAnalysisHandler', () => {
       },
     ]);
 
-    const fcr = makeFcr(1.6);
-    const handler = new GetGrowthAnalysisHandler(mockDataSource, fcr as FCRCalculationService);
+    givenFcr(1.6);
+    const handler = new GetGrowthAnalysisHandler(mockDataSource);
 
     const result = await handler.execute(new GetGrowthAnalysisQuery(tenantId, batchId));
 
@@ -84,7 +87,9 @@ describe('GetGrowthAnalysisHandler', () => {
       where: { id: batchId, tenantId },
       relations: ['species'],
     });
-    expect(fcr.calculateCumulativeFCR).toHaveBeenCalledWith(batchId, tenantId);
+    // K10 layer 4: the FCR ledger is read through the SAME runInTenantRead
+    // transaction's manager as the batch — never an ambient pooled connection.
+    expect(readFcr).toHaveBeenCalledWith(mockManager, batchId, tenantId);
   });
 
   it('uses the batch-attached species without a second findOne', async () => {
@@ -100,7 +105,8 @@ describe('GetGrowthAnalysisHandler', () => {
     (mockManager.findOne as jest.Mock).mockResolvedValueOnce(batchWithSpecies);
     (mockManager.find as jest.Mock).mockResolvedValueOnce([]);
 
-    const handler = new GetGrowthAnalysisHandler(mockDataSource, makeFcr(1.4) as FCRCalculationService);
+    givenFcr(1.4);
+    const handler = new GetGrowthAnalysisHandler(mockDataSource);
 
     const result = await handler.execute(new GetGrowthAnalysisQuery(tenantId, batchId));
 
@@ -112,10 +118,13 @@ describe('GetGrowthAnalysisHandler', () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.findOne as jest.Mock).mockResolvedValueOnce(null);
 
-    const handler = new GetGrowthAnalysisHandler(mockDataSource, makeFcr(1.5) as FCRCalculationService);
+    givenFcr(1.5);
+    const handler = new GetGrowthAnalysisHandler(mockDataSource);
 
     await expect(
       handler.execute(new GetGrowthAnalysisQuery(tenantId, batchId)),
     ).rejects.toBeInstanceOf(NotFoundException);
+    // An id that is not this tenant's reads nothing else.
+    expect(readFcr).not.toHaveBeenCalled();
   });
 });

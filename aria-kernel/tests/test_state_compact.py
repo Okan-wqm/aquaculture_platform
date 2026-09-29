@@ -191,19 +191,39 @@ class StateCompactTests(unittest.TestCase):
         })
         self._write_ledger(self.tools / "raw-findings.jsonl", rows)
 
-    def test_raw_findings_keep_only_the_newest_row_per_fingerprint(self) -> None:
+    def test_raw_findings_keep_the_newest_row_per_fingerprint_and_one_per_run(self) -> None:
         self._seed_recurring_raw_findings()
         compact_state(base_dir=self.tools, retain_days=7)
         rows = load_declared_jsonl(self.tools / "raw-findings.jsonl", expected_surface="raw_findings")
         shared = [r for r in rows if r["tool_id"] == "tool-b"]
+        # The newest dated row per fingerprint (run-2 holds both), and for
+        # every run the collapse would empty, that run's newest row
+        # (ARIA-HIGH-239): run-0 and run-1 keep their later-recorded row
+        # (fp-shared-b, same timestamp, later index), run-undated its only one.
         self.assertEqual(
             sorted((r["finding_fingerprint"], r["run_id"]) for r in shared),
-            [("fp-shared-a", "run-2"), ("fp-shared-b", "run-2")],
-            "one row per fingerprint survives, the newest dated one",
+            [
+                ("fp-shared-a", "run-2"),
+                ("fp-shared-a", "run-undated"),
+                ("fp-shared-b", "run-0"),
+                ("fp-shared-b", "run-1"),
+                ("fp-shared-b", "run-2"),
+            ],
         )
         # Rows with distinct fingerprints are not collapsed — the seed's 13
         # unique tool-a rows all remain.
         self.assertEqual(len([r for r in rows if r["tool_id"] == "tool-a"]), 13)
+
+    def test_the_collapse_never_leaves_a_run_without_a_raw_row(self) -> None:
+        """ARIA-HIGH-239 — the invariant the verifier's ``raw_pointer_missing``
+        check relies on: every run that had a raw row before compaction has
+        one after, however many of its fingerprints recur in newer runs."""
+        self._seed_recurring_raw_findings()
+        path = self.tools / "raw-findings.jsonl"
+        before = {r["run_id"] for r in load_declared_jsonl(path, expected_surface="raw_findings")}
+        compact_state(base_dir=self.tools, retain_days=7)
+        after = {r["run_id"] for r in load_declared_jsonl(path, expected_surface="raw_findings")}
+        self.assertEqual(after, before)
 
     def test_raw_findings_collapse_archives_the_older_copies_pristine(self) -> None:
         self._seed_recurring_raw_findings()
@@ -211,21 +231,23 @@ class StateCompactTests(unittest.TestCase):
         archive = next((self.tools / "archives").glob("raw_findings-compact-*.jsonl.gz"))
         with gzip.open(archive, "rt", encoding="utf-8") as fh:
             archived = [json.loads(line) for line in fh]
-        collapsed = sorted(r["run_id"] for r in archived if r["tool_id"] == "tool-b")
-        self.assertEqual(collapsed, ["run-0", "run-0", "run-1", "run-1", "run-undated"])
+        collapsed = sorted(
+            (r["run_id"], r["finding_fingerprint"]) for r in archived if r["tool_id"] == "tool-b"
+        )
+        self.assertEqual(collapsed, [("run-0", "fp-shared-a"), ("run-1", "fp-shared-a")])
         self.assertTrue(all("finding_summary" in r for r in archived if r["tool_id"] == "tool-b"))
 
     def test_raw_findings_collapse_is_reported_and_dry_run_keeps_every_row(self) -> None:
         self._seed_recurring_raw_findings()
         before = len(load_declared_jsonl(self.tools / "raw-findings.jsonl", expected_surface="raw_findings"))
         dry = compact_state(base_dir=self.tools, retain_days=7, dry_run=True)
-        self.assertEqual(dry["surfaces"]["raw_findings"]["stripped_rows"], 10 + 5)
+        self.assertEqual(dry["surfaces"]["raw_findings"]["stripped_rows"], 10 + 2)
         self.assertEqual(
             len(load_declared_jsonl(self.tools / "raw-findings.jsonl", expected_surface="raw_findings")),
             before,
         )
         wet = compact_state(base_dir=self.tools, retain_days=7)
-        self.assertEqual(wet["surfaces"]["raw_findings"]["after_rows"], before - 5)
+        self.assertEqual(wet["surfaces"]["raw_findings"]["after_rows"], before - 2)
 
     def test_beliefs_collapse_to_latest(self) -> None:
         compact_state(base_dir=self.tools, retain_days=7)

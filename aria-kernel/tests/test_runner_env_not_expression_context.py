@@ -30,13 +30,16 @@ _ENV_EXPRESSION = re.compile(r"\$\{\{[^}]*?\benv\.([A-Za-z_][A-Za-z0-9_]*)")
 
 
 def runner_env_names() -> tuple[str, ...]:
-    """The keys the provisioner requires in the runner's `.env`."""
+    """The keys the provisioner checks in the runner's `.env`: the ones it
+    requires and the ones it requires to be absent (ARIA-CRITICAL-246)."""
     text = _PROVISIONER.read_text(encoding="utf-8")
-    section = text[text.index('env_file="${RUNNER_ROOT}/.env"'):]
-    match = re.search(r"^for key in ([A-Z0-9_ ]+); do$", section, re.MULTILINE)
-    if match is None:
+    start = text.index('env_file="${RUNNER_ROOT}/.env"')
+    end = text.find("\nsection ", start)
+    section = text[start:] if end == -1 else text[start:end]
+    loops = re.findall(r"^for key in ([A-Z0-9_ ]+); do$", section, re.MULTILINE)
+    if not loops:
         raise AssertionError("provision_runner.sh no longer lists the runner .env keys")
-    return tuple(match.group(1).split())
+    return tuple(name for loop in loops for name in loop.split())
 
 
 def _executable(text: str) -> str:
@@ -52,7 +55,8 @@ def _ci_files() -> list[Path]:
 
 class NoWorkflowReadsARunnerEnvSecretAsAnExpression(unittest.TestCase):
     def test_the_provisioner_names_the_runner_env_keys(self) -> None:
-        self.assertIn("ARIA_GH_TOKEN", runner_env_names())
+        self.assertIn("ARIA_OBSERVABILITY_API_KEY", runner_env_names())
+        self.assertIn("ARIA_GH_TOKEN", runner_env_names(), "the retired key is still checked, for absence")
 
     def test_no_ci_file_names_a_runner_env_key_in_an_env_expression(self) -> None:
         forbidden = set(runner_env_names())

@@ -35,6 +35,7 @@ from aria_kernel.merge_authority import (
     reconcile_enqueued_merges,
 )
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 
 _HEAD = "a" * 40
 _OTHER = "b" * 40
@@ -185,7 +186,8 @@ class ReadinessProofRequiresTheQueueTests(unittest.TestCase):
 class TheAdapterMeasuresWhatTheMergeCallDidTests(unittest.TestCase):
     def _merge(self, merge_state: dict | None, *, merge_exit: int = 0) -> tuple[dict, _GhFake]:
         fake = _GhFake(merge_state=merge_state, merge_exit=merge_exit)
-        with patch.object(subprocess, "run", fake):
+        # The merge lane merges on the App token it minted (ARIA-CRITICAL-246).
+        with patch.object(subprocess, "run", fake), patch.dict("os.environ", LANE_CREDENTIAL_ENV):
             adapter = GhCliGitHubAdapter(cwd=".")
             adapter.arm_merge_authority("token")
             result = adapter.merge_pr(7, method="squash", expected_head_sha=_HEAD, authority_token="token")

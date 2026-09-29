@@ -45,7 +45,7 @@ Consensus exists only when:
 - Mean confidence is at least `0.80`.
 - No duplicate `judge_id` is counted twice.
 
-If the gate fails, emit an `uncertainty` result with the reason: `single_judge`, `judge_disagreement`, or `low_confidence`.
+If the gate fails, do not emit a verdict. Omit `verdict` from `details.consensus` and set `uncertainty_reason` in that same block, to a reason from the closed vocabulary listed under **Judge verdict contract** at the end of this contract (rendered from the kernel; no other value is accepted, and `"verdict": "uncertainty"` is refused).
 
 ## Plan 016 Envelope Contract
 
@@ -62,9 +62,8 @@ When the kernel invokes you via the bound async queue, you receive a single `ari
 A single JSON `aria/agent-response/v1` envelope:
 
 - `request_id`, `claim_id`, `agent_id: "aria-consensus-arbiter"`, `role: "consensus_arbitration"`, `status: "submitted"`.
-- `satisfaction_matrix[]` — when the consensus gate passes: `verdict: "satisfied"`; when it fails: `verdict: "blocked"` with `note` describing the failure mode (`single_judge`, `judge_disagreement`, `low_confidence`) and `evidence_refs[]` pointing at the conflicting judge responses.
-- `details.consensus` retains the shape `feedback_store.generate_ai_consensus` consumes (verdict, mean_confidence, judge_count).
-- `details.uncertainty_reason` — populated only when `verdict: "blocked"`; one of `single_judge`, `judge_disagreement`, `low_confidence`.
+- `satisfaction_matrix[]` — when the consensus gate passes: `verdict: "satisfied"`; when it fails: `verdict: "blocked"` with a `note` naming the same uncertainty reason and `evidence_refs[]` pointing at the conflicting judge responses.
+- `details.consensus` — when the gate passes, the shape `feedback_store.generate_ai_consensus` consumes (verdict, mean_confidence, judge_count); when it fails, the same block with `verdict` omitted and `uncertainty_reason` set (see **Judge verdict contract**).
 
 ### Refusal protocol
 

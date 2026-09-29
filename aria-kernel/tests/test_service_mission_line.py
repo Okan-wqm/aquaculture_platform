@@ -848,7 +848,7 @@ class CoverageGapPathTest(unittest.TestCase):
 
 
 class DrainResolvesMissionMarkersTest(unittest.TestCase):
-    def test_a_mission_item_mints_with_the_missions_evidence(self) -> None:
+    def _drain_mission_item(self, *, evidence_refs: list[str] | None) -> tuple[dict, list, str]:
         from aria_kernel import autonomy_orchestrator as ao
 
         with TemporaryDirectory() as tmp:
@@ -861,11 +861,23 @@ class DrainResolvesMissionMarkersTest(unittest.TestCase):
                 wake_condition={"kind": "evidence", "key": "finding:F-1"},
                 target_project="auth-service", base_dir=root,
             )
+            if evidence_refs:
+                transition_mission(
+                    mission_id=opened["mission_id"], to_state="CONTRACTING",
+                    reason_code="service_hardening_contracting", step_id="s1",
+                    next_action="draft the hardening contract for auth-service",
+                    wake_condition={"kind": "evidence", "key": "finding:F-1"},
+                    evidence_refs=evidence_refs, base_dir=root,
+                )
             captured: dict = {}
+            governance: list = []
 
             def fake_create(**kw):
                 captured.update(kw)
                 return {"request_id": "AIR-x"}
+
+            def record_governance(_base_dir, kind, details, **_kwargs):
+                governance.append((kind, details))
 
             item = {
                 "queue_item_id": "qi-m1",
@@ -878,17 +890,32 @@ class DrainResolvesMissionMarkersTest(unittest.TestCase):
                  patch.object(ao, "mark_consumed"), \
                  patch.object(ao, "_find_projected_queue_request", return_value=None), \
                  patch("aria_kernel.agent_invocations.create_agent_invocation_request", fake_create), \
-                 patch("aria_kernel.tool_registry.append_tools_governance"):
+                 patch("aria_kernel.tool_registry.append_tools_governance", side_effect=record_governance):
                 ao._drain_next_cycle_queue(
                     base_dir=root, daemon_agent_id="t", limit=1, workspace_root=root,
                 )
+        return captured, governance, opened["mission_id"]
 
-        # The mission has no accumulated evidence yet, so the fallback marker
-        # applies — the important pin is that the MARKER never leaks into the
-        # evidence channel as if it were a path.
-        self.assertEqual(captured.get("evidence_refs"), ["qi-m1"])
-        self.assertEqual(captured.get("pressure_event_id"), f"mission:{opened['mission_id']}")
+    def test_a_mission_item_mints_with_the_missions_evidence(self) -> None:
+        captured, _governance, mission_id = self._drain_mission_item(
+            evidence_refs=["apps/auth-service/src/auth.service.ts:12"],
+        )
 
+        # Refs come from the mission row; the marker keeps its own channel.
+        self.assertEqual(captured.get("evidence_refs"), ["apps/auth-service/src/auth.service.ts:12"])
+        self.assertEqual(captured.get("pressure_event_id"), f"mission:{mission_id}")
+
+    def test_a_mission_without_evidence_is_not_minted_and_is_disclosed(self) -> None:
+        # ARIA-HIGH-243 — the mint fell back to the queue marker `qi-m1` as the
+        # sole evidence ref; the planner cited it and every answer was refused
+        # `agent_evidence_path_missing`. The marker never enters the evidence
+        # channel: the item is consumed and named instead.
+        captured, governance, mission_id = self._drain_mission_item(evidence_refs=None)
+
+        self.assertEqual(captured, {})
+        self.assertEqual(governance, [("next_cycle_queue_item_unevidenced", {
+            "queue_item_id": "qi-m1", "pressure_id": f"mission:{mission_id}", "source_cycle_id": "cyc-svc",
+        })])
 
 if __name__ == "__main__":
     unittest.main()

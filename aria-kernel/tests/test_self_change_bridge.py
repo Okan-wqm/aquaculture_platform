@@ -141,11 +141,19 @@ class TheMissionBranchMintsTheContract(_Store):
         self.assertEqual(captured["allowed_scope"], scb.self_change_allowed_scope())
         self.assertEqual((captured["target_agent"], captured["role"]), (scb.SELF_CHANGE_TARGET_AGENT, scb.SELF_CHANGE_ROLE))
         self.assertEqual(captured["pressure_event_id"], f"mission:{mission_id}")
+        # ARIA-HIGH-243 — the mission holds no refs yet and the contract asks
+        # the answer to establish them; the queue marker is never a ref.
+        self.assertEqual(captured["evidence_refs"], [])
 
     def test_every_other_mission_keeps_the_queue_contract(self) -> None:
         row = open_mission(source_kind="service_hardening", source_id="auth-service", repo_hash="rh-1", title="Harden auth-service",
                            next_action="Harden auth-service against finding F-1", wake_condition={"kind": "evidence", "key": "finding:F-1"},
                            target_project="auth-service", base_dir=self.tools)
+        # The generic projection mints only with evidence (ARIA-HIGH-243).
+        transition_mission(mission_id=str(row["mission_id"]), to_state="CONTRACTING", reason_code="service_hardening_contracting",
+                           step_id="s1", next_action="Harden auth-service against finding F-1",
+                           wake_condition={"kind": "evidence", "key": "finding:F-1"},
+                           evidence_refs=["apps/auth-service/src/auth.service.ts:12"], base_dir=self.tools)
         captured = self._drain(str(row["mission_id"]))
         self.assertEqual([item["id"] for item in captured["must_satisfy"]], ["queue_item_projected"])
         self.assertEqual(json.loads(captured["suggested_prompt"])["$schema"], "aria/next-cycle-queue-request/v1")

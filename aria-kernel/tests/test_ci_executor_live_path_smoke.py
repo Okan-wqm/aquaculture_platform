@@ -1008,6 +1008,79 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
                          (base_sha, "implementation_ids.base_sha", moved))
         self.assertEqual(exit_code, 0)
 
+    def test_a_request_without_an_anchor_is_bound_at_the_observed_head(self) -> None:
+        """ARIA-HIGH-241 — a read-only request minted without an anchor
+        (ORPHAN-CRITICAL-495: 11 of 17 mint paths pass none) is claimable at
+        the claim gate, and the native task binding refused the same row as
+        `target_revision_unavailable` — a harness-class release, so every
+        unanchored judge request burned the drain's budget and was re-queued
+        without running. It is now bound at the HEAD the probe observed, the
+        choice is recorded as `runtime_task_bound` with
+        `anchor_source="observed_head"`, and what refuses instead is the
+        fleet, by its own name."""
+        import shutil
+        from tests._helpers.git_fixtures import _git
+
+        self._enable_adaptive_policy()
+        policy_path = self.repo / "aria-config/genesis_policy.json"
+        configured = json.loads(policy_path.read_text())
+        configured["executor"]["adaptive_runtime"]["monetary_admission"] = "managed_subscription"
+        policy_path.write_text(json.dumps(configured) + "\n")
+        git_binary = shutil.which("git")
+        self.assertIsNotNone(git_binary)
+        (self.binary_dir / "git").symlink_to(git_binary)
+        self.request = self.ai.create_agent_invocation_request(
+            target_agent="aria-evidence-judge", role="evidence_judgment",
+            suggested_prompt="Inspect the provider declaration at the supplied source line.",
+            must_satisfy=[{"id": "provider-source", "description": "cite the provider declaration"}],
+            allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
+            convergence_id="s4-unanchored", cycle_id="s4-unanchored",
+            context_repo_root=self.repo, base_dir=self.tools,
+        )
+        self.assertIsNone(self.ai.request_anchor_sha(self.request))
+        self.native_bytes = {
+            name: (self.tools / "agent-invocations" / name).read_bytes()
+            for name in ("requests.jsonl", "contexts.jsonl", "prompts.jsonl")
+        }
+        self.governance_before = (self.tools / "governance.jsonl").read_bytes()
+        head = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+
+        exit_code = self._run_native_entry()
+
+        rows = self._assert_native_request_untouched()
+        self.assertFalse(any(row["kind"] == "runtime_task_binding_unavailable" for row in rows),
+                         "an unanchored request is bound, not refused")
+        bound = [row["details"] for row in rows if row["kind"] == "runtime_task_bound"]
+        self.assertEqual(len(bound), 1)
+        self.assertEqual(
+            (bound[0]["request_id"], bound[0]["request_ledger_hash"], bound[0]["anchor_source"],
+             bound[0]["observed_head_sha"], bound[0]["target_sha"]),
+            (self.request["request_id"], self.request["ledger_hash"], "observed_head", head, head),
+        )
+        decisions = [row for row in rows if row["kind"] == "runtime_admission_unavailable"]
+        self.assertEqual(len(decisions), 1, [row["kind"] for row in rows])
+        self.assertEqual(decisions[0]["details"]["reason"], "no_eligible_provider")
+        self.assertEqual(exit_code, 0)
+
+    def test_an_anchored_request_records_no_binding_choice(self) -> None:
+        # ARIA-HIGH-241 — only an unanchored binding is a choice the kernel
+        # made; a request at its own anchor records nothing on success.
+        import shutil
+
+        self._enable_adaptive_policy()
+        policy_path = self.repo / "aria-config/genesis_policy.json"
+        configured = json.loads(policy_path.read_text())
+        configured["executor"]["adaptive_runtime"]["monetary_admission"] = "managed_subscription"
+        policy_path.write_text(json.dumps(configured) + "\n")
+        git_binary = shutil.which("git")
+        self.assertIsNotNone(git_binary)
+        (self.binary_dir / "git").symlink_to(git_binary)
+        self.assertIsNotNone(self.ai.request_anchor_sha(self.request))
+        self._run_native_entry()
+        rows = self._assert_native_request_untouched()
+        self.assertFalse(any(row["kind"] in ("runtime_task_bound", "runtime_task_binding_unavailable")
+                             for row in rows))
+
     def test_adaptive_zero_eligible_keeps_native_request_pending(self) -> None:
         self._enable_adaptive_policy()
         exit_code = self._run_native_entry()

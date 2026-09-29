@@ -270,7 +270,7 @@ export class MortalityRecordedListener
    */
   evaluateMortalityAlerts(
     event: MortalityRecordedEvent,
-    dailyMortality: { todayRate: number },
+    dailyMortality: { todayRate: number; isCurrentDay: boolean },
   ): MortalityAlert[] {
     const thresholds = DEFAULT_THRESHOLDS;
     const alerts: MortalityAlert[] = [];
@@ -283,7 +283,17 @@ export class MortalityRecordedListener
       });
     }
 
-    if (dailyMortality.todayRate >= thresholds.dailyMortalityCritical) {
+    // V-S1a-9: the daily rate is a LIVE alarm only for the current day. A
+    // backdated record's day is measured against today's population
+    // (`currentQuantity`), which is not the population of that day, and paging
+    // someone now for yesterday's rate is not a live condition; the record
+    // still counts toward the cumulative rate and the trend.
+    if (!dailyMortality.isCurrentDay) {
+      this.logger.log(
+        `[MortalityRecorded] batch=${event.batchId}: record is backdated — daily-rate alarm ` +
+          'not evaluated live',
+      );
+    } else if (dailyMortality.todayRate >= thresholds.dailyMortalityCritical) {
       alerts.push({
         type: 'daily_rate',
         severity: 'critical',

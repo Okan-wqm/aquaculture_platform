@@ -18,6 +18,12 @@ export interface DailyMortality {
   day: string;
   todayCount: number;
   todayRate: number;
+  /**
+   * True when `day` is the current day (V-S1a-9). A backdated record — one
+   * stored under an earlier day — has no live population to measure against
+   * (`currentQuantity` is today's), so its daily rate is not a live alarm.
+   */
+  isCurrentDay: boolean;
   weeklyAverage: number;
   trend: 'increasing' | 'stable' | 'decreasing';
 }
@@ -47,8 +53,14 @@ export class MortalityAlertContextReader {
    * the current day and kept the daily-rate alarm permanently silent. Days are
    * compared as dates, never against a timestamp.
    */
-  async dailyMortality(event: MortalityRecordedEvent): Promise<DailyMortality> {
+  async dailyMortality(
+    event: MortalityRecordedEvent,
+    now: Date = new Date(),
+  ): Promise<DailyMortality> {
     const day = this.recordDayOf(new Date(event.mortalityDate));
+    // The same stored-day conversion applied to the wall clock: "today" and a
+    // record's day are always compared in one representation.
+    const isCurrentDay = day === this.recordDayOf(now);
     const from = shiftCalendarDay(day, -(MORTALITY_TREND_WINDOW_DAYS - 1));
 
     const raw: Array<{ day: string; count: string }> = await this.mortalityRecordRepository
@@ -78,7 +90,7 @@ export class MortalityAlertContextReader {
     const populationAtDayStart = (batch?.currentQuantity ?? 0) + dayCount;
     const todayRate = populationAtDayStart > 0 ? (dayCount / populationAtDayStart) * 100 : 0;
 
-    return { day, todayCount: dayCount, todayRate, weeklyAverage, trend };
+    return { day, todayCount: dayCount, todayRate, isCurrentDay, weeklyAverage, trend };
   }
 
   /**

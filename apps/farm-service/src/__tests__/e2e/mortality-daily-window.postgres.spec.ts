@@ -211,4 +211,27 @@ describe('Mortality daily window on real Postgres (FARM-HIGH-334)', () => {
     const secondAlerts = second.published().filter(isMortalityAlert);
     expect(secondAlerts.filter((a) => a.alertType === 'cumulative_rate')).toHaveLength(0);
   });
+
+  it('pages no live daily-rate alarm for a record backdated to an earlier day (V-S1a-9)', async () => {
+    // SCENARIO: 30 deaths are entered today but observed three days ago — 3% of the
+    //          population, far above the 1% critical daily rate.
+    // EXPECTS: the reader stores and reads the record under its own (earlier) day and
+    //          reports it as not the current day; the listener raises no daily_rate
+    //          alarm, because today's population is not that day's population.
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const event = await record(30, threeDaysAgo);
+
+    const daily = await withTenantContext(TENANT_ID, () => harness.reader.dailyMortality(event));
+    expect(daily.todayCount).toBe(30);
+    expect(daily.isCurrentDay).toBe(false);
+
+    const bus = recordingBus();
+    await harness.listener(bus.bus).handle(event);
+    expect(
+      bus
+        .published()
+        .filter(isMortalityAlert)
+        .filter((a) => a.alertType === 'daily_rate'),
+    ).toHaveLength(0);
+  });
 });

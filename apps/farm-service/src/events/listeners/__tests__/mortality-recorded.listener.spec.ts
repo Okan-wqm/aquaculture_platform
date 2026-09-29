@@ -39,6 +39,7 @@ function quietDay(overrides: Partial<DailyMortality> = {}): DailyMortality {
     day: '2026-06-10',
     todayCount: 0,
     todayRate: 0,
+    isCurrentDay: true,
     weeklyAverage: 0,
     trend: 'stable',
     ...overrides,
@@ -252,10 +253,22 @@ describe('MortalityRecordedListener (NATS contract migration)', () => {
     const { listener } = makeListener({});
     const alerts = listener.evaluateMortalityAlerts(
       makeEvent({ quantity: 100, newMortalityRate: 6 }),
-      { todayRate: 1.5 },
+      { todayRate: 1.5, isCurrentDay: true },
     );
     const types = alerts.map((a) => a.type).sort();
     expect(types).toEqual(['cumulative_rate', 'daily_rate', 'single_event']);
+  });
+
+  it('raises no live daily-rate alarm for a backdated record (V-S1a-9)', () => {
+    // SCENARIO: a record stored under an earlier day whose day-rate would breach critical.
+    // EXPECTS: no daily_rate alert — the day's rate against today's population is not a
+    //          live condition; the single-event and cumulative checks still apply.
+    const { listener } = makeListener({});
+    const alerts = listener.evaluateMortalityAlerts(
+      makeEvent({ quantity: 100, newMortalityRate: 6 }),
+      { todayRate: 4, isCurrentDay: false },
+    );
+    expect(alerts.map((a) => a.type).sort()).toEqual(['cumulative_rate', 'single_event']);
   });
 
   // ── Blocker 1 / 7: each alert carries a DISTINCT, fresh eventId ──────────

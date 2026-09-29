@@ -10851,6 +10851,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/__tests__/farm-seed.stock-writer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/data-source.ts",
       "prettier_managed": true
     },
@@ -10876,6 +10882,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/entities/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/farm-seed.module.ts",
       "prettier_managed": true
     },
     {

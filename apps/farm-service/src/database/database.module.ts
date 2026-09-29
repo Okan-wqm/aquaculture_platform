@@ -4,7 +4,9 @@
  * Sağladığı servisler:
  * - AuditLogService: Değişiklik takibi
  * - CodeGeneratorService: Unique kod üretimi
- * - FarmSeedService: Başlangıç verisi oluşturma (dev ortamı)
+ * - FarmSeedService lives in FarmSeedModule (farm-seed.module.ts): its demo
+ *   stock goes through the storage ledger, which this global module must not
+ *   import (V-B1-14).
  * - MigrationRunnerService: Pending TypeORM migration'larını OnApplicationBootstrap
  *   sırasında çalıştırır; SourceSchemaBootstrapService yalnızca migration sonrası
  *   source schema doğrulaması yapar.
@@ -18,7 +20,6 @@ import { CodeSequence } from './entities/code-sequence.entity';
 import { AuditLogService } from './services/audit-log.service';
 import { AuditRedactionService } from './services/audit-redaction.service';
 import { CodeGeneratorService } from './services/code-generator.service';
-import { FarmSeedService } from './services/farm-seed.service';
 import { MigrationRunnerService } from './services/migration-runner.service';
 
 @Global()
@@ -33,7 +34,6 @@ import { MigrationRunnerService } from './services/migration-runner.service';
     AuditRedactionService,
     CodeGeneratorService,
     MigrationRunnerService,
-    FarmSeedService,
   ],
   exports: [
     AuditLogService,

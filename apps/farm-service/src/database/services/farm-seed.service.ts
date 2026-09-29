@@ -42,9 +42,15 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { GLOBAL_TENANT_UUID } from '@aquaculture/backend-common/tenant';
+import { MovementType } from '../../storage/entities/stock-movement.entity';
+import { StorageItemType } from '../../storage/entities/storage-inventory.entity';
+import { StockMovementService } from '../../storage/services/stock-movement.service';
 import { EQUIPMENT_TYPES_SEED } from '../../equipment/seeds/equipment-types.seed';
 import { CHEMICAL_TYPES_SEED } from '../../chemical/seeds/chemical-types.seed';
 import { SUPPLIER_TYPES_SEED } from '../../supplier/seeds/supplier-types.seed';
+
+/** The system actor stamped on demo stock movements (no human performed them). */
+const SEED_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
 
 /**
  * Interface for raw query row with id field
@@ -70,6 +76,10 @@ export class FarmSeedService implements OnApplicationBootstrap {
     // libs/backend-common/src/database/rls/bypass-rls.service.ts for the
     // full audit-trail and scoping rationale.
     private readonly bypassRls: BypassRlsService,
+    // V-B1-14: demo stock enters through THE storage-ledger sink, which writes
+    // the inventory row, the immutable movement and the catalog projection —
+    // the seed is not a second writer of any of them.
+    private readonly stockMovements: StockMovementService,
   ) {}
 
   async onApplicationBootstrap() {
@@ -899,11 +909,13 @@ export class FarmSeedService implements OnApplicationBootstrap {
   /**
    * Demo yem stogu olusturur — storage LEDGER'a yazar (stock SSoT Phase 2).
    *
-   * Eski surum dogrudan legacy `feed_inventory` tablosuna INSERT ediyordu;
-   * o tablo artik donduruldu (okuyucu/yazici kalmadi, Faz 8'de drop). Demo
-   * stok artik gercek uretim yolu gibi gorunur: site basina bir depo
-   * lokasyonu + lot bazli storage_inventory satirlari + immutable IN
-   * stock_movements kayitlari + feeds.quantity/status roll-up'i.
+   * WHY through StockMovementService (V-B1-14 of the B1a-1 verifier round):
+   * the seed used to INSERT storage_inventory + stock_movements rows and
+   * UPDATE feeds.quantity/status itself, with its own status CASE — a second
+   * writer of the catalog projection and a second copy of the band rule.
+   * WHAT: one depot location per site, then one IN movement per demo lot
+   * through the ledger sink (inventory row, immutable movement, projection);
+   * the idempotency key keeps a re-run from doubling the stock.
    */
   private async seedFeedInventory(
     queryRunner: QueryRunner,
@@ -947,41 +959,25 @@ export class FarmSeedService implements OnApplicationBootstrap {
     ];
 
     for (const inv of inventoryData) {
-      if (inv.feedIndex >= feedIds.length) continue;
-
       const feedId = feedIds[inv.feedIndex];
+      if (feedId === undefined) continue;
       const expiryDate = new Date();
       expiryDate.setMonth(expiryDate.getMonth() + inv.expiryMonths);
 
-      await queryRunner.query(
-        `INSERT INTO stock_movements
-           (tenant_id, movement_type, item_type, item_id, item_name, quantity, unit,
-            to_location_id, reference, lot_number, expiry_date, idempotency_key,
-            performed_by, performed_at)
-         SELECT $1, 'in', 'feed', $2, f.name, $3, COALESCE(f.unit, 'kg'),
-                $4, 'SEED: demo feed stock', $5, $6, 'seed-feed-' || $5,
-                '00000000-0000-0000-0000-000000000000', NOW() - INTERVAL '7 days'
-         FROM feeds f WHERE f.id = $2
-         ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING`,
-        [tenantId, feedId, inv.quantity, locationId, inv.lotNumber, expiryDate.toISOString()]
-      );
-
-      await queryRunner.query(
-        `INSERT INTO storage_inventory
-           (tenant_id, storage_location_id, item_type, item_id, quantity, unit,
-            lot_number, expiry_date, received_date, version)
-         SELECT $1, $2, 'feed', $3, $4, COALESCE(f.unit, 'kg'), $5, $6, NOW() - INTERVAL '7 days', 1
-         FROM feeds f WHERE f.id = $3`,
-        [tenantId, locationId, feedId, inv.quantity, inv.lotNumber, expiryDate.toISOString()]
-      );
-
-      await queryRunner.query(
-        `UPDATE feeds SET quantity = $2,
-           status = CASE WHEN $2 <= 0 THEN 'out_of_stock'
-                         WHEN $2 <= "minStock" THEN 'low_stock'
-                         ELSE 'available' END::"farm"."feeds_status_enum"
-         WHERE id = $1`,
-        [feedId, inv.quantity]
+      await this.stockMovements.recordMovement(
+        queryRunner.manager,
+        {
+          movementType: MovementType.IN,
+          itemType: StorageItemType.FEED,
+          itemId: feedId,
+          quantity: inv.quantity,
+          toLocationId: locationId,
+          lotNumber: inv.lotNumber,
+          expiryDate,
+          reference: 'SEED: demo feed stock',
+          idempotencyKey: `seed-feed-${inv.lotNumber}`,
+        },
+        { tenantId, userId: SEED_ACTOR_ID },
       );
     }
 

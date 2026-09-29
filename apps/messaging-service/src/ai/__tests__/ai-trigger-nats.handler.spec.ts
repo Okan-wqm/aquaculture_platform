@@ -245,7 +245,7 @@ describe('AiTriggerNatsHandler (MSGFIX-FAZ2 2.2)', () => {
     await handler.handle(messageSent());
 
     expect(commandBus.execute).not.toHaveBeenCalled();
-    expect(redis.del).not.toHaveBeenCalledWith(`msg:ai-inflight:${channelId}`);
+    expect(redis.del).not.toHaveBeenCalledWith(`msg:ai-inflight:${tenantId}:${channelId}`);
   });
 
   it('happy path: dispatches AnalyzeMessageCommand and releases the channel lock', async () => {
@@ -260,6 +260,6 @@ describe('AiTriggerNatsHandler (MSGFIX-FAZ2 2.2)', () => {
     expect(command.channelId).toBe(channelId);
     expect(command.messageId).toBe(messageId);
     expect(command.content).toBe('Hello AI');
-    expect(redis.del).toHaveBeenCalledWith(`msg:ai-inflight:${channelId}`);
+    expect(redis.del).toHaveBeenCalledWith(`msg:ai-inflight:${tenantId}:${channelId}`);
   });
 });

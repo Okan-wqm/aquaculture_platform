@@ -10,6 +10,8 @@ import { createMockDataSource } from '@aquaculture/testing';
 import { GetFeedingOverviewResponder } from '../get-feeding-overview.responder';
 
 const TENANT = '55555555-5555-4555-8555-555555555555';
+/** K10 (MT-HIGH-062): a payload without a valid tenant names no tenant in its reply. */
+const INVALID = { ok: false, tenantId: null, error: 'INVALID_REQUEST' };
 
 describe('GetFeedingOverviewResponder', () => {
   let responder: GetFeedingOverviewResponder;
@@ -20,8 +22,8 @@ describe('GetFeedingOverviewResponder', () => {
     responder = new GetFeedingOverviewResponder(mockDataSource);
   });
 
-  it('returns empty for a missing/non-UUID tenant, without hitting the DB', async () => {
-    expect(await responder.handleGetFeedingOverview({ tenantId: 'tenant_x' })).toEqual([]);
+  it('rejects a missing/non-UUID tenant as INVALID_REQUEST naming no tenant, without hitting the DB', async () => {
+    expect(await responder.handleGetFeedingOverview({ tenantId: 'tenant_x' })).toEqual(INVALID);
     expect(mockRunInTenantRead).not.toHaveBeenCalled();
   });
 
@@ -40,14 +42,18 @@ describe('GetFeedingOverviewResponder', () => {
 
     const result = await responder.handleGetFeedingOverview({ tenantId: TENANT });
 
-    expect(result).toEqual([
-      { id: 'f1', batchId: 'b1', tankId: 't1', feedingDate: '2026-07-06', feedingTime: '08:00', plannedAmountKg: 12.5, actualAmountKg: 12.0 },
-      { id: 'f2', batchId: 'b1', tankId: null, feedingDate: '2026-07-05', feedingTime: '16:00', plannedAmountKg: 10, actualAmountKg: 10 },
-    ]);
+    expect(result).toEqual({
+      ok: true,
+      tenantId: TENANT,
+      data: [
+        { id: 'f1', batchId: 'b1', tankId: 't1', feedingDate: '2026-07-06', feedingTime: '08:00', plannedAmountKg: 12.5, actualAmountKg: 12.0 },
+        { id: 'f2', batchId: 'b1', tankId: null, feedingDate: '2026-07-05', feedingTime: '16:00', plannedAmountKg: 10, actualAmountKg: 10 },
+      ],
+    });
   });
 
-  it('degrades to empty (never throws) if the read fails', async () => {
+  it('turns a read failure into INTERNAL_ERROR for the requesting tenant — never an empty list, never a throw', async () => {
     mockRunInTenantRead.mockRejectedValue(new Error('connection reset'));
-    expect(await responder.handleGetFeedingOverview({ tenantId: TENANT })).toEqual([]);
+    expect(await responder.handleGetFeedingOverview({ tenantId: TENANT })).toEqual({ ok: false, tenantId: TENANT, error: 'INTERNAL_ERROR' });
   });
 });

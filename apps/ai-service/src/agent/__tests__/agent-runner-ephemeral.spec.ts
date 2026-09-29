@@ -38,7 +38,6 @@ describe('AgentRunnerService ephemeral runs (FARM-AI 1.2)', () => {
     userId: '99999999-8888-7777-6666-555555555555',
     userRoles: [],
     resourcePermissions: [],
-    schemaName: 'tenant_aaaaaaaabbbbcccc',
     correlationId: 'corr-ephemeral-1',
     ephemeral: true,
     serviceId: 'farm_service',

@@ -73,7 +73,7 @@ describe('FinanceAiQueryResponder (FARM-MEDIUM-328)', () => {
       toDate: '2026-03-01',
       granularity: 'HOUR',
     });
-    expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+    expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
   });
 
   it('derives net result per batch and bounds the list', async () => {
@@ -87,6 +87,7 @@ describe('FinanceAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(execute).toHaveBeenCalledWith(expect.any(GetFinanceBatchTotalsQuery));
     expect(reply).toEqual({
       ok: true,
+      tenantId: TENANT,
       data: {
         items: [{ batchId: 'b1', totalExpense: 100, totalRevenue: 250, netResult: 150 }],
         truncated: false,

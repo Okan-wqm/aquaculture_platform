@@ -47,6 +47,7 @@ import {
 } from '@aquaculture/backend-common/database';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 import { UserAiConsent } from '../entities/user-ai-consent.entity';
+import { aiTenantEnablementKey, aiUserConsentKey } from '../ai-redis-keys';
 
 /**
  * Redis TTL for cached consent/settings (60 seconds).
@@ -63,12 +64,6 @@ const CACHE_TTL_SECONDS = 60;
 
 /** Timeout for the request.ai.isEnabled NATS round-trip (fail closed on breach). */
 const AI_ENABLED_TIMEOUT_MS = 3000;
-
-/** Redis key prefix for tenant AI settings. */
-const TENANT_KEY_PREFIX = 'ai:tenant:';
-
-/** Redis key prefix for user AI consent. */
-const USER_KEY_PREFIX = 'ai:user:consent:';
 
 @Injectable()
 export class AiPrivacyService {
@@ -119,7 +114,7 @@ export class AiPrivacyService {
    * the application invariant in one place.
    */
   async isTenantAiEnabled(tenantId: string): Promise<boolean> {
-    const cacheKey = `${TENANT_KEY_PREFIX}${tenantId}`;
+    const cacheKey = aiTenantEnablementKey(tenantId);
     const cached = await this.safeRedisGet(cacheKey);
     if (cached !== null) {
       return cached === 'true';
@@ -156,7 +151,7 @@ export class AiPrivacyService {
    * fictional `aiAnalysisConsent`).
    */
   async hasUserConsented(tenantId: string, userId: string): Promise<boolean> {
-    const cacheKey = `${USER_KEY_PREFIX}${tenantId}:${userId}`;
+    const cacheKey = aiUserConsentKey(tenantId, userId);
     const cached = await this.safeRedisGet(cacheKey);
     if (cached !== null) {
       return cached === 'true';
@@ -202,7 +197,7 @@ export class AiPrivacyService {
           { conflictPaths: ['tenantId', 'userId'] },
         ),
     );
-    await this.safeRedisDel(`${USER_KEY_PREFIX}${tenantId}:${userId}`);
+    await this.safeRedisDel(aiUserConsentKey(tenantId, userId));
 
     if (!consented) {
       await this.sweepUserEmbeddings(tenantId, userId);

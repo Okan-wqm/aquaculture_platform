@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DiscoveryService } from '@nestjs/core';
 import { ITool, ToolMetadata, ToolCategory } from './core/tool.interface';
 import { getToolMetadata } from './core/tool.decorator';
+import { findTenantScopedParameters } from '../tenant-boundary/tenant-scoped-keys';
 
 /**
  * Central tool registry — discovers all @Tool() decorated providers at
@@ -62,6 +63,17 @@ export class ToolRegistryService implements OnModuleInit {
         throw new Error(
           `Duplicate tool name: "${metadata.name}" registered by both ` +
             `${existing.constructor.name} and ${tool.constructor.name}`,
+        );
+      }
+
+      // K10 (MT-HIGH-062): no tool may offer the model a way to name a tenant
+      // or schema. Refusing to boot makes such a tool undeployable, not just
+      // detectable (tests/invariants/ai-tenant-boundary.spec.ts walks the same list).
+      const tenantParameters = findTenantScopedParameters(metadata.inputSchema);
+      if (tenantParameters.length > 0) {
+        throw new Error(
+          `Tool "${metadata.name}" offers tenant/schema parameters [${tenantParameters.join(', ')}] — ` +
+            'the tenant is fixed by the trusted request and must never be a tool input',
         );
       }
 

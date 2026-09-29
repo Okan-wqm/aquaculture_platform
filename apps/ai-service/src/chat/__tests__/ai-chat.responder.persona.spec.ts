@@ -8,6 +8,7 @@ import {
   type ChatRequest,
 } from '../../agent/agent-runner.service';
 import { AiChatResponder, type AiChatNatsRequest } from '../ai-chat.responder';
+import { TenantBoundaryViolation } from '../../tenant-boundary/tenant-boundary-violation';
 
 /**
  * AISAFETY-MEDIUM-024 at the NATS boundary: the responder forwards the
@@ -88,5 +89,27 @@ describe('AiChatResponder persona forwarding + error codes', () => {
 
     expect(reply.error?.code).toBe('INTERNAL');
     expect(reply.content).not.toContain('provider exploded');
+  });
+
+  it('maps a tenant-boundary violation to TENANT_MISMATCH without naming any tenant', async () => {
+    // SCENARIO: a tool reply was served for another tenant; the runner stopped the turn (K10).
+    // EXPECTS: a fixed TENANT_MISMATCH reply — no tenant id, no tool data, no conversation.
+    agentRunner.chat.mockRejectedValue(
+      new TenantBoundaryViolation('request.farm.ai.getTankCapacity', 'reply_tenant_mismatch'),
+    );
+
+    const reply = await responder.handleChat(baseRequest());
+
+    expect(reply.error?.code).toBe('TENANT_MISMATCH');
+    expect(reply.metadata).toMatchObject({ errorCode: 'TENANT_MISMATCH' });
+    expect(reply.conversationId).toBeNull();
+    expect(reply.toolCalls).toBeUndefined();
+    expect(JSON.stringify(reply)).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+  });
+
+  it('forwards no schema: the runner binds the tenant itself (K10)', async () => {
+    await responder.handleChat(baseRequest());
+    expect(lastChatRequest()).not.toHaveProperty('schemaName');
+    expect(lastChatRequest().tenantId).toBe(TENANT_ID);
   });
 });

@@ -14,6 +14,7 @@ import { RateLimitService } from '../cost/rate-limit.service';
 import { TurnLedgerService } from '../cost/turn-ledger.service';
 import { AgentConfigService } from '../tenant-config/agent-config.service';
 import { ToolExecutionContext } from '../tools/core/tool.interface';
+import { buildHumanTurnContext } from '../tenant-boundary/tool-context.factory';
 import { AiSafetyMiddleware } from '../safety/ai-safety.middleware';
 import { LlmProviderFactory } from './providers/llm-provider.factory';
 import {
@@ -68,7 +69,6 @@ export interface ChatRequest {
    * requested persona tier (`ai_personas:<tier>`) in AgentProfileService.
    */
   resourcePermissions: string[];
-  schemaName: string;
   correlationId: string;
   /**
    * FARM-AI Sprint 1.2: run WITHOUT any persisted conversation. No
@@ -360,9 +360,11 @@ export class AgentRunnerService {
     };
     let finalMessage = '';
 
-    const toolContext: ToolExecutionContext = {
+    // K10 (MT-HIGH-062): the tool context — and its tenant binding — is built
+    // from THIS trusted request by the one factory allowed to mint bindings.
+    // Nothing the model emits below can change which tenant its tools read.
+    const toolContext: ToolExecutionContext = buildHumanTurnContext({
       tenantId: request.tenantId,
-      schemaName: request.schemaName,
       userId: request.userId,
       userRoles: request.userRoles,
       correlationId: request.correlationId,
@@ -378,7 +380,7 @@ export class AgentRunnerService {
       // AISAFETY-MEDIUM-017: the resolved actuation policy (persona ∧ tenant,
       // most-restrictive) gates whether an actuation tool may run autonomously.
       actuationPolicy: profile.actuationPolicy,
-    };
+    });
 
     const currentMessages = [...messages];
     let loopCount = 0;

@@ -4,10 +4,10 @@ import { QueryBus } from '@platform/cqrs';
 import {
   FARM_AI_QUERY_SUBJECTS,
   isTankCapacityRequest,
-  type AiQueryReply,
+  type TenantBoundReply,
   type TankCapacityReply,
 } from '@platform/event-contracts';
-import { respondAiQuery } from '../../common/nats/ai-query-responder';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
 import { GetTankCapacityQuery, type TankCapacityResult } from '../queries/get-tank-capacity.query';
 
 export function projectCapacity(result: TankCapacityResult): TankCapacityReply {
@@ -44,8 +44,8 @@ export class TankAiQueryResponder {
   constructor(private readonly queryBus: QueryBus) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.TANK_CAPACITY)
-  getCapacity(@Payload() payload: unknown): Promise<AiQueryReply<TankCapacityReply>> {
-    return respondAiQuery(
+  getCapacity(@Payload() payload: unknown): Promise<TenantBoundReply<TankCapacityReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.TANK_CAPACITY,
       payload,

@@ -248,6 +248,9 @@ const commonProjectOptions = {
     // outbox aliases the platform routing segment from the event contract
     // (SEC-HIGH-159), so the specs that load outbox need the contract resolved.
     '^@platform/event-contracts$': '<rootDir>/../../libs/event-contracts/src/index.ts',
+    // ai-tenant-boundary.spec imports the AI Redis key modules, which build
+    // keys through the backend-common redis sub-barrel (K10 / MT-HIGH-062).
+    '^@aquaculture/backend-common/(.+)$': '<rootDir>/../../libs/backend-common/src/$1/index.ts',
   },
   transform: baseTransform,
 };

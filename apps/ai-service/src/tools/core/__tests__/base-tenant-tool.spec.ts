@@ -3,6 +3,8 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { TenantScopedTool } from '../base-tenant-tool';
 import { Tool } from '../tool.decorator';
 import { ToolExecutionContext } from '../tool.interface';
+import { humanToolContext } from '../../../tenant-boundary/__tests__/fixtures/tenant-bound.fixture';
+import { TenantBoundaryViolation } from '../../../tenant-boundary/tenant-boundary-violation';
 
 /**
  * AISAFETY-LOW-018 concurrency guard.
@@ -57,17 +59,17 @@ function makeDataSource(label: string): DataSource {
   return ds as never;
 }
 
-const ctx = (schema: string): ToolExecutionContext => ({
-  tenantId: schema,
-  schemaName: schema,
-  userId: 'u1',
-  userRoles: ['operator'],
-  correlationId: 'c1',
-  persona: 'operator-v1',
-  personaTier: 'operator',
-  offeredToolNames: [],
-  actuationPolicy: 'confirm_required',
-});
+/** Tenants whose schemas the platform SSoT derives as tenant_aaaa…/tenant_bbbb…/tenant_cccc…. */
+const TENANT_OF = {
+  a: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  b: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  s: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+} as const;
+
+// K10 (MT-HIGH-062): the schema comes from the tenant binding, never from a
+// separately supplied field — the test builds contexts the way production does.
+const ctx = (tenant: keyof typeof TENANT_OF): ToolExecutionContext =>
+  humanToolContext({ tenantId: TENANT_OF[tenant], userId: 'u1', userRoles: ['operator'] });
 
 describe('TenantScopedTool concurrency isolation (AISAFETY-LOW-018)', () => {
   it('each concurrent execution sees its OWN queryRunner (no cross-tenant race)', async () => {
@@ -80,8 +82,8 @@ describe('TenantScopedTool concurrency isolation (AISAFETY-LOW-018)', () => {
     const gateB = new Promise<void>((r) => (releaseB = r));
 
     // Start both; each parks on its gate mid-run() so they interleave.
-    const runA = toolA.execute({ gate: gateA }, ctx('tenant_a'));
-    const runB = toolB.execute({ gate: gateB }, ctx('tenant_b'));
+    const runA = toolA.execute({ gate: gateA }, ctx('a'));
+    const runB = toolB.execute({ gate: gateB }, ctx('b'));
 
     // Release in reverse order to maximise interleaving.
     releaseB();
@@ -113,8 +115,33 @@ describe('TenantScopedTool concurrency isolation (AISAFETY-LOW-018)', () => {
     const ds = { createQueryRunner: (): QueryRunner => qr as never };
     const tool = new ProbeTool(ds as never);
 
-    await tool.execute({ gate: Promise.resolve() }, ctx('tenant_s'));
+    await tool.execute({ gate: Promise.resolve() }, ctx('s'));
 
-    expect(captured[0]).toContain('SET search_path TO "tenant_s"');
+    expect(captured[0]).toContain('SET search_path TO "tenant_cccccccccccc4ccc"');
+  });
+
+  it('lets a tenant-boundary violation from run() escape so the AI run stops (K10)', async () => {
+    // SCENARIO: run() hits a reply served for another tenant.
+    // EXPECTS: the violation propagates instead of becoming a "schema unavailable" tool error.
+    @Tool({
+      name: 'probe_violating_runner',
+      description: 'test tool whose run() crosses the tenant boundary',
+      category: 'farm_query',
+      runtime: 'cloud',
+      requiredPermissions: ['operator'],
+      inputSchema: { type: 'object' },
+      requiresModule: null,
+      requiresConfirmation: false,
+    })
+    class ViolatingTool extends TenantScopedTool<Record<string, never>, string> {
+      protected run(): Promise<string> {
+        return Promise.reject(
+          new TenantBoundaryViolation('request.farm.ai.x', 'reply_tenant_mismatch'),
+        );
+      }
+    }
+    const tool = new ViolatingTool(makeDataSource('runner_v'));
+
+    await expect(tool.execute({}, ctx('a'))).rejects.toBeInstanceOf(TenantBoundaryViolation);
   });
 });

@@ -6,12 +6,13 @@ import {
   isBoundedListRequest,
   isTaskStatsRequest,
   toEventIso,
-  type AiQueryReply,
+  type TenantBoundReply,
   type TaskDto,
   type TaskStatsReply,
   type TasksReply,
 } from '@platform/event-contracts';
-import { numberOrNull, respondAiQuery, toBoundedList } from '../../common/nats/ai-query-responder';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import type { Task } from '../entities/task.entity';
 import type { TaskStatsResult } from '../handlers/get-task-stats.handler';
 import { GetTaskStatsQuery } from '../queries/get-task-stats.query';
@@ -57,8 +58,8 @@ export class TaskAiQueryResponder {
   constructor(private readonly queryBus: QueryBus) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.TASKS_TODAY)
-  listTodaysTasks(@Payload() payload: unknown): Promise<AiQueryReply<TasksReply>> {
-    return respondAiQuery(
+  listTodaysTasks(@Payload() payload: unknown): Promise<TenantBoundReply<TasksReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.TASKS_TODAY,
       payload,
@@ -73,8 +74,8 @@ export class TaskAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.TASK_STATS)
-  getStats(@Payload() payload: unknown): Promise<AiQueryReply<TaskStatsReply>> {
-    return respondAiQuery(
+  getStats(@Payload() payload: unknown): Promise<TenantBoundReply<TaskStatsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.TASK_STATS,
       payload,

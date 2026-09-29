@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { DataSource, QueryRunner } from 'typeorm';
 import { BaseTool } from './base-tool';
 import { ToolExecutionContext, ToolResult } from './tool.interface';
+import { TenantBoundaryViolation } from '../../tenant-boundary/tenant-boundary-violation';
 
 /**
  * Base class for tools that need tenant-scoped database access.
@@ -46,8 +47,10 @@ export abstract class TenantScopedTool<
     input: TInput,
     ctx: ToolExecutionContext,
   ): Promise<ToolResult<TOutput>> {
-    // Set search_path for this tool execution
-    const schemaName = ctx.schemaName;
+    // Set search_path for this tool execution — the schema comes from the
+    // tenant binding (derived from the trusted tenant by the platform SSoT),
+    // never from a separately supplied field (K10 / MT-HIGH-062).
+    const schemaName = ctx.tenant.schemaName;
     if (!/^[a-z0-9_]+$/.test(schemaName)) {
       return {
         success: false,
@@ -67,6 +70,12 @@ export abstract class TenantScopedTool<
       // never a concurrent call's on the shared singleton.
       return await this.qrStore.run(qr, () => super.execute(input, ctx));
     } catch (error) {
+      // K10 (MT-HIGH-062): a tenant-boundary violation from run() ends the
+      // whole AI run — it must not be flattened into a "schema unavailable"
+      // tool error the model could work around.
+      if (error instanceof TenantBoundaryViolation) {
+        throw error;
+      }
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to set search_path: ${message}`);
       return {

@@ -8,6 +8,7 @@ import { ProposedAction } from './proposed-action.entity';
 import { ToolExecutorService } from '../tools/core/tool-executor.service';
 import { AgentPersonaCatalogueService } from '../agent/agent-persona-catalogue.service';
 import { ToolExecutionContext } from '../tools/core/tool.interface';
+import { buildConfirmedProposalContext } from '../tenant-boundary/tool-context.factory';
 
 /**
  * MOB-HIGH-001 — the human-in-the-loop actuation state machine ("Faz 6").
@@ -173,23 +174,18 @@ export class ActionProposalService {
     // Execute the STORED intent as the ORIGINAL requester. The executor
     // re-checks the stored persona's tier against the tool's
     // requiredPermissions and writes the strict actuation audit row.
-    const cleanId = tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
-    const context: ToolExecutionContext = {
+    // K10 (MT-HIGH-062): the tenant binding is minted from THIS request's
+    // tenant (the proposal was just loaded inside it), by the one factory
+    // allowed to mint bindings.
+    const context: ToolExecutionContext = buildConfirmedProposalContext({
       tenantId,
-      schemaName: `tenant_${cleanId}`,
-      userId: proposal.requestedBy,
-      userRoles: proposal.requesterRoles,
+      requestedBy: proposal.requestedBy,
+      requesterRoles: proposal.requesterRoles,
       correlationId: proposal.correlationId ?? actionId,
       persona: proposal.persona,
       personaTier,
-      // RBAC-MEDIUM-016: the stored tool was offered when the proposal was
-      // created (the runner only proposes what its profile offered); the row
-      // itself is the grant, and nothing else may run under it.
-      offeredToolNames: [proposal.toolName],
-      // The human confirmation IS the authorization override the
-      // confirm_required policy was holding for.
-      actuationPolicy: 'allowed',
-    };
+      toolName: proposal.toolName,
+    });
 
     try {
       const result = await this.toolExecutor.executeTool(

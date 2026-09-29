@@ -1,9 +1,8 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
-import { firstValueFrom, timeout } from 'rxjs';
+import { Injectable } from '@nestjs/common';
+import { TenantBoundNatsClient } from '../../tenant-boundary/tenant-bound-nats.client';
 import { BaseTool } from '../core/base-tool';
 import { Tool } from '../core/tool.decorator';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
 
 /** Bound so a hung farm-service cannot stall the agent turn. */
 const CREATE_TASK_TIMEOUT_MS = 5000;
@@ -22,11 +21,26 @@ interface CreateTaskToolOutput {
   assignedToSelf: true;
 }
 
-interface CreateTaskNatsResponse {
-  ok: boolean;
-  taskId?: string;
-  title?: string;
-  error?: string;
+/**
+ * Domain outcome from farm-service (inside the tenant-bound envelope, K10):
+ * a rejection is data the model relays, a transport failure is the
+ * envelope's error.
+ */
+type CreateTaskOutcome =
+  | { created: true; taskId: string; title: string }
+  | { created: false; reason: string };
+
+function isCreateTaskOutcome(value: unknown): value is CreateTaskOutcome {
+  if (typeof value !== 'object' || value === null || !('created' in value)) return false;
+  if (value.created === true) {
+    return (
+      'taskId' in value &&
+      typeof value.taskId === 'string' &&
+      'title' in value &&
+      typeof value.title === 'string'
+    );
+  }
+  return value.created === false && 'reason' in value && typeof value.reason === 'string';
 }
 
 /**
@@ -88,38 +102,37 @@ interface CreateTaskNatsResponse {
   requiresConfirmation: true,
 })
 export class CreateTaskTool extends BaseTool<CreateTaskToolInput, CreateTaskToolOutput> {
-  // Typed to the single method the tool uses (DI resolves by the 'NATS_SERVICE'
-  // token, not the parameter type) — the narrow surface keeps the collaborator
-  // trivially mockable without a cast.
-  constructor(@Inject('NATS_SERVICE') private readonly natsClient: Pick<ClientProxy, 'send'>) {
+  constructor(private readonly farm: TenantBoundNatsClient) {
     super();
   }
 
   protected async run(
     input: CreateTaskToolInput,
-    ctx: ToolExecutionContext,
+    ctx: TenantBoundToolContext,
   ): Promise<CreateTaskToolOutput> {
-    const response = await firstValueFrom(
-      this.natsClient
-        .send<CreateTaskNatsResponse>('request.farm.createTask', {
-          tenantId: ctx.tenantId,
-          createdBy: ctx.userId,
-          // Self-assign: no safe cross-user targeting from the chat path.
-          assignedTo: ctx.userId,
-          assignedToName: 'AI ile oluşturuldu',
-          title: input.title,
-          description: input.description,
-          category: input.category,
-          priority: input.priority,
-          dueDate: input.dueDate,
-        })
-        .pipe(timeout(CREATE_TASK_TIMEOUT_MS)),
-    );
+    // K10 (MT-HIGH-062): the task is written in ctx's bound tenant — the
+    // client injects it — and the reply must name that tenant.
+    const outcome = await this.farm.request(ctx, {
+      subject: 'request.farm.createTask',
+      fields: {
+        createdBy: ctx.userId,
+        // Self-assign: no safe cross-user targeting from the chat path.
+        assignedTo: ctx.userId,
+        assignedToName: 'AI ile oluşturuldu',
+        title: input.title,
+        description: input.description,
+        category: input.category,
+        priority: input.priority,
+        dueDate: input.dueDate,
+      },
+      isData: isCreateTaskOutcome,
+      timeoutMs: CREATE_TASK_TIMEOUT_MS,
+    });
 
-    if (!response?.ok || !response.taskId) {
-      throw new Error(response?.error ?? 'Task could not be created');
+    if (!outcome.created) {
+      throw new Error(outcome.reason);
     }
 
-    return { taskId: response.taskId, title: response.title ?? input.title, assignedToSelf: true };
+    return { taskId: outcome.taskId, title: outcome.title, assignedToSelf: true };
   }
 }

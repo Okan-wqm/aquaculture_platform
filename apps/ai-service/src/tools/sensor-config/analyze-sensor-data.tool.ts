@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
 import { formatLabel } from './utils';
 
 export interface SensorSample {
@@ -125,7 +125,7 @@ export class AnalyzeSensorDataTool extends BaseTool<
 > {
   protected async run(
     input: AnalyzeSensorDataInput,
-    _ctx: ToolExecutionContext,
+    _ctx: TenantBoundToolContext,
   ): Promise<AnalyzeSensorDataOutput> {
     const { samples, sensorName, mqttTopic } = input;
 

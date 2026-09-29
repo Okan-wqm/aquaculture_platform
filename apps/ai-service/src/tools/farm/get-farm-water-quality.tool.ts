@@ -1,27 +1,15 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
-import { firstValueFrom, timeout } from 'rxjs';
+import { Injectable } from '@nestjs/common';
+import { TenantBoundNatsClient } from '../../tenant-boundary/tenant-bound-nats.client';
 import { BaseTool } from '../core/base-tool';
 import { Tool } from '../core/tool.decorator';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
+import { isWaterQualityOverview, type WaterQualityReading } from './farm-overview.guards';
 
 /** Bound so a hung farm-service cannot stall the agent turn. */
 const GET_WQ_TIMEOUT_MS = 5000;
 
 /** No input — the tenant is taken from the (server-populated) execution context. */
 type GetWaterQualityInput = Record<string, never>;
-
-interface WaterQualityReading {
-  id: string;
-  tankId: string | null;
-  pondId: string | null;
-  measuredAt: string;
-  temperature: number | null;
-  dissolvedOxygen: number | null;
-  pH: number | null;
-  ammonia: number | null;
-  nitrite: number | null;
-}
 
 interface GetWaterQualityOutput {
   readings: WaterQualityReading[];
@@ -50,22 +38,22 @@ interface GetWaterQualityOutput {
   requiresConfirmation: false,
 })
 export class GetFarmWaterQualityTool extends BaseTool<GetWaterQualityInput, GetWaterQualityOutput> {
-  constructor(@Inject('NATS_SERVICE') private readonly natsClient: Pick<ClientProxy, 'send'>) {
+  constructor(private readonly farm: TenantBoundNatsClient) {
     super();
   }
 
   protected async run(
     _input: GetWaterQualityInput,
-    ctx: ToolExecutionContext,
+    ctx: TenantBoundToolContext,
   ): Promise<GetWaterQualityOutput> {
-    const readings = await firstValueFrom(
-      this.natsClient
-        .send<WaterQualityReading[]>('request.farm.getWaterQualityOverview', {
-          tenantId: ctx.tenantId,
-        })
-        .pipe(timeout(GET_WQ_TIMEOUT_MS)),
-    );
-    const list = Array.isArray(readings) ? readings : [];
-    return { readings: list, count: list.length };
+    // K10 (MT-HIGH-062): the client injects ctx's bound tenant and refuses a
+    // reply served for any other tenant before this code sees the rows.
+    const readings = await this.farm.request(ctx, {
+      subject: 'request.farm.getWaterQualityOverview',
+      fields: {},
+      isData: isWaterQualityOverview,
+      timeoutMs: GET_WQ_TIMEOUT_MS,
+    });
+    return { readings, count: readings.length };
   }
 }

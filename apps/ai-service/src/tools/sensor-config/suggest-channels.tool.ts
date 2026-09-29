@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
 import { formatLabel } from './utils';
 
 interface DetectedFieldInput {
@@ -41,9 +41,12 @@ export interface ChannelProposal {
   confidence: 'high' | 'medium' | 'low';
 }
 
+/**
+ * K10 (MT-HIGH-062): no tenant echo — the tenant is the session's, a tool has
+ * no reason to hand it back to the model.
+ */
 export interface SuggestChannelsOutput {
   sensorId: string;
-  tenantId: string;
   proposals: ChannelProposal[];
   industryContext: string;
 }
@@ -104,7 +107,7 @@ export class SuggestChannelsTool extends BaseTool<
 > {
   protected async run(
     input: SuggestChannelsInput,
-    ctx: ToolExecutionContext,
+    _ctx: TenantBoundToolContext,
   ): Promise<SuggestChannelsOutput> {
     const { sensorId, detectedFields, industryContext } = input;
 
@@ -129,7 +132,6 @@ export class SuggestChannelsTool extends BaseTool<
 
     return {
       sensorId,
-      tenantId: ctx.tenantId,
       proposals,
       industryContext: industryContext || 'general',
     };

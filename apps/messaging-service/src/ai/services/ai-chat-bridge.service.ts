@@ -39,6 +39,7 @@
  *
  * @see ADR-012 section 12.4 (AI Chat Bridge)
  */
+import { aiNoticeThrottleKey } from '../ai-redis-keys';
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { DataSource, IsNull } from 'typeorm';
@@ -458,7 +459,7 @@ export class AiChatBridgeService {
     metadata: Record<string, unknown>,
     throttleWindowSeconds: number = SYSTEM_NOTICE_THROTTLE_SECONDS,
   ): Promise<void> {
-    const throttleKey = `msg:ai-notice:${tenantId}:${channelId}`;
+    const throttleKey = aiNoticeThrottleKey(tenantId, channelId);
     try {
       const claimed = await this.redis.set(
         throttleKey,

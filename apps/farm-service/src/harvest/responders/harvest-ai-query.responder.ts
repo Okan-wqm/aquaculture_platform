@@ -6,17 +6,13 @@ import {
   isHarvestPlanStatsRequest,
   isHarvestPlansRequest,
   toEventIso,
-  type AiQueryReply,
+  type TenantBoundReply,
   type HarvestPlanDto,
   type HarvestPlanStatsReply,
   type HarvestPlansReply,
 } from '@platform/event-contracts';
-import {
-  isoOrNull,
-  numberOrNull,
-  respondAiQuery,
-  toBoundedList,
-} from '../../common/nats/ai-query-responder';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { isoOrNull, numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import type { HarvestPlan } from '../entities/harvest-plan.entity';
 import { GetHarvestPlanStatsQuery } from '../queries/get-harvest-plan-stats.query';
 import { ListOverdueHarvestPlansQuery } from '../queries/list-overdue-harvest-plans.query';
@@ -68,8 +64,8 @@ export class HarvestAiQueryResponder {
   constructor(private readonly queryBus: QueryBus) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.HARVEST_PLANS)
-  listPlans(@Payload() payload: unknown): Promise<AiQueryReply<HarvestPlansReply>> {
-    return respondAiQuery(
+  listPlans(@Payload() payload: unknown): Promise<TenantBoundReply<HarvestPlansReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.HARVEST_PLANS,
       payload,
@@ -89,8 +85,8 @@ export class HarvestAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.HARVEST_PLAN_STATS)
-  getStats(@Payload() payload: unknown): Promise<AiQueryReply<HarvestPlanStatsReply>> {
-    return respondAiQuery(
+  getStats(@Payload() payload: unknown): Promise<TenantBoundReply<HarvestPlanStatsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.HARVEST_PLAN_STATS,
       payload,

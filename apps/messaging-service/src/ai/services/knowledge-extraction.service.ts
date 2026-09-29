@@ -12,10 +12,11 @@
  * patching does NOT apply. The default connection uses `search_path=messaging,public`,
  * which is the template schema — not any tenant's data.
  *
- * To enforce tenant isolation, the batch iterates over all provisioned tenant
- * schemas (via `listTenantSchemas()`) and pins transaction-local `search_path`
- * to the tenant's schema for every batch query. The tank registry fetch also
- * sends the tenantId so farm-service can return the correct tenant's registry.
+ * To enforce tenant isolation, the batch iterates over the verified tenant
+ * schema ledger (`listActiveTenantSchemaIdentities()`) and pins
+ * transaction-local `search_path` to the tenant's schema for every batch
+ * query. The tank registry fetch sends the tenantId and verifies that the
+ * tenant-bound reply names the same tenant (K10).
  *
  * MSGFIX-FAZ2 (2026-09-16) DELIBERATE DECISION — this cron stays env-gated
  * OFF (MESSAGING_AI_KNOWLEDGE_CRON_ENABLED, default 'false') and the service
@@ -37,6 +38,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
+import { verifyTenantBoundReply } from '@platform/event-contracts';
 import {
   bindTenantRlsContext,
   listActiveTenantSchemaIdentities,
@@ -92,6 +94,26 @@ interface TankRegistryEntry {
   id: string;
   code: string;
   name: string;
+}
+
+const TANK_REGISTRY_SUBJECT = 'request.farm.getTankRegistry';
+
+/** Contract guard for the registry rows this pipeline reads (farm may send more fields). */
+function isTankRegistry(value: unknown): value is TankRegistryEntry[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (row: unknown) =>
+        typeof row === 'object' &&
+        row !== null &&
+        'id' in row &&
+        typeof row.id === 'string' &&
+        'code' in row &&
+        typeof row.code === 'string' &&
+        'name' in row &&
+        typeof row.name === 'string',
+    )
+  );
 }
 
 /**
@@ -410,28 +432,49 @@ export class KnowledgeExtractionService implements OnModuleInit {
    *
    * ORPHAN-MEDIUM-336: sends the canonical tenant UUID — the key the
    * `request.farm.getTankRegistry` responder validates and feeds to its
-   * fail-closed, RLS-GUC-asserted `runInTenantRead`. (It previously sent the
-   * tenant SCHEMA name, which the responder rejects as a non-UUID and answers
-   * empty — the extraction was silently non-functional.)
+   * fail-closed, RLS-GUC-asserted `runInTenantRead`.
    *
-   * @param tenantId - Authoritative tenant UUID (from the tenant's own message rows)
+   * K10 (MT-HIGH-062): the reply is the tenant-bound envelope. WHY verify it
+   * here: the registry decides which tank ids are written into THIS tenant's
+   * entity references and knowledge entries, so a registry served for another
+   * tenant would plant foreign ids in this tenant's knowledge. A mismatch is
+   * logged as a boundary violation and treated as "no registry".
+   *
+   * @param tenantId - Authoritative tenant UUID (from the schema-mapping ledger)
    */
   private async fetchTankRegistry(tenantId: string): Promise<TankRegistryEntry[]> {
-    const response = await firstValueFrom(
-      this.natsClient
-        .send<TankRegistryEntry[]>('request.farm.getTankRegistry', {
-          tenantId,
-        })
-        .pipe(
-          timeout(NATS_TIMEOUT_MS),
-          catchError((err: unknown) => {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            this.logger.warn(`Failed to fetch tank registry for tenant ${tenantId}: ${errMsg}`);
-            return of([]);
-          }),
-        ),
+    const reply = await firstValueFrom(
+      this.natsClient.send<unknown>('request.farm.getTankRegistry', { tenantId }).pipe(
+        timeout(NATS_TIMEOUT_MS),
+        catchError((err: unknown) => {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          this.logger.warn(`Failed to fetch tank registry for tenant ${tenantId}: ${errMsg}`);
+          return of(null);
+        }),
+      ),
     );
+    if (reply === null) return [];
 
-    return response ?? [];
+    const verdict = verifyTenantBoundReply(reply, tenantId, isTankRegistry);
+    switch (verdict.kind) {
+      case 'data':
+        return verdict.data;
+      case 'tenant_mismatch':
+        this.logger.error({
+          msg: 'tenant_mismatch: tank registry reply served for another tenant was discarded',
+          subject: TANK_REGISTRY_SUBJECT,
+          expectedTenantId: tenantId,
+          servedTenantId: verdict.servedTenantId,
+        });
+        return [];
+      case 'error':
+        this.logger.warn(`Tank registry unavailable for tenant ${tenantId}: ${verdict.error}`);
+        return [];
+      case 'malformed':
+        this.logger.warn(
+          `Tank registry reply for tenant ${tenantId} was malformed (${verdict.reason})`,
+        );
+        return [];
+    }
   }
 }

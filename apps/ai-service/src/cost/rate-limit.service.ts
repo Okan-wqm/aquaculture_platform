@@ -1,5 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { aiRateLimitKey } from './ai-redis-keys';
 
 /**
  * Hourly request rate limiting per tenant.
@@ -75,10 +76,8 @@ export class RateLimitService {
       String(now.getUTCHours()).padStart(2, '0'),
     ].join('-');
     const ns =
-      namespace !== undefined && RateLimitService.RATE_NAMESPACES.has(namespace)
-        ? `${namespace}:`
-        : '';
-    return `ai:ratelimit:${ns}${tenantId}:${hour}`;
+      namespace !== undefined && RateLimitService.RATE_NAMESPACES.has(namespace) ? namespace : null;
+    return aiRateLimitKey(tenantId, hour, ns);
   }
 
   /**

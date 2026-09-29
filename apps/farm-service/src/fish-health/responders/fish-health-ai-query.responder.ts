@@ -11,7 +11,7 @@ import {
   isLiceCountsRequest,
   isTreatmentApplicationsRequest,
   isWelfareAssessmentsRequest,
-  type AiQueryReply,
+  type TenantBoundReply,
   type FishHealthStatsReply,
   type HarvestEligibilityReply,
   type HealthEventsReply,
@@ -19,7 +19,8 @@ import {
   type TreatmentApplicationsReply,
   type WelfareAssessmentsReply,
 } from '@platform/event-contracts';
-import { respondAiQuery, toBoundedList } from '../../common/nats/ai-query-responder';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { toBoundedList } from '../../common/nats/ai-query-responder';
 import { HealthEventFilterInput } from '../dto/health-event-filter.input';
 import { HealthSeverity, type HealthEvent } from '../entities/health-event.entity';
 import type { LiceCount } from '../entities/lice-count.entity';
@@ -66,8 +67,8 @@ export class FishHealthAiQueryResponder {
   ) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FH_STATS)
-  getStats(@Payload() payload: unknown): Promise<AiQueryReply<FishHealthStatsReply>> {
-    return respondAiQuery(
+  getStats(@Payload() payload: unknown): Promise<TenantBoundReply<FishHealthStatsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.FH_STATS,
       payload,
@@ -82,8 +83,8 @@ export class FishHealthAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FH_EVENTS)
-  listEvents(@Payload() payload: unknown): Promise<AiQueryReply<HealthEventsReply>> {
-    return respondAiQuery(
+  listEvents(@Payload() payload: unknown): Promise<TenantBoundReply<HealthEventsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.FH_EVENTS,
       payload,
@@ -106,8 +107,8 @@ export class FishHealthAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FH_CRITICAL)
-  listCritical(@Payload() payload: unknown): Promise<AiQueryReply<HealthEventsReply>> {
-    return respondAiQuery(
+  listCritical(@Payload() payload: unknown): Promise<TenantBoundReply<HealthEventsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.FH_CRITICAL,
       payload,
@@ -122,8 +123,8 @@ export class FishHealthAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FH_OVERDUE_FOLLOW_UPS)
-  listOverdueFollowUps(@Payload() payload: unknown): Promise<AiQueryReply<HealthEventsReply>> {
-    return respondAiQuery(
+  listOverdueFollowUps(@Payload() payload: unknown): Promise<TenantBoundReply<HealthEventsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.FH_OVERDUE_FOLLOW_UPS,
       payload,
@@ -138,8 +139,8 @@ export class FishHealthAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FH_LICE_COUNTS)
-  listLiceCounts(@Payload() payload: unknown): Promise<AiQueryReply<LiceCountsReply>> {
-    return respondAiQuery(
+  listLiceCounts(@Payload() payload: unknown): Promise<TenantBoundReply<LiceCountsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.FH_LICE_COUNTS,
       payload,
@@ -160,8 +161,10 @@ export class FishHealthAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FH_TREATMENTS)
-  listTreatments(@Payload() payload: unknown): Promise<AiQueryReply<TreatmentApplicationsReply>> {
-    return respondAiQuery(
+  listTreatments(
+    @Payload() payload: unknown,
+  ): Promise<TenantBoundReply<TreatmentApplicationsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.FH_TREATMENTS,
       payload,
@@ -177,8 +180,8 @@ export class FishHealthAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FH_WELFARE)
-  listWelfare(@Payload() payload: unknown): Promise<AiQueryReply<WelfareAssessmentsReply>> {
-    return respondAiQuery(
+  listWelfare(@Payload() payload: unknown): Promise<TenantBoundReply<WelfareAssessmentsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.FH_WELFARE,
       payload,
@@ -201,8 +204,8 @@ export class FishHealthAiQueryResponder {
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FH_HARVEST_ELIGIBILITY)
   checkHarvestEligibility(
     @Payload() payload: unknown,
-  ): Promise<AiQueryReply<HarvestEligibilityReply>> {
-    return respondAiQuery(
+  ): Promise<TenantBoundReply<HarvestEligibilityReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.FH_HARVEST_ELIGIBILITY,
       payload,

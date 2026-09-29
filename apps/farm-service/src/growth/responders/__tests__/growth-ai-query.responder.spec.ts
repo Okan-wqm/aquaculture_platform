@@ -126,6 +126,7 @@ describe('GrowthAiQueryResponder (FARM-MEDIUM-328)', () => {
     });
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         total: 12,
         truncated: true,

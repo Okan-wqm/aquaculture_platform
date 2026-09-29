@@ -1,12 +1,13 @@
 import 'reflect-metadata';
 import { of } from 'rxjs';
 import { FARM_AI_QUERY_SUBJECTS } from '@platform/event-contracts';
-import type { ToolExecutionContext } from '../../../core/tool.interface';
+import {
+  humanToolContext,
+  tenantBoundClient,
+} from '../../../../tenant-boundary/__tests__/fixtures/tenant-bound.fixture';
 import { GetWorkOrderStatsTool } from '../get-work-order-stats.tool';
 
-const CTX: ToolExecutionContext = {
-  tenantId: '11111111-1111-4111-8111-111111111111',
-  schemaName: 'tenant_1111111111111111',
+const CTX = humanToolContext({
   userId: 'u-1',
   userRoles: ['MODULE_USER'],
   correlationId: 'corr-1',
@@ -14,7 +15,7 @@ const CTX: ToolExecutionContext = {
   personaTier: 'operator',
   offeredToolNames: [],
   actuationPolicy: 'confirm_required',
-};
+});
 
 describe('GetWorkOrderStatsTool', () => {
   let send: jest.Mock;
@@ -24,6 +25,7 @@ describe('GetWorkOrderStatsTool', () => {
     send = jest.fn().mockReturnValue(
       of({
         ok: true,
+        tenantId: CTX.tenant.tenantId,
         data: {
           total: 0,
           byStatus: {},
@@ -36,7 +38,7 @@ describe('GetWorkOrderStatsTool', () => {
         },
       }),
     );
-    tool = new GetWorkOrderStatsTool({ send });
+    tool = new GetWorkOrderStatsTool(tenantBoundClient({ send }));
   });
 
   it('is a module-scoped farm read tool', () => {
@@ -53,7 +55,7 @@ describe('GetWorkOrderStatsTool', () => {
     expect(result.success).toBe(true);
     expect(send).toHaveBeenCalledWith(FARM_AI_QUERY_SUBJECTS.MAINT_WORK_ORDER_STATS, {
       ...{},
-      tenantId: CTX.tenantId,
+      tenantId: CTX.tenant.tenantId,
     });
   });
 
@@ -62,7 +64,7 @@ describe('GetWorkOrderStatsTool', () => {
 
     expect(send).toHaveBeenCalledWith(FARM_AI_QUERY_SUBJECTS.MAINT_WORK_ORDER_STATS, {
       ...{ fromDate: '2026-01-01', toDate: '2026-06-30' },
-      tenantId: CTX.tenantId,
+      tenantId: CTX.tenant.tenantId,
     });
   });
 });

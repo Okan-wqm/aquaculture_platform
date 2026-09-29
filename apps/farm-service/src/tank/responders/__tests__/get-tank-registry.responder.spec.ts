@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 
 // Override only runInTenantRead (the DB path) while keeping the rest of the
-// barrel real — isValidUUID exercises the genuine fail-safe guard, and the
+// barrel real — the tenant-bound skeleton's UUID guard runs for real, and the
 // entity's own barrel dependencies stay intact.
 const mockRunInTenantRead = jest.fn();
 jest.mock('@aquaculture/backend-common/database', () => ({
@@ -13,6 +13,8 @@ import { createMockDataSource } from '@aquaculture/testing';
 import { GetTankRegistryResponder } from '../get-tank-registry.responder';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
+/** K10 (MT-HIGH-062): a payload without a valid tenant names no tenant in its reply. */
+const INVALID = { ok: false, tenantId: null, error: 'INVALID_REQUEST' };
 
 describe('GetTankRegistryResponder', () => {
   let responder: GetTankRegistryResponder;
@@ -23,9 +25,9 @@ describe('GetTankRegistryResponder', () => {
     responder = new GetTankRegistryResponder(mockDataSource);
   });
 
-  it('returns an empty registry for a missing/non-UUID tenant, without hitting the DB', async () => {
-    expect(await responder.handleGetTankRegistry({ tenantId: 'tenant_abc123' })).toEqual([]);
-    expect(await responder.handleGetTankRegistry({ tenantId: '' })).toEqual([]);
+  it('rejects a missing/non-UUID tenant as INVALID_REQUEST naming no tenant, without hitting the DB', async () => {
+    expect(await responder.handleGetTankRegistry({ tenantId: 'tenant_abc123' })).toEqual(INVALID);
+    expect(await responder.handleGetTankRegistry({ tenantId: '' })).toEqual(INVALID);
     expect(mockRunInTenantRead).not.toHaveBeenCalled();
   });
 
@@ -48,14 +50,18 @@ describe('GetTankRegistryResponder', () => {
 
     const result = await responder.handleGetTankRegistry({ tenantId: TENANT });
 
-    expect(result).toEqual([
-      { id: 't1', code: 'TNK-001', name: 'Havuz 1', status: 'ACTIVE' },
-      { id: 't2', code: 'TNK-002', name: 'Havuz 2', status: 'MAINTENANCE' },
-    ]);
+    expect(result).toEqual({
+      ok: true,
+      tenantId: TENANT,
+      data: [
+        { id: 't1', code: 'TNK-001', name: 'Havuz 1', status: 'ACTIVE' },
+        { id: 't2', code: 'TNK-002', name: 'Havuz 2', status: 'MAINTENANCE' },
+      ],
+    });
   });
 
-  it('degrades to an empty registry (never throws) if the read fails', async () => {
+  it('turns a read failure into INTERNAL_ERROR for the requesting tenant — never an empty list, never a throw', async () => {
     mockRunInTenantRead.mockRejectedValue(new Error('connection reset'));
-    expect(await responder.handleGetTankRegistry({ tenantId: TENANT })).toEqual([]);
+    expect(await responder.handleGetTankRegistry({ tenantId: TENANT })).toEqual({ ok: false, tenantId: TENANT, error: 'INTERNAL_ERROR' });
   });
 });

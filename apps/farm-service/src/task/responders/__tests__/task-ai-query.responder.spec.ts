@@ -50,6 +50,7 @@ describe('TaskAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(execute).toHaveBeenCalledWith(expect.any(ListTodaysTasksQuery));
     expect(reply).toEqual({
       ok: true,
+      tenantId: TENANT,
       data: {
         items: [
           {
@@ -88,6 +89,7 @@ describe('TaskAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(execute).toHaveBeenCalledWith(expect.any(GetTaskStatsQuery));
     expect(reply).toEqual({
       ok: true,
+      tenantId: TENANT,
       data: {
         totalToday: 8,
         completedToday: 5,

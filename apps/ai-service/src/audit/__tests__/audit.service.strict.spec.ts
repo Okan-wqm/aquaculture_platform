@@ -6,19 +6,10 @@
  * strict=true → the write failure re-throws so the executor can surface it.
  */
 import { AuditService } from '../audit.service';
-import type { ToolExecutionContext, ToolResult } from '../../tools/core/tool.interface';
+import type { ToolResult } from '../../tools/core/tool.interface';
+import { humanToolContext } from '../../tenant-boundary/__tests__/fixtures/tenant-bound.fixture';
 
-const ctx: ToolExecutionContext = {
-  tenantId: 't1',
-  schemaName: 'tenant_t1',
-  userId: 'u1',
-  userRoles: ['operator'],
-  correlationId: 'corr-1',
-  persona: 'operator-v1',
-  personaTier: 'operator',
-  offeredToolNames: [],
-  actuationPolicy: 'allowed',
-};
+const ctx = humanToolContext({ userId: 'u1', userRoles: ['operator'], actuationPolicy: 'allowed' });
 
 const result: ToolResult = { success: true, data: { ok: true }, durationMs: 3, cacheable: false };
 

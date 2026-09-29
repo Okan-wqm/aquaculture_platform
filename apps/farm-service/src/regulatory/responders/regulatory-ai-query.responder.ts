@@ -5,17 +5,13 @@ import {
   FARM_AI_QUERY_SUBJECTS,
   isBiomassReportRequest,
   isRegulatoryReportsRequest,
-  type AiQueryReply,
+  type TenantBoundReply,
   type BiomassReportReply,
   type RegulatoryReportDto,
   type RegulatoryReportsReply,
 } from '@platform/event-contracts';
-import {
-  isoOrNull,
-  numberOrNull,
-  respondAiQuery,
-  toBoundedList,
-} from '../../common/nats/ai-query-responder';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { isoOrNull, numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import type { BiomassReport } from '../entities/biomass-report.entity';
 import { RegulatoryReportType, type RegulatoryReport } from '../entities/regulatory-report.entity';
 import { GetBiomassReportByPeriodQuery } from '../queries/get-biomass-report-by-period.query';
@@ -87,8 +83,8 @@ export class RegulatoryAiQueryResponder {
   constructor(private readonly queryBus: QueryBus) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.REG_BIOMASS_REPORT)
-  getBiomassReport(@Payload() payload: unknown): Promise<AiQueryReply<BiomassReportReply>> {
-    return respondAiQuery(
+  getBiomassReport(@Payload() payload: unknown): Promise<TenantBoundReply<BiomassReportReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.REG_BIOMASS_REPORT,
       payload,
@@ -111,8 +107,8 @@ export class RegulatoryAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.REG_REPORTS)
-  listReports(@Payload() payload: unknown): Promise<AiQueryReply<RegulatoryReportsReply>> {
-    return respondAiQuery(
+  listReports(@Payload() payload: unknown): Promise<TenantBoundReply<RegulatoryReportsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.REG_REPORTS,
       payload,

@@ -62,7 +62,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
   describe(FARM_AI_QUERY_SUBJECTS.FH_STATS, () => {
     it('rejects extra keys (a request carrying anything beyond the contract is refused)', async () => {
       const reply = await responder.getStats({ tenantId: TENANT, siteId: BATCH });
-      expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+      expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
       expect(execute).not.toHaveBeenCalled();
     });
 
@@ -81,6 +81,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
       expect(execute).toHaveBeenCalledWith(expect.any(GetHealthEventStatsQuery));
       expect(reply).toEqual({
         ok: true,
+        tenantId: TENANT,
         data: {
           total: 5,
           active: 2,
@@ -119,6 +120,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
       });
       expect(reply).toMatchObject({
         ok: true,
+        tenantId: TENANT,
         data: {
           total: 1,
           truncated: false,
@@ -144,7 +146,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
     it('maps a rejected query to INTERNAL_ERROR', async () => {
       execute.mockRejectedValue(new Error('boom'));
       const reply = await responder.listEvents({ tenantId: TENANT, activeOnly: true, limit: 5 });
-      expect(reply).toEqual({ ok: false, error: 'INTERNAL_ERROR' });
+      expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INTERNAL_ERROR' });
     });
   });
 
@@ -196,6 +198,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
       expect(checkEligibility).toHaveBeenCalledWith(TENANT, BATCH, new Date('2026-10-01'));
       expect(reply).toEqual({
         ok: true,
+        tenantId: TENANT,
         data: {
           batchId: BATCH,
           harvestDate: '2026-10-01',
@@ -222,7 +225,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
         batchId: BATCH,
         harvestDate: 'next tuesday',
       });
-      expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+      expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
       expect(checkEligibility).not.toHaveBeenCalled();
     });
   });

@@ -53,6 +53,7 @@ describe('HarvestAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect((execute.mock.calls[0][0] as ListUpcomingHarvestPlansQuery).days).toBe(45);
     expect(upcoming).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         items: [
           {
@@ -80,7 +81,7 @@ describe('HarvestAiQueryResponder (FARM-MEDIUM-328)', () => {
       days: 30,
       limit: 10,
     });
-    expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+    expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -103,6 +104,7 @@ describe('HarvestAiQueryResponder (FARM-MEDIUM-328)', () => {
     const reply = await responder.getStats({ tenantId: TENANT });
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: { total: 3, totalEstimatedBiomassKg: 6000, upcomingCount: 2 },
     });
   });

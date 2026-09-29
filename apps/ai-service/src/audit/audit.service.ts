@@ -46,7 +46,7 @@ export class AuditService {
   ): Promise<void> {
     try {
       const audit = this.auditRepo.create({
-        tenantId: ctx.tenantId,
+        tenantId: ctx.tenant.tenantId,
         userId: isUUID(ctx.userId) ? ctx.userId : servicePrincipalUuid(ctx.userId),
         toolName,
         persona: ctx.persona,

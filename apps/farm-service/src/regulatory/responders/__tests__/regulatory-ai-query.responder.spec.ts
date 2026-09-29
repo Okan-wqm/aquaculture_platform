@@ -31,6 +31,7 @@ describe('RegulatoryAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(execute).toHaveBeenCalledWith(expect.any(GetBiomassReportByPeriodQuery));
     expect(missing).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: { found: false, status: null, totalBiomassKg: null },
     });
 
@@ -67,6 +68,7 @@ describe('RegulatoryAiQueryResponder (FARM-MEDIUM-328)', () => {
     });
     expect(found).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         found: true,
         status: 'submitted',
@@ -112,6 +114,7 @@ describe('RegulatoryAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(query.limit).toBe(10);
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         items: [{ reportType: 'SEA_LICE', reportWeek: 37, status: 'SUBMITTED', attemptCount: 1 }],
       },

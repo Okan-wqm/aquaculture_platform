@@ -14,8 +14,10 @@ import { createMockDataSource } from '@aquaculture/testing';
 import { CreateTaskResponder, CreateTaskNatsRequest } from '../create-task.responder';
 import type { TaskService } from '../../services/task.service';
 
+const TENANT = '11111111-1111-4111-8111-111111111111';
+
 const VALID: CreateTaskNatsRequest = {
-  tenantId: 't-1',
+  tenantId: TENANT,
   createdBy: 'u-1',
   assignedTo: 'u-1',
   assignedToName: 'AI ile oluşturuldu',
@@ -45,62 +47,98 @@ describe('CreateTaskResponder', () => {
   });
 
   it('rejects an unknown category (fail-closed) without touching the DB', async () => {
+    // SCENARIO: a category outside the domain enum.
+    // EXPECTS: a domain rejection for the requesting tenant; no DB write.
     const res = await responder.handleCreateTask({ ...VALID, category: 'NONSENSE' });
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/category/i);
+    expect(res).toEqual({
+      ok: true,
+      tenantId: TENANT,
+      data: { created: false, reason: expect.stringMatching(/category/i) },
+    });
     expect(mockRunInTenantTransaction).not.toHaveBeenCalled();
   });
 
   it('rejects an unknown priority', async () => {
     const res = await responder.handleCreateTask({ ...VALID, priority: 'WHENEVER' });
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/priority/i);
+    expect(res).toMatchObject({
+      ok: true,
+      data: { created: false, reason: expect.stringMatching(/priority/i) },
+    });
   });
 
   it('rejects a missing title', async () => {
     const res = await responder.handleCreateTask({ ...VALID, title: '   ' });
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/title/i);
+    expect(res).toMatchObject({
+      ok: true,
+      data: { created: false, reason: expect.stringMatching(/title/i) },
+    });
   });
 
   it('rejects an invalid dueDate', async () => {
     const res = await responder.handleCreateTask({ ...VALID, dueDate: 'not-a-date' });
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/dueDate/i);
+    expect(res).toMatchObject({
+      ok: true,
+      data: { created: false, reason: expect.stringMatching(/dueDate/i) },
+    });
   });
 
-  it('rejects a missing tenantId/createdBy', async () => {
-    const res = await responder.handleCreateTask({ ...VALID, tenantId: '' });
-    expect(res.ok).toBe(false);
+  it('rejects a missing tenantId/createdBy as INVALID_REQUEST', async () => {
+    // SCENARIO: the payload names no valid tenant, or no creator.
+    // EXPECTS: transport-level INVALID_REQUEST; the tenant echo is null when there is none.
+    expect(await responder.handleCreateTask({ ...VALID, tenantId: '' })).toEqual({
+      ok: false,
+      tenantId: null,
+      error: 'INVALID_REQUEST',
+    });
+    expect(await responder.handleCreateTask({ ...VALID, createdBy: '' })).toEqual({
+      ok: false,
+      tenantId: TENANT,
+      error: 'INVALID_REQUEST',
+    });
+    expect(mockRunInTenantTransaction).not.toHaveBeenCalled();
   });
 
   it('creates the task through the tenant-pinned SSoT and returns its id', async () => {
     const fakeQr = { manager: { id: 'mgr' } };
     taskService.createWithManager.mockResolvedValue({ id: 'task-9', title: 'Check pond 3' });
     mockRunInTenantTransaction.mockImplementation(
-      async (_ds: unknown, schema: string, tenantId: string, fn: (qr: unknown) => Promise<unknown>) => {
+      async (
+        _ds: unknown,
+        schema: string,
+        tenantId: string,
+        fn: (qr: unknown) => Promise<unknown>,
+      ) => {
         expect(schema).toBe('farm');
-        expect(tenantId).toBe('t-1');
+        expect(tenantId).toBe(TENANT);
         return fn(fakeQr);
       },
     );
 
     const res = await responder.handleCreateTask(VALID);
 
-    expect(res).toEqual({ ok: true, taskId: 'task-9', title: 'Check pond 3' });
+    expect(res).toEqual({
+      ok: true,
+      tenantId: TENANT,
+      data: { created: true, taskId: 'task-9', title: 'Check pond 3' },
+    });
     expect(taskService.createWithManager).toHaveBeenCalledWith(
       fakeQr.manager,
-      't-1',
-      expect.objectContaining({ title: 'Check pond 3', category: 'WATER_QUALITY', priority: 'HIGH' }),
+      TENANT,
+      expect.objectContaining({
+        title: 'Check pond 3',
+        category: 'WATER_QUALITY',
+        priority: 'HIGH',
+      }),
       'u-1',
     );
   });
 
-  it('maps an unexpected create failure to a safe error (no leak)', async () => {
+  it('maps an unexpected create failure to INTERNAL_ERROR (no leak into the reply)', async () => {
+    // SCENARIO: the DB write crashes with an internal message.
+    // EXPECTS: INTERNAL_ERROR for the requesting tenant; the internal message stays in the server log.
     mockRunInTenantTransaction.mockRejectedValue(new Error('deadlock detected on tasks'));
     const res = await responder.handleCreateTask(VALID);
-    expect(res.ok).toBe(false);
-    expect(res.error).toBe('Task could not be created');
-    expect(res.error).not.toMatch(/deadlock/);
+    expect(res).toEqual({ ok: false, tenantId: TENANT, error: 'INTERNAL_ERROR' });
+    expect(JSON.stringify(res)).not.toMatch(/deadlock/);
   });
 });

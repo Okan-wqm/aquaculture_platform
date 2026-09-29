@@ -6,19 +6,15 @@ import {
   isEquipmentListRequest,
   isFeederCalibrationsRequest,
   toEventIso,
-  type AiQueryReply,
+  type TenantBoundReply,
   type EquipmentDto,
   type EquipmentListReply,
   type FeederCalibrationDto,
   type FeederCalibrationsReply,
   type EquipmentStatusCode,
 } from '@platform/event-contracts';
-import {
-  isoOrNull,
-  numberOrNull,
-  respondAiQuery,
-  toBoundedList,
-} from '../../common/nats/ai-query-responder';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { isoOrNull, numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import { EquipmentStatus, type Equipment } from '../entities/equipment.entity';
 import type { FeederCalibration } from '../entities/feeder-calibration.entity';
 import { ListEquipmentQuery } from '../queries/list-equipment.query';
@@ -77,8 +73,8 @@ export class EquipmentAiQueryResponder {
   constructor(private readonly queryBus: QueryBus) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.EQUIPMENT_LIST)
-  listEquipment(@Payload() payload: unknown): Promise<AiQueryReply<EquipmentListReply>> {
-    return respondAiQuery(
+  listEquipment(@Payload() payload: unknown): Promise<TenantBoundReply<EquipmentListReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.EQUIPMENT_LIST,
       payload,
@@ -108,8 +104,8 @@ export class EquipmentAiQueryResponder {
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.EQUIPMENT_FEEDER_CALIBRATIONS)
   listFeederCalibrations(
     @Payload() payload: unknown,
-  ): Promise<AiQueryReply<FeederCalibrationsReply>> {
-    return respondAiQuery(
+  ): Promise<TenantBoundReply<FeederCalibrationsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.EQUIPMENT_FEEDER_CALIBRATIONS,
       payload,

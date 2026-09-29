@@ -4,11 +4,12 @@ import { QueryBus } from '@platform/cqrs';
 import {
   FARM_AI_QUERY_SUBJECTS,
   isFarmStockInventoryRequest,
-  type AiQueryReply,
+  type TenantBoundReply,
   type FarmStockContainerDto,
   type FarmStockInventoryReply,
 } from '@platform/event-contracts';
-import { numberOrNull, respondAiQuery, toBoundedList } from '../../common/nats/ai-query-responder';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import {
   FarmStockInventoryFilterInput,
   type FarmStockInventoryConnection,
@@ -53,8 +54,8 @@ export class FarmStockAiQueryResponder {
   constructor(private readonly queryBus: QueryBus) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FARM_STOCK_INVENTORY)
-  getInventory(@Payload() payload: unknown): Promise<AiQueryReply<FarmStockInventoryReply>> {
-    return respondAiQuery(
+  getInventory(@Payload() payload: unknown): Promise<TenantBoundReply<FarmStockInventoryReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.FARM_STOCK_INVENTORY,
       payload,

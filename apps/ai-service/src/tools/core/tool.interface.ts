@@ -4,6 +4,7 @@
  */
 
 import type { AiPersonaTier, AiSpecialtyModule } from '@aquaculture/shared-contracts';
+import type { TenantBinding } from '../../tenant-boundary/tenant-binding';
 
 /** Tool category for grouping and filtering */
 export type ToolCategory =
@@ -51,14 +52,31 @@ export interface ToolMetadata {
 /** The tenant/persona actuation policy resolved for this run. */
 export type ActuationPolicy = 'blocked' | 'confirm_required' | 'allowed';
 
-/** Context passed to every tool execution - populated from JWT, never from Claude */
-export interface ToolExecutionContext {
-  tenantId: string;
-  schemaName: string;
-  userId: string;
-  userRoles: string[];
+/**
+ * The view of an execution a TOOL receives (K10 / PR-T1, MT-HIGH-062).
+ *
+ * WHY a separate, narrower type: a tool needs to know WHO it acts for and
+ * WHICH tenant it may touch — never the authorization fields the executor
+ * evaluates. The tenant is a {@link TenantBinding}, not a string: it can only
+ * be minted by tool-context.factory.ts from the trusted request, and the only
+ * way a tool reaches tenant data (TenantBoundNatsClient) takes the binding and
+ * injects its tenant into the request itself.
+ *
+ * Extension seam (plan PR-A1a): the human | service union extends THIS
+ * interface, so both arms stay tenant-bound by construction.
+ */
+export interface TenantBoundToolContext {
+  /** The one tenant this execution may touch. Minted from the trusted request, never from the model. */
+  readonly tenant: TenantBinding;
+  /** The user (or `service:<name>` principal) the tool acts for. */
+  readonly userId: string;
   /** Correlation ID for distributed tracing */
-  correlationId: string;
+  readonly correlationId: string;
+}
+
+/** Context passed to every tool execution - populated from the trusted request, never from the model */
+export interface ToolExecutionContext extends TenantBoundToolContext {
+  userRoles: string[];
   /** The agent persona executing this tool */
   persona: string;
   /**

@@ -6,7 +6,7 @@ import {
   isBoundedListRequest,
   isSpareStockSummaryRequest,
   isWorkOrderStatsRequest,
-  type AiQueryReply,
+  type TenantBoundReply,
   type LowStockSparePartDto,
   type LowStockSparePartsReply,
   type MaintenanceAlertDto,
@@ -16,12 +16,8 @@ import {
   type WorkOrderStatsReply,
   type WorkOrdersReply,
 } from '@platform/event-contracts';
-import {
-  isoOrNull,
-  numberOrNull,
-  respondAiQuery,
-  toBoundedList,
-} from '../../common/nats/ai-query-responder';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { isoOrNull, numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import type { WorkOrder } from '../entities/work-order.entity';
 import { GetStockSummaryQuery } from '../queries/get-stock-summary.query';
 import { GetWorkOrderStatisticsQuery } from '../queries/get-work-order-statistics.query';
@@ -113,8 +109,8 @@ export class MaintenanceAiQueryResponder {
   constructor(private readonly queryBus: QueryBus) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.MAINT_OVERDUE_WORK_ORDERS)
-  listOverdueWorkOrders(@Payload() payload: unknown): Promise<AiQueryReply<WorkOrdersReply>> {
-    return respondAiQuery(
+  listOverdueWorkOrders(@Payload() payload: unknown): Promise<TenantBoundReply<WorkOrdersReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.MAINT_OVERDUE_WORK_ORDERS,
       payload,
@@ -129,8 +125,8 @@ export class MaintenanceAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.MAINT_WORK_ORDER_STATS)
-  getWorkOrderStats(@Payload() payload: unknown): Promise<AiQueryReply<WorkOrderStatsReply>> {
-    return respondAiQuery(
+  getWorkOrderStats(@Payload() payload: unknown): Promise<TenantBoundReply<WorkOrderStatsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.MAINT_WORK_ORDER_STATS,
       payload,
@@ -151,8 +147,8 @@ export class MaintenanceAiQueryResponder {
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.MAINT_SCHEDULE_ALERTS)
   listMaintenanceAlerts(
     @Payload() payload: unknown,
-  ): Promise<AiQueryReply<MaintenanceAlertsReply>> {
-    return respondAiQuery(
+  ): Promise<TenantBoundReply<MaintenanceAlertsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.MAINT_SCHEDULE_ALERTS,
       payload,
@@ -168,8 +164,8 @@ export class MaintenanceAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.MAINT_LOW_STOCK)
-  listLowStock(@Payload() payload: unknown): Promise<AiQueryReply<LowStockSparePartsReply>> {
-    return respondAiQuery(
+  listLowStock(@Payload() payload: unknown): Promise<TenantBoundReply<LowStockSparePartsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.MAINT_LOW_STOCK,
       payload,
@@ -184,8 +180,8 @@ export class MaintenanceAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.MAINT_STOCK_SUMMARY)
-  getStockSummary(@Payload() payload: unknown): Promise<AiQueryReply<SpareStockSummaryReply>> {
-    return respondAiQuery(
+  getStockSummary(@Payload() payload: unknown): Promise<TenantBoundReply<SpareStockSummaryReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.MAINT_STOCK_SUMMARY,
       payload,

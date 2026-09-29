@@ -65,7 +65,7 @@ describe('WaterQualityAiQueryResponder (FARM-MEDIUM-328)', () => {
         tankId: 'not-a-uuid',
         days: 7,
       });
-      expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+      expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
       expect(execute).not.toHaveBeenCalled();
     });
 
@@ -89,6 +89,7 @@ describe('WaterQualityAiQueryResponder (FARM-MEDIUM-328)', () => {
       expect(query).toMatchObject({ tenantId: TENANT, tankId: TANK, days: 7 });
       expect(reply).toMatchObject({
         ok: true,
+        tenantId: TENANT,
         data: {
           scopeId: TANK,
           days: 7,
@@ -112,7 +113,7 @@ describe('WaterQualityAiQueryResponder (FARM-MEDIUM-328)', () => {
     it('maps a rejected query to INTERNAL_ERROR', async () => {
       execute.mockRejectedValue(new Error('boom'));
       const reply = await responder.getTankStats({ tenantId: TENANT, tankId: TANK, days: 7 });
-      expect(reply).toEqual({ ok: false, error: 'INTERNAL_ERROR' });
+      expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INTERNAL_ERROR' });
     });
   });
 
@@ -125,7 +126,7 @@ describe('WaterQualityAiQueryResponder (FARM-MEDIUM-328)', () => {
         toDate: '2026-09-18',
         limit: 20,
       });
-      expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+      expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
       expect(execute).not.toHaveBeenCalled();
     });
 
@@ -176,6 +177,7 @@ describe('WaterQualityAiQueryResponder (FARM-MEDIUM-328)', () => {
       expect(execute).toHaveBeenCalledWith(expect.any(ListCriticalWaterQualityQuery));
       expect(reply).toMatchObject({
         ok: true,
+        tenantId: TENANT,
         data: {
           items: [
             {
@@ -221,6 +223,7 @@ describe('WaterQualityAiQueryResponder (FARM-MEDIUM-328)', () => {
       expect(query.filters).toEqual({ isActive: true, group: 'nitrogen' });
       expect(reply).toMatchObject({
         ok: true,
+        tenantId: TENANT,
         data: {
           items: [
             { code: 'nh3', unit: 'mg/L', optimalMax: 0.02, warningMin: null, criticalMax: 0.1 },

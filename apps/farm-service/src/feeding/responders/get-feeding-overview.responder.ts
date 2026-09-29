@@ -1,6 +1,8 @@
 import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { runInTenantRead, isValidUUID } from '@aquaculture/backend-common/database';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { isAiQueryRequestShape, type TenantBoundReply } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 import { FeedingRecord } from '../entities/feeding-record.entity';
 
@@ -19,6 +21,11 @@ export interface GetFeedingOverviewRequest {
   tenantId: string;
 }
 
+/** Contract guard: exactly `{ tenantId }` with a UUID tenant. */
+function isGetFeedingOverviewRequest(value: unknown): value is GetFeedingOverviewRequest {
+  return isAiQueryRequestShape(value, []);
+}
+
 export interface FeedingRecordEntry {
   id: string;
   batchId: string;
@@ -35,47 +42,44 @@ export class GetFeedingOverviewResponder {
 
   constructor(private readonly dataSource: DataSource) {}
 
+  // K10 (MT-HIGH-062): one responder skeleton — guard, tenant frame, and a
+  // reply that names the tenant it served. A failure is an INTERNAL_ERROR the
+  // ai-service tool surfaces, not an empty list the model reads as "no data".
   @MessagePattern('request.farm.getFeedingOverview')
-  async handleGetFeedingOverview(
-    @Payload() payload: GetFeedingOverviewRequest,
-  ): Promise<FeedingRecordEntry[]> {
-    if (!payload?.tenantId || !isValidUUID(payload.tenantId)) {
-      return [];
-    }
-
-    try {
-      return await runInTenantRead(this.dataSource, 'farm', payload.tenantId, async (qr) => {
-        const rows = await qr.manager.find(FeedingRecord, {
-          select: {
-            id: true,
-            batchId: true,
-            tankId: true,
-            feedingDate: true,
-            feedingTime: true,
-            plannedAmount: true,
-            actualAmount: true,
-          },
-          order: { feedingDate: 'DESC', feedingTime: 'DESC' },
-          take: RECENT_FEEDINGS_LIMIT,
-        });
-        return rows.map((r) => ({
-          id: r.id,
-          batchId: r.batchId,
-          tankId: r.tankId ?? null,
-          // `feedingDate` is a DATE column — normalise to YYYY-MM-DD.
-          feedingDate: new Date(r.feedingDate).toISOString().slice(0, 10),
-          feedingTime: r.feedingTime,
-          plannedAmountKg: r.plannedAmount,
-          actualAmountKg: r.actualAmount,
-        }));
-      });
-    } catch (err) {
-      this.logger.error(
-        `request.farm.getFeedingOverview failed for tenant ${payload.tenantId}: ${
-          err instanceof Error ? err.message : 'unknown error'
-        }`,
-      );
-      return [];
-    }
+  handleGetFeedingOverview(
+    @Payload() payload: unknown,
+  ): Promise<TenantBoundReply<FeedingRecordEntry[]>> {
+    return respondTenantBound(
+      this.logger,
+      'request.farm.getFeedingOverview',
+      payload,
+      isGetFeedingOverviewRequest,
+      (request) =>
+        runInTenantRead(this.dataSource, 'farm', request.tenantId, async (qr) => {
+          const rows = await qr.manager.find(FeedingRecord, {
+            select: {
+              id: true,
+              batchId: true,
+              tankId: true,
+              feedingDate: true,
+              feedingTime: true,
+              plannedAmount: true,
+              actualAmount: true,
+            },
+            order: { feedingDate: 'DESC', feedingTime: 'DESC' },
+            take: RECENT_FEEDINGS_LIMIT,
+          });
+          return rows.map((r) => ({
+            id: r.id,
+            batchId: r.batchId,
+            tankId: r.tankId ?? null,
+            // `feedingDate` is a DATE column — normalise to YYYY-MM-DD.
+            feedingDate: new Date(r.feedingDate).toISOString().slice(0, 10),
+            feedingTime: r.feedingTime,
+            plannedAmountKg: r.plannedAmount,
+            actualAmountKg: r.actualAmount,
+          }));
+        }),
+    );
   }
 }

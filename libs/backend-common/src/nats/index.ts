@@ -9,6 +9,9 @@ export { buildNatsConnectionOptions, DEFAULT_NATS_URL } from './nats-connection.
 export type { NatsAuthMode } from './nats-connection.factory';
 
 export { TenantValidatingConsumer } from './tenant-validating-consumer';
+
+// K10 (MT-HIGH-062): the one responder skeleton for AI-facing request subjects.
+export { respondTenantBound } from './tenant-bound-reply';
 export type { TenantValidationResult } from './tenant-validating-consumer';
 
 // PR-B (PLAT-HIGH-003): platform-owned NATS v3 Nest transport — wire-compatible

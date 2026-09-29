@@ -55,6 +55,7 @@ describe('MaintenanceAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(execute).toHaveBeenCalledWith(expect.any(ListOverdueWorkOrdersQuery));
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         items: [
           {
@@ -93,6 +94,7 @@ describe('MaintenanceAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(query.dateFrom).toEqual(new Date('2026-08-01'));
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: { total: 12, avgCompletionMinutes: 95.5, totalCost: 1200, overdue: 1 },
     });
   });
@@ -118,6 +120,7 @@ describe('MaintenanceAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(execute).toHaveBeenCalledWith(expect.any(ListMaintenanceScheduleAlertsQuery));
     expect(reply).toEqual({
       ok: true,
+      tenantId: TENANT,
       data: {
         items: [
           {
@@ -160,6 +163,7 @@ describe('MaintenanceAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(execute).toHaveBeenCalledWith(expect.any(ListLowStockAlertsQuery));
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: { items: [{ code: 'SP-9', partNumber: 'B-77', deficit: 3, leadTimeDays: 5 }] },
     });
     expect(JSON.stringify(reply)).not.toContain('12.5');
@@ -168,7 +172,7 @@ describe('MaintenanceAiQueryResponder (FARM-MEDIUM-328)', () => {
 
   it('rejects a payload with unknown keys', async () => {
     const reply = await responder.getStockSummary({ tenantId: TENANT, warehouse: 'W1' });
-    expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+    expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
     expect(execute).not.toHaveBeenCalled();
   });
 });

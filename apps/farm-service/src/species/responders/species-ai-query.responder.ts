@@ -5,11 +5,12 @@ import {
   FARM_AI_QUERY_LIMITS,
   FARM_AI_QUERY_SUBJECTS,
   isSpeciesListRequest,
-  type AiQueryReply,
+  type TenantBoundReply,
   type SpeciesDto,
   type SpeciesListReply,
 } from '@platform/event-contracts';
-import { numberOrNull, respondAiQuery, toBoundedList } from '../../common/nats/ai-query-responder';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import { SpeciesFilterInput } from '../dto/species-filter.dto';
 import type { Species } from '../entities/species.entity';
 import { ListSpeciesQuery } from '../queries/list-species.query';
@@ -43,8 +44,8 @@ export class SpeciesAiQueryResponder {
   constructor(private readonly queryBus: QueryBus) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.SPECIES_LIST)
-  listSpecies(@Payload() payload: unknown): Promise<AiQueryReply<SpeciesListReply>> {
-    return respondAiQuery(
+  listSpecies(@Payload() payload: unknown): Promise<TenantBoundReply<SpeciesListReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.SPECIES_LIST,
       payload,

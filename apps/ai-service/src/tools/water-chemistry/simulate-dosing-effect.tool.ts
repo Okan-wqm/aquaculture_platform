@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
 import {
   calcForwardDosing,
   calcDicOfAlk,
@@ -95,7 +95,7 @@ interface SimulateDosingOutput {
 export class SimulateDosingEffectTool extends BaseTool<SimulateDosingInput, SimulateDosingOutput> {
   protected async run(
     input: SimulateDosingInput,
-    _ctx: ToolExecutionContext,
+    _ctx: TenantBoundToolContext,
   ): Promise<SimulateDosingOutput> {
     const {
       currentAlkalinity,

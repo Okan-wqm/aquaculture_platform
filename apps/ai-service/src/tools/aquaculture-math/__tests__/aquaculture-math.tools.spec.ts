@@ -6,16 +6,14 @@ import {
   oxygenBudget,
   specificGrowthRate,
 } from '@platform/aquaculture-engines';
-import type { ToolExecutionContext } from '../../core/tool.interface';
+import { humanToolContext } from '../../../tenant-boundary/__tests__/fixtures/tenant-bound.fixture';
 import { CalculateCarryingCapacityTool } from '../calculate-carrying-capacity.tool';
 import { CalculateGrowthMetricsTool } from '../calculate-growth-metrics.tool';
 import { CalculateOxygenBudgetTool } from '../calculate-oxygen-budget.tool';
 import { PredictFeedingImpactTool } from '../predict-feeding-impact.tool';
 import { roundNumbersDeep } from '../aquaculture-math.schema';
 
-const CTX: ToolExecutionContext = {
-  tenantId: '11111111-1111-4111-8111-111111111111',
-  schemaName: 'tenant_1111111111111111',
+const CTX = humanToolContext({
   userId: 'u-1',
   userRoles: ['operator'],
   correlationId: 'corr-1',
@@ -23,7 +21,7 @@ const CTX: ToolExecutionContext = {
   personaTier: 'expert',
   offeredToolNames: [],
   actuationPolicy: 'confirm_required',
-};
+});
 
 /**
  * FARM-LOW-329 — the ai-service math tools are thin @Tool wrappers over

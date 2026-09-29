@@ -11,13 +11,14 @@ import {
   isTankWaterQualityStatsRequest,
   isWaterQualityHistoryRequest,
   isWaterQualityThresholdsRequest,
-  type AiQueryReply,
+  type TenantBoundReply,
   type CriticalWaterQualityReply,
   type WaterQualityHistoryReply,
   type WaterQualityStatsReply,
   type WaterQualityThresholdsReply,
 } from '@platform/event-contracts';
-import { respondAiQuery, toBoundedList } from '../../common/nats/ai-query-responder';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { toBoundedList } from '../../common/nats/ai-query-responder';
 import type { WaterQualityMeasurement } from '../entities/water-quality-measurement.entity';
 import type { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
 import { GetSystemWaterQualityStatisticsQuery } from '../queries/get-system-water-quality-statistics.query';
@@ -46,8 +47,8 @@ export class WaterQualityAiQueryResponder {
   constructor(private readonly queryBus: QueryBus) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.WQ_TANK_STATS)
-  getTankStats(@Payload() payload: unknown): Promise<AiQueryReply<WaterQualityStatsReply>> {
-    return respondAiQuery(
+  getTankStats(@Payload() payload: unknown): Promise<TenantBoundReply<WaterQualityStatsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.WQ_TANK_STATS,
       payload,
@@ -63,8 +64,8 @@ export class WaterQualityAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.WQ_SYSTEM_STATS)
-  getSystemStats(@Payload() payload: unknown): Promise<AiQueryReply<WaterQualityStatsReply>> {
-    return respondAiQuery(
+  getSystemStats(@Payload() payload: unknown): Promise<TenantBoundReply<WaterQualityStatsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.WQ_SYSTEM_STATS,
       payload,
@@ -80,8 +81,8 @@ export class WaterQualityAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.WQ_HISTORY)
-  getHistory(@Payload() payload: unknown): Promise<AiQueryReply<WaterQualityHistoryReply>> {
-    return respondAiQuery(
+  getHistory(@Payload() payload: unknown): Promise<TenantBoundReply<WaterQualityHistoryReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.WQ_HISTORY,
       payload,
@@ -111,8 +112,8 @@ export class WaterQualityAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.WQ_CRITICAL)
-  listCritical(@Payload() payload: unknown): Promise<AiQueryReply<CriticalWaterQualityReply>> {
-    return respondAiQuery(
+  listCritical(@Payload() payload: unknown): Promise<TenantBoundReply<CriticalWaterQualityReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.WQ_CRITICAL,
       payload,
@@ -128,8 +129,10 @@ export class WaterQualityAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.WQ_THRESHOLDS)
-  getThresholds(@Payload() payload: unknown): Promise<AiQueryReply<WaterQualityThresholdsReply>> {
-    return respondAiQuery(
+  getThresholds(
+    @Payload() payload: unknown,
+  ): Promise<TenantBoundReply<WaterQualityThresholdsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.WQ_THRESHOLDS,
       payload,

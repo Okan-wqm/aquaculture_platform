@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
 import { co2Level, alkMgToMeq } from '@platform/aquaculture-engines';
 
 interface CO2LevelInput {
@@ -60,7 +60,7 @@ interface CO2LevelOutput {
 export class CalculateCO2LevelTool extends BaseTool<CO2LevelInput, CO2LevelOutput> {
   protected async run(
     input: CO2LevelInput,
-    _ctx: ToolExecutionContext,
+    _ctx: TenantBoundToolContext,
   ): Promise<CO2LevelOutput> {
     const { alkalinity, pH, temperature: T, salinity: S } = input;
 

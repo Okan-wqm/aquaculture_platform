@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
 import {
   fractionH2S,
   calcH2S,
@@ -72,7 +72,7 @@ export class CalculateH2SToxicityTool extends BaseTool<
 > {
   protected async run(
     input: H2SToxicityInput,
-    _ctx: ToolExecutionContext,
+    _ctx: TenantBoundToolContext,
   ): Promise<H2SToxicityOutput> {
     const { totalSulfide, pH, temperature: T, salinity: S } = input;
 

@@ -76,6 +76,7 @@ describe('FarmStockAiQueryResponder (FARM-MEDIUM-328)', () => {
     });
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         total: 1,
         items: [

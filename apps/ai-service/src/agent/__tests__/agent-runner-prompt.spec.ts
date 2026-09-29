@@ -145,7 +145,6 @@ describe('AgentRunnerService prompt assembly + persona resolution', () => {
     userId,
     userRoles: ['MODULE_USER'],
     resourcePermissions: ['ai_personas:expert', 'ai_specialties:farm'],
-    schemaName: 'tenant_1111111111111111',
     correlationId: 'corr-1',
     ...overrides,
   });

@@ -49,7 +49,7 @@ describe('TankAiQueryResponder (FARM-MEDIUM-328)', () => {
 
   it('rejects a non-UUID tank id before touching the query bus', async () => {
     const reply = await responder.getCapacity({ tenantId: TENANT, tankId: 'tank-1' });
-    expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+    expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -64,6 +64,7 @@ describe('TankAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(query.tankId).toBe(TANK);
     expect(reply).toEqual({
       ok: true,
+      tenantId: TENANT,
       data: {
         tankId: TANK,
         tankCode: 'TNK-001',
@@ -105,6 +106,6 @@ describe('TankAiQueryResponder (FARM-MEDIUM-328)', () => {
 
     execute.mockRejectedValueOnce(new Error('tank not found'));
     const failed = await responder.getCapacity({ tenantId: TENANT, tankId: TANK });
-    expect(failed).toEqual({ ok: false, error: 'INTERNAL_ERROR' });
+    expect(failed).toEqual({ ok: false, tenantId: TENANT, error: 'INTERNAL_ERROR' });
   });
 });

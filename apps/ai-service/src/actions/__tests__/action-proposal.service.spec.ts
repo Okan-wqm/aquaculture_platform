@@ -14,6 +14,10 @@ import { ProposedAction } from '../proposed-action.entity';
  * the SAME repo mocks, so the contract assertions stay unchanged.
  */
 jest.mock('@aquaculture/backend-common/database', () => ({
+  // K10: the tenant binding validates + derives the schema through the real helpers.
+  ...jest.requireActual<typeof import('@aquaculture/backend-common/database')>(
+    '@aquaculture/backend-common/database',
+  ),
   runInTenantRead: (
     _ds: unknown,
     _schema: string,
@@ -157,11 +161,13 @@ describe('ActionProposalService (MOB-HIGH-001)', () => {
       expect.objectContaining({ status: 'executing', confirmedBy: confirmerId }),
     );
     // Stored intent executes — as the ORIGINAL requester, policy 'allowed'.
+    // K10 (MT-HIGH-062): the binding is minted from THIS request's tenant.
+    const boundToRequestTenant: unknown = expect.objectContaining({ tenantId });
     expect(executor.executeTool).toHaveBeenCalledWith(
       'create_task',
       expect.objectContaining({ title: 'Check pond 3' }),
       expect.objectContaining({
-        tenantId,
+        tenant: boundToRequestTenant,
         userId: requesterId,
         userRoles: ['operator'],
         persona: 'operator-v1',

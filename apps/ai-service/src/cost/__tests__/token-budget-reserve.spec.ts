@@ -7,7 +7,8 @@ describe('TokenBudgetService reserve/settle (SEC-MEDIUM-075 — 2026-08-23 scan 
   const service = new TokenBudgetService();
 
   it('reserves before spend and rejects a reservation that would cross the budget, rolling it back', async () => {
-    const tenant = 'reserve-race-tenant';
+    // Keys are tenant-scoped (K10): the budget counter needs a tenant UUID.
+    const tenant = '0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a';
     await service.addUsage(tenant, 900);
 
     // 900 spent; reserving 200 more would cross the 1000 budget → reject,
@@ -23,7 +24,7 @@ describe('TokenBudgetService reserve/settle (SEC-MEDIUM-075 — 2026-08-23 scan 
   });
 
   it('concurrent reservations cannot collectively pass the budget (the old check-then-spend race)', async () => {
-    const tenant = 'race-tenant';
+    const tenant = '0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b';
     await service.addUsage(tenant, 950);
     const budget = 1000;
 

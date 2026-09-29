@@ -22,6 +22,13 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { McpClientService } from './mcp-client.service';
 import {
+  batchGrowthCacheKey,
+  dashboardCacheKey,
+  farmAnomaliesCacheKey,
+  tankFeedingCacheKey,
+  tankRiskCacheKey,
+} from '../ai-insights-cache-keys';
+import {
   TankRiskAssessment,
   BatchGrowthPrediction,
   FarmAnomaly,
@@ -41,11 +48,10 @@ const CACHE_TTL = {
   DASHBOARD_INSIGHTS: 300,    // 5 minutes
 } as const;
 
-/**
- * WHY: Cache key prefix groups all AI insight keys under a common namespace
- * so they can be bulk-invalidated (e.g. on manual data import).
+/*
+ * Cache keys come from ../ai-insights-cache-keys.ts (`ai-insights:<kind>:<tenantId>…`,
+ * K10 / MT-HIGH-064) — the tenant is the first variable segment of every key.
  */
-const CACHE_PREFIX = 'ai-insights';
 
 @Injectable()
 export class AiInsightsService {
@@ -74,7 +80,7 @@ export class AiInsightsService {
     tankId: string,
     tenantId: string,
   ): Promise<TankRiskAssessment | null> {
-    const cacheKey = `${CACHE_PREFIX}:risk:tank:${tenantId}:${tankId}`;
+    const cacheKey = tankRiskCacheKey(tenantId, tankId);
 
     // WHY: Cache-aside pattern — check cache first to avoid expensive MCP call
     const cached = await this.getFromCache<TankRiskAssessment>(cacheKey);
@@ -90,7 +96,7 @@ export class AiInsightsService {
       riskLevel: string;
       factors: Array<{ name: string; score: number; trend: string }>;
       alerts: Array<{ message: string }>;
-    }>('assess_risk', {
+    }>(tenantId, 'assess_risk', {
       scope: 'tank',
       entityId: tankId,
       includeProjection: false,
@@ -131,7 +137,7 @@ export class AiInsightsService {
     batchId: string,
     tenantId: string,
   ): Promise<BatchGrowthPrediction | null> {
-    const cacheKey = `${CACHE_PREFIX}:growth:batch:${tenantId}:${batchId}`;
+    const cacheKey = batchGrowthCacheKey(tenantId, batchId);
 
     const cached = await this.getFromCache<BatchGrowthPrediction>(cacheKey);
     if (cached) return cached;
@@ -153,7 +159,7 @@ export class AiInsightsService {
         currentWeightG: number;
         sgrPercentPerDay: number;
       };
-    }>('calculate_growth_metrics', {
+    }>(tenantId, 'calculate_growth_metrics', {
       mode: 'projection',
       currentWeightG: 100,
       currentQuantity: 10000,
@@ -199,7 +205,7 @@ export class AiInsightsService {
    * balances freshness with cost.
    */
   async getFarmAnomalies(tenantId: string): Promise<FarmAnomaly[]> {
-    const cacheKey = `${CACHE_PREFIX}:anomalies:farm:${tenantId}`;
+    const cacheKey = farmAnomaliesCacheKey(tenantId);
 
     const cached = await this.getFromCache<FarmAnomaly[]>(cacheKey);
     if (cached) return cached;
@@ -214,7 +220,7 @@ export class AiInsightsService {
         suggestedActions?: string[];
       }>;
       summary: { totalAnomalies: number };
-    }>('detect_anomalies', {
+    }>(tenantId, 'detect_anomalies', {
       scope: 'farm',
       timeWindowDays: 7,
       severityThreshold: 'low',
@@ -257,7 +263,7 @@ export class AiInsightsService {
     tankId: string,
     tenantId: string,
   ): Promise<FeedingAdvice | null> {
-    const cacheKey = `${CACHE_PREFIX}:feeding:tank:${tenantId}:${tankId}`;
+    const cacheKey = tankFeedingCacheKey(tenantId, tankId);
 
     const cached = await this.getFromCache<FeedingAdvice>(cacheKey);
     if (cached) return cached;
@@ -277,7 +283,7 @@ export class AiInsightsService {
       };
       ammoniaRisk: { status: string; safetyMarginPH: number | null };
       oxygenDemand: { totalO2DemandKg: number };
-    }>('predict_feeding_impact', {
+    }>(tenantId, 'predict_feeding_impact', {
       feedKg: 5.0,
       biomassKg: 500,
       tankVolumeM3: 50,
@@ -327,7 +333,7 @@ export class AiInsightsService {
   async getDashboardInsights(
     tenantId: string,
   ): Promise<FarmDashboardInsights> {
-    const cacheKey = `${CACHE_PREFIX}:dashboard:${tenantId}`;
+    const cacheKey = dashboardCacheKey(tenantId);
 
     const cached = await this.getFromCache<FarmDashboardInsights>(cacheKey);
     if (cached) return cached;
@@ -343,7 +349,7 @@ export class AiInsightsService {
         riskLevel: string;
         factors: Array<{ name: string; score: number; trend: string }>;
         alerts: Array<{ message: string }>;
-      }>('assess_risk', {
+      }>(tenantId, 'assess_risk', {
         scope: 'farm',
         includeProjection: false,
         includeOpportunities: false,

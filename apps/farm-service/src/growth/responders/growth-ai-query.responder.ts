@@ -6,17 +6,13 @@ import {
   isBatchPerformanceRequest,
   isGrowthMeasurementsRequest,
   toEventIso,
-  type AiQueryReply,
+  type TenantBoundReply,
   type GrowthAnalysisReply,
   type GrowthMeasurementDto,
   type GrowthMeasurementsReply,
 } from '@platform/event-contracts';
-import {
-  isoOrNull,
-  numberOrNull,
-  respondAiQuery,
-  toBoundedList,
-} from '../../common/nats/ai-query-responder';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { isoOrNull, numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import type { GrowthMeasurement } from '../entities/growth-measurement.entity';
 import {
   GetGrowthAnalysisQuery,
@@ -99,8 +95,8 @@ export class GrowthAiQueryResponder {
   constructor(private readonly queryBus: QueryBus) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.GROWTH_ANALYSIS)
-  getAnalysis(@Payload() payload: unknown): Promise<AiQueryReply<GrowthAnalysisReply>> {
-    return respondAiQuery(
+  getAnalysis(@Payload() payload: unknown): Promise<TenantBoundReply<GrowthAnalysisReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.GROWTH_ANALYSIS,
       payload,
@@ -115,8 +111,10 @@ export class GrowthAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.GROWTH_MEASUREMENTS)
-  listMeasurements(@Payload() payload: unknown): Promise<AiQueryReply<GrowthMeasurementsReply>> {
-    return respondAiQuery(
+  listMeasurements(
+    @Payload() payload: unknown,
+  ): Promise<TenantBoundReply<GrowthMeasurementsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.GROWTH_MEASUREMENTS,
       payload,

@@ -3754,6 +3754,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/cost/ai-redis-keys.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/cost/conversation-turn.entity.ts",
       "prettier_managed": true
     },
@@ -3969,6 +3975,84 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/tenant-boundary/__tests__/agent-runner-tenant-boundary.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tenant-boundary/__tests__/fixtures/tenant-bound.fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tenant-boundary/__tests__/tenant-binding.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tenant-boundary/__tests__/tenant-bound-nats.client.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tenant-boundary/__tests__/tenant-scoped-keys.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tenant-boundary/__tests__/tool-schema-tenant-free.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tenant-boundary/tenant-binding.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tenant-boundary/tenant-bound-nats.client.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tenant-boundary/tenant-boundary-violation.reporter.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tenant-boundary/tenant-boundary-violation.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tenant-boundary/tenant-boundary.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tenant-boundary/tenant-scoped-keys.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tenant-boundary/tool-context.factory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tenant-config/__tests__/agent-config.encryption.spec.ts",
       "prettier_managed": true
     },
@@ -4162,6 +4246,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/tools/farm/farm-ai-query.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/farm-overview.guards.ts",
       "prettier_managed": true
     },
     {
@@ -9141,6 +9231,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/ai-query-tenant-boundary.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/assignment-single-live.postgres.spec.ts",
       "prettier_managed": true
     },
@@ -9255,6 +9351,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/ai-insights/ai-insights-cache-keys.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/ai-insights/ai-insights.module.ts",
       "prettier_managed": true
     },
@@ -9262,6 +9364,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/ai-insights/ai-insights.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/ai-insights/services/__tests__/mcp-client.service.tenant-binding.spec.ts",
       "prettier_managed": true
     },
     {
@@ -9280,6 +9388,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/ai-insights/services/mcp-sdk.port.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/ai-insights/services/mcp-session-binding.ts",
       "prettier_managed": true
     },
     {
@@ -23654,6 +23768,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/ai/__tests__/ai-trigger.config.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/ai/ai-redis-keys.ts",
       "prettier_managed": true
     },
     {
@@ -42847,6 +42967,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/nats/__tests__/tenant-bound-reply.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/nats/index.ts",
       "prettier_managed": true
     },
@@ -42872,6 +42998,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/nats/nats-v3-server.strategy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/nats/tenant-bound-reply.ts",
       "prettier_managed": true
     },
     {
@@ -43081,6 +43213,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/redis/__tests__/tenant-scoped-key.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/redis/index.ts",
       "prettier_managed": true
     },
@@ -43124,6 +43262,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/redis/tenant-redis.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/redis/tenant-scoped-key.ts",
       "prettier_managed": true
     },
     {
@@ -43765,6 +43909,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/__tests__/tenant-bound-reply.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/__tests__/tenant-erasure-targets.spec.ts",
       "prettier_managed": true
     },
@@ -44204,6 +44354,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/task-events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/tenant-bound-reply.ts",
       "prettier_managed": true
     },
     {
@@ -45593,6 +45749,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "mcp/farm-management/src/__tests__/feeding-impact.test.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "mcp/farm-management/src/__tests__/graphql-client-cache-key.test.ts",
       "prettier_managed": true
     },
     {
@@ -47956,6 +48118,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/agent-size-limit.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/ai-tenant-boundary.spec.ts",
       "prettier_managed": true
     },
     {

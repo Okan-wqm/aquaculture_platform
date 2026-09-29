@@ -1,12 +1,10 @@
 import 'reflect-metadata';
 import { AnalyzeSensorDataTool } from '../analyze-sensor-data.tool';
-import { ToolExecutionContext } from '../../core/tool.interface';
+import { humanToolContext } from '../../../tenant-boundary/__tests__/fixtures/tenant-bound.fixture';
 
 describe('AnalyzeSensorDataTool', () => {
   let tool: AnalyzeSensorDataTool;
-  const ctx: ToolExecutionContext = {
-    tenantId: 'tenant_test',
-    schemaName: 'tenant_test',
+  const ctx = humanToolContext({
     userId: 'user_1',
     userRoles: ['operator'],
     correlationId: 'corr-123',
@@ -14,7 +12,7 @@ describe('AnalyzeSensorDataTool', () => {
     personaTier: 'expert',
     offeredToolNames: [],
     actuationPolicy: 'confirm_required',
-  };
+  });
 
   beforeEach(() => {
     tool = new AnalyzeSensorDataTool();

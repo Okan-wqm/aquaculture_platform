@@ -64,6 +64,7 @@ describe('EquipmentAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(query.pagination).toEqual({ page: 1, limit: 5, sortBy: 'code', sortOrder: 'ASC' });
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         total: 1,
         items: [
@@ -83,7 +84,7 @@ describe('EquipmentAiQueryResponder (FARM-MEDIUM-328)', () => {
 
   it('rejects a status outside the contract vocabulary as INVALID_REQUEST (never a silently dropped filter)', async () => {
     const reply = await responder.listEquipment({ tenantId: TENANT, status: 'flying', limit: 5 });
-    expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+    expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -110,6 +111,7 @@ describe('EquipmentAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(query.tenantId).toBe(TENANT);
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         items: [
           { feedSizeMm: 4.5, gramsPerDispensing: 250, updatedAt: '2026-09-01T00:00:00.000Z' },

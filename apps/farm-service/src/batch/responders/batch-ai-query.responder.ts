@@ -6,12 +6,13 @@ import {
   FARM_AI_QUERY_SUBJECTS,
   isBatchPerformanceRequest,
   isSiteWindowRequest,
-  type AiQueryReply,
+  type TenantBoundReply,
   type BatchPerformanceReply,
   type MortalityByCauseReply,
   type TransfersSummaryReply,
 } from '@platform/event-contracts';
-import { isoOrNull, numberOrNull, respondAiQuery } from '../../common/nats/ai-query-responder';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { isoOrNull, numberOrNull } from '../../common/nats/ai-query-responder';
 import {
   GetBatchPerformanceQuery,
   type BatchPerformanceResult,
@@ -124,8 +125,8 @@ export class BatchAiQueryResponder {
   constructor(private readonly queryBus: QueryBus) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.BATCH_PERFORMANCE)
-  getPerformance(@Payload() payload: unknown): Promise<AiQueryReply<BatchPerformanceReply>> {
-    return respondAiQuery(
+  getPerformance(@Payload() payload: unknown): Promise<TenantBoundReply<BatchPerformanceReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.BATCH_PERFORMANCE,
       payload,
@@ -141,8 +142,10 @@ export class BatchAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.BATCH_MORTALITY_BY_CAUSE)
-  getMortalityByCause(@Payload() payload: unknown): Promise<AiQueryReply<MortalityByCauseReply>> {
-    return respondAiQuery(
+  getMortalityByCause(
+    @Payload() payload: unknown,
+  ): Promise<TenantBoundReply<MortalityByCauseReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.BATCH_MORTALITY_BY_CAUSE,
       payload,
@@ -158,8 +161,10 @@ export class BatchAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.BATCH_TRANSFERS_SUMMARY)
-  getTransfersSummary(@Payload() payload: unknown): Promise<AiQueryReply<TransfersSummaryReply>> {
-    return respondAiQuery(
+  getTransfersSummary(
+    @Payload() payload: unknown,
+  ): Promise<TenantBoundReply<TransfersSummaryReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.BATCH_TRANSFERS_SUMMARY,
       payload,

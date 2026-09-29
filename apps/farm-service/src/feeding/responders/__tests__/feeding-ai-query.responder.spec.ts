@@ -71,7 +71,7 @@ describe('FeedingAiQueryResponder (FARM-MEDIUM-328)', () => {
       fromDate: '2026-09-18',
       toDate: '2026-09-01',
     });
-    expect(reversed).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+    expect(reversed).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
 
     execute.mockResolvedValue({
       entityId: SITE,
@@ -149,6 +149,7 @@ describe('FeedingAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(query.pagination).toEqual({ page: 1, limit: 5 });
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         total: 1,
         items: [{ name: 'Grower', feedId: null, targetFcr: 1.1, minDissolvedOxygenMgL: 5 }],

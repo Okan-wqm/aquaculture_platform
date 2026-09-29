@@ -1,11 +1,14 @@
 import 'reflect-metadata';
 import { of } from 'rxjs';
 import { GetFarmFeedingTool } from '../get-farm-feeding.tool';
-import type { ToolExecutionContext } from '../../core/tool.interface';
+import {
+  boundReply,
+  humanToolContext,
+  tenantBoundClient,
+} from '../../../tenant-boundary/__tests__/fixtures/tenant-bound.fixture';
 
-const CTX: ToolExecutionContext = {
+const CTX = humanToolContext({
   tenantId: '55555555-5555-4555-8555-555555555555',
-  schemaName: 'tenant_5555555555555555',
   userId: 'u-1',
   userRoles: ['operator'],
   correlationId: 'corr-1',
@@ -13,7 +16,7 @@ const CTX: ToolExecutionContext = {
   personaTier: 'operator',
   offeredToolNames: [],
   actuationPolicy: 'allowed',
-};
+});
 
 const FEEDING = {
   id: 'f1',
@@ -31,7 +34,7 @@ describe('GetFarmFeedingTool', () => {
 
   beforeEach(() => {
     send = jest.fn();
-    tool = new GetFarmFeedingTool({ send });
+    tool = new GetFarmFeedingTool(tenantBoundClient({ send }));
   });
 
   it('is a plain read tool (no confirmation)', () => {
@@ -41,19 +44,19 @@ describe('GetFarmFeedingTool', () => {
   });
 
   it('requests the recent feedings for the context tenant and returns them + count', async () => {
-    send.mockReturnValue(of([FEEDING]));
+    send.mockReturnValue(of(boundReply([FEEDING], CTX.tenant.tenantId)));
 
     const result = await tool.execute({}, CTX);
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ feedings: [FEEDING], count: 1 });
     expect(send).toHaveBeenCalledWith('request.farm.getFeedingOverview', {
-      tenantId: CTX.tenantId,
+      tenantId: CTX.tenant.tenantId,
     });
   });
 
   it('coalesces an empty/absent result to a zero-count result', async () => {
-    send.mockReturnValue(of([]));
+    send.mockReturnValue(of(boundReply([], CTX.tenant.tenantId)));
     const result = await tool.execute({}, CTX);
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ feedings: [], count: 0 });

@@ -21,7 +21,7 @@ describe('SpeciesAiQueryResponder (FARM-MEDIUM-328)', () => {
 
   it('rejects a malformed payload before touching the query bus', async () => {
     const reply = await responder.listSpecies({ tenantId: 'nope' });
-    expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+    expect(reply).toEqual({ ok: false, tenantId: null, error: 'INVALID_REQUEST' });
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -104,6 +104,6 @@ describe('SpeciesAiQueryResponder (FARM-MEDIUM-328)', () => {
   it('turns a query failure into INTERNAL_ERROR (never a throw into the reply channel)', async () => {
     execute.mockRejectedValue(new Error('db down'));
     const reply = await responder.listSpecies({ tenantId: TENANT });
-    expect(reply).toEqual({ ok: false, error: 'INTERNAL_ERROR' });
+    expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INTERNAL_ERROR' });
   });
 });

@@ -9,14 +9,15 @@ import {
   isFeedingSummaryRequest,
   isSiteWindowRequest,
   toEventIso,
-  type AiQueryReply,
+  type TenantBoundReply,
   type DailyFeedingPlanReply,
   type FeedingProtocolDto,
   type FeedingProtocolsReply,
   type FeedingSummaryReply,
   type SiteFeedConsumptionReply,
 } from '@platform/event-contracts';
-import { numberOrNull, respondAiQuery, toBoundedList } from '../../common/nats/ai-query-responder';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import type { FeedingProtocol } from '../../feed/entities/feeding-protocol.entity';
 import { ListFeedingProtocolsQuery } from '../../feed/queries/list-feeding-protocols.query';
 import {
@@ -134,8 +135,8 @@ export class FeedingAiQueryResponder {
   constructor(private readonly queryBus: QueryBus) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FEEDING_DAILY_PLAN)
-  getDailyPlan(@Payload() payload: unknown): Promise<AiQueryReply<DailyFeedingPlanReply>> {
-    return respondAiQuery(
+  getDailyPlan(@Payload() payload: unknown): Promise<TenantBoundReply<DailyFeedingPlanReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.FEEDING_DAILY_PLAN,
       payload,
@@ -158,8 +159,8 @@ export class FeedingAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FEEDING_SUMMARY)
-  getSummary(@Payload() payload: unknown): Promise<AiQueryReply<FeedingSummaryReply>> {
-    return respondAiQuery(
+  getSummary(@Payload() payload: unknown): Promise<TenantBoundReply<FeedingSummaryReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.FEEDING_SUMMARY,
       payload,
@@ -180,8 +181,10 @@ export class FeedingAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FEEDING_SITE_CONSUMPTION)
-  getSiteConsumption(@Payload() payload: unknown): Promise<AiQueryReply<SiteFeedConsumptionReply>> {
-    return respondAiQuery(
+  getSiteConsumption(
+    @Payload() payload: unknown,
+  ): Promise<TenantBoundReply<SiteFeedConsumptionReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.FEEDING_SITE_CONSUMPTION,
       payload,
@@ -197,8 +200,8 @@ export class FeedingAiQueryResponder {
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FEED_PROTOCOLS)
-  listProtocols(@Payload() payload: unknown): Promise<AiQueryReply<FeedingProtocolsReply>> {
-    return respondAiQuery(
+  listProtocols(@Payload() payload: unknown): Promise<TenantBoundReply<FeedingProtocolsReply>> {
+    return respondTenantBound(
       this.logger,
       FARM_AI_QUERY_SUBJECTS.FEED_PROTOCOLS,
       payload,

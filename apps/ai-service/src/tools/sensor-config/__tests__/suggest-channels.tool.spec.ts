@@ -1,12 +1,10 @@
 import 'reflect-metadata';
 import { SuggestChannelsTool } from '../suggest-channels.tool';
-import { ToolExecutionContext } from '../../core/tool.interface';
+import { humanToolContext } from '../../../tenant-boundary/__tests__/fixtures/tenant-bound.fixture';
 
 describe('SuggestChannelsTool', () => {
   let tool: SuggestChannelsTool;
-  const ctx: ToolExecutionContext = {
-    tenantId: 'tenant_test',
-    schemaName: 'tenant_test',
+  const ctx = humanToolContext({
     userId: 'user_1',
     userRoles: ['operator'],
     correlationId: 'corr-123',
@@ -14,7 +12,7 @@ describe('SuggestChannelsTool', () => {
     personaTier: 'expert',
     offeredToolNames: [],
     actuationPolicy: 'confirm_required',
-  };
+  });
 
   beforeEach(() => {
     tool = new SuggestChannelsTool();
@@ -105,7 +103,8 @@ describe('SuggestChannelsTool', () => {
       expect(result.success).toBe(true);
       expect(result.data!.proposals).toHaveLength(2);
       expect(result.data!.sensorId).toBe('sensor-1');
-      expect(result.data!.tenantId).toBe('tenant_test');
+      // K10 (MT-HIGH-062): the tool does not echo the session tenant back to the model.
+      expect(result.data).not.toHaveProperty('tenantId');
 
       const tempProposal = result.data!.proposals.find((p) => p.channelKey === 'temperature');
       expect(tempProposal).toBeDefined();

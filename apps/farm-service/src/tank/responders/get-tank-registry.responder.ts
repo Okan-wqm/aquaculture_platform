@@ -1,6 +1,8 @@
 import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { runInTenantRead, isValidUUID } from '@aquaculture/backend-common/database';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import { isAiQueryRequestShape, type TenantBoundReply } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 import { Tank } from '../entities/tank.entity';
 
@@ -10,17 +12,22 @@ import { Tank } from '../entities/tank.entity';
  * tank list. The read runs through runInTenantRead — the fully-sanctioned,
  * RLS-safe tenant-context SSoT (tenantId-keyed).
  *
- * Callers: ai-service's get_farm_tanks tool (ctx.tenantId) and messaging's
- * KnowledgeExtractionService both send the canonical {tenantId} UUID — the
- * latter recovers it from its own message rows rather than from the lossy
+ * Callers: ai-service's get_farm_tanks tool (TenantBoundNatsClient injects
+ * the tenant) and messaging's KnowledgeExtractionService, which takes the UUID
+ * from the verified tenant-schema ledger rather than from the lossy
  * tenant_<16hex> schema name (ORPHAN-MEDIUM-336, resolved). The responder
  * remains tenantId-keyed by design: the UUID is the canonical tenant key and
- * lets runInTenantRead assert the RLS GUC fail-closed. A malformed/non-UUID
- * payload still gets an empty registry rather than an exception that would
- * poison the request-reply channel.
+ * lets runInTenantRead assert the RLS GUC fail-closed. The reply is the
+ * tenant-bound envelope (K10): a malformed payload is INVALID_REQUEST, a
+ * failure INTERNAL_ERROR — never an exception into the request-reply channel.
  */
 export interface GetTankRegistryRequest {
   tenantId: string;
+}
+
+/** Contract guard: exactly `{ tenantId }` with a UUID tenant. */
+function isGetTankRegistryRequest(value: unknown): value is GetTankRegistryRequest {
+  return isAiQueryRequestShape(value, []);
 }
 
 export interface TankRegistryEntry {
@@ -36,31 +43,26 @@ export class GetTankRegistryResponder {
 
   constructor(private readonly dataSource: DataSource) {}
 
+  // K10 (MT-HIGH-062): one responder skeleton — guard, tenant frame, and a
+  // reply that names the tenant it served. A failure is an INTERNAL_ERROR the
+  // ai-service tool surfaces, not an empty list the model reads as "no data".
   @MessagePattern('request.farm.getTankRegistry')
-  async handleGetTankRegistry(
-    @Payload() payload: GetTankRegistryRequest,
-  ): Promise<TankRegistryEntry[]> {
-    if (!payload?.tenantId || !isValidUUID(payload.tenantId)) {
-      // Fail-safe: an unwired/malformed caller gets an empty registry, never an
-      // exception that would poison the request-reply channel.
-      return [];
-    }
-
-    try {
-      return await runInTenantRead(this.dataSource, 'farm', payload.tenantId, async (qr) => {
-        const tanks = await qr.manager.find(Tank, {
-          select: { id: true, code: true, name: true, status: true },
-          order: { code: 'ASC' },
-        });
-        return tanks.map((t) => ({ id: t.id, code: t.code, name: t.name, status: t.status }));
-      });
-    } catch (err) {
-      this.logger.error(
-        `request.farm.getTankRegistry failed for tenant ${payload.tenantId}: ${
-          err instanceof Error ? err.message : 'unknown error'
-        }`,
-      );
-      return [];
-    }
+  handleGetTankRegistry(
+    @Payload() payload: unknown,
+  ): Promise<TenantBoundReply<TankRegistryEntry[]>> {
+    return respondTenantBound(
+      this.logger,
+      'request.farm.getTankRegistry',
+      payload,
+      isGetTankRegistryRequest,
+      (request) =>
+        runInTenantRead(this.dataSource, 'farm', request.tenantId, async (qr) => {
+          const tanks = await qr.manager.find(Tank, {
+            select: { id: true, code: true, name: true, status: true },
+            order: { code: 'ASC' },
+          });
+          return tanks.map((t) => ({ id: t.id, code: t.code, name: t.name, status: t.status }));
+        }),
+    );
   }
 }

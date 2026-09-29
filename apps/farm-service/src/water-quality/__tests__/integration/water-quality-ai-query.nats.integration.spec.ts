@@ -5,7 +5,7 @@ import { QueryBus } from '@platform/cqrs';
 import { NatsV3Client, NatsV3Server } from '@aquaculture/backend-common/nats';
 import {
   FARM_AI_QUERY_SUBJECTS,
-  isAiQueryReply,
+  isTenantBoundReply,
   isWaterQualityStatsReply,
 } from '@platform/event-contracts';
 import { firstValueFrom, timeout } from 'rxjs';
@@ -61,15 +61,17 @@ describeWithNats('farm AI read contract — NATS round trip (water quality)', ()
     await microservice?.close();
   });
 
-  it('answers a well-formed request with an ok envelope that passes the contract guard', async () => {
+  it('answers a well-formed request with a tenant-bound ok envelope that passes the contract guard', async () => {
     const reply: unknown = await firstValueFrom(
       client
         .send(FARM_AI_QUERY_SUBJECTS.WQ_TANK_STATS, { tenantId: TENANT, tankId: TANK, days: 7 })
         .pipe(timeout(5000)),
     );
 
-    expect(isAiQueryReply(reply)).toBe(true);
-    if (!isAiQueryReply(reply) || !reply.ok) throw new Error('expected an ok envelope');
+    expect(isTenantBoundReply(reply)).toBe(true);
+    if (!isTenantBoundReply(reply) || !reply.ok) throw new Error('expected an ok envelope');
+    // K10 (MT-HIGH-062): the reply names the tenant it served, through the real codec.
+    expect(reply.tenantId).toBe(TENANT);
     expect(isWaterQualityStatsReply(reply.data)).toBe(true);
     expect(reply.data).toMatchObject({ scopeId: TANK, days: 7, measurementCount: 3 });
   });
@@ -81,6 +83,6 @@ describeWithNats('farm AI read contract — NATS round trip (water quality)', ()
         .pipe(timeout(5000)),
     );
 
-    expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+    expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
   });
 });

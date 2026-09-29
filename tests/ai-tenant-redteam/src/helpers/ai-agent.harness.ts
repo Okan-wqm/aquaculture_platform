@@ -12,6 +12,7 @@ import { AgentProfileService } from '../../../../apps/ai-service/src/agent/agent
 import { AgentRunnerService } from '../../../../apps/ai-service/src/agent/agent-runner.service';
 import { LlmProviderFactory } from '../../../../apps/ai-service/src/agent/providers/llm-provider.factory';
 import { AuditService } from '../../../../apps/ai-service/src/audit/audit.service';
+import { AgentConversation } from '../../../../apps/ai-service/src/conversation/conversation.entity';
 import { ConversationService } from '../../../../apps/ai-service/src/conversation/conversation.service';
 import { RateLimitService } from '../../../../apps/ai-service/src/cost/rate-limit.service';
 import { TokenBudgetService } from '../../../../apps/ai-service/src/cost/token-budget.service';
@@ -27,6 +28,8 @@ import { GetFarmTanksTool } from '../../../../apps/ai-service/src/tools/farm/get
 import { GetBatchPerformanceTool } from '../../../../apps/ai-service/src/tools/farm/production/get-batch-performance.tool';
 import { GetTankCapacityTool } from '../../../../apps/ai-service/src/tools/farm/production/get-tank-capacity.tool';
 import { ToolRegistryService } from '../../../../apps/ai-service/src/tools/tool-registry.service';
+
+import type { DataSource } from 'typeorm';
 
 import type { InProcessNatsTransport } from './in-process-nats.transport';
 import type { ScriptedAttacker } from './scripted-attacker.provider';
@@ -54,6 +57,8 @@ type AuditRowsMock = jest.Mock<Promise<void>, Parameters<AuditService['logToolEx
 /** What the red-team inspects after a turn. */
 export interface AttackedAgent {
   readonly runner: AgentRunnerService;
+  /** The executor the runner (and a confirmed proposal) runs tools through. */
+  readonly executor: ToolExecutorService;
   /** tool_execution_audit rows the executor wrote: [toolName, input, result, ctx, …]. */
   readonly auditRows: AuditRowsMock;
   /** TenantAccessDenied security events. */
@@ -73,15 +78,36 @@ export interface AttackedAgent {
  * and the heuristic safety middleware — a pass-through ON PURPOSE: K10 must
  * hold even when the prompt-injection heuristics miss the attack.
  */
+export interface AttackedAgentOptions {
+  /**
+   * Run the REAL ConversationService over this DataSource (per-tenant
+   * agent_conversations) instead of the in-memory double — the conversation
+   * replay attack needs a stored conversation to replay (V-T1a-6).
+   */
+  readonly conversationDataSource?: DataSource;
+}
+
 export async function buildAttackedAgent(
   transport: InProcessNatsTransport,
   attacker: ScriptedAttacker,
+  options: AttackedAgentOptions = {},
 ): Promise<AttackedAgent> {
   const auditRows: AuditRowsMock = jest
     .fn<Promise<void>, Parameters<AuditService['logToolExecution']>>()
     .mockResolvedValue(undefined);
   const securityEvents = jest.fn().mockResolvedValue(undefined);
-  const persisted = jest.fn().mockResolvedValue(undefined);
+  const conversations = options.conversationDataSource
+    ? new ConversationService(
+        options.conversationDataSource.getRepository(AgentConversation),
+        options.conversationDataSource,
+      )
+    : null;
+  const persisted: jest.Mock =
+    conversations === null
+      ? jest.fn().mockResolvedValue(undefined)
+      : jest.fn((...args: Parameters<ConversationService['addMessage']>) =>
+          conversations.addMessage(...args),
+        );
   const reporter = new TenantBoundaryViolationReporter(
     collaborator<SecurityEventService>(
       { publishTenantAccessDenied: securityEvents },
@@ -118,12 +144,23 @@ export async function buildAttackedAgent(
       },
       {
         provide: ConversationService,
-        useValue: {
-          create: jest.fn().mockResolvedValue({ id: 'conv-redteam' }),
-          getById: jest.fn().mockResolvedValue(null),
-          addMessage: persisted,
-          updateTokenCount: jest.fn().mockResolvedValue(undefined),
-        },
+        useValue:
+          conversations === null
+            ? {
+                create: jest.fn().mockResolvedValue({ id: 'conv-redteam' }),
+                getById: jest.fn().mockResolvedValue(null),
+                addMessage: persisted,
+                updateTokenCount: jest.fn().mockResolvedValue(undefined),
+              }
+            : {
+                create: (...args: Parameters<ConversationService['create']>) =>
+                  conversations.create(...args),
+                getById: (...args: Parameters<ConversationService['getById']>) =>
+                  conversations.getById(...args),
+                addMessage: persisted,
+                updateTokenCount: (...args: Parameters<ConversationService['updateTokenCount']>) =>
+                  conversations.updateTokenCount(...args),
+              },
       },
       {
         provide: TokenBudgetService,
@@ -173,6 +210,7 @@ export async function buildAttackedAgent(
 
   return {
     runner: moduleRef.get(AgentRunnerService),
+    executor: moduleRef.get(ToolExecutorService),
     auditRows,
     securityEvents,
     persisted,

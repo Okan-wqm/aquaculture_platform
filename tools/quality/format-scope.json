@@ -47949,13 +47949,43 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/ai-tenant-redteam/src/ai-tenant-redteam.conversation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/ai-tenant-redteam/src/ai-tenant-redteam.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/ai-tenant-redteam/src/ai-tenant-redteam.subjects.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/ai-tenant-redteam/src/helpers/ai-agent.harness.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/ai-tenant-redteam/src/helpers/ai-two-tenant.harness.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/ai-tenant-redteam/src/helpers/farm-ai-responders.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/ai-tenant-redteam/src/helpers/farm-ai-subject-requests.ts",
       "prettier_managed": true
     },
     {
@@ -47968,6 +47998,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/ai-tenant-redteam/src/helpers/in-process-nats.transport.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/ai-tenant-redteam/src/helpers/rls-app-role.ts",
       "prettier_managed": true
     },
     {

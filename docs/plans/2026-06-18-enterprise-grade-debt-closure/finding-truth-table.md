@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `a47221d2daeb7ff1b554f21788d17d8fa87214dbd119e7df2edfd3e4e327ac95`
+Registry tip: `ecc43706e473a1f2ce5bdadb7fdeb84d9f6d8e106a04c31b3c36da6a31230df5`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -283,6 +283,7 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
 | `ARIA-CRITICAL-214` | OPEN | 2026-09-26 | claude | real-open |
 | `ARIA-CRITICAL-215` | OPEN | 2026-09-26 | claude | real-open |
 | `ARIA-CRITICAL-216` | OPEN | 2026-09-26 | claude | real-open |
+| `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 
 ## Mutation Rules
 
@@ -423,6 +424,12 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
   merges (units L and O carry the `Closes:` lines); owner claude (registry owner_user okan),
   deadline 2026-10-31
   (`docs/reviews/claude/2026-09-26-aria-merge-lane-review.md`).
+
+- `ALERT-CRITICAL-004` (2026-09-29, ai-service program plan review): farm-signal incidents (critical
+  water quality, mortality, low stock, feed stockout) reach nobody — no tenant has an escalation policy
+  (live DB: 0) and nothing consumes `AlertEscalated`. Real open work, owner alert-engine-expert
+  (registry owner_user okan), deadline 2026-10-15; closed by plan PR-S1
+  (`docs/reviews/alert-engine-expert/2026-09-29-ai-tracking-program.md`).
 
 - `SENSOR-CRITICAL-127`, `BILLING-CRITICAL-019`, `FARM-CRITICAL-331`, `SEC-CRITICAL-169` (2026-09-20,
   the boot-path outage): a re-provided sensor MQTT auth service, a type-only import of an injected

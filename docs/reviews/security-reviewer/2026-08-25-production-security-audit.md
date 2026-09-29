@@ -1,17 +1,55 @@
 # Production Security Audit — Release Blockers
 
 **Date:** 2026-08-25
-**Scope:** Active DigitalOcean droplet deployment, application trust boundaries, dependency graph, and edge command ingestion.
-**Decision:** NO-GO until every CRITICAL/HIGH finding in this report is either resolved and verified or remains operationally isolated.
+**Scope:** Active DigitalOcean droplet deployment, application trust boundaries, dependency
+graph, and edge command ingestion.
+**Decision:** NO-GO until every CRITICAL/HIGH finding in this report is either resolved and
+verified or remains operationally isolated.
+
+## Final candidate release verification — 2026-08-27
+
+The final pre-merge candidate is code HEAD
+`350198848195c760584ae14ca6fd3ddb25614b93`. The four production-security
+findings below remain `IN-PROGRESS` until the protected squash reaches
+`origin/main` and the post-merge closure ceremony binds their registry records
+to that reachable authority SHA.
+
+Fresh candidate evidence:
+
+- Five focused security invariant suites passed 59/59 tests in 488.148 seconds.
+  The four admin sorting suites separately passed 37/37 tests in 22.329 seconds.
+- The Rust `command_acceptance` filter executed and passed 13/13 tests. The
+  `mqtt_dispatch` name filter exited zero but selected zero tests (2,134 were
+  filtered out), so it is explicitly non-evidence and is not counted as a
+  passing test surface.
+- All five Rust audit commands exited zero: the root lock audited 429
+  dependencies with no active vulnerability; the edge lock audited 531
+  dependencies with its six documented ignores and no active vulnerability;
+  the non-shipping fuzz lock had no active vulnerability and retained only the
+  policy-allowed yanked `spin 0.9.8` warning; the alarm-core and protocol-codec
+  WASM locks audited 14 and 23 dependencies respectively with no vulnerability
+  or warning.
+- All six npm audit thresholds exited zero. Root production reported zero
+  vulnerabilities; the root full graph reported seven moderate and zero
+  high/critical vulnerabilities; AquaMobil production/full and E2E
+  production/full each reported zero vulnerabilities.
+- The normal pre-push path type-checked all 12 changed TypeScript projects. Its
+  full ARIA unittest run completed 5,048/5,048 tests in 5,449.737 seconds with
+  17 skipped and `OK`; the normal push then succeeded for this exact candidate.
 
 ## RUST-HIGH-003 — MQTT enforcing mode accepts unsigned legacy commands and malformed timestamps
 
 **Severity:** HIGH
 **State:** IN-PROGRESS
 
-`CommandHandler::handle_message` treats `AdapterOutcome::NotEnvelopeFormat` as permission to parse a legacy `CommandMessage` even when `SignatureMode::Enforcing`. The no-tenant provisioning branch also selects legacy parsing unconditionally. An unsigned legacy payload can therefore bypass the mode that operators selected specifically to require signed envelopes.
+`CommandHandler::handle_message` treats `AdapterOutcome::NotEnvelopeFormat` as permission to
+parse a legacy `CommandMessage` even when `SignatureMode::Enforcing`. The no-tenant provisioning
+branch also selects legacy parsing unconditionally. An unsigned legacy payload can therefore
+bypass the mode that operators selected specifically to require signed envelopes.
 
-The same dispatch path applies the replay window only when `DateTime::parse_from_rfc3339` succeeds. A malformed timestamp skips freshness validation and proceeds to deduplication and command execution.
+The same dispatch path applies the replay window only when `DateTime::parse_from_rfc3339`
+succeeds. A malformed timestamp skips freshness validation and proceeds to deduplication and
+command execution.
 
 Evidence:
 
@@ -21,17 +59,32 @@ Evidence:
 
 Required closure:
 
-- Enforcing mode accepts only a verified `CommandEnvelope`; legacy, malformed, and unprovisioned-tenant inputs fail closed before deduplication.
+- Enforcing mode accepts only a verified `CommandEnvelope`; legacy, malformed, and
+  unprovisioned-tenant inputs fail closed before deduplication.
 - Disabled and Permissive modes retain the documented legacy compatibility path.
-- Every legacy timestamp must parse as RFC3339 and fit the configured past/future replay window before deduplication or execution.
+- Every legacy timestamp must parse as RFC3339 and fit the configured past/future replay window
+  before deduplication or execution.
 - Executable tests cover every mode and timestamp boundary.
+
+Remediation evidence (final candidate, 2026-08-27):
+
+- `cargo test --locked --manifest-path sens-api-gateway/Cargo.toml
+command_acceptance` executed and passed all 13 selected acceptance tests,
+  covering the command-mode and timestamp fail-closed contract.
+- `cargo test --locked --manifest-path sens-api-gateway/Cargo.toml
+mqtt_dispatch` selected zero tests (2,134 filtered out). Its zero exit is
+  recorded as non-evidence rather than being used to support this finding.
 
 ## ADMIN-HIGH-005 — Admin sort fields are interpolated into TypeORM SQL identifiers
 
 **Severity:** HIGH
 **State:** IN-PROGRESS
 
-Three admin service query builders construct `ORDER BY` identifiers with caller-controlled `sortBy` strings. The activity and audit HTTP DTOs accept any string, while the error controller's string-literal union disappears at runtime. Direct service callers can also bypass controller validation. TypeORM parameters cannot bind SQL identifiers, so these values cross into query syntax rather than data parameters.
+Three admin service query builders construct `ORDER BY` identifiers with caller-controlled
+`sortBy` strings. The activity and audit HTTP DTOs accept any string, while the error controller's
+string-literal union disappears at runtime. Direct service callers can also bypass controller
+validation. TypeORM parameters cannot bind SQL identifiers, so these values cross into query
+syntax rather than data parameters.
 
 Evidence:
 
@@ -42,10 +95,19 @@ Evidence:
 
 Required closure:
 
-- Define readonly field allowlists and alias-specific complete-column maps; no caller value is interpolated into an identifier.
+- Define readonly field allowlists and alias-specific complete-column maps; no caller value is
+  interpolated into an identifier.
 - Enforce the same field vocabulary with runtime DTO validation at every HTTP boundary.
-- Normalize field and direction again inside each service so non-HTTP callers fail safely to documented defaults.
-- Executable tests prove malicious identifiers never reach `orderBy`, valid fields map exactly, directions normalize safely, and filters remain bound parameters.
+- Normalize field and direction again inside each service so non-HTTP callers fail safely to
+  documented defaults.
+- Executable tests prove malicious identifiers never reach `orderBy`, valid fields map exactly,
+  directions normalize safely, and filters remain bound parameters.
+
+Remediation evidence (final candidate, 2026-08-27):
+
+- The four focused admin sorting suites passed 37/37 tests in 22.329 seconds;
+  malicious identifiers were rejected or normalized without reaching
+  `orderBy`, while valid mappings and bound filters remained covered.
 
 ## SUPPLY-CRITICAL-002 — JavaScript runtime and build graphs contain known advisories hidden by CI policy
 
@@ -78,12 +140,18 @@ Evidence:
 
 Required closure:
 
-- Upgrade the exact-coupled Nx and Vitest package families to advisory-fixed patch releases, including lock metadata and the invariant that pins the Vitest coverage provider to the runner.
-- Upgrade every federated app to an advisory-fixed Module Federation Vite release and both declaration-generation consumers to a fixed `vite-plugin-dts` release.
-- Upgrade DOMPurify and every React Router consumer atomically, including the federation version SSoT and Aquamobil's standalone lock.
-- Make CI fail on moderate production advisories and on high/critical full-graph advisories; preserve npm's original exit status and publish source maps for both graphs.
+- Upgrade the exact-coupled Nx and Vitest package families to advisory-fixed patch releases,
+  including lock metadata and the invariant that pins the Vitest coverage provider to the runner.
+- Upgrade every federated app to an advisory-fixed Module Federation Vite release and both
+  declaration-generation consumers to a fixed `vite-plugin-dts` release.
+- Upgrade DOMPurify and every React Router consumer atomically, including the federation version
+  SSoT and Aquamobil's standalone lock.
+- Make CI fail on moderate production advisories and on high/critical full-graph advisories;
+  preserve npm's original exit status and publish source maps for both graphs.
 - Apply `--ignore-scripts --no-fund` consistently to the remaining db-migration workflow install.
-- Executable invariant tests prevent vulnerable version/policy regressions, focused frontend builds/tests pass, and fresh audits report zero production vulnerabilities plus zero high/critical full-graph vulnerabilities.
+- Executable invariant tests prevent vulnerable version/policy regressions, focused frontend
+  builds/tests pass, and fresh audits report zero production vulnerabilities plus zero
+  high/critical full-graph vulnerabilities.
 
 Remediation evidence (2026-08-25):
 
@@ -98,27 +166,31 @@ Remediation evidence (2026-08-25):
   `ee6a904ac9a7214bf1aeac525a264245b6c8d283f2275129752e153d2adeeb80`.
   Strict `npm ls` confirms API Extractor's `diff` 8.0.3 and ts-node's isolated
   `diff` 4.0.4 graph without invalid or extraneous packages.
-- Fresh root production audit at `moderate --omit=dev` and both Aquamobil
-  production/full audits report zero vulnerabilities. The root full audit at
-  `high` reports zero low/high/critical findings; seven dev-only moderate
-  findings remain in the Testcontainers 12-major and optional Vue peer chains.
-  They do not ship in either production graph and cannot hide a high/critical
-  regression under the new full-graph CI threshold.
+- On final candidate `350198848195c760584ae14ca6fd3ddb25614b93`, all
+  six npm audit thresholds exit zero: root production reports zero
+  vulnerabilities; root full reports seven moderate and zero high/critical;
+  AquaMobil production/full and E2E production/full each report zero
+  vulnerabilities. The seven dev-only moderate findings remain in the
+  Testcontainers 12-major and optional Vue peer chains; they do not ship and
+  cannot hide a high/critical regression under the full-graph CI threshold.
 - Both primary workflows capture the root, Aquamobil, and standalone E2E
   production/full audit statuses plus every source-map status before failing,
   upload all twelve artifacts under `always()`, and fail when an artifact is
   missing. The migration check installs with lifecycle scripts disabled and
   funding output suppressed.
-- The dependency, workflow, federation, Router source, shared-singleton, and
-  enterprise debt-plan invariants pass 45/45;
-  shared UI passes 413/413 tests with coverage. Focused redirect, MFA,
-  transition, and nested-route regressions pass, and the shared UI, shell,
-  sensor, hydroponics, and Aquamobil TypeScript programs complete successfully.
+- `hydroponics-module` declares the pinned Vitest/jsdom toolchain, inherits the
+  shared Vitest policy, and exposes an Nx test target. The Router 7 nested
+  redirect regression executes through `nx test hydroponics-module` rather
+  than remaining an orphaned TypeScript file.
+- The final candidate's five focused security invariant suites pass 59/59 in
+  488.148 seconds. The normal pre-push path also type-checks all 12 changed
+  TypeScript projects and completes the full 5,048-test ARIA unittest surface.
 - Production builds pass for shared UI, node-components, shell, all eight
   federated remotes, and standalone Aquamobil (including its service worker).
   Shared UI's emitted declaration graph contains the Router 7 declarative
   navigation augmentation through its public type entrypoint.
 
+<!-- markdownlint-disable-next-line MD013 -->
 ## SUPPLY-HIGH-003 — Standalone dependency locks bypass release auditing and retain known high-severity advisories
 
 **Severity:** HIGH
@@ -182,12 +254,18 @@ Remediation evidence (2026-08-25):
 - E2E resolves `@babel/core 7.29.7`, `brace-expansion 1.1.18`,
   `fast-uri 3.1.6`, and `js-yaml 3.15.1/4.3.1`; clean install succeeds and both its
   production and full audits report zero vulnerabilities.
-- Both primary workflows now validate the Aquamobil and E2E manifest/lock pairs,
-  capture all six audit and six source-map exit statuses, upload all twelve
-  artifacts even on failure, and CI Affected treats `e2e/**` as control-plane
-  input. Dependabot independently watches `/e2e`; an Aquamobil `lockfile-only`
-  entry refreshes the production Docker lock without editing the shared
-  workspace manifest, with one grouped update PR allowed at a time.
+- Both primary workflows validate the AquaMobil and E2E manifest/lock pairs,
+  capture all six audit and six source-map exit statuses, and upload all twelve
+  artifacts even on failure. CI Affected publishes independent `has_changes`
+  and `deploy_changes` outputs: `e2e/**` enters the required audit/test chain
+  through `audit_only` but cannot authorize staging or production. Executable
+  invariants run the real classifier shell for audit-only and deploy-capable
+  inputs.
+- Root and AquaMobil share one multi-directory npm update authority with
+  dependency-name grouping and manifest-increasing updates; `/e2e` remains
+  independently owned. The two production WASM locks are explicitly owned by
+  the Cargo updater, while edge and fuzz retain their independent update policy
+  without escaping required audit coverage.
 - The duplicate pnpm locks are removed. The lockfile invariant recognizes pnpm
   files, requires npm to remain the only JavaScript lock authority, verifies
   the standalone fuzz audit gate, and passes together with the expanded
@@ -196,10 +274,15 @@ Remediation evidence (2026-08-25):
   so intentional authority deletion can be verified before staging.
 - Root and edge resolve `h2 0.4.16`; root also resolves `cmov 0.5.4` and
   `serde_with`/macros 3.21.0. Fuzz resolves only `rustls-webpki 0.103.13` and
-  `time 0.3.47` through the local `rumqttc` patch. Root, edge, and fuzz audits
-  report zero active vulnerabilities, and edge CI now audits the committed fuzz
-  lock explicitly. Locked checks pass for root `sensor-ingestion` release, the
-  edge `scada-display` release profile, and every fuzz binary.
+  `time 0.3.47` through the local `rumqttc` patch. The required
+  `sens-api-gateway-rust` job audits root, edge, fuzz, alarm-core WASM, and
+  protocol-codec WASM locks before compilation. Fresh final-candidate audits
+  cover 429 root dependencies, 531 edge dependencies under six documented
+  ignores, the fuzz lock under its yanked-package policy, and 14/23 dependencies
+  in the WASM locks; all five commands exit zero with no active vulnerability.
+- Both WASM builds consume committed locks with `--locked`, verify
+  `wasm-bindgen 0.2.127`, include their lockfiles in Nx cache inputs, regenerate
+  their Node bindings, and pass the functional twin tests.
 - The edge release still carries the explicitly tracked `bincode 1.3.3`
   unmaintained warning (`RUSTSEC-2025-0141`, migration deadline 2026-09-01),
   whose replacement requires a coordinated wire-format migration. The

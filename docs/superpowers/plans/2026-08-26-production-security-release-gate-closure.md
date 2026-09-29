@@ -1,29 +1,54 @@
 # Production Security Release Gate Closure Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
+> (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
+> checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close the remaining security release-control gaps, prove the final tree locally and in protected GitHub Actions, squash-merge it to `main`, and complete the post-merge finding ceremony.
+**Goal:** Close the remaining security release-control gaps, prove the final tree locally and in
+protected GitHub Actions, squash-merge it to `main`, and complete the post-merge finding ceremony.
 
-**Architecture:** Keep the protected context names unchanged and strengthen the work they attest to. One required Rust job owns all independently resolved release graphs; CI publishes separate validation and deployment intent; Dependabot owns multi-directory graphs without overlap; Hydroponics becomes a normal jsdom/Nx test consumer; and both WASM builds consume locked, audited dependency graphs.
+**Architecture:** Keep the protected context names unchanged and strengthen the work they attest
+to. One required Rust job owns all independently resolved release graphs; CI publishes separate
+validation and deployment intent; Dependabot owns multi-directory graphs without overlap;
+Hydroponics becomes a normal jsdom/Nx test consumer; and both WASM builds consume locked, audited
+dependency graphs.
 
-**Tech Stack:** GitHub Actions, dorny/paths-filter, Dependabot v2, Jest/ts-jest invariants, Nx 22.7.8, Vitest 3.2.7, jsdom, Rust 1.88.0, cargo-audit, wasm-bindgen 0.2.127, npm 10+, GitHub CLI.
+**Tech Stack:** GitHub Actions, dorny/paths-filter, Dependabot v2, Jest/ts-jest invariants, Nx
+22.7.8, Vitest 3.2.7, jsdom, Rust 1.88.0, cargo-audit, wasm-bindgen 0.2.127, npm 10+, GitHub CLI.
 
 **Spec:** `docs/superpowers/specs/2026-08-26-security-release-gate-closure-design.md`
 
 ## Global Constraints
 
-- Work only in `/var/aqua-saas/.worktrees/security-release-hardening` on `security/production-hardening-20260825` until the first PR is merged.
-- Read root `CLAUDE.md` and the applicable nested `CLAUDE.md` before editing; NATS identity, entity schema, root-cause-only, and no-bypass rules remain in force.
-- Preserve the required context names `sens-enterprise-summary`, `merge-gate`, `aria-merge-authority`, and `build-status`; do not edit `.github/manifests/main-required-status-checks.json` for this work.
-- Never use `continue-on-error`, `|| true`, missing-output fallbacks, administrator bypass, `--no-verify`, `--no-gpg-sign`, force push, or direct manual deployment.
-- `has_changes` means validation/audit work is required; `deploy_changes` alone authorizes staging/production workflow calls.
-- Root and AquaMobil npm updates use one multi-directory authority with `versioning-strategy: increase` and `group-by: dependency-name`; `/e2e` stays independent.
-- Root and the two standalone WASM Cargo directories have explicit update ownership; edge and fuzz keep documented exceptions but required audit coverage.
-- Pin both WASM crates and the local generation command to `wasm-bindgen = 0.2.127`. crates.io reports crate MSRV 1.77 and CLI MSRV 1.86, both compatible with repository Rust 1.88.0.
-- Use TDD for every behavior change: record the expected red failure, make the smallest production/configuration change, and rerun the same command green.
-- Every implementation commit is signed and immediately pushed normally. `security(...)` commits carry the canonical `SUPPLY-HIGH-003` trailer. The Hydroponics-only `test(...)` commit does not claim an unrelated finding.
-- The first PR uses squash merge because existing commit `6328f364d` has a non-canonical `docs(...)` type. Its squash body must carry all four genuine finding trailers so the post-merge registry ceremony has one `origin/main`-reachable authority SHA.
-- The initial unconstrained full test run is not passing evidence. Normalize executable worktree modes from the Git index and use controlled Nx parallelism for the final run.
+- Work only in `/var/aqua-saas/.worktrees/security-release-hardening` on
+  `security/production-hardening-20260825` until the first PR is merged.
+- Read root `CLAUDE.md` and the applicable nested `CLAUDE.md` before editing; NATS identity, entity
+  schema, root-cause-only, and no-bypass rules remain in force.
+- Preserve the required context names `sens-enterprise-summary`, `merge-gate`,
+  `aria-merge-authority`, and `build-status`; do not edit
+  `.github/manifests/main-required-status-checks.json` for this work.
+- Never use `continue-on-error`, `|| true`, missing-output fallbacks, administrator bypass,
+  `--no-verify`, `--no-gpg-sign`, force push, or direct manual deployment.
+- `has_changes` means validation/audit work is required; `deploy_changes` alone authorizes
+  staging/production workflow calls.
+- Root and AquaMobil npm updates use one multi-directory authority with
+  `versioning-strategy: increase` and `group-by: dependency-name`; `/e2e` stays independent.
+- Root and the two standalone WASM Cargo directories have explicit update ownership; edge and fuzz
+  keep documented exceptions but required audit coverage.
+- Pin both WASM crates and the local generation command to `wasm-bindgen = 0.2.127`. crates.io
+  reports crate MSRV 1.77 and CLI MSRV 1.86, both compatible with repository Rust 1.88.0.
+- Use TDD for every behavior change: record the expected red failure, make the smallest
+  production/configuration change, and rerun the same command green.
+- Every implementation commit is signed and immediately pushed normally. `security(...)` commits
+  carry the canonical `SUPPLY-HIGH-003` trailer. The Hydroponics-only `test(...)` commit does not
+  claim an unrelated finding.
+- The first PR uses squash merge because existing commit `6328f364d` has a non-canonical
+  `docs(...)` type. Its squash body must carry all five genuine finding trailers: the four
+  production-security findings plus `ARIA-HIGH-019`, whose launch-anchor ordering fix entered this
+  branch through the normal `origin/main` merge. The post-merge registry ceremony then has one
+  `origin/main`-reachable authority SHA.
+- The initial unconstrained full test run is not passing evidence. Normalize executable worktree
+  modes from the Git index and use controlled Nx parallelism for the final run.
 
 ---
 
@@ -53,7 +78,9 @@
 | `docs/reviews/security-reviewer/2026-08-25-production-security-audit.md` | Records corrected final evidence while staying `IN-PROGRESS` until merge.                                                  |
 | `tools/quality/format-scope.json`                                        | Generated file inventory for the plan/new invariant/doc surfaces.                                                          |
 
-The release-authority tasks stay in one plan because `.github/workflows/ci-affected.yml`, lock ownership, and the cross-lock invariants form one protected attestation. Hydroponics and WASM remain separate, independently reviewable commits within that plan.
+The release-authority tasks stay in one plan because `.github/workflows/ci-affected.yml`, lock
+ownership, and the cross-lock invariants form one protected attestation. Hydroponics and WASM
+remain separate, independently reviewable commits within that plan.
 
 ---
 
@@ -69,12 +96,16 @@ The release-authority tasks stay in one plan because `.github/workflows/ci-affec
 
 **Interfaces:**
 
-- Consumes: dorny outputs `apps`, `libs`, `web`, `infra_image`, `deploy-config`, and new `audit_only`; the edge audit commands and canonical ignore list in `sens-api-gateway/.cargo/audit.toml`.
-- Produces: string outputs `has_changes` and `deploy_changes`; required job `sens-api-gateway-rust` with root, edge, fuzz, and two WASM audit steps.
+- Consumes: dorny outputs `apps`, `libs`, `web`, `infra_image`, `deploy-config`, and new
+  `audit_only`; the edge audit commands and canonical ignore list in
+  `sens-api-gateway/.cargo/audit.toml`.
+- Produces: string outputs `has_changes` and `deploy_changes`; required job
+  `sens-api-gateway-rust` with root, edge, fuzz, and two WASM audit steps.
 
 - [ ] **Step 1: Write the failing executable classifier contract**
 
-Extend the existing workflow test types so steps have `id`, jobs have `if` and `outputs`, and add this helper beside the existing repository read helpers:
+Extend the existing workflow test types so steps have `id`, jobs have `if` and `outputs`, and add
+this helper beside the existing repository read helpers:
 
 ```ts
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -153,7 +184,8 @@ npx jest --config tests/invariants/jest.config.ts --runInBand \
   -t "keeps E2E-only changes inside CI without granting deploy authority"
 ```
 
-Expected: FAIL because `audit_only` and `deploy_changes` do not exist and both deploy jobs still consume `has_changes`.
+Expected: FAIL because `audit_only` and `deploy_changes` do not exist and both deploy jobs still
+consume `has_changes`.
 
 - [ ] **Step 3: Write the failing required Rust-audit contract**
 
@@ -223,7 +255,8 @@ it('reruns advisory lock-step governance when the required edge audit changes', 
 });
 ```
 
-Add `uses?: string`, `with?: Record<string, string>`, and `needs?: readonly string[]` to the local workflow types used by those assertions.
+Add `uses?: string`, `with?: Record<string, string>`, and `needs?: readonly string[]` to the local
+workflow types used by those assertions.
 Add this event shape at the `WorkflowConfig` level:
 
 ```ts
@@ -287,7 +320,8 @@ echo "has_changes=$has_changes" >> "$GITHUB_OUTPUT"
 echo "deploy_changes=$deploy_changes" >> "$GITHUB_OUTPUT"
 ```
 
-Change only the staging and production workflow-call predicates from `has_changes` to `deploy_changes`. All CI, audit, and required summary predicates keep `has_changes`.
+Change only the staging and production workflow-call predicates from `has_changes` to
+`deploy_changes`. All CI, audit, and required summary predicates keep `has_changes`.
 
 - [ ] **Step 6: Implement the required Rust audit steps before TPM compilation setup**
 
@@ -340,7 +374,8 @@ npm run gates:required-status-checks
 git diff --check
 ```
 
-Expected: both invariant files PASS, the required-status manifest gate PASS, and `.github/manifests/main-required-status-checks.json` remains untouched.
+Expected: both invariant files PASS, the required-status manifest gate PASS, and
+`.github/manifests/main-required-status-checks.json` remains untouched.
 
 - [ ] **Step 8: Commit and push the CI release authority**
 
@@ -369,12 +404,15 @@ Expected: signed commit, pre-commit/pre-push hooks green, normal push succeeds.
 
 **Interfaces:**
 
-- Consumes: `DependabotUpdate.directories`, `versioning-strategy`, and `groups.*.group-by` parsed by the lock coverage invariant.
-- Produces: one npm authority for `/` plus `/web/apps/aquamobil`, one Cargo authority for `/` plus both WASM crates, and independent `/e2e` ownership.
+- Consumes: `DependabotUpdate.directories`, `versioning-strategy`, and `groups.*.group-by` parsed by
+  the lock coverage invariant.
+- Produces: one npm authority for `/` plus `/web/apps/aquamobil`, one Cargo authority for `/` plus
+  both WASM crates, and independent `/e2e` ownership.
 
 - [ ] **Step 1: Write the failing ownership assertions**
 
-Add `'group-by'?: string` to the group type, remove the two WASM entries from `DOCUMENTED_EXCLUSIONS`, and replace the AquaMobil `lockfile-only` test with:
+Add `'group-by'?: string` to the group type, remove the two WASM entries from
+`DOCUMENTED_EXCLUSIONS`, and replace the AquaMobil `lockfile-only` test with:
 
 ```ts
 it('gives root and AquaMobil one atomic npm update authority', () => {
@@ -407,7 +445,8 @@ it('gives root and production WASM locks one Cargo update authority', () => {
 });
 ```
 
-Keep edge and fuzz in `DOCUMENTED_EXCLUSIONS`, but rewrite both reasons to name the required `sens-api-gateway-rust` audit authority rather than only the optional edge workflow.
+Keep edge and fuzz in `DOCUMENTED_EXCLUSIONS`, but rewrite both reasons to name the required
+`sens-api-gateway-rust` audit authority rather than only the optional edge workflow.
 
 - [ ] **Step 2: Run the ownership tests and capture the expected red result**
 
@@ -421,7 +460,8 @@ Expected: FAIL because npm has two overlapping entries and the standalone WASM d
 
 - [ ] **Step 3: Replace the npm entries with one atomic authority**
 
-Keep the root npm schedule, limits, labels, reviewer, and commit prefix, but use this directory/group contract:
+Keep the root npm schedule, limits, labels, reviewer, and commit prefix, but use this
+directory/group contract:
 
 ```yaml
 - package-ecosystem: npm
@@ -447,7 +487,9 @@ Keep the root npm schedule, limits, labels, reviewer, and commit prefix, but use
       group-by: dependency-name
 ```
 
-Delete the separate `/web/apps/aquamobil` `lockfile-only` block. Leave `/e2e` unchanged. GitHub's current options reference explicitly supports `directories`, Cargo/npm `group-by: dependency-name`, and `versioning-strategy: increase`; cross-directory grouping applies to version updates.
+Delete the separate `/web/apps/aquamobil` `lockfile-only` block. Leave `/e2e` unchanged. GitHub's
+current options reference explicitly supports `directories`, Cargo/npm `group-by: dependency-name`,
+and `versioning-strategy: increase`; cross-directory grouping applies to version updates.
 
 - [ ] **Step 4: Give the two standalone WASM locks Cargo update ownership**
 
@@ -460,7 +502,9 @@ directories:
   - /crates/protocol-codec-wasm
 ```
 
-Preserve its weekly schedule, limits, labels, reviewer, commit prefix, and existing `cargo-minor-patch` group. Do not add `sens-api-gateway` or `sens-api-gateway/fuzz` to this authority.
+Preserve its weekly schedule, limits, labels, reviewer, commit prefix, and existing
+`cargo-minor-patch` group. Do not add `sens-api-gateway` or `sens-api-gateway/fuzz` to this
+authority.
 
 - [ ] **Step 5: Prove all lockfiles are covered without overlap**
 
@@ -506,7 +550,8 @@ git push
 **Interfaces:**
 
 - Consumes: Rust 1.88.0, wasm32 target, `wasm-bindgen-cli 0.2.127`, committed standalone locks.
-- Produces: `build-wasm` targets that fail on lock drift or CLI mismatch and whose cache keys include `Cargo.lock`.
+- Produces: `build-wasm` targets that fail on lock drift or CLI mismatch and whose cache keys
+  include `Cargo.lock`.
 
 - [ ] **Step 1: Create the failing WASM lock/build invariant**
 
@@ -567,7 +612,8 @@ npx jest --config tests/invariants/jest.config.ts --runInBand \
   --runTestsByPath tests/invariants/wasm-lock-build-contract.spec.ts
 ```
 
-Expected: both table rows FAIL on missing standalone workspace boundaries, missing lock inputs, old 0.2.100 pins, and unlocked build commands.
+Expected: both table rows FAIL on missing standalone workspace boundaries, missing lock inputs,
+old 0.2.100 pins, and unlocked build commands.
 
 - [ ] **Step 3: Pin manifests and refresh only the binding families**
 
@@ -594,7 +640,8 @@ cargo update --manifest-path crates/protocol-codec-wasm/Cargo.toml \
   -p wasm-bindgen --precise 0.2.127
 ```
 
-Expected: both locks resolve `wasm-bindgen`, macro/support families at 0.2.127 and no longer contain `wasm-bindgen-backend 0.2.100`.
+Expected: both locks resolve `wasm-bindgen`, macro/support families at 0.2.127 and no longer
+contain `wasm-bindgen-backend 0.2.100`.
 
 - [ ] **Step 4: Make Nx cache inputs consume the locks**
 
@@ -642,7 +689,8 @@ NX_DAEMON=false npx nx run alarm-core:build-wasm --skip-nx-cache
 NX_DAEMON=false npx nx run protocol-codec:build-wasm --skip-nx-cache
 ```
 
-Expected CLI output: `wasm-bindgen 0.2.127`. Review all eight generated files; no source outside the two generated directories may be produced by these commands.
+Expected CLI output: `wasm-bindgen 0.2.127`. Review all eight generated files; no source outside
+the two generated directories may be produced by these commands.
 
 - [ ] **Step 7: Prove reproducibility, functionality, and advisories green**
 
@@ -737,7 +785,8 @@ test('keeps the Hydroponics Router regression on the shared jsdom runner', () =>
 });
 ```
 
-Extend the local manifest type with `scripts?: Record<string, string>` if preferred instead of the intersection shown above.
+Extend the local manifest type with `scripts?: Record<string, string>` if preferred instead of
+the intersection shown above.
 
 - [ ] **Step 2: Demonstrate both current failure modes**
 
@@ -751,7 +800,8 @@ NX_DAEMON=false npx vitest run \
   web/modules/hydroponics-module/src/pages/solution/__tests__/SolutionPage.router.spec.tsx
 ```
 
-Expected: invariant FAIL because the package has no runner contract; direct Vitest FAIL because the default environment has no DOM.
+Expected: invariant FAIL because the package has no runner contract; direct Vitest FAIL because
+the default environment has no DOM.
 
 - [ ] **Step 3: Declare the direct test dependencies and scripts**
 
@@ -801,7 +851,8 @@ import '@testing-library/jest-dom/vitest';
 
 - [ ] **Step 5: Expose the inferred package-script target with shared-ui ordering**
 
-Add this target to `project.json`; do not add an executor or command because Nx infers `nx:run-script` from the package `test` script:
+Add this target to `project.json`; do not add an executor or command because Nx infers
+`nx:run-script` from the package `test` script:
 
 ```json
 "test": {
@@ -860,7 +911,8 @@ npx tsc --noEmit -p web/modules/hydroponics-module/tsconfig.json
 NX_DAEMON=false npx nx build hydroponics-module --skip-nx-cache
 ```
 
-Expected: Nx's project list contains `hydroponics-module`; the router test executes in jsdom and passes; both invariants, type-check, and production build pass.
+Expected: Nx's project list contains `hydroponics-module`; the router test executes in jsdom and
+passes; both invariants, type-check, and production build pass.
 
 - [ ] **Step 8: Refresh governance, commit, and push without a false finding claim**
 
@@ -881,7 +933,9 @@ git commit -m "test(hydroponics): wire router regression into Nx" \
 git push
 ```
 
-The commit deliberately has no `Closes:` trailer: the reviewer observation has no canonical registry ID, and using `SUPPLY-CRITICAL-002` would falsely claim that this runner wiring fixed the dependency advisories already closed by the earlier dependency commit.
+The commit deliberately has no `Closes:` trailer: the reviewer observation has no canonical
+registry ID, and using `SUPPLY-CRITICAL-002` would falsely claim that this runner wiring fixed the
+dependency advisories already closed by the earlier dependency commit.
 
 ---
 
@@ -895,11 +949,13 @@ The commit deliberately has no `Closes:` trailer: the reviewer observation has n
 **Interfaces:**
 
 - Consumes: final implementation SHA, fresh targeted/full test output, cargo/npm audit output.
-- Produces: accurate pre-merge remediation evidence; finding states remain `IN-PROGRESS` until the squash SHA reaches `origin/main`.
+- Produces: accurate pre-merge remediation evidence; finding states remain `IN-PROGRESS` until
+  the squash SHA reaches `origin/main`.
 
 - [ ] **Step 1: Normalize executable modes from the Git index**
 
-The checkout was created under umask `0077`; restore every Git-tracked executable to its committed executable mode without changing Git content:
+The checkout was created under umask `0077`; restore every Git-tracked executable to its
+committed executable mode without changing Git content:
 
 ```bash
 git ls-files -s | awk '$1 == "100755" { print $4 }' | while IFS= read -r path; do
@@ -908,7 +964,8 @@ done
 git status --short
 ```
 
-Expected: no source diff from chmod; `infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh` reports mode 755 locally.
+Expected: no source diff from chmod;
+`infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh` reports mode 755 locally.
 
 - [ ] **Step 2: Run focused security and release contracts**
 
@@ -933,7 +990,10 @@ cargo check --locked --release --all-targets \
   --features "$SENS_API_GATEWAY_CI_FEATURES"
 ```
 
-Expected: every focused command exits 0 and the admin malicious sort inputs never reach `orderBy`.
+Expected: every focused command exits 0 and the admin malicious sort inputs never reach
+`orderBy`. A zero-test Rust name filter is not passing evidence: the final-candidate
+`mqtt_dispatch` invocation selected zero tests (2,134 filtered out), so its zero exit is recorded
+as non-evidence rather than supporting closure.
 
 - [ ] **Step 3: Run all five required Rust audits**
 
@@ -951,7 +1011,8 @@ cargo audit --file crates/alarm-core-wasm/Cargo.lock --deny warnings
 cargo audit --file crates/protocol-codec-wasm/Cargo.lock --deny warnings
 ```
 
-Expected: zero active vulnerabilities. Only the already documented edge maintenance warnings and non-shipping fuzz yanked warning may appear under their exact non-`--deny warnings` policy.
+Expected: zero active vulnerabilities. Only the already documented edge maintenance warnings and
+non-shipping fuzz yanked warning may appear under their exact non-`--deny warnings` policy.
 
 - [ ] **Step 4: Run all six npm audit thresholds**
 
@@ -964,7 +1025,8 @@ npm --prefix e2e audit --audit-level=moderate --omit=dev
 npm --prefix e2e audit --audit-level=high
 ```
 
-Expected: root, AquaMobil, and E2E production graphs have zero vulnerabilities; all three full graphs have zero high/critical vulnerabilities.
+Expected: root, AquaMobil, and E2E production graphs have zero vulnerabilities; all three full
+graphs have zero high/critical vulnerabilities.
 
 - [ ] **Step 5: Re-run the previously starved database project in isolation**
 
@@ -973,7 +1035,8 @@ NX_DAEMON=false NX_TUI=false NX_TASKS_RUNNER_DYNAMIC_OUTPUT=false \
   npx nx test db-migrate --runInBand --skip-nx-cache
 ```
 
-Expected: the bootstrap-from-scratch suite finishes within its configured timeout and no cascaded `beforeAll` timeout remains.
+Expected: the bootstrap-from-scratch suite finishes within its configured timeout and no cascaded
+`beforeAll` timeout remains.
 
 - [ ] **Step 6: Run the full repository gates with controlled parallelism**
 
@@ -998,11 +1061,13 @@ npx ts-node --project tools/gates/tsconfig.json \
 git diff --check
 ```
 
-Expected: every command exits 0 on the final tree. Record exact counts and durations; do not replace a red command with a narrower command.
+Expected: every command exits 0 on the final tree. Record exact counts and durations; do not
+replace a red command with a narrower command.
 
 - [ ] **Step 7: Update only evidence statements that the fresh run proved**
 
-Keep all four audit finding states `IN-PROGRESS`. Replace the obsolete `lockfile-only`/single optional audit statements under `SUPPLY-HIGH-003` with this evidence:
+Keep all four audit finding states `IN-PROGRESS`. Replace the obsolete `lockfile-only`/single
+optional audit statements under `SUPPLY-HIGH-003` with this evidence:
 
 ```markdown
 - CI Affected publishes independent `has_changes` and `deploy_changes` outputs:
@@ -1054,12 +1119,14 @@ git push
 
 **Files:**
 
-- No planned source edits; any reviewer finding returns to the owning task and repeats its red-green cycle.
+- No planned source edits; any reviewer finding returns to the owning task and repeats its
+  red-green cycle.
 
 **Interfaces:**
 
 - Consumes: clean pushed branch, full local evidence, protected branch settings.
-- Produces: no unresolved Critical/Important review item and four successful required contexts on the exact PR head SHA.
+- Produces: no unresolved Critical/Important review item and four successful required contexts on
+  the exact PR head SHA.
 
 - [ ] **Step 1: Run independent security and governance reviews**
 
@@ -1070,7 +1137,8 @@ Reviewer A: .github/workflows/ci-affected.yml, .github/dependabot.yml, required-
 Reviewer B: WASM manifests/locks/build scripts/generated outputs, Hydroponics jsdom/Nx runner, security tests, and audit evidence.
 ```
 
-Expected: each reviewer reads `origin/main...HEAD`, runs focused verification, and reports severity-ranked issues. Resolve every Critical/Important finding before continuing.
+Expected: each reviewer reads `origin/main...HEAD`, runs focused verification, and reports
+severity-ranked issues. Resolve every Critical/Important finding before continuing.
 
 - [ ] **Step 2: Rebase-free freshness check and final signed-tree check**
 
@@ -1081,7 +1149,9 @@ git status --short --branch
 git log --format='%H %G? %s' origin/main..HEAD
 ```
 
-Expected: `0` commits behind, clean worktree, every new commit signature marker `G`. If `origin/main` advanced, merge `origin/main` normally, resolve conflicts without rewriting history, rerun Task 5, commit, and push.
+Expected: `0` commits behind, clean worktree, every new commit signature marker `G`. If
+`origin/main` advanced, merge `origin/main` normally, resolve conflicts without rewriting history,
+rerun Task 5, commit, and push.
 
 - [ ] **Step 3: Create or update the PR with a compliant title and evidence body**
 
@@ -1096,7 +1166,9 @@ HEAD_SHA="$(git rev-parse HEAD)"
 printf 'PR=%s\nNUMBER=%s\nHEAD=%s\n' "$PR_URL" "$PR_NUMBER" "$HEAD_SHA"
 ```
 
-Then edit the PR body to add the exact local counts, five Rust audits, six npm audit thresholds, independent review result, and the four intended squash trailers. Do not claim GitHub checks that have not completed.
+Then edit the PR body to add the exact local counts, five Rust audits, six npm audit thresholds,
+independent review result, and the five intended squash trailers. Do not claim GitHub checks that
+have not completed.
 
 - [ ] **Step 4: Wait for required contexts on the exact head SHA**
 
@@ -1109,11 +1181,15 @@ gh api "repos/Okan-wqm/aquaculture_platform/commits/${HEAD_SHA}/check-runs" \
   --jq '.check_runs[] | [.name, .status, .conclusion, .head_sha] | @tsv'
 ```
 
-Expected on `$HEAD_SHA`: `sens-enterprise-summary`, `merge-gate`, `aria-merge-authority`, and `build-status` all have conclusion `success`. A cancelled, stale-SHA, neutral, skipped required producer, or administrator override is not success.
+Expected on `$HEAD_SHA`: `sens-enterprise-summary`, `merge-gate`, `aria-merge-authority`, and
+`build-status` all have conclusion `success`. A cancelled, stale-SHA, neutral, skipped required
+producer, or administrator override is not success.
 
 - [ ] **Step 5: Apply the verification-before-completion gate**
 
-Use `superpowers:verification-before-completion` and repeat the smallest commands that prove the final post-review tree: focused invariants, five Rust audits, six npm audits, `git diff --check`, signature list, and required check snapshot. Only then declare the PR mergeable.
+Use `superpowers:verification-before-completion` and repeat the smallest commands that prove the
+final post-review tree: focused invariants, five Rust audits, six npm audits, `git diff --check`,
+signature list, and required check snapshot. Only then declare the PR mergeable.
 
 ---
 
@@ -1131,7 +1207,8 @@ Use `superpowers:verification-before-completion` and repeat the smallest command
 **Interfaces:**
 
 - Consumes: green PR number, exact PR head, protected squash merge, resulting `origin/main` SHA.
-- Produces: merged production hardening, successful post-merge Actions/deploy evidence, and registry findings resolved against one reachable closing SHA.
+- Produces: merged production hardening, successful post-merge Actions/deploy evidence, and
+  registry findings resolved against one reachable closing SHA.
 
 - [ ] **Step 1: Squash merge without bypass and with canonical finding trailers**
 
@@ -1139,7 +1216,7 @@ Use `superpowers:verification-before-completion` and repeat the smallest command
 PR_NUMBER="$(gh pr view --json number --jq .number)"
 gh pr merge "$PR_NUMBER" --squash \
   --subject 'security(release): close production security blockers' \
-  --body $'Close the MQTT authentication/replay, admin SQL identifier, JavaScript advisory, and standalone dependency release-gate findings with fresh local and protected-CI evidence.\n\nCloses: docs/reviews/security-reviewer/2026-08-25-production-security-audit.md#RUST-HIGH-003\nCloses: docs/reviews/security-reviewer/2026-08-25-production-security-audit.md#ADMIN-HIGH-005\nCloses: docs/reviews/security-reviewer/2026-08-25-production-security-audit.md#SUPPLY-CRITICAL-002\nCloses: docs/reviews/security-reviewer/2026-08-25-production-security-audit.md#SUPPLY-HIGH-003'
+  --body $'Close the MQTT authentication/replay, admin SQL identifier, JavaScript advisory, standalone dependency release-gate, and ARIA launch-anchor ordering findings with fresh local and protected-CI evidence.\n\nCloses: docs/reviews/security-reviewer/2026-08-25-production-security-audit.md#RUST-HIGH-003\nCloses: docs/reviews/security-reviewer/2026-08-25-production-security-audit.md#ADMIN-HIGH-005\nCloses: docs/reviews/security-reviewer/2026-08-25-production-security-audit.md#SUPPLY-CRITICAL-002\nCloses: docs/reviews/security-reviewer/2026-08-25-production-security-audit.md#SUPPLY-HIGH-003\nCloses: docs/reviews/aria/2026-08-25-cycle-seal-deadline-anchoring.md#ARIA-HIGH-019'
 ```
 
 Expected: merge succeeds through branch protection without `--admin`; GitHub reports the PR merged.
@@ -1155,12 +1232,12 @@ git merge-base --is-ancestor "$MERGED_SHA" origin/main
 git show -s --show-signature --format='%H%n%G? %GS%n%B' "$MERGED_SHA"
 gh api "repos/Okan-wqm/aquaculture_platform/git/commits/${MERGED_SHA}" \
   --jq '.verification.verified' | grep -Fxq true
-for finding in RUST-HIGH-003 ADMIN-HIGH-005 SUPPLY-CRITICAL-002 SUPPLY-HIGH-003; do
+for finding in RUST-HIGH-003 ADMIN-HIGH-005 SUPPLY-CRITICAL-002 SUPPLY-HIGH-003 ARIA-HIGH-019; do
   git show -s --format=%B "$MERGED_SHA" | grep -Fq "#${finding}"
 done
 ```
 
-Expected: ancestor, GitHub signature verification, and all four trailer checks
+Expected: ancestor, GitHub signature verification, and all five trailer checks
 exit 0.
 
 - [ ] **Step 3: Watch post-merge Actions and normal deployment evidence**
@@ -1212,12 +1289,13 @@ Confirm CI Affected invoked staging/production because this merge contains
 deploy-capable runtime/config changes. Do not dispatch a replacement deployment
 manually.
 
-Expected: main CI/build/security workflows succeed; the repository's normal staging, production, and post-deploy verification chain reports success for `$MERGED_SHA`.
+Expected: main CI/build/security workflows succeed; the repository's normal staging, production,
+and post-deploy verification chain reports success for `$MERGED_SHA`.
 
 If any run, deployed tag, health proof, or evidence-artifact assertion fails,
-stop here, report the exact failed run, and leave all four findings
-`IN-PROGRESS`. Do not create the closure worktree or manually dispatch a
-replacement deployment.
+stop here, report the exact failed run, leave the four production-security
+findings `IN-PROGRESS`, and leave `ARIA-HIGH-019` open. Do not create the closure
+worktree or manually dispatch a replacement deployment.
 
 - [ ] **Step 4: Create an isolated post-merge finding-closure worktree**
 
@@ -1250,6 +1328,7 @@ npm run findings:close -- RUST-HIGH-003 "$MERGED_SHA"
 npm run findings:close -- ADMIN-HIGH-005 "$MERGED_SHA"
 npm run findings:close -- SUPPLY-CRITICAL-002 "$MERGED_SHA"
 npm run findings:close -- SUPPLY-HIGH-003 "$MERGED_SHA"
+npm run findings:close -- ARIA-HIGH-019 "$MERGED_SHA"
 rg -n "SUPPLY-CRITICAL-002" \
   docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json \
   docs/plans/2026-06-18-enterprise-grade-debt-closure/finding-truth-table.md
@@ -1275,11 +1354,15 @@ npm run quality:format-scope:check
 npm run invariants:fast
 ```
 
-Expected: each CLI reports `state=RESOLVED` with `$MERGED_SHA`; chain verification succeeds. Never edit registry hashes by hand.
+Expected: each CLI reports `state=RESOLVED` with `$MERGED_SHA`; chain verification succeeds.
+Never edit registry hashes by hand.
 
 - [ ] **Step 6: Align the narrative audit states and commit the closure ceremony**
 
-Change the four audit headings' states from `IN-PROGRESS` to `RESOLVED` and add the exact squash SHA plus successful main workflow URLs to their final evidence. Then:
+Change the four production-security audit headings' states from `IN-PROGRESS` to `RESOLVED` and
+add the exact squash SHA plus successful main workflow URLs to their final evidence.
+`ARIA-HIGH-019` has no narrative state field in its review file; its canonical registry state is
+closed by the CLI in Step 5. Then:
 
 ```bash
 npx prettier --write \

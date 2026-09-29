@@ -82,5 +82,60 @@ class ConformalTest(unittest.TestCase):
         self.assertAlmostEqual(w["j1"], 10 / 13)
 
 
+class CorrelationDiscountTest(unittest.TestCase):
+    """G-2 — summing the weights of two judges who are one observer.
+
+    ``generate_ai_consensus`` decides by weight SHARE, so an undiscounted
+    correlated pair does not merely agree twice: it outvotes an equally
+    calibrated independent judge on arithmetic alone.
+    """
+
+    JUDGES = [
+        {"judge_id": "twin-a", "true_positive": 6, "false_positive": 2},
+        {"judge_id": "twin-b", "true_positive": 6, "false_positive": 2},
+        {"judge_id": "solo", "true_positive": 6, "false_positive": 2},
+    ]
+
+    def test_a_correlated_pair_weighs_less_than_two_independent_judges(self) -> None:
+        w = judge_weights_from_calibration({
+            "judges": self.JUDGES,
+            "judge_pairs": [
+                {"judge_a": "twin-a", "judge_b": "twin-b",
+                 "co_observations": 12, "kappa": 1.0, "status": "correlated"},
+                {"judge_a": "solo", "judge_b": "twin-a",
+                 "co_observations": 12, "kappa": 0.1, "status": "independent"},
+            ],
+        })
+        independent = 10 / 13
+        self.assertLess(w["twin-a"] + w["twin-b"], 2 * independent)
+        # kappa 1.0 between the twins, 0.1 from twin-a's tie to solo.
+        self.assertAlmostEqual(w["twin-a"], independent / 2.1)
+        self.assertAlmostEqual(w["twin-b"], independent / 2.0)
+        self.assertAlmostEqual(w["solo"], independent / 1.1)
+
+    def test_an_unmeasured_pair_changes_nothing(self) -> None:
+        # kappa None = not enough shared questions yet. The consumer reads the
+        # absence, so the lane weighs exactly as it did before G-2.
+        w = judge_weights_from_calibration({
+            "judges": self.JUDGES,
+            "judge_pairs": [
+                {"judge_a": "twin-a", "judge_b": "twin-b",
+                 "co_observations": 2, "kappa": None, "status": "insufficient_data"},
+            ],
+        })
+        self.assertAlmostEqual(w["twin-a"], 10 / 13)
+        self.assertAlmostEqual(w["twin-b"], 10 / 13)
+
+    def test_systematic_disagreement_earns_no_bonus(self) -> None:
+        w = judge_weights_from_calibration({
+            "judges": self.JUDGES,
+            "judge_pairs": [
+                {"judge_a": "twin-a", "judge_b": "twin-b",
+                 "co_observations": 12, "kappa": -0.4, "status": "independent"},
+            ],
+        })
+        self.assertAlmostEqual(w["twin-a"], 10 / 13)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -220,13 +220,48 @@ def judge_weights_from_calibration(
     prior_a: float = PRIOR_A,
     prior_b: float = PRIOR_B,
 ) -> dict[str, float]:
-    """Per-judge Beta-posterior precision means from a calibration row.
+    """Per-judge Beta-posterior precision means, discounted for redundancy.
 
     Kalibre Zekâ Z2a. Input is the latest judge-calibration ledger row
     (judges[] with true_positive/false_positive counts); output maps
     judge_id -> posterior mean. Judges absent from the row weigh at the
     prior mean — a brand-new judge is neither trusted nor muted.
+
+    G-2 — the SUM was the bug. ``generate_ai_consensus`` adds these weights
+    per verdict, so two judges who are one observer twice over were counted
+    as two independent votes and could outvote an independent judge by
+    arithmetic rather than by evidence. The same ledger row now carries
+    ``judge_pairs[]`` (Cohen kappa per unordered pair), and each judge's
+    weight is divided by ``1 + sum(kappa)`` over its measured partners:
+
+    * kappa 0 divides by 1 and changes nothing — the load-bearing no-op,
+      the same shape as ``calibrated_multiplier`` at zero observations, so
+      an unmeasured or genuinely independent fleet votes exactly as before;
+    * a pair at kappa 1.0 halves both, so the PAIR carries one vote;
+    * three judges mutually at kappa 1.0 carry one vote between them.
+
+    A pair the producer has not measured yet carries ``kappa: None`` and is
+    skipped — the consumer reads that absence and never the status string,
+    so the "enough shared questions?" threshold keeps a single owner. kappa
+    below 0 (systematic DISagreement) floors at 0: disagreement is not
+    evidence of extra observers, and paying a bonus for it would reward a
+    judge for being reliably wrong.
     """
+    redundancy: dict[str, float] = {}
+    for pair in (calibration_row or {}).get("judge_pairs") or []:
+        kappa = pair.get("kappa")
+        if isinstance(kappa, bool) or not isinstance(kappa, (int, float)):
+            continue
+        shared = min(1.0, max(0.0, float(kappa)))
+        if shared <= 0.0:
+            continue
+        left = str(pair.get("judge_a") or "")
+        right = str(pair.get("judge_b") or "")
+        if not left or not right:
+            continue
+        redundancy[left] = redundancy.get(left, 0.0) + shared
+        redundancy[right] = redundancy.get(right, 0.0) + shared
+
     weights: dict[str, float] = {}
     for judge in (calibration_row or {}).get("judges") or []:
         judge_id = str(judge.get("judge_id") or "")
@@ -238,7 +273,7 @@ def judge_weights_from_calibration(
             prior_a=prior_a,
             prior_b=prior_b,
         )
-        weights[judge_id] = post["mean"]
+        weights[judge_id] = post["mean"] / (1.0 + redundancy.get(judge_id, 0.0))
     return weights
 
 

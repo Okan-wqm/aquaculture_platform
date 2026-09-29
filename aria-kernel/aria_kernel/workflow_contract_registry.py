@@ -199,7 +199,21 @@ _EXECUTOR_WORK_STEP = "Run CI executor"
 _EXECUTOR_BREAKER_QUARANTINE_STEP = "Quarantine damaged breaker evidence (recovery dispatch)"
 _CYCLE_RESTORE_STEP = _RESTORE_STEP
 _CYCLE_LEASE_STEP = "Pre-flight - cross-host autonomous-loop lease check"
-_CYCLE_WORK_STEP = "Run nightly standard-profile cycle"
+# ORPHAN-HIGH-728 — the step no longer names a fixed profile, because the
+# profile is now a verdict bounded by an operator ceiling. The old name
+# asserted `standard` in a place a contract could not check, which is how it
+# kept describing the lane after the lane changed.
+_CYCLE_WORK_STEP = "Run the nightly cycle under the resolved profile"
+
+# The two steps that decide and then DECLARE the night's authority. Contracted
+# because their ORDER is the boundary: a run that reached the work step
+# without resolving the profile would be running an unbounded one, and a run
+# that resolved it without re-declaring it would leave the audit artifact
+# asserting an authority the run did not take.
+_CYCLE_PROFILE_GATE_STEP = "Resolve the cycle profile within the operator ceiling"
+_CYCLE_RESOLVED_PREFLIGHT_STEP = (
+    "Persist enterprise workflow preflight for the resolved profile"
+)
 
 # The store worktree, as the workflow path allowlist spells it. One constant
 # because four contract fields and two YAMLs have to agree on it.
@@ -357,7 +371,15 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 allowed_write_path_patterns=(
                     rf"^{_STORE_ROOT}(/.*)?$",
                 ),
-                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-auto-cycle-preflight\.json$",
+                # ORPHAN-HIGH-728 — TWO preflight artifacts on this lane. The
+                # pre-restore one declares the lane's structural ceiling (it
+                # runs before the store is bound and cannot know the night's
+                # profile); the `-resolved` one declares what the profile gate
+                # actually chose, which is what makes
+                # `frozen_profile_blocks_mutating_workflow` reachable here.
+                # The suffix is contracted rather than free-form so a third
+                # artifact cannot appear without this line changing.
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-auto-cycle-preflight(-resolved)?\.json$",
                 # The governed upload is the FORENSIC CACHE, and the run-scoped
                 # name is the contract's own statement that it is not
                 # authoritative. Under the old canonical name the artifact WAS
@@ -407,6 +429,8 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 required_steps=(
                     _CYCLE_RESTORE_STEP,
                     _CYCLE_LEASE_STEP,
+                    _CYCLE_PROFILE_GATE_STEP,
+                    _CYCLE_RESOLVED_PREFLIGHT_STEP,
                     _CYCLE_WORK_STEP,
                     _PUBLISH_STEP,
                     "Quarantine unverified ARIA state",
@@ -414,6 +438,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 ),
                 step_order=(
                     (_CYCLE_RESTORE_STEP, _CYCLE_LEASE_STEP),
+                    # The profile is resolved AFTER the restore, because the
+                    # operator ceiling and the acceptance ladder both live in
+                    # the durable store, and DECLARED before the work step.
+                    (_CYCLE_RESTORE_STEP, _CYCLE_PROFILE_GATE_STEP),
+                    (_CYCLE_PROFILE_GATE_STEP, _CYCLE_RESOLVED_PREFLIGHT_STEP),
+                    (_CYCLE_RESOLVED_PREFLIGHT_STEP, _CYCLE_WORK_STEP),
                     (_CYCLE_WORK_STEP, _PUBLISH_STEP),
                     (_CYCLE_WORK_STEP, "Quarantine unverified ARIA state"),
                     (_CYCLE_WORK_STEP, "Fail on unverified ARIA state"),

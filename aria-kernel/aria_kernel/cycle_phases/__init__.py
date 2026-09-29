@@ -11,7 +11,9 @@ contract without re-touching the orchestrator body.
 * `plan_source.PlanContentProvider` — V9.4 candidate mining + V7
   git-diff fallback (V3.1-A consumes).
 * `implementer.V9ImplementationRunner` — V9 implementation-phase
-  orchestration (V3.1-B consumes).
+  orchestration (V3.1-B consumes). Which concrete variant a profile
+  gets is derived from `runtime_profile.ACTION_PERMISSIONS`
+  (ORPHAN-HIGH-728), never re-enumerated here.
 * `memory.MemoryHook` — post-CONVERGED KG record + skill genesis
   stability check (V3.1-C consumes).
 * `cost_telemetry.CostTelemetryHook` — V10.4 invocation-role
@@ -46,9 +48,9 @@ from .cost_telemetry import (
     select_cost_telemetry_hook,
 )
 from .implementer import (
+    IMPLEMENTATION_ACTION_KIND,
     AutonomousV9ImplementationRunner,
     NoOpV9ImplementationRunner,
-    StrictV9ImplementationRunner,
     V9ImplementationResult,
     V9ImplementationRunner,
     select_v9_implementation_runner,
@@ -69,6 +71,7 @@ from .plan_source import (
 from .profile_gate import NoOpProfileGate, ProfileGate
 
 __all__ = [
+    "IMPLEMENTATION_ACTION_KIND",
     "AutonomousV9ImplementationRunner",
     "CostAttributionEnvelope",
     "CostTelemetryHook",
@@ -83,7 +86,6 @@ __all__ = [
     "NoOpV9ImplementationRunner",
     "PlanContentProvider",
     "ProfileGate",
-    "StrictV9ImplementationRunner",
     "V7GitDiffProvider",
     "V9ImplementationResult",
     "V9ImplementationRunner",

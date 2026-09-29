@@ -8,6 +8,7 @@ import re
 import time
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -15,7 +16,13 @@ from typing import Any, Iterator
 from .agent_priors import reviewer_names
 from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES
 from .ledger import append_declared_jsonl, load_declared_jsonl, verify_jsonl
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .tool_registry import (
+    GovernanceError,
+    append_tools_governance,
+    ensure_tools_dir,
+    parse_utc_stamp,
+    utc_now,
+)
 
 
 FINDING_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-(CRITICAL|HIGH|MEDIUM|LOW)-[0-9]{3,}$")
@@ -725,6 +732,53 @@ _IMPLEMENTATION_PHASE_STATES = {
 STALE_PLAN_MAX_AGE_HOURS: int = 72
 
 
+# ORPHAN-HIGH-729 — how long an implementation request is allowed to be
+# OUTSTANDING before the startup reaper calls it orphaned.
+#
+# The reaper was written when mint and drain lived inside ONE process:
+# anything still REQUESTED/IN_FLIGHT at startup could only be the debris
+# of a crash, so no age bound was needed. The topology moved underneath
+# it — the cycle lane mints the envelope and the executor lane, a
+# separate `workflow_run`-chained run, drains it later — and an unbounded
+# reaper in that world does not collect debris, it races the executor and
+# usually wins: every plan whose executor window slipped was rejected with
+# `orchestrator_restart_reaped_orphan` before the agent it was waiting for
+# ever started.
+#
+# 24h = one executor window (the chained drain, plus the nightly schedule
+# as its floor) plus slack for a re-run. DELIBERATELY not folded into
+# STALE_PLAN_MAX_AGE_HOURS: that one mirrors autonomy_unlock's acceptance
+# gap and governs plan ADOPTION, a different question with a different
+# right answer. Two names because they are two policies that happen to be
+# measured in the same unit.
+ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS: int = 24
+
+
+def _event_stamp_bounds_by_plan(root: Path) -> dict[str, tuple[str, str]]:
+    """``{plan_id: (first_recorded_at, last_recorded_at)}`` — ONE ledger pass.
+
+    ORPHAN-HIGH-729 — the FIRST stamp is carried because the last one can be
+    unreadable. A plan whose newest event has a mangled ``recorded_at`` is
+    still a plan that demonstrably started at some point, and the reaper
+    needs a second way to date it before it concludes that it cannot be dated
+    at all. Both ends come from the same pass, so the second answer costs
+    nothing beyond a tuple.
+    """
+    bounds: dict[str, tuple[str, str]] = {}
+    path = events_path(root)
+    if not path.exists():
+        return bounds
+    for event in load_declared_jsonl(
+        path, expected_surface="plan_convergence_events",
+    ):
+        pid = event.get("plan_id")
+        ts = event.get("recorded_at")
+        if isinstance(pid, str) and pid and isinstance(ts, str):
+            first = bounds[pid][0] if pid in bounds else ts
+            bounds[pid] = (first, ts)
+    return bounds
+
+
 def _last_event_at_by_plan(root: Path) -> dict[str, str]:
     """Newest ``recorded_at`` per plan — ONE definition for scanner + resume.
 
@@ -733,28 +787,100 @@ def _last_event_at_by_plan(root: Path) -> dict[str, str]:
     row reported ``last_event_at: None`` — the same writer-reader field
     mismatch class the E8 sweep exists to kill.
     """
-    stamps: dict[str, str] = {}
-    path = events_path(root)
-    if not path.exists():
-        return stamps
-    for event in load_declared_jsonl(
-        path, expected_surface="plan_convergence_events",
-    ):
-        pid = event.get("plan_id")
-        ts = event.get("recorded_at")
-        if isinstance(pid, str) and pid and isinstance(ts, str):
-            stamps[pid] = ts
-    return stamps
+    return {
+        pid: last for pid, (_first, last) in _event_stamp_bounds_by_plan(root).items()
+    }
 
 
 def _older_than_hours(timestamp: str, hours: int) -> bool:
-    from datetime import datetime, timedelta, timezone
+    """True when ``timestamp`` is older than ``hours``.
 
-    try:
-        then = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    except ValueError:
+    ORPHAN-HIGH-729 — an UNREADABLE stamp answers False here, which reads as
+    "not old enough yet". That is the right answer for the adoption path this
+    serves (`resume_candidate_plan_id` must not abandon a plan on the
+    strength of a stamp it could not read) and the wrong one for anything
+    that needs to tell "recent" from "undateable" apart. Callers that need
+    the difference use `decide_orphan_reap`, which parses once and routes the
+    unreadable case to its own outcome instead of collapsing it into a bool.
+    """
+    then = parse_utc_stamp(timestamp)
+    if then is None:
         return False
     return datetime.now(timezone.utc) - then > timedelta(hours=hours)
+
+
+# ORPHAN-HIGH-729 — the three things that can be true of an outstanding
+# implementation request, named. Strings and not an Enum to match the event
+# payload vocabulary this module already writes into governance rows.
+ORPHAN_DECISION_REAP: str = "reap"
+ORPHAN_DECISION_SPARE_RECENT: str = "spare_recent"
+ORPHAN_DECISION_ESCALATE_UNDATEABLE: str = "escalate_undateable"
+
+
+@dataclass(frozen=True)
+class OrphanReapDecision:
+    """What the startup reaper should do with one outstanding request."""
+
+    decision: str
+    age_source: str | None
+    stamp: str | None
+    age_hours: float | None
+
+
+def decide_orphan_reap(
+    orphan: dict[str, Any],
+    *,
+    reap_after_hours: int = ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
+    now: datetime | None = None,
+) -> OrphanReapDecision:
+    """Age an outstanding implementation request, or admit that you cannot.
+
+    ORPHAN-HIGH-729 (review round 2) — the reap bound was first written as
+    `if not _older_than_hours(stamp, N): spare`, which cannot distinguish a
+    request minted ten minutes ago from one whose stamp is corrupt: the bool
+    says False for both. Combined with sparing the undateable, that made a
+    plan with an unreadable clock IMMORTAL — spared by the reaper forever,
+    and never seen by `resume_candidate_plan_id`, which skips
+    `_IMPLEMENTATION_PHASE_STATES` outright and so was never the backstop an
+    earlier version of this comment claimed it was.
+
+    So the age is established here, once, from the two stamps the scanner
+    carries, in order:
+
+    1. ``last_event_at`` — the plan's newest activity, the honest clock.
+    2. ``first_event_at`` — its birth. Older than the last event by
+       definition, so falling back to it can only make a plan look OLDER,
+       never younger: it cannot spare something that should be reaped, and it
+       gives a plan with one mangled row a real terminal path.
+
+    Neither readable means this plan has no usable clock anywhere in its
+    event stream — which `_append_event` cannot produce, so the ledger has
+    been corrupted or hand-written. That is not a scheduling question and the
+    caller escalates it to a human instead of guessing in either direction.
+    """
+    reference = now or datetime.now(timezone.utc)
+    for source in ("last_event_at", "first_event_at"):
+        raw = orphan.get(source)
+        parsed = parse_utc_stamp(raw) if isinstance(raw, str) and raw else None
+        if parsed is None:
+            continue
+        age = reference - parsed
+        return OrphanReapDecision(
+            decision=(
+                ORPHAN_DECISION_REAP
+                if age > timedelta(hours=reap_after_hours)
+                else ORPHAN_DECISION_SPARE_RECENT
+            ),
+            age_source=source,
+            stamp=raw,
+            age_hours=round(age.total_seconds() / 3600.0, 3),
+        )
+    return OrphanReapDecision(
+        decision=ORPHAN_DECISION_ESCALATE_UNDATEABLE,
+        age_source=None,
+        stamp=None,
+        age_hours=None,
+    )
 
 
 def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | None:
@@ -1215,7 +1341,8 @@ def scan_orphan_implementation_requests(
     record_implementation_rejected("orchestrator_restart_reaped_orphan").
 
     Returns list of dicts shaped:
-        {"plan_id": str, "state": str, "last_event_at": str | None}
+        {"plan_id": str, "state": str, "last_event_at": str | None,
+         "first_event_at": str | None}
 
     Scans `plans/events.jsonl` exactly once + folds state per
     distinct plan_id (O(N events + K plans × cached fold)).
@@ -1228,17 +1355,20 @@ def scan_orphan_implementation_requests(
     # C12/E8 — reads recorded_at via the shared helper: this loop used to
     # read ts/created_at, fields no event writer emits, so every orphan
     # row reported last_event_at: None.
-    plan_ids: dict[str, str | None] = {}
+    plan_ids: dict[str, tuple[str | None, str | None]] = {}
     for event in load_declared_jsonl(
         events_file,
         expected_surface="plan_convergence_events",
     ):
         pid = event.get("plan_id")
         if isinstance(pid, str) and pid:
-            plan_ids.setdefault(pid, None)
-    plan_ids.update(_last_event_at_by_plan(root))
+            plan_ids.setdefault(pid, (None, None))
+    # ORPHAN-HIGH-729 — both ends of the plan's stamp range travel with the
+    # row, so the reap decision downstream has a second way to date a plan
+    # whose newest stamp is unreadable instead of only a way to give up.
+    plan_ids.update(_event_stamp_bounds_by_plan(root))
     orphans: list[dict[str, Any]] = []
-    for plan_id, last_ts in plan_ids.items():
+    for plan_id, (first_ts, last_ts) in plan_ids.items():
         try:
             state = fold_plan_state(plan_id=plan_id, base_dir=root)
         except Exception:
@@ -1251,6 +1381,7 @@ def scan_orphan_implementation_requests(
                 "plan_id": plan_id,
                 "state": s,
                 "last_event_at": last_ts,
+                "first_event_at": first_ts,
             })
     return orphans
 

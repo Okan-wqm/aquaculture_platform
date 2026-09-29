@@ -71,8 +71,22 @@ can never ride the narrow lane.
    → REAL 30-cycle observe burn-in → `record_burn_in_acceptance(mode="real")`
    bridges the report into the acceptance ledger → `autonomy unlock` verdict
    for ladder-L1 flips valid.
-2. Observe ≥1 week of nightly standard-profile cycles (aria-auto-cycle cron)
-   with the daily anchor `roi` block confirming spend behaves within caps.
+2. Observe ≥1 week of nightly cycles at the DEFAULT scheduler ceiling
+   (aria-auto-cycle cron) with the daily anchor `roi` block confirming spend
+   behaves within caps.
+
+   > **Amendment 2026-08-19 (ORPHAN-HIGH-728).** The nightly lane no longer
+   > hardcodes `--profile standard`: it resolves
+   > `min(scheduler_profile_ceiling, L1-ladder verdict)` per run. This step
+   > stays reachable because the ceiling defaults to `standard` and only an
+   > operator can raise it (`runtime_profile.set_profile` refuses a
+   > non-operator setter that tries), so step 1 flipping the ladder valid
+   > cannot end the observation window step 2 is made of. Raising the ceiling
+   > to `strict` is a SEPARATE operator gesture — it belongs after this
+   > window, and it grants PR-opening authority only: `pr_merge` remains
+   > `autonomous`-only and no scheduled resolution can reach `autonomous`
+   > (`runtime_profile.SCHEDULER_MAX_PROPOSABLE_PROFILE`), so steps 3-4 below
+   > are unchanged and still gate every merge.
 3. Enable the master switch via the auto-merge policy override (explicit
    commit, reviewed like any policy change — it lives under a risk-L3 path).
 4. Start an autonomous-profile run with `--operator-approval-ref`; watch the

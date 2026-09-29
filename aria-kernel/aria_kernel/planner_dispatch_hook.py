@@ -464,11 +464,13 @@ def dispatch_one_pending_planner_request(
         # the SCHEDULED lane.
         #
         # WHY HERE. The nightly is aria-auto-cycle.yml -> `autonomy run
-        # --profile standard` -> run_autonomy_orchestrator, which calls the
-        # planner drainer unconditionally after the cycle phase. The drainer's
-        # default hook is THIS function and its profile gate is `agent_claim`,
-        # which `standard` permits. So this arm sits on a path a schedule
-        # actually walks.
+        # --profile <resolved within the operator ceiling>` ->
+        # run_autonomy_orchestrator, which calls
+        # the planner drainer unconditionally after the cycle phase. The
+        # drainer's default hook is THIS function and its profile gate is
+        # `agent_claim`, which BOTH profiles that lane can resolve to
+        # (`standard`, `strict`) permit. So this arm sits on a path a schedule
+        # actually walks, whichever way the ladder answers.
         #
         # WHY NOT the cycle's pr_lifecycle phase, where the producer was first
         # placed. When this was written there were three independent reasons it
@@ -479,13 +481,15 @@ def dispatch_one_pending_planner_request(
         # exact defect class this branch exists to close.
         #
         # RC-1 removed the second reason: `pr_lifecycle` is now a row in
-        # `cycle.CYCLE_PHASES` rather than an opt-in phase. The other two stand,
-        # and the phase's precondition reads `ACTION_PERMISSIONS["pr_open"]`, so
-        # under the nightly's `standard` profile it records a skip. The
-        # conclusion is unchanged for a different reason, which is worth stating
-        # rather than leaving a comment that would read as still-true by
-        # accident: this arm remains the breaker's live producer on the
-        # scheduled lane.
+        # `cycle.CYCLE_PHASES` rather than an opt-in phase. ORPHAN-HIGH-728
+        # removed the first ON THE NIGHTS THE LADDER GRANTS STRICT: the phase's
+        # precondition reads `ACTION_PERMISSIONS["pr_open"]`, which `standard`
+        # withholds and `strict` grants, so it now records a skip on a demoted
+        # night and runs on an unlocked one. The third reason stands — the
+        # proposal set it iterates still has no autonomous producer — and the
+        # conclusion is unchanged: this arm remains the breaker's live producer
+        # on the scheduled lane. Stated rather than left to read as still-true
+        # by accident, which is the failure ORPHAN-HIGH-728 itself was.
         #
         # WHY subprocess_timeout. It is already a declared FAILURE_KIND and it
         # is literally what happened: the agent subprocess blew its wall-clock

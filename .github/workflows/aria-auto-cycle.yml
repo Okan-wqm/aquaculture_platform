@@ -4,12 +4,23 @@ name: aria-auto-cycle
 # ORPHAN-MEDIUM-296) — the scheduled PRODUCER lane. aria-agent-executor
 # (02:00 UTC) only drains an already-minted queue; this workflow runs the
 # full `aria-kernel autonomy run` orchestration (discovery → pressure →
-# triage → planner/bridge/worker drains) nightly under the STANDARD
-# profile: no auto-merge, no implementation phase, $3.00 per-cycle hard
-# cap (K4 re-baseline).
+# triage → planner/bridge/worker drains) nightly.
+#
+# ORPHAN-HIGH-728 — the profile is RESOLVED, not fixed, and the resolution
+# is BOUNDED. The `profile_gate` step calls
+# `autonomy_unlock.resolve_scheduled_profile`, which proposes `strict` when
+# the L1 ladder is valid and then bounds that proposal by the
+# operator-recorded `scheduler_profile_ceiling` (default `standard`). Strict
+# is what `runtime_profile` defines as the full implementation pipeline
+# (claim → planned → committed → validated → PR); standard withholds
+# `pr_create`, which is why this lane used to converge plans it could never
+# turn into a pull request — and why reaching strict on a schedule takes an
+# operator gesture rather than a night of good evidence. Merge authority is
+# untouched by either: `pr_merge` is autonomous-only and no resolution here
+# can emit `autonomous`.
 #
 # Two dispatch modes:
-#   mode=cycle           — one standard-profile cycle (the nightly default)
+#   mode=cycle           — one ceiling-bounded, L1-resolved cycle (default)
 #   mode=burn-in-observe — REAL-mode observe burn-in (30 cycles, LLM-free)
 #                          + the operator bridge that records
 #                          observe_success acceptance events toward the
@@ -54,7 +65,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'cycle = one standard-profile cycle; burn-in-observe = REAL observe burn-in + L1 ladder bridge'
+        description: 'cycle = one cycle at min(operator scheduler ceiling, L1 ladder verdict); burn-in-observe = REAL observe burn-in + L1 ladder bridge'
         required: false
         default: 'cycle'
         type: choice
@@ -203,6 +214,7 @@ jobs:
           from pathlib import Path
 
           from aria_kernel.preflight import verify_workflow_preflight
+          from aria_kernel.runtime_profile import SCHEDULER_MAX_PROPOSABLE_PROFILE
 
           # PLAN Wave 1 PR 2.6b — ONE declared write root, because after the
           # cutover there is one. The cycle's three state roots (tools,
@@ -216,7 +228,15 @@ jobs:
           verdict = verify_workflow_preflight(
               workflow_id="aria-auto-cycle",
               job_id="cycle",
-              profile="standard",
+              # ORPHAN-HIGH-728 — this preflight runs BEFORE the state store
+              # is bound, so it cannot know tonight's profile; what it can
+              # declare honestly is the lane's STRUCTURAL ceiling, the most
+              # any resolution here could ever produce. Read from the kernel
+              # rather than written as a literal, so a constant that moves
+              # moves this declaration with it. The profile the run actually
+              # took is declared by the second preflight after the resolver,
+              # and recorded by `set_profile` in runtime-profile-history.jsonl.
+              profile=SCHEDULER_MAX_PROPOSABLE_PROFILE,
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=allowed,
               path_allowlist=allowed,
@@ -237,7 +257,11 @@ jobs:
               require_github_app=False,
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
-              audit_reason="nightly standard-profile producer cycle over the durable aria/state store",
+              audit_reason=(
+                  "nightly producer cycle over the durable aria/state store; "
+                  "profile resolved per run from the L1 autonomy ladder "
+                  "(strict when valid, standard otherwise)"
+              ),
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-auto-cycle-preflight.json",
               external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
@@ -424,7 +448,164 @@ jobs:
         with:
           tools-dir: ${{ env.ARIA_TOOLS_DIR }}
 
-      - name: Run nightly standard-profile cycle
+      # ORPHAN-HIGH-728 — WHICH PROFILE THE NIGHT RUNS UNDER IS A VERDICT
+      # THE OPERATOR BOUNDS, NOT A LITERAL AND NOT A SELF-GRANT.
+      #
+      # This lane hardcoded `--profile standard` while `runtime_profile`
+      # withholds `pr_create`/`pr_open` from standard, so every night ARIA
+      # could converge a plan and then had no authority to open the pull
+      # request that plan describes. The pipeline the profile table calls
+      # "full implementation (claim -> planned -> committed -> validated ->
+      # PR)" is `strict`, and this step is what asks whether the repository
+      # has earned it tonight.
+      #
+      # Earning it is not the same as being granted it. ADR-033 records
+      # strict as an operator decision and ADR-041 spends a week of observed
+      # standard-profile nights before one; a lane that read its own
+      # acceptance evidence as that grant would be handing itself the gesture
+      # both documents reserve for a human — and would end the observation
+      # window with the very event that window exists to produce. So the
+      # answer is bounded by `scheduler_profile_ceiling`, an operator value
+      # persisted through the EXISTING `runtime_profile` control plane
+      # (default `standard`): the ladder chooses WITHIN the grant and can
+      # never widen it. Raising it is one recorded command:
+      #   aria-kernel profile set --profile standard \
+      #     --scheduler-ceiling strict --operator-approval-ref <ref>
+      #
+      # The decision itself lives in `autonomy_unlock.resolve_scheduled_profile`
+      # and not in this heredoc, because it is a governed rule with three
+      # inputs and a defined order; a copy of it in YAML would be the second
+      # answer to "may ARIA act" that this whole change exists to delete. The
+      # step prints what the kernel decided.
+      #
+      # The ladder is asked through `evaluate_autonomy_unlock`, the read-only
+      # half: this step decides a profile, it does not spend the merge gate's
+      # verdict row. An unreadable ladder DEMOTES to standard with a named
+      # reason and does not fail the job — losing the night's discovery would
+      # trade a missing PR for a missing cycle — and an operator hold
+      # (`frozen`/`observe`) is returned before the ladder is read at all, so
+      # a stopped kernel is not written to by the step deciding whether to
+      # honour the stop.
+      - name: Resolve the cycle profile within the operator ceiling
+        id: profile_gate
+        if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        env:
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.autonomy_unlock import resolve_scheduled_profile
+
+          decision = resolve_scheduled_profile(
+              lane="L1", base_dir=Path(os.environ["ARIA_TOOLS_DIR"]),
+          )
+          reasons = "; ".join(decision.reasons)
+          # `l1_valid` is three-valued on purpose: an operator hold means the
+          # ladder was never asked, and "false" would misreport that as
+          # evidence found wanting.
+          l1_valid = (
+              "not-consulted" if decision.l1_valid is None
+              else str(decision.l1_valid).lower()
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+              handle.write(f"profile={decision.profile}\n")
+              handle.write(f"l1_valid={l1_valid}\n")
+              handle.write(f"ceiling={decision.ceiling}\n")
+          # `reasons` deliberately does NOT become a step output: a reason
+          # code carrying a newline would terminate the KEY=VALUE record and
+          # let the rest be read as a further output. It reaches a human via
+          # the summary and the annotation below, both of which are text.
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write(
+                  f"### Cycle profile: `{decision.profile}` "
+                  f"(L1 unlock valid={l1_valid})\n"
+                  f"- persisted profile on entry: `{decision.persisted}`\n"
+                  f"- operator scheduler ceiling: `{decision.ceiling}`\n"
+                  f"- ladder proposal: `{decision.ladder_profile}`\n"
+                  f"- counts: `{decision.counts}`\n"
+                  f"- reasons: {reasons}\n"
+              )
+          if decision.ladder_profile is None:
+              print(
+                  f"::warning::operator_held_profile_preserved: "
+                  f"{decision.persisted} holds no action authority; the "
+                  "ladder was not consulted"
+              )
+          elif decision.profile != decision.ladder_profile:
+              print(
+                  "::warning::scheduler_ceiling_bound: the L1 ladder proposed "
+                  f"{decision.ladder_profile}; the operator ceiling is "
+                  f"{decision.ceiling}, so the cycle runs "
+                  f"{decision.profile} ({reasons})"
+              )
+          elif decision.l1_valid is not True:
+              print(
+                  "::warning::l1_autonomy_unlock_invalid: refusing strict, "
+                  f"running under {decision.profile} ({reasons})"
+              )
+          PY
+
+      # ORPHAN-HIGH-728 — the SECOND preflight, and the one that can tell the
+      # truth. The pre-restore preflight above runs before the state store is
+      # bound, so it can only declare this lane's structural ceiling; by here
+      # the profile is resolved, which is what makes
+      # `frozen_profile_blocks_mutating_workflow` reachable on this lane at
+      # all. That gate was dead code here while the declaration was a literal
+      # — newly consequential now that the resolver deliberately PRESERVES a
+      # frozen hold instead of thawing it: a kernel an operator stopped must
+      # not have a workflow declaring write roots run against it.
+      - name: Persist enterprise workflow preflight for the resolved profile
+        if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        env:
+          PYTHONPATH: aria-kernel
+          RESOLVED_PROFILE: ${{ steps.profile_gate.outputs.profile }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          allowed = [".aria-state-store"]
+          verdict = verify_workflow_preflight(
+              workflow_id="aria-auto-cycle",
+              job_id="cycle",
+              profile=os.environ["RESOLVED_PROFILE"],
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=allowed,
+              path_allowlist=allowed,
+              network_policy=["github_artifact", "github_git"],
+              network_enforcement_evidence=(
+                  "state restore/publish limited to the aria/state branch over "
+                  "the repository remote; artifact upload limited to the "
+                  "run-scoped aria-state-cache-<run_id> and "
+                  "quarantine-evidence-<run_id> names, both via the Actions "
+                  "artifact API"
+              ),
+              token_provenance="github_actions_artifact_token",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason=(
+                  "nightly producer cycle over the durable aria/state store, "
+                  "declared with the profile the run resolved within the "
+                  "operator scheduler ceiling"
+              ),
+              audit_artifact_path=(
+                  Path(os.environ["RUNNER_TEMP"])
+                  / "aria-auto-cycle-preflight-resolved.json"
+              ),
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      - name: Run the nightly cycle under the resolved profile
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
         env:
           # ORPHAN-HIGH-626 — the pr_ci_scan phase's gh reads (own-PR list +
@@ -439,6 +620,21 @@ jobs:
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'
           MAX_CYCLES_INPUT: ${{ github.event.inputs.max_cycles }}
+          # ORPHAN-HIGH-728 — the resolved verdict, carried as data. A
+          # literal here is exactly the drift the gate above exists to
+          # remove, and `autonomous` is unreachable from this lane by
+          # construction: the resolver proposes at most
+          # `SCHEDULER_MAX_PROPOSABLE_PROFILE` and then bounds that by the
+          # operator ceiling.
+          ARIA_CYCLE_PROFILE: ${{ steps.profile_gate.outputs.profile }}
+          # `set_profile` demands an approval ref on EVERY transition and
+          # synthesises `cli-flag:<daemon>:<epoch>` when the flag is absent
+          # — a ref that names nothing an auditor can follow. The executor
+          # lane enforces the PERSISTED profile, so this string is what a
+          # later reader has to reconstruct the night's authority from: it
+          # names the gate that granted it and the run that recorded it.
+          ARIA_PROFILE_APPROVAL_REF: >-
+            aria-auto-cycle:ceiling=${{ steps.profile_gate.outputs.ceiling }}:l1-unlock=${{ steps.profile_gate.outputs.l1_valid }}:run=${{ github.run_id }}
         run: |
           # ORPHAN-722 — PR identity. PRs opened with the job token are
           # authored by github-actions[bot], and GitHub parks bot-PR
@@ -478,8 +674,10 @@ jobs:
           PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run \
             --workspace-root "$GITHUB_WORKSPACE" \
             --tools-dir "$ARIA_TOOLS_DIR" \
-            --profile standard \
+            --profile "$ARIA_CYCLE_PROFILE" \
+            --operator-approval-ref "$ARIA_PROFILE_APPROVAL_REF" \
             --max-cycles "$MAX_CYCLES" \
+            --implementer-poll-seconds 120 \
             --cycle-deadline-seconds 1800 | tee /tmp/cycle-summary.txt
           {
             echo '### Nightly cycle summary'

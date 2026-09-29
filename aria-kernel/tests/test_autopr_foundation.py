@@ -56,7 +56,7 @@ class AutoPrFoundationTests(unittest.TestCase):
             "strict",
             operator_approval_ref="test:plan-020-phase-1.B:autopr-foundation",
             base_dir=self.tools_dir,
-            set_by="test-fixture",
+            set_by="operator",
         )
 
     def tearDown(self):

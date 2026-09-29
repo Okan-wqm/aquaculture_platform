@@ -21,6 +21,8 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+from unittest.mock import patch
+
 from aria_kernel.autonomy_orchestrator import run_autonomy_orchestrator
 from aria_kernel.autonomy_state import (
     AutonomyStateReducer,
@@ -28,8 +30,13 @@ from aria_kernel.autonomy_state import (
 )
 from aria_kernel.file_lock import with_exclusive_lock
 from aria_kernel.ledger import load_jsonl
+from aria_kernel.plan_convergence import fold_plan_state
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests.test_implementation_lifecycle_continuity import (
+    drive_plan_to_implementation_requested,
+    seed_reviewer_agent,
+)
 
 
 def _fake_cycle_runner(
@@ -589,6 +596,201 @@ class BoundedCycleSummaryCarriesWhatThePublisherReads(unittest.TestCase):
         )
         # The true count is still reported, so the cap cannot hide scale.
         self.assertEqual(lifecycle["incomplete_count"], 500)
+
+class TheStartupReaperCollectsAbandonmentNotLateness(unittest.TestCase):
+    """ORPHAN-HIGH-729 — the reap window, exercised through the orchestrator.
+
+    The reaper was written for a topology where minting and draining an
+    implementation envelope happened in ONE process, so "still REQUESTED at
+    startup" could only mean crash debris. It is two workflow runs now — the
+    cycle lane mints, the `workflow_run`-chained executor lane drains — and
+    an unbounded reaper in that world rejects the plan the executor is on its
+    way to implement, every time the window slips.
+
+    Both tests drive a REAL plan to IMPLEMENTATION_REQUESTED through the
+    transition functions and then let the real `record_implementation_rejected`
+    decide whether it lands. Only the scanner's reported `last_event_at` is
+    substituted, because a clock is the one thing a test cannot honestly wait
+    for: patching it is supplying data, patching `_older_than_hours` would be
+    replacing the mechanism under test.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-729-"))
+        self.base = self.tmp / "aria-tools"
+        self.workspace = self.tmp / "workspace"
+        seed_reviewer_agent(self.workspace)
+        set_profile(
+            "standard", operator_approval_ref="orphan-729", base_dir=self.base,
+        )
+        drive_plan_to_implementation_requested(
+            plan_id="plan-729",
+            tools=self.base,
+            workspace_root=self.workspace,
+        )
+        self.assertEqual(
+            fold_plan_state(plan_id="plan-729", base_dir=self.base)["state"],
+            "IMPLEMENTATION_REQUESTED",
+        )
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run_with_orphan_stamps(
+        self, *, last_event_at: Any, first_event_at: Any = None,
+    ) -> list[dict[str, Any]]:
+        orphan = [{
+            "plan_id": "plan-729",
+            "state": "IMPLEMENTATION_REQUESTED",
+            "last_event_at": last_event_at,
+            "first_event_at": first_event_at,
+        }]
+        with patch(
+            "aria_kernel.plan_convergence.scan_orphan_implementation_requests",
+            return_value=orphan,
+        ):
+            run_autonomy_orchestrator(
+                base_dir=self.base,
+                workspace_root=str(self.workspace),
+                max_cycles=0,
+                max_iterations_per_phase=1,
+                cycle_runner=_fake_cycle_runner,
+                planner_drainer=_fake_planner_drainer,
+                worker_drainer=_fake_worker_drainer,
+                bridge_drainer=_fake_bridge_drainer,
+                auto_merge_runner=_fake_auto_merge_runner,
+                github_adapter=_fake_github_adapter,
+                convergence_runner=_fake_convergence_runner,
+                review_runner=_fake_review_runner,
+                specialist_review_runner=_fake_specialist_review_runner,
+                plan_synthesizer=_fake_plan_synthesizer,
+                skill_genesis_drainer=_fake_skill_genesis_drainer,
+                profile="standard",
+            )
+        return load_jsonl(ensure_tools_dir(self.base) / "governance.jsonl")
+
+    @staticmethod
+    def _hours_ago(hours: float) -> str:
+        from datetime import datetime, timedelta, timezone
+
+        return (
+            datetime.now(timezone.utc) - timedelta(hours=hours)
+        ).isoformat().replace("+00:00", "Z")
+
+    def _run_with_orphan_age(self, hours: float) -> list[dict[str, Any]]:
+        return self._run_with_orphan_stamps(last_event_at=self._hours_ago(hours))
+
+    def test_a_one_hour_old_request_survives_startup(self) -> None:
+        events = self._run_with_orphan_age(1)
+        self.assertNotIn(
+            "implementation_orphan_reaped", [row.get("kind") for row in events],
+        )
+        self.assertEqual(
+            fold_plan_state(plan_id="plan-729", base_dir=self.base)["state"],
+            "IMPLEMENTATION_REQUESTED",
+            "the executor's own envelope was rejected before the executor ran",
+        )
+        summaries = [
+            row for row in events
+            if row.get("kind") == "implementation_orphans_reaped_summary"
+        ]
+        self.assertEqual(len(summaries), 1, "sparing must not be silent")
+        payload = summaries[0]["details"]
+        self.assertEqual(payload["reaped_count"], 0)
+        self.assertEqual(payload["spared_recent_count"], 1)
+        self.assertEqual(payload["reap_after_hours"], 24)
+
+    def test_a_thirty_hour_old_request_is_reaped_with_its_disclosure_row(self) -> None:
+        events = self._run_with_orphan_age(30)
+        reaped = [
+            row for row in events
+            if row.get("kind") == "implementation_orphan_reaped"
+        ]
+        self.assertEqual(len(reaped), 1)
+        payload = reaped[0]["details"]
+        self.assertEqual(payload["plan_id"], "plan-729")
+        self.assertEqual(payload["prior_state"], "IMPLEMENTATION_REQUESTED")
+        self.assertTrue(payload["last_event_at"])
+        self.assertEqual(payload["reap_after_hours"], 24)
+        self.assertEqual(
+            fold_plan_state(plan_id="plan-729", base_dir=self.base)["state"],
+            "IMPLEMENTATION_REJECTED",
+        )
+
+    def test_a_corrupt_newest_stamp_is_dated_from_the_plans_birth(self) -> None:
+        """A mangled `recorded_at` used to read as `spared_recent`: the bound
+        asked a bool that answers False for "unparseable" and for "young"
+        alike. The age now falls back to the plan's first event, so a corrupt
+        row cannot buy immunity — and the reap row says which clock it used
+        rather than leaving an auditor to infer it."""
+        events = self._run_with_orphan_stamps(
+            last_event_at="not-a-date", first_event_at=self._hours_ago(30),
+        )
+        reaped = [
+            row for row in events
+            if row.get("kind") == "implementation_orphan_reaped"
+        ]
+        self.assertEqual(len(reaped), 1)
+        self.assertEqual(reaped[0]["details"]["age_source"], "first_event_at")
+        self.assertEqual(
+            fold_plan_state(plan_id="plan-729", base_dir=self.base)["state"],
+            "IMPLEMENTATION_REJECTED",
+        )
+
+    def test_an_undateable_request_reaches_a_human_instead_of_immortality(self) -> None:
+        """No readable stamp ANYWHERE in the plan's event stream is a corrupt
+        ledger, not a late executor — `_append_event` always stamps, so the
+        writer cannot produce this shape.
+
+        Sparing it was the defect: the earlier note claimed
+        `resume_candidate_plan_id` would eventually abandon such a plan, and
+        it cannot — it `continue`s past `_IMPLEMENTATION_PHASE_STATES`, the
+        only states this scanner returns, so nothing in the kernel would ever
+        have collected it. A machine with no clock cannot honestly choose
+        between "abandoned" and "in flight", so it stops choosing: the plan is
+        left intact AND handed to the operator queue, which is a terminal path
+        a human can actually walk.
+        """
+        events = self._run_with_orphan_stamps(
+            last_event_at=None, first_event_at=None,
+        )
+        summaries = [
+            row for row in events
+            if row.get("kind") == "implementation_orphans_reaped_summary"
+        ]
+        self.assertEqual(len(summaries), 1)
+        payload = summaries[0]["details"]
+        self.assertEqual(payload["escalated_undateable_count"], 1)
+        self.assertEqual(payload["reaped_count"], 0)
+        self.assertEqual(
+            fold_plan_state(plan_id="plan-729", base_dir=self.base)["state"],
+            "IMPLEMENTATION_REQUESTED",
+            "an undateable plan must not be destroyed on a guess either",
+        )
+        from aria_kernel.human_required import list_human_required
+
+        escalations = [
+            row for row in list_human_required(base_dir=self.base)
+            if row.get("context", {}).get("plan_id") == "plan-729"
+        ]
+        self.assertEqual(len(escalations), 1, escalations)
+        self.assertEqual(escalations[0]["status"], "open")
+
+    def test_the_escalation_does_not_multiply_across_scans(self) -> None:
+        """Every startup re-scans, and an operator queue that grows one row
+        per night for the same plan is a queue nobody reads. The request_id
+        is derived from the plan, so `record_human_required`'s own
+        idempotency collapses the repeats."""
+        for _ in range(3):
+            self._run_with_orphan_stamps(last_event_at=None, first_event_at=None)
+        from aria_kernel.human_required import list_human_required
+
+        escalations = [
+            row for row in list_human_required(base_dir=self.base)
+            if row.get("context", {}).get("plan_id") == "plan-729"
+        ]
+        self.assertEqual(len(escalations), 1, escalations)
 
 
 if __name__ == "__main__":

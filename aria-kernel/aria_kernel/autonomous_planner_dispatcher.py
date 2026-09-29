@@ -38,7 +38,7 @@ returning the same aggregate the hook returns.
 
 Profile-gate reuse: the daemon enforces ``agent_claim`` action_kind
 (NOT a new action_kind) so the same Plan 020
-``ACTION_PERMISSIONS`` table at runtime_profile.py:107-112
+``ACTION_PERMISSIONS`` table in ``runtime_profile``
 governs the daemon. Frozen and observe profiles block dispatch
 automatically with no table extension required.
 """

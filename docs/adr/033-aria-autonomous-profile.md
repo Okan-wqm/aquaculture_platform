@@ -108,6 +108,18 @@ the breaker / lease checks to the strict-mode hook chain.
   L3 auto-merge under strict would contradict the existing SPEC
   contract; operators set strict EXPECTING the auto-merge gate to
   stay closed.
+
+  > **Amendment 2026-08-19 (ORPHAN-HIGH-728).** "Operators set strict" is
+  > now precise rather than assumed. A scheduled lane may RESOLVE strict
+  > from the L1 acceptance ladder, but only within
+  > `runtime_profile.scheduler_profile_ceiling` — an operator-recorded value
+  > in this same control plane, defaulting to `standard`, which
+  > `set_profile` refuses to let a non-operator setter raise. The
+  > expectation this bullet rests on is therefore unchanged and now
+  > enforced: strict is reached because a human granted it, and the
+  > auto-merge gate stays closed under strict either way (`pr_merge` is
+  > `{autonomous}` and `RealAutoMergeRunner` forces `dry_run` for every
+  > other profile).
 - ACTION_PERMISSIONS for `strict` does not currently list
   `pr_open` as auto-merge-eligible (it lists `pr_open` for PR
   creation, not merge). Conflating these two semantics inside one

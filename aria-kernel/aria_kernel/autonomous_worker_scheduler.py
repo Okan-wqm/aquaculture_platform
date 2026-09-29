@@ -36,7 +36,7 @@ touching the live subprocess.
 
 Profile-gate reuse: the daemon enforces ``agent_claim`` action_kind
 (NOT a new action_kind) so the same Plan 020 ACTION_PERMISSIONS
-table at runtime_profile.py:107-112 governs the daemon. Frozen
+table in ``runtime_profile`` governs the daemon. Frozen
 and observe profiles block dispatch automatically with no table
 extension required. Worker dispatch is the back-half of the same
 agent-claim flow (worker is the entity that claims an assignment

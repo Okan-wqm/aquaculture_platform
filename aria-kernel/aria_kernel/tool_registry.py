@@ -91,6 +91,30 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def parse_utc_stamp(raw: str) -> datetime | None:
+    """Read a stamp this module minted, or None when it cannot be read.
+
+    ORPHAN-HIGH-729 — one parser, living beside the writer. There were two
+    private copies (`autonomy_unlock._parse_stamp`,
+    `plan_convergence._older_than_hours`) and they disagreed about the
+    important case: one returned None so the caller could SEE that a row was
+    undateable, the other folded the failure into a bool, where "unparseable"
+    became indistinguishable from "recent" and a corrupt stamp bought a plan
+    immortality.
+
+    None is the only honest answer for a stamp that cannot be read, and
+    returning it forces every caller to decide what to do about that rather
+    than inheriting a default. A naive stamp is read as UTC because UTC is
+    what `utc_now` writes; that is the ledger's declared timezone, not a
+    guess.
+    """
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 def _walk_up_to_bound_identity(start_cwd: str | os.PathLike[str]) -> Path | None:
     """Plan ARIA-V3.3 §2a — walk-up resolver for an existing aria-tools.
 

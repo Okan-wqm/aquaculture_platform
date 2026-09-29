@@ -134,6 +134,7 @@ from aria_kernel.runtime_artifacts import (
     autonomy_output_summary,
     classify_cycle_evidence,
     restore_artifact,
+    recover_git_history_artifacts,
     retention_apply,
     retention_dry_run,
     rollback_retention,
@@ -1280,6 +1281,15 @@ def build_parser() -> argparse.ArgumentParser:
     gs_show = add_subparser(goldset_sub, "show")
     gs_show.add_argument("--tool-id", required=True)
 
+    runtime_recover = add_subparser(runtime_sub, "recover-git-history-artifacts")
+    runtime_recover.add_argument("--workspace-root", required=True)
+    runtime_recover.add_argument("--expected-state-sha", required=True)
+    runtime_recover.add_argument("--source-state-sha", required=True)
+    runtime_recover.add_argument("--recovery-id", required=True)
+    runtime_recover.add_argument("--reason", required=True, type=_validate_reason)
+    runtime_recover.add_argument("--operator-approval-ref", required=True)
+    runtime_recover.add_argument("--acknowledge", action="store_true")
+    runtime_recover.add_argument("--dry-run", action="store_true")
     runtime_restore = add_subparser(runtime_sub, "restore-artifact")
     runtime_restore.add_argument("--artifact-ref", required=True)
     runtime_restore.add_argument("--workspace-root", required=True)
@@ -4007,6 +4017,23 @@ def _main(argv: list[str] | None = None) -> int:
                 reason=args.reason,
                 operator_approval_ref=args.operator_approval_ref,
             )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "runtime" and args.runtime_command == "recover-git-history-artifacts":
+        from .state_store import open_state_store, tools_root
+        store = open_state_store(args.workspace_root, store_dir=Path(args.tools_dir).parent)
+        if tools_root(store) != Path(args.tools_dir).absolute():
+            raise GovernanceError("artifact_recovery_tools_root_mismatch")
+        try:
+            result = recover_git_history_artifacts(
+                store=store, expected_state_sha=args.expected_state_sha,
+                source_state_sha=args.source_state_sha, recovery_id=args.recovery_id,
+                reason=args.reason, operator_approval_ref=args.operator_approval_ref,
+                acknowledge=args.acknowledge, dry_run=args.dry_run,
+            )
+        except GovernanceError as exc:
+            print(json.dumps({"status": "refused", "reason": str(exc)}, sort_keys=True))
+            return 4
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.command == "runtime" and args.runtime_command == "restore-artifact":

@@ -9,11 +9,15 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from .artifact_safety import scrub_json
 from .ledger import state_transaction, LedgerIntegrityError, append_declared_jsonl, file_hash, load_declared_jsonl, load_jsonl, verify_jsonl
 from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, tools_dir, utc_now
+
+
+if TYPE_CHECKING:
+    from .state_store import StateStore
 
 
 RUN_LEDGER_FORMAT_ENV = "ARIA_RUN_LEDGER_FORMAT"
@@ -22,6 +26,7 @@ DEFAULT_RUN_LEDGER_FORMAT = "v2-shadow"
 ARTIFACT_VERIFIER_VERSION = "runtime-artifact-graph-v2"
 SUMMARY_STDOUT_MAX_BYTES = 32 * 1024
 ARTIFACT_BEARING = "artifact_bearing"
+HISTORICAL_RECOVERED = "historical_recovered"
 LIFECYCLE_ONLY = "lifecycle_only"
 INTEGRITY_FAILED = "integrity_failed"
 INCOMPLETE = "incomplete"
@@ -498,6 +503,8 @@ def artifact_projection_issues(
                 issues.append({"code": "retention_artifact_binding_mismatch",
                                "artifact_id": artifact_id, "original_path": original,
                                "archive_path": uri})
+    from .runtime_artifact_recovery import recovery_graph_issues
+    issues.extend(recovery_graph_issues(retention_events, blobs, projections))
     return issues
 
 
@@ -570,11 +577,13 @@ def classify_cycle_evidence(
         evidence_class = INCOMPLETE
     elif verification["status"] != "ok" or registry_issues or hidden_non_ok_count or missing_artifact_ok_runs:
         evidence_class = INTEGRITY_FAILED
+    elif verification["evidence_status"] == "needs_revalidation":
+        evidence_class = HISTORICAL_RECOVERED
     elif artifact_ok_runs:
         evidence_class = ARTIFACT_BEARING
     else:
         evidence_class = LIFECYCLE_ONLY
-    issues = list(verification["issues"]) + registry_issues
+    issues = list(verification["issues"]) + registry_issues + verification["evidence_issues"]
     if missing_artifact_ok_runs:
         issues.append({"code": "ok_run_missing_artifact_ref", "count": missing_artifact_ok_runs})
     return {"schema_version": 1, "cycle_id": cycle_id, "cycle_evidence_class": evidence_class, "verified_artifact_count": int(verification["verified_artifact_count"]), "expected_tool_count": expected_tool_count, "hidden_non_ok_count": hidden_non_ok_count, "promotion_eligible": evidence_class == ARTIFACT_BEARING, "issues": issues}
@@ -636,7 +645,16 @@ def verify_runtime_artifacts(
     issues.extend(verify_artifacts(base_dir=root)["issues"])
     _verify_manifests_and_inventory(root=root, cycle_id=cycle_id, artifact_refs_seen=artifact_refs_seen, issues=issues)
     _verify_retention_events(root=root, issues=issues)
-    return {"schema_version": 1, "status": "ok" if not issues else "failed", "valid": not issues, "cycle_id": cycle_id, "verified_artifact_count": verified, "issues": issues}
+    from .runtime_artifact_recovery import recovery_evidence_issues
+    evidence_issues = recovery_evidence_issues(
+        _safe_load_jsonl(root / "retention/events.jsonl", issues, "retention_events", expected_surface="retention_events"),
+        _safe_load_jsonl(root / ARTIFACT_PROJECTION_PATHS["runtime_artifact_index"], issues,
+                         "runtime_artifact_index", expected_surface="runtime_artifact_index"),
+        artifact_refs_seen, cycle_id=cycle_id,
+    )
+    evidence_status = "integrity_failed" if issues else "needs_revalidation" if evidence_issues else "verified"
+    return {"schema_version": 1, "status": "ok" if not issues else "failed", "valid": not issues, "cycle_id": cycle_id, "verified_artifact_count": verified, "issues": issues,
+            "evidence_status": evidence_status, "evidence_issues": evidence_issues}
 
 
 def approve_runtime_v2_promotion(
@@ -692,6 +710,8 @@ def approve_runtime_v2_promotion(
     verification = verify_runtime_artifacts(base_dir=root, workspace_root=bound_workspace)
     if verification["status"] != "ok":
         raise GovernanceError("runtime_v2_promotion_evidence_integrity_failed")
+    if verification["evidence_status"] == "needs_revalidation":
+        raise GovernanceError("runtime_v2_promotion_evidence_needs_revalidation")
     bundle_hash = "sha256:" + hashlib.sha256(bundle_path.read_bytes()).hexdigest()
     identity_hash = _current_tools_identity_hash(root)
     if identity_hash is None:
@@ -909,6 +929,20 @@ def restore_artifact(
         "sha256": actual,
         "retention_event_id": event.get("event_id"),
     }
+
+def recover_git_history_artifacts(
+    *, store: StateStore, expected_state_sha: str, source_state_sha: str,
+    recovery_id: str, reason: str, operator_approval_ref: str,
+    acknowledge: bool = False, dry_run: bool = False,
+) -> dict[str, Any]:
+    """Recover storage through the canonical, operator-gated Git-history owner."""
+    from .runtime_artifact_recovery import recover_git_history_artifacts as recover
+    return recover(
+        store=store, expected_state_sha=expected_state_sha, source_state_sha=source_state_sha,
+        recovery_id=recovery_id, reason=reason, operator_approval_ref=operator_approval_ref,
+        acknowledge=acknowledge, dry_run=dry_run,
+    )
+
 
 def rollback_retention(
     *,
@@ -1833,14 +1867,14 @@ def _git_head(workspace_root: Path) -> str:
 
 __all__ = [
     "ArtifactRefV2", "ARTIFACT_REF_V2_SCHEMA_VERSION", "ARTIFACT_REF_V2_REQUIRED",
-    "ARTIFACT_BEARING", "LIFECYCLE_ONLY", "INTEGRITY_FAILED", "INCOMPLETE",
+    "ARTIFACT_BEARING", "HISTORICAL_RECOVERED", "LIFECYCLE_ONLY", "INTEGRITY_FAILED", "INCOMPLETE",
     "RUN_LEDGER_FORMAT_ENV", "RUN_LEDGER_FORMATS", "DEFAULT_RUN_LEDGER_FORMAT",
     "SUMMARY_STDOUT_MAX_BYTES", "append_run_by_cycle", "approve_runtime_v2_promotion",
     "artifact_index_path", "artifact_inventory_path", "artifact_manifest_path",
     "budget_projection",
     "autonomy_exit_code", "autonomy_output_summary", "by_cycle_runs_path",
     "classify_cycle_evidence", "read_runs_for_cycle", "require_runtime_v2_promotion",
-    "resolve_artifact_payload", "resolve_finding_from_artifact", "restore_artifact",
+    "resolve_artifact_payload", "resolve_finding_from_artifact", "restore_artifact", "recover_git_history_artifacts",
     "retention_apply", "retention_dry_run", "rollback_retention", "run_artifacts_root",
     "run_ledger_format", "verify_artifacts", "verify_runtime_artifacts", "write_run_artifact",
 ]

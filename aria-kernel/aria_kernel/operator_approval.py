@@ -18,10 +18,12 @@ refuses. Callers convert the refusal to their own typed error.
 """
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 from typing import Any
 
-from .tool_registry import ensure_tools_dir
+from .tool_registry import ensure_tools_dir_readonly
 
 
 class OperatorApprovalUnrecorded(Exception):
@@ -46,7 +48,17 @@ def verify_operator_approval_ref(
             f"{surface}: operator approval reference {text!r} has no '<kind>:<value>' form"
         )
     if kind == "gov":
-        root = ensure_tools_dir(base_dir)
+        root = ensure_tools_dir_readonly(base_dir)
+        if root is None:
+            raise OperatorApprovalUnrecorded(f"{surface}: initialized tools identity required")
+        lock = root / "tools.lock"
+        if lock.exists():
+            try:
+                owner = json.loads(lock.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                owner = {}
+            if not isinstance(owner, dict) or owner.get("pid") != os.getpid():
+                raise OperatorApprovalUnrecorded(f"{surface}: tools root locked; approval reads never reap locks")
         ledger = root / "governance.jsonl"
         if not ledger.exists():
             raise OperatorApprovalUnrecorded(
@@ -72,8 +84,6 @@ def verify_operator_approval_ref(
             )
         return {"kind": "review", "path": path_part, "anchor": anchor, "surface": surface}
     if kind == "ack-env":
-        import os
-
         if not os.environ.get(value, "").strip():
             raise OperatorApprovalUnrecorded(
                 f"{surface}: acknowledgment variable {value!r} is empty or unset"

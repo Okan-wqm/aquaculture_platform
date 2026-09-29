@@ -29,6 +29,11 @@ import { DurableAccessTokenInvalidationService } from '../services/durable-acces
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
+import { UserAccountStore } from '../services/user-account.store';
+import { makeUserAccountStoreDouble } from './support/auth-store.doubles';
+
+// ORPHAN-HIGH-811/812: the column-scoped writers, as London-school doubles.
+const userAccountStore = makeUserAccountStoreDouble();
 
 jest.mock('bcryptjs', () => {
   const actual = jest.requireActual<typeof bcrypt>('bcryptjs');
@@ -96,6 +101,7 @@ describe('AuthenticationService refresh-token reuse containment', () => {
       tenantId: TENANT_ID,
       role: 'MODULE_USER',
       isActive: true,
+      credentialVersion: 1,
     }),
   };
   const durableUserInvalidation = {
@@ -204,6 +210,7 @@ describe('AuthenticationService refresh-token reuse containment', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: UserAccountStore, useValue: userAccountStore },
         AuthenticationService,
         ActionTokenResolver,
         { provide: getRepositoryToken(User), useValue: userRepository },
@@ -300,6 +307,7 @@ describe('AuthenticationService refresh-token reuse containment', () => {
       tenantId: TENANT_ID,
       role: 'MODULE_USER',
       isActive: true,
+      credentialVersion: 1,
     };
     const writeOrder: string[] = [];
     let principalLockCount = 0;
@@ -451,7 +459,8 @@ describe('AuthenticationService refresh-token reuse containment', () => {
 
     expect(refreshSave).toHaveBeenCalledWith(expect.objectContaining({ isRevoked: true }));
     expect(tokenService.generateTokens).toHaveBeenCalledWith(
-      expect.objectContaining({ id: USER_ID }),
+      // The rotation is fenced on the row locked earlier in the same transaction.
+      expect.objectContaining({ userId: USER_ID, credentialVersion: 1 }),
       expect.any(String),
       expect.any(String),
       expect.objectContaining({

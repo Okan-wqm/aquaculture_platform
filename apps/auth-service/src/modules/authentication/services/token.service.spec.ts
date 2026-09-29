@@ -12,7 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
 import { RefreshToken } from '../entities/refresh-token.entity';
@@ -20,6 +20,7 @@ import { UserModuleAssignment } from '../entities/user-module-assignment.entity'
 import { UserSiteAssignment } from '../entities/user-site-assignment.entity';
 import { User } from '../entities/user.entity';
 
+import { CredentialProof } from './credential-proof';
 import { JwtPayload, TokenService } from './token.service';
 
 // WHY: bcryptjs publishes a sealed module namespace under the current
@@ -42,6 +43,37 @@ jest.mock('bcryptjs', () => {
 const mockBcryptHash = jest.mocked<
   (data: string, saltOrRounds: string | number) => Promise<string>
 >(bcrypt.hash);
+
+/**
+ * The rows the issuance fence's `FOR UPDATE` read can see, keyed by id. The
+ * double answers that read the way PostgreSQL does: the row when the proven
+ * `credentialVersion` and the active flag still match, otherwise nothing —
+ * and the claims are then built from that row (ORPHAN-HIGH-811).
+ */
+const principalRows = new Map<string, User>();
+
+interface FenceRead {
+  where: { id: string; credentialVersion: number; isActive: boolean };
+}
+
+function lockRead({ where }: FenceRead): Promise<User | null> {
+  const row = principalRows.get(where.id);
+  const current =
+    row !== undefined &&
+    row.credentialVersion === where.credentialVersion &&
+    row.isActive !== false;
+  return Promise.resolve(current ? row : null);
+}
+
+/** Put `user` in the database double and prove it as authenticated. */
+function prove(user: User): CredentialProof {
+  principalRows.set(user.id, user);
+  return CredentialProof.ofAuthenticatedPrincipal(user);
+}
+
+beforeEach(() => {
+  principalRows.clear();
+});
 
 function makeUserTokenRevocation(
   isTokenValid = jest.fn().mockResolvedValue(true),
@@ -96,7 +128,7 @@ function makeTransactionalDataSource(query: jest.Mock): {
   lockedUserFindOne: jest.Mock;
   transaction: jest.Mock;
 } {
-  const lockedUserFindOne = jest.fn().mockResolvedValue({ id: 'locked-user' });
+  const lockedUserFindOne = jest.fn(lockRead);
   const userRepository = { findOne: lockedUserFindOne };
   const manager = {
     // TypeORM's transaction-scoped repository preserves the repository API;
@@ -216,7 +248,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
   });
 
   it('includes the tenant plan ordinal as planLevel', async () => {
-    await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }));
+    await service.generateTokens(prove(buildUser({ role: Role.TENANT_ADMIN })));
 
     expect(capturedPayload().planLevel).toBe(2); // professional → PLAN_LEVEL 2
     expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM auth.tenants'), [
@@ -225,7 +257,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
   });
 
   it('omits planLevel for a platform account with no tenant', async () => {
-    await service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null }));
+    await service.generateTokens(prove(buildUser({ role: Role.SUPER_ADMIN, tenantId: null })));
 
     const payload = capturedPayload();
     expect('planLevel' in payload).toBe(false);
@@ -243,7 +275,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
         : Promise.resolve([]),
     );
 
-    await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }));
+    await service.generateTokens(prove(buildUser({ role: Role.TENANT_ADMIN })));
 
     expect(capturedPayload().planLevel).toBe(0);
   });
@@ -251,13 +283,13 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
   // C1 (tenant-isolation invariant): SUPER_ADMIN is the only tenantless role.
   it('rejects issuing a token to a non-SUPER_ADMIN principal with no tenant', async () => {
     await expect(
-      service.generateTokens(buildUser({ role: Role.MODULE_USER, tenantId: null })),
+      service.generateTokens(prove(buildUser({ role: Role.MODULE_USER, tenantId: null }))),
     ).rejects.toThrow(/without a tenant/i);
   });
 
   it('rejects a tenant-scoped TENANT_ADMIN whose tenant resolves to null', async () => {
     await expect(
-      service.generateTokens(buildUser({ role: Role.TENANT_ADMIN, tenantId: null })),
+      service.generateTokens(prove(buildUser({ role: Role.TENANT_ADMIN, tenantId: null }))),
     ).rejects.toThrow(/without a tenant/i);
   });
 
@@ -281,7 +313,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
       process.env[switchEnv] = '2020-01-01T00:00:00Z';
       await expect(
         service.generateTokens(
-          buildUser({ role: Role.SUPER_ADMIN, tenantId: null, mfaEnabled: false }),
+          prove(buildUser({ role: Role.SUPER_ADMIN, tenantId: null, mfaEnabled: false })),
         ),
       ).rejects.toThrow(/must enrol in MFA/);
       expect(signAsync).not.toHaveBeenCalled();
@@ -290,7 +322,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
     it('records an un-enrolled SUPER_ADMIN in detective mode and still mints the token', async () => {
       process.env[switchEnv] = 'detective';
       await service.generateTokens(
-        buildUser({ role: Role.SUPER_ADMIN, tenantId: null, mfaEnabled: false }),
+        prove(buildUser({ role: Role.SUPER_ADMIN, tenantId: null, mfaEnabled: false })),
       );
       expect(signAsync).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith(
@@ -301,7 +333,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
     it('mints an enrolled SUPER_ADMIN token under enforcement without a warning', async () => {
       process.env[switchEnv] = '2020-01-01T00:00:00Z';
       await service.generateTokens(
-        buildUser({ role: Role.SUPER_ADMIN, tenantId: null, mfaEnabled: true }),
+        prove(buildUser({ role: Role.SUPER_ADMIN, tenantId: null, mfaEnabled: true })),
       );
       expect(signAsync).toHaveBeenCalledTimes(1);
       expect(warn).not.toHaveBeenCalledWith(
@@ -529,7 +561,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('carries no email / firstName / lastName / phone in the payload', async () => {
       service = await createService();
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       const payload = capturedPayload();
       expect('email' in payload).toBe(false);
@@ -542,7 +574,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('emits only keys within the allowed non-PII set', async () => {
       service = await createService();
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       for (const key of Object.keys(capturedPayload())) {
         expect(ALLOWED_KEYS.has(key)).toBe(true);
@@ -560,7 +592,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('defaults the audience to aquaculture-platform and stamps the active kid', async () => {
       service = await createService();
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       expect(signAsync).toHaveBeenCalledTimes(1);
       const signOptions = signAsync.mock.calls[0]?.[1] as {
@@ -576,7 +608,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { JWT_AUDIENCE: 'custom-aud', JWT_KEY_ID: 'key-rotated-2' },
       });
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       const signOptions = signAsync.mock.calls[0]?.[1] as {
         audience?: string;
@@ -597,7 +629,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('stamps type === access on every mint', async () => {
       service = await createService();
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       expect(capturedPayload().type).toBe('access');
     });
@@ -614,7 +646,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         query: buildQueryRouter({ resourcePermissions: [] }),
       });
 
-      await service.generateTokens(buildUser({ tenantId: malicious }));
+      await service.generateTokens(prove(buildUser({ tenantId: malicious })));
 
       const roleJoinCall = query.mock.calls.find(
         ([sql]) =>
@@ -636,7 +668,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         }),
       });
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       const roleJoinCall = query.mock.calls.find(
         ([sql]) =>
@@ -663,7 +695,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         }),
       });
 
-      await expect(service.generateTokens(buildUser({}))).rejects.toThrow(
+      await expect(service.generateTokens(prove(buildUser({})))).rejects.toThrow(
         /relation does not exist/,
       );
       // A failed permission read must abort the mint, not sign a token.
@@ -693,10 +725,10 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       service = await createService({ moduleAssignmentFind });
       const user = buildUser({});
 
-      await service.generateTokens(user);
+      await service.generateTokens(prove(user));
       expect(capturedPayload().modules).toEqual(['farm']);
 
-      await service.generateTokens(user);
+      await service.generateTokens(prove(user));
       expect(capturedPayload().modules).toEqual(['sensor']);
       expect(moduleAssignmentFind).toHaveBeenCalledTimes(2);
     });
@@ -713,10 +745,10 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       });
       const user = buildUser({});
 
-      await service.generateTokens(user);
+      await service.generateTokens(prove(user));
       expect(capturedPayload().resourcePermissions).toEqual(['sites:view']);
 
-      await service.generateTokens(user);
+      await service.generateTokens(prove(user));
       expect(capturedPayload().resourcePermissions).toEqual(['sites:edit']);
       expect(permissionReads).toHaveLength(0);
     });
@@ -729,7 +761,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         query: buildQueryRouter({ resourcePermissions: [] }),
       });
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       const payload = capturedPayload();
       expect('modules' in payload).toBe(false);
@@ -743,7 +775,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         }),
       });
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       expect(capturedPayload().resourcePermissions).toEqual(
         expect.arrayContaining(['sites:view', 'tanks:edit']),
@@ -766,7 +798,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         }),
       });
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       const claim = capturedPayload().resourcePermissions ?? [];
       expect(claim).toEqual(expect.arrayContaining(['sites:view', 'roles:view']));
@@ -787,7 +819,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         }),
       });
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       const claim = capturedPayload().resourcePermissions ?? [];
       expect(claim).toContain('sites:view'); // core survives
@@ -802,7 +834,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         }),
       });
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       const claim = capturedPayload().resourcePermissions ?? [];
       expect(claim).toEqual(expect.arrayContaining(['sites:view', 'ai_settings:manage']));
@@ -821,11 +853,13 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       });
 
       await service.generateTokens(
-        buildUser({
-          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-          role: Role.SUPER_ADMIN,
-          tenantId: null,
-        }),
+        prove(
+          buildUser({
+            id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            role: Role.SUPER_ADMIN,
+            tenantId: null,
+          }),
+        ),
       );
 
       expect(lastPayload?.platformCapabilities).toEqual(['billing-ops', 'security-ops']);
@@ -841,7 +875,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('omits the claim entirely when the SUPER_ADMIN holds no live grant', async () => {
       service = await createService({ query: buildQueryRouter({ platformCapabilities: [] }) });
 
-      await service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null }));
+      await service.generateTokens(prove(buildUser({ role: Role.SUPER_ADMIN, tenantId: null })));
 
       expect(lastPayload).toBeDefined();
       expect('platformCapabilities' in (lastPayload as JwtPayload)).toBe(false);
@@ -852,7 +886,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         query: buildQueryRouter({ platformCapabilities: ['billing-ops', 'root'] }),
       });
 
-      await service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null }));
+      await service.generateTokens(prove(buildUser({ role: Role.SUPER_ADMIN, tenantId: null })));
 
       expect(lastPayload?.platformCapabilities).toEqual(['billing-ops']);
     });
@@ -862,7 +896,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         query: buildQueryRouter({ platformCapabilities: ['billing-ops'] }),
       });
 
-      await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }));
+      await service.generateTokens(prove(buildUser({ role: Role.TENANT_ADMIN })));
 
       expect(capabilityQuery()).toBeUndefined();
       expect('platformCapabilities' in (lastPayload as JwtPayload)).toBe(false);
@@ -876,7 +910,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       });
 
       await expect(
-        service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null })),
+        service.generateTokens(prove(buildUser({ role: Role.SUPER_ADMIN, tenantId: null }))),
       ).rejects.toThrow('relation missing');
       expect(signAsync).not.toHaveBeenCalled();
     });
@@ -889,15 +923,15 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       // authentication time — an integer, so it cannot lose precision crossing
       // the pg driver the way the previous `updatedAt` anchor did.
       const authenticatedSnapshot = buildUser({ credentialVersion: 7 });
-      let finishCredentialFence: ((lockedUser: { id: string } | null) => void) | undefined;
+      let finishCredentialFence: ((lockedUser: User | null) => void) | undefined;
       credentialUserLockFindOne.mockImplementationOnce(
         () =>
-          new Promise<{ id: string } | null>((resolve) => {
+          new Promise<User | null>((resolve) => {
             finishCredentialFence = resolve;
           }),
       );
 
-      const mint = service.generateTokens(authenticatedSnapshot);
+      const mint = service.generateTokens(prove(authenticatedSnapshot));
       await Promise.resolve();
       await Promise.resolve();
 
@@ -908,27 +942,20 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       }
 
       // A concurrent administrator committed deactivation/password mutation
-      // while this login waited. The authoritative snapshot predicate no
-      // longer resolves, so stale authentication cannot mint a replacement.
+      // while this login waited. The proven version no longer resolves, so
+      // stale authentication cannot mint a replacement.
       finishCredentialFence(null);
       await expect(mint).rejects.toThrow('User credentials changed during token issuance');
 
       expect(credentialUserLockFindOne).toHaveBeenCalledWith({
-        select: { id: true },
-        where: {
-          id: authenticatedSnapshot.id,
-          role: authenticatedSnapshot.role,
-          tenantId: authenticatedSnapshot.tenantId,
-          isActive: true,
-          credentialVersion: 7,
-        },
+        where: { id: authenticatedSnapshot.id, isActive: true, credentialVersion: 7 },
         lock: { mode: 'pessimistic_write' },
       });
       expect(refreshSave).not.toHaveBeenCalled();
       expect(createSession).not.toHaveBeenCalled();
     });
 
-    it('ORPHAN-CRITICAL-808: the fence predicate is built only from precision-safe authorization state — never from a timestamp column', async () => {
+    it('ORPHAN-CRITICAL-808: the fence predicate is built only from precision-safe state — never from a timestamp column', async () => {
       // WHY: `updatedAt` is written by Postgres with microsecond precision and
       // hydrated into a millisecond JS Date, so an equality predicate on it can
       // never match — that combination refused every login in production. Any
@@ -941,13 +968,13 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         lastLoginAt: new Date('2026-09-05T07:08:16.087Z'),
       });
 
-      await service.generateTokens(authenticatedSnapshot);
+      await service.generateTokens(prove(authenticatedSnapshot));
 
       const fenceCall = credentialUserLockFindOne.mock.calls[0]?.[0] as {
         where: Record<string, unknown>;
       };
       expect(Object.keys(fenceCall.where).sort()).toEqual(
-        ['credentialVersion', 'id', 'isActive', 'role', 'tenantId'].sort(),
+        ['credentialVersion', 'id', 'isActive'].sort(),
       );
       for (const value of Object.values(fenceCall.where)) {
         expect(value).not.toBeInstanceOf(Date);
@@ -955,31 +982,54 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       expect(fenceCall.where.credentialVersion).toBe(3);
     });
 
-    it('ORPHAN-CRITICAL-808: a platform principal without a tenant is fenced with IS NULL, still anchored on credentialVersion', async () => {
+    it('ORPHAN-HIGH-811: a proof taken before a credential write is refused; the proof the write returned mints', async () => {
+      // Password reset / invitation acceptance: the caller loaded the user at
+      // version 4, its own password write advanced the row to 5. Minting from
+      // the pre-write snapshot must fail closed; minting from the RETURNING
+      // proof of that write must succeed — the regression that refused every
+      // legitimate reset/invitation completion after consuming its token.
       service = await createService();
+      const beforeWrite = buildUser({ credentialVersion: 4 });
+      const staleProof = prove(beforeWrite);
+      principalRows.set(beforeWrite.id, buildUser({ credentialVersion: 5 }));
+
+      await expect(service.generateTokens(staleProof)).rejects.toThrow(
+        'User credentials changed during token issuance',
+      );
+      expect(refreshSave).not.toHaveBeenCalled();
 
       await service.generateTokens(
-        buildUser({ role: Role.SUPER_ADMIN, tenantId: null, credentialVersion: 2 }),
+        CredentialProof.ofCredentialWrite({ id: beforeWrite.id, credentialVersion: 5 }),
       );
-
-      expect(credentialUserLockFindOne).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ tenantId: IsNull(), credentialVersion: 2 }),
-        }),
-      );
+      expect(refreshSave).toHaveBeenCalledTimes(1);
+      expect(signAsync).toHaveBeenCalledTimes(1);
     });
 
-    it('ORPHAN-CRITICAL-808: refuses to mint from a principal that carries no credential-version anchor', async () => {
+    it('ORPHAN-HIGH-811: the claims come from the locked row, not from the caller-held entity', async () => {
+      // A caller entity is at best as fresh as its last read; the row locked
+      // under the proven version is the credential being certified.
+      service = await createService();
+      const callerCopy = buildUser({ role: Role.MODULE_USER, credentialVersion: 9 });
+      const proof = prove(callerCopy);
+      principalRows.set(
+        callerCopy.id,
+        buildUser({ role: Role.MODULE_MANAGER, credentialVersion: 9 }),
+      );
+
+      await service.generateTokens(proof);
+
+      expect(capturedPayload().role).toBe(Role.MODULE_MANAGER);
+    });
+
+    it('ORPHAN-CRITICAL-808: a principal that carries no credential-version anchor cannot even be proven', async () => {
       // A partial select that omits the column would otherwise turn the fence
-      // into a no-op (`undefined` predicates are dropped by TypeORM). Fail
-      // closed instead of issuing an unfenced token.
+      // into a no-op (`undefined` predicates are dropped by TypeORM). The proof
+      // constructor refuses it, so no mint — and no lock — can start.
       service = await createService();
       const unfenced = buildUser({});
       delete (unfenced as { credentialVersion?: number }).credentialVersion;
 
-      await expect(service.generateTokens(unfenced)).rejects.toThrow(
-        'Cannot issue a token for an unfenced principal',
-      );
+      expect(() => prove(unfenced)).toThrow('Cannot issue a token for an unfenced principal');
       expect(credentialUserLockFindOne).not.toHaveBeenCalled();
       expect(refreshSave).not.toHaveBeenCalled();
       expect(signAsync).not.toHaveBeenCalled();
@@ -991,7 +1041,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       isTokenValid.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
       service = await createService();
 
-      const mintPromise = service.generateTokens(buildUser({}));
+      const mintPromise = service.generateTokens(prove(buildUser({})));
       await Promise.resolve();
       await jest.advanceTimersByTimeAsync(101);
       await mintPromise;
@@ -1017,7 +1067,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       service = await createService({ config: { MAX_SESSIONS_PER_USER: 3 } });
 
       const user = buildUser({});
-      await service.generateTokens(user, '203.0.113.5', 'jest-agent');
+      await service.generateTokens(prove(user), '203.0.113.5', 'jest-agent');
 
       expect(enforceSessionLimit).toHaveBeenCalledWith(user.id, 3);
       expect(createSession).toHaveBeenCalledWith(user.id, {
@@ -1030,7 +1080,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('does not enforce or establish a session during refresh-token rotation', async () => {
       service = await createService({ config: { MAX_SESSIONS_PER_USER: 3 } });
 
-      await service.generateTokens(buildUser({}), undefined, undefined, {
+      await service.generateTokens(prove(buildUser({})), undefined, undefined, {
         establishSession: false,
       });
 
@@ -1053,7 +1103,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         new Repository<RefreshToken>(RefreshToken, transactionManager),
         { create: scopedCreate, save: scopedSave },
       );
-      const lockedUserFindOne = jest.fn().mockResolvedValue({ id: 'locked-user' });
+      const lockedUserFindOne = jest.fn(lockRead);
       const scopedUserRepository = Object.assign(new Repository<User>(User, transactionManager), {
         findOne: lockedUserFindOne,
       });
@@ -1062,20 +1112,23 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         .mockReturnValueOnce(scopedUserRepository)
         .mockReturnValueOnce(scopedRepository);
 
-      await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }), undefined, undefined, {
-        manager: transactionManager,
-        establishSession: false,
-      });
+      await service.generateTokens(
+        prove(buildUser({ role: Role.TENANT_ADMIN })),
+        undefined,
+        undefined,
+        {
+          manager: transactionManager,
+          establishSession: false,
+        },
+      );
 
       expect(lockedUserFindOne).toHaveBeenCalledWith({
-        select: { id: true },
+        // The fence is the proof: id + proven version (+ active). Role and
+        // tenant are not predicates — the trigger advances the version when
+        // they change, and the claims are read from the locked row.
         where: {
           id: '11111111-1111-1111-1111-111111111111',
-          role: Role.TENANT_ADMIN,
-          tenantId: VALID_TENANT_ID,
           isActive: true,
-          // MSGFIX-FAZ2 cherry-pick forward-fix: the issuance fence pins the
-          // exact credentialVersion integer in the re-read predicate too.
           credentialVersion: 1,
         },
         lock: { mode: 'pessimistic_write' },
@@ -1099,7 +1152,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       service = await createService();
       const transactionDataSource = new DataSource({ type: 'postgres' });
       const transactionManager = transactionDataSource.manager;
-      const lockedUserFindOne = jest.fn().mockResolvedValue({ id: 'locked-user' });
+      const lockedUserFindOne = jest.fn(lockRead);
       const scopedUserRepository = Object.assign(new Repository<User>(User, transactionManager), {
         findOne: lockedUserFindOne,
       });
@@ -1123,20 +1176,24 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         .mockReturnValueOnce(scopedSiteRepository)
         .mockReturnValueOnce(scopedRefreshRepository);
 
-      await service.generateTokens(buildUser({ role: Role.MODULE_USER }), undefined, undefined, {
-        manager: transactionManager,
-        establishSession: false,
-      });
+      await service.generateTokens(
+        prove(buildUser({ role: Role.MODULE_USER })),
+        undefined,
+        undefined,
+        {
+          manager: transactionManager,
+          establishSession: false,
+        },
+      );
 
       expect(siteSnapshotTransaction).not.toHaveBeenCalled();
       expect(lockedUserFindOne).toHaveBeenCalledWith({
-        select: { id: true },
+        // The fence is the proof: id + proven version (+ active). Role and
+        // tenant are not predicates — the trigger advances the version when
+        // they change, and the claims are read from the locked row.
         where: {
           id: '11111111-1111-1111-1111-111111111111',
-          role: Role.MODULE_USER,
-          tenantId: VALID_TENANT_ID,
           isActive: true,
-          // MSGFIX-FAZ2 cherry-pick forward-fix: issuance fence integer pin.
           credentialVersion: 1,
         },
         lock: { mode: 'pessimistic_write' },
@@ -1166,7 +1223,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       service = await createService({ config: { HASH_REFRESH_TOKENS: true } });
 
       const user = buildUser({});
-      const result = await service.generateTokens(user);
+      const result = await service.generateTokens(prove(user));
 
       expect(mockBcryptHash).toHaveBeenCalledTimes(1);
       const savedRow = refreshSave.mock.calls[0]?.[0] as { token: string; tokenId: string };
@@ -1190,7 +1247,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('stamps mfaVerified=true only when the option is set', async () => {
       service = await createService();
 
-      await service.generateTokens(buildUser({}), undefined, undefined, {
+      await service.generateTokens(prove(buildUser({})), undefined, undefined, {
         mfaVerified: true,
       });
       expect(capturedPayload().mfaVerified).toBe(true);
@@ -1199,7 +1256,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('omits mfaVerified when the option is absent', async () => {
       service = await createService();
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
       expect('mfaVerified' in capturedPayload()).toBe(false);
     });
   });
@@ -1215,7 +1272,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
       });
 
-      const result = await service.generateTokens(buildUser({}), undefined, undefined, {
+      const result = await service.generateTokens(prove(buildUser({})), undefined, undefined, {
         rememberMe: true,
       });
 
@@ -1231,7 +1288,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
       });
 
-      const result = await service.generateTokens(buildUser({}));
+      const result = await service.generateTokens(prove(buildUser({})));
 
       const savedRow = refreshSave.mock.calls[0]?.[0] as { rememberMe: boolean; expiresAt: Date };
       expect(savedRow.rememberMe).toBe(false);
@@ -1269,7 +1326,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('reads the policy in the SAME auth.tenants statement as the plan claim', async () => {
       service = await createService({ query: routerWithPolicy(60) });
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       const tenantReads = query.mock.calls
         .map((call) => call[0] as unknown)
@@ -1288,7 +1345,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
       });
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
       expect(minutesFromNow(savedRow.expiresAt)).toBeGreaterThan(29);
@@ -1301,7 +1358,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
       });
 
-      const result = await service.generateTokens(buildUser({}), undefined, undefined, {
+      const result = await service.generateTokens(prove(buildUser({})), undefined, undefined, {
         rememberMe: true,
       });
 
@@ -1319,7 +1376,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
       });
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
       expect(minutesFromNow(savedRow.expiresAt)).toBeGreaterThan(7 * 24 * 60 - 1);
@@ -1331,7 +1388,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { REFRESH_TOKEN_EXPIRY_DAYS: 0.5, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
       });
 
-      await service.generateTokens(buildUser({}));
+      await service.generateTokens(prove(buildUser({})));
 
       const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
       // MIN wins: 0.5 day (720 min) is shorter than the 1440-minute policy.
@@ -1440,17 +1497,16 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
 
   it('stamps assignedSiteIds from active, non-expired assignments for a MODULE_USER', async () => {
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    await service.generateTokens(prove(buildUser({ role: Role.MODULE_USER })));
 
     expect(capturedPayload().assignedSiteIds).toEqual(['site-a', 'site-b']);
     expect(lockedUserFindOne).toHaveBeenCalledWith({
-      select: { id: true },
+      // The fence is the proof: id + proven version (+ active). Role and
+      // tenant are not predicates — the trigger advances the version when
+      // they change, and the claims are read from the locked row.
       where: {
         id: USER,
-        role: Role.MODULE_USER,
-        tenantId: TENANT,
         isActive: true,
-        // MSGFIX-FAZ2 cherry-pick forward-fix: issuance fence integer pin.
         credentialVersion: 1,
       },
       lock: { mode: 'pessimistic_write' },
@@ -1473,7 +1529,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
     ]);
     service = await buildService();
 
-    const result = await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    const result = await service.generateTokens(prove(buildUser({ role: Role.MODULE_USER })));
 
     expect(capturedPayload().assignedSiteIds).toEqual(['site-long', 'site-short']);
     expect(signAsync).toHaveBeenCalledWith(
@@ -1492,7 +1548,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
     ]);
     service = await buildService();
 
-    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    await service.generateTokens(prove(buildUser({ role: Role.MODULE_USER })));
 
     expect('assignedSiteIds' in capturedPayload()).toBe(false);
     dateNow.mockRestore();
@@ -1500,7 +1556,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
 
   it('projects ONLY the truthy allowedFeatures keys into mobileFeatures (single read path)', async () => {
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    await service.generateTokens(prove(buildUser({ role: Role.MODULE_USER })));
 
     const features = capturedPayload().mobileFeatures ?? [];
     expect(features.sort()).toEqual(['harvest', 'leave', 'mortality']);
@@ -1513,7 +1569,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
   it('omits mobileFeatures when mobile is disabled', async () => {
     getByUserId.mockResolvedValue({ isMobileEnabled: false, allowedFeatures: { mortality: true } });
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    await service.generateTokens(prove(buildUser({ role: Role.MODULE_USER })));
 
     expect('mobileFeatures' in capturedPayload()).toBe(false);
   });
@@ -1521,14 +1577,14 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
   it('omits assignedSiteIds when the user has no active assignments', async () => {
     siteFind.mockResolvedValue([]);
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    await service.generateTokens(prove(buildUser({ role: Role.MODULE_USER })));
 
     expect('assignedSiteIds' in capturedPayload()).toBe(false);
   });
 
   it('omits assignedSiteIds for TENANT_ADMIN (they bypass via the role hierarchy)', async () => {
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }));
+    await service.generateTokens(prove(buildUser({ role: Role.TENANT_ADMIN })));
 
     // TENANT_ADMIN never queries the site assignment repo.
     expect(siteFind).not.toHaveBeenCalled();
@@ -1537,7 +1593,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
 
   it('omits legacy assignedSiteIds for MODULE_MANAGER (tenant-wide bypass)', async () => {
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.MODULE_MANAGER }));
+    await service.generateTokens(prove(buildUser({ role: Role.MODULE_MANAGER })));
 
     expect(siteFind).not.toHaveBeenCalled();
     expect('assignedSiteIds' in capturedPayload()).toBe(false);
@@ -1545,7 +1601,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
 
   it('signs with the keyid header SSoT untouched (no RS256/JWKS change)', async () => {
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    await service.generateTokens(prove(buildUser({ role: Role.MODULE_USER })));
 
     // The signing call must still pass keyid + audience — adding claims to the
     // payload must not have altered the signing options path.

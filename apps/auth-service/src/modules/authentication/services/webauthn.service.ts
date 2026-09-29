@@ -11,7 +11,7 @@ import { RedisService } from '@aquaculture/backend-common/redis';
 import { isLoginAllowed } from '@platform/event-contracts';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
@@ -30,7 +30,9 @@ import {
   type WebAuthnTransport,
 } from '../dto/webauthn.dto';
 import { AuthPayload } from '../dto/auth-response.dto';
+import { CredentialProof } from './credential-proof';
 import { TokenService } from './token.service';
+import { UserAccountStore } from './user-account.store';
 
 /**
  * WebAuthn ceremony implementation.
@@ -80,6 +82,10 @@ export class WebAuthnService {
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
     private readonly redisService: RedisService,
+    private readonly dataSource: DataSource,
+    // ORPHAN-HIGH-812: login bookkeeping is a column-scoped write, never a
+    // whole-User save of the row read before the assertion was verified.
+    private readonly userAccountStore: UserAccountStore,
   ) {
     // RP ID is the domain without protocol or port
     this.rpId = this.configService.get<string>('WEBAUTHN_RP_ID', 'localhost');
@@ -435,11 +441,19 @@ export class WebAuthnService {
       }
     }
 
-    user.lastLoginAt = new Date();
-    user.lastLoginIp = ipAddress ?? null;
-    user.failedLoginAttempts = 0;
-    user.lockedUntil = null;
-    await this.userRepository.save(user);
+    // The passkey authenticated the row read above; the mint is fenced on that
+    // credential (ORPHAN-HIGH-811) and commits with the login bookkeeping, and
+    // success is recorded only for a session that exists (ORPHAN-MEDIUM-813).
+    const issued = await this.dataSource.transaction(async (manager) => {
+      const payload = await this.tokenService.generateTokens(
+        CredentialProof.ofAuthenticatedPrincipal(user),
+        ipAddress,
+        userAgent,
+        { manager },
+      );
+      await this.userAccountStore.recordSignInCompleted(manager, user.id, ipAddress ?? null);
+      return payload;
+    });
 
     this.logger.log(`WebAuthn login successful for user ${user.id}`);
 
@@ -449,7 +463,7 @@ export class WebAuthnService {
       ipAddress,
     });
 
-    return this.tokenService.generateTokens(user, ipAddress, userAgent);
+    return issued;
   }
 
   // ==========================================================================

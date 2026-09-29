@@ -2,6 +2,7 @@ import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { verifyAuthenticationResponse, verifyRegistrationResponse } from '@simplewebauthn/server';
 import { RedisService } from '@aquaculture/backend-common/redis';
 
@@ -13,6 +14,11 @@ import { User } from '../entities/user.entity';
 import { WebAuthnRegisterCredentialInput, WebAuthnVerifyLoginInput } from '../dto/webauthn.dto';
 import { TokenService } from '../services/token.service';
 import { WebAuthnService } from '../services/webauthn.service';
+import { UserAccountStore } from '../services/user-account.store';
+import { makeUserAccountStoreDouble } from './support/auth-store.doubles';
+
+// ORPHAN-HIGH-811/812: the column-scoped writers, as London-school doubles.
+const userAccountStore = makeUserAccountStoreDouble();
 
 jest.mock('@simplewebauthn/server', () => ({
   verifyRegistrationResponse: jest.fn(),
@@ -32,6 +38,8 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
     email: 'user@example.com',
     tenantId: 'tenant-uuid-1',
     isActive: true,
+    // Real rows carry the trigger-maintained anchor (NOT NULL DEFAULT 1).
+    credentialVersion: 1,
     failedLoginAttempts: 0,
     lockedUntil: null,
     lastLoginAt: null,
@@ -152,6 +160,13 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: UserAccountStore, useValue: userAccountStore },
+        {
+          provide: DataSource,
+          useValue: {
+            transaction: jest.fn(<T>(work: (manager: object) => Promise<T>) => work({})),
+          },
+        },
         WebAuthnService,
         { provide: getRepositoryToken(WebAuthnCredential), useValue: mockCredentialRepository },
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
@@ -409,7 +424,20 @@ describe('WebAuthnService (SEC-CRITICAL-001/002 — №37-№40)', () => {
     it('issues tokens and advances the counter on a successful assertion', async () => {
       const result = await service.verifyLogin(loginInput(), '10.0.0.1', 'jest');
 
-      expect(mockGenerateTokens).toHaveBeenCalledWith(user, '10.0.0.1', 'jest');
+      // Fenced on the credential the passkey authenticated (ORPHAN-HIGH-811),
+      // minted in the transaction that records the sign-in (ORPHAN-HIGH-812).
+      expect(mockGenerateTokens).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: user.id, credentialVersion: 1 }),
+        '10.0.0.1',
+        'jest',
+        { manager: expect.anything() },
+      );
+      expect(userAccountStore.recordSignInCompleted).toHaveBeenCalledWith(
+        expect.anything(),
+        user.id,
+        '10.0.0.1',
+      );
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
       expect(result).toEqual({ accessToken: 'at', refreshToken: 'rt' });
       expect(mockCredentialRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ counter: 4 }),

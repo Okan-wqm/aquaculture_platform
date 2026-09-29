@@ -6,11 +6,23 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../entities/user.entity';
+import { CredentialProof } from '../services/credential-proof';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
+import { UserAccountStore } from '../services/user-account.store';
+import { UserMfaStateStore } from '../services/user-mfa-state.store';
+import {
+  makeUserAccountStoreDouble,
+  makeUserMfaStateStoreDouble,
+} from './support/auth-store.doubles';
+
+// ORPHAN-HIGH-811/812: the column-scoped writers, as London-school doubles.
+const userAccountStore = makeUserAccountStoreDouble();
+const mfaStateStore = makeUserMfaStateStoreDouble();
 
 // ============================================================================
 // Mock Helpers
@@ -28,6 +40,8 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
     tenantId: '11111111-1111-4111-8111-111111111111',
     isActive: true,
     isEmailVerified: true,
+    // The database-owned anchor every proof is taken from (ORPHAN-HIGH-811).
+    credentialVersion: 1,
     mfaEnabled: false,
     mfaSecret: null,
     mfaRecoveryCodes: null,
@@ -93,6 +107,15 @@ const mockAuditLogService = {
   log: jest.fn().mockResolvedValue(undefined),
 };
 
+// The mint and its bookkeeping run in one transaction; the manager is opaque
+// to MfaService (it only hands it to the TokenService/store doubles).
+const mockTransactionManager = {};
+const mockDataSource = {
+  transaction: jest.fn(
+    <T>(work: (manager: object) => Promise<T>): Promise<T> => work(mockTransactionManager),
+  ),
+};
+
 const mockTokenService = {
   generateTokens: jest.fn().mockResolvedValue({
     accessToken: 'full-access-token',
@@ -108,65 +131,75 @@ const mockTokenService = {
 // Tests
 // ============================================================================
 
+/**
+ * MfaService through the DI container with every collaborator doubled — no
+ * casts; `config` stands in for ConfigService so availability tests can vary
+ * the environment.
+ */
+/** The one ConfigService method MfaService reads, as a structural reader. */
+interface ConfigReader {
+  get(key: string, defaultValue?: unknown): unknown;
+}
+
+async function buildMfaService(config: ConfigReader): Promise<MfaService> {
+  const module: TestingModule = await Test.createTestingModule({
+    providers: [
+      MfaService,
+      { provide: getRepositoryToken(User), useValue: mockUserRepository },
+      { provide: JwtService, useValue: mockJwtService },
+      { provide: ConfigService, useValue: config },
+      { provide: AuditLogService, useValue: mockAuditLogService },
+      { provide: TokenService, useValue: mockTokenService },
+      { provide: DataSource, useValue: mockDataSource },
+      { provide: UserAccountStore, useValue: userAccountStore },
+      { provide: UserMfaStateStore, useValue: mfaStateStore },
+    ],
+  }).compile();
+  return module.get<MfaService>(MfaService);
+}
+
 describe('MfaService', () => {
   let service: MfaService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        MfaService,
-        { provide: getRepositoryToken(User), useValue: mockUserRepository },
-        { provide: JwtService, useValue: mockJwtService },
-        { provide: ConfigService, useValue: mockConfigService },
-        { provide: AuditLogService, useValue: mockAuditLogService },
-        { provide: TokenService, useValue: mockTokenService },
-      ],
-    }).compile();
-
-    service = module.get<MfaService>(MfaService);
+    service = await buildMfaService(mockConfigService);
   });
 
   describe('availability', () => {
     const createServiceWithConfig = (config: Record<string, string | undefined>) =>
-      new MfaService(
-        mockUserRepository as any,
-        mockJwtService as any,
-        {
-          get: jest.fn((key: string, defaultValue?: string) => config[key] ?? defaultValue),
-        } as unknown as ConfigService,
-        mockAuditLogService as any,
-        mockTokenService as any,
-      );
+      buildMfaService({
+        get: jest.fn((key: string, defaultValue?: string) => config[key] ?? defaultValue),
+      });
 
-    it('throws during production startup when MFA_ENCRYPTION_KEY is missing', () => {
-      expect(() => createServiceWithConfig({ NODE_ENV: 'production' })).toThrow(
+    it('throws during production startup when MFA_ENCRYPTION_KEY is missing', async () => {
+      await expect(createServiceWithConfig({ NODE_ENV: 'production' })).rejects.toThrow(
         'MFA_ENCRYPTION_KEY',
       );
     });
 
-    it('throws during production startup when MFA_ENCRYPTION_KEY is malformed', () => {
-      expect(() =>
+    it('throws during production startup when MFA_ENCRYPTION_KEY is malformed', async () => {
+      await expect(
         createServiceWithConfig({
           NODE_ENV: 'production',
           MFA_ENCRYPTION_KEY: 'not-a-hex-key',
         }),
-      ).toThrow('64-character hex');
+      ).rejects.toThrow('64-character hex');
     });
 
-    it('throws during staging startup when MFA_ENCRYPTION_KEY is malformed', () => {
-      expect(() =>
+    it('throws during staging startup when MFA_ENCRYPTION_KEY is malformed', async () => {
+      await expect(
         createServiceWithConfig({
           NODE_ENV: 'development',
           AQUA_ENV: 'staging',
           MFA_ENCRYPTION_KEY: 'not-a-hex-key',
         }),
-      ).toThrow('64-character hex');
+      ).rejects.toThrow('64-character hex');
     });
 
-    it('disables MFA outside production when MFA_ENCRYPTION_KEY is missing', () => {
-      const unavailableService = createServiceWithConfig({ NODE_ENV: 'test' });
+    it('disables MFA outside production when MFA_ENCRYPTION_KEY is missing', async () => {
+      const unavailableService = await createServiceWithConfig({ NODE_ENV: 'test' });
 
       expect(unavailableService.isMfaAvailable()).toBe(false);
       expect(unavailableService.getMfaUnavailableReason()).toBe(
@@ -174,8 +207,8 @@ describe('MfaService', () => {
       );
     });
 
-    it('derives a development-only key for malformed non-production MFA_ENCRYPTION_KEY', () => {
-      const devService = createServiceWithConfig({
+    it('derives a development-only key for malformed non-production MFA_ENCRYPTION_KEY', async () => {
+      const devService = await createServiceWithConfig({
         NODE_ENV: 'development',
         MFA_ENCRYPTION_KEY: 'local-dev-key',
       });
@@ -219,23 +252,24 @@ describe('MfaService', () => {
 
       await service.setupMfa('user-uuid-123');
 
-      expect(mockUserRepository.save).toHaveBeenCalledTimes(1);
-      const savedUser = mockUserRepository.save.mock.calls[0]![0];
+      // One column-scoped enrollment write — never a whole-User save.
+      expect(mfaStateStore.beginEnrollment).toHaveBeenCalledTimes(1);
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
+      const [userId, storedSecret, storedCodes] = mfaStateStore.beginEnrollment.mock.calls[0]!;
+      expect(userId).toBe('user-uuid-123');
 
       // Secret should be stored (in test mode, it's plaintext base32)
-      expect(savedUser.mfaSecret).toBeDefined();
-      expect(savedUser.mfaSecret!.length).toBeGreaterThan(0);
+      expect(storedSecret.length).toBeGreaterThan(0);
 
       // Recovery codes should be stored as comma-separated SHA-256 hashes
-      expect(savedUser.mfaRecoveryCodes).toBeDefined();
-      const hashes = savedUser.mfaRecoveryCodes!.split(',');
+      const hashes = storedCodes.split(',');
       expect(hashes).toHaveLength(8);
       hashes.forEach((hash: string) => {
         expect(hash).toHaveLength(64); // SHA-256 hex
       });
 
-      // mfaEnabled should still be false (not yet verified)
-      expect(savedUser.mfaEnabled).toBe(false);
+      // MFA is not enabled until a code verifies it.
+      expect(mfaStateStore.enable).not.toHaveBeenCalled();
     });
 
     it('should throw if MFA is already enabled', async () => {
@@ -278,9 +312,8 @@ describe('MfaService', () => {
       const result = await service.verifyMfaSetup('user-uuid-123', validCode);
 
       expect(result.success).toBe(true);
-      expect(mockUserRepository.save).toHaveBeenCalledTimes(1);
-      const savedUser = mockUserRepository.save.mock.calls[0]![0];
-      expect(savedUser.mfaEnabled).toBe(true);
+      expect(mfaStateStore.enable).toHaveBeenCalledWith('user-uuid-123');
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
     });
 
     it('should reject invalid TOTP code', async () => {
@@ -335,7 +368,10 @@ describe('MfaService', () => {
     it('should return mfaRequired=true and a signed mfaToken', () => {
       const user = createMockUser({ mfaEnabled: true });
 
-      const result = service.generateMfaChallenge(user, false);
+      const result = service.generateMfaChallenge(
+        CredentialProof.ofAuthenticatedPrincipal(user),
+        false,
+      );
 
       expect(result.mfaRequired).toBe(true);
       expect(result.mfaToken).toBe('mock-mfa-token');
@@ -354,7 +390,7 @@ describe('MfaService', () => {
     it('SEC-LOW-001(a): mints the canonical type:mfa_challenge discriminator', () => {
       const user = createMockUser({ mfaEnabled: true });
 
-      service.generateMfaChallenge(user, false);
+      service.generateMfaChallenge(CredentialProof.ofAuthenticatedPrincipal(user), false);
 
       // The `type` claim is the load-bearing discriminator that keeps the MFA
       // token from being replayed as a bearer token (enforceAccessTokenType
@@ -403,6 +439,7 @@ describe('MfaService', () => {
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
+        credentialVersion: 1,
       });
 
       await expect(service.verifyMfaLogin('access-token', '123456')).rejects.toThrow(
@@ -420,6 +457,7 @@ describe('MfaService', () => {
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
+        credentialVersion: 1,
       });
 
       await expect(service.verifyMfaLogin('typeless-token', '123456')).rejects.toThrow(
@@ -435,7 +473,7 @@ describe('MfaService', () => {
       const mintUser = createMockUser({ mfaEnabled: true });
       // ORPHAN-LOW-135: mint with rememberMe=true so the round-trip proves the
       // choice survives challenge → verify and reaches generateTokens.
-      service.generateMfaChallenge(mintUser, true);
+      service.generateMfaChallenge(CredentialProof.ofAuthenticatedPrincipal(mintUser), true);
       const mintedPayload = mockJwtService.sign.mock.calls[0]![0];
       expect(mintedPayload.type).toBe('mfa_challenge');
       expect(mintedPayload.rememberMe).toBe(true);
@@ -466,6 +504,7 @@ describe('MfaService', () => {
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
+        credentialVersion: 1,
       });
 
       const user = createMockUser({
@@ -474,14 +513,45 @@ describe('MfaService', () => {
         mfaFailedAttempts: 4, // One more and it locks
       });
       mockUserRepository.findOne.mockResolvedValue(user);
+      // The database counts the attempt and locks at the threshold in one
+      // statement; this is what that statement returns on the 5th failure.
+      mfaStateStore.recordSecondFactorFailure.mockResolvedValueOnce({
+        failedAttempts: 5,
+        lockedUntil: new Date(Date.now() + 15 * 60 * 1000),
+      });
 
       await expect(service.verifyMfaLogin('valid-mfa-token', '000000')).rejects.toThrow(
         ForbiddenException,
       );
 
-      const savedUser = mockUserRepository.save.mock.calls[0]![0];
-      expect(savedUser.mfaLockedUntil).toBeInstanceOf(Date);
-      expect((savedUser.mfaLockedUntil as Date).getTime()).toBeGreaterThan(Date.now());
+      expect(mfaStateStore.recordSecondFactorFailure).toHaveBeenCalledWith(
+        'user-uuid-123',
+        5,
+        expect.any(Date),
+      );
+      const lockoutUntil = mfaStateStore.recordSecondFactorFailure.mock.calls[0]![2];
+      expect(lockoutUntil.getTime()).toBeGreaterThan(Date.now());
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+    });
+
+    it('a wrong code below the threshold is refused as Unauthorized, counted by the database', async () => {
+      mockJwtService.verify.mockReturnValue({
+        sub: 'mfa:user-uuid-123',
+        type: 'mfa_challenge',
+        userId: 'user-uuid-123',
+        purpose: 'mfa_verification',
+        jti: 'mock-jti',
+        credentialVersion: 1,
+      });
+      mockUserRepository.findOne.mockResolvedValue(
+        createMockUser({ mfaEnabled: true, mfaSecret: 'JBSWY3DPEHPK3PXP' }),
+      );
+
+      await expect(service.verifyMfaLogin('valid-mfa-token', '000000')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mfaStateStore.recordSecondFactorFailure).toHaveBeenCalledTimes(1);
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
     });
 
     it('should reject if account is locked out', async () => {
@@ -491,6 +561,7 @@ describe('MfaService', () => {
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
+        credentialVersion: 1,
       });
 
       const user = createMockUser({
@@ -512,6 +583,7 @@ describe('MfaService', () => {
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
+        credentialVersion: 1,
       });
 
       // Setup a user with known secret
@@ -530,17 +602,73 @@ describe('MfaService', () => {
 
       expect(result.accessToken).toBe('full-access-token');
       expect(mockTokenService.generateTokens).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'user-uuid-123' }),
+        // ORPHAN-HIGH-811: fenced on the version the password step signed.
+        expect.objectContaining({ userId: 'user-uuid-123', credentialVersion: 1 }),
         '127.0.0.1',
         undefined,
         // ORPHAN-LOW-135: this challenge token carries no rememberMe claim → defaults false.
-        { mfaVerified: true, rememberMe: false },
+        { mfaVerified: true, rememberMe: false, manager: mockTransactionManager },
       );
 
-      // Failed attempts should be reset
-      const savedUser = mockUserRepository.save.mock.calls[0]![0];
-      expect(savedUser.mfaFailedAttempts).toBe(0);
-      expect(savedUser.mfaLockedUntil).toBeNull();
+      // The counter reset and lastLoginAt commit in the minting transaction.
+      expect(mfaStateStore.resetSecondFactorFailures).toHaveBeenCalledWith(
+        mockTransactionManager,
+        'user-uuid-123',
+      );
+      expect(userAccountStore.recordSignInCompleted).toHaveBeenCalledWith(
+        mockTransactionManager,
+        'user-uuid-123',
+        undefined,
+      );
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('ORPHAN-HIGH-811: fences the mint on the challenge version, not on the row read at verify time', async () => {
+      // The password step proved version 1. If the account moved to 3 before
+      // the second factor (a reset, a role change), the mint must be fenced on
+      // 1 so TokenService refuses it — the row read now must not re-anchor it.
+      mockJwtService.verify.mockReturnValue({
+        sub: 'mfa:user-uuid-123',
+        type: 'mfa_challenge',
+        userId: 'user-uuid-123',
+        purpose: 'mfa_verification',
+        jti: 'mock-jti',
+        credentialVersion: 1,
+      });
+      const secretBase32 = 'JBSWY3DPEHPK3PXP';
+      mockUserRepository.findOne.mockResolvedValue(
+        createMockUser({ mfaEnabled: true, mfaSecret: secretBase32, credentialVersion: 3 }),
+      );
+
+      await service.verifyMfaLogin('valid-mfa-token', generateTestTOTP(base32Decode(secretBase32)));
+
+      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(
+        expect.objectContaining({ credentialVersion: 1 }),
+        undefined,
+        undefined,
+        expect.anything(),
+      );
+    });
+
+    it('ORPHAN-HIGH-811: a challenge without a signed credential version is refused before any code is consumed', async () => {
+      mockJwtService.verify.mockReturnValue({
+        sub: 'mfa:user-uuid-123',
+        type: 'mfa_challenge',
+        userId: 'user-uuid-123',
+        purpose: 'mfa_verification',
+        jti: 'mock-jti',
+      });
+      const secretBase32 = 'JBSWY3DPEHPK3PXP';
+      mockUserRepository.findOne.mockResolvedValue(
+        createMockUser({ mfaEnabled: true, mfaSecret: secretBase32 }),
+      );
+
+      await expect(
+        service.verifyMfaLogin('valid-mfa-token', generateTestTOTP(base32Decode(secretBase32))),
+      ).rejects.toThrow('Cannot issue a token for an unfenced principal');
+
+      expect(mockTotpConsumeBuilder.execute).not.toHaveBeenCalled();
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
     });
 
     it('SEC-HIGH-001: rejects a TOTP code REPLAYED within its validity window', async () => {
@@ -550,6 +678,7 @@ describe('MfaService', () => {
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
+        credentialVersion: 1,
       });
 
       const secretBase32 = 'JBSWY3DPEHPK3PXP';
@@ -578,6 +707,7 @@ describe('MfaService', () => {
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
+        credentialVersion: 1,
       });
 
       const secretBase32 = 'JBSWY3DPEHPK3PXP';
@@ -606,6 +736,7 @@ describe('MfaService', () => {
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
+        credentialVersion: 1,
       });
 
       // Create a known recovery code and its hash
@@ -624,11 +755,41 @@ describe('MfaService', () => {
 
       expect(result.accessToken).toBe('full-access-token');
 
-      // Recovery code should be consumed — only otherHash should remain
-      // save is called twice: once by verifyAndConsumeRecoveryCode, once by verifyMfaLogin
-      const lastSave = mockUserRepository.save.mock.calls;
-      const codeConsumedSave = lastSave.find((call: any) => call[0].mfaRecoveryCodes === otherHash);
-      expect(codeConsumedSave).toBeDefined();
+      // Consumed by compare-and-set on the list this request matched against:
+      // only otherHash remains.
+      expect(mfaStateStore.consumeRecoveryCode).toHaveBeenCalledWith(
+        'user-uuid-123',
+        `${codeHash},${otherHash}`,
+        otherHash,
+      );
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('a recovery code consumed by a concurrent request is refused (one-time use under a race)', async () => {
+      mockJwtService.verify.mockReturnValue({
+        sub: 'mfa:user-uuid-123',
+        type: 'mfa_challenge',
+        userId: 'user-uuid-123',
+        purpose: 'mfa_verification',
+        jti: 'mock-jti',
+        credentialVersion: 1,
+      });
+      const recoveryCode = 'ABCDE-FGHIJ';
+      const codeHash = crypto.createHash('sha256').update(recoveryCode).digest('hex');
+      mockUserRepository.findOne.mockResolvedValue(
+        createMockUser({
+          mfaEnabled: true,
+          mfaSecret: 'JBSWY3DPEHPK3PXP',
+          mfaRecoveryCodes: codeHash,
+        }),
+      );
+      // The other request's compare-and-set committed first.
+      mfaStateStore.consumeRecoveryCode.mockResolvedValueOnce(false);
+
+      await expect(service.verifyMfaLogin('valid-mfa-token', recoveryCode)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
     });
 
     it('SEC-LOW-001(b): a corrupted stored hash does NOT throw on a non-matching code', async () => {
@@ -638,6 +799,7 @@ describe('MfaService', () => {
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
+        credentialVersion: 1,
       });
 
       // 'zzzz' (non-hex) and 'abc' (odd-length) both decode via
@@ -668,6 +830,7 @@ describe('MfaService', () => {
         userId: 'user-uuid-123',
         purpose: 'mfa_verification',
         jti: 'mock-jti',
+        credentialVersion: 1,
       });
 
       const recoveryCode = 'ABCDE-FGHIJ';
@@ -710,8 +873,10 @@ describe('MfaService', () => {
       });
 
       // Verify old codes are replaced
-      const savedUser = mockUserRepository.save.mock.calls[0]![0];
-      expect(savedUser.mfaRecoveryCodes).not.toContain('old-hash-1');
+      expect(mfaStateStore.replaceRecoveryCodes).toHaveBeenCalledWith(
+        'user-uuid-123',
+        expect.not.stringContaining('old-hash-1'),
+      );
     });
 
     it('should reject if TOTP code is invalid', async () => {
@@ -741,8 +906,8 @@ describe('MfaService', () => {
 
       await service.setupMfa('user-uuid-123');
 
-      const savedUser = mockUserRepository.save.mock.calls[0]![0];
-      const hashes = savedUser.mfaRecoveryCodes!.split(',');
+      const storedCodes = mfaStateStore.beginEnrollment.mock.calls[0]![2];
+      const hashes = storedCodes.split(',');
       expect(hashes).toHaveLength(8);
       hashes.forEach((hash: string) => {
         expect(hash).toMatch(/^[0-9a-f]{64}$/);

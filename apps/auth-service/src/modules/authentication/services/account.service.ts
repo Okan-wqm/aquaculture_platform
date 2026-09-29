@@ -26,6 +26,7 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
 
 import { MfaService } from './mfa.service';
+import { type ProfilePatch, UserAccountStore } from './user-account.store';
 import {
   DurableUserTokenInvalidationService,
   type UserTokenInvalidationIntent,
@@ -54,6 +55,9 @@ export class AccountService {
     // instead of the raw event bus.
     private readonly bestEffort: BestEffortEventPublisher,
     private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
+    // ORPHAN-HIGH-812: profile and password writes name their columns; a
+    // whole-User save could write a stale credential back.
+    private readonly userAccountStore: UserAccountStore,
     @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
   ) {}
 
@@ -68,12 +72,14 @@ export class AccountService {
       throw new BadRequestException('Email changes require a verified email workflow');
     }
 
+    const patch: ProfilePatch = {};
+
     if (input.firstName !== undefined) {
       const firstName = input.firstName.trim();
       if (!firstName) {
         throw new BadRequestException('First name is required');
       }
-      user.firstName = firstName;
+      patch.firstName = firstName;
     }
 
     if (input.lastName !== undefined) {
@@ -81,14 +87,14 @@ export class AccountService {
       if (!lastName) {
         throw new BadRequestException('Last name is required');
       }
-      user.lastName = lastName;
+      patch.lastName = lastName;
     }
 
     if (input.preferredLanguage !== undefined) {
-      user.preferredLanguage = input.preferredLanguage;
+      patch.preferredLanguage = input.preferredLanguage;
     }
 
-    const savedUser = await this.userRepository.save(user);
+    const savedUser = await this.userAccountStore.updateProfile(user.id, patch);
 
     await Promise.allSettled([
       this.auditAccountEvent('USER_PROFILE_UPDATED', savedUser),
@@ -128,10 +134,7 @@ export class AccountService {
         throw new UnauthorizedException('Current password is incorrect');
       }
 
-      user.password = input.newPassword;
-      user.failedLoginAttempts = 0;
-      user.lockedUntil = null;
-      await userRepository.save(user);
+      await this.userAccountStore.changePassword(manager, userId, input.newPassword);
 
       const invalidatedAt = new Date();
       await refreshTokenRepository.update(

@@ -6,12 +6,24 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../entities/user.entity';
 import { MfaResolver } from '../resolvers/mfa.resolver';
+import { CredentialProof } from '../services/credential-proof';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
+import { UserAccountStore } from '../services/user-account.store';
+import { UserMfaStateStore } from '../services/user-mfa-state.store';
+import {
+  makeUserAccountStoreDouble,
+  makeUserMfaStateStoreDouble,
+} from './support/auth-store.doubles';
+
+// ORPHAN-HIGH-811/812: the column-scoped writers, as London-school doubles.
+const userAccountStore = makeUserAccountStoreDouble();
+const mfaStateStore = makeUserMfaStateStoreDouble();
 
 /**
  * ADR-046 — the `mfa_setup` (pre-session enrollment) token.
@@ -27,7 +39,11 @@ describe('MFA setup token (ADR-046)', () => {
   const OTHER_USER_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
   const buildUser = (): User =>
-    Object.assign(new User(), { id: USER_ID, email: 'enrollee@example.com' });
+    Object.assign(new User(), {
+      id: USER_ID,
+      email: 'enrollee@example.com',
+      credentialVersion: 1,
+    });
 
   let mfaService: MfaService;
   let jwtService: JwtService;
@@ -44,6 +60,9 @@ describe('MFA setup token (ADR-046)', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: UserAccountStore, useValue: userAccountStore },
+        { provide: UserMfaStateStore, useValue: mfaStateStore },
+        { provide: DataSource, useValue: { transaction: jest.fn() } },
         MfaService,
         { provide: getRepositoryToken(User), useValue: { findOne: jest.fn(), save: jest.fn() } },
         { provide: JwtService, useValue: jwtService },
@@ -102,7 +121,10 @@ describe('MFA setup token (ADR-046)', () => {
     });
 
     it('refuses an MFA CHALLENGE token at the enrollment consumer', () => {
-      const challenge = mfaService.generateMfaChallenge(buildUser(), false);
+      const challenge = mfaService.generateMfaChallenge(
+        CredentialProof.ofAuthenticatedPrincipal(buildUser()),
+        false,
+      );
       expect(() => mfaService.resolveSetupTokenUserId(challenge.mfaToken)).toThrow(
         UnauthorizedException,
       );

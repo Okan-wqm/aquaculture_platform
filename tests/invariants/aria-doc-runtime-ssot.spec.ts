@@ -675,7 +675,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(workflow.on?.pull_request?.paths).toContain(ARIA_ADAPTERS_DIR + '/**');
 
     const jobs = workflow.jobs ?? {};
-    expect(Object.keys(jobs)).toEqual(['suite', 'lane', 'aria-kernel']);
+    expect(Object.keys(jobs)).toEqual(['suite', 'lane', 'state', 'aria-kernel']);
     const runnerSteps = (job: string): WorkflowStep[] =>
       (jobs[job]?.steps ?? []).filter((step) => step.run?.startsWith(`bash ${ARIA_SUITE_RUNNER}`));
 
@@ -704,10 +704,15 @@ describe('ARIA live runtime/documentation SSoT', () => {
       `bash ${ARIA_SUITE_RUNNER} --pytest-native`,
     ]);
 
+    // state (ARIA-HIGH-240): this change's kernel compacts and verifies the
+    // live aria/state tip; its likeness to the maintenance lane is pinned by
+    // aria-kernel/tests/test_state_compaction_gate.py. No suite runner here.
+    expect(runnerSteps('state')).toEqual([]);
+
     // aria-kernel: the verdict — every job green AND the reports prove the
     // shards ran the whole suite exactly once.
     const verdict = jobs['aria-kernel'];
-    expect(verdict?.needs).toEqual(['suite', 'lane']);
+    expect(verdict?.needs).toEqual(['suite', 'lane', 'state']);
     expect(verdict?.if).toBe('${{ !cancelled() }}');
     expect((verdict?.steps ?? []).map((step) => step.run)).toContain(
       'python3 aria-kernel/tests/_helpers/suite_shards.py verify --reports-dir "${RUNNER_TEMP}/aria-suite-shards"',

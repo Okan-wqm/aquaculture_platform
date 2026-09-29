@@ -146,6 +146,11 @@ jobs:
     # a self-hosted runner, where the platform's job ceiling is days, not
     # the hosted six hours.
     timeout-minutes: 510
+    outputs:
+      # ARIA-HIGH-244 — the chain decision leaves this job as data; the
+      # dispatch itself runs in `chain-next-cycle`, the one job whose token
+      # may write actions.
+      chain_dispatch: ${{ steps.chain.outputs.dispatch }}
     steps:
       # ARIA-HIGH-124 (round 3) — the absolute deadline every spawn and every
       # delivery in this job runs under is anchored HERE, at launch (the
@@ -906,10 +911,19 @@ jobs:
       # empty drain) are unit-tested and every refusal has a name. The cron
       # stays as the floor — this edge can only make the rhythm faster than
       # a broken scheduler, never faster than the interval allows.
-      - name: Chain the next cycle when the rhythm allows it
+      #
+      # ARIA-HIGH-244 — this step DECIDES; `chain-next-cycle` below
+      # dispatches. The dispatch used to run here with the expression
+      # `env.ARIA_GH_TOKEN || github.token`, but the runner's `.env` is
+      # process environment, never the `env` expression context, so the
+      # expression was always the job token, which has `actions: read`: every
+      # dispatch the rhythm allowed was refused 403 and only warned. The
+      # decision reads run history, which `actions: read` covers.
+      - name: Decide whether the rhythm allows the next cycle
+        id: chain
         if: always() && steps.lease_check.outputs.blocked != 'true'
         env:
-          GH_TOKEN: ${{ env.ARIA_GH_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
           DRAINED: ${{ steps.executor.outputs.drained }}
         run: |
           # NOT `continue-on-error` — the enterprise gate rejects that
@@ -930,16 +944,35 @@ jobs:
           echo "chain decision: ${DECISION}"
           case "${DECISION}" in
             *'"dispatch": true'*)
-              if gh workflow run aria-auto-cycle.yml --ref main; then
-                echo "::notice::chained the next cycle"
-              else
-                # A dispatch the API refused is worth SAYING and not worth
-                # failing a successful drain over: the cron floor still
-                # fires, so the cost is one late cycle.
-                echo "::warning::chain dispatch refused by the API; the cron floor still applies"
-              fi
+              echo "dispatch=true" >> "$GITHUB_OUTPUT"
+              echo "::notice::the rhythm allows the next cycle; chain-next-cycle dispatches it"
               ;;
             *)
+              echo "dispatch=false" >> "$GITHUB_OUTPUT"
               echo "::notice::chain declined — see the reason above"
               ;;
           esac
+
+  # ARIA-HIGH-244 — the chain's return edge, on a hosted runner with the one
+  # permission it needs. The executor decides (cycle_rhythm, via
+  # tools/aria/chain_next_cycle.py) and hands the verdict over as a job
+  # output; this job holds `actions: write` and nothing else, so no PAT and no
+  # write scope reaches the self-hosted drain for the sake of one API call.
+  # A refused dispatch is now a red job, not a warning: with the permission
+  # granted, a refusal is a fault somebody has to see.
+  chain-next-cycle:
+    needs: executor
+    if: always() && needs.executor.outputs.chain_dispatch == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the next cycle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh workflow run aria-auto-cycle.yml --ref main --repo "${REPOSITORY}"
+          echo "::notice::chained the next cycle"

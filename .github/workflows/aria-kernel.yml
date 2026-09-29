@@ -60,9 +60,11 @@ jobs:
   #                 shards that run in parallel
   #                 (aria-kernel/tests/_helpers/suite_shards.py);
   #   lane        — the pytest half whole, plus every non-suite step;
-  #   aria-kernel — the check a reader looks for: green only when every shard
-  #                 and the lane are green AND the shard reports prove the
-  #                 shards ran the whole suite exactly once.
+  #   state       — this change's kernel compacting and verifying the REAL
+  #                 aria/state tip (ARIA-HIGH-240);
+  #   aria-kernel — the check a reader looks for: green only when every shard,
+  #                 the lane and the state gate are green AND the shard
+  #                 reports prove the shards ran the whole suite exactly once.
   suite:
     name: suite (${{ matrix.shard }})
     # ARIA-MEDIUM-134/139 — the suite proves the REAL sandbox, and the
@@ -301,11 +303,88 @@ jobs:
             exit 1
           fi
 
+  state:
+    # ARIA-HIGH-240 — no pre-merge lane ran the maintenance path on real
+    # state. ARIA-HIGH-185's compaction change (8028bbb005) merged with this
+    # lane green and made every compacted tree one the kernel's own verify
+    # refuses (ARIA-HIGH-239): the first run to compact the real tree was
+    # the next scheduled aria-state-maintenance, and that lane stayed red
+    # from 2026-09-21 to 2026-09-29. This job runs that lane's compaction and
+    # verify with THIS change's kernel on the live aria/state tip, and
+    # publishes nothing: the tree is a throwaway copy.
+    # Proven on tip d61dc79e5 (2026-09-29): the kernel before HIGH-239's fix
+    # leaves 60 raw_pointer_missing after `state compact --retain-days 7`,
+    # main's kernel 0.
+    #
+    # The two steps below are the maintenance lane's own steps, byte for
+    # byte (name, id, env, run); tests/test_state_compaction_gate.py fails
+    # the build when they differ, so the gate cannot drift from the path it
+    # stands in for.
+    runs-on: ubuntu-latest
+    # 10: restore 4 s, compact 8 s, verify 6 s on the maintenance run
+    # 36527583572 (2026-09-29), plus ~1 min of checkout and setup. A hang
+    # guard, not a squeeze.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # A kernel workspace is a whole clone (see `suite`).
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-aria-kernel
+      # Read-only: the job token is `contents: read`, no bootstrap-ack is
+      # passed (a missing branch is refused, never created), and nothing
+      # below publishes or pushes.
+      - uses: ./.github/actions/restore-aria-state
+      - name: Compact surfaces and strip old artifacts (canonical CLI)
+        env:
+          RETAIN_DAYS: ${{ github.event.inputs.retain_days || '7' }}
+        run: |
+          set -euo pipefail
+          test -n "${ARIA_TOOLS_DIR:-}"
+          test -f "${ARIA_TOOLS_DIR}/repo_identity.json"
+          BEFORE=$(du -sb "${ARIA_TOOLS_DIR}/" | cut -f1)
+          PYTHONPATH=aria-kernel python3 -m aria_kernel state compact \
+            --tools-dir "${ARIA_TOOLS_DIR}" \
+            --retain-days "$RETAIN_DAYS"
+          AFTER=$(du -sb "${ARIA_TOOLS_DIR}/" | cut -f1)
+          echo "compact_result: before=${BEFORE} after=${AFTER} saved=$((BEFORE - AFTER))"
+      - name: Verify ARIA state integrity
+        id: integrity
+        run: |
+          set -uo pipefail
+          VERDICT="${RUNNER_TEMP}/aria-integrity-verdict.json"
+          VERDICT_ERR="${RUNNER_TEMP}/aria-integrity-verdict.err"
+          if PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify \
+               --tools-dir "$ARIA_TOOLS_DIR" \
+               --workspace-root "$GITHUB_WORKSPACE" > "$VERDICT" 2>"$VERDICT_ERR"; then
+            echo "state_valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "state_valid=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo '### ARIA state integrity (after compaction)'
+            echo '```json'
+            head -c 4000 "$VERDICT" 2>/dev/null || echo '{}'
+            echo '```'
+            if [ -s "$VERDICT_ERR" ]; then
+              echo '```'
+              tail -20 "$VERDICT_ERR"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Fail when this kernel's compaction does not verify
+        if: always() && steps.integrity.outputs.state_valid != 'true'
+        run: |
+          set -euo pipefail
+          echo "::error::this change's kernel compacted the live aria/state tip into a tree its own integrity verify refuses; the next aria-state-maintenance run on main would publish nothing (see the step summary)"
+          exit 1
+
   aria-kernel:
     # The kernel lane's verdict. `!cancelled()` rather than `always()`: a
     # superseded run (concurrency cancel-in-progress) stays cancelled instead
     # of reporting a missing shard as a failure.
-    needs: [suite, lane]
+    needs: [suite, lane, state]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-22.04
     timeout-minutes: 10
@@ -327,7 +406,9 @@ jobs:
         env:
           SUITE_RESULT: ${{ needs.suite.result }}
           LANE_RESULT: ${{ needs.lane.result }}
+          STATE_RESULT: ${{ needs.state.result }}
         run: |
-          echo "suite=${SUITE_RESULT} lane=${LANE_RESULT}"
+          echo "suite=${SUITE_RESULT} lane=${LANE_RESULT} state=${STATE_RESULT}"
           test "${SUITE_RESULT}" = success
           test "${LANE_RESULT}" = success
+          test "${STATE_RESULT}" = success

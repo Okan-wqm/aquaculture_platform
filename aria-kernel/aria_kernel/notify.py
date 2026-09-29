@@ -23,6 +23,7 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from .github_writes import run_gh_write
 from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl, state_transaction
 from .tool_registry import ensure_tools_dir, utc_now
 
@@ -127,13 +128,16 @@ def _send_github_issue(title: str, body: str, environ: Mapping[str, str]) -> dic
         except (ValueError, KeyError, IndexError, TypeError):
             number = None
     text = f"{body}\n\n{marker}"
+    # ARIA-CRITICAL-246 — the notice is a write, so it runs on an installation
+    # token or raises GitHubWriteRefused, which the dispatcher records as this
+    # channel's failed row.
     if number is not None:
-        done = subprocess.run(["gh", "issue", "comment", str(number), "--repo", repo, "--body", text],
-                              capture_output=True, text=True, timeout=_GH_CALL_TIMEOUT_SECONDS, check=False, env=env)
+        done = run_gh_write(["issue", "comment", str(number), "--repo", repo, "--body", text],
+                            env=env, timeout=_GH_CALL_TIMEOUT_SECONDS)
         action = "commented"
     else:
-        done = subprocess.run(["gh", "issue", "create", "--repo", repo, "--title", title, "--body", text, "--label", "aria"],
-                              capture_output=True, text=True, timeout=_GH_CALL_TIMEOUT_SECONDS, check=False, env=env)
+        done = run_gh_write(["issue", "create", "--repo", repo, "--title", title, "--body", text, "--label", "aria"],
+                            env=env, timeout=_GH_CALL_TIMEOUT_SECONDS)
         action = "created"
     if done.returncode != 0:
         raise RuntimeError(f"gh issue {action} failed rc={done.returncode}: {(done.stderr or '')[:200]}")

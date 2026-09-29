@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -25,6 +26,7 @@ from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.proposal import approve_proposal, record_proposal
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 from tests._gh_mock import gh_create_success, recorded_calls, reset_recorded
 from tests._helpers.operator_acts import operator_set_profile
 
@@ -220,7 +222,9 @@ class PrCliCreateTests(unittest.TestCase):
             ])
 
     def test_create_no_dry_run_invokes_gh(self) -> None:
-        with patch("aria_kernel.pr_manager.subprocess.run", side_effect=gh_create_success):
+        # In a lane, on the lane's installation token (ARIA-CRITICAL-246).
+        with patch("aria_kernel.pr_manager.subprocess.run", side_effect=gh_create_success), \
+                patch.dict("os.environ", LANE_CREDENTIAL_ENV):
             exit_code, stdout = _run_cli([
                 "pr", "create",
                 "--tools-dir", str(self.tools),
@@ -241,6 +245,26 @@ class PrCliCreateTests(unittest.TestCase):
         argv = gh_calls[0].argv
         self.assertIn("--base", argv)
         self.assertEqual(argv[argv.index("--base") + 1], "main")
+
+    def test_create_from_a_terminal_without_an_installation_token_is_refused_by_name(self) -> None:
+        # ARIA-CRITICAL-246 — with no GH_TOKEN, gh would open the PR as the
+        # terminal's stored login, i.e. as the operator. The kernel refuses
+        # before gh runs.
+        from aria_kernel.tool_registry import GovernanceError
+
+        environ = {key: value for key, value in os.environ.items() if key not in ("GH_TOKEN", "GITHUB_TOKEN")}
+        with patch("aria_kernel.pr_manager.subprocess.run", side_effect=gh_create_success), \
+                patch.dict("os.environ", environ, clear=True):
+            with self.assertRaisesRegex(GovernanceError, "github_write_requires_installation_token:absent"):
+                _run_cli([
+                    "pr", "create",
+                    "--tools-dir", str(self.tools),
+                    "--proposal-id", self.pid,
+                    "--workspace-root", str(self.repo),
+                    "--change-id", "ch-test",
+                    "--no-dry-run",
+                ])
+        self.assertEqual([c for c in recorded_calls() if c.argv[:3] == ["gh", "pr", "create"]], [])
 
 
 class PrCliListActionsTests(unittest.TestCase):

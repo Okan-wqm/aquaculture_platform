@@ -226,13 +226,24 @@ fi
 
 section "Runner .env secret key PRESENCE (names only — values are never read or printed)"
 env_file="${RUNNER_ROOT}/.env"
-for key in ARIA_GH_TOKEN ARIA_OBSERVABILITY_API_KEY; do
+for key in ARIA_OBSERVABILITY_API_KEY; do
   if [ -f "$env_file" ] && grep -q "^${key}=" "$env_file" 2>/dev/null; then
     ok "$key present in ${env_file}"
   else
     # No apply action on purpose: minting/copying secret values is an operator
     # act (runbook step 3), and the service must be restarted after the edit.
     bad "$key missing from ${env_file} (mint per runbook step 3, then restart ${SERVICE_NAME})"
+  fi
+done
+# ARIA-CRITICAL-246 — the runner holds no user credential. ARIA_GH_TOKEN was
+# the operator's PAT: every step inherits the runner .env, so a write made with
+# it was authored as the operator, and an operator's act is what an
+# ARIA-APPROVE line is verified against. ARIA writes on the App or the job token.
+for key in ARIA_GH_TOKEN; do
+  if [ -f "$env_file" ] && grep -q "^${key}=" "$env_file" 2>/dev/null; then
+    bad "$key still in ${env_file}: remove it, restart ${SERVICE_NAME}, and revoke the PAT (runbook: ARIA_GH_TOKEN)"
+  else
+    ok "$key absent from ${env_file}"
   fi
 done
 

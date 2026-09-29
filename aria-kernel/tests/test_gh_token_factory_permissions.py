@@ -159,7 +159,16 @@ class TheMintSendsTheCallersPermissions(unittest.TestCase):
         lease = self._mint()
         with patch.object(subprocess, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, 1, "", "")), \
                 patch("shutil.which", return_value="/usr/bin/gh"):
-            self.assertEqual(tf.revoke_installation_token(lease=lease, environment={"GH_TOKEN": "x"}), "revoke_failed:rc=1")
+            self.assertEqual(tf.revoke_installation_token(lease=lease, environment={"GH_TOKEN": "ghs_refused"}),
+                             "revoke_failed:rc=1")
+        self.assertFalse(lease.token_file.exists())
+        # ARIA-CRITICAL-246 — the DELETE is a write: a value that is not an
+        # installation token never reaches gh, and the refusal is named.
+        lease = self._mint()
+        with patch.object(subprocess, "run", run), patch("shutil.which", return_value="/usr/bin/gh"):
+            self.assertEqual(tf.revoke_installation_token(lease=lease, environment={"GH_TOKEN": "ghp_operator_pat"}),
+                             "revoke_refused:github_write_requires_installation_token:personal_access_token")
+        self.assertEqual(len(calls), 2)
         self.assertFalse(lease.token_file.exists())
 
     def test_an_empty_or_malformed_permission_set_is_refused_before_any_request(self) -> None:

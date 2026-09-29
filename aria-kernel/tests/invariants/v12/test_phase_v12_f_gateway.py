@@ -523,7 +523,14 @@ class Schedules(_Store):
             calls.append(argv)
             return subprocess.CompletedProcess(argv, 0, "", "")
 
-        result = gs.tick(base_dir=self.tools, workspace_root=self.ws, now=at_two, runner=runner)
+        # ARIA-CRITICAL-246 — a dispatch is a write: on the operator's PAT it
+        # is refused by name before gh runs; on an installation token it runs.
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "ghp_operator"}):
+            refused = gs.run_action("cycle", base_dir=self.tools, workspace_root=self.ws, runner=runner)
+        self.assertEqual((refused["status"], refused["detail"]["refused"], calls),
+                         ("failed", "github_write_requires_installation_token:personal_access_token", []))
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "ghs_installation"}):
+            result = gs.tick(base_dir=self.tools, workspace_root=self.ws, now=at_two, runner=runner)
         self.assertEqual(result["heartbeat"]["ran"], ["cycle:ran"])
         self.assertEqual(calls[0][:4], ["gh", "workflow", "run", "aria-auto-cycle.yml"])
         self.assertIn("mode=cycle", calls[0])

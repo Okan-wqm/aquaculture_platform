@@ -1,18 +1,16 @@
 import 'reflect-metadata';
 
-// Mock the tenant-transaction helper so the responder's DB path runs without a
-// real connection: it simply invokes the callback with a fake QueryRunner whose
-// manager is the one createWithManager receives.
-const mockRunInTenantTransaction = jest.fn();
-jest.mock('@aquaculture/backend-common/database', () => ({
-  runInTenantTransaction: (
-    ...args: unknown[]
-  ): unknown => mockRunInTenantTransaction(...args),
-}));
+import { Logger } from '@nestjs/common';
+import { collaborator } from '@platform/testing';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
-import { createMockDataSource } from '@aquaculture/testing';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 import { CreateTaskResponder, CreateTaskNatsRequest } from '../create-task.responder';
-import type { TaskService } from '../../services/task.service';
+import type { CreateTaskInput } from '../../dto/create-task.dto';
+import type { TaskCreator } from '../../services/task-creator';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 
@@ -30,32 +28,32 @@ const VALID: CreateTaskNatsRequest = {
 
 describe('CreateTaskResponder', () => {
   let responder: CreateTaskResponder;
-  let taskService: { createWithManager: jest.Mock };
+  let harness: FarmScopeHarness;
+  let create: jest.Mock;
 
   beforeEach(() => {
-    mockRunInTenantTransaction.mockReset();
-    taskService = { createWithManager: jest.fn() };
-    const { mockDataSource } = createMockDataSource();
-    // Partial→full widening via two single-`as` steps (the gate bans only the
-    // double-`as` escape). The responder only calls createWithManager, and
-    // runInTenantTransaction is mocked, so the DataSource is a real typed mock
-    // from the testing factory.
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    harness = createFarmScopeHarness();
+    create = jest.fn();
     responder = new CreateTaskResponder(
-      taskService as Partial<TaskService> as TaskService,
-      mockDataSource,
+      harness.responder,
+      collaborator<TaskCreator>({ create }, 'TaskCreator'),
     );
   });
 
-  it('rejects an unknown category (fail-closed) without touching the DB', async () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('rejects an unknown category (fail-closed) without writing a task', async () => {
     // SCENARIO: a category outside the domain enum.
-    // EXPECTS: a domain rejection for the requesting tenant; no DB write.
+    // EXPECTS: a domain rejection for the requesting tenant; no task is written.
     const res = await responder.handleCreateTask({ ...VALID, category: 'NONSENSE' });
     expect(res).toEqual({
       ok: true,
       tenantId: TENANT,
       data: { created: false, reason: expect.stringMatching(/category/i) },
     });
-    expect(mockRunInTenantTransaction).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('rejects an unknown priority', async () => {
@@ -95,24 +93,18 @@ describe('CreateTaskResponder', () => {
       tenantId: TENANT,
       error: 'INVALID_REQUEST',
     });
-    expect(mockRunInTenantTransaction).not.toHaveBeenCalled();
+    expect(harness.conn.dataSource.createQueryRunner).not.toHaveBeenCalled();
   });
 
-  it('creates the task through the tenant-pinned SSoT and returns its id', async () => {
-    const fakeQr = { manager: { id: 'mgr' } };
-    taskService.createWithManager.mockResolvedValue({ id: 'task-9', title: 'Check pond 3' });
-    mockRunInTenantTransaction.mockImplementation(
-      async (
-        _ds: unknown,
-        schema: string,
-        tenantId: string,
-        fn: (qr: unknown) => Promise<unknown>,
-      ) => {
-        expect(schema).toBe('farm');
-        expect(tenantId).toBe(TENANT);
-        return fn(fakeQr);
-      },
-    );
+  it('creates the task through the one create path on a write scope pinned to the tenant', async () => {
+    // SCENARIO: a valid request.
+    // EXPECTS: TaskCreator runs on a genuine WRITE scope for the requesting tenant,
+    //          the transaction commits, and the reply names the tenant read back.
+    create.mockImplementation(async (scope: TenantScope, input: CreateTaskInput) => {
+      expect(scope.tenantId).toBe(TENANT);
+      expect(scope.access).toBe('write');
+      return { id: 'task-9', title: input.title };
+    });
 
     const res = await responder.handleCreateTask(VALID);
 
@@ -121,9 +113,8 @@ describe('CreateTaskResponder', () => {
       tenantId: TENANT,
       data: { created: true, taskId: 'task-9', title: 'Check pond 3' },
     });
-    expect(taskService.createWithManager).toHaveBeenCalledWith(
-      fakeQr.manager,
-      TENANT,
+    expect(create).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         title: 'Check pond 3',
         category: 'WATER_QUALITY',
@@ -131,14 +122,16 @@ describe('CreateTaskResponder', () => {
       }),
       'u-1',
     );
+    expect(harness.conn.queryRunner.commitTransaction).toHaveBeenCalled();
   });
 
   it('maps an unexpected create failure to INTERNAL_ERROR (no leak into the reply)', async () => {
     // SCENARIO: the DB write crashes with an internal message.
     // EXPECTS: INTERNAL_ERROR for the requesting tenant; the internal message stays in the server log.
-    mockRunInTenantTransaction.mockRejectedValue(new Error('deadlock detected on tasks'));
+    create.mockRejectedValue(new Error('deadlock detected on tasks'));
     const res = await responder.handleCreateTask(VALID);
     expect(res).toEqual({ ok: false, tenantId: TENANT, error: 'INTERNAL_ERROR' });
     expect(JSON.stringify(res)).not.toMatch(/deadlock/);
+    expect(harness.conn.queryRunner.rollbackTransaction).toHaveBeenCalled();
   });
 });

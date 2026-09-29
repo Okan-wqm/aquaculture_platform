@@ -35,7 +35,7 @@ import {
  * `toggleChecklistItem` flip (which predated `isCompleted`); new writes never
  * emit it. Keeping this interface permissive documents the stored reality;
  * the wire contract is the canonical {@link TaskChecklistItem} below, served
- * through `TaskService.normaliseChecklistItems` on every read (FARM-HIGH-320).
+ * through `normaliseChecklistItems` (task-checklist.ts) on every read (FARM-HIGH-320).
  */
 export interface StoredTaskChecklistItem {
   /** UUID, assigned by the service on first set / on creation. */
@@ -51,7 +51,7 @@ export interface StoredTaskChecklistItem {
 }
 
 /**
- * CANONICAL checklist item — the shape `TaskService.normaliseChecklistItem`
+ * CANONICAL checklist item — the shape `normaliseChecklistItem` (task-checklist.ts)
  * returns and the ONLY shape the GraphQL wire carries (FARM-HIGH-320). It used
  * to be served as a `JSON` scalar, which typed the field as an opaque object in
  * every client and left each of them to re-implement the normaliser.

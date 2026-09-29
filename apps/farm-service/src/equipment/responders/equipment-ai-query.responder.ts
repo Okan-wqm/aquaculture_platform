@@ -1,4 +1,4 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { QueryBus, type PaginatedQueryResult } from '@platform/cqrs';
 import {
@@ -13,12 +13,12 @@ import {
   type FeederCalibrationsReply,
   type EquipmentStatusCode,
 } from '@platform/event-contracts';
-import { respondTenantBound } from '@aquaculture/backend-common/nats';
 import { isoOrNull, numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import { EquipmentStatus, type Equipment } from '../entities/equipment.entity';
 import type { FeederCalibration } from '../entities/feeder-calibration.entity';
 import { ListEquipmentQuery } from '../queries/list-equipment.query';
 import { ListFeederCalibrationsQuery } from '../queries/list-feeder-calibrations.query';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 /** No serial number, purchase price, specifications or location detail crosses. */
 export function projectEquipment(row: Equipment): EquipmentDto {
@@ -68,36 +68,38 @@ function toEquipmentStatus(code: EquipmentStatusCode | undefined): EquipmentStat
 /** Equipment read surface for the farm operations specialist (FARM-MEDIUM-328). */
 @Controller()
 export class EquipmentAiQueryResponder {
-  private readonly logger = new Logger(EquipmentAiQueryResponder.name);
-
-  constructor(private readonly queryBus: QueryBus) {}
+  constructor(
+    private readonly responder: FarmAiResponder,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.EQUIPMENT_LIST)
   listEquipment(@Payload() payload: unknown): Promise<TenantBoundReply<EquipmentListReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.EQUIPMENT_LIST,
-      payload,
-      isEquipmentListRequest,
-      async (req) => {
-        const status = toEquipmentStatus(req.status);
-        const page = await this.queryBus.execute<
-          ListEquipmentQuery,
-          PaginatedQueryResult<Equipment>
-        >(
-          new ListEquipmentQuery(
-            req.tenantId,
-            {
-              isActive: true,
-              ...(req.equipmentTypeId ? { equipmentTypeId: req.equipmentTypeId } : {}),
-              ...(status ? { status } : {}),
-              ...(req.isTank !== undefined ? { isTank: req.isTank } : {}),
-            },
-            { page: 1, limit: req.limit, sortBy: 'code', sortOrder: 'ASC' },
-          ),
-        );
-        return toBoundedList(page.data, req.limit, projectEquipment, page.pagination.total);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.EQUIPMENT_LIST,
+        isRequest: isEquipmentListRequest,
+        handle: async (req, scope) => {
+          const status = toEquipmentStatus(req.status);
+          const page = await this.queryBus.execute<
+            ListEquipmentQuery,
+            PaginatedQueryResult<Equipment>
+          >(
+            new ListEquipmentQuery(
+              scope,
+              {
+                isActive: true,
+                ...(req.equipmentTypeId ? { equipmentTypeId: req.equipmentTypeId } : {}),
+                ...(status ? { status } : {}),
+                ...(req.isTank !== undefined ? { isTank: req.isTank } : {}),
+              },
+              { page: 1, limit: req.limit, sortBy: 'code', sortOrder: 'ASC' },
+            ),
+          );
+          return toBoundedList(page.data, req.limit, projectEquipment, page.pagination.total);
+        },
       },
+      payload,
     );
   }
 
@@ -105,18 +107,19 @@ export class EquipmentAiQueryResponder {
   listFeederCalibrations(
     @Payload() payload: unknown,
   ): Promise<TenantBoundReply<FeederCalibrationsReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.EQUIPMENT_FEEDER_CALIBRATIONS,
-      payload,
-      isFeederCalibrationsRequest,
-      async (req) => {
-        // NOTE the query's constructor order: (equipmentId, tenantId).
-        const rows = await this.queryBus.execute<ListFeederCalibrationsQuery, FeederCalibration[]>(
-          new ListFeederCalibrationsQuery(req.equipmentId, req.tenantId),
-        );
-        return toBoundedList(rows, req.limit, projectCalibration);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.EQUIPMENT_FEEDER_CALIBRATIONS,
+        isRequest: isFeederCalibrationsRequest,
+        handle: async (req, scope) => {
+          const rows = await this.queryBus.execute<
+            ListFeederCalibrationsQuery,
+            FeederCalibration[]
+          >(new ListFeederCalibrationsQuery(scope, req.equipmentId));
+          return toBoundedList(rows, req.limit, projectCalibration);
+        },
       },
+      payload,
     );
   }
 }

@@ -30,6 +30,7 @@ import { GrowthMeasurement, FCRAnalysis } from '../entities/growth-measurement.e
 import { Batch } from '../../batch/entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
 import { readCumulativeFcr, type CumulativeFcr } from './cumulative-fcr.reader';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 import { ProtocolRateService } from '../../feeding-protocol/services/protocol-rate.service';
 import {
   FcrMatrix,
@@ -213,6 +214,7 @@ export class FCRCalculationService {
     @InjectRepository(FeedingProgramTank)
     private readonly feedingProgramTankRepository: Repository<FeedingProgramTank>,
     private readonly protocolRateService: ProtocolRateService,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -320,17 +322,17 @@ export class FCRCalculationService {
    * Kümülatif FCR hesaplar (batch başından bugüne).
    *
    * The computation is `readCumulativeFcr` (cumulative-fcr.reader.ts), the
-   * single authority; this entry point runs it on the ambient manager for
-   * callers that hold no transaction of their own. Callers inside a tenant
-   * boundary (runInTenantRead / runInTenantTransaction) call the reader with
-   * their own manager instead, so every read stays inside that boundary.
+   * single authority; this entry point opens a tenant read scope for callers
+   * that start from a tenant id. Callers that already hold a scope (the AI
+   * read handlers) call the reader with it, so both paths run one computation
+   * on a tenant-pinned connection (K10 layer 4).
    */
   async calculateCumulativeFCR(
     batchId: string,
     tenantId: string,
     endDate?: Date,
   ): Promise<CumulativeFcr> {
-    return readCumulativeFcr(this.batchRepository.manager, batchId, tenantId, endDate);
+    return this.tenantScopes.read(tenantId, (scope) => readCumulativeFcr(scope, batchId, endDate));
   }
 
   /**

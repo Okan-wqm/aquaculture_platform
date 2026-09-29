@@ -28,6 +28,7 @@ import { AutoRule } from './entities/auto-rule.entity';
 
 // Services
 import { TaskService } from './services/task.service';
+import { TaskCreator } from './services/task-creator';
 import { RecurringTaskService } from './services/recurring-task.service';
 import { AutoRuleService } from './services/auto-rule.service';
 import { AutoRuleTriggerService } from './services/auto-rule-trigger.service';
@@ -74,6 +75,7 @@ const QueryHandlers = [
   providers: [
     // Services
     TaskService,
+    TaskCreator,
     RecurringTaskService,
     AutoRuleService,
     AutoRuleTriggerService,

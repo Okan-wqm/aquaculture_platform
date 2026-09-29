@@ -4,6 +4,7 @@ import { createMockDataSource } from '@aquaculture/testing';
 
 import { GetTankCapacityQuery } from '../queries/get-tank-capacity.query';
 import { GetTankCapacityHandler } from '../handlers/get-tank-capacity.handler';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 describe('GetTankCapacityHandler', () => {
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -28,8 +29,8 @@ describe('GetTankCapacityHandler', () => {
         primaryBatchId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
       });
 
-    const handler = new GetTankCapacityHandler(mockDataSource);
-    const result = await handler.execute(new GetTankCapacityQuery(tenantId, tankId));
+    const handler = new GetTankCapacityHandler();
+    const result = await inTenantScope(tenantId, (scope) => handler.execute(new GetTankCapacityQuery(scope, tankId)), mockDataSource);
 
     expect(result.tankId).toBe(tankId);
     expect(result.currentBiomassKg).toBe(1250);
@@ -49,10 +50,10 @@ describe('GetTankCapacityHandler', () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
 
-    const handler = new GetTankCapacityHandler(mockDataSource);
+    const handler = new GetTankCapacityHandler();
 
     await expect(
-      handler.execute(new GetTankCapacityQuery(tenantId, tankId)),
+      inTenantScope(tenantId, (scope) => handler.execute(new GetTankCapacityQuery(scope, tankId)), mockDataSource),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

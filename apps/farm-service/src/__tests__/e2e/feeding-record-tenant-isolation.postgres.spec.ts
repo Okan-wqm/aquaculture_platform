@@ -100,6 +100,7 @@ import {
 import { StorageInventory, StorageItemType } from '../../storage/entities/storage-inventory.entity';
 import { StockMovement } from '../../storage/entities/stock-movement.entity';
 import { StorageLotMix } from '../../storage/entities/storage-lot-mix.entity';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
@@ -247,7 +248,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       ),
     );
     getFeedingRecords = new GetFeedingRecordsHandler(dataSource);
-    getFeedingSummary = new GetFeedingSummaryHandler(dataSource);
+    getFeedingSummary = new GetFeedingSummaryHandler();
   });
 
   afterAll(async () => {
@@ -352,14 +353,19 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       ),
     );
     const tenantASummary = await withTenantContext(TENANT_A, () =>
-      getFeedingSummary.execute(
-        new GetFeedingSummaryQuery(
-          TENANT_A,
-          'batch',
-          fixtureA.batch.id,
-          new Date('2026-04-29T00:00:00.000Z'),
-          new Date('2026-04-30T00:00:00.000Z'),
-        ),
+      inTenantScope(
+        TENANT_A,
+        (scope) =>
+          getFeedingSummary.execute(
+            new GetFeedingSummaryQuery(
+              scope,
+              'batch',
+              fixtureA.batch.id,
+              new Date('2026-04-29T00:00:00.000Z'),
+              new Date('2026-04-30T00:00:00.000Z'),
+            ),
+          ),
+        dataSource,
       ),
     );
 

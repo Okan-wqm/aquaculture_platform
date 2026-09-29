@@ -1,11 +1,11 @@
 /**
  * Get Biomass Report by period Query
  */
-import { IQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
-export class GetBiomassReportByPeriodQuery implements IQuery {
+export class GetBiomassReportByPeriodQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly siteId: string,
     public readonly reportMonth: number,
     public readonly reportYear: number,

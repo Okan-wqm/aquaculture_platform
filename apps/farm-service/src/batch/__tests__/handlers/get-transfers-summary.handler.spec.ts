@@ -6,6 +6,7 @@ import { createMockDataSource } from '@aquaculture/testing';
 
 import { GetTransfersSummaryHandler } from '../../query-handlers/get-transfers-summary.handler';
 import { GetTransfersSummaryQuery } from '../../queries/get-transfers-summary.query';
+import { inTenantScope } from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const siteId = 'ssssssss-ssss-4sss-8sss-ssssssssssss';
@@ -40,8 +41,13 @@ describe('GetTransfersSummaryHandler', () => {
       return Promise.resolve([]);
     });
 
-    const result = await new GetTransfersSummaryHandler(mockDataSource).execute(
-      new GetTransfersSummaryQuery(tenantId, siteId, '2026-06-01', '2026-06-30'),
+    const result = await inTenantScope(
+      tenantId,
+      (scope) =>
+        new GetTransfersSummaryHandler().execute(
+          new GetTransfersSummaryQuery(scope, siteId, '2026-06-01', '2026-06-30'),
+        ),
+      mockDataSource,
     );
 
     expect(result.records).toEqual([
@@ -68,8 +74,13 @@ describe('GetTransfersSummaryHandler', () => {
   it('excludes same-site moves in SQL and parameterises the boundary check', async () => {
     const { mockDataSource, mockQueryRunner } = createMockDataSource();
 
-    await new GetTransfersSummaryHandler(mockDataSource).execute(
-      new GetTransfersSummaryQuery(tenantId, siteId, '2026-06-01', '2026-06-30'),
+    await inTenantScope(
+      tenantId,
+      (scope) =>
+        new GetTransfersSummaryHandler().execute(
+          new GetTransfersSummaryQuery(scope, siteId, '2026-06-01', '2026-06-30'),
+        ),
+      mockDataSource,
     );
 
     const call = (mockQueryRunner.query as jest.Mock).mock.calls.find(

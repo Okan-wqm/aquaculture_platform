@@ -64,6 +64,7 @@ import {
   LotInfo,
 } from '../entities/harvest-record.entity';
 import { HarvestPolicyService } from '../services/harvest-policy.service';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 @Injectable()
 @CommandHandler(CreateHarvestRecordCommand)
@@ -79,6 +80,7 @@ export class CreateHarvestRecordHandler
     private readonly dayPlanRecalc: DayPlanRecalcService,
     private readonly commandBus: CommandBus,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
+    private readonly tenantScopes: FarmTenantScopes,
     private readonly backdatePolicy: BackdatePolicyService,
     private readonly harvestPolicy: HarvestPolicyService,
     @InjectRepository(HarvestRecord)
@@ -184,10 +186,8 @@ export class CreateHarvestRecordHandler
         // Blocking logic lives in BatchHarvestEligibilityService so the
         // GraphQL query `batchHarvestEligibility` can reuse it for UI
         // pre-submit warnings. See docs/illustrator/ (Girdi 14h).
-        const eligibility = await this.harvestEligibility.checkEligibility(
-          tenantId,
-          input.batchId,
-          harvestDate,
+        const eligibility = await this.tenantScopes.read(tenantId, (scope) =>
+          this.harvestEligibility.checkEligibility(scope, input.batchId, harvestDate),
         );
         if (!eligibility.eligible) {
           this.metricsService?.incWithdrawalBlock({

@@ -12,6 +12,7 @@ import { ListCriticalHealthEventsHandler } from '../handlers/list-critical-healt
 import { ListCriticalHealthEventsQuery } from '../queries/list-critical-health-events.query';
 import { GetHealthEventStatsHandler } from '../handlers/get-health-event-stats.handler';
 import { GetHealthEventStatsQuery } from '../queries/get-health-event-stats.query';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -58,8 +59,11 @@ describe('Health-event read handlers (fail-closed tenant boundary)', () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.find as jest.Mock).mockResolvedValueOnce([]);
 
-    await new ListCriticalHealthEventsHandler(mockDataSource).execute(
-      new ListCriticalHealthEventsQuery(tenantId),
+    await inTenantScope(
+      tenantId,
+      (scope) =>
+        new ListCriticalHealthEventsHandler().execute(new ListCriticalHealthEventsQuery(scope)),
+      mockDataSource,
     );
 
     const [, opts] = (mockManager.find as jest.Mock).mock.calls[0];
@@ -70,8 +74,10 @@ describe('Health-event read handlers (fail-closed tenant boundary)', () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.find as jest.Mock).mockResolvedValueOnce([]); // none → zeroed stats
 
-    const result = await new GetHealthEventStatsHandler(mockDataSource).execute(
-      new GetHealthEventStatsQuery(tenantId),
+    const result = await inTenantScope(
+      tenantId,
+      (scope) => new GetHealthEventStatsHandler().execute(new GetHealthEventStatsQuery(scope)),
+      mockDataSource,
     );
 
     expect(result.total).toBe(0);

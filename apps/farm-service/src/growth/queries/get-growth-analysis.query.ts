@@ -5,7 +5,7 @@
  *
  * @module Growth/Queries
  */
-import { ITenantQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 /**
  * Büyüme analizi sonucu
@@ -76,11 +76,11 @@ export interface GrowthAnalysisResult {
   }[];
 }
 
-export class GetGrowthAnalysisQuery implements ITenantQuery {
+export class GetGrowthAnalysisQuery {
   readonly queryName = 'GetGrowthAnalysisQuery';
 
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly batchId: string,
   ) {}
 }

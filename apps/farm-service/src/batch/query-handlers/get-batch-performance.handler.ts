@@ -14,14 +14,10 @@
  * @module Batch/QueryHandlers
  */
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
-import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { GetBatchPerformanceQuery, BatchPerformanceResult } from '../queries/get-batch-performance.query';
 import { Batch } from '../entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
-import { RedisService } from '@aquaculture/backend-common/redis';
 import { BatchCostCalculatorService } from '../services/batch-cost-calculator.service';
 import { readCumulativeFcr } from '../../growth/services/cumulative-fcr.reader';
 
@@ -30,52 +26,39 @@ import { readCumulativeFcr } from '../../growth/services/cumulative-fcr.reader';
 export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerformanceQuery, BatchPerformanceResult> {
   private readonly logger = new Logger(GetBatchPerformanceHandler.name);
 
-  constructor(
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
-    private readonly costCalculator: BatchCostCalculatorService,
-  ) {}
+  constructor(private readonly costCalculator: BatchCostCalculatorService) {}
 
   async execute(query: GetBatchPerformanceQuery): Promise<BatchPerformanceResult> {
-    const { tenantId, batchId } = query;
+    const { scope, batchId } = query;
+    const tenantId = scope.tenantId;
 
-    // WHY one boundary for every read (K10 layer 4, MT-HIGH-062 — the AI
-    // get_batch_performance tool lands here): the batch, its species, the FCR
-    // ledger and the cost axes are all read inside ONE fail-closed
-    // runInTenantRead transaction, so a lost/wrong pooled-connection
-    // search_path raises instead of silently resolving another schema, and an
-    // id that is not this tenant's is NotFound before anything else is read.
-    const { batch, species, cumulativeFCR, costBreakdown } = await runInTenantRead(
-      this.dataSource,
-      'farm',
-      tenantId,
-      async (queryRunner) => {
-        const found = await queryRunner.manager.findOne(Batch, {
-          where: { id: batchId, tenantId },
-          relations: ['species'],
-        });
-        if (!found) {
-          throw new NotFoundException(`Batch ${batchId} bulunamadı`);
-        }
-        return {
-          batch: found,
-          species:
-            found.species ||
-            (await queryRunner.manager.findOne(Species, {
-              where: { id: found.speciesId, tenantId },
-            })),
-          // FCR — the single authority is readCumulativeFcr, which reads
-          // net-exited biomass (mortality + cull + harvest + transfer-out −
-          // transfer-in) from the TankOperation ledger. The previous
-          // batch.calculateFCR(mortalityBiomass) only credited mortality
-          // biomass and used the stored snapshot, overstating FCR (FARM-HIGH-007).
-          cumulativeFCR: await readCumulativeFcr(queryRunner.manager, batchId, tenantId),
-          // Full cost breakdown (phase 2.3): treatment, labour and equipment
-          // axes on top of purchase + feed, with `warnings` for partial data.
-          costBreakdown: await this.costCalculator.compute(found, queryRunner.manager),
-        };
-      },
-    );
+    // WHY every read goes through the query's scope (K10 layer 4, MT-HIGH-062
+    // — the AI get_batch_performance tool lands here): the batch, its species,
+    // the FCR ledger and the cost axes are all read on the ONE tenant-pinned
+    // connection the scope owns, so a lost/wrong pooled-connection search_path
+    // cannot resolve another schema, and an id that is not this tenant's is
+    // NotFound before anything else is read.
+    const batch = await scope.manager.findOne(Batch, {
+      where: { id: batchId, tenantId },
+      relations: ['species'],
+    });
+    if (!batch) {
+      throw new NotFoundException(`Batch ${batchId} bulunamadı`);
+    }
+    const species =
+      batch.species ||
+      (await scope.manager.findOne(Species, {
+        where: { id: batch.speciesId, tenantId },
+      }));
+    // FCR — the single authority is readCumulativeFcr, which reads
+    // net-exited biomass (mortality + cull + harvest + transfer-out −
+    // transfer-in) from the TankOperation ledger. The previous
+    // batch.calculateFCR(mortalityBiomass) only credited mortality
+    // biomass and used the stored snapshot, overstating FCR (FARM-HIGH-007).
+    const cumulativeFCR = await readCumulativeFcr(scope, batchId);
+    // Full cost breakdown (phase 2.3): treatment, labour and equipment
+    // axes on top of purchase + feed, with `warnings` for partial data.
+    const costBreakdown = await this.costCalculator.compute(batch, scope);
 
     // Weight calculations
     const initialAvgWeightG = batch.weight.initial.avgWeight;

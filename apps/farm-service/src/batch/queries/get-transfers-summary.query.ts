@@ -4,7 +4,7 @@
  * Only movements that CROSS the site boundary count — tank-to-tank moves
  * inside the same site are internal logistics, not reportable transfers.
  */
-import { IQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 export interface TransferSummaryRecord {
   /** ISO date (yyyy-mm-dd). */
@@ -24,9 +24,9 @@ export interface TransfersSummaryResult {
   recordCount: number;
 }
 
-export class GetTransfersSummaryQuery implements IQuery {
+export class GetTransfersSummaryQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly siteId: string,
     /** Inclusive ISO date (yyyy-mm-dd). */
     public readonly fromDate: string,

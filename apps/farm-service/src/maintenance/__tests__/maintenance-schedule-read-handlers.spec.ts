@@ -15,6 +15,7 @@ import { ListMaintenanceScheduleAlertsHandler } from '../handlers/list-maintenan
 import { ListMaintenanceScheduleAlertsQuery } from '../queries/list-maintenance-schedule-alerts.query';
 import { GetMaintenanceComplianceReportHandler } from '../handlers/get-maintenance-compliance-report.handler';
 import { GetMaintenanceComplianceReportQuery } from '../queries/get-maintenance-compliance-report.query';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -61,8 +62,13 @@ describe('Maintenance-schedule read handlers (fail-closed tenant boundary)', () 
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.find as jest.Mock).mockResolvedValueOnce([]);
 
-    const result = await new ListMaintenanceScheduleAlertsHandler(mockDataSource).execute(
-      new ListMaintenanceScheduleAlertsQuery(tenantId),
+    const result = await inTenantScope(
+      tenantId,
+      (scope) =>
+        new ListMaintenanceScheduleAlertsHandler().execute(
+          new ListMaintenanceScheduleAlertsQuery(scope),
+        ),
+      mockDataSource,
     );
 
     expect(result).toEqual([]);

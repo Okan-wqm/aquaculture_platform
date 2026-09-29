@@ -1,10 +1,8 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { runInTenantRead } from '@aquaculture/backend-common/database';
-import { respondTenantBound } from '@aquaculture/backend-common/nats';
 import { isAiQueryRequestShape, type TenantBoundReply } from '@platform/event-contracts';
-import { DataSource } from 'typeorm';
 import { Tank } from '../entities/tank.entity';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 /**
  * Live farm read over NATS request-reply (Faz 3a). ai-service farm read tools
@@ -39,9 +37,7 @@ export interface TankRegistryEntry {
 
 @Controller()
 export class GetTankRegistryResponder {
-  private readonly logger = new Logger(GetTankRegistryResponder.name);
-
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(private readonly responder: FarmAiResponder) {}
 
   // K10 (MT-HIGH-062): one responder skeleton — guard, tenant frame, and a
   // reply that names the tenant it served. A failure is an INTERNAL_ERROR the
@@ -50,19 +46,19 @@ export class GetTankRegistryResponder {
   handleGetTankRegistry(
     @Payload() payload: unknown,
   ): Promise<TenantBoundReply<TankRegistryEntry[]>> {
-    return respondTenantBound(
-      this.logger,
-      'request.farm.getTankRegistry',
-      payload,
-      isGetTankRegistryRequest,
-      (request) =>
-        runInTenantRead(this.dataSource, 'farm', request.tenantId, async (qr) => {
-          const tanks = await qr.manager.find(Tank, {
+    return this.responder.respond(
+      {
+        subject: 'request.farm.getTankRegistry',
+        isRequest: isGetTankRegistryRequest,
+        handle: async (_request, scope) => {
+          const tanks = await scope.manager.find(Tank, {
             select: { id: true, code: true, name: true, status: true },
             order: { code: 'ASC' },
           });
           return tanks.map((t) => ({ id: t.id, code: t.code, name: t.name, status: t.status }));
-        }),
+        },
+      },
+      payload,
     );
   }
 }

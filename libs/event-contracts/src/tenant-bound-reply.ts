@@ -4,12 +4,24 @@
  * WHY: an AI tool that asks another service for tenant data must be able to
  * prove that the answer belongs to the tenant it asked for. The earlier farm
  * AI envelope carried `{ ok, data }` only, so a reply served for the wrong
- * tenant (a responder bug, an ambient-context slip, an inbox mix-up) looked
- * exactly like a correct one and went straight into the model's context.
+ * tenant looked exactly like a correct one and went straight into the model's
+ * context.
  *
- * WHAT: the contract half — the envelope, its structural guard, and the ONE
- * consumer check. The responder half (`respondTenantBound`) lives in
- * `@aquaculture/backend-common/nats`; it is the only producer of this shape.
+ * WHAT IS GUARANTEED (V-T1a-5): the responder half (`respondTenantBound` in
+ * `@aquaculture/backend-common/nats`, the only producer of this shape) opens
+ * the tenant boundary itself and hands the handler a TenantScope — the only
+ * data handle AI-reachable code gets (tests/invariants/
+ * ai-tenant-boundary-data-layer.spec.ts §E). The `tenantId` of an ok or
+ * NOT_FOUND reply is the tenant read back from THAT connection after the
+ * handler ran (search_path + RLS setting agree on it); if it is not the
+ * requested tenant the data is withheld. So a responder that moved its own
+ * connection to another tenant is caught; a read on a different connection is
+ * excluded by the data-layer invariant, not by this envelope. A failure that
+ * read nothing (INVALID_REQUEST / INTERNAL_ERROR) names the requested tenant
+ * and carries no data.
+ *
+ * This module is the contract half — the envelope, its structural guard, and
+ * the ONE consumer check.
  *
  * INVARIANT: a consumer that reads `data` without `verifyTenantBoundReply`
  * can hand a foreign tenant's rows to an LLM. ai-service reaches these

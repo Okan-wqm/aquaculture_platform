@@ -5,7 +5,7 @@
  *
  * @module Tank/Queries
  */
-import { ITenantQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 /**
  * Tank kapasite durumu
@@ -46,11 +46,11 @@ export interface TankCapacityResult {
   warnings: string[];
 }
 
-export class GetTankCapacityQuery implements ITenantQuery {
+export class GetTankCapacityQuery {
   readonly queryName = 'GetTankCapacityQuery';
 
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly tankId: string,
   ) {}
 }

@@ -2,6 +2,7 @@ import { createMockDataSource } from '@aquaculture/testing';
 
 import { ListSpeciesQuery } from '../../queries/list-species.query';
 import { ListSpeciesHandler } from '../list-species.handler';
+import { inTenantScope } from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 describe('ListSpeciesHandler', () => {
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -23,8 +24,12 @@ describe('ListSpeciesHandler', () => {
       .fn()
       .mockReturnValue(qb) as typeof mockManager.createQueryBuilder;
 
-    const handler = new ListSpeciesHandler(mockDataSource);
-    const result = await handler.execute(new ListSpeciesQuery(tenantId));
+    const handler = new ListSpeciesHandler();
+    const result = await inTenantScope(
+      tenantId,
+      (scope) => handler.execute(new ListSpeciesQuery(scope)),
+      mockDataSource,
+    );
 
     expect(result.data).toHaveLength(1);
     expect(result.pagination.total).toBe(1);
@@ -39,15 +44,20 @@ describe('ListSpeciesHandler', () => {
       .fn()
       .mockReturnValue(qb) as typeof mockManager.createQueryBuilder;
 
-    const handler = new ListSpeciesHandler(mockDataSource);
-    await handler.execute(
-      new ListSpeciesQuery(tenantId, {
-        search: 'salmon',
-        sortBy: 'scientificName',
-        sortOrder: 'DESC',
-        offset: 0,
-        limit: 20,
-      }),
+    const handler = new ListSpeciesHandler();
+    await inTenantScope(
+      tenantId,
+      (scope) =>
+        handler.execute(
+          new ListSpeciesQuery(scope, {
+            search: 'salmon',
+            sortBy: 'scientificName',
+            sortOrder: 'DESC',
+            offset: 0,
+            limit: 20,
+          }),
+        ),
+      mockDataSource,
     );
 
     expect(qb.andWhere).toHaveBeenCalledWith(
@@ -64,9 +74,12 @@ describe('ListSpeciesHandler', () => {
       .fn()
       .mockReturnValue(qb) as typeof mockManager.createQueryBuilder;
 
-    const handler = new ListSpeciesHandler(mockDataSource);
-    await handler.execute(
-      new ListSpeciesQuery(tenantId, { sortBy: 'evil; DROP', sortOrder: 'ASC' }),
+    const handler = new ListSpeciesHandler();
+    await inTenantScope(
+      tenantId,
+      (scope) =>
+        handler.execute(new ListSpeciesQuery(scope, { sortBy: 'evil; DROP', sortOrder: 'ASC' })),
+      mockDataSource,
     );
 
     expect(qb.orderBy).toHaveBeenCalledWith('species.commonName', 'ASC');

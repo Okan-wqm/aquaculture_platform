@@ -9327,6 +9327,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/helpers/farm-tenant-scope.helper.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/p0-fixes-verification.spec.ts",
       "prettier_managed": true
     },
@@ -10666,6 +10672,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/common/services/restore.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/common/tenant-boundary/farm-ai-owners.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/common/tenant-boundary/farm-ai-responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/common/tenant-boundary/farm-tenant-boundary.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/common/tenant-boundary/farm-tenant-scopes.ts",
       "prettier_managed": true
     },
     {
@@ -14090,6 +14120,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/finance/__tests__/finance-resolver-seeding.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/finance/commands/archive-finance-category.command.ts",
       "prettier_managed": true
     },
@@ -14366,7 +14402,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/finance/services/finance-default-currency.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/finance/services/finance-ledger-model.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/finance/services/finance-ledger-query.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/finance/services/finance-ledger-reader.ts",
       "prettier_managed": true
     },
     {
@@ -14673,6 +14727,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/fish-health/services/escape-incident.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/services/health-event-filters.ts",
       "prettier_managed": true
     },
     {
@@ -18657,6 +18717,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/task/services/recurring-task.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/task/services/task-checklist.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/task/services/task-creator.ts",
       "prettier_managed": true
     },
     {
@@ -41635,6 +41707,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/__tests__/tenant-scope.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/__tests__/tenant-scoped-repository.spec.ts",
       "prettier_managed": true
     },
@@ -42296,6 +42374,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/tenant-schema.utils.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/tenant-scope.ts",
       "prettier_managed": true
     },
     {
@@ -43010,6 +43094,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/nats/tenant-bound-reply.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/nats/tenant-owned-rows.ts",
       "prettier_managed": true
     },
     {
@@ -45676,6 +45766,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/testing/src/factories/fake-tenant-connection.factory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/testing/src/factories/mock-datasource.factory.ts",
       "prettier_managed": true
     },
@@ -48189,6 +48285,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/ai-reachable-graph.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/ai-tenant-boundary-data-layer.spec.ts",
       "prettier_managed": true
     },
@@ -48904,6 +49006,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/helm-dependency-single-path.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/helpers/ai-reachable-graph.ts",
       "prettier_managed": true
     },
     {

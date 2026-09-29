@@ -31,6 +31,7 @@ import { CreateBiomassReportInput } from './dto/create-biomass-report.input';
 import { QueryBus } from '@platform/cqrs';
 import { GetBiomassReportByPeriodQuery } from './queries/get-biomass-report-by-period.query';
 import { ListBiomassReportsForSiteQuery } from './queries/list-biomass-reports-for-site.query';
+import { FarmTenantScopes } from '../common/tenant-boundary/farm-tenant-scopes';
 
 interface UserContext {
   sub: string;
@@ -47,6 +48,7 @@ export class BiomassReportResolver {
     private readonly biomassReportService: BiomassReportService,
     private readonly altinnExportService: BiomassAltinnExportService,
     private readonly queryBus: QueryBus,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   @Mutation(() => BiomassReport, {
@@ -118,8 +120,10 @@ export class BiomassReportResolver {
     @Args('reportMonth', { type: () => Int }) reportMonth: number,
     @Args('reportYear', { type: () => Int }) reportYear: number,
   ): Promise<BiomassReport | null> {
-    return this.queryBus.execute(
-      new GetBiomassReportByPeriodQuery(tenantId, siteId, reportMonth, reportYear),
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(
+        new GetBiomassReportByPeriodQuery(scope, siteId, reportMonth, reportYear),
+      ),
     );
   }
 

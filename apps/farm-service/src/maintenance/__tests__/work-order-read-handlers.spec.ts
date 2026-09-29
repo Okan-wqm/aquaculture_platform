@@ -13,6 +13,7 @@ import { ListOverdueWorkOrdersHandler } from '../handlers/list-overdue-work-orde
 import { ListOverdueWorkOrdersQuery } from '../queries/list-overdue-work-orders.query';
 import { ListMyWorkOrdersHandler } from '../handlers/list-my-work-orders.handler';
 import { ListMyWorkOrdersQuery } from '../queries/list-my-work-orders.query';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -55,8 +56,10 @@ describe('Work-order read handlers (fail-closed tenant boundary)', () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.find as jest.Mock).mockResolvedValueOnce([{ id: 'wo-2' }]);
 
-    const result = await new ListOverdueWorkOrdersHandler(mockDataSource).execute(
-      new ListOverdueWorkOrdersQuery(tenantId),
+    const result = await inTenantScope(
+      tenantId,
+      (scope) => new ListOverdueWorkOrdersHandler().execute(new ListOverdueWorkOrdersQuery(scope)),
+      mockDataSource,
     );
 
     expect(result).toHaveLength(1);

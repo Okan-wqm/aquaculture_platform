@@ -4,6 +4,7 @@ import { createMockDataSource } from '@aquaculture/testing';
 
 import { GetDailyFeedingPlanQuery } from '../queries/get-daily-feeding-plan.query';
 import { GetDailyFeedingPlanHandler } from '../query-handlers/get-daily-feeding-plan.handler';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 describe('GetDailyFeedingPlanHandler', () => {
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -51,8 +52,12 @@ describe('GetDailyFeedingPlanHandler', () => {
       .mockReturnValueOnce(programTanksQb)
       .mockReturnValueOnce(executionsQb) as typeof mockManager.createQueryBuilder;
 
-    const handler = new GetDailyFeedingPlanHandler(mockDataSource);
-    const result = await handler.execute(new GetDailyFeedingPlanQuery(tenantId, siteId, date));
+    const handler = new GetDailyFeedingPlanHandler();
+    const result = await inTenantScope(
+      tenantId,
+      (scope) => handler.execute(new GetDailyFeedingPlanQuery(scope, siteId, date)),
+      mockDataSource,
+    );
 
     expect(result.siteId).toBe(siteId);
     expect(result.plannedFeedings).toHaveLength(1);
@@ -77,10 +82,14 @@ describe('GetDailyFeedingPlanHandler', () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.findOne as jest.Mock).mockResolvedValueOnce(null);
 
-    const handler = new GetDailyFeedingPlanHandler(mockDataSource);
+    const handler = new GetDailyFeedingPlanHandler();
 
     await expect(
-      handler.execute(new GetDailyFeedingPlanQuery(tenantId, siteId, date)),
+      inTenantScope(
+        tenantId,
+        (scope) => handler.execute(new GetDailyFeedingPlanQuery(scope, siteId, date)),
+        mockDataSource,
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

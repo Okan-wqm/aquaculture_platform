@@ -5,8 +5,9 @@
  *
  * @module Growth/Queries
  */
-import { ITenantQuery, IPaginatedQuery } from '@platform/cqrs';
+import { IPaginatedQuery } from '@platform/cqrs';
 import { MeasurementType, GrowthPerformance } from '../entities/growth-measurement.entity';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 /**
  * Ölçüm filtresi
@@ -22,11 +23,11 @@ export interface GrowthMeasurementFilter {
   measuredBy?: string;
 }
 
-export class GetGrowthMeasurementsQuery implements ITenantQuery, IPaginatedQuery {
+export class GetGrowthMeasurementsQuery implements IPaginatedQuery {
   readonly queryName = 'GetGrowthMeasurementsQuery';
 
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly filter?: GrowthMeasurementFilter,
     public readonly page: number = 1,
     public readonly limit: number = 20,

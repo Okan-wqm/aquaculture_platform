@@ -7,7 +7,7 @@
  *
  * @module Feeding/Queries
  */
-import { ITenantQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 /**
  * Individual planned feeding entry per equipment (tank/pond/cage).
@@ -43,11 +43,11 @@ export interface DailyFeedingPlanResult {
 /**
  * Query to retrieve the daily feeding plan for a specific site and date.
  */
-export class GetDailyFeedingPlanQuery implements ITenantQuery {
+export class GetDailyFeedingPlanQuery {
   readonly queryName = 'GetDailyFeedingPlanQuery';
 
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly siteId: string,
     public readonly date: Date,
     public readonly departmentId?: string,

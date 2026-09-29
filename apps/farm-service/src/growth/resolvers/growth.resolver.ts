@@ -51,6 +51,7 @@ import { VerifyMeasurementCommand } from '../commands/verify-measurement.command
 import { GetGrowthMeasurementsQuery } from '../queries/get-growth-measurements.query';
 import { GetGrowthAnalysisQuery } from '../queries/get-growth-analysis.query';
 import { GetLatestMeasurementQuery } from '../queries/get-latest-measurement.query';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 // ============================================================================
 // INPUT TYPES
@@ -399,6 +400,7 @@ export class GrowthResolver {
     private readonly queryBus: QueryBus,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // ==========================================================================
@@ -434,22 +436,26 @@ export class GrowthResolver {
     @Args('filter', { nullable: true }) filter?: GrowthMeasurementFilterInput,
     @Args('pagination', { nullable: true }) pagination?: GrowthPaginationInput,
   ): Promise<IStandardPaginatedResult<GrowthMeasurement>> {
-    const result: PaginatedQueryResult<GrowthMeasurement> = await this.queryBus.execute(
-      new GetGrowthMeasurementsQuery(
-        tenantId,
-        {
-          batchId: filter?.batchId,
-          tankId: filter?.tankId,
-          measurementType: filter?.measurementType ? [filter.measurementType] : undefined,
-          performance: filter?.performance as GrowthPerformance[] | undefined,
-          fromDate: filter?.startDate,
-          toDate: filter?.endDate,
-          isVerified: filter?.verifiedOnly,
-          measuredBy: filter?.measuredBy,
-        },
-        pagination?.page ?? 1,
-        pagination?.limit ?? 20,
-      ),
+    const result: PaginatedQueryResult<GrowthMeasurement> = await this.tenantScopes.read(
+      tenantId,
+      (scope) =>
+        this.queryBus.execute(
+          new GetGrowthMeasurementsQuery(
+            scope,
+            {
+              batchId: filter?.batchId,
+              tankId: filter?.tankId,
+              measurementType: filter?.measurementType ? [filter.measurementType] : undefined,
+              performance: filter?.performance as GrowthPerformance[] | undefined,
+              fromDate: filter?.startDate,
+              toDate: filter?.endDate,
+              isVerified: filter?.verifiedOnly,
+              measuredBy: filter?.measuredBy,
+            },
+            pagination?.page ?? 1,
+            pagination?.limit ?? 20,
+          ),
+        ),
     );
     return fromCqrsPaginated(result);
   }
@@ -469,8 +475,8 @@ export class GrowthResolver {
     @CurrentTenant() tenantId: string,
     @Args('batchId', { type: () => ID }) batchId: string,
   ): Promise<GrowthAnalysisResponse> {
-    return this.queryBus.execute(
-      new GetGrowthAnalysisQuery(tenantId, batchId),
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new GetGrowthAnalysisQuery(scope, batchId)),
     );
   }
 
@@ -498,14 +504,9 @@ export class GrowthResolver {
     @Args('batchId', { type: () => ID }) batchId: string,
     @Args('limit', { type: () => Int, nullable: true }) limit?: number,
   ): Promise<readonly GrowthMeasurement[]> {
-    const result = (await this.queryBus.execute(
-      new GetGrowthMeasurementsQuery(
-        tenantId,
-        { batchId },
-        1,
-        limit ?? 50,
-        'measurementDate',
-        'DESC',
+    const result = (await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(
+        new GetGrowthMeasurementsQuery(scope, { batchId }, 1, limit ?? 50, 'measurementDate', 'DESC'),
       ),
     )) as PaginatedQueryResult<GrowthMeasurement>;
     return fromCqrsPaginated(result).items;

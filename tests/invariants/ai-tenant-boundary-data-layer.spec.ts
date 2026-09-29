@@ -1,11 +1,16 @@
-import { dirname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
+import * as ts from 'typescript';
+
+import { AiReachableGraph } from './helpers/ai-reachable-graph';
 import {
   aiRequestSubjects,
   appSources,
   code,
   offenders,
   read,
+  REPO_ROOT,
   respondersBySubject,
   sources,
 } from './helpers/ai-tenant-boundary-sources';
@@ -14,16 +19,17 @@ import {
  * Platform-wide invariant — K10 layer 4 and the consumer half of layer 3
  * (PR-T1, MT-HIGH-062). Companion of ai-tenant-boundary.spec.ts.
  *
- *   E. Every AI-facing responder reads only inside the fail-closed tenant
- *      boundary: its own reads go through `runInTenantRead` (the createTask
- *      write through `runInTenantTransaction`), every query it dispatches is
- *      handled by a handler that reads through `runInTenantRead`, and every
- *      service such a handler calls either holds no repository of its own
- *      (it reads through the manager it is handed) or reads through
- *      `runInTenantRead` itself. WHY: `runInTenantRead` pins AND asserts the
- *      tenant search_path + RLS GUC, so an id that is not the request tenant's
- *      simply does not exist (NOT_FOUND); an ambient pooled read relies on
- *      context that can be lost.
+ *   E. Every AI-facing responder answers through its service's responder
+ *      skeleton (a `*AiResponder` built on `respondTenantBound`, which opens
+ *      the tenant boundary itself), and no code the responder reaches — its
+ *      handlers, their collaborators, the functions and static helpers they
+ *      call, transitively — can read outside the TenantScope that skeleton
+ *      hands it: no injected DataSource / repository / EntityManager /
+ *      QueryRunner / ModuleRef / scope opener, no boundary of its own, no
+ *      `.connection`, no schema-qualified SQL or search_path change, no state
+ *      that outlives a request. The walk is an AST walk
+ *      (helpers/ai-reachable-graph.ts, its own rules proven by
+ *      ai-reachable-graph.spec.ts).
  *   F. Every service OTHER than ai-service that requests one of these
  *      subjects checks the reply's tenant with `verifyTenantBoundReply` — the
  *      envelope only protects a consumer that reads it (ai-service's single
@@ -33,18 +39,13 @@ import {
  *      tenant read runs on a query runner pinned to the tenant.
  */
 
-const BOUNDARY = /\brunInTenant(?:Read|Transaction)\s*\(/;
-/**
- * Reads that bypass the boundary: ambient DataSource/repository I/O. A
- * repository's pure entity factories (`create`, `merge`) do no I/O and are
- * not reads.
- */
+/** Reads that bypass the boundary: ambient DataSource/repository I/O (layer 5, §G). */
 const UNBOUNDED_READ =
   /this\.dataSource\.(?:query|manager|createQueryBuilder)\b|@InjectRepository\(|\.getRepository\(|this\.\w+Repo(?:sitory)?\.(?:find\w*|count\w*|exist\w*|query|createQueryBuilder|manager|save|insert|update|upsert|delete|remove|softDelete|restore|increment|decrement|sum|average|minimum|maximum)\b/;
 
-interface Located {
-  readonly file: string;
-  readonly text: string;
+function readOrNull(path: string): string | null {
+  const absolute = resolve(REPO_ROOT, path);
+  return existsSync(absolute) ? readFileSync(absolute, 'utf-8') : null;
 }
 
 /** The app a source file belongs to (`apps/<app>/src`). */
@@ -53,155 +54,125 @@ function appRootOf(file: string): string {
   return `${apps}/${app}/src`;
 }
 
-/** The one handler registered with `@<decorator>(<className>)` in the app. */
-function handlerOf(appRoot: string, decorator: string, className: string): Located[] {
-  const pattern = new RegExp(`@${decorator}\\(\\s*${className}\\s*\\)`);
-  return appSources()
-    .filter((file) => file.startsWith(`${appRoot}/`))
-    .map((file) => ({ file, text: code(file) }))
-    .filter(({ text }) => pattern.test(text));
+interface ResponderClass {
+  readonly className: string;
+  /** The class injects a `*AiResponder` skeleton. */
+  readonly injectsSkeleton: boolean;
+  /** Names of @MessagePattern methods whose body does not call `.respond(`. */
+  readonly methodsNotResponding: string[];
 }
 
-/** `import { … Name … } from './x'` → the resolved `.ts` source of Name (relative imports only). */
-function importedSource(from: Located, name: string): Located | null {
-  const match = new RegExp(
-    `import\\s*(?:type\\s*)?\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*'(\\.[^']+)'`,
-  ).exec(from.text);
-  if (!match?.[1]) return null;
-  const file = `${dirname(from.file)}/${match[1]}.ts`.replace(/\/\.\//g, '/');
-  const normalised = file.split('/').reduce<string[]>((parts, part) => {
-    if (part === '..') parts.pop();
-    else parts.push(part);
-    return parts;
-  }, []);
-  const path = normalised.join('/');
-  return { file: path, text: code(path) };
-}
-
-/** Injected infrastructure that reads nothing itself (buses route to handlers checked separately). */
-const NON_READING_COLLABORATORS = new Set(['DataSource', 'QueryBus', 'CommandBus']);
-
-/** Constructor-injected collaborators that may read: `[property, Type]`. */
-function injectedCollaborators(owner: Located): Array<[string, string]> {
-  const ctor = /constructor\s*\(([\s\S]*?)\)\s*\{/.exec(owner.text)?.[1] ?? '';
-  return [...ctor.matchAll(/(?:private|protected|public)\s+readonly\s+(\w+)\s*:\s*(\w+)/g)]
-    .map((m): [string, string] => [m[1] ?? '', m[2] ?? ''])
-    .filter(([, type]) => !NON_READING_COLLABORATORS.has(type));
-}
-
-/** The body of `method` in a class source (from its signature to the next member). */
-function methodBody(source: string, method: string): string {
-  const signature = new RegExp(`\\n\\s*(?:async\\s+)?${method}\\s*\\(`).exec(source);
-  if (signature === null) return '';
-  // Everything after the signature's opening parenthesis, up to the next member.
-  const rest = source.slice(signature.index + signature[0].length);
-  const next = /\n {2}(?:async |private |protected |public |static |get |set )?\w+\s*\(/.exec(rest);
-  return next ? rest.slice(0, next.index) : rest;
-}
-
-/**
- * True when `method` — or any same-class method it calls, transitively —
- * reads through an ambient repository/DataSource. WHY transitive: a method
- * that takes the caller's manager can still hand the work to a private helper
- * that reads through `this.xRepository`.
- */
-function readsUnbounded(source: string, method: string, seen = new Set<string>()): boolean {
-  if (seen.has(method)) return false;
-  seen.add(method);
-  const body = methodBody(source, method);
-  if (UNBOUNDED_READ.test(body)) return true;
-  return [...body.matchAll(/this\.(\w+)\(/g)].some(
-    ([, helper]) => helper !== undefined && readsUnbounded(source, helper, seen),
-  );
-}
-
-/**
- * Why the collaborator calls in `text` (made by `owner`) are not tenant-bounded,
- * or null when they are. A collaborator is bounded when (a) it holds no
- * repository and no DataSource — it can only read through the manager it is
- * handed, which must then come from the caller's boundary — (b) every method
- * called on it reads through the boundary itself, or (c) the bounded caller
- * hands it the boundary's own manager (`qr.manager`, `queryRunner.manager`).
- *
- * @param callerIsBounded - the caller runs its own boundary, so an (a)-type
- *   collaborator can have been handed that boundary's manager.
- */
-function collaboratorViolation(
-  owner: Located,
-  text: string,
-  callerIsBounded: boolean,
-): string | null {
-  for (const [property, type] of injectedCollaborators(owner)) {
-    const called = [...text.matchAll(new RegExp(`this\\.${property}\\.(\\w+)\\(`, 'g'))];
-    if (called.length === 0) continue;
-    const service = importedSource(owner, type);
-    if (service === null) return `${type}: source not resolvable`;
-    const holdsNoReader =
-      !UNBOUNDED_READ.test(service.text) && !/this\.dataSource\b/.test(service.text);
-    if (holdsNoReader && callerIsBounded) continue;
-    for (const [call, method = ''] of called) {
-      if (readsUnbounded(service.text, method)) {
-        return `${type}.${method} reads through an ambient repository/DataSource`;
-      }
-      // (c) The bounded caller hands its own boundary's manager to the method.
-      const argumentsText = text.slice(text.indexOf(call) + call.length).split(')')[0] ?? '';
-      if (callerIsBounded && /\b\w+\.manager\b/.test(argumentsText)) continue;
-      if (!BOUNDARY.test(methodBody(service.text, method))) {
-        return `${type}.${method} reads outside runInTenantRead`;
-      }
-    }
+/** Classes in `file` that own a @MessagePattern method, with their skeleton wiring. */
+function responderClasses(file: string): ResponderClass[] {
+  const source = ts.createSourceFile(file, read(file), ts.ScriptTarget.Latest, true);
+  const out: ResponderClass[] = [];
+  for (const statement of source.statements) {
+    if (!ts.isClassDeclaration(statement) || statement.name === undefined) continue;
+    const patternMethods = statement.members.filter(
+      (m): m is ts.MethodDeclaration =>
+        ts.isMethodDeclaration(m) &&
+        (ts.getDecorators(m) ?? []).some((d) => d.getText(source).startsWith('@MessagePattern(')),
+    );
+    if (patternMethods.length === 0) continue;
+    const ctor = statement.members.find(ts.isConstructorDeclaration);
+    const injectsSkeleton = (ctor?.parameters ?? []).some((p) =>
+      /AiResponder$/.test(p.type?.getText(source) ?? ''),
+    );
+    out.push({
+      className: statement.name.text,
+      injectsSkeleton,
+      methodsNotResponding: patternMethods
+        .filter((m) => !/\.respond\(/.test(m.body?.getText(source) ?? ''))
+        .map((m) => m.name.getText(source)),
+    });
   }
-  return null;
+  return out;
 }
 
-/** Why a query handler is not tenant-bounded, or null when it is. */
-function handlerViolation(handler: Located): string | null {
-  if (UNBOUNDED_READ.test(handler.text)) return 'reads through an ambient repository/DataSource';
-  const bounded = BOUNDARY.test(handler.text);
-  const delegates = injectedCollaborators(handler).length > 0;
-  if (!bounded && !delegates) return 'reads without runInTenantRead';
-  return collaboratorViolation(handler, handler.text, bounded);
-}
-
-describe('INVARIANT (K10 layer 4 / MT-HIGH-062): AI responders read only inside the tenant boundary', () => {
+describe('INVARIANT (K10 layer 4 / MT-HIGH-062): AI-reachable code reads only through the TenantScope', () => {
   const subjects = aiRequestSubjects();
-  const handlers = respondersBySubject();
+  const responders = respondersBySubject();
+  const graphs = new Map<string, AiReachableGraph>();
+  const graphFor = (file: string): AiReachableGraph => {
+    const root = appRootOf(file);
+    let graph = graphs.get(root);
+    if (graph === undefined) {
+      graph = new AiReachableGraph(
+        readOrNull,
+        appSources().filter((f) => f.startsWith(`${root}/`)),
+      );
+      graphs.set(root, graph);
+    }
+    return graph;
+  };
 
   it('covers every AI-facing subject (sanity)', () => {
     expect(subjects.length).toBeGreaterThanOrEqual(46);
-    expect(subjects.filter((subject) => (handlers.get(subject) ?? []).length === 0)).toEqual([]);
+    expect(subjects.filter((subject) => (responders.get(subject) ?? []).length === 0)).toEqual([]);
   });
 
-  it.each(subjects)('%s reads only through runInTenantRead / runInTenantTransaction', (subject) => {
-    const violations: string[] = [];
-    for (const responder of handlers.get(subject) ?? []) {
-      const dispatched = [...responder.body.matchAll(/new (\w+)(Query|Command)\(/g)];
-      const owner: Located = { file: responder.file, text: code(responder.file) };
-      const bounded = BOUNDARY.test(responder.body);
-      const delegated = injectedCollaborators(owner).some(([property]) =>
-        responder.body.includes(`this.${property}.`),
-      );
-      if (!bounded && dispatched.length === 0 && !delegated) {
-        violations.push(`${responder.file}: no boundary call, dispatched query or bounded service`);
-      }
-      if (UNBOUNDED_READ.test(responder.body)) {
-        violations.push(`${responder.file}: ambient repository/DataSource read`);
-      }
-      const serviceViolation = collaboratorViolation(owner, responder.body, bounded);
-      if (serviceViolation !== null) violations.push(`${responder.file}: ${serviceViolation}`);
-      for (const [, name, kind] of dispatched) {
-        const decorator = kind === 'Query' ? 'QueryHandler' : 'CommandHandler';
-        const found = handlerOf(appRootOf(responder.file), decorator, `${name}${kind}`);
-        if (found.length !== 1) {
-          violations.push(`${name}${kind}: ${found.length} handlers found`);
-          continue;
-        }
-        const [handler] = found;
-        const violation = handler ? handlerViolation(handler) : 'missing';
-        if (violation !== null) violations.push(`${handler?.file ?? name}: ${violation}`);
-      }
+  it('every responder skeleton opens the boundary through respondTenantBound (sanity)', () => {
+    // SCENARIO: a service wires a `*AiResponder` that skips the shared skeleton.
+    // EXPECTS: each skeleton class the responders inject is built on respondTenantBound.
+    const skeletons = appSources().filter((file) => /-ai-responder\.ts$/.test(file));
+    expect(skeletons.length).toBeGreaterThan(0);
+    for (const file of skeletons) {
+      expect({ file, usesSkeleton: /\brespondTenantBound\(/.test(code(file)) }).toEqual({
+        file,
+        usesSkeleton: true,
+      });
     }
-    expect({ subject, violations }).toEqual({ subject, violations: [] });
+  });
+
+  it.each(subjects)(
+    '%s: responder answers through the skeleton and every reachable node stays in the scope',
+    (subject) => {
+      const violations: string[] = [];
+      for (const { file } of responders.get(subject) ?? []) {
+        for (const cls of responderClasses(file)) {
+          if (!cls.injectsSkeleton)
+            violations.push(`${file}#${cls.className}: injects no *AiResponder skeleton`);
+          for (const method of cls.methodsNotResponding) {
+            violations.push(
+              `${file}#${cls.className}.${method}: does not answer through .respond(`,
+            );
+          }
+          for (const v of graphFor(file).walkFromClass(file, cls.className)) {
+            violations.push(`${v.node}: ${v.reason}`);
+          }
+        }
+      }
+      expect({ subject, violations }).toEqual({ subject, violations: [] });
+    },
+  );
+
+  it('the walk reaches handlers, collaborators, pure helpers and statics (sanity)', () => {
+    // SCENARIO: the walk silently stops at the responder (e.g. a resolver bug).
+    // EXPECTS: from the batch/growth responders it enters the query handlers,
+    //          the cost collaborator, the FCR reader function and the
+    //          harvest-eligibility collaborator.
+    const nodes = new Set<string>();
+    const farm = 'apps/farm-service/src';
+    graphFor(`${farm}/batch/responders/batch-ai-query.responder.ts`).walkFromClass(
+      `${farm}/batch/responders/batch-ai-query.responder.ts`,
+      'BatchAiQueryResponder',
+      nodes,
+    );
+    graphFor(`${farm}/fish-health/responders/fish-health-ai-query.responder.ts`).walkFromClass(
+      `${farm}/fish-health/responders/fish-health-ai-query.responder.ts`,
+      'FishHealthAiQueryResponder',
+      nodes,
+    );
+    expect([...nodes]).toEqual(
+      expect.arrayContaining([
+        `${farm}/batch/query-handlers/get-batch-performance.handler.ts#GetBatchPerformanceHandler`,
+        `${farm}/batch/services/batch-cost-calculator.service.ts#BatchCostCalculatorService`,
+        `${farm}/growth/services/cumulative-fcr.reader.ts#readCumulativeFcr`,
+        `${farm}/fish-health/services/batch-harvest-eligibility.service.ts#BatchHarvestEligibilityService`,
+        `${farm}/fish-health/handlers/list-health-events.handler.ts#ListHealthEventsHandler`,
+        `${farm}/fish-health/services/health-event-filters.ts#applyHealthEventFilters`,
+      ]),
+    );
   });
 });
 

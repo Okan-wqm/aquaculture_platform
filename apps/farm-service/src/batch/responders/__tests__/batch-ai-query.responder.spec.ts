@@ -6,6 +6,10 @@ import { GetBatchPerformanceQuery } from '../../queries/get-batch-performance.qu
 import { GetMortalityByCauseQuery } from '../../queries/get-mortality-by-cause.query';
 import { GetTransfersSummaryQuery } from '../../queries/get-transfers-summary.query';
 import { BatchAiQueryResponder } from '../batch-ai-query.responder';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const BATCH = '22222222-2222-4222-8222-222222222222';
@@ -13,11 +17,13 @@ const BATCH = '22222222-2222-4222-8222-222222222222';
 describe('BatchAiQueryResponder (FARM-MEDIUM-328)', () => {
   let execute: jest.Mock;
   let responder: BatchAiQueryResponder;
+  let harness: FarmScopeHarness;
 
   beforeEach(() => {
     execute = jest.fn();
     const queryBus: Pick<QueryBus, 'execute'> = { execute };
-    responder = new BatchAiQueryResponder(queryBus as QueryBus);
+    harness = createFarmScopeHarness();
+    responder = new BatchAiQueryResponder(harness.responder, queryBus as QueryBus);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
   });

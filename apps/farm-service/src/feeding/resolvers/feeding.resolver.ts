@@ -48,6 +48,7 @@ import { GetFeedingSummaryQuery, FeedingSummaryResult } from '../queries/get-fee
 
 // Services
 import { GrowthSimulatorService, GrowthSimulationResult } from '../services/growth-simulator.service';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 // ============================================================================
 // ENUM REGISTRATIONS
@@ -646,6 +647,7 @@ export class FeedingResolver {
     private readonly growthSimulator: GrowthSimulatorService,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // ==========================================================================
@@ -718,8 +720,8 @@ export class FeedingResolver {
     @Args('siteId', { type: () => ID }) siteId: string,
     @Args('date', { type: () => Date, nullable: true }) date?: Date,
   ): Promise<DailyFeedingPlanResponse> {
-    return this.queryBus.execute(
-      new GetDailyFeedingPlanQuery(tenantId, siteId, date || new Date()),
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new GetDailyFeedingPlanQuery(scope, siteId, date || new Date())),
     );
   }
 
@@ -739,8 +741,10 @@ export class FeedingResolver {
     // handler result unmapped left every non-nullable @Field (startDate/endDate,
     // totalFeedGivenKg, byFeedType…) absent → "Cannot return null for
     // non-nullable field" and a dead feeding-summary tab.
-    const result: FeedingSummaryResult = await this.queryBus.execute(
-      new GetFeedingSummaryQuery(tenantId, entityType, entityId, startDate, endDate),
+    const result: FeedingSummaryResult = await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(
+        new GetFeedingSummaryQuery(scope, entityType, entityId, startDate, endDate),
+      ),
     );
     return this.toFeedingSummaryResponse(result);
   }

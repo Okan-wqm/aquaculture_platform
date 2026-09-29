@@ -1,4 +1,4 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { QueryBus } from '@platform/cqrs';
 import {
@@ -11,7 +11,6 @@ import {
   type MortalityByCauseReply,
   type TransfersSummaryReply,
 } from '@platform/event-contracts';
-import { respondTenantBound } from '@aquaculture/backend-common/nats';
 import { isoOrNull, numberOrNull } from '../../common/nats/ai-query-responder';
 import {
   GetBatchPerformanceQuery,
@@ -25,6 +24,7 @@ import {
   GetTransfersSummaryQuery,
   type TransfersSummaryResult,
 } from '../queries/get-transfers-summary.query';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 export function projectPerformance(result: BatchPerformanceResult): BatchPerformanceReply {
   return {
@@ -120,24 +120,26 @@ export function projectTransfers(
 /** Batch read surface for the farm production specialist (FARM-MEDIUM-328). */
 @Controller()
 export class BatchAiQueryResponder {
-  private readonly logger = new Logger(BatchAiQueryResponder.name);
-
-  constructor(private readonly queryBus: QueryBus) {}
+  constructor(
+    private readonly responder: FarmAiResponder,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.BATCH_PERFORMANCE)
   getPerformance(@Payload() payload: unknown): Promise<TenantBoundReply<BatchPerformanceReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.BATCH_PERFORMANCE,
-      payload,
-      isBatchPerformanceRequest,
-      async (req) => {
-        const result = await this.queryBus.execute<
-          GetBatchPerformanceQuery,
-          BatchPerformanceResult
-        >(new GetBatchPerformanceQuery(req.tenantId, req.batchId));
-        return projectPerformance(result);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.BATCH_PERFORMANCE,
+        isRequest: isBatchPerformanceRequest,
+        handle: async (req, scope) => {
+          const result = await this.queryBus.execute<
+            GetBatchPerformanceQuery,
+            BatchPerformanceResult
+          >(new GetBatchPerformanceQuery(scope, req.batchId));
+          return projectPerformance(result);
+        },
       },
+      payload,
     );
   }
 
@@ -145,18 +147,19 @@ export class BatchAiQueryResponder {
   getMortalityByCause(
     @Payload() payload: unknown,
   ): Promise<TenantBoundReply<MortalityByCauseReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.BATCH_MORTALITY_BY_CAUSE,
-      payload,
-      isSiteWindowRequest,
-      async (req) => {
-        const result = await this.queryBus.execute<
-          GetMortalityByCauseQuery,
-          MortalityByCauseResult
-        >(new GetMortalityByCauseQuery(req.tenantId, req.siteId, req.fromDate, req.toDate));
-        return projectMortality(req.siteId, req.fromDate, req.toDate, result);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.BATCH_MORTALITY_BY_CAUSE,
+        isRequest: isSiteWindowRequest,
+        handle: async (req, scope) => {
+          const result = await this.queryBus.execute<
+            GetMortalityByCauseQuery,
+            MortalityByCauseResult
+          >(new GetMortalityByCauseQuery(scope, req.siteId, req.fromDate, req.toDate));
+          return projectMortality(req.siteId, req.fromDate, req.toDate, result);
+        },
       },
+      payload,
     );
   }
 
@@ -164,18 +167,19 @@ export class BatchAiQueryResponder {
   getTransfersSummary(
     @Payload() payload: unknown,
   ): Promise<TenantBoundReply<TransfersSummaryReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.BATCH_TRANSFERS_SUMMARY,
-      payload,
-      isSiteWindowRequest,
-      async (req) => {
-        const result = await this.queryBus.execute<
-          GetTransfersSummaryQuery,
-          TransfersSummaryResult
-        >(new GetTransfersSummaryQuery(req.tenantId, req.siteId, req.fromDate, req.toDate));
-        return projectTransfers(req.siteId, req.fromDate, req.toDate, result);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.BATCH_TRANSFERS_SUMMARY,
+        isRequest: isSiteWindowRequest,
+        handle: async (req, scope) => {
+          const result = await this.queryBus.execute<
+            GetTransfersSummaryQuery,
+            TransfersSummaryResult
+          >(new GetTransfersSummaryQuery(scope, req.siteId, req.fromDate, req.toDate));
+          return projectTransfers(req.siteId, req.fromDate, req.toDate, result);
+        },
       },
+      payload,
     );
   }
 }

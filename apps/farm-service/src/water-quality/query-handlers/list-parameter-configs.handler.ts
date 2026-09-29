@@ -6,10 +6,8 @@
  *
  * @module WaterQuality/QueryHandlers
  */
-import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, FindOptionsWhere } from 'typeorm';
+import { FindOptionsWhere } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { ListParameterConfigsQuery } from '../queries/list-parameter-configs.query';
 import { WaterQualityParameterConfig, ParameterGroup } from '../entities/water-quality-parameter-config.entity';
@@ -21,13 +19,9 @@ export class ListParameterConfigsHandler
 {
   private readonly logger = new Logger(ListParameterConfigsHandler.name);
 
-  constructor(
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
-  ) {}
-
   async execute(query: ListParameterConfigsQuery): Promise<WaterQualityParameterConfig[]> {
-    const { tenantId, filters } = query;
+    const { scope, filters } = query;
+    const tenantId = scope.tenantId;
 
     this.logger.debug(`Listing parameter configs for tenant ${tenantId}`);
 
@@ -46,11 +40,9 @@ export class ListParameterConfigsHandler
     }
 
     // Read through the fail-closed tenant boundary.
-    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) =>
-      queryRunner.manager.find(WaterQualityParameterConfig, {
-        where,
-        order: { displayOrder: 'ASC' },
-      }),
-    );
+    return scope.manager.find(WaterQualityParameterConfig, {
+      where,
+      order: { displayOrder: 'ASC' },
+    });
   }
 }

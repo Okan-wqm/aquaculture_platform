@@ -12,6 +12,7 @@ import { GetRegulatoryReportQuery } from '../queries/get-regulatory-report.query
 import { GetRegulatoryReportSummaryHandler } from '../handlers/get-regulatory-report-summary.handler';
 import { GetRegulatoryReportSummaryQuery } from '../queries/get-regulatory-report-summary.query';
 import { RegulatoryReportType } from '../entities/regulatory-report.entity';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -20,8 +21,13 @@ describe('Regulatory-report read handlers (fail-closed tenant boundary)', () => 
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.find as jest.Mock).mockResolvedValueOnce([{ id: 'rr-1' }]);
 
-    const result = await new ListRegulatoryReportsHandler(mockDataSource).execute(
-      new ListRegulatoryReportsQuery(tenantId, RegulatoryReportType.SEA_LICE, 'site-1', 9999, 0),
+    const result = await inTenantScope(
+      tenantId,
+      (scope) =>
+        new ListRegulatoryReportsHandler().execute(
+          new ListRegulatoryReportsQuery(scope, RegulatoryReportType.SEA_LICE, 'site-1', 9999, 0),
+        ),
+      mockDataSource,
     );
 
     expect(result).toHaveLength(1);
@@ -39,8 +45,13 @@ describe('Regulatory-report read handlers (fail-closed tenant boundary)', () => 
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.find as jest.Mock).mockResolvedValueOnce([]);
 
-    await new ListRegulatoryReportsHandler(mockDataSource).execute(
-      new ListRegulatoryReportsQuery(tenantId, RegulatoryReportType.ESCAPE),
+    await inTenantScope(
+      tenantId,
+      (scope) =>
+        new ListRegulatoryReportsHandler().execute(
+          new ListRegulatoryReportsQuery(scope, RegulatoryReportType.ESCAPE),
+        ),
+      mockDataSource,
     );
 
     const [, opts] = (mockManager.find as jest.Mock).mock.calls[0];

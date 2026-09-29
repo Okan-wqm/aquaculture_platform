@@ -3,6 +3,10 @@ import { Logger } from '@nestjs/common';
 import type { QueryBus } from '@platform/cqrs';
 import { GetFarmStockInventoryQuery } from '../../queries/get-farm-stock-inventory.query';
 import { FarmStockAiQueryResponder } from '../farm-stock-ai-query.responder';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const ID = '22222222-2222-4222-8222-222222222222';
@@ -10,11 +14,13 @@ const ID = '22222222-2222-4222-8222-222222222222';
 describe('FarmStockAiQueryResponder (FARM-MEDIUM-328)', () => {
   let execute: jest.Mock;
   let responder: FarmStockAiQueryResponder;
+  let harness: FarmScopeHarness;
 
   beforeEach(() => {
     execute = jest.fn();
     const queryBus: Pick<QueryBus, 'execute'> = { execute };
-    responder = new FarmStockAiQueryResponder(queryBus as QueryBus);
+    harness = createFarmScopeHarness();
+    responder = new FarmStockAiQueryResponder(harness.responder, queryBus as QueryBus);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 

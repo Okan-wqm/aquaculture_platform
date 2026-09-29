@@ -6,6 +6,7 @@ import { createMockDataSource } from '@aquaculture/testing';
 
 import { GetSiteFeedConsumptionHandler } from '../query-handlers/get-site-feed-consumption.handler';
 import { GetSiteFeedConsumptionQuery } from '../queries/get-site-feed-consumption.query';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const siteId = 'ssssssss-ssss-4sss-8sss-ssssssssssss';
@@ -23,9 +24,7 @@ describe('GetSiteFeedConsumptionHandler', () => {
       return Promise.resolve([]);
     });
 
-    const result = await new GetSiteFeedConsumptionHandler(mockDataSource).execute(
-      new GetSiteFeedConsumptionQuery(tenantId, siteId, '2026-06-01', '2026-06-30'),
-    );
+    const result = await inTenantScope(tenantId, (scope) => new GetSiteFeedConsumptionHandler().execute(new GetSiteFeedConsumptionQuery(scope, siteId, '2026-06-01', '2026-06-30')), mockDataSource);
 
     expect(result.totalKg).toBeCloseTo(1960.25);
     expect(result.byFeedType).toEqual([
@@ -38,9 +37,7 @@ describe('GetSiteFeedConsumptionHandler', () => {
   it('returns a zero aggregate for a period with no feedings and parameterises inputs', async () => {
     const { mockDataSource, mockQueryRunner } = createMockDataSource();
 
-    const result = await new GetSiteFeedConsumptionHandler(mockDataSource).execute(
-      new GetSiteFeedConsumptionQuery(tenantId, siteId, '2026-05-01', '2026-05-31'),
-    );
+    const result = await inTenantScope(tenantId, (scope) => new GetSiteFeedConsumptionHandler().execute(new GetSiteFeedConsumptionQuery(scope, siteId, '2026-05-01', '2026-05-31')), mockDataSource);
 
     expect(result).toEqual({ totalKg: 0, byFeedType: [], recordCount: 0 });
     const call = (mockQueryRunner.query as jest.Mock).mock.calls.find(([sql]) =>

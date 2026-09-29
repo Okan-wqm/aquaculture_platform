@@ -6,6 +6,10 @@ import { ListLowStockAlertsQuery } from '../../queries/list-low-stock-alerts.que
 import { ListMaintenanceScheduleAlertsQuery } from '../../queries/list-maintenance-schedule-alerts.query';
 import { ListOverdueWorkOrdersQuery } from '../../queries/list-overdue-work-orders.query';
 import { MaintenanceAiQueryResponder } from '../maintenance-ai-query.responder';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const ID = '22222222-2222-4222-8222-222222222222';
@@ -13,11 +17,13 @@ const ID = '22222222-2222-4222-8222-222222222222';
 describe('MaintenanceAiQueryResponder (FARM-MEDIUM-328)', () => {
   let execute: jest.Mock;
   let responder: MaintenanceAiQueryResponder;
+  let harness: FarmScopeHarness;
 
   beforeEach(() => {
     execute = jest.fn();
     const queryBus: Pick<QueryBus, 'execute'> = { execute };
-    responder = new MaintenanceAiQueryResponder(queryBus as QueryBus);
+    harness = createFarmScopeHarness();
+    responder = new MaintenanceAiQueryResponder(harness.responder, queryBus as QueryBus);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
   });

@@ -5,6 +5,10 @@ import { FARM_AI_QUERY_SUBJECTS } from '@platform/event-contracts';
 import { ListOverdueHarvestPlansQuery } from '../../queries/list-overdue-harvest-plans.query';
 import { ListUpcomingHarvestPlansQuery } from '../../queries/list-upcoming-harvest-plans.query';
 import { HarvestAiQueryResponder } from '../harvest-ai-query.responder';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const PLAN = '22222222-2222-4222-8222-222222222222';
@@ -12,11 +16,13 @@ const PLAN = '22222222-2222-4222-8222-222222222222';
 describe('HarvestAiQueryResponder (FARM-MEDIUM-328)', () => {
   let execute: jest.Mock;
   let responder: HarvestAiQueryResponder;
+  let harness: FarmScopeHarness;
 
   beforeEach(() => {
     execute = jest.fn();
     const queryBus: Pick<QueryBus, 'execute'> = { execute };
-    responder = new HarvestAiQueryResponder(queryBus as QueryBus);
+    harness = createFarmScopeHarness();
+    responder = new HarvestAiQueryResponder(harness.responder, queryBus as QueryBus);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 

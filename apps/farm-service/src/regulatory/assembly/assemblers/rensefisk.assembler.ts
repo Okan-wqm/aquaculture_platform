@@ -29,6 +29,7 @@ import {
 } from '../../../feeding/queries/get-site-feed-consumption.query';
 import { AssembledDraft, fromRecords, manualRequired } from '../provenance.types';
 import { monthRange } from '../period.util';
+import { FarmTenantScopes } from '../../../common/tenant-boundary/farm-tenant-scopes';
 
 /** Data portion of the rensefisk wire payload (identity is a form concern). */
 export interface RensefiskPrefillPayload {
@@ -75,6 +76,7 @@ export class RensefiskReportAssembler {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly queryBus: QueryBus,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   async assemble(
@@ -92,8 +94,10 @@ export class RensefiskReportAssembler {
         composition: await this.queryComposition(qr, tenantId, siteId),
         ledger: await this.queryLedger(qr, tenantId, siteId, fromDate, toDate),
       })),
-      this.queryBus.execute<GetSiteFeedConsumptionQuery, SiteFeedConsumptionResult>(
-        new GetSiteFeedConsumptionQuery(tenantId, siteId, fromDate, toDate),
+      this.tenantScopes.read(tenantId, (scope) =>
+        this.queryBus.execute<GetSiteFeedConsumptionQuery, SiteFeedConsumptionResult>(
+          new GetSiteFeedConsumptionQuery(scope, siteId, fromDate, toDate),
+        ),
       ),
     ]);
     const { composition, ledger } = dbReads;

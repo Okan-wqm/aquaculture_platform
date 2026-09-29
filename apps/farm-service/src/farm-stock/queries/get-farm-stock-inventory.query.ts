@@ -1,12 +1,12 @@
 /**
  * Get Farm-Stock Inventory Query
  */
-import { IQuery } from '@platform/cqrs';
 import { FarmStockInventoryFilterInput } from '../dto/farm-stock-inventory.dto';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
-export class GetFarmStockInventoryQuery implements IQuery {
+export class GetFarmStockInventoryQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly filter: FarmStockInventoryFilterInput = {},
   ) {}
 }

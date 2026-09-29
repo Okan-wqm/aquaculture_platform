@@ -19,7 +19,7 @@ import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { RecurringTemplate, RecurrenceFrequency } from '../entities/recurring-template.entity';
 import { Task, TaskStatus } from '../entities/task.entity';
-import { TaskService } from './task.service';
+import { normaliseChecklistItems, propagateChecklistItemsFromTemplate } from './task-checklist';
 
 /**
  * Default timezone when a template was created before phase 5.5 or
@@ -76,7 +76,7 @@ export class RecurringTaskService {
       ...input,
       // Stored canonical (stable ids) so the read-path normaliser is a no-op
       // for rows this service wrote (FARM-HIGH-320).
-      checklistItems: TaskService.normaliseChecklistItems(input.checklistItems),
+      checklistItems: normaliseChecklistItems(input.checklistItems),
       tenantId,
       isActive: true,
       nextGeneration: this.calculateNextGeneration(
@@ -101,7 +101,7 @@ export class RecurringTaskService {
 
     Object.assign(template, input);
     if (input.checklistItems !== undefined) {
-      template.checklistItems = TaskService.normaliseChecklistItems(input.checklistItems);
+      template.checklistItems = normaliseChecklistItems(input.checklistItems);
     }
 
     // Recalculate next generation if frequency OR timezone changed —
@@ -220,7 +220,7 @@ export class RecurringTaskService {
               dueDate,
               location: template.location,
               estimatedMinutes: template.estimatedMinutes,
-              checklistItems: TaskService.propagateChecklistItemsFromTemplate(
+              checklistItems: propagateChecklistItemsFromTemplate(
                 template.checklistItems,
               ),
               notes: [],

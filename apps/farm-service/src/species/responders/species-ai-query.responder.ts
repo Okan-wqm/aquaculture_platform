@@ -1,4 +1,4 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { QueryBus, type PaginatedQueryResult } from '@platform/cqrs';
 import {
@@ -9,11 +9,11 @@ import {
   type SpeciesDto,
   type SpeciesListReply,
 } from '@platform/event-contracts';
-import { respondTenantBound } from '@aquaculture/backend-common/nats';
 import { numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import { SpeciesFilterInput } from '../dto/species-filter.dto';
 import type { Species } from '../entities/species.entity';
 import { ListSpeciesQuery } from '../queries/list-species.query';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 export function projectSpecies(row: Species): SpeciesDto {
   const growth = row.growthParameters;
@@ -39,32 +39,34 @@ export function projectSpecies(row: Species): SpeciesDto {
 /** Species targets for the farm production specialist (FARM-MEDIUM-328). */
 @Controller()
 export class SpeciesAiQueryResponder {
-  private readonly logger = new Logger(SpeciesAiQueryResponder.name);
-
-  constructor(private readonly queryBus: QueryBus) {}
+  constructor(
+    private readonly responder: FarmAiResponder,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.SPECIES_LIST)
   listSpecies(@Payload() payload: unknown): Promise<TenantBoundReply<SpeciesListReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.SPECIES_LIST,
-      payload,
-      isSpeciesListRequest,
-      async (req) => {
-        const filter = new SpeciesFilterInput();
-        filter.isActive = true;
-        filter.limit = FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT;
-        filter.offset = 0;
-        const page = await this.queryBus.execute<ListSpeciesQuery, PaginatedQueryResult<Species>>(
-          new ListSpeciesQuery(req.tenantId, filter),
-        );
-        return toBoundedList(
-          page.data,
-          FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT,
-          projectSpecies,
-          page.pagination.total,
-        );
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.SPECIES_LIST,
+        isRequest: isSpeciesListRequest,
+        handle: async (req, scope) => {
+          const filter = new SpeciesFilterInput();
+          filter.isActive = true;
+          filter.limit = FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT;
+          filter.offset = 0;
+          const page = await this.queryBus.execute<ListSpeciesQuery, PaginatedQueryResult<Species>>(
+            new ListSpeciesQuery(scope, filter),
+          );
+          return toBoundedList(
+            page.data,
+            FARM_AI_QUERY_LIMITS.MAX_LIST_LIMIT,
+            projectSpecies,
+            page.pagination.total,
+          );
+        },
       },
+      payload,
     );
   }
 }

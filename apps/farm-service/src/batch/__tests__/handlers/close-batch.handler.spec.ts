@@ -21,6 +21,7 @@ import { Batch, BatchStatus } from '../../entities/batch.entity';
 import { BatchLifecyclePolicyService } from '../../services/batch-lifecycle-policy.service';
 import type { BatchHarvestEligibilityService } from '../../../fish-health/services/batch-harvest-eligibility.service';
 import type { FCRCalculationService } from '../../../growth/services/fcr-calculation.service';
+import { FarmTenantScopes } from '../../../common/tenant-boundary/farm-tenant-scopes';
 
 describe('CloseBatchHandler', () => {
   let handler: CloseBatchHandler;
@@ -78,6 +79,7 @@ describe('CloseBatchHandler', () => {
       mockDataSource,
       mockOutboxPublisher as OutboxPublisher,
       mockHarvestEligibility as BatchHarvestEligibilityService,
+      new FarmTenantScopes(mockDataSource),
       lifecyclePolicy,
       mockFcrCalculation as FCRCalculationService,
     );

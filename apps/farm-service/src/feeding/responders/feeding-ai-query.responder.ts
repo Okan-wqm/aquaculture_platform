@@ -1,4 +1,4 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { QueryBus, type PaginatedQueryResult } from '@platform/cqrs';
 import {
@@ -16,7 +16,6 @@ import {
   type FeedingSummaryReply,
   type SiteFeedConsumptionReply,
 } from '@platform/event-contracts';
-import { respondTenantBound } from '@aquaculture/backend-common/nats';
 import { numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import type { FeedingProtocol } from '../../feed/entities/feeding-protocol.entity';
 import { ListFeedingProtocolsQuery } from '../../feed/queries/list-feeding-protocols.query';
@@ -32,6 +31,7 @@ import {
   GetSiteFeedConsumptionQuery,
   type SiteFeedConsumptionResult,
 } from '../queries/get-site-feed-consumption.query';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 const DAILY_TREND_CAP = 31;
 
@@ -130,53 +130,49 @@ export function projectProtocol(row: FeedingProtocol): FeedingProtocolDto {
 /** Feeding read surface for the farm production specialist (FARM-MEDIUM-328). */
 @Controller()
 export class FeedingAiQueryResponder {
-  private readonly logger = new Logger(FeedingAiQueryResponder.name);
-
-  constructor(private readonly queryBus: QueryBus) {}
+  constructor(
+    private readonly responder: FarmAiResponder,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FEEDING_DAILY_PLAN)
   getDailyPlan(@Payload() payload: unknown): Promise<TenantBoundReply<DailyFeedingPlanReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.FEEDING_DAILY_PLAN,
-      payload,
-      isDailyFeedingPlanRequest,
-      async (req) => {
-        const result = await this.queryBus.execute<
-          GetDailyFeedingPlanQuery,
-          DailyFeedingPlanResult
-        >(
-          new GetDailyFeedingPlanQuery(
-            req.tenantId,
-            req.siteId,
-            new Date(req.date),
-            req.departmentId,
-          ),
-        );
-        return projectDailyPlan(result);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.FEEDING_DAILY_PLAN,
+        isRequest: isDailyFeedingPlanRequest,
+        handle: async (req, scope) => {
+          const result = await this.queryBus.execute<
+            GetDailyFeedingPlanQuery,
+            DailyFeedingPlanResult
+          >(new GetDailyFeedingPlanQuery(scope, req.siteId, new Date(req.date), req.departmentId));
+          return projectDailyPlan(result);
+        },
       },
+      payload,
     );
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FEEDING_SUMMARY)
   getSummary(@Payload() payload: unknown): Promise<TenantBoundReply<FeedingSummaryReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.FEEDING_SUMMARY,
-      payload,
-      isFeedingSummaryRequest,
-      async (req) => {
-        const result = await this.queryBus.execute<GetFeedingSummaryQuery, FeedingSummaryResult>(
-          new GetFeedingSummaryQuery(
-            req.tenantId,
-            req.entityType,
-            req.entityId,
-            req.fromDate ? new Date(req.fromDate) : undefined,
-            req.toDate ? new Date(req.toDate) : undefined,
-          ),
-        );
-        return projectSummary(result);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.FEEDING_SUMMARY,
+        isRequest: isFeedingSummaryRequest,
+        handle: async (req, scope) => {
+          const result = await this.queryBus.execute<GetFeedingSummaryQuery, FeedingSummaryResult>(
+            new GetFeedingSummaryQuery(
+              scope,
+              req.entityType,
+              req.entityId,
+              req.fromDate ? new Date(req.fromDate) : undefined,
+              req.toDate ? new Date(req.toDate) : undefined,
+            ),
+          );
+          return projectSummary(result);
+        },
       },
+      payload,
     );
   }
 
@@ -184,41 +180,43 @@ export class FeedingAiQueryResponder {
   getSiteConsumption(
     @Payload() payload: unknown,
   ): Promise<TenantBoundReply<SiteFeedConsumptionReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.FEEDING_SITE_CONSUMPTION,
-      payload,
-      isSiteWindowRequest,
-      async (req) => {
-        const result = await this.queryBus.execute<
-          GetSiteFeedConsumptionQuery,
-          SiteFeedConsumptionResult
-        >(new GetSiteFeedConsumptionQuery(req.tenantId, req.siteId, req.fromDate, req.toDate));
-        return projectConsumption(req.siteId, req.fromDate, req.toDate, result);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.FEEDING_SITE_CONSUMPTION,
+        isRequest: isSiteWindowRequest,
+        handle: async (req, scope) => {
+          const result = await this.queryBus.execute<
+            GetSiteFeedConsumptionQuery,
+            SiteFeedConsumptionResult
+          >(new GetSiteFeedConsumptionQuery(scope, req.siteId, req.fromDate, req.toDate));
+          return projectConsumption(req.siteId, req.fromDate, req.toDate, result);
+        },
       },
+      payload,
     );
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FEED_PROTOCOLS)
   listProtocols(@Payload() payload: unknown): Promise<TenantBoundReply<FeedingProtocolsReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.FEED_PROTOCOLS,
-      payload,
-      isFeedingProtocolsRequest,
-      async (req) => {
-        const page = await this.queryBus.execute<
-          ListFeedingProtocolsQuery,
-          PaginatedQueryResult<FeedingProtocol>
-        >(
-          new ListFeedingProtocolsQuery(
-            req.tenantId,
-            { isActive: true, ...(req.species ? { species: req.species } : {}) },
-            { page: 1, limit: req.limit },
-          ),
-        );
-        return toBoundedList(page.data, req.limit, projectProtocol, page.pagination.total);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.FEED_PROTOCOLS,
+        isRequest: isFeedingProtocolsRequest,
+        handle: async (req, scope) => {
+          const page = await this.queryBus.execute<
+            ListFeedingProtocolsQuery,
+            PaginatedQueryResult<FeedingProtocol>
+          >(
+            new ListFeedingProtocolsQuery(
+              scope,
+              { isActive: true, ...(req.species ? { species: req.species } : {}) },
+              { page: 1, limit: req.limit },
+            ),
+          );
+          return toBoundedList(page.data, req.limit, projectProtocol, page.pagination.total);
+        },
       },
+      payload,
     );
   }
 }

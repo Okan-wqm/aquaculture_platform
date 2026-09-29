@@ -15,6 +15,7 @@ import { ListOverdueHarvestPlansHandler } from '../handlers/list-overdue-harvest
 import { ListOverdueHarvestPlansQuery } from '../queries/list-overdue-harvest-plans.query';
 import { GetHarvestPlanStatsHandler } from '../handlers/get-harvest-plan-stats.handler';
 import { GetHarvestPlanStatsQuery } from '../queries/get-harvest-plan-stats.query';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -51,9 +52,7 @@ describe('Harvest-plan read handlers (fail-closed tenant boundary)', () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.find as jest.Mock).mockResolvedValueOnce([{ id: 'hp-3' }]);
 
-    const result = await new ListUpcomingHarvestPlansHandler(mockDataSource).execute(
-      new ListUpcomingHarvestPlansQuery(tenantId, 30),
-    );
+    const result = await inTenantScope(tenantId, (scope) => new ListUpcomingHarvestPlansHandler().execute(new ListUpcomingHarvestPlansQuery(scope, 30)), mockDataSource);
 
     expect(result).toHaveLength(1);
     const [, opts] = (mockManager.find as jest.Mock).mock.calls[0];
@@ -64,9 +63,7 @@ describe('Harvest-plan read handlers (fail-closed tenant boundary)', () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.find as jest.Mock).mockResolvedValueOnce([]);
 
-    const result = await new ListOverdueHarvestPlansHandler(mockDataSource).execute(
-      new ListOverdueHarvestPlansQuery(tenantId),
-    );
+    const result = await inTenantScope(tenantId, (scope) => new ListOverdueHarvestPlansHandler().execute(new ListOverdueHarvestPlansQuery(scope)), mockDataSource);
 
     expect(result).toEqual([]);
     const [, opts] = (mockManager.find as jest.Mock).mock.calls[0];
@@ -77,9 +74,7 @@ describe('Harvest-plan read handlers (fail-closed tenant boundary)', () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.find as jest.Mock).mockResolvedValueOnce([]); // no plans → zeroed stats
 
-    const result = await new GetHarvestPlanStatsHandler(mockDataSource).execute(
-      new GetHarvestPlanStatsQuery(tenantId),
-    );
+    const result = await inTenantScope(tenantId, (scope) => new GetHarvestPlanStatsHandler().execute(new GetHarvestPlanStatsQuery(scope)), mockDataSource);
 
     expect(result.total).toBe(0);
     expect(result.overdueCount).toBe(0);

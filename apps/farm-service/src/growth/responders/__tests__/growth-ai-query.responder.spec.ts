@@ -4,6 +4,10 @@ import type { QueryBus } from '@platform/cqrs';
 import { GetGrowthAnalysisQuery } from '../../queries/get-growth-analysis.query';
 import { GetGrowthMeasurementsQuery } from '../../queries/get-growth-measurements.query';
 import { GrowthAiQueryResponder } from '../growth-ai-query.responder';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const BATCH = '22222222-2222-4222-8222-222222222222';
@@ -11,11 +15,13 @@ const BATCH = '22222222-2222-4222-8222-222222222222';
 describe('GrowthAiQueryResponder (FARM-MEDIUM-328)', () => {
   let execute: jest.Mock;
   let responder: GrowthAiQueryResponder;
+  let harness: FarmScopeHarness;
 
   beforeEach(() => {
     execute = jest.fn();
     const queryBus: Pick<QueryBus, 'execute'> = { execute };
-    responder = new GrowthAiQueryResponder(queryBus as QueryBus);
+    harness = createFarmScopeHarness();
+    responder = new GrowthAiQueryResponder(harness.responder, queryBus as QueryBus);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 
@@ -116,8 +122,8 @@ describe('GrowthAiQueryResponder (FARM-MEDIUM-328)', () => {
 
     expect(execute).toHaveBeenCalledWith(expect.any(GetGrowthMeasurementsQuery));
     const query = execute.mock.calls[0][0] as GetGrowthMeasurementsQuery;
+    expect(query.scope.tenantId).toBe(TENANT);
     expect(query).toMatchObject({
-      tenantId: TENANT,
       filter: { batchId: BATCH },
       page: 1,
       limit: 5,

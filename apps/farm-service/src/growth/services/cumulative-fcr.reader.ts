@@ -1,4 +1,4 @@
-import type { EntityManager } from 'typeorm';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 import { Batch } from '../../batch/entities/batch.entity';
 import { OperationType, TankOperation } from '../../batch/entities/tank-operation.entity';
@@ -16,15 +16,15 @@ const NO_BATCH: CumulativeFcr = { fcr: 0, totalFeed: 0, totalGrowth: 0, removedB
 
 /**
  * The single cumulative-FCR authority (FARM-HIGH-007), reading through the
- * EntityManager it is handed.
+ * tenant scope it is handed.
  *
- * WHY a function over a caller-supplied manager: the AI read handlers
- * (get_batch_performance, get_growth_analysis) must read ONLY inside their
- * `runInTenantRead` transaction — search_path + RLS GUC pinned and asserted
- * (K10 layer 4, MT-HIGH-062). A service holding its own repositories reads on
- * whatever pooled connection the ambient context hands it. Callers without a
- * transaction (FCRCalculationService.calculateCumulativeFCR) pass their own
- * manager, so both paths share this one computation.
+ * WHY a function over a caller-supplied scope: the AI read handlers
+ * (get_batch_performance, get_growth_analysis) must read ONLY on their
+ * scope's tenant-pinned connection — search_path + RLS GUC pinned and
+ * asserted (K10 layer 4, MT-HIGH-062). A service holding its own repositories
+ * reads on whatever pooled connection the ambient context hands it. Callers
+ * that start from a tenant id (FCRCalculationService.calculateCumulativeFCR)
+ * open a scope first, so both paths share this one computation.
  *
  * WHAT: realized growth is corrected with the TankOperation ledger — biomass
  * that left the system via mortality / cull / harvest / transfer-out also grew
@@ -36,11 +36,11 @@ const NO_BATCH: CumulativeFcr = { fcr: 0, totalFeed: 0, totalGrowth: 0, removedB
  *   net removed     = Σ(mortality + cull + harvest + transfer_out) − Σ(transfer_in)
  */
 export async function readCumulativeFcr(
-  manager: EntityManager,
+  scope: TenantScope,
   batchId: string,
-  tenantId: string,
   endDate?: Date,
 ): Promise<CumulativeFcr> {
+  const { manager, tenantId } = scope;
   const batch = await manager.findOne(Batch, { where: { id: batchId, tenantId } });
   if (!batch) {
     return NO_BATCH;

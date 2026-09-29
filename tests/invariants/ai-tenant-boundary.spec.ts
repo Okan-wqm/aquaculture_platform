@@ -27,8 +27,9 @@ import {
  *   B. A TenantBinding is minted in ONE file (tool-context.factory.ts), is
  *      never cast, and no ToolExecutionContext is assembled by hand.
  *   C. Every AI-facing `request.*` subject ai_service may publish is answered
- *      through `respondTenantBound`, the one skeleton that echoes the tenant
- *      it served.
+ *      through the responder skeleton (`respondTenantBound`, wired per service
+ *      as a `*AiResponder`), which opens the tenant scope and echoes the
+ *      tenant read back from the connection that served the reply.
  *   D. AI Redis keys: every AI key literal lives in a registered key module,
  *      and every builder there puts the tenant first (proved by calling it
  *      with two tenants). Long-lived in-memory state (a process-wide
@@ -132,7 +133,7 @@ describe('INVARIANT (K10 / MT-HIGH-062): AI tenant boundary', () => {
     });
   });
 
-  describe('C. AI-facing responders reply through respondTenantBound', () => {
+  describe('C. AI-facing responders reply through the responder skeleton', () => {
     const subjects = aiRequestSubjects();
     const handlers = respondersBySubject();
 
@@ -140,11 +141,14 @@ describe('INVARIANT (K10 / MT-HIGH-062): AI tenant boundary', () => {
       expect(subjects.length).toBeGreaterThanOrEqual(46);
     });
 
-    it.each(subjects)('%s is answered only through respondTenantBound', (subject) => {
+    it.each(subjects)('%s is answered only through the skeleton (.respond)', (subject) => {
+      // The skeleton (`*AiResponder` → respondTenantBound) opens the tenant scope,
+      // resolves owned ids and names the served tenant; the data-layer spec §E
+      // proves each responder injects one and nothing it reaches escapes the scope.
       const bodies = handlers.get(subject) ?? [];
       expect({ subject, responders: bodies.length }).toEqual({ subject, responders: 1 });
       for (const { body } of bodies) {
-        expect({ subject, tenantBound: body.includes('respondTenantBound(') }).toEqual({
+        expect({ subject, tenantBound: /\.respond\(/.test(body) }).toEqual({
           subject,
           tenantBound: true,
         });

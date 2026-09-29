@@ -5,10 +5,11 @@ import { createMockDataSource } from '@aquaculture/testing';
 import { GetGrowthAnalysisQuery } from '../queries/get-growth-analysis.query';
 import { GetGrowthAnalysisHandler } from '../query-handlers/get-growth-analysis.handler';
 import { readCumulativeFcr } from '../services/cumulative-fcr.reader';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 // The cumulative-FCR authority is a collaborator of the handler (its own spec
 // lives with FCRCalculationService); here it is a double so the test can assert
-// WHICH manager it reads through.
+// WHICH scope (and so which manager) it reads through.
 jest.mock('../services/cumulative-fcr.reader', () => ({ readCumulativeFcr: jest.fn() }));
 const readFcr = jest.mocked(readCumulativeFcr);
 
@@ -16,13 +17,19 @@ describe('GetGrowthAnalysisHandler', () => {
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const batchId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
   const speciesId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  /** The manager of every scope the FCR reader was handed, captured while the scope is open. */
+  const fcrManagers: unknown[] = [];
 
   const givenFcr = (fcr: number): void => {
-    readFcr.mockResolvedValue({ fcr, totalFeed: 100, totalGrowth: 60, removedBiomassKg: 0 });
+    readFcr.mockImplementation(async (scope) => {
+      fcrManagers.push(scope.manager);
+      return { fcr, totalFeed: 100, totalGrowth: 60, removedBiomassKg: 0 };
+    });
   };
 
   beforeEach(() => {
     readFcr.mockReset();
+    fcrManagers.length = 0;
   });
 
   const makeBatch = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
@@ -70,9 +77,9 @@ describe('GetGrowthAnalysisHandler', () => {
     ]);
 
     givenFcr(1.6);
-    const handler = new GetGrowthAnalysisHandler(mockDataSource);
+    const handler = new GetGrowthAnalysisHandler();
 
-    const result = await handler.execute(new GetGrowthAnalysisQuery(tenantId, batchId));
+    const result = await inTenantScope(tenantId, (scope) => handler.execute(new GetGrowthAnalysisQuery(scope, batchId)), mockDataSource);
 
     expect(result.batchId).toBe(batchId);
     expect(result.batchNumber).toBe('B-001');
@@ -87,9 +94,10 @@ describe('GetGrowthAnalysisHandler', () => {
       where: { id: batchId, tenantId },
       relations: ['species'],
     });
-    // K10 layer 4: the FCR ledger is read through the SAME runInTenantRead
-    // transaction's manager as the batch — never an ambient pooled connection.
-    expect(readFcr).toHaveBeenCalledWith(mockManager, batchId, tenantId);
+    // K10 layer 4: the FCR ledger is read on the SAME tenant scope as the
+    // batch — never an ambient pooled connection.
+    expect(readFcr).toHaveBeenCalledWith(expect.objectContaining({ tenantId }), batchId);
+    expect(fcrManagers).toEqual([mockManager]);
   });
 
   it('uses the batch-attached species without a second findOne', async () => {
@@ -106,9 +114,9 @@ describe('GetGrowthAnalysisHandler', () => {
     (mockManager.find as jest.Mock).mockResolvedValueOnce([]);
 
     givenFcr(1.4);
-    const handler = new GetGrowthAnalysisHandler(mockDataSource);
+    const handler = new GetGrowthAnalysisHandler();
 
-    const result = await handler.execute(new GetGrowthAnalysisQuery(tenantId, batchId));
+    const result = await inTenantScope(tenantId, (scope) => handler.execute(new GetGrowthAnalysisQuery(scope, batchId)), mockDataSource);
 
     expect(result.speciesName).toBe('Rainbow Trout');
     expect(mockManager.findOne).toHaveBeenCalledTimes(1);
@@ -119,10 +127,10 @@ describe('GetGrowthAnalysisHandler', () => {
     (mockManager.findOne as jest.Mock).mockResolvedValueOnce(null);
 
     givenFcr(1.5);
-    const handler = new GetGrowthAnalysisHandler(mockDataSource);
+    const handler = new GetGrowthAnalysisHandler();
 
     await expect(
-      handler.execute(new GetGrowthAnalysisQuery(tenantId, batchId)),
+      inTenantScope(tenantId, (scope) => handler.execute(new GetGrowthAnalysisQuery(scope, batchId)), mockDataSource),
     ).rejects.toBeInstanceOf(NotFoundException);
     // An id that is not this tenant's reads nothing else.
     expect(readFcr).not.toHaveBeenCalled();

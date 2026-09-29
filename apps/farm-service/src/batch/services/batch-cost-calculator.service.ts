@@ -48,6 +48,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EntityManager } from 'typeorm';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 import { Batch } from '../entities/batch.entity';
 import { HealthEvent } from '../../fish-health/entities/health-event.entity';
@@ -91,15 +92,15 @@ export class BatchCostCalculatorService {
    * @param batch hydrated Batch entity (already read by the caller;
    *              the service never does its own batch lookup to keep
    *              transaction scope in the caller's hands)
-   * @param manager the caller's tenant-bound EntityManager — WHY: the
-   *              treatment + labour axes read health_events and work_orders
-   *              inside the caller's `runInTenantRead` transaction (search_path
-   *              + RLS GUC pinned and asserted), never on an ambient pooled
-   *              connection (K10 layer 4, MT-HIGH-062: the AI
-   *              get_batch_performance tool reaches this through
-   *              GetBatchPerformanceHandler).
+   * @param scope the caller's tenant scope — WHY: the treatment + labour axes
+   *              read health_events and work_orders on the scope's
+   *              tenant-pinned connection (search_path + RLS GUC pinned and
+   *              asserted), never on an ambient pooled connection (K10 layer 4,
+   *              MT-HIGH-062: the AI get_batch_performance tool reaches this
+   *              through GetBatchPerformanceHandler).
    */
-  async compute(batch: Batch, manager: EntityManager): Promise<BatchCostBreakdown> {
+  async compute(batch: Batch, scope: TenantScope): Promise<BatchCostBreakdown> {
+    const { manager } = scope;
     const warnings: string[] = [];
 
     const purchaseCost = Number(batch.purchaseCost ?? 0);

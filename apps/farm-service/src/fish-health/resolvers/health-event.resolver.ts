@@ -27,6 +27,7 @@ import { ListHealthEventsByBatchQuery } from '../queries/list-health-events-by-b
 import { ListCriticalHealthEventsQuery } from '../queries/list-critical-health-events.query';
 import { ListOverdueFollowUpsQuery } from '../queries/list-overdue-follow-ups.query';
 import { GetHealthEventStatsQuery } from '../queries/get-health-event-stats.query';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -122,6 +123,7 @@ export class HealthEventResolver {
     private readonly healthEventService: HealthEventService,
     private readonly harvestEligibilityService: BatchHarvestEligibilityService,
     private readonly queryBus: QueryBus,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // =========================================================================
@@ -149,7 +151,9 @@ export class HealthEventResolver {
     @CurrentTenant() tenantId: string,
     @Args('filter', { nullable: true }) filter?: HealthEventFilterInput,
   ): Promise<IStandardPaginatedResult<HealthEvent>> {
-    return this.queryBus.execute(new ListHealthEventsQuery(tenantId, filter));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListHealthEventsQuery(scope, filter)),
+    );
   }
 
   /**
@@ -175,7 +179,9 @@ export class HealthEventResolver {
   async criticalHealthEvents(
     @CurrentTenant() tenantId: string,
   ): Promise<HealthEvent[]> {
-    return this.queryBus.execute(new ListCriticalHealthEventsQuery(tenantId));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListCriticalHealthEventsQuery(scope)),
+    );
   }
 
   /**
@@ -186,7 +192,9 @@ export class HealthEventResolver {
   async overdueHealthFollowUps(
     @CurrentTenant() tenantId: string,
   ): Promise<HealthEvent[]> {
-    return this.queryBus.execute(new ListOverdueFollowUpsQuery(tenantId));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListOverdueFollowUpsQuery(scope)),
+    );
   }
 
   /**
@@ -197,7 +205,9 @@ export class HealthEventResolver {
   async healthEventStats(
     @CurrentTenant() tenantId: string,
   ): Promise<HealthEventStats> {
-    return this.queryBus.execute(new GetHealthEventStatsQuery(tenantId));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new GetHealthEventStatsQuery(scope)),
+    );
   }
 
   // =========================================================================
@@ -358,10 +368,8 @@ export class HealthEventResolver {
     @Args('batchId', { type: () => ID }) batchId: string,
     @Args('harvestDate', { type: () => GraphQLISODateTime }) harvestDate: Date,
   ): Promise<HarvestEligibilityOutput> {
-    const result = await this.harvestEligibilityService.checkEligibility(
-      tenantId,
-      batchId,
-      harvestDate,
+    const result = await this.tenantScopes.read(tenantId, (scope) =>
+      this.harvestEligibilityService.checkEligibility(scope, batchId, harvestDate),
     );
     return {
       eligible: result.eligible,

@@ -6,11 +6,14 @@
  * date. Drives the compliance gate in createHarvestRecord (see
  * docs/illustrator/ — Girdi 14h).
  *
- * Architecture: the service reads health_events through the fail-closed
- * runInTenantRead boundary, so the test drives it with createMockDataSource
- * (runInTenantRead-aware) and stubs the boundary manager's `find`.
+ * Architecture: the service reads health_events on the caller's TenantScope,
+ * so the test opens a genuine scope over createMockDataSource and stubs the
+ * scope manager's `find`.
  */
 import { createMockDataSource } from '@aquaculture/testing';
+import type { DataSource } from 'typeorm';
+
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 import { BatchHarvestEligibilityService } from '../services/batch-harvest-eligibility.service';
 import {
   HealthEvent,
@@ -30,6 +33,7 @@ type HealthEventRow = Pick<
 function makeService(rows: HealthEventRow[]): {
   service: BatchHarvestEligibilityService;
   scopedRepo: { find: jest.Mock };
+  dataSource: DataSource;
 } {
   const { mockDataSource, mockManager } = createMockDataSource();
   // tenantManagerRepo wraps the manager's per-entity repository; createMockDataSource
@@ -38,8 +42,9 @@ function makeService(rows: HealthEventRow[]): {
   const scopedRepo = (mockManager.getRepository as jest.Mock)() as { find: jest.Mock };
   scopedRepo.find.mockResolvedValue(rows);
   return {
-    service: new BatchHarvestEligibilityService(mockDataSource),
+    service: new BatchHarvestEligibilityService(),
     scopedRepo,
+    dataSource: mockDataSource,
   };
 }
 
@@ -48,13 +53,9 @@ describe('BatchHarvestEligibilityService', () => {
   const batchId = '22222222-2222-4222-8222-222222222222';
 
   it('returns eligible=true when no blocking events exist', async () => {
-    const { service } = makeService([]);
+    const { service, dataSource } = makeService([]);
 
-    const result = await service.checkEligibility(
-      tenantId,
-      batchId,
-      new Date('2026-06-01'),
-    );
+    const result = await inTenantScope(tenantId, (scope) => service.checkEligibility(scope, batchId, new Date('2026-06-01')), dataSource);
 
     expect(result.eligible).toBe(true);
     expect(result.blockingEvents).toEqual([]);
@@ -63,7 +64,7 @@ describe('BatchHarvestEligibilityService', () => {
 
   it('blocks harvest when an active event has earliestHarvestDate in the future', async () => {
     const earliest = new Date('2026-07-15');
-    const { service } = makeService([
+    const { service, dataSource } = makeService([
       {
         id: 'evt-1',
         title: 'Amoxicillin treatment',
@@ -74,11 +75,7 @@ describe('BatchHarvestEligibilityService', () => {
       },
     ]);
 
-    const result = await service.checkEligibility(
-      tenantId,
-      batchId,
-      new Date('2026-06-01'),
-    );
+    const result = await inTenantScope(tenantId, (scope) => service.checkEligibility(scope, batchId, new Date('2026-06-01')), dataSource);
 
     expect(result.eligible).toBe(false);
     expect(result.blockedUntil).toEqual(earliest);
@@ -93,7 +90,7 @@ describe('BatchHarvestEligibilityService', () => {
     // would (sorted DESC) to keep the test aligned with production.
     const later = new Date('2026-08-20');
     const earlier = new Date('2026-07-15');
-    const { service } = makeService([
+    const { service, dataSource } = makeService([
       {
         id: 'evt-late',
         title: 'Oxytetracycline treatment',
@@ -112,11 +109,7 @@ describe('BatchHarvestEligibilityService', () => {
       },
     ]);
 
-    const result = await service.checkEligibility(
-      tenantId,
-      batchId,
-      new Date('2026-06-01'),
-    );
+    const result = await inTenantScope(tenantId, (scope) => service.checkEligibility(scope, batchId, new Date('2026-06-01')), dataSource);
 
     expect(result.eligible).toBe(false);
     expect(result.blockedUntil).toEqual(later);
@@ -125,13 +118,9 @@ describe('BatchHarvestEligibilityService', () => {
   });
 
   it('narrows the query to the correct tenant and batch', async () => {
-    const { service, scopedRepo } = makeService([]);
+    const { service, scopedRepo, dataSource } = makeService([]);
 
-    await service.checkEligibility(
-      tenantId,
-      batchId,
-      new Date('2026-06-01'),
-    );
+    await inTenantScope(tenantId, (scope) => service.checkEligibility(scope, batchId, new Date('2026-06-01')), dataSource);
 
     expect(scopedRepo.find).toHaveBeenCalledTimes(1);
     // tenantManagerRepo injects tenantId into the WHERE; batchId is set by the service.

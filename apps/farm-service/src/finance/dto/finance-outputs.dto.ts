@@ -21,7 +21,7 @@ import {
 import {
   FinanceGranularity,
   FinanceLineOrigin,
-} from '../services/finance-ledger-query.service';
+} from '../services/finance-ledger-model';
 
 registerEnumType(FinanceLineOrigin, {
   name: 'FinanceLineOrigin',

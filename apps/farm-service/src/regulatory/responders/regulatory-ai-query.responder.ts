@@ -1,4 +1,4 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { QueryBus } from '@platform/cqrs';
 import {
@@ -10,12 +10,12 @@ import {
   type RegulatoryReportDto,
   type RegulatoryReportsReply,
 } from '@platform/event-contracts';
-import { respondTenantBound } from '@aquaculture/backend-common/nats';
 import { isoOrNull, numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import type { BiomassReport } from '../entities/biomass-report.entity';
 import { RegulatoryReportType, type RegulatoryReport } from '../entities/regulatory-report.entity';
 import { GetBiomassReportByPeriodQuery } from '../queries/get-biomass-report-by-period.query';
 import { ListRegulatoryReportsQuery } from '../queries/list-regulatory-reports.query';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 export function projectBiomassReport(
   siteId: string,
@@ -78,53 +78,49 @@ export function projectRegulatoryReport(row: RegulatoryReport): RegulatoryReport
 /** Regulatory read surface for the farm production specialist (FARM-MEDIUM-328). */
 @Controller()
 export class RegulatoryAiQueryResponder {
-  private readonly logger = new Logger(RegulatoryAiQueryResponder.name);
-
-  constructor(private readonly queryBus: QueryBus) {}
+  constructor(
+    private readonly responder: FarmAiResponder,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.REG_BIOMASS_REPORT)
   getBiomassReport(@Payload() payload: unknown): Promise<TenantBoundReply<BiomassReportReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.REG_BIOMASS_REPORT,
-      payload,
-      isBiomassReportRequest,
-      async (req) => {
-        const report = await this.queryBus.execute<
-          GetBiomassReportByPeriodQuery,
-          BiomassReport | null
-        >(
-          new GetBiomassReportByPeriodQuery(
-            req.tenantId,
-            req.siteId,
-            req.reportMonth,
-            req.reportYear,
-          ),
-        );
-        return projectBiomassReport(req.siteId, req.reportMonth, req.reportYear, report);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.REG_BIOMASS_REPORT,
+        isRequest: isBiomassReportRequest,
+        handle: async (req, scope) => {
+          const report = await this.queryBus.execute<
+            GetBiomassReportByPeriodQuery,
+            BiomassReport | null
+          >(new GetBiomassReportByPeriodQuery(scope, req.siteId, req.reportMonth, req.reportYear));
+          return projectBiomassReport(req.siteId, req.reportMonth, req.reportYear, report);
+        },
       },
+      payload,
     );
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.REG_REPORTS)
   listReports(@Payload() payload: unknown): Promise<TenantBoundReply<RegulatoryReportsReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.REG_REPORTS,
-      payload,
-      isRegulatoryReportsRequest,
-      async (req) => {
-        const rows = await this.queryBus.execute<ListRegulatoryReportsQuery, RegulatoryReport[]>(
-          new ListRegulatoryReportsQuery(
-            req.tenantId,
-            RegulatoryReportType[req.reportType],
-            req.siteId,
-            req.limit,
-            0,
-          ),
-        );
-        return toBoundedList(rows, req.limit, projectRegulatoryReport);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.REG_REPORTS,
+        isRequest: isRegulatoryReportsRequest,
+        handle: async (req, scope) => {
+          const rows = await this.queryBus.execute<ListRegulatoryReportsQuery, RegulatoryReport[]>(
+            new ListRegulatoryReportsQuery(
+              scope,
+              RegulatoryReportType[req.reportType],
+              req.siteId,
+              req.limit,
+              0,
+            ),
+          );
+          return toBoundedList(rows, req.limit, projectRegulatoryReport);
+        },
       },
+      payload,
     );
   }
 }

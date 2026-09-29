@@ -13,7 +13,7 @@
 import {
   buildBatchAggregationQuery,
   buildSummaryAggregationQuery,
-} from '../services/finance-ledger-query.service';
+} from '../services/finance-ledger-model';
 
 const FROM = new Date('2026-01-01T00:00:00.000Z');
 const TO = new Date('2026-12-31T00:00:00.000Z');

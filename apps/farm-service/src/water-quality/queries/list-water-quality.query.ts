@@ -1,12 +1,12 @@
 /**
  * List Water Quality Measurements Query
  */
-import { IQuery } from '@platform/cqrs';
 import { WaterQualityFilters } from '../water-quality.service';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
-export class ListWaterQualityQuery implements IQuery {
+export class ListWaterQualityQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly filters: WaterQualityFilters = {},
   ) {}
 }

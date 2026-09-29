@@ -8,6 +8,7 @@ import { createMockDataSource } from '@aquaculture/testing';
 
 import { RensefiskReportAssembler } from '../../assembly/assemblers/rensefisk.assembler';
 import { ReportFieldProvenance } from '../../assembly/provenance.types';
+import { FarmTenantScopes } from '../../../common/tenant-boundary/farm-tenant-scopes';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const siteId = 'ssssssss-ssss-4sss-8sss-ssssssssssss';
@@ -22,7 +23,11 @@ function makeAssembler(composition: unknown[], ledger: unknown[]): RensefiskRepo
   const queryBus: Pick<QueryBus, 'execute'> = {
     execute: jest.fn().mockResolvedValue({ totalKg: 120.5, byFeedType: [], recordCount: 3 }),
   };
-  return new RensefiskReportAssembler(mockDataSource, queryBus as QueryBus);
+  return new RensefiskReportAssembler(
+    mockDataSource,
+    queryBus as QueryBus,
+    new FarmTenantScopes(mockDataSource),
+  );
 }
 
 describe('RensefiskReportAssembler', () => {

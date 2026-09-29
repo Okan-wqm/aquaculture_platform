@@ -1,11 +1,11 @@
 /**
  * Get System Water Quality Statistics Query (aggregate over all tanks in a system)
  */
-import { IQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
-export class GetSystemWaterQualityStatisticsQuery implements IQuery {
+export class GetSystemWaterQualityStatisticsQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly systemId: string,
     public readonly days: number = 7,
   ) {}

@@ -23,6 +23,7 @@ import { CreateHarvestPlanInput } from '../dto/create-harvest-plan.input';
 import { UpdateHarvestPlanInput } from '../dto/update-harvest-plan.input';
 import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 // ============================================================================
 // INTERFACES
@@ -56,6 +57,7 @@ export class HarvestPlanService {
     @InjectRepository(HarvestPlan)
     private readonly harvestPlanRepository: Repository<HarvestPlan>,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // =========================================================================
@@ -86,10 +88,12 @@ export class HarvestPlanService {
     // information to the UI at submit time; this log acts as a
     // server-side audit trail.
     const plannedDate = input.plannedDate ?? new Date();
-    const eligibility = await this.harvestEligibility.checkEligibility(
-      tenantId,
-      input.batchId,
-      plannedDate instanceof Date ? plannedDate : new Date(plannedDate),
+    const eligibility = await this.tenantScopes.read(tenantId, (scope) =>
+      this.harvestEligibility.checkEligibility(
+        scope,
+        input.batchId,
+        plannedDate instanceof Date ? plannedDate : new Date(plannedDate),
+      ),
     );
     if (!eligibility.eligible) {
       this.logger.warn(

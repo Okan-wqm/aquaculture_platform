@@ -48,6 +48,7 @@ import {
   CompleteMaintenanceInput,
 } from '../dto/update-maintenance-schedule.dto';
 import { MaintenanceScheduleFilterInput } from '../dto/maintenance-schedule-filter.dto';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 // Register enums for GraphQL
 registerEnumType(MaintenanceScheduleStatus, {
@@ -142,6 +143,7 @@ export class MaintenanceScheduleResolver {
   constructor(
     private readonly maintenanceScheduleService: MaintenanceScheduleService,
     private readonly queryBus: QueryBus,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -215,8 +217,10 @@ export class MaintenanceScheduleResolver {
     @Tenant() tenantId: string,
   ): Promise<ScheduleAlertResponse[]> {
     this.logger.debug(`Getting maintenance alerts for tenant: ${tenantId}`);
-    const alerts = await this.queryBus.execute<ListMaintenanceScheduleAlertsQuery, ScheduleAlert[]>(
-      new ListMaintenanceScheduleAlertsQuery(tenantId),
+    const alerts = await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute<ListMaintenanceScheduleAlertsQuery, ScheduleAlert[]>(
+        new ListMaintenanceScheduleAlertsQuery(scope),
+      ),
     );
 
     return alerts.map((alert) => ({

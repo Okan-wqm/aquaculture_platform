@@ -5,7 +5,7 @@
  *
  * @module WaterQuality/Queries
  */
-import { ITenantQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 /**
  * Parametre konfigurasyonu filtresi
@@ -16,11 +16,11 @@ export interface ParameterConfigFilter {
   isVisible?: boolean;
 }
 
-export class ListParameterConfigsQuery implements ITenantQuery {
+export class ListParameterConfigsQuery {
   readonly queryName = 'ListParameterConfigsQuery';
 
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly filters?: ParameterConfigFilter,
   ) {}
 }

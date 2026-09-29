@@ -1,4 +1,4 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { QueryBus } from '@platform/cqrs';
 import {
@@ -16,7 +16,6 @@ import {
   type WorkOrderStatsReply,
   type WorkOrdersReply,
 } from '@platform/event-contracts';
-import { respondTenantBound } from '@aquaculture/backend-common/nats';
 import { isoOrNull, numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import type { WorkOrder } from '../entities/work-order.entity';
 import { GetStockSummaryQuery } from '../queries/get-stock-summary.query';
@@ -27,6 +26,7 @@ import { ListOverdueWorkOrdersQuery } from '../queries/list-overdue-work-orders.
 import type { ScheduleAlert } from '../services/maintenance-schedule.service';
 import type { LowStockAlert, StockSummary } from '../services/spare-part.service';
 import type { WorkOrderStatistics } from '../services/work-order.service';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 /** No assignee, creator, approver, checklist, materials, labor or notes cross. */
 export function projectWorkOrder(row: WorkOrder): WorkOrderDto {
@@ -104,43 +104,49 @@ export function projectStockSummary(summary: StockSummary): SpareStockSummaryRep
 /** Maintenance + spare-part read surface for the farm operations specialist (FARM-MEDIUM-328). */
 @Controller()
 export class MaintenanceAiQueryResponder {
-  private readonly logger = new Logger(MaintenanceAiQueryResponder.name);
-
-  constructor(private readonly queryBus: QueryBus) {}
+  constructor(
+    private readonly responder: FarmAiResponder,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.MAINT_OVERDUE_WORK_ORDERS)
   listOverdueWorkOrders(@Payload() payload: unknown): Promise<TenantBoundReply<WorkOrdersReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.MAINT_OVERDUE_WORK_ORDERS,
-      payload,
-      isBoundedListRequest,
-      async (req) => {
-        const rows = await this.queryBus.execute<ListOverdueWorkOrdersQuery, WorkOrder[]>(
-          new ListOverdueWorkOrdersQuery(req.tenantId),
-        );
-        return toBoundedList(rows, req.limit, projectWorkOrder);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.MAINT_OVERDUE_WORK_ORDERS,
+        isRequest: isBoundedListRequest,
+        handle: async (req, scope) => {
+          const rows = await this.queryBus.execute<ListOverdueWorkOrdersQuery, WorkOrder[]>(
+            new ListOverdueWorkOrdersQuery(scope),
+          );
+          return toBoundedList(rows, req.limit, projectWorkOrder);
+        },
       },
+      payload,
     );
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.MAINT_WORK_ORDER_STATS)
   getWorkOrderStats(@Payload() payload: unknown): Promise<TenantBoundReply<WorkOrderStatsReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.MAINT_WORK_ORDER_STATS,
-      payload,
-      isWorkOrderStatsRequest,
-      async (req) => {
-        const stats = await this.queryBus.execute<GetWorkOrderStatisticsQuery, WorkOrderStatistics>(
-          new GetWorkOrderStatisticsQuery(
-            req.tenantId,
-            req.fromDate ? new Date(req.fromDate) : undefined,
-            req.toDate ? new Date(req.toDate) : undefined,
-          ),
-        );
-        return projectWorkOrderStats(stats);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.MAINT_WORK_ORDER_STATS,
+        isRequest: isWorkOrderStatsRequest,
+        handle: async (req, scope) => {
+          const stats = await this.queryBus.execute<
+            GetWorkOrderStatisticsQuery,
+            WorkOrderStatistics
+          >(
+            new GetWorkOrderStatisticsQuery(
+              scope,
+              req.fromDate ? new Date(req.fromDate) : undefined,
+              req.toDate ? new Date(req.toDate) : undefined,
+            ),
+          );
+          return projectWorkOrderStats(stats);
+        },
       },
+      payload,
     );
   }
 
@@ -148,50 +154,53 @@ export class MaintenanceAiQueryResponder {
   listMaintenanceAlerts(
     @Payload() payload: unknown,
   ): Promise<TenantBoundReply<MaintenanceAlertsReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.MAINT_SCHEDULE_ALERTS,
-      payload,
-      isBoundedListRequest,
-      async (req) => {
-        const alerts = await this.queryBus.execute<
-          ListMaintenanceScheduleAlertsQuery,
-          ScheduleAlert[]
-        >(new ListMaintenanceScheduleAlertsQuery(req.tenantId));
-        return toBoundedList(alerts, req.limit, projectScheduleAlert);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.MAINT_SCHEDULE_ALERTS,
+        isRequest: isBoundedListRequest,
+        handle: async (req, scope) => {
+          const alerts = await this.queryBus.execute<
+            ListMaintenanceScheduleAlertsQuery,
+            ScheduleAlert[]
+          >(new ListMaintenanceScheduleAlertsQuery(scope));
+          return toBoundedList(alerts, req.limit, projectScheduleAlert);
+        },
       },
+      payload,
     );
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.MAINT_LOW_STOCK)
   listLowStock(@Payload() payload: unknown): Promise<TenantBoundReply<LowStockSparePartsReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.MAINT_LOW_STOCK,
-      payload,
-      isBoundedListRequest,
-      async (req) => {
-        const alerts = await this.queryBus.execute<ListLowStockAlertsQuery, LowStockAlert[]>(
-          new ListLowStockAlertsQuery(req.tenantId),
-        );
-        return toBoundedList(alerts, req.limit, projectLowStock);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.MAINT_LOW_STOCK,
+        isRequest: isBoundedListRequest,
+        handle: async (req, scope) => {
+          const alerts = await this.queryBus.execute<ListLowStockAlertsQuery, LowStockAlert[]>(
+            new ListLowStockAlertsQuery(scope),
+          );
+          return toBoundedList(alerts, req.limit, projectLowStock);
+        },
       },
+      payload,
     );
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.MAINT_STOCK_SUMMARY)
   getStockSummary(@Payload() payload: unknown): Promise<TenantBoundReply<SpareStockSummaryReply>> {
-    return respondTenantBound(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.MAINT_STOCK_SUMMARY,
-      payload,
-      isSpareStockSummaryRequest,
-      async (req) => {
-        const summary = await this.queryBus.execute<GetStockSummaryQuery, StockSummary>(
-          new GetStockSummaryQuery(req.tenantId),
-        );
-        return projectStockSummary(summary);
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.MAINT_STOCK_SUMMARY,
+        isRequest: isSpareStockSummaryRequest,
+        handle: async (req, scope) => {
+          const summary = await this.queryBus.execute<GetStockSummaryQuery, StockSummary>(
+            new GetStockSummaryQuery(scope),
+          );
+          return projectStockSummary(summary);
+        },
       },
+      payload,
     );
   }
 }

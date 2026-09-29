@@ -27,6 +27,8 @@ import {
   createSourceEquipmentTypesReferenceTable,
   createTenantSchemaDerived,
 } from '../../../../apps/farm-service/src/__tests__/e2e/helpers/tenant-schema-harness';
+import { FarmAiResponder } from '../../../../apps/farm-service/src/common/tenant-boundary/farm-ai-responder';
+import { FarmTenantScopes } from '../../../../apps/farm-service/src/common/tenant-boundary/farm-tenant-scopes';
 import { GetBatchPerformanceQuery } from '../../../../apps/farm-service/src/batch/queries/get-batch-performance.query';
 import { GetBatchPerformanceHandler } from '../../../../apps/farm-service/src/batch/query-handlers/get-batch-performance.handler';
 import { BatchAiQueryResponder } from '../../../../apps/farm-service/src/batch/responders/batch-ai-query.responder';
@@ -108,11 +110,14 @@ export async function bootFarmTwoTenantHarness(
   });
 
   // The query bus's job in production: route each query to its REAL handler.
-  const tankCapacity = new GetTankCapacityHandler(dataSource);
+  const tankCapacity = new GetTankCapacityHandler();
   const costCalculator = new BatchCostCalculatorService(
     collaborator<ConfigService>({ get: jest.fn(() => undefined) }, 'ConfigService'),
   );
-  const batchPerformance = new GetBatchPerformanceHandler(dataSource, costCalculator);
+  const batchPerformance = new GetBatchPerformanceHandler(costCalculator);
+  // The responder skeleton: opens the tenant scope, resolves owned ids, echoes
+  // the tenant read back from the connection (K10 layer 4).
+  const skeleton = new FarmAiResponder(new FarmTenantScopes(dataSource));
   // A plain jest.Mock: QueryBus.execute is generic in its result, decided per query at runtime.
   const execute: jest.Mock = jest.fn(async (query: object): Promise<unknown> => {
     if (query instanceof GetTankCapacityQuery) return tankCapacity.execute(query);
@@ -126,10 +131,10 @@ export async function bootFarmTwoTenantHarness(
     tenantA,
     tenantB,
     responders: [
-      new TankAiQueryResponder(queryBus),
-      new BatchAiQueryResponder(queryBus),
-      new GetTankRegistryResponder(dataSource),
-      new GetBatchOverviewResponder(dataSource),
+      new TankAiQueryResponder(skeleton, queryBus),
+      new BatchAiQueryResponder(skeleton, queryBus),
+      new GetTankRegistryResponder(skeleton),
+      new GetBatchOverviewResponder(skeleton),
     ],
     costCalculator,
     async close(): Promise<void> {

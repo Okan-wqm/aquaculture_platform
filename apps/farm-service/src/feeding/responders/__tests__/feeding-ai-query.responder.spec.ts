@@ -6,6 +6,10 @@ import { ListFeedingProtocolsQuery } from '../../../feed/queries/list-feeding-pr
 import { GetDailyFeedingPlanQuery } from '../../queries/get-daily-feeding-plan.query';
 import { GetFeedingSummaryQuery } from '../../queries/get-feeding-summary.query';
 import { FeedingAiQueryResponder } from '../feeding-ai-query.responder';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const SITE = '22222222-2222-4222-8222-222222222222';
@@ -13,11 +17,13 @@ const SITE = '22222222-2222-4222-8222-222222222222';
 describe('FeedingAiQueryResponder (FARM-MEDIUM-328)', () => {
   let execute: jest.Mock;
   let responder: FeedingAiQueryResponder;
+  let harness: FarmScopeHarness;
 
   beforeEach(() => {
     execute = jest.fn();
     const queryBus: Pick<QueryBus, 'execute'> = { execute };
-    responder = new FeedingAiQueryResponder(queryBus as QueryBus);
+    harness = createFarmScopeHarness();
+    responder = new FeedingAiQueryResponder(harness.responder, queryBus as QueryBus);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
   });

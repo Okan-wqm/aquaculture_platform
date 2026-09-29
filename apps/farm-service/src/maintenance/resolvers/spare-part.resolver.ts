@@ -43,6 +43,7 @@ import {
   StockMovementInput,
   SparePartFilterInput,
 } from '../dto/spare-part.dto';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 // Register enums for GraphQL
 registerEnumType(SparePartStatus, {
@@ -151,6 +152,7 @@ export class SparePartResolver {
   constructor(
     private readonly sparePartService: SparePartService,
     private readonly queryBus: QueryBus,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -214,8 +216,10 @@ export class SparePartResolver {
     @Tenant() tenantId: string,
   ): Promise<LowStockAlertResponse[]> {
     this.logger.debug(`Getting low stock alerts for tenant: ${tenantId}`);
-    const alerts = await this.queryBus.execute<ListLowStockAlertsQuery, LowStockAlert[]>(
-      new ListLowStockAlertsQuery(tenantId),
+    const alerts = await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute<ListLowStockAlertsQuery, LowStockAlert[]>(
+        new ListLowStockAlertsQuery(scope),
+      ),
     );
 
     return alerts.map((alert) => ({
@@ -245,8 +249,8 @@ export class SparePartResolver {
     @Tenant() tenantId: string,
   ): Promise<StockSummaryResponse> {
     this.logger.debug(`Getting stock summary for tenant: ${tenantId}`);
-    const summary = await this.queryBus.execute<GetStockSummaryQuery, StockSummary>(
-      new GetStockSummaryQuery(tenantId),
+    const summary = await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute<GetStockSummaryQuery, StockSummary>(new GetStockSummaryQuery(scope)),
     );
 
     return {

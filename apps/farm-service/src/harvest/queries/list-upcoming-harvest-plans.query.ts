@@ -1,11 +1,11 @@
 /**
  * List Upcoming Harvest Plans Query
  */
-import { IQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
-export class ListUpcomingHarvestPlansQuery implements IQuery {
+export class ListUpcomingHarvestPlansQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly days: number = 30,
   ) {}
 }

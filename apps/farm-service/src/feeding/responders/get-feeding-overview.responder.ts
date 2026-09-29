@@ -1,10 +1,8 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { runInTenantRead } from '@aquaculture/backend-common/database';
-import { respondTenantBound } from '@aquaculture/backend-common/nats';
 import { isAiQueryRequestShape, type TenantBoundReply } from '@platform/event-contracts';
-import { DataSource } from 'typeorm';
 import { FeedingRecord } from '../entities/feeding-record.entity';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 /** Bound so a large feeding history cannot flood the agent turn / the payload. */
 const RECENT_FEEDINGS_LIMIT = 25;
@@ -38,9 +36,7 @@ export interface FeedingRecordEntry {
 
 @Controller()
 export class GetFeedingOverviewResponder {
-  private readonly logger = new Logger(GetFeedingOverviewResponder.name);
-
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(private readonly responder: FarmAiResponder) {}
 
   // K10 (MT-HIGH-062): one responder skeleton — guard, tenant frame, and a
   // reply that names the tenant it served. A failure is an INTERNAL_ERROR the
@@ -49,14 +45,12 @@ export class GetFeedingOverviewResponder {
   handleGetFeedingOverview(
     @Payload() payload: unknown,
   ): Promise<TenantBoundReply<FeedingRecordEntry[]>> {
-    return respondTenantBound(
-      this.logger,
-      'request.farm.getFeedingOverview',
-      payload,
-      isGetFeedingOverviewRequest,
-      (request) =>
-        runInTenantRead(this.dataSource, 'farm', request.tenantId, async (qr) => {
-          const rows = await qr.manager.find(FeedingRecord, {
+    return this.responder.respond(
+      {
+        subject: 'request.farm.getFeedingOverview',
+        isRequest: isGetFeedingOverviewRequest,
+        handle: async (_request, scope) => {
+          const rows = await scope.manager.find(FeedingRecord, {
             select: {
               id: true,
               batchId: true,
@@ -79,7 +73,9 @@ export class GetFeedingOverviewResponder {
             plannedAmountKg: r.plannedAmount,
             actualAmountKg: r.actualAmount,
           }));
-        }),
+        },
+      },
+      payload,
     );
   }
 }

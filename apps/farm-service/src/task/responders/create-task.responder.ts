@@ -1,10 +1,10 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
-import { respondTenantBound } from '@aquaculture/backend-common/nats';
+import type { TenantScope } from '@aquaculture/backend-common/database';
+import type { TenantFreeRequest } from '@aquaculture/backend-common/nats';
 import { isRecord, type TenantBoundReply } from '@platform/event-contracts';
-import { DataSource } from 'typeorm';
-import { TaskService } from '../services/task.service';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
+import { TaskCreator } from '../services/task-creator';
 import { TaskCategory, TaskPriority } from '../entities/task.entity';
 import { CreateTaskInput } from '../dto/create-task.dto';
 
@@ -12,9 +12,11 @@ import { CreateTaskInput } from '../dto/create-task.dto';
  * Cross-service task creation over NATS request-reply. ai-service's
  * create_task tool (an actuation tool gated by the actuation policy) publishes
  * request.farm.createTask; this responder validates it and writes through the
- * SAME task-create SSoT the GraphQL resolver uses (TaskService.createWithManager),
- * inside a tenant-pinned transaction. There is no HTTP hop and no duplicated
- * task shape — the tool cannot bypass the outbox/event contract.
+ * SAME task-create SSoT the GraphQL resolver uses (TaskCreator), on the write
+ * TenantScope the responder skeleton opened (tenant schema + RLS pinned and
+ * asserted, the served tenant read back before commit). There is no HTTP hop
+ * and no duplicated task shape — the tool cannot bypass the outbox/event
+ * contract.
  */
 export interface CreateTaskNatsRequest {
   tenantId: string;
@@ -65,27 +67,30 @@ function isCreateTaskRequest(value: unknown): value is CreateTaskNatsRequest {
 
 @Controller()
 export class CreateTaskResponder {
-  private readonly logger = new Logger(CreateTaskResponder.name);
-
   constructor(
-    private readonly taskService: TaskService,
-    private readonly dataSource: DataSource,
+    private readonly responder: FarmAiResponder,
+    private readonly taskCreator: TaskCreator,
   ) {}
 
   // K10 (MT-HIGH-062): the reply names the tenant the task was written to, so
   // ai-service can refuse an answer served for another tenant.
   @MessagePattern('request.farm.createTask')
   handleCreateTask(@Payload() payload: unknown): Promise<TenantBoundReply<CreateTaskOutcome>> {
-    return respondTenantBound(
-      this.logger,
-      'request.farm.createTask',
+    return this.responder.respond(
+      {
+        subject: 'request.farm.createTask',
+        isRequest: isCreateTaskRequest,
+        access: 'write',
+        handle: (request, scope) => this.create(request, scope),
+      },
       payload,
-      isCreateTaskRequest,
-      (request) => this.create(request),
     );
   }
 
-  private async create(payload: CreateTaskNatsRequest): Promise<CreateTaskOutcome> {
+  private async create(
+    payload: TenantFreeRequest<CreateTaskNatsRequest>,
+    scope: TenantScope,
+  ): Promise<CreateTaskOutcome> {
     // Fail-closed validation: an actuation crossing a service boundary must not
     // trust the caller's strings. Reject anything the domain would not accept
     // rather than coercing it.
@@ -114,9 +119,7 @@ export class CreateTaskResponder {
       dueDate: payload.dueDate,
     };
 
-    const saved = await runInTenantTransaction(this.dataSource, 'farm', payload.tenantId, (qr) =>
-      this.taskService.createWithManager(qr.manager, payload.tenantId, input, payload.createdBy),
-    );
+    const saved = await this.taskCreator.create(scope, input, payload.createdBy);
     return { created: true, taskId: saved.id, title: saved.title };
   }
 }

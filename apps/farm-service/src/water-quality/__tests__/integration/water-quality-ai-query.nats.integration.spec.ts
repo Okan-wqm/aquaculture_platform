@@ -9,6 +9,8 @@ import {
   isWaterQualityStatsReply,
 } from '@platform/event-contracts';
 import { firstValueFrom, timeout } from 'rxjs';
+import { FarmAiResponder } from '../../../common/tenant-boundary/farm-ai-responder';
+import { createFarmScopeHarness } from '../../../__tests__/helpers/farm-tenant-scope.helper';
 import { WaterQualityAiQueryResponder } from '../../responders/water-quality-ai-query.responder';
 
 /**
@@ -16,8 +18,9 @@ import { WaterQualityAiQueryResponder } from '../../responders/water-quality-ai-
  * (FARM-MEDIUM-328): an ai-service-shaped NatsV3Client sends a contract
  * subject through the broker to a farm-service-shaped NatsV3Server hosting
  * the responder, and the envelope comes back through the Nest packet codec.
- * The query bus is a double (tenant pinning is the handler's unit-tested
- * concern); what this proves is the wire: subject, codec, envelope, guard.
+ * The query bus is a double and the responder skeleton runs over a fake
+ * tenant connection (tenant pinning is the skeleton's unit-tested concern);
+ * what this proves is the wire: subject, codec, envelope, guard.
  *
  * Runs only against a live broker (`npm run infra:up`, NATS_URL set) —
  * `nx run farm-service:test:integration`.
@@ -46,7 +49,10 @@ describeWithNats('farm AI read contract — NATS round trip (water quality)', ()
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       controllers: [WaterQualityAiQueryResponder],
-      providers: [{ provide: QueryBus, useValue: { execute: jest.fn().mockResolvedValue(STATS) } }],
+      providers: [
+        { provide: QueryBus, useValue: { execute: jest.fn().mockResolvedValue(STATS) } },
+        { provide: FarmAiResponder, useValue: createFarmScopeHarness().responder },
+      ],
     }).compile();
     microservice = moduleRef.createNestMicroservice({
       strategy: new NatsV3Server({ serviceName: 'farm-service', queue: 'farm-service-it' }),

@@ -3,10 +3,12 @@ import { FARM_AI_QUERY_LIMITS, toEventIso, type AiQueryList } from '@platform/ev
 /**
  * Projection helpers shared by the farm AI read responders (FARM-MEDIUM-328).
  *
- * The responder skeleton itself (guard → tenant frame → tenant-bound envelope)
- * is `respondTenantBound` in `@aquaculture/backend-common/nats` — one skeleton
- * for every AI-facing subject in every service (K10 / MT-HIGH-062), so the
- * tenant a handler serves and the tenant its reply names cannot diverge.
+ * The responder skeleton itself (guard → tenant scope → owned-id check →
+ * handler → served-tenant read-back → tenant-bound envelope) is
+ * `respondTenantBound` in `@aquaculture/backend-common/nats`, wired for farm
+ * as `FarmAiResponder` (common/tenant-boundary) — one skeleton for every
+ * AI-facing subject (K10 / MT-HIGH-062), so the tenant a reply names is the
+ * tenant its connection served.
  */
 
 /**

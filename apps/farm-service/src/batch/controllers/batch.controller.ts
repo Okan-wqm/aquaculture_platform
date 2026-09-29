@@ -48,6 +48,7 @@ import { BatchInputType, BatchStatus } from '../entities/batch.entity';
 import { isCullReason, isMortalityReason } from '../entities/tank-operation.enums';
 import { GetBatchPerformanceQuery, GetBatchQuery, ListBatchesQuery } from '../queries';
 import { BatchService } from '../services/batch.service';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 /**
  * Interface for batch list filters
@@ -216,6 +217,7 @@ export class BatchController {
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
     private readonly batchService: BatchService,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -451,7 +453,9 @@ export class BatchController {
     @Param('id', ParseUUIDPipe) batchId: string,
   ) {
     const { tenantId } = verifiedContext(req);
-    const metrics = await this.queryBus.execute(new GetBatchPerformanceQuery(tenantId, batchId));
+    const metrics = await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new GetBatchPerformanceQuery(scope, batchId)),
+    );
 
     return {
       success: true,

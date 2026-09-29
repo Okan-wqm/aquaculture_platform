@@ -1,17 +1,15 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { runInTenantRead } from '@aquaculture/backend-common/database';
-import { respondTenantBound } from '@aquaculture/backend-common/nats';
 import { isAiQueryRequestShape, type TenantBoundReply } from '@platform/event-contracts';
-import { DataSource } from 'typeorm';
 import { Batch } from '../entities/batch.entity';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 /**
  * Live batch overview over NATS request-reply (Faz 3a). ai-service's
  * get_farm_batches read tool publishes request.farm.getBatchOverview so the
  * assistant can ground answers about a batch (e.g. "what is the status of
- * B-2024-001?") in real data. Reads through runInTenantRead — the fully-
- * sanctioned, RLS-safe tenant-context SSoT (tenantId-keyed). Detailed
+ * B-2024-001?") in real data. Reads on the TenantScope the
+ * responder skeleton (FarmAiResponder) opened — tenant schema + RLS pinned. Detailed
  * count/biomass live in the batchDetails SSoT (an aggregation) and are left to a
  * richer follow-up tool; this returns batch identity + lifecycle status.
  */
@@ -34,9 +32,7 @@ export interface BatchOverviewEntry {
 
 @Controller()
 export class GetBatchOverviewResponder {
-  private readonly logger = new Logger(GetBatchOverviewResponder.name);
-
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(private readonly responder: FarmAiResponder) {}
 
   // K10 (MT-HIGH-062): one responder skeleton — guard, tenant frame, and a
   // reply that names the tenant it served. A failure is an INTERNAL_ERROR the
@@ -45,14 +41,12 @@ export class GetBatchOverviewResponder {
   handleGetBatchOverview(
     @Payload() payload: unknown,
   ): Promise<TenantBoundReply<BatchOverviewEntry[]>> {
-    return respondTenantBound(
-      this.logger,
-      'request.farm.getBatchOverview',
-      payload,
-      isGetBatchOverviewRequest,
-      (request) =>
-        runInTenantRead(this.dataSource, 'farm', request.tenantId, async (qr) => {
-          const batches = await qr.manager.find(Batch, {
+    return this.responder.respond(
+      {
+        subject: 'request.farm.getBatchOverview',
+        isRequest: isGetBatchOverviewRequest,
+        handle: async (_request, scope) => {
+          const batches = await scope.manager.find(Batch, {
             select: {
               id: true,
               batchNumber: true,
@@ -69,7 +63,9 @@ export class GetBatchOverviewResponder {
             status: b.status,
             statusChangedAt: b.statusChangedAt ? b.statusChangedAt.toISOString() : null,
           }));
-        }),
+        },
+      },
+      payload,
     );
   }
 }

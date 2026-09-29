@@ -1,10 +1,8 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { runInTenantRead } from '@aquaculture/backend-common/database';
-import { respondTenantBound } from '@aquaculture/backend-common/nats';
 import { isAiQueryRequestShape, type TenantBoundReply } from '@platform/event-contracts';
-import { DataSource } from 'typeorm';
 import { HarvestPlan } from '../entities/harvest-plan.entity';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 /**
  * Harvest-plan overview over NATS request-reply (Faz 3a). ai-service's
@@ -34,9 +32,7 @@ export interface HarvestPlanEntry {
 
 @Controller()
 export class GetHarvestOverviewResponder {
-  private readonly logger = new Logger(GetHarvestOverviewResponder.name);
-
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(private readonly responder: FarmAiResponder) {}
 
   // K10 (MT-HIGH-062): one responder skeleton — guard, tenant frame, and a
   // reply that names the tenant it served. A failure is an INTERNAL_ERROR the
@@ -45,14 +41,12 @@ export class GetHarvestOverviewResponder {
   handleGetHarvestOverview(
     @Payload() payload: unknown,
   ): Promise<TenantBoundReply<HarvestPlanEntry[]>> {
-    return respondTenantBound(
-      this.logger,
-      'request.farm.getHarvestOverview',
-      payload,
-      isGetHarvestOverviewRequest,
-      (request) =>
-        runInTenantRead(this.dataSource, 'farm', request.tenantId, async (qr) => {
-          const plans = await qr.manager.find(HarvestPlan, {
+    return this.responder.respond(
+      {
+        subject: 'request.farm.getHarvestOverview',
+        isRequest: isGetHarvestOverviewRequest,
+        handle: async (_request, scope) => {
+          const plans = await scope.manager.find(HarvestPlan, {
             select: {
               id: true,
               planCode: true,
@@ -73,7 +67,9 @@ export class GetHarvestOverviewResponder {
             // driver hands back a Date or a string.
             plannedDate: new Date(p.plannedDate).toISOString().slice(0, 10),
           }));
-        }),
+        },
+      },
+      payload,
     );
   }
 }

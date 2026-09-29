@@ -2,12 +2,12 @@
  * List Species Query
  * @module Species/Queries
  */
-import { IQuery } from '@platform/cqrs';
 import { SpeciesFilterInput } from '../dto/species-filter.dto';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
-export class ListSpeciesQuery implements IQuery {
+export class ListSpeciesQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly filter?: SpeciesFilterInput,
   ) {}
 }

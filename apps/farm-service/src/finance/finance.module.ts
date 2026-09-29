@@ -21,6 +21,7 @@ import { FinanceResolver } from './resolvers/finance.resolver';
 import { ComputedRuleEvaluator } from './services/computed-rule-evaluator';
 import { FinanceCategorySeedService } from './services/finance-category-seed.service';
 import { FinanceLedgerQueryService } from './services/finance-ledger-query.service';
+import { FinanceLedgerReader } from './services/finance-ledger-reader';
 import { FinanceSettingsService } from './services/finance-settings.service';
 import { FinanceAiQueryResponder } from './responders/finance-ai-query.responder';
 
@@ -33,6 +34,7 @@ import { FinanceAiQueryResponder } from './responders/finance-ai-query.responder
     FinanceCategorySeedService,
     FinanceSettingsService,
     FinanceLedgerQueryService,
+    FinanceLedgerReader,
     ComputedRuleEvaluator,
     ...FinanceCommandHandlers,
     ...FinanceQueryHandlers,

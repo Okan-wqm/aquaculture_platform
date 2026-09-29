@@ -57,7 +57,9 @@ import {
   GetFinanceSettingsQuery,
   GetFinanceSummaryQuery,
 } from '../queries';
-import { FinanceGranularity } from '../services/finance-ledger-query.service';
+import { FinanceGranularity } from '../services/finance-ledger-model';
+import { FinanceLedgerQueryService } from '../services/finance-ledger-query.service';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 const MAX_LEDGER_PAGE = 200;
 /**
@@ -88,6 +90,8 @@ export class FinanceResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    private readonly tenantScopes: FarmTenantScopes,
+    private readonly ledgerService: FinanceLedgerQueryService,
   ) {}
 
   // ==========================================================================
@@ -161,8 +165,13 @@ export class FinanceResolver {
     @Args('granularity', { type: () => FinanceGranularity, defaultValue: FinanceGranularity.MONTH })
     granularity?: FinanceGranularity,
   ): Promise<FinanceSummary> {
-    const summary = await this.queryBus.execute<GetFinanceSummaryQuery, FinanceSummary>(
-      new GetFinanceSummaryQuery(tenantId, from, to, granularity ?? FinanceGranularity.MONTH),
+    // The aggregation reads on a read-only scope (FinanceLedgerReader fails
+    // closed on an unseeded catalogue), so the idempotent seed runs first.
+    await this.ledgerService.ensureDefaultCategories(tenantId);
+    const summary = await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute<GetFinanceSummaryQuery, FinanceSummary>(
+        new GetFinanceSummaryQuery(scope, from, to, granularity ?? FinanceGranularity.MONTH),
+      ),
     );
     return withSummaryDecimals(summary);
   }
@@ -177,8 +186,11 @@ export class FinanceResolver {
     @Args('from') from: Date,
     @Args('to') to: Date,
   ): Promise<FinanceBatchTotal[]> {
-    const totals = await this.queryBus.execute<GetFinanceBatchTotalsQuery, FinanceBatchTotal[]>(
-      new GetFinanceBatchTotalsQuery(tenantId, from, to),
+    await this.ledgerService.ensureDefaultCategories(tenantId);
+    const totals = await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute<GetFinanceBatchTotalsQuery, FinanceBatchTotal[]>(
+        new GetFinanceBatchTotalsQuery(scope, from, to),
+      ),
     );
     return withBatchTotalDecimals(totals);
   }

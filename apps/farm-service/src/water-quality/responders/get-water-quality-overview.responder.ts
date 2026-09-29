@@ -1,10 +1,8 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { runInTenantRead } from '@aquaculture/backend-common/database';
-import { respondTenantBound } from '@aquaculture/backend-common/nats';
 import { isAiQueryRequestShape, type TenantBoundReply } from '@platform/event-contracts';
-import { DataSource } from 'typeorm';
 import { WaterQualityMeasurement } from '../entities/water-quality-measurement.entity';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 /** Bound so a large history cannot flood the agent turn / the reply payload. */
 const RECENT_MEASUREMENTS_LIMIT = 25;
@@ -40,9 +38,7 @@ export interface WaterQualityReading {
 
 @Controller()
 export class GetWaterQualityOverviewResponder {
-  private readonly logger = new Logger(GetWaterQualityOverviewResponder.name);
-
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(private readonly responder: FarmAiResponder) {}
 
   // K10 (MT-HIGH-062): one responder skeleton — guard, tenant frame, and a
   // reply that names the tenant it served. A failure is an INTERNAL_ERROR the
@@ -51,14 +47,12 @@ export class GetWaterQualityOverviewResponder {
   handleGetWaterQualityOverview(
     @Payload() payload: unknown,
   ): Promise<TenantBoundReply<WaterQualityReading[]>> {
-    return respondTenantBound(
-      this.logger,
-      'request.farm.getWaterQualityOverview',
-      payload,
-      isGetWaterQualityRequest,
-      (request) =>
-        runInTenantRead(this.dataSource, 'farm', request.tenantId, async (qr) => {
-          const rows = await qr.manager.find(WaterQualityMeasurement, {
+    return this.responder.respond(
+      {
+        subject: 'request.farm.getWaterQualityOverview',
+        isRequest: isGetWaterQualityRequest,
+        handle: async (_request, scope) => {
+          const rows = await scope.manager.find(WaterQualityMeasurement, {
             select: {
               id: true,
               tankId: true,
@@ -84,7 +78,9 @@ export class GetWaterQualityOverviewResponder {
             ammonia: r.ammonia ?? null,
             nitrite: r.nitrite ?? null,
           }));
-        }),
+        },
+      },
+      payload,
     );
   }
 }

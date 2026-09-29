@@ -6,9 +6,9 @@
  * proxy, and the fallback from actual to theoretical biomass.
  *
  * EntityManager / ConfigService doubles are built with the typed
- * `collaborator` factory so no `any` leaks into the spec. The manager is the
- * caller's tenant-bound manager (K10 layer 4): the service reads
- * health_events and work_orders only through it.
+ * `collaborator` factory so no `any` leaks into the spec. The manager backs
+ * the caller's TenantScope (K10 layer 4): the service reads health_events
+ * and work_orders only through that scope.
  */
 import { ConfigService } from '@nestjs/config';
 import { collaborator } from '@aquaculture/testing';
@@ -18,6 +18,10 @@ import { BatchCostCalculatorService } from '../../services/batch-cost-calculator
 import { Batch } from '../../entities/batch.entity';
 import { HealthEvent } from '../../../fish-health/entities/health-event.entity';
 import { WorkOrder } from '../../../maintenance/entities/work-order.entity';
+import { inTenantScopeOver } from '../../../__tests__/helpers/farm-tenant-scope.helper';
+
+/** The tenant the caller's scope is pinned to. */
+const SCOPE_TENANT = '11111111-1111-4111-8111-111111111111';
 
 interface QueryBuilderDouble {
   where: jest.Mock;
@@ -103,7 +107,7 @@ describe('BatchCostCalculatorService', () => {
         ],
       });
 
-      const result = await service.compute(makeBatch(), manager);
+      const result = await inTenantScopeOver(manager, SCOPE_TENANT, (scope) => service.compute(makeBatch(), scope));
 
       expect(result.purchaseCost).toBe(10_000);
       expect(result.feedCost).toBe(25_000);
@@ -122,7 +126,7 @@ describe('BatchCostCalculatorService', () => {
       //          filtered to the batch's own tenant — the service holds no repository.
       const { service, manager, find, createQueryBuilder, workOrderQuery } = makeService({});
 
-      await service.compute(makeBatch(), manager);
+      await inTenantScopeOver(manager, SCOPE_TENANT, (scope) => service.compute(makeBatch(), scope));
 
       expect(find).toHaveBeenCalledWith(HealthEvent, {
         where: { tenantId: 'tenant-1', batchId: 'batch-1' },
@@ -140,7 +144,7 @@ describe('BatchCostCalculatorService', () => {
         },
       } as unknown as Partial<Batch>);
 
-      const result = await service.compute(batch, manager);
+      const result = await inTenantScopeOver(manager, SCOPE_TENANT, (scope) => service.compute(batch, scope));
 
       expect(result.currentBiomassKg).toBe(9_500);
     });
@@ -151,7 +155,7 @@ describe('BatchCostCalculatorService', () => {
         weight: { actual: { totalBiomass: 0 }, theoretical: { totalBiomass: 0 } },
       } as unknown as Partial<Batch>);
 
-      const result = await service.compute(batch, manager);
+      const result = await inTenantScopeOver(manager, SCOPE_TENANT, (scope) => service.compute(batch, scope));
 
       expect(result.costPerKg).toBe(0);
       expect(result.warnings).toContain(
@@ -164,7 +168,7 @@ describe('BatchCostCalculatorService', () => {
     it('warns when purchase cost is missing', async () => {
       const { service, manager } = makeService({});
       const batch = makeBatch({ purchaseCost: undefined });
-      const result = await service.compute(batch, manager);
+      const result = await inTenantScopeOver(manager, SCOPE_TENANT, (scope) => service.compute(batch, scope));
       expect(result.purchaseCost).toBe(0);
       expect(result.warnings).toContain('Missing purchase cost on batch');
     });
@@ -172,7 +176,7 @@ describe('BatchCostCalculatorService', () => {
     it('warns when feed cost is missing', async () => {
       const { service, manager } = makeService({});
       const batch = makeBatch({ totalFeedCost: undefined });
-      const result = await service.compute(batch, manager);
+      const result = await inTenantScopeOver(manager, SCOPE_TENANT, (scope) => service.compute(batch, scope));
       expect(result.feedCost).toBe(0);
       expect(result.warnings).toContain('Missing aggregated feed cost');
     });
@@ -185,7 +189,7 @@ describe('BatchCostCalculatorService', () => {
           { estimatedCost: 200 },
         ],
       });
-      const result = await service.compute(makeBatch(), manager);
+      const result = await inTenantScopeOver(manager, SCOPE_TENANT, (scope) => service.compute(makeBatch(), scope));
       expect(result.treatmentCost).toBe(300);
       expect(
         result.warnings.some((w) => w.includes('health event(s) have no estimatedCost')),
@@ -194,7 +198,7 @@ describe('BatchCostCalculatorService', () => {
 
     it('always warns about the pending equipment amortization axis', async () => {
       const { service, manager } = makeService({});
-      const result = await service.compute(makeBatch(), manager);
+      const result = await inTenantScopeOver(manager, SCOPE_TENANT, (scope) => service.compute(makeBatch(), scope));
       expect(
         result.warnings.some((w) => w.includes('Equipment amortization pending')),
       ).toBe(true);
@@ -209,7 +213,7 @@ describe('BatchCostCalculatorService', () => {
       const batch = makeBatch({
         stockedAt: new Date(Date.now() - 10 * 86_400_000),
       });
-      const result = await service.compute(batch, manager);
+      const result = await inTenantScopeOver(manager, SCOPE_TENANT, (scope) => service.compute(batch, scope));
       // 10 days × 50 = 500 labour cost
       expect(result.labourCost).toBe(500);
     });
@@ -218,7 +222,7 @@ describe('BatchCostCalculatorService', () => {
       const { service, manager } = makeService({
         env: { BATCH_LABOUR_COST_PER_DAY: 'nope' },
       });
-      const result = await service.compute(makeBatch(), manager);
+      const result = await inTenantScopeOver(manager, SCOPE_TENANT, (scope) => service.compute(makeBatch(), scope));
       expect(result.labourCost).toBe(0);
       expect(
         result.warnings.some((w) =>
@@ -229,7 +233,7 @@ describe('BatchCostCalculatorService', () => {
 
     it('no warning when env is simply unset', async () => {
       const { service, manager } = makeService({});
-      const result = await service.compute(makeBatch(), manager);
+      const result = await inTenantScopeOver(manager, SCOPE_TENANT, (scope) => service.compute(makeBatch(), scope));
       expect(result.labourCost).toBe(0);
       expect(
         result.warnings.some((w) => w.includes('BATCH_LABOUR_COST_PER_DAY')),

@@ -1,12 +1,12 @@
 /**
  * List Health Events (filtered, paginated) Query
  */
-import { IQuery } from '@platform/cqrs';
 import { HealthEventFilterInput } from '../dto/health-event-filter.input';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
-export class ListHealthEventsQuery implements IQuery {
+export class ListHealthEventsQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly filter?: HealthEventFilterInput,
   ) {}
 }

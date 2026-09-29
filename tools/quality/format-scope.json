@@ -29605,6 +29605,12 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/_helpers/suite_shard_weights.json",
+      "prettier_managed": true
+    },
+    {
       "class": "archive_immutable",
       "content_sha256": "d3be2f4f18fe5ebf7618acf3d7e9bd9b034689641806bd1568124fa7697fdb34",
       "hash_policy": "sha256",

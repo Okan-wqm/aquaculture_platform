@@ -84,14 +84,20 @@ const ARIA_SUITE_RUNNER = 'scripts/ci/aria-suite-run.sh';
 const ARIA_SUITE_SELECTOR = 'scripts/ci/aria-suite-changed.mjs';
 const ARIA_ADAPTERS_DIR = 'tools/aria-adapters';
 const ARIA_PYTEST_NATIVE_PLUGIN = 'aria_kernel.pytest_native_only';
+// ARIA-HIGH-136 — measured and reasoned next to the values in aria-kernel.yml.
+const KERNEL_SHARD_BUDGET_MINUTES = 30;
+const KERNEL_LANE_BUDGET_MINUTES = 15;
 
-type WorkflowStep = { run?: string };
+type WorkflowStep = { run?: string; env?: Record<string, string> };
 type PullRequestWorkflow = {
   on?: { pull_request?: { paths?: string[] } };
   jobs?: Record<
     string,
     {
       'timeout-minutes'?: number;
+      needs?: string[];
+      if?: string;
+      strategy?: { 'fail-fast'?: boolean; matrix?: { shard?: number[] } };
       steps?: WorkflowStep[];
     }
   >;
@@ -545,7 +551,9 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(kernelWorkflow).toContain('Verify post-run clean worktree');
   });
 
-  it('runs the complete ARIA Python suite through one semantic partition', () => {
+  // Runs the canonical runner with a fake `python3` on PATH and returns every
+  // interpreter invocation it made: environment and argv, one block per call.
+  const probeRunnerInvocations = (...invocations: string[][]): string[] => {
     const probeDir = mkdtempSync(join(tmpdir(), 'aria-suite-run-'));
     const invocationLog = join(probeDir, 'python-invocations');
     try {
@@ -561,43 +569,73 @@ describe('ARIA live runtime/documentation SSoT', () => {
           '} >> "$ARIA_SUITE_PROBE"',
         ].join('\n'),
       );
-
-      execFileSync('bash', [ARIA_SUITE_RUNNER], {
-        cwd: REPO_ROOT,
-        env: {
-          ...process.env,
-          ARIA_SUITE_PROBE: invocationLog,
-          PATH: `${probeDir}:${process.env.PATH ?? ''}`,
-          PYTHONPATH: 'caller-pythonpath',
-        },
-      });
-
-      expect(readFileSync(invocationLog, 'utf8').trim().split('\n')).toEqual([
-        'BEGIN',
-        'PYTHONDONTWRITEBYTECODE=1',
-        'PYTHONPATH=aria-kernel:.:caller-pythonpath',
-        'ARG=-m',
-        'ARG=unittest',
-        'ARG=discover',
-        'ARG=aria-kernel',
-        'ARG=-p',
-        'ARG=*test*.py',
-        'END',
-        'BEGIN',
-        'PYTHONDONTWRITEBYTECODE=1',
-        'PYTHONPATH=aria-kernel:.:caller-pythonpath',
-        'ARG=-m',
-        'ARG=pytest',
-        'ARG=-q',
-        'ARG=-p',
-        `ARG=${ARIA_PYTEST_NATIVE_PLUGIN}`,
-        'ARG=aria-kernel',
-        'END',
-      ]);
-      expect(read(ARIA_SUITE_RUNNER)).not.toMatch(/\bgrep\b|PYTEST_STYLE_MODULES/);
+      for (const args of invocations) {
+        execFileSync('bash', [ARIA_SUITE_RUNNER, ...args], {
+          cwd: REPO_ROOT,
+          env: {
+            ...process.env,
+            ARIA_SUITE_PROBE: invocationLog,
+            PATH: `${probeDir}:${process.env.PATH ?? ''}`,
+            PYTHONPATH: 'caller-pythonpath',
+          },
+        });
+      }
+      return readFileSync(invocationLog, 'utf8').trim().split('\n');
     } finally {
       removeFixtureTree(probeDir);
     }
+  };
+
+  const PYTEST_NATIVE_INVOCATION = [
+    'BEGIN',
+    'PYTHONDONTWRITEBYTECODE=1',
+    'PYTHONPATH=aria-kernel:.:caller-pythonpath',
+    'ARG=-m',
+    'ARG=pytest',
+    'ARG=-q',
+    'ARG=-p',
+    `ARG=${ARIA_PYTEST_NATIVE_PLUGIN}`,
+    'ARG=aria-kernel',
+    'END',
+  ];
+
+  it('runs the complete ARIA Python suite through one semantic partition', () => {
+    expect(probeRunnerInvocations([])).toEqual([
+      'BEGIN',
+      'PYTHONDONTWRITEBYTECODE=1',
+      'PYTHONPATH=aria-kernel:.:caller-pythonpath',
+      'ARG=-m',
+      'ARG=unittest',
+      'ARG=discover',
+      'ARG=aria-kernel',
+      'ARG=-p',
+      'ARG=*test*.py',
+      'END',
+      ...PYTEST_NATIVE_INVOCATION,
+    ]);
+    expect(read(ARIA_SUITE_RUNNER)).not.toMatch(/\bgrep\b|PYTEST_STYLE_MODULES/);
+  });
+
+  it('splits that partition into shards of the unittest half and the pytest half whole', () => {
+    // ARIA-HIGH-136 — the kernel lane runs `--shard K/N` once per matrix job
+    // and `--pytest-native` once; together they are the two-collector
+    // partition above. The shard runner is the one module that discovers,
+    // assigns and reports (aria-kernel/tests/_helpers/suite_shards.py).
+    expect(
+      probeRunnerInvocations(['--shard', '2/8', '/probe/shard-2.json'], ['--pytest-native']),
+    ).toEqual([
+      'BEGIN',
+      'PYTHONDONTWRITEBYTECODE=1',
+      'PYTHONPATH=aria-kernel:.:caller-pythonpath',
+      'ARG=aria-kernel/tests/_helpers/suite_shards.py',
+      'ARG=run',
+      'ARG=--shard',
+      'ARG=2/8',
+      'ARG=--report',
+      'ARG=/probe/shard-2.json',
+      'END',
+      ...PYTEST_NATIVE_INVOCATION,
+    ]);
   });
 
   it('preserves the legacy *test*.py collection contract in pytest configuration', () => {
@@ -620,42 +658,60 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(pythonFiles).toEqual(['*test*.py']);
   });
 
-  it('triggers the ARIA PR workflow when the canonical suite runner changes', () => {
-    // The budget is reasoned in the workflow next to the value: aria-kernel
-    // runs the WHOLE suite — 40.9 min measured (run 34578152903), 48.4 min
-    // for the 6,484 tests of PR #1553 (run 34853938794) — plus
-    // ARIA-HIGH-098's registry pin, which runs every shipped adapter's
-    // fixture suite through the evidence validator (~8 min on a quiet host;
-    // two of those adapters are the ones whose runtime the finding recorded
-    // as weather-sensitive) — so its cap was 75 on the 24.04 image. On the
-    // 22.04 image the lane moved to for its sandbox (ARIA-MEDIUM-134) the
-    // same suite measured ~77 min (run 34902506329: last stage marker at
-    // 3539 s against 2236 s on 24.04), so the cap is 110 — the measurement
-    // plus the margin the old cap carried; ARIA-HIGH-136 brings it down.
-    // ARIA-MEDIUM-135: the fast lane claimed the "affected subset" here and
-    // ran the full suite under 60, so it is gone; a second lane over the
-    // same suite is drift.
-    const budgetMinutes: Record<string, number> = {
-      '.github/workflows/aria-kernel.yml': 110,
-    };
+  it('runs the kernel suite as measured shards that prove they covered it once', () => {
+    // ARIA-HIGH-136 — one interpreter stopped fitting a lane budget: 40.9 min
+    // on run 34578152903, ~77 min on the 22.04 image (run 34902506329), and
+    // runs 36386654289 / 36358071953 cancelled at the 110-minute cap with
+    // 7,387 tests and nothing red. The budgets below are reasoned next to the
+    // values in the workflow, from the shard measurement.
+    // ARIA-MEDIUM-135: a second lane over the same suite is drift.
     expect(existsSync(join(REPO_ROOT, '.github/workflows/aria-kernel-fast.yml'))).toBe(false);
-    for (const rel of Object.keys(budgetMinutes)) {
-      const workflow = yaml.load(read(rel)) as PullRequestWorkflow;
-      expect(workflow.on?.pull_request?.paths).toContain(ARIA_SUITE_RUNNER);
-      // ARIA-HIGH-098 — the adapter registry contract
-      // (aria-kernel/tests/test_adapter_fixture_evidence_contract.py) is a
-      // suite test over tools/aria-adapters/**; a lane that does not fire
-      // on that directory checks an adapters-only PR first on main.
-      expect(workflow.on?.pull_request?.paths).toContain(ARIA_ADAPTERS_DIR + '/**');
+    const workflow = yaml.load(read('.github/workflows/aria-kernel.yml')) as PullRequestWorkflow;
+    expect(workflow.on?.pull_request?.paths).toContain(ARIA_SUITE_RUNNER);
+    // ARIA-HIGH-098 — the adapter registry contract
+    // (aria-kernel/tests/test_adapter_fixture_evidence_contract.py) is a
+    // suite test over tools/aria-adapters/**; a lane that does not fire on
+    // that directory checks an adapters-only PR first on main.
+    expect(workflow.on?.pull_request?.paths).toContain(ARIA_ADAPTERS_DIR + '/**');
 
-      const jobs = Object.values(workflow.jobs ?? {});
-      expect(jobs).toHaveLength(1);
-      expect(jobs[0]?.['timeout-minutes']).toBe(budgetMinutes[rel]);
-      const suiteSteps = (jobs[0]?.steps ?? []).filter(
-        (step) => step.run === `bash ${ARIA_SUITE_RUNNER}`,
-      );
-      expect(suiteSteps).toHaveLength(1);
-    }
+    const jobs = workflow.jobs ?? {};
+    expect(Object.keys(jobs)).toEqual(['suite', 'lane', 'aria-kernel']);
+    const runnerSteps = (job: string): WorkflowStep[] =>
+      (jobs[job]?.steps ?? []).filter((step) => step.run?.startsWith(`bash ${ARIA_SUITE_RUNNER}`));
+
+    // suite: a matrix whose labels are exactly 1..N; the partition takes its
+    // index and count from the matrix itself, never from the labels.
+    const suite = jobs.suite;
+    expect(suite?.['timeout-minutes']).toBe(KERNEL_SHARD_BUDGET_MINUTES);
+    expect(suite?.strategy?.['fail-fast']).toBe(false);
+    const labels = suite?.strategy?.matrix?.shard ?? [];
+    expect(labels.length).toBeGreaterThan(1);
+    expect(labels).toEqual(labels.map((_, index) => index + 1));
+    const shardSteps = runnerSteps('suite');
+    expect(shardSteps).toHaveLength(1);
+    expect(shardSteps[0]?.run).toBe(
+      `bash ${ARIA_SUITE_RUNNER} --shard "$((SHARD_INDEX + 1))/` +
+        '${SHARD_TOTAL}" "${RUNNER_TEMP}/aria-suite-shards/shard-$((SHARD_INDEX + 1)).json"',
+    );
+    expect(shardSteps[0]?.env).toEqual({
+      SHARD_INDEX: '${{ strategy.job-index }}',
+      SHARD_TOTAL: '${{ strategy.job-total }}',
+    });
+
+    // lane: the pytest half whole, and nothing else from the runner.
+    expect(jobs.lane?.['timeout-minutes']).toBe(KERNEL_LANE_BUDGET_MINUTES);
+    expect(runnerSteps('lane').map((step) => step.run)).toEqual([
+      `bash ${ARIA_SUITE_RUNNER} --pytest-native`,
+    ]);
+
+    // aria-kernel: the verdict — every job green AND the reports prove the
+    // shards ran the whole suite exactly once.
+    const verdict = jobs['aria-kernel'];
+    expect(verdict?.needs).toEqual(['suite', 'lane']);
+    expect(verdict?.if).toBe('${{ !cancelled() }}');
+    expect((verdict?.steps ?? []).map((step) => step.run)).toContain(
+      'python3 aria-kernel/tests/_helpers/suite_shards.py verify --reports-dir "${RUNNER_TEMP}/aria-suite-shards"',
+    );
   });
 
   it('budgets the operational proof for the package-bound suite and burn-in', () => {

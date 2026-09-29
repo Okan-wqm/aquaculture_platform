@@ -623,18 +623,85 @@ def conventions_for_paths(
     return related[: max(0, int(limit))]
 
 
-def _effectiveness_path(workspace_root: str | Path) -> Path:
+def effectiveness_ledger_path(*, base_dir: str | Path) -> Path:
+    """Where the effectiveness ledger lives: under the TOOLS root, named.
+
+    ``state_manifest`` declares ``kg_pressure_source_effectiveness`` a
+    tools-root surface, exactly like ``conventions.jsonl``. Until 2026-09-12
+    this helper resolved ``<workspace_root>/aria-tools/...`` only, which is
+    the tools root on a developer checkout and nowhere else: the live lane
+    binds ``ARIA_TOOLS_DIR=<store>/tools`` and passes the checkout as
+    workspace root, so a row written there would have landed in the
+    checkout that dies with the runner. The readers split between two
+    paths — ``<checkout>/aria-tools`` (doctor, cycle phase, MCP server,
+    self-improvement) and ``<store>/aria-tools`` (pressure, mission
+    scheduler, via ``root.parent``) — and neither was the store's
+    ``<store>/tools``. No row was lost on the live lane: the orchestrator's
+    writer sat on the converged path and no cycle had converged, so it had
+    never fired — the layout was wrong before the first row existed, and
+    origin/aria/state never carried the ledger for both reasons at once.
+
+    ``base_dir`` is the tools root and is REQUIRED. Every production caller
+    holds it (the orchestrator's ``root``, ``PhaseContext.base_dir``, the
+    scheduler's and pressure's ``root``, the doctor's ``tools_dir``, the MCP
+    server's ``self.root``); a workspace-derived fallback would only ever
+    re-open the shadow path above, so the signature does not offer one.
+    """
+    from .tool_registry import tools_dir
+
     return (
-        Path(workspace_root)
-        / "aria-tools"
+        tools_dir(base_dir)
         / "knowledge-graph"
         / "pressure-source-effectiveness.jsonl"
     )
 
 
+def effectiveness_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``rank_pressure_sources`` caller may treat as a runtime fault.
+
+    WHY (B1, 2026-09-12): the readers in ``pressure.run_pressure`` and
+    ``cycle._phase_calibration_recommendation`` wrapped this read in
+    ``except Exception`` / ``except (OSError, ValueError, KeyError,
+    TypeError)`` and substituted ``[]`` — the same laundering the
+    orchestrator's memory-hook guard did, where a caller/callee signature
+    drift (TypeError) read as an unreadable ledger for weeks. A programming
+    error must raise; only a fault outside the code is a fault to absorb.
+
+    WHAT: ``KnowledgeGraphTamper`` — the strict row reader, and a chain break
+    the quarantine could not rename away; ``OSError`` — the file system and
+    the lock; ``LedgerIntegrityError`` and ``KnowledgeGraphSchemaError`` —
+    the ledger primitives underneath (``_read_jsonl_strict`` folds the first
+    into a Tamper today; the append side raises the second for an undeclared
+    surface). ``TypeError``, ``KeyError``, ``ValueError``, ``AttributeError``
+    are defects in the kernel and are deliberately absent. Resolved lazily:
+    ``ledger`` imports are late everywhere in this module.
+    """
+    from .ledger import LedgerIntegrityError
+
+    return (
+        KnowledgeGraphTamper,
+        KnowledgeGraphSchemaError,
+        LedgerIntegrityError,
+        OSError,
+    )
+
+
+def effectiveness_writer_faults() -> tuple[type[BaseException], ...]:
+    """The reader's set plus what binding the tools root for an append can raise.
+
+    ``record_pressure_source_outcome`` goes through ``ensure_tools_dir`` and
+    the state transaction, which refuse an ambiguous or locked tools root
+    with ``GovernanceError``. That is a fault of the store, not of the code,
+    so a writer's guard absorbs it the way it absorbs a corrupt ledger.
+    """
+    from .tool_registry import GovernanceError
+
+    return (GovernanceError, *effectiveness_reader_faults())
+
+
 def record_pressure_source_outcome(
     *,
-    workspace_root: str | Path,
+    base_dir: str | Path,
     source_type: str,
     minted: int = 0,
     converged: int = 0,
@@ -651,11 +718,15 @@ def record_pressure_source_outcome(
     lives next to the reader (one schema owner) and appends CUMULATIVE
     per-source counters: the newest row per source_type is that source's
     standing, so the reader folds latest-per-source instead of trusting
-    row order.
+    row order. One call records one funnel fact (a mint, a rejection, a
+    convergence, a merge) as it becomes true; the orchestrator therefore
+    appends more than one row per cycle, and the fold makes that free.
+
+    ``base_dir`` is the tools root (see ``effectiveness_ledger_path``).
     """
     if not source_type:
         raise ValueError("source_type must be non-empty")
-    path = _effectiveness_path(workspace_root)
+    path = effectiveness_ledger_path(base_dir=base_dir)
     prior: dict[str, Any] = {}
     if path.exists():
         for parsed in _read_jsonl_strict(path):
@@ -756,12 +827,11 @@ def promote_convention_for_plan(
     return result.get("convention")
 
 
-def rank_pressure_sources(
-    *,
-    workspace_root: str | Path,
-) -> list[dict[str, Any]]:
+def rank_pressure_sources(*, base_dir: str | Path) -> list[dict[str, Any]]:
     """Read pressure-source-effectiveness.jsonl + return a
     sorted-by-effectiveness list.
+
+    ``base_dir`` is the tools root (see ``effectiveness_ledger_path``).
 
     Each row schema:
       {source_type, cycles_minted, cycles_converged, cycles_merged,
@@ -780,7 +850,7 @@ def rank_pressure_sources(
     counted any source with history — invisible only because the ledger
     had no writer and was therefore always empty.
     """
-    path = _effectiveness_path(workspace_root)
+    path = effectiveness_ledger_path(base_dir=base_dir)
     ok, _ = verify_chain_or_quarantine(path)
     if not ok or not path.exists():
         return []

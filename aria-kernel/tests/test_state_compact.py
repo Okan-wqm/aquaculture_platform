@@ -255,6 +255,35 @@ class StateCompactTests(unittest.TestCase):
         compact_events = [e for e in events if e.get("kind") == "state_compacted"]
         self.assertEqual(len(compact_events), 1)
 
+    def test_compaction_keeps_the_funnel_organ_input(self) -> None:
+        """B4 (2026-09-12) — the 2026-09-11 compaction (origin/aria/state
+        84032eda1) was suspected of stripping
+        knowledge-graph/pressure-source-effectiveness.jsonl. It touched
+        runs, learning-events and the artifact index only; the ledger had
+        never been written to the store (see the writer's root-binding
+        tests). Pinned here so a compaction surface added later cannot
+        strip a ledger a doctor organ reads: bytes and the organ's verdict
+        are identical before and after."""
+        from aria_kernel import doctor
+        from aria_kernel.knowledge_graph import record_pressure_source_outcome
+        from aria_kernel.ledger import append_declared_jsonl
+
+        append_declared_jsonl(
+            self.tools / "agent-invocations" / "requests.jsonl",
+            {"request_id": "AIR-1", "role": "challenger_plan"},
+            expected_surface="agent_invocation_requests",
+        )
+        record_pressure_source_outcome(
+            base_dir=self.tools, source_type="finding", minted=40, converged=12, merged=5,
+        )
+        ledger = self.tools / "knowledge-graph" / "pressure-source-effectiveness.jsonl"
+        before_bytes = ledger.read_bytes()
+        before_check = doctor._check_funnel(self.tools)
+        self.assertEqual(before_check.status, "ok")
+        compact_state(base_dir=self.tools, retain_days=7)
+        self.assertEqual(ledger.read_bytes(), before_bytes)
+        self.assertEqual(doctor._check_funnel(self.tools), before_check)
+
     def _seed_hot_artifacts(self) -> None:
         hot = self.tools / "run-artifacts" / "hot"
         old_stamp = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y%m%dT%H%M%SZ")

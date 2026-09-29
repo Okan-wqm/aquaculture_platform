@@ -516,6 +516,45 @@ class MemoryHookImpl:
         }
 
 
+def memory_hook_runtime_faults() -> tuple[type[BaseException], ...]:
+    """The closed set of exceptions a MemoryHook may raise as a RUNTIME fault.
+
+    WHY (B1, 2026-09-12 audit residual): the orchestrator wrapped
+    ``memory_hook.record(...)`` in ``except Exception`` and turned whatever
+    escaped into a ``memory_hook_failed`` governance row. When
+    ``MemoryHookImpl.record`` grew a keyword-only parameter the orchestrator
+    never passed, the resulting TypeError was recorded as if the ledger had
+    been unwritable, night after night, and the V10 memory pillar was dead
+    while every cycle summary read as healthy. A signature drift is a
+    programming error; the guard must let it raise.
+
+    WHAT: the classes below are the faults the record pipeline actually
+    raises for reasons outside the code's control — a plan that is not
+    CONVERGED or a locked/unresolvable tools root (GovernanceError), a
+    corrupt, oversized or over-budget ledger (Ledger*Error), a tampered or
+    schema-invalid knowledge-graph row (KnowledgeGraph*), and the file
+    system (OSError, which also covers the lock TimeoutError). Anything
+    else — TypeError, KeyError, AttributeError — is a defect in the kernel
+    and must surface as a crash, never as a governance row. Owned by the
+    hook module because the hook is what knows what it raises; the
+    orchestrator names this set in its except clause (I-V31-C2-08).
+    Resolved lazily to keep the cycle_phases cold-start import discipline.
+    """
+    from ..knowledge_graph import KnowledgeGraphSchemaError, KnowledgeGraphTamper
+    from ..ledger import LedgerIntegrityError, LedgerReadLimitError, LedgerRowTooLargeError
+    from ..tool_registry import GovernanceError
+
+    return (
+        GovernanceError,
+        LedgerIntegrityError,
+        LedgerReadLimitError,
+        LedgerRowTooLargeError,
+        KnowledgeGraphTamper,
+        KnowledgeGraphSchemaError,
+        OSError,
+    )
+
+
 def select_memory_hook(*, profile: str) -> MemoryHook:
     """Plan ARIA-V3.1-C2 — profile-derived MemoryHook factory.
 
@@ -534,5 +573,6 @@ __all__ = [
     "MemoryHook",
     "MemoryHookImpl",
     "NoOpMemoryHook",
+    "memory_hook_runtime_faults",
     "select_memory_hook",
 ]

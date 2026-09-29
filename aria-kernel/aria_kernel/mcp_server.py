@@ -79,7 +79,7 @@ class AriaMcpServer:
     def _pressure_top(self, args: dict[str, Any]) -> Any:
         from .knowledge_graph import rank_pressure_sources
 
-        return rank_pressure_sources(workspace_root=self.workspace)[: int(args.get("limit") or 20)]
+        return rank_pressure_sources(base_dir=self.root)[: int(args.get("limit") or 20)]
 
     def _governance_tail(self, args: dict[str, Any]) -> Any:
         from .governance_reader import read_governance_rows

@@ -776,8 +776,76 @@ class RankPressureSourcesIsWiredTest(unittest.TestCase):
                  ) as rank:
                 result = cycle_mod._phase_calibration_recommendation(ctx)
 
-            rank.assert_called_once_with(workspace_root=Path(tmp))
+            # The ledger is a tools-root surface: the phase names the tools
+            # root it already holds, not a workspace to derive one from
+            # (B4, 2026-09-12 — on the lane the two are different trees).
+            rank.assert_called_once_with(base_dir=ctx.base_dir)
         self.assertEqual(result["source_effectiveness"], [self._ROW])
+
+    def _context(self, tmp: str):
+        from aria_kernel import cycle as cycle_mod
+        from aria_kernel.tool_registry import ensure_tools_dir
+
+        tools = ensure_tools_dir(Path(tmp) / "aria-tools")
+        return cycle_mod.build_phase_context(
+            cycle_id="cyc-guard", workspace_root=Path(tmp), base_dir=tools,
+        )
+
+    @staticmethod
+    def _unreadable_rows(tools: Path) -> list[dict]:
+        from aria_kernel.ledger import load_jsonl
+
+        path = tools / "governance.jsonl"
+        rows = load_jsonl(path) if path.exists() else []
+        return [row for row in rows if row.get("kind") == "pressure_source_effectiveness_unreadable"]
+
+    def test_a_ledger_fault_is_disclosed_and_the_recommendation_survives(self) -> None:
+        """B1 (2026-09-12) — the guard was (OSError, ValueError, KeyError,
+        TypeError): programming errors were swallowed into an empty ranking
+        while a tampered ledger (KnowledgeGraphTamper) crashed the phase.
+        A fault of the ledger is a governance row and an empty ranking."""
+        from aria_kernel import cycle as cycle_mod
+        from aria_kernel.knowledge_graph import KnowledgeGraphTamper
+
+        with TemporaryDirectory() as tmp:
+            ctx = self._context(tmp)
+            with patch.object(cycle_mod, "recommend_calibration", return_value={}), \
+                 patch("aria_kernel.knowledge_graph.rank_pressure_sources",
+                       side_effect=KnowledgeGraphTamper("chain mismatch mid-read")):
+                result = cycle_mod._phase_calibration_recommendation(ctx)
+            rows = self._unreadable_rows(Path(ctx.base_dir))
+        self.assertEqual(result["source_effectiveness"], [])
+        self.assertEqual(
+            [(row["details"]["reader"], row["details"]["error_class"], row["details"]["cycle_id"]) for row in rows],
+            [("calibration_recommendation", "KnowledgeGraphTamper", "cyc-guard")],
+        )
+
+    def test_a_tampered_ledger_on_disk_is_quarantined_not_a_crash(self) -> None:
+        from aria_kernel import cycle as cycle_mod
+
+        with TemporaryDirectory() as tmp:
+            ctx = self._context(tmp)
+            ledger = Path(ctx.base_dir) / "knowledge-graph" / "pressure-source-effectiveness.jsonl"
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            ledger.write_text("{not json\n", encoding="utf-8")
+            with patch.object(cycle_mod, "recommend_calibration", return_value={}):
+                result = cycle_mod._phase_calibration_recommendation(ctx)
+            quarantined = list(ledger.parent.glob("pressure-source-effectiveness.jsonl.quarantined.*"))
+            self.assertFalse(ledger.exists())
+        self.assertEqual(result["source_effectiveness"], [])
+        self.assertEqual(len(quarantined), 1)
+
+    def test_a_programming_error_in_the_reader_propagates(self) -> None:
+        from aria_kernel import cycle as cycle_mod
+
+        with TemporaryDirectory() as tmp:
+            ctx = self._context(tmp)
+            with patch.object(cycle_mod, "recommend_calibration", return_value={}), \
+                 patch("aria_kernel.knowledge_graph.rank_pressure_sources",
+                       side_effect=TypeError("unexpected keyword argument")):
+                with self.assertRaises(TypeError):
+                    cycle_mod._phase_calibration_recommendation(ctx)
+            self.assertEqual(self._unreadable_rows(Path(ctx.base_dir)), [])
 
     def test_the_report_renders_the_ranking(self) -> None:
         from aria_kernel.reflection import _render_calibration_recommendation_section

@@ -188,7 +188,7 @@ class VerdictTests(OutcomeBase):
         self.assertNotEqual(row["verdict"], "gain_confirmed")
         # And nothing is folded into the effectiveness counters: absence
         # of evidence is not evidence of absence.
-        self.assertEqual(rank_pressure_sources(workspace_root=self.repo), [])
+        self.assertEqual(rank_pressure_sources(base_dir=self.tools), [])
 
     def test_regression_consumes_the_existing_detector_event(self) -> None:
         change_id = self._chain()
@@ -362,7 +362,12 @@ class NightlyPhaseTests(OutcomeBase):
         evaluate_change_outcomes(
             self.repo, cycle_id="cyc-1", base_dir=self.tools, now=self.now,
         )
-        rows = rank_pressure_sources(workspace_root=self.repo)
+        # The counter is a tools-root surface: it lands in the store next
+        # to the outcome row, never in a shadow <repo>/aria-tools (which is
+        # where the writer put it, and where this test used to look, until
+        # B4 2026-09-12 — green on a path the state branch never carried).
+        self.assertFalse((self.repo / "aria-tools").exists())
+        rows = rank_pressure_sources(base_dir=self.tools)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["source_type"], "orphan_finding")
         self.assertEqual(rows[0]["cycles_rejected"], 1)
@@ -379,7 +384,7 @@ class NightlyPhaseTests(OutcomeBase):
         )
         self.assertEqual(row["verdict"], "no_gain")
         self.assertIsNone(row["pressure_source_type"])
-        self.assertEqual(rank_pressure_sources(workspace_root=self.repo), [])
+        self.assertEqual(rank_pressure_sources(base_dir=self.tools), [])
 
 
 class CycleWiringTests(unittest.TestCase):
@@ -652,7 +657,7 @@ class AssessmentHotEvidenceTests(unittest.TestCase):
         self.assertEqual(nightly["evaluated"], 0)
         self.assertEqual(nightly["outcomes"], [])
         self.assertEqual(nightly["verdicts"], {"regression": 0, "no_gain": 0, "gain_confirmed": 0, "unknown": 0})
-        self.assertEqual(rank_pressure_sources(workspace_root=self.repo), [])
+        self.assertEqual(rank_pressure_sources(base_dir=self.tools), [])
         # The old public emitter still refuses changed evidence; it never
         # substitutes the assessment for the immutable first outcome.
         before = self.outcome_path.read_bytes()
@@ -962,10 +967,10 @@ class AssessmentAdverseAccountingTests(unittest.TestCase):
         self.assertEqual([item["event"] for item in finding_rows], ["finding_emitted", "finding_reproduced"])
         self.assertEqual(finding_rows[-1], reproduction)
         record_pressure_source_outcome(
-            workspace_root=repo, source_type="orphan_finding", minted=9, converged=5, merged=3, rejected=2,
+            base_dir=tools, source_type="orphan_finding", minted=9, converged=5, merged=3, rejected=2,
             cost_usd=1.25,
         )
-        counters = rank_pressure_sources(workspace_root=repo)
+        counters = rank_pressure_sources(base_dir=tools)
         self.assertEqual(len(counters), 1)
         expected_counts = {"cycles_minted": 9, "cycles_converged": 5, "cycles_merged": 3, "cycles_rejected": 2}
         self.assertEqual({key: counters[0][key] for key in expected_counts}, expected_counts)
@@ -996,7 +1001,7 @@ class AssessmentAdverseAccountingTests(unittest.TestCase):
         self.assertTrue(outcome_path.read_bytes().startswith(first_bytes))
         self.assertEqual(load_declared_jsonl(outcome_path, expected_surface="change_outcome"), [first, assessment])
         self.assertEqual(counter_path.read_bytes(), counter_bytes)
-        self.assertEqual(rank_pressure_sources(workspace_root=repo), counters)
+        self.assertEqual(rank_pressure_sources(base_dir=tools), counters)
         self.assertEqual(governance_path.read_bytes(), governance_bytes)
 
 

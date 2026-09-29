@@ -692,7 +692,7 @@ def emit_change_outcome(
     aggregate = _record_aggregate(
         verdict=computed["verdict"],
         source_type=source_type,
-        workspace_root=repo_root,
+        base_dir=tools_root,
     )
     append_tools_governance(
         tools_root,
@@ -710,14 +710,18 @@ def emit_change_outcome(
 
 
 def _record_aggregate(
-    *, verdict: str, source_type: str | None, workspace_root: str | Path,
+    *, verdict: str, source_type: str | None, base_dir: str | Path,
 ) -> dict[str, Any]:
     """Fold a negative outcome into ``cycles_rejected`` for its source.
 
     Through ``record_pressure_source_outcome`` — the effectiveness
     ledger's ONE writer. ``gain_confirmed`` writes nothing (the merge is
     already counted upstream) and ``unknown`` writes nothing (absence of
-    evidence is not evidence of absence).
+    evidence is not evidence of absence). The counter is a tools-root
+    surface beside the outcome row it follows, so it is named by the same
+    ``base_dir`` — a workspace-derived path would have put it in the
+    checkout on the live lane, where the store is not under the workspace
+    (B4, 2026-09-12).
     """
     if verdict not in {"no_gain", "regression"}:
         return {"applied": False, "reason": f"verdict_{verdict}_carries_no_rejection"}
@@ -726,7 +730,7 @@ def _record_aggregate(
     from .knowledge_graph import record_pressure_source_outcome
 
     record_pressure_source_outcome(
-        workspace_root=workspace_root, source_type=source_type, rejected=1,
+        base_dir=base_dir, source_type=source_type, rejected=1,
     )
     return {"applied": True, "source_type": source_type, "rejected_delta": 1}
 

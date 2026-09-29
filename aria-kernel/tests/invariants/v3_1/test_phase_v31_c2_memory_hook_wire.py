@@ -28,6 +28,22 @@ Invariants:
   result dict shape when invoked on an empty workspace.
 * I-V31-C2-06 — stable=True triggers record_human_required call
   (behavioral, patched primitives).
+* I-V31-C2-07 — the orchestrator's memory_hook.record(...) and
+  .complete_pending_observations(...) keyword sets EQUAL the
+  keyword-only parameter names of every hook variant (Protocol,
+  NoOp, Impl). WHY: MemoryHookImpl.record once required a kwonly
+  ``converged_plan`` the orchestrator never passed; the TypeError was
+  swallowed into a memory_hook_failed governance row and I-V31-C2-05
+  exercised record() with its OWN kwargs, so the drift stayed green.
+  The caller and the callee are pinned to each other here, by AST on
+  the caller and inspect on the callee.
+* I-V31-C2-08 — the except clause around memory_hook.record(...) is
+  the hook's declared runtime-fault set, never ``Exception``: a
+  signature drift (TypeError) is a programming error and must raise,
+  while GovernanceError / ledger integrity / OSError stay the
+  governance row.
+* I-V31-C2-09 — memory_hook_runtime_faults() excludes programming
+  errors and covers the faults the record pipeline actually raises.
 """
 from __future__ import annotations
 
@@ -178,6 +194,122 @@ class OrchestratorMemoryHookWireTests(unittest.TestCase):
                       "memory_hook.record() not wrapped in try/except")
         # memory_hook_failed governance event present.
         self.assertIn("memory_hook_failed", src)
+
+
+def _memory_hook_calls(tree: "ast.Module", method: str) -> list["ast.Call"]:
+    """Every ``memory_hook.<method>(...)`` call in the orchestrator module."""
+    import ast
+
+    return [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == method
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "memory_hook"
+    ]
+
+
+def _innermost_try_enclosing(tree: "ast.Module", target: "ast.AST") -> "ast.Try":
+    """The innermost ``try`` whose body contains ``target``."""
+    import ast
+
+    enclosing = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Try)
+        and any(target is inner for stmt in node.body for inner in ast.walk(stmt))
+    ]
+    return max(enclosing, key=lambda node: node.lineno)
+
+
+class OrchestratorMemoryHookSignatureParityTests(unittest.TestCase):
+    """B1 (2026-09-12 audit residual) — caller and callee pinned together."""
+
+    def test_i_v31_c2_07_orchestrator_call_keywords_equal_every_hook_signature(self) -> None:
+        """The keyword set the orchestrator passes to memory_hook.record(...)
+        and .complete_pending_observations(...) equals the keyword-only
+        parameter names of MemoryHook (Protocol), NoOpMemoryHook and
+        MemoryHookImpl. A parameter added to one side without the other
+        is a red test, not a memory_hook_failed row at 01:00."""
+        import ast
+        from aria_kernel import autonomy_orchestrator
+        from aria_kernel.cycle_phases.memory import MemoryHook, MemoryHookImpl, NoOpMemoryHook
+
+        tree = ast.parse(inspect.getsource(autonomy_orchestrator))
+        for method in ("record", "complete_pending_observations"):
+            calls = _memory_hook_calls(tree, method)
+            self.assertEqual(
+                len(calls), 1,
+                f"expected exactly one orchestrator call site for memory_hook.{method}",
+            )
+            call = calls[0]
+            self.assertEqual(call.args, [], f"memory_hook.{method} must be called by keyword only")
+            passed = {keyword.arg for keyword in call.keywords}
+            self.assertNotIn(None, passed, f"memory_hook.{method}(**splat) hides the keyword set")
+            for hook in (MemoryHook, NoOpMemoryHook, MemoryHookImpl):
+                parameters = inspect.signature(getattr(hook, method)).parameters
+                kwonly = {
+                    name for name, parameter in parameters.items()
+                    if parameter.kind is inspect.Parameter.KEYWORD_ONLY
+                }
+                positional = [
+                    name for name, parameter in parameters.items()
+                    if name != "self" and parameter.kind is not inspect.Parameter.KEYWORD_ONLY
+                ]
+                self.assertEqual(
+                    positional, [],
+                    f"{hook.__name__}.{method} must take keyword-only parameters",
+                )
+                self.assertEqual(
+                    passed, kwonly,
+                    f"orchestrator memory_hook.{method}(...) keywords {sorted(passed)} "
+                    f"!= {hook.__name__}.{method} keyword-only parameters {sorted(kwonly)}",
+                )
+
+    def test_i_v31_c2_08_memory_hook_except_is_the_declared_runtime_fault_set(self) -> None:
+        """The try around memory_hook.record(...) catches the hook's
+        declared runtime faults and nothing broader. ``except Exception``
+        laundered a signature-drift TypeError into a governance row."""
+        import ast
+        from aria_kernel import autonomy_orchestrator
+
+        tree = ast.parse(inspect.getsource(autonomy_orchestrator))
+        (call,) = _memory_hook_calls(tree, "record")
+        guard = _innermost_try_enclosing(tree, call)
+        self.assertEqual(len(guard.handlers), 1, "one handler: the runtime-fault set")
+        handler = guard.handlers[0]
+        self.assertIsNotNone(handler.type, "bare except around memory_hook.record")
+        caught = ast.unparse(handler.type)
+        self.assertNotIn(caught, {"Exception", "BaseException"},
+                         "memory_hook.record guarded by a broad except")
+        self.assertEqual(
+            caught, "memory_hook_runtime_faults()",
+            "the handler must name the hook's own declared fault set",
+        )
+
+    def test_i_v31_c2_09_runtime_fault_set_excludes_programming_errors(self) -> None:
+        from aria_kernel.cycle_phases.memory import memory_hook_runtime_faults
+        from aria_kernel.knowledge_graph import KnowledgeGraphSchemaError, KnowledgeGraphTamper
+        from aria_kernel.ledger import (
+            LedgerIntegrityError, LedgerReadLimitError, LedgerRowTooLargeError,
+        )
+        from aria_kernel.tool_registry import GovernanceError
+
+        faults = memory_hook_runtime_faults()
+        for programming_error in (TypeError, AttributeError, KeyError, NameError, AssertionError, IndexError):
+            self.assertFalse(
+                issubclass(programming_error, faults),
+                f"{programming_error.__name__} is a programming error, not a runtime fault",
+            )
+        for runtime_fault in (
+            GovernanceError, LedgerIntegrityError, LedgerReadLimitError,
+            LedgerRowTooLargeError, KnowledgeGraphTamper, KnowledgeGraphSchemaError,
+            OSError, TimeoutError, PermissionError,
+        ):
+            self.assertTrue(
+                issubclass(runtime_fault, faults),
+                f"{runtime_fault.__name__} is a runtime fault the hook can raise",
+            )
 
 
 class MemoryHookFactoryTests(unittest.TestCase):

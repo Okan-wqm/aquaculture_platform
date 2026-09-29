@@ -310,6 +310,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       firstName: 'Pii',
       lastName: 'User',
       phoneNumber: '+10000000000',
+      password: 'p1:current-password-hash',
       role: Role.MODULE_USER,
       tenantId: VALID_TENANT_ID,
       ...overrides,
@@ -747,10 +748,37 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   });
 
   describe('authorization-revocation issuance fence', () => {
+    it('fences the credential snapshot without comparing a lossy persistence timestamp', async () => {
+      service = await createService();
+      const passwordHash = 'p1:authenticated-password-hash';
+      const authenticatedSnapshot = buildUser({
+        password: passwordHash,
+        updatedAt: new Date('2026-09-04T09:24:12.669Z'),
+      });
+
+      await service.generateTokens(authenticatedSnapshot);
+
+      expect(credentialUserLockFindOne).toHaveBeenCalledWith({
+        select: { id: true },
+        where: {
+          id: authenticatedSnapshot.id,
+          role: authenticatedSnapshot.role,
+          tenantId: authenticatedSnapshot.tenantId,
+          isActive: true,
+          password: passwordHash,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+    });
+
     it('cannot insert a refresh token while deactivation owns the User fence and fails stale issuance closed', async () => {
       service = await createService();
       const authenticatedAt = new Date('2026-08-01T12:00:00.000Z');
-      const authenticatedSnapshot = buildUser({ updatedAt: authenticatedAt });
+      const authenticatedPasswordHash = 'p1:authenticated-password-hash';
+      const authenticatedSnapshot = buildUser({
+        password: authenticatedPasswordHash,
+        updatedAt: authenticatedAt,
+      });
       let finishCredentialFence: ((lockedUser: { id: string } | null) => void) | undefined;
       credentialUserLockFindOne.mockImplementationOnce(
         () =>
@@ -782,7 +810,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
           role: authenticatedSnapshot.role,
           tenantId: authenticatedSnapshot.tenantId,
           isActive: true,
-          updatedAt: authenticatedAt,
+          password: authenticatedPasswordHash,
         },
         lock: { mode: 'pessimistic_write' },
       });
@@ -879,6 +907,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
           role: Role.TENANT_ADMIN,
           tenantId: VALID_TENANT_ID,
           isActive: true,
+          password: 'p1:current-password-hash',
         },
         lock: { mode: 'pessimistic_write' },
       });
@@ -938,6 +967,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
           role: Role.MODULE_USER,
           tenantId: VALID_TENANT_ID,
           isActive: true,
+          password: 'p1:current-password-hash',
         },
         lock: { mode: 'pessimistic_write' },
       });
@@ -1065,6 +1095,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
   const buildUser = (overrides: Partial<User>): User =>
     Object.assign(new User(), {
       id: USER,
+      password: 'p1:current-password-hash',
       role: Role.MODULE_USER,
       tenantId: TENANT,
       ...overrides,
@@ -1141,6 +1172,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
         role: Role.MODULE_USER,
         tenantId: TENANT,
         isActive: true,
+        password: 'p1:current-password-hash',
       },
       lock: { mode: 'pessimistic_write' },
     });

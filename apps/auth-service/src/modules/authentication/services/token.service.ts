@@ -196,10 +196,12 @@ export class TokenService {
   ): Promise<AuthPayload> {
     const mintUnderUserFence = async (manager: EntityManager): Promise<AuthPayload> => {
       // Canonical credential lock order: every RefreshToken INSERT takes the
-      // stable User row first. Snapshot fields are part of the predicate so a
-      // password/role/tenant/deactivation mutation that committed after the
+      // stable User row first. Credential fields are part of the predicate so
+      // a password/role/tenant/deactivation mutation that committed after the
       // caller authenticated makes this mint fail closed instead of issuing a
-      // token from stale authorization state.
+      // token from stale authorization state. Do not use updatedAt here:
+      // PostgreSQL preserves microseconds while JavaScript Date preserves only
+      // milliseconds, so an unchanged row saved during login would not match.
       const lockedPrincipal = await manager.withRepository(this.userRepository).findOne({
         select: { id: true },
         where: {
@@ -207,7 +209,7 @@ export class TokenService {
           role: user.role,
           tenantId: user.tenantId ?? IsNull(),
           isActive: true,
-          ...(user.updatedAt ? { updatedAt: user.updatedAt } : {}),
+          password: user.password ?? IsNull(),
         },
         lock: { mode: 'pessimistic_write' },
       });

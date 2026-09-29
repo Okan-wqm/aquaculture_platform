@@ -214,6 +214,35 @@ describe('LowStockEvaluator.crossingsForMovement (edge trigger)', () => {
     ).resolves.toEqual([]);
   });
 
+  it('rebuilds the band before the movement in exact hundredths (no phantom crossing)', async () => {
+    // SCENARIO: site A holds 0.1 after an OUT of 0.2 against a site minimum of 0.3, so A
+    // held exactly 0.3 — already AT its minimum (low) — before the movement. In doubles
+    // 0.1 + 0.2 = 0.30000000000000004 > 0.3 reads "ok before", a phantom ok → low edge.
+    // EXPECTS: no crossing (low → low), and the pool reading sums exactly.
+    const { evaluator } = build({
+      onHand: [onHand(SITE_A, 0.1), onHand(SITE_B, 0.2)],
+      policies: [policy(SITE_A, 0.3)],
+    });
+
+    await expect(
+      evaluator.crossingsForMovement(manager, TENANT, out(0.2, SITE_A), 0.5),
+    ).resolves.toEqual([]);
+  });
+
+  it('narrows the policy read to the sites the movement shrank', async () => {
+    // SCENARIO: an OUT at site A. EXPECTS: sitePolicies is asked for site A only.
+    const { evaluator, reader } = build({ onHand: [onHand(SITE_A, 10)] });
+
+    await evaluator.crossingsForMovement(manager, TENANT, out(5, SITE_A), 0);
+
+    expect(reader.sitePolicies).toHaveBeenCalledWith(
+      manager,
+      TENANT,
+      { kind: 'item', key: feedKey },
+      [SITE_A],
+    );
+  });
+
   it('escalates low → out as a new crossing', async () => {
     // SCENARIO: pool 30 (already low) drained to 0. EXPECTS: one pool out_of_stock crossing.
     const { evaluator } = build({ onHand: [] });

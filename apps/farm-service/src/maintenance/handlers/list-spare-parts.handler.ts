@@ -2,12 +2,14 @@
  * List Spare Parts (filtered, paginated) Query Handler — fail-closed tenant
  * boundary.
  *
- * WHY stock filters run after the ledger read (FARM-HIGH-338): quantity and
- * status are no longer columns anyone writes — they are derived from the
- * storage ledger by SparePartStockReader. Filtering or sorting on the legacy
- * columns in SQL would silently use numbers that stopped moving. The
- * catalogue filters stay in SQL; the stock filters, the stock sorts and the
- * page slice apply to the derived values, with the ONE derivation rule.
+ * WHY the page is selected in SQL (V-B1-12 of the B1a-1 verifier round): the
+ * list used to load every part of the tenant and derive every part's stock in
+ * TypeScript before it could filter, sort and slice one page. Quantity and
+ * status are no longer columns anyone writes (FARM-HIGH-338) — they are
+ * derived from the storage ledger — so the stock filters and sorts read the
+ * SQL rendering of that ONE rule (`sparePartStockSql`), and only the page's
+ * parts are loaded. Filtering on the legacy columns would silently use numbers
+ * that stopped moving.
  */
 import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import {
@@ -20,11 +22,7 @@ import { DataSource } from 'typeorm';
 
 import { SparePart, SparePartStatus } from '../entities/spare-part.entity';
 import { ListSparePartsQuery } from '../queries/list-spare-parts.query';
-import {
-  requireStockView,
-  SparePartStockReader,
-  SparePartStockView,
-} from '../services/spare-part-stock.reader';
+import { sparePartStockSql } from '../services/spare-part-stock.sql';
 
 /** Sort keys that read catalogue columns directly. */
 const COLUMN_SORTS: ReadonlySet<string> = new Set(['name', 'code', 'partNumber', 'createdAt']);
@@ -34,7 +32,6 @@ export class ListSparePartsHandler implements IQueryHandler<ListSparePartsQuery>
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly stockReader: SparePartStockReader,
   ) {}
 
   async execute(query: ListSparePartsQuery): Promise<IStandardPaginatedResult<SparePart>> {
@@ -44,6 +41,8 @@ export class ListSparePartsHandler implements IQueryHandler<ListSparePartsQuery>
       const qb = tenantManagerRepo(queryRunner.manager, SparePart, tenantId).createQueryBuilder(
         'sp',
       );
+      const stock = sparePartStockSql(queryRunner.manager, 'sp');
+      qb.setParameters(stock.parameters);
 
       if (filter?.equipmentTypeId) {
         qb.andWhere('sp.equipmentTypeId = :equipmentTypeId', {
@@ -67,37 +66,38 @@ export class ListSparePartsHandler implements IQueryHandler<ListSparePartsQuery>
           { search: `%${filter.searchTerm}%` },
         );
       }
-      const columnSort = COLUMN_SORTS.has(sortBy) ? sortBy : 'name';
-      qb.orderBy(`sp.${columnSort}`, sortOrder);
-
-      const candidates = await qb.getMany();
-      const stock = await this.stockReader.read(queryRunner.manager, tenantId, candidates);
-      const viewOf = (part: SparePart): SparePartStockView => requireStockView(stock, part.id);
-
-      let rows = candidates.filter((part) => {
-        const view = viewOf(part);
-        if (filter?.status?.length && !filter.status.includes(view.status)) return false;
-        // The ONE derivation (deriveSparePartStatus) decides both filters.
-        if (filter?.isLowStock && view.status !== SparePartStatus.LOW_STOCK) return false;
-        if (filter?.isOutOfStock && view.status !== SparePartStatus.OUT_OF_STOCK) return false;
-        return true;
-      });
-
-      if (sortBy === 'quantity' || sortBy === 'status') {
-        const direction = sortOrder === 'DESC' ? -1 : 1;
-        rows = [...rows].sort((a, b) => {
-          const left = viewOf(a);
-          const right = viewOf(b);
-          const order =
-            sortBy === 'quantity'
-              ? left.onHand - right.onHand
-              : left.status.localeCompare(right.status);
-          return order * direction;
+      // The ONE derivation (deriveSparePartStatus, rendered in SQL) decides
+      // every stock filter.
+      if (filter?.status?.length) {
+        qb.andWhere(`${stock.status} IN (:...stockStatuses)`, { stockStatuses: filter.status });
+      }
+      if (filter?.isLowStock) {
+        qb.andWhere(`${stock.status} = :lowStockStatus`, {
+          lowStockStatus: SparePartStatus.LOW_STOCK,
+        });
+      }
+      if (filter?.isOutOfStock) {
+        qb.andWhere(`${stock.status} = :outOfStockStatus`, {
+          outOfStockStatus: SparePartStatus.OUT_OF_STOCK,
         });
       }
 
-      const items = rows.slice((page - 1) * limit, page * limit);
-      return createStandardPaginatedResult(items, rows.length, page, limit);
+      if (sortBy === 'quantity') {
+        qb.orderBy(stock.onHand, sortOrder);
+      } else if (sortBy === 'status') {
+        qb.orderBy(stock.status, sortOrder);
+      } else {
+        qb.orderBy(`sp.${COLUMN_SORTS.has(sortBy) ? sortBy : 'name'}`, sortOrder);
+      }
+      // A total order, so a page boundary never splits or repeats a part.
+      qb.addOrderBy('sp.id', 'ASC');
+
+      const total = await qb.getCount();
+      const items = await qb
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .getMany();
+      return createStandardPaginatedResult(items, total, page, limit);
     });
   }
 }

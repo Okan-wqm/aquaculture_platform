@@ -9261,6 +9261,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/spare-part-list.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/stock-reconstruction.postgres.spec.ts",
       "prettier_managed": true
     },
@@ -15764,6 +15770,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/maintenance/services/spare-part-stock.sql.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/maintenance/services/spare-part.service.ts",
       "prettier_managed": true
     },
@@ -17265,6 +17277,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/storage/__tests__/stock-identity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/storage/__tests__/stock-ledger.reader.spec.ts",
       "prettier_managed": true
     },
     {

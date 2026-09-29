@@ -38,6 +38,7 @@ import {
   StockLedgerReader,
 } from './stock-ledger.reader';
 import { canonicalStockItemType } from './stock-identity';
+import { stockQuantityFromUnits, stockQuantityUnits } from '../stock-quantity';
 
 @Injectable()
 export class LowStockEvaluator {
@@ -140,6 +141,10 @@ export class LowStockEvaluator {
    * caller's transaction, reconstructs the pre-movement state from the
    * movement's own delta (the item is serialised by StockMutationLockAuthority,
    * so nothing else moved it in between), and compares bands.
+   * INVARIANT: the rebuild runs in integer hundredths (the `numeric(15,2)`
+   * scale); if violated → `after − delta` in doubles lands a hair off an exact
+   * threshold and the band before the movement flips (a missed or a phantom
+   * crossing).
    */
   async crossingsForMovement(
     manager: EntityManager,
@@ -147,48 +152,67 @@ export class LowStockEvaluator {
     effect: StockMovementEffect,
     poolReorderThreshold: number,
   ): Promise<LowStockCrossing[]> {
-    const siteDeltas = new Map<string, number>();
+    const quantityUnits = stockQuantityUnits(effect.quantity, 'Stock quantity');
+    const siteDeltaUnits = new Map<string, number>();
     if (effect.fromSiteId !== null) {
-      siteDeltas.set(effect.fromSiteId, (siteDeltas.get(effect.fromSiteId) ?? 0) - effect.quantity);
+      siteDeltaUnits.set(
+        effect.fromSiteId,
+        (siteDeltaUnits.get(effect.fromSiteId) ?? 0) - quantityUnits,
+      );
     }
     if (effect.toSiteId !== null) {
-      siteDeltas.set(effect.toSiteId, (siteDeltas.get(effect.toSiteId) ?? 0) + effect.quantity);
+      siteDeltaUnits.set(
+        effect.toSiteId,
+        (siteDeltaUnits.get(effect.toSiteId) ?? 0) + quantityUnits,
+      );
     }
-    const poolDelta = [...siteDeltas.values()].reduce((sum, delta) => sum + delta, 0);
-    const shrinkingSites = [...siteDeltas.entries()].filter(([, delta]) => delta < 0);
+    const poolDeltaUnits = [...siteDeltaUnits.values()].reduce((sum, delta) => sum + delta, 0);
+    const shrinkingSites = [...siteDeltaUnits.entries()].filter(([, delta]) => delta < 0);
     // Only a decrease can worsen a band; receipts and intra-site moves skip the reads.
-    if (poolDelta >= 0 && shrinkingSites.length === 0) return [];
+    if (poolDeltaUnits >= 0 && shrinkingSites.length === 0) return [];
 
     const canonicalKey = {
       itemType: canonicalStockItemType(effect.itemType),
       itemId: effect.itemId,
     };
     const scope = { kind: 'item' as const, key: canonicalKey };
-    // Sequential: this runs inside the movement's transaction connection.
+    // Sequential: this runs inside the movement's transaction connection. Each
+    // read is bounded to this item (and the policies to the shrunk sites).
     const onHand = await this.reader.onHandBySite(manager, tenantId, scope);
-    const onOrder = poolDelta < 0 ? await this.reader.onOrder(manager, tenantId, scope) : [];
+    const onOrder = poolDeltaUnits < 0 ? await this.reader.onOrder(manager, tenantId, scope) : [];
     const policies =
-      shrinkingSites.length > 0 ? await this.reader.sitePolicies(manager, tenantId, scope) : [];
+      shrinkingSites.length > 0
+        ? await this.reader.sitePolicies(
+            manager,
+            tenantId,
+            scope,
+            shrinkingSites.map(([siteId]) => siteId),
+          )
+        : [];
 
     const crossings: LowStockCrossing[] = [];
 
-    if (poolDelta < 0) {
+    if (poolDeltaUnits < 0) {
       const after = poolReading(
         canonicalKey,
         sumOnHand(onHand),
         sumOnOrder(onOrder),
         poolReorderThreshold,
       );
-      const before = poolStockBand(after.onHand - poolDelta, after.onOrder, poolReorderThreshold);
+      const before = poolStockBand(
+        onHandBefore(after.onHand, poolDeltaUnits),
+        after.onOrder,
+        poolReorderThreshold,
+      );
       const severity = worsenedSeverity(before, after.band);
       if (severity !== null) crossings.push({ before, severity, reading: after });
     }
 
-    for (const [siteId, delta] of shrinkingSites) {
+    for (const [siteId, deltaUnits] of shrinkingSites) {
       const policy = policies.find((row) => row.siteId === siteId);
       if (!policy) continue;
       const after = siteReading(policy, siteOnHand(onHand, siteId));
-      const before = siteStockBand(after.onHand - delta, policy.minStock);
+      const before = siteStockBand(onHandBefore(after.onHand, deltaUnits), policy.minStock);
       const severity = worsenedSeverity(before, after.band);
       if (severity !== null) crossings.push({ before, severity, reading: after });
     }
@@ -242,12 +266,29 @@ function levelRank(reading: DescribedStockReading): number {
   return reading.level === 'site' ? 0 : 1;
 }
 
+/** Exact sum of `numeric(15,2)` quantities (folded in integer hundredths). */
+function sumQuantities(values: readonly number[]): number {
+  return stockQuantityFromUnits(
+    values.reduce(
+      (sum, value) => sum + stockQuantityUnits(value, 'Stock quantity', { allowZero: true }),
+      0,
+    ),
+  );
+}
+
+/** The on-hand before a movement of `deltaUnits` hundredths, rebuilt exactly. */
+function onHandBefore(onHandAfter: number, deltaUnits: number): number {
+  return stockQuantityFromUnits(
+    stockQuantityUnits(onHandAfter, 'Stock quantity', { allowZero: true }) - deltaUnits,
+  );
+}
+
 function sumOnHand(rows: SiteOnHandRow[]): number {
-  return rows.reduce((sum, row) => sum + row.onHand, 0);
+  return sumQuantities(rows.map((row) => row.onHand));
 }
 
 function sumOnOrder(rows: OnOrderRow[]): number {
-  return rows.reduce((sum, row) => sum + row.onOrder, 0);
+  return sumQuantities(rows.map((row) => row.onOrder));
 }
 
 function siteOnHand(rows: SiteOnHandRow[], siteId: string): number {

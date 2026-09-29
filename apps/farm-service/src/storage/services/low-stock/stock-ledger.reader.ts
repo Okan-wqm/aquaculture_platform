@@ -11,6 +11,16 @@
  * INVARIANT (FARM-MEDIUM-293): stock in a soft-deleted location is not
  * on-hand — the same rule the feed forecast and FEFO allocation apply, so every
  * reader of "how much is there" agrees.
+ *
+ * WHY every read is bounded by the scope in SQL: `onHandBySite` and `onOrder`
+ * run on the feeding hot path, once per OUT slice, while the item's advisory
+ * lock is held. They load only the locations that hold the scoped items and
+ * only the open order lines of those items, never the tenant's whole location
+ * list or every open order.
+ *
+ * WHY quantities fold in integer hundredths: every stock column is
+ * `numeric(15,2)`; summing their doubles drifts (0.1 + 0.2), and a band
+ * decided at an exact threshold must not flip on that residue.
  */
 import { Injectable } from '@nestjs/common';
 import { EntityManager, In } from 'typeorm';
@@ -19,7 +29,8 @@ import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { StorageInventory, StorageItemType } from '../../entities/storage-inventory.entity';
 import { StorageLocation } from '../../entities/storage-location.entity';
 import { StorageItemSitePolicy } from '../../entities/storage-item-site-policy.entity';
-import { PurchaseOrder } from '../../entities/purchase-order.entity';
+import { PurchaseOrderCategory } from '../../entities/purchase-order.entity';
+import { PurchaseOrderItem } from '../../entities/purchase-order-item.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
 import { Chemical } from '../../../chemical/entities/chemical.entity';
 import { Consumable } from '../../../consumable/entities/consumable.entity';
@@ -30,6 +41,7 @@ import {
   PURCHASE_ORDER_CATEGORY_ITEM_TYPE,
   purchaseOrderCategoriesFor,
 } from '../purchase-order-item-type';
+import { stockQuantityFromUnits, stockQuantityUnits } from '../stock-quantity';
 import type { StorageItemKey } from './low-stock.types';
 import { canonicalStockItemType, ledgerItemTypesOf } from './stock-identity';
 
@@ -46,11 +58,19 @@ function scopedItemType(scope: StockReadScope): StorageItemType | undefined {
   return undefined;
 }
 
-/** True when the scope admits this item id (the type is filtered separately). */
-function scopeAdmitsItem(scope: StockReadScope, itemId: string): boolean {
-  if (scope.kind === 'item') return scope.key.itemId === itemId;
-  if (scope.kind === 'items') return scope.itemIds.includes(itemId);
-  return true;
+/** The item ids a scope is restricted to, or undefined for the whole tenant. */
+function scopedItemIds(scope: StockReadScope): string[] | undefined {
+  if (scope.kind === 'item') return [scope.key.itemId];
+  if (scope.kind === 'items') return [...scope.itemIds];
+  return undefined;
+}
+
+/**
+ * A `numeric(15,2)` aggregate in integer hundredths. WHY: folding in hundredths
+ * keeps every sum exact; a SUM of non-negative stock is never negative.
+ */
+function quantityUnits(value: string): number {
+  return stockQuantityUnits(Number(value), 'Stock quantity', { allowZero: true });
 }
 
 export interface SiteOnHandRow extends StorageItemKey {
@@ -127,32 +147,40 @@ export class StockLedgerReader {
     }> = await query.getRawMany();
     if (rows.length === 0) return [];
 
+    // Only the locations that hold the scoped stock, not the tenant's list.
     const locations = await tenantManagerRepo(manager, StorageLocation, tenantId).find({
-      where: { tenantId, isDeleted: false },
+      where: {
+        tenantId,
+        isDeleted: false,
+        id: In([...new Set(rows.map((row) => row.locationId))]),
+      },
       select: ['id', 'siteId'],
     });
     const siteByLocation = new Map(locations.map((loc) => [loc.id, loc.siteId]));
 
-    const bySite = new Map<string, SiteOnHandRow>();
+    const bySite = new Map<string, { key: StorageItemKey; siteId: string; units: number }>();
     for (const row of rows) {
       const siteId = siteByLocation.get(row.locationId);
       // Soft-deleted (or foreign) location: not on-hand (FARM-MEDIUM-293).
       if (siteId === undefined) continue;
       const mapKey = `${itemKeyOf(row)}:${siteId}`;
+      const units = quantityUnits(row.onHand);
       const current = bySite.get(mapKey);
-      const onHand = Number(row.onHand);
       if (current) {
-        current.onHand += onHand;
+        current.units += units;
       } else {
         bySite.set(mapKey, {
-          itemType: canonicalStockItemType(row.itemType),
-          itemId: row.itemId,
+          key: { itemType: canonicalStockItemType(row.itemType), itemId: row.itemId },
           siteId,
-          onHand,
+          units,
         });
       }
     }
-    return [...bySite.values()];
+    return [...bySite.values()].map(({ key, siteId, units }) => ({
+      ...key,
+      siteId,
+      onHand: stockQuantityFromUnits(units),
+    }));
   }
 
   /**
@@ -171,39 +199,63 @@ export class StockLedgerReader {
       : undefined;
     if (categories !== undefined && categories.length === 0) return [];
 
-    const orders = await tenantManagerRepo(manager, PurchaseOrder, tenantId).find({
-      where: {
-        tenantId,
-        isDeleted: false,
-        status: In([...OPEN_PURCHASE_ORDER_STATUSES]),
-        ...(categories ? { category: In(categories) } : {}),
-      },
-      relations: ['items'],
-    });
-
-    const totals = new Map<string, OnOrderRow>();
-    for (const order of orders) {
-      const lineItemType = PURCHASE_ORDER_CATEGORY_ITEM_TYPE[order.category];
-      for (const line of order.items) {
-        if (!scopeAdmitsItem(scope, line.itemId)) continue;
-        const remainder = Math.max(Number(line.quantity) - Number(line.quantityReceived), 0);
-        if (remainder === 0) continue;
-        const key = { itemType: canonicalStockItemType(lineItemType), itemId: line.itemId };
-        const current = totals.get(itemKeyOf(key));
-        if (current) current.onOrder += remainder;
-        else totals.set(itemKeyOf(key), { ...key, onOrder: remainder });
-      }
+    // One grouped read of the scoped items' open lines: the relation join is
+    // generated from entity metadata (no hand-written condition), the item and
+    // category filters and the per-line remainder sum run in SQL.
+    const query = tenantManagerRepo(manager, PurchaseOrderItem, tenantId)
+      .createQueryBuilder('line')
+      .innerJoin('line.purchaseOrder', 'po')
+      .select('po.category', 'category')
+      .addSelect('line.itemId', 'itemId')
+      .addSelect('COALESCE(SUM(GREATEST(line.quantity - line.quantityReceived, 0)), 0)', 'onOrder')
+      .andWhere('po.tenantId = :tenantId', { tenantId })
+      .andWhere('po.isDeleted = false')
+      .andWhere('po.status IN (:...openStatuses)', {
+        openStatuses: [...OPEN_PURCHASE_ORDER_STATUSES],
+      })
+      .groupBy('po.category')
+      .addGroupBy('line.itemId');
+    if (categories !== undefined) {
+      query.andWhere('po.category IN (:...categories)', { categories });
     }
-    return [...totals.values()];
+    const scopedIds = scopedItemIds(scope);
+    if (scopedIds !== undefined) {
+      query.andWhere('line.itemId IN (:...itemIds)', { itemIds: scopedIds });
+    }
+    const rows: Array<{ category: PurchaseOrderCategory; itemId: string; onOrder: string }> =
+      await query.getRawMany();
+
+    const totals = new Map<string, { key: StorageItemKey; units: number }>();
+    for (const row of rows) {
+      const units = quantityUnits(row.onOrder);
+      if (units === 0) continue;
+      const key = {
+        itemType: canonicalStockItemType(PURCHASE_ORDER_CATEGORY_ITEM_TYPE[row.category]),
+        itemId: row.itemId,
+      };
+      const current = totals.get(itemKeyOf(key));
+      if (current) current.units += units;
+      else totals.set(itemKeyOf(key), { key, units });
+    }
+    return [...totals.values()].map(({ key, units }) => ({
+      ...key,
+      onOrder: stockQuantityFromUnits(units),
+    }));
   }
 
-  /** Site distribution policies (plan K8 tier 1). */
+  /**
+   * Site distribution policies (plan K8 tier 1). `siteIds` narrows the read to
+   * the sites a caller is deciding about (the sites a movement shrank).
+   */
   async sitePolicies(
     manager: EntityManager,
     tenantId: string,
     scope: StockReadScope,
+    siteIds?: readonly string[],
   ): Promise<SitePolicyRow[]> {
     if (scope.kind === 'items' && scope.itemIds.length === 0) return [];
+    if (siteIds !== undefined && siteIds.length === 0) return [];
+    const siteFilter = siteIds !== undefined ? { siteId: In([...siteIds]) } : {};
     // Policies are stored under the canonical type (the upsert canonicalises).
     const policies = await tenantManagerRepo(manager, StorageItemSitePolicy, tenantId).find({
       where:
@@ -212,14 +264,16 @@ export class StockLedgerReader {
               tenantId,
               itemType: canonicalStockItemType(scope.key.itemType),
               itemId: scope.key.itemId,
+              ...siteFilter,
             }
           : scope.kind === 'items'
             ? {
                 tenantId,
                 itemType: canonicalStockItemType(scope.itemType),
                 itemId: In([...scope.itemIds]),
+                ...siteFilter,
               }
-            : { tenantId },
+            : { tenantId, ...siteFilter },
     });
     if (policies.length === 0) return [];
 

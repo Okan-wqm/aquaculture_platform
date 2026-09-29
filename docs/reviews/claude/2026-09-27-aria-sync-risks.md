@@ -124,3 +124,48 @@ restating it. `test_judge_verdict_contract_delivery` pins four things: that the 
 carries every role, verdict and reason; that each judge agent receives it; that the answer it
 describes passes the bridge for every reason while the old shape is refused; and that no judge
 agent file names a reason.
+
+## ARIA-HIGH-243
+
+`autonomy_orchestrator._drain_next_cycle_queue` resolves a queue item's evidence refs from the item's
+source: a mission's accumulated refs, or the stored payload of a pressure. When the source has none,
+the mint fell back to `evidence_refs = [qid]`, the queue marker `qi-<hex>`. That contradicts the rule
+stated a few lines above it, that refs come from the source record and never from the identifier.
+The planner's contract (`aria-autonomy-planner.md`) is to read only the envelope's `evidence_refs`
+and to cite them on blocked or contradicted rows, so it echoed the marker back.
+`evidence_validator` then refused every such answer as `agent_evidence_path_missing` (the
+2026-09-27 audit's D6). Two tests pinned the fallback as intended behaviour.
+
+Rule: The queue marker never enters the evidence channel, and a request whose evidence cannot exist
+is never minted.
+
+Fix: a kernel-owned mission contract mints with the refs its source holds, which may be none. The
+self-change contract asks the answer to establish its own `details.evidence_paths`. The generic
+projection has only the refs resolved from its source. If it has none, the drain consumes the item
+and writes `next_cycle_queue_item_unevidenced` (queue item, pressure, source cycle) instead of
+minting. The item is queued again once its source holds evidence: a mission when its own work
+records refs (its wake condition), a pressure when a cycle stores its payload. The two pinning tests
+now assert that nothing is minted and the item is disclosed. The mission and generic-contract tests
+mint with the mission's real refs, and the self-change test asserts an empty ref list instead of the
+marker. Without the fix the new assertions fail.
+
+## ARIA-HIGH-245
+
+Found while landing ARIA-HIGH-243. `mission.open_mission` takes no evidence refs. The producers
+derive each mission's contract from evidence they hold. `cycle._service_hardening_contract` builds
+the next action and wake key from `finding:<id>`, `pressure:<id>` or `changed_path:<path>`,
+`mission.adopt_task_candidates` builds them from `<source>:<source_id>`, and `gateway/router` builds
+them from the issue. None of them records that evidence on the mission row. A mission gains refs
+only through `mission_reconcile` (`pr:N`, `branch:X`), which happens after planning. Before
+ARIA-HIGH-243 these missions minted with the queue marker, and every answer that cited it was
+refused. After ARIA-HIGH-243 the drain consumes them as `next_cycle_queue_item_unevidenced`. Either
+way, the charter's mission line never reaches the autonomy planner. This does not block chain
+closure: C4 plans from `plan_synthesizer` candidates, which do not read the next-cycle queue.
+
+Rule: A mission carries the evidence its opening contract names. A producer that can name its
+evidence records it, and no mission line is unplannable by construction.
+
+Fix direction (owner claude, deadline 2026-10-13): each producer resolves its source to refs when it
+opens the mission (the finding's evidence paths, the pressure's stored `evidence_paths`, the changed
+path, the issue URL), and `open_mission` records them. A producer that cannot resolve any refuses by
+name.

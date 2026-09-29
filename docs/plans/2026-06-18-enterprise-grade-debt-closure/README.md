@@ -17,12 +17,12 @@ reverse-engineering review lanes. The initial Wave 0 finding truth table is
 ## Registry Snapshot
 
 - Base commit: `2de67e4a5a6ffdcf675be0fcd4322854fcecd62f`
-- Registry entries: 2242
-- Registry tip hash: `b6fc8c1e3f7c734edec0f46ecbd1cc05c36d1e871c112cc3305d703cc8b33b8f`
-- OPEN findings: 399
+- Registry entries: 2244
+- Registry tip hash: `c3c984dc17a03b6fe6854473154217faaeed6f2fe4556d165417c051a7eaa8cd`
+- OPEN findings: 401
 - IN-PROGRESS findings: 63
 - Active CRITICAL findings: 31
-- `npm run findings:verify`: passing against registry tip `b6fc8c1e3f7c734edec0f46ecbd1cc05c36d1e871c112cc3305d703cc8b33b8f`
+- `npm run findings:verify`: passing against registry tip `c3c984dc17a03b6fe6854473154217faaeed6f2fe4556d165417c051a7eaa8cd`
 - Worktree state at plan creation: dirty before this plan was written; existing
   source changes are treated as user work and are not part of this plan artifact.
 

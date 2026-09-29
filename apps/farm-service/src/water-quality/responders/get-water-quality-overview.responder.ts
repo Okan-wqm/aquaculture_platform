@@ -1,8 +1,8 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { runInTenantRead, isValidUUID } from '@aquaculture/backend-common/database';
-import { DataSource } from 'typeorm';
+import { isAiQueryRequestShape, type TenantBoundReply } from '@platform/event-contracts';
 import { WaterQualityMeasurement } from '../entities/water-quality-measurement.entity';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 /** Bound so a large history cannot flood the agent turn / the reply payload. */
 const RECENT_MEASUREMENTS_LIMIT = 25;
@@ -19,6 +19,11 @@ export interface GetWaterQualityRequest {
   tenantId: string;
 }
 
+/** Contract guard: exactly `{ tenantId }` with a UUID tenant. */
+function isGetWaterQualityRequest(value: unknown): value is GetWaterQualityRequest {
+  return isAiQueryRequestShape(value, []);
+}
+
 export interface WaterQualityReading {
   id: string;
   tankId: string | null;
@@ -33,54 +38,49 @@ export interface WaterQualityReading {
 
 @Controller()
 export class GetWaterQualityOverviewResponder {
-  private readonly logger = new Logger(GetWaterQualityOverviewResponder.name);
+  constructor(private readonly responder: FarmAiResponder) {}
 
-  constructor(private readonly dataSource: DataSource) {}
-
+  // K10 (MT-HIGH-062): one responder skeleton — guard, tenant frame, and a
+  // reply that names the tenant it served. A failure is an INTERNAL_ERROR the
+  // ai-service tool surfaces, not an empty list the model reads as "no data".
   @MessagePattern('request.farm.getWaterQualityOverview')
-  async handleGetWaterQualityOverview(
-    @Payload() payload: GetWaterQualityRequest,
-  ): Promise<WaterQualityReading[]> {
-    if (!payload?.tenantId || !isValidUUID(payload.tenantId)) {
-      return [];
-    }
-
-    try {
-      return await runInTenantRead(this.dataSource, 'farm', payload.tenantId, async (qr) => {
-        const rows = await qr.manager.find(WaterQualityMeasurement, {
-          select: {
-            id: true,
-            tankId: true,
-            pondId: true,
-            measuredAt: true,
-            temperature: true,
-            dissolvedOxygen: true,
-            pH: true,
-            ammonia: true,
-            nitrite: true,
-          },
-          order: { measuredAt: 'DESC' },
-          take: RECENT_MEASUREMENTS_LIMIT,
-        });
-        return rows.map((r) => ({
-          id: r.id,
-          tankId: r.tankId ?? null,
-          pondId: r.pondId ?? null,
-          measuredAt: r.measuredAt.toISOString(),
-          temperature: r.temperature ?? null,
-          dissolvedOxygen: r.dissolvedOxygen ?? null,
-          pH: r.pH ?? null,
-          ammonia: r.ammonia ?? null,
-          nitrite: r.nitrite ?? null,
-        }));
-      });
-    } catch (err) {
-      this.logger.error(
-        `request.farm.getWaterQualityOverview failed for tenant ${payload.tenantId}: ${
-          err instanceof Error ? err.message : 'unknown error'
-        }`,
-      );
-      return [];
-    }
+  handleGetWaterQualityOverview(
+    @Payload() payload: unknown,
+  ): Promise<TenantBoundReply<WaterQualityReading[]>> {
+    return this.responder.respond(
+      {
+        subject: 'request.farm.getWaterQualityOverview',
+        isRequest: isGetWaterQualityRequest,
+        handle: async (_request, scope) => {
+          const rows = await scope.manager.find(WaterQualityMeasurement, {
+            select: {
+              id: true,
+              tankId: true,
+              pondId: true,
+              measuredAt: true,
+              temperature: true,
+              dissolvedOxygen: true,
+              pH: true,
+              ammonia: true,
+              nitrite: true,
+            },
+            order: { measuredAt: 'DESC' },
+            take: RECENT_MEASUREMENTS_LIMIT,
+          });
+          return rows.map((r) => ({
+            id: r.id,
+            tankId: r.tankId ?? null,
+            pondId: r.pondId ?? null,
+            measuredAt: r.measuredAt.toISOString(),
+            temperature: r.temperature ?? null,
+            dissolvedOxygen: r.dissolvedOxygen ?? null,
+            pH: r.pH ?? null,
+            ammonia: r.ammonia ?? null,
+            nitrite: r.nitrite ?? null,
+          }));
+        },
+      },
+      payload,
+    );
   }
 }

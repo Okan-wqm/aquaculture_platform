@@ -52,6 +52,7 @@ import { FeederCalibrationResponse } from './dto/feeder-calibration.response';
 import { SaveFeederCalibrationsInput } from './dto/feeder-calibration.input';
 import { SaveFeederCalibrationsCommand } from './commands/save-feeder-calibrations.command';
 import { ListFeederCalibrationsQuery } from './queries/list-feeder-calibrations.query';
+import { FarmTenantScopes } from '../common/tenant-boundary/farm-tenant-scopes';
 
 @Resolver(() => EquipmentResponse)
 @UseGuards(TenantGuard)
@@ -65,6 +66,7 @@ export class EquipmentResolver {
     private readonly tankBatchRepository: Repository<TankBatch>,
     private readonly feedSelectorService: FeedSelectorService,
     private readonly waterTemperatureService: WaterTemperatureService,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   /**
@@ -161,8 +163,9 @@ export class EquipmentResolver {
     if (!tenantId) {
       throw new Error('Tenant ID is required');
     }
-    const query = new ListEquipmentQuery(tenantId, filter, pagination);
-    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<EquipmentResponse>;
+    const result = (await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListEquipmentQuery(scope, filter, pagination)),
+    )) as PaginatedQueryResult<EquipmentResponse>;
     return fromCqrsPaginated(result);
   }
 
@@ -175,12 +178,11 @@ export class EquipmentResolver {
     @Args('departmentId', { type: () => ID }) departmentId: string,
     @CurrentTenant() tenantId: string,
   ): Promise<readonly EquipmentResponse[]> {
-    const query = new ListEquipmentQuery(
-      tenantId,
-      { departmentId, isActive: true },
-      { limit: 1000 },
-    );
-    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<EquipmentResponse>;
+    const result = (await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(
+        new ListEquipmentQuery(scope, { departmentId, isActive: true }, { limit: 1000 }),
+      ),
+    )) as PaginatedQueryResult<EquipmentResponse>;
     return fromCqrsPaginated(result).items;
   }
 
@@ -489,8 +491,9 @@ export class EquipmentResolver {
     @Args('equipmentId', { type: () => ID }) equipmentId: string,
     @CurrentTenant() tenantId: string,
   ): Promise<FeederCalibrationResponse[]> {
-    const query = new ListFeederCalibrationsQuery(equipmentId, tenantId);
-    return this.queryBus.execute(query);
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListFeederCalibrationsQuery(scope, equipmentId)),
+    );
   }
 
   /**

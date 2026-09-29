@@ -25,6 +25,7 @@
  *     !active, malformed reply) resolves `null` — the caller must treat the
  *     sender as unauthorized, never as MODULE_USER-with-guesses.
  */
+import { aiCallerCapabilitiesKey } from '../ai-redis-keys';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
@@ -49,8 +50,6 @@ export interface CallerCapabilities {
   resourcePermissions: string[];
 }
 
-const CACHE_PREFIX = 'ai:caller-caps:';
-
 @Injectable()
 export class AiCallerCapabilitiesService {
   private readonly logger = new Logger(AiCallerCapabilitiesService.name);
@@ -67,7 +66,7 @@ export class AiCallerCapabilitiesService {
    * cannot be established (fail-closed — caller must deny the AI turn).
    */
   async resolve(tenantId: string, userId: string): Promise<CallerCapabilities | null> {
-    const cacheKey = `${CACHE_PREFIX}${tenantId}:${userId}`;
+    const cacheKey = aiCallerCapabilitiesKey(tenantId, userId);
 
     const cached = await this.safeRedisGet(cacheKey);
     if (cached !== null) {

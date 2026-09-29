@@ -1,8 +1,8 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
-import { runInTenantRead, isValidUUID } from '@aquaculture/backend-common/database';
-import { DataSource } from 'typeorm';
+import { isAiQueryRequestShape, type TenantBoundReply } from '@platform/event-contracts';
 import { FeedingRecord } from '../entities/feeding-record.entity';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 /** Bound so a large feeding history cannot flood the agent turn / the payload. */
 const RECENT_FEEDINGS_LIMIT = 25;
@@ -19,6 +19,11 @@ export interface GetFeedingOverviewRequest {
   tenantId: string;
 }
 
+/** Contract guard: exactly `{ tenantId }` with a UUID tenant. */
+function isGetFeedingOverviewRequest(value: unknown): value is GetFeedingOverviewRequest {
+  return isAiQueryRequestShape(value, []);
+}
+
 export interface FeedingRecordEntry {
   id: string;
   batchId: string;
@@ -31,51 +36,46 @@ export interface FeedingRecordEntry {
 
 @Controller()
 export class GetFeedingOverviewResponder {
-  private readonly logger = new Logger(GetFeedingOverviewResponder.name);
+  constructor(private readonly responder: FarmAiResponder) {}
 
-  constructor(private readonly dataSource: DataSource) {}
-
+  // K10 (MT-HIGH-062): one responder skeleton — guard, tenant frame, and a
+  // reply that names the tenant it served. A failure is an INTERNAL_ERROR the
+  // ai-service tool surfaces, not an empty list the model reads as "no data".
   @MessagePattern('request.farm.getFeedingOverview')
-  async handleGetFeedingOverview(
-    @Payload() payload: GetFeedingOverviewRequest,
-  ): Promise<FeedingRecordEntry[]> {
-    if (!payload?.tenantId || !isValidUUID(payload.tenantId)) {
-      return [];
-    }
-
-    try {
-      return await runInTenantRead(this.dataSource, 'farm', payload.tenantId, async (qr) => {
-        const rows = await qr.manager.find(FeedingRecord, {
-          select: {
-            id: true,
-            batchId: true,
-            tankId: true,
-            feedingDate: true,
-            feedingTime: true,
-            plannedAmount: true,
-            actualAmount: true,
-          },
-          order: { feedingDate: 'DESC', feedingTime: 'DESC' },
-          take: RECENT_FEEDINGS_LIMIT,
-        });
-        return rows.map((r) => ({
-          id: r.id,
-          batchId: r.batchId,
-          tankId: r.tankId ?? null,
-          // `feedingDate` is a DATE column — normalise to YYYY-MM-DD.
-          feedingDate: new Date(r.feedingDate).toISOString().slice(0, 10),
-          feedingTime: r.feedingTime,
-          plannedAmountKg: r.plannedAmount,
-          actualAmountKg: r.actualAmount,
-        }));
-      });
-    } catch (err) {
-      this.logger.error(
-        `request.farm.getFeedingOverview failed for tenant ${payload.tenantId}: ${
-          err instanceof Error ? err.message : 'unknown error'
-        }`,
-      );
-      return [];
-    }
+  handleGetFeedingOverview(
+    @Payload() payload: unknown,
+  ): Promise<TenantBoundReply<FeedingRecordEntry[]>> {
+    return this.responder.respond(
+      {
+        subject: 'request.farm.getFeedingOverview',
+        isRequest: isGetFeedingOverviewRequest,
+        handle: async (_request, scope) => {
+          const rows = await scope.manager.find(FeedingRecord, {
+            select: {
+              id: true,
+              batchId: true,
+              tankId: true,
+              feedingDate: true,
+              feedingTime: true,
+              plannedAmount: true,
+              actualAmount: true,
+            },
+            order: { feedingDate: 'DESC', feedingTime: 'DESC' },
+            take: RECENT_FEEDINGS_LIMIT,
+          });
+          return rows.map((r) => ({
+            id: r.id,
+            batchId: r.batchId,
+            tankId: r.tankId ?? null,
+            // `feedingDate` is a DATE column — normalise to YYYY-MM-DD.
+            feedingDate: new Date(r.feedingDate).toISOString().slice(0, 10),
+            feedingTime: r.feedingTime,
+            plannedAmountKg: r.plannedAmount,
+            actualAmountKg: r.actualAmount,
+          }));
+        },
+      },
+      payload,
+    );
   }
 }

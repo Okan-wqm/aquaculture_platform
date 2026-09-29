@@ -2,10 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { IQueryHandler, QueryHandler } from '@platform/cqrs';
 
 import { GetFinanceLedgerQuery } from '../queries/get-finance-ledger.query';
-import {
-  FinanceLedgerQueryService,
-  FinanceLineItemShape,
-} from '../services/finance-ledger-query.service';
+import type { FinanceLineItemShape } from '../services/finance-ledger-model';
+import { FinanceLedgerQueryService } from '../services/finance-ledger-query.service';
 
 @Injectable()
 @QueryHandler(GetFinanceLedgerQuery)

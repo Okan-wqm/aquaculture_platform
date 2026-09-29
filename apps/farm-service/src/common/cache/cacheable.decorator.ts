@@ -12,7 +12,9 @@
  *   @Query(() => [SpeciesResponse])
  *   @Cacheable({ prefix: 'species:list', ttlSeconds: 3600 })
  *   async speciesList(@CurrentTenant() tenantId: string): Promise<Species[]> {
- *     return this.queryBus.execute(new ListSpeciesQuery(tenantId));
+ *     return this.tenantScopes.read(tenantId, (scope) =>
+ *       this.queryBus.execute(new ListSpeciesQuery(scope)),
+ *     );
  *   }
  *
  * Per-entity TTL defaults (calibrated to the churn rate of the

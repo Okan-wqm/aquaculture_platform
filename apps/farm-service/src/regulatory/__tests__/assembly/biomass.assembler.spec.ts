@@ -15,6 +15,7 @@ import { GetSiteFeedConsumptionQuery } from '../../../feeding/queries/get-site-f
 import { BiomassReportAssembler } from '../../assembly/biomass.assembler';
 import { ReportFieldProvenance } from '../../assembly/provenance.types';
 import { BiomassReportPayload } from '../../entities/biomass-report.entity';
+import { FarmTenantScopes } from '../../../common/tenant-boundary/farm-tenant-scopes';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const siteId = 'ssssssss-ssss-4sss-8sss-ssssssssssss';
@@ -123,6 +124,7 @@ function makeAssembler(
     queryBus as QueryBus,
     calculator as BiomassCalculatorService,
     reconstruction as StockReconstructionService,
+    new FarmTenantScopes(mockDataSource),
   );
 }
 

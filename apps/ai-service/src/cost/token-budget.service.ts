@@ -1,5 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { aiTokenBudgetKey } from './ai-redis-keys';
 
 /**
  * Monthly token budget tracking per tenant.
@@ -53,7 +54,7 @@ export class TokenBudgetService {
   private getMonthlyKey(tenantId: string): string {
     const now = new Date();
     const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-    return `ai:tokens:${tenantId}:${month}`;
+    return aiTokenBudgetKey(tenantId, month);
   }
 
   /**

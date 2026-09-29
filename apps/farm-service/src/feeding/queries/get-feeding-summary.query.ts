@@ -5,7 +5,7 @@
  *
  * @module Feeding/Queries
  */
-import { ITenantQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 /**
  * Yemleme özet sonucu
@@ -59,11 +59,11 @@ export interface FeedingSummaryResult {
   }[];
 }
 
-export class GetFeedingSummaryQuery implements ITenantQuery {
+export class GetFeedingSummaryQuery {
   readonly queryName = 'GetFeedingSummaryQuery';
 
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly entityType: 'batch' | 'tank',
     public readonly entityId: string,
     public readonly fromDate?: Date,

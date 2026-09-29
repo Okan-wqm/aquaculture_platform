@@ -1,17 +1,7 @@
-import { DataSource, EntityManager, QueryRunner } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { createMockDataSource } from '@aquaculture/testing';
 
-const runInTenantReadMock = jest.fn();
-
-jest.mock('@aquaculture/backend-common/database', () => ({
-  ...jest.requireActual('@aquaculture/backend-common/database'),
-  runInTenantRead: (
-    dataSource: DataSource,
-    schema: string,
-    tenantId: string,
-    callback: (queryRunner: QueryRunner) => Promise<unknown>,
-  ) => runInTenantReadMock(dataSource, schema, tenantId, callback),
-}));
+import { inTenantScope } from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 import { FarmStockBatchSnapshot } from '../../entities/farm-stock-batch-snapshot.entity';
 import {
@@ -60,25 +50,14 @@ function batch(containerId: string): FarmStockBatchSnapshot {
 
 describe('GetFarmStockInventoryHandler pagination contract', () => {
   let manager: jest.Mocked<EntityManager>;
-  let queryRunner: jest.Mocked<QueryRunner>;
   let dataSource: jest.Mocked<DataSource>;
   let handler: GetFarmStockInventoryHandler;
 
   beforeEach(() => {
     const mocks = createMockDataSource();
     manager = mocks.mockManager;
-    queryRunner = mocks.mockQueryRunner;
     dataSource = mocks.mockDataSource;
-    runInTenantReadMock.mockReset();
-    runInTenantReadMock.mockImplementation(
-      async (
-        _dataSource: DataSource,
-        _schema: string,
-        _tenantId: string,
-        callback: (scopedQueryRunner: QueryRunner) => Promise<unknown>,
-      ) => callback(queryRunner),
-    );
-    handler = new GetFarmStockInventoryHandler(dataSource);
+    handler = new GetFarmStockInventoryHandler();
   });
 
   function installInventoryQuery(
@@ -107,8 +86,10 @@ describe('GetFarmStockInventoryHandler pagination contract', () => {
   it('returns the standard empty-page semantics without querying batch snapshots', async () => {
     const queryBuilder = installInventoryQuery(0, []);
 
-    const result = await handler.execute(
-      new GetFarmStockInventoryQuery(TENANT_ID, { page: 1, limit: 25 }),
+    const result = await inTenantScope(
+      TENANT_ID,
+      (scope) => handler.execute(new GetFarmStockInventoryQuery(scope, { page: 1, limit: 25 })),
+      dataSource,
     );
 
     expect(result).toEqual({
@@ -123,12 +104,6 @@ describe('GetFarmStockInventoryHandler pagination contract', () => {
     expect(queryBuilder.skip).toHaveBeenCalledWith(0);
     expect(queryBuilder.take).toHaveBeenCalledWith(25);
     expect(manager.find).not.toHaveBeenCalled();
-    expect(runInTenantReadMock).toHaveBeenCalledWith(
-      dataSource,
-      'farm',
-      TENANT_ID,
-      expect.any(Function),
-    );
   });
 
   it('derives multi-page navigation flags from the shared pagination authority', async () => {
@@ -138,8 +113,10 @@ describe('GetFarmStockInventoryHandler pagination contract', () => {
     const queryBuilder = installInventoryQuery(5, [firstContainer, secondContainer]);
     manager.find.mockResolvedValue([primaryBatch]);
 
-    const result = await handler.execute(
-      new GetFarmStockInventoryQuery(TENANT_ID, { page: 2, limit: 2 }),
+    const result = await inTenantScope(
+      TENANT_ID,
+      (scope) => handler.execute(new GetFarmStockInventoryQuery(scope, { page: 2, limit: 2 })),
+      dataSource,
     );
 
     expect(result).toMatchObject({

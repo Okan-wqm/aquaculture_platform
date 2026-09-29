@@ -108,6 +108,24 @@ const MAX_CACHE_SIZE = 100;
 
 // ── GraphQL Client Sınıfı ───────────────────────────────────────
 /**
+ * Query cache key: `<tenantId>::<query>::<variables>` (K10 layer 5, MT-HIGH-064).
+ *
+ * WHY the tenant leads the key: the cache is per client instance and one
+ * client serves one session today, so a tenant-less key happens to be safe —
+ * until a shared-client transport (the unfinished SSE mode) or a per-tenant
+ * session pool reuses a cache across sessions. With the tenant in the key, a
+ * cached answer for one tenant can never satisfy another tenant's query.
+ */
+export function buildQueryCacheKey(
+  tenantId: string,
+  query: string,
+  variables?: Record<string, unknown>,
+): string {
+  const varsStr = variables ? JSON.stringify(variables) : '';
+  return `${tenantId}::${query}::${varsStr}`;
+}
+
+/**
  * GraphQL Client — Gateway'e tipli sorgular gönderir.
  *
  * NASIL ÇALIŞIR:
@@ -307,13 +325,9 @@ export class GraphQLClient {
 
   // ── Private: Cache Helpers ────────────────────────────────
 
-  /**
-   * Cache key oluşturur — query string + variables birleşimi.
-   * Basit string concat yeterli, crypto hash gereksiz.
-   */
+  /** Cache key of this session's query — tenant first (see buildQueryCacheKey). */
   private buildCacheKey(query: string, variables?: Record<string, unknown>): string {
-    const varsStr = variables ? JSON.stringify(variables) : '';
-    return `${query}::${varsStr}`;
+    return buildQueryCacheKey(this.session.tenantId, query, variables);
   }
 
   /**

@@ -6,6 +6,10 @@ import { GetBatchPerformanceQuery } from '../../queries/get-batch-performance.qu
 import { GetMortalityByCauseQuery } from '../../queries/get-mortality-by-cause.query';
 import { GetTransfersSummaryQuery } from '../../queries/get-transfers-summary.query';
 import { BatchAiQueryResponder } from '../batch-ai-query.responder';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const BATCH = '22222222-2222-4222-8222-222222222222';
@@ -13,11 +17,13 @@ const BATCH = '22222222-2222-4222-8222-222222222222';
 describe('BatchAiQueryResponder (FARM-MEDIUM-328)', () => {
   let execute: jest.Mock;
   let responder: BatchAiQueryResponder;
+  let harness: FarmScopeHarness;
 
   beforeEach(() => {
     execute = jest.fn();
     const queryBus: Pick<QueryBus, 'execute'> = { execute };
-    responder = new BatchAiQueryResponder(queryBus as QueryBus);
+    harness = createFarmScopeHarness();
+    responder = new BatchAiQueryResponder(harness.responder, queryBus as QueryBus);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
   });
@@ -25,7 +31,7 @@ describe('BatchAiQueryResponder (FARM-MEDIUM-328)', () => {
   describe(FARM_AI_QUERY_SUBJECTS.BATCH_PERFORMANCE, () => {
     it('rejects a non-uuid batch id without touching the bus', async () => {
       const reply = await responder.getPerformance({ tenantId: TENANT, batchId: 'B-1' });
-      expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+      expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
       expect(execute).not.toHaveBeenCalled();
     });
 
@@ -72,6 +78,7 @@ describe('BatchAiQueryResponder (FARM-MEDIUM-328)', () => {
       expect(execute).toHaveBeenCalledWith(expect.any(GetBatchPerformanceQuery));
       expect(reply).toMatchObject({
         ok: true,
+        tenantId: TENANT,
         data: {
           batchId: BATCH,
           weightGainPct: 900,
@@ -86,7 +93,7 @@ describe('BatchAiQueryResponder (FARM-MEDIUM-328)', () => {
     it('maps a rejected query to INTERNAL_ERROR', async () => {
       execute.mockRejectedValue(new Error('boom'));
       const reply = await responder.getPerformance({ tenantId: TENANT, batchId: BATCH });
-      expect(reply).toEqual({ ok: false, error: 'INTERNAL_ERROR' });
+      expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INTERNAL_ERROR' });
     });
   });
 
@@ -98,7 +105,7 @@ describe('BatchAiQueryResponder (FARM-MEDIUM-328)', () => {
         fromDate: '2024-01-01',
         toDate: '2026-09-18',
       });
-      expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+      expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
     });
 
     it('derives percentages per cause and drops per-record details', async () => {
@@ -122,6 +129,7 @@ describe('BatchAiQueryResponder (FARM-MEDIUM-328)', () => {
       expect(execute).toHaveBeenCalledWith(expect.any(GetMortalityByCauseQuery));
       expect(reply).toEqual({
         ok: true,
+        tenantId: TENANT,
         data: {
           siteId: BATCH,
           fromDate: '2026-09-01',
@@ -164,6 +172,7 @@ describe('BatchAiQueryResponder (FARM-MEDIUM-328)', () => {
       expect(execute).toHaveBeenCalledWith(expect.any(GetTransfersSummaryQuery));
       expect(reply).toMatchObject({
         ok: true,
+        tenantId: TENANT,
         data: {
           totalInCount: 100,
           totalInBiomassKg: 10.5,

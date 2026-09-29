@@ -1,11 +1,14 @@
 import 'reflect-metadata';
 import { of } from 'rxjs';
 import { GetFarmHarvestTool } from '../get-farm-harvest.tool';
-import type { ToolExecutionContext } from '../../core/tool.interface';
+import {
+  boundReply,
+  humanToolContext,
+  tenantBoundClient,
+} from '../../../tenant-boundary/__tests__/fixtures/tenant-bound.fixture';
 
-const CTX: ToolExecutionContext = {
+const CTX = humanToolContext({
   tenantId: '44444444-4444-4444-8444-444444444444',
-  schemaName: 'tenant_4444444444444444',
   userId: 'u-1',
   userRoles: ['operator'],
   correlationId: 'corr-1',
@@ -13,7 +16,7 @@ const CTX: ToolExecutionContext = {
   personaTier: 'operator',
   offeredToolNames: [],
   actuationPolicy: 'allowed',
-};
+});
 
 const PLAN = {
   id: 'h1',
@@ -30,7 +33,7 @@ describe('GetFarmHarvestTool', () => {
 
   beforeEach(() => {
     send = jest.fn();
-    tool = new GetFarmHarvestTool({ send });
+    tool = new GetFarmHarvestTool(tenantBoundClient({ send }));
   });
 
   it('is a plain read tool (no confirmation)', () => {
@@ -40,19 +43,19 @@ describe('GetFarmHarvestTool', () => {
   });
 
   it('requests the harvest plans for the context tenant and returns them + count', async () => {
-    send.mockReturnValue(of([PLAN]));
+    send.mockReturnValue(of(boundReply([PLAN], CTX.tenant.tenantId)));
 
     const result = await tool.execute({}, CTX);
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ plans: [PLAN], count: 1 });
     expect(send).toHaveBeenCalledWith('request.farm.getHarvestOverview', {
-      tenantId: CTX.tenantId,
+      tenantId: CTX.tenant.tenantId,
     });
   });
 
   it('coalesces an empty/absent result to a zero-count result', async () => {
-    send.mockReturnValue(of([]));
+    send.mockReturnValue(of(boundReply([], CTX.tenant.tenantId)));
     const result = await tool.execute({}, CTX);
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ plans: [], count: 0 });

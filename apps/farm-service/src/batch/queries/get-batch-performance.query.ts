@@ -5,7 +5,7 @@
  *
  * @module Batch/Queries
  */
-import { ITenantQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 export interface BatchPerformanceResult {
   batchId: string;
@@ -68,9 +68,9 @@ export interface BatchPerformanceResult {
   performanceStatus: 'excellent' | 'good' | 'average' | 'below_average' | 'poor';
 }
 
-export class GetBatchPerformanceQuery implements ITenantQuery {
+export class GetBatchPerformanceQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly batchId: string,
   ) {}
 }

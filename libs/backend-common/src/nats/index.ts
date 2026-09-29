@@ -9,6 +9,18 @@ export { buildNatsConnectionOptions, DEFAULT_NATS_URL } from './nats-connection.
 export type { NatsAuthMode } from './nats-connection.factory';
 
 export { TenantValidatingConsumer } from './tenant-validating-consumer';
+
+// K10 (MT-HIGH-062): the one responder skeleton for AI-facing request subjects.
+// It owns the tenant data boundary; handlers receive only a TenantScope.
+export { respondTenantBound } from './tenant-bound-reply';
+export type {
+  TenantBoundResponderDeps,
+  TenantBoundSubject,
+  TenantFreeRequest,
+  TenantScopeOpener,
+} from './tenant-bound-reply';
+export { resolveTenantOwnedRows, undeclaredIdFields } from './tenant-owned-rows';
+export type { TenantOwnerRegistry, TenantOwnerRule } from './tenant-owned-rows';
 export type { TenantValidationResult } from './tenant-validating-consumer';
 
 // PR-B (PLAT-HIGH-003): platform-owned NATS v3 Nest transport — wire-compatible

@@ -1,8 +1,8 @@
 /**
  * Get Harvest Plan Statistics Query
  */
-import { IQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
-export class GetHarvestPlanStatsQuery implements IQuery {
-  constructor(public readonly tenantId: string) {}
+export class GetHarvestPlanStatsQuery {
+  constructor(public readonly scope: TenantScope) {}
 }

@@ -28,6 +28,7 @@ import { ListFeedingProtocolsQuery } from './queries/list-feeding-protocols.quer
 import { FeedingProtocol } from './entities/feeding-protocol.entity';
 import { FeedType } from './entities/feed.entity';
 import { FeedResponse } from './dto/feed.response';
+import { FarmTenantScopes } from '../common/tenant-boundary/farm-tenant-scopes';
 
 @Resolver(() => FeedingProtocolResponse)
 @UseGuards(TenantGuard)
@@ -37,6 +38,7 @@ export class FeedingProtocolResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // ==========================================================================
@@ -68,8 +70,9 @@ export class FeedingProtocolResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<PaginatedFeedingProtocolsResponse> {
     this.logger.debug(`Listing feeding protocols for tenant ${tenantId}`);
-    const query = new ListFeedingProtocolsQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<FeedingProtocolResponse>;
+    const result = (await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListFeedingProtocolsQuery(scope, filter, pagination)),
+    )) as PaginatedQueryResult<FeedingProtocolResponse>;
     return fromCqrsPaginated(result);
   }
 
@@ -83,12 +86,11 @@ export class FeedingProtocolResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<readonly FeedingProtocolResponse[]> {
     this.logger.debug(`Getting feeding protocols for species "${species}" for tenant ${tenantId}`);
-    const query = new ListFeedingProtocolsQuery(
-      tenantId,
-      { species, isActive: true },
-      { limit: 100 },
-    );
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<FeedingProtocolResponse>;
+    const result = (await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(
+        new ListFeedingProtocolsQuery(scope, { species, isActive: true }, { limit: 100 }),
+      ),
+    )) as PaginatedQueryResult<FeedingProtocolResponse>;
     return fromCqrsPaginated(result).items;
   }
 
@@ -103,12 +105,15 @@ export class FeedingProtocolResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<FeedingProtocolResponse | null> {
     this.logger.debug(`Getting default feeding protocol for species "${species}" for tenant ${tenantId}`);
-    const query = new ListFeedingProtocolsQuery(
-      tenantId,
-      { species, stage: stage as FeedType | undefined, isDefault: true, isActive: true },
-      { limit: 1 },
-    );
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<FeedingProtocolResponse>;
+    const result = (await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(
+        new ListFeedingProtocolsQuery(
+          scope,
+          { species, stage: stage as FeedType | undefined, isDefault: true, isActive: true },
+          { limit: 1 },
+        ),
+      ),
+    )) as PaginatedQueryResult<FeedingProtocolResponse>;
     return fromCqrsPaginated(result).items[0] || null;
   }
 

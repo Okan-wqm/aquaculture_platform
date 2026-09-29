@@ -1,4 +1,4 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { QueryBus } from '@platform/cqrs';
 import {
@@ -7,19 +7,20 @@ import {
   isFinanceBatchTotalsRequest,
   isFinanceSummaryRequest,
   toEventIso,
-  type AiQueryReply,
+  type TenantBoundReply,
   type FinanceBatchTotalsReply,
   type FinanceSummaryReply,
   type FinanceSummaryRequest,
 } from '@platform/event-contracts';
-import { respondAiQuery, toBoundedList } from '../../common/nats/ai-query-responder';
+import { toBoundedList } from '../../common/nats/ai-query-responder';
 import { GetFinanceBatchTotalsQuery } from '../queries/get-finance-batch-totals.query';
 import { GetFinanceSummaryQuery } from '../queries/get-finance-summary.query';
 import {
   FinanceGranularity,
   type BatchTotalShape,
   type FinanceSummaryShape,
-} from '../services/finance-ledger-query.service';
+} from '../services/finance-ledger-model';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 /** Weekly granularity over a year is 53 buckets; anything finer is capped and flagged. */
 const SERIES_CAP = 53;
@@ -67,48 +68,47 @@ export function projectBatchTotal(row: BatchTotalShape): FinanceBatchTotalsReply
 /** Finance read surface for the farm production specialist (FARM-MEDIUM-328). */
 @Controller()
 export class FinanceAiQueryResponder {
-  private readonly logger = new Logger(FinanceAiQueryResponder.name);
-
-  constructor(private readonly queryBus: QueryBus) {}
+  constructor(
+    private readonly responder: FarmAiResponder,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FINANCE_SUMMARY)
-  getSummary(@Payload() payload: unknown): Promise<AiQueryReply<FinanceSummaryReply>> {
-    return respondAiQuery(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.FINANCE_SUMMARY,
-      payload,
-      isFinanceSummaryRequest,
-      async (req) => {
-        const result = await this.queryBus.execute<GetFinanceSummaryQuery, FinanceSummaryShape>(
-          new GetFinanceSummaryQuery(
-            req.tenantId,
-            new Date(req.fromDate),
-            new Date(req.toDate),
-            FinanceGranularity[req.granularity],
-          ),
-        );
-        return projectSummary(req, result);
+  getSummary(@Payload() payload: unknown): Promise<TenantBoundReply<FinanceSummaryReply>> {
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.FINANCE_SUMMARY,
+        isRequest: isFinanceSummaryRequest,
+        handle: async (req, scope) => {
+          const result = await this.queryBus.execute<GetFinanceSummaryQuery, FinanceSummaryShape>(
+            new GetFinanceSummaryQuery(
+              scope,
+              new Date(req.fromDate),
+              new Date(req.toDate),
+              FinanceGranularity[req.granularity],
+            ),
+          );
+          return projectSummary(req, result);
+        },
       },
+      payload,
     );
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FINANCE_BATCH_TOTALS)
-  getBatchTotals(@Payload() payload: unknown): Promise<AiQueryReply<FinanceBatchTotalsReply>> {
-    return respondAiQuery(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.FINANCE_BATCH_TOTALS,
-      payload,
-      isFinanceBatchTotalsRequest,
-      async (req) => {
-        const rows = await this.queryBus.execute<GetFinanceBatchTotalsQuery, BatchTotalShape[]>(
-          new GetFinanceBatchTotalsQuery(
-            req.tenantId,
-            new Date(req.fromDate),
-            new Date(req.toDate),
-          ),
-        );
-        return toBoundedList(rows, req.limit, projectBatchTotal);
+  getBatchTotals(@Payload() payload: unknown): Promise<TenantBoundReply<FinanceBatchTotalsReply>> {
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.FINANCE_BATCH_TOTALS,
+        isRequest: isFinanceBatchTotalsRequest,
+        handle: async (req, scope) => {
+          const rows = await this.queryBus.execute<GetFinanceBatchTotalsQuery, BatchTotalShape[]>(
+            new GetFinanceBatchTotalsQuery(scope, new Date(req.fromDate), new Date(req.toDate)),
+          );
+          return toBoundedList(rows, req.limit, projectBatchTotal);
+        },
       },
+      payload,
     );
   }
 }

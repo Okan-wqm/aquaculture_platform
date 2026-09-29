@@ -1,20 +1,21 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { QueryBus } from '@platform/cqrs';
 import {
   FARM_AI_QUERY_SUBJECTS,
   isFarmStockInventoryRequest,
-  type AiQueryReply,
+  type TenantBoundReply,
   type FarmStockContainerDto,
   type FarmStockInventoryReply,
 } from '@platform/event-contracts';
-import { numberOrNull, respondAiQuery, toBoundedList } from '../../common/nats/ai-query-responder';
+import { numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import {
   FarmStockInventoryFilterInput,
   type FarmStockInventoryConnection,
   type FarmStockInventoryItem,
 } from '../dto/farm-stock-inventory.dto';
 import { GetFarmStockInventoryQuery } from '../queries/get-farm-stock-inventory.query';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 export function projectContainer(item: FarmStockInventoryItem): FarmStockContainerDto {
   const c = item.container;
@@ -48,30 +49,32 @@ export function projectContainer(item: FarmStockInventoryItem): FarmStockContain
 /** Farm stock (containers + batches) for the farm operations specialist (FARM-MEDIUM-328). */
 @Controller()
 export class FarmStockAiQueryResponder {
-  private readonly logger = new Logger(FarmStockAiQueryResponder.name);
-
-  constructor(private readonly queryBus: QueryBus) {}
+  constructor(
+    private readonly responder: FarmAiResponder,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.FARM_STOCK_INVENTORY)
-  getInventory(@Payload() payload: unknown): Promise<AiQueryReply<FarmStockInventoryReply>> {
-    return respondAiQuery(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.FARM_STOCK_INVENTORY,
-      payload,
-      isFarmStockInventoryRequest,
-      async (req) => {
-        const filter = new FarmStockInventoryFilterInput();
-        filter.isActive = true;
-        if (req.siteId) filter.siteId = req.siteId;
-        if (req.hasActiveBatch !== undefined) filter.hasActiveBatch = req.hasActiveBatch;
-        filter.page = 1;
-        filter.limit = req.limit;
-        const page = await this.queryBus.execute<
-          GetFarmStockInventoryQuery,
-          FarmStockInventoryConnection
-        >(new GetFarmStockInventoryQuery(req.tenantId, filter));
-        return toBoundedList(page.items, req.limit, projectContainer, page.total);
+  getInventory(@Payload() payload: unknown): Promise<TenantBoundReply<FarmStockInventoryReply>> {
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.FARM_STOCK_INVENTORY,
+        isRequest: isFarmStockInventoryRequest,
+        handle: async (req, scope) => {
+          const filter = new FarmStockInventoryFilterInput();
+          filter.isActive = true;
+          if (req.siteId) filter.siteId = req.siteId;
+          if (req.hasActiveBatch !== undefined) filter.hasActiveBatch = req.hasActiveBatch;
+          filter.page = 1;
+          filter.limit = req.limit;
+          const page = await this.queryBus.execute<
+            GetFarmStockInventoryQuery,
+            FarmStockInventoryConnection
+          >(new GetFarmStockInventoryQuery(scope, filter));
+          return toBoundedList(page.items, req.limit, projectContainer, page.total);
+        },
       },
+      payload,
     );
   }
 }

@@ -256,7 +256,142 @@ const NON_PROVENANCE_TS_PROJECTS = [
   // Without this pin the parser fell back to the repo-wide node-resolution
   // project and reported `no-unsafe-*` on correctly-typed code.
   'tools/scripts',
+  // The K10 two-tenant red-team (plan PR-T1): a test-only project whose
+  // sources span ai-service and farm-service.
+  'tests/ai-tenant-redteam',
 ];
+
+/**
+ * K10 (MT-HIGH-062): the NATS transport entry points AI tool code must never
+ * import. WHY: a tool that can name a transport can build its own payload and
+ * pick the tenant a request serves; TenantBoundNatsClient is the only sender
+ * that writes the bound tenant itself and verifies the reply's tenant.
+ * WHAT: ai-service's own restricted paths (read from its per-project policy,
+ * so the two cannot drift) plus the transports and TypeORM (a tool holding a
+ * DataSource would read tenant rows outside the owner's runInTenantRead).
+ */
+const AI_SERVICE_LINT_POLICY = PROJECT_LINT_OVERRIDES.find((p) => p.dir === 'apps/ai-service');
+if (AI_SERVICE_LINT_POLICY === undefined) {
+  throw new Error('eslint.config.mjs: apps/ai-service lint policy not found (K10 tool boundary)');
+}
+const AI_TOOL_TRANSPORT_MESSAGE =
+  'K10 / MT-HIGH-062: AI tool code reaches other services only through TenantBoundNatsClient ' +
+  '(apps/ai-service/src/tenant-boundary), which writes the bound tenant into the request and ' +
+  'refuses a reply served for another tenant. Inject TenantBoundNatsClient instead.';
+const AI_TOOL_DATABASE_MESSAGE =
+  'K10 / MT-HIGH-062: AI tool code has no database path of its own. Tenant data reaches a tool ' +
+  'only as a tenant-bound reply from the owning service (read inside runInTenantRead); request ' +
+  'it through TenantBoundNatsClient.';
+const AI_TOOL_HTTP_MESSAGE =
+  'K10 / MT-HIGH-062 (V-T1a-8): AI tool code makes no HTTP calls of its own. ai-service holds the ' +
+  'shared service-identity keyring, so a tool with an HTTP client could sign a request as another ' +
+  'service for any tenant. Tenant data reaches a tool only through TenantBoundNatsClient.';
+const AI_TOOL_MINTING_MESSAGE =
+  'K10 / MT-HIGH-062 (V-T1a-2): only the three trusted entry points (agent runner, confirmed ' +
+  'proposals, sensor channel detection) build a tool context or mint a TenantBinding. A tool ' +
+  'receives its context; it never builds one.';
+const AI_TOOL_ESCAPE_MESSAGE =
+  'K10 / MT-HIGH-062 (V-T1a-3): this names a raw transport or a DI escape hatch that resolves ' +
+  'one without importing it. Inject TenantBoundNatsClient instead.';
+const aiToolTransportBoundaryBlock = {
+  // Every file that can hold a @Tool — the invariant (tests/invariants/
+  // ai-tenant-boundary.spec.ts §A) proves every @Tool class lives here and
+  // applies the same rules on the AST, so the gate holds even while ai-service
+  // lint runs as a warning (INFRA-MEDIUM-154).
+  files: ['apps/ai-service/src/tools/**/*.ts'],
+  ignores: ['apps/ai-service/src/tools/**/__tests__/**', 'apps/ai-service/src/tools/**/*.spec.ts'],
+  rules: {
+    'no-restricted-imports': [
+      'error',
+      {
+        paths: [
+          ...AI_SERVICE_LINT_POLICY.rules['no-restricted-imports'][1].paths,
+          { name: '@nestjs/microservices', message: AI_TOOL_TRANSPORT_MESSAGE },
+          { name: '@aquaculture/backend-common/nats', message: AI_TOOL_TRANSPORT_MESSAGE },
+          // The platform event bus exports NatsRequestReply (a raw request-reply).
+          { name: '@platform/event-bus', message: AI_TOOL_TRANSPORT_MESSAGE },
+          { name: 'typeorm', message: AI_TOOL_DATABASE_MESSAGE },
+          { name: '@nestjs/typeorm', message: AI_TOOL_DATABASE_MESSAGE },
+          ...[
+            '@aquaculture/backend-common/http',
+            '@nestjs/axios',
+            'axios',
+            'undici',
+            'node-fetch',
+            'http',
+            'https',
+            'http2',
+            'net',
+            'node:http',
+            'node:https',
+            'node:http2',
+            'node:net',
+          ].map((name) => ({ name, message: AI_TOOL_HTTP_MESSAGE })),
+        ],
+        patterns: [
+          { group: ['@nats-io/*'], message: AI_TOOL_TRANSPORT_MESSAGE },
+          {
+            group: ['**/tenant-boundary/tenant-bound-nats.client'],
+            importNames: ['AI_TENANT_BOUND_TRANSPORT'],
+            message: AI_TOOL_TRANSPORT_MESSAGE,
+          },
+          { group: ['**/service-identity*'], message: AI_TOOL_HTTP_MESSAGE },
+          { group: ['**/tenant-boundary/tool-context.factory'], message: AI_TOOL_MINTING_MESSAGE },
+        ],
+      },
+    ],
+    'no-restricted-globals': [
+      'error',
+      { name: 'fetch', message: AI_TOOL_HTTP_MESSAGE },
+      { name: 'XMLHttpRequest', message: AI_TOOL_HTTP_MESSAGE },
+      { name: 'WebSocket', message: AI_TOOL_HTTP_MESSAGE },
+    ],
+    'no-restricted-syntax': [
+      'error',
+      // ai-service's own selectors, restated: a later block replaces a rule's options.
+      ...AI_SERVICE_LINT_POLICY.rules['no-restricted-syntax'].slice(1),
+      ...['EVENT_BUS', 'NATS_SERVICE', 'NATS_CLIENT'].map((token) => ({
+        selector: `Literal[value='${token}']`,
+        message: AI_TOOL_ESCAPE_MESSAGE,
+      })),
+      ...[
+        'getRawConnection',
+        'NatsEventBus',
+        'NatsRequestReply',
+        'ModuleRef',
+        'LazyModuleLoader',
+        'HttpService',
+        'SignedHttpClient',
+      ].map((name) => ({
+        selector: `Identifier[name='${name}']`,
+        message: AI_TOOL_ESCAPE_MESSAGE,
+      })),
+      {
+        selector:
+          "MemberExpression[object.name='TenantBinding'][property.name='fromTrustedRequest']",
+        message: AI_TOOL_MINTING_MESSAGE,
+      },
+      {
+        // `.request(` only as `this.<injected TenantBoundNatsClient>.request(`.
+        selector:
+          "CallExpression[callee.property.name='request']:not([callee.object.type='MemberExpression'][callee.object.object.type='ThisExpression'])",
+        message: AI_TOOL_TRANSPORT_MESSAGE,
+      },
+    ],
+    '@typescript-eslint/no-restricted-imports': [
+      'error',
+      {
+        patterns: [
+          {
+            group: ['**/tenant-boundary/tenant-binding'],
+            allowTypeImports: true,
+            message: AI_TOOL_MINTING_MESSAGE,
+          },
+        ],
+      },
+    ],
+  },
+};
 
 const nonProvenanceParserBlocks = NON_PROVENANCE_TS_PROJECTS.map((dir) => ({
   files: [`${dir}/**/*.ts`, `${dir}/**/*.tsx`],
@@ -666,6 +801,14 @@ export default [
   // ── The 30 per-project policies (former root:true .eslintrc.cjs), verbatim. ──
   ...perProjectBlocks,
 
+  // ── K10 / MT-HIGH-062: AI tool code reaches other services ONLY through
+  //    TenantBoundNatsClient. Author-time twin of
+  //    tests/invariants/ai-tenant-boundary.spec.ts §A (which scans the same
+  //    tree on every PR). Placed AFTER perProjectBlocks so it wins for tools/**;
+  //    it re-states ai-service's own restricted paths because a later block
+  //    replaces a rule's options rather than merging them. ──
+  aiToolTransportBoundaryBlock,
+
   // ── Non-provenance TS lint projects: scoped parser pins (OOM root-cause fix).
   //    See NON_PROVENANCE_TS_PROJECTS above. Placed after perProjectBlocks and
   //    after the base TS_PROJECTS pin so `parserOptions.project` resolves to each
@@ -752,6 +895,23 @@ export default [
     files: ['web/**/vite.config.ts'],
     rules: {
       '@typescript-eslint/no-unsafe-call': 'off',
+      '@nx/enforce-module-boundaries': 'off',
+    },
+  },
+
+  // ── override: the K10 two-tenant red-team (tests/ai-tenant-redteam, plan PR-T1) ──
+  //    WHY @nx/enforce-module-boundaries is off here and ONLY here: the suite's
+  //    whole point is to compose ai-service's real runner/tools and
+  //    farm-service's real responders/handlers in one process. Both are
+  //    applications, not libraries: they publish no npm-scope entry, so the only
+  //    way to import their source is a relative path — which is what the rule
+  //    forbids. No production project imports this one (it is a test-only Nx
+  //    project with implicitDependencies on both apps), so no boundary between
+  //    shipped projects is relaxed. Every other rule (type-aware no-unsafe-*,
+  //    import/order, require-await, …) still applies to it.
+  {
+    files: ['tests/ai-tenant-redteam/**/*.ts'],
+    rules: {
       '@nx/enforce-module-boundaries': 'off',
     },
   },

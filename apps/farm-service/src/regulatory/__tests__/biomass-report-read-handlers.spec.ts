@@ -8,6 +8,7 @@ import { GetBiomassReportByPeriodHandler } from '../handlers/get-biomass-report-
 import { GetBiomassReportByPeriodQuery } from '../queries/get-biomass-report-by-period.query';
 import { ListBiomassReportsForSiteHandler } from '../handlers/list-biomass-reports-for-site.handler';
 import { ListBiomassReportsForSiteQuery } from '../queries/list-biomass-reports-for-site.query';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -16,8 +17,13 @@ describe('Biomass-report read handlers (fail-closed tenant boundary)', () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.findOne as jest.Mock).mockResolvedValueOnce({ id: 'br-1' });
 
-    const result = await new GetBiomassReportByPeriodHandler(mockDataSource).execute(
-      new GetBiomassReportByPeriodQuery(tenantId, 'site-1', 6, 2026),
+    const result = await inTenantScope(
+      tenantId,
+      (scope) =>
+        new GetBiomassReportByPeriodHandler().execute(
+          new GetBiomassReportByPeriodQuery(scope, 'site-1', 6, 2026),
+        ),
+      mockDataSource,
     );
 
     expect(result).toEqual({ id: 'br-1' });
@@ -30,8 +36,13 @@ describe('Biomass-report read handlers (fail-closed tenant boundary)', () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.findOne as jest.Mock).mockResolvedValueOnce(null);
 
-    const result = await new GetBiomassReportByPeriodHandler(mockDataSource).execute(
-      new GetBiomassReportByPeriodQuery(tenantId, 'site-1', 1, 2026),
+    const result = await inTenantScope(
+      tenantId,
+      (scope) =>
+        new GetBiomassReportByPeriodHandler().execute(
+          new GetBiomassReportByPeriodQuery(scope, 'site-1', 1, 2026),
+        ),
+      mockDataSource,
     );
 
     expect(result).toBeNull();

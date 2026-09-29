@@ -8,6 +8,10 @@ import { ListHealthEventsQuery } from '../../queries/list-health-events.query';
 import { ListLiceCountsQuery } from '../../queries/list-lice-counts.query';
 import type { BatchHarvestEligibilityService } from '../../services/batch-harvest-eligibility.service';
 import { FishHealthAiQueryResponder } from '../fish-health-ai-query.responder';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const BATCH = '22222222-2222-4222-8222-222222222222';
@@ -43,6 +47,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
   let execute: jest.Mock;
   let checkEligibility: jest.Mock;
   let responder: FishHealthAiQueryResponder;
+  let harness: FarmScopeHarness;
 
   beforeEach(() => {
     execute = jest.fn();
@@ -51,7 +56,9 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
     const eligibility: Pick<BatchHarvestEligibilityService, 'checkEligibility'> = {
       checkEligibility,
     };
+    harness = createFarmScopeHarness();
     responder = new FishHealthAiQueryResponder(
+      harness.responder,
       queryBus as QueryBus,
       eligibility as BatchHarvestEligibilityService,
     );
@@ -62,7 +69,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
   describe(FARM_AI_QUERY_SUBJECTS.FH_STATS, () => {
     it('rejects extra keys (a request carrying anything beyond the contract is refused)', async () => {
       const reply = await responder.getStats({ tenantId: TENANT, siteId: BATCH });
-      expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+      expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
       expect(execute).not.toHaveBeenCalled();
     });
 
@@ -81,6 +88,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
       expect(execute).toHaveBeenCalledWith(expect.any(GetHealthEventStatsQuery));
       expect(reply).toEqual({
         ok: true,
+        tenantId: TENANT,
         data: {
           total: 5,
           active: 2,
@@ -109,7 +117,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
 
       expect(execute).toHaveBeenCalledWith(expect.any(ListHealthEventsQuery));
       const query = execute.mock.calls[0][0] as ListHealthEventsQuery;
-      expect(query.tenantId).toBe(TENANT);
+      expect(query.scope.tenantId).toBe(TENANT);
       expect(query.filter).toMatchObject({
         batchId: BATCH,
         activeOnly: true,
@@ -119,6 +127,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
       });
       expect(reply).toMatchObject({
         ok: true,
+        tenantId: TENANT,
         data: {
           total: 1,
           truncated: false,
@@ -144,7 +153,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
     it('maps a rejected query to INTERNAL_ERROR', async () => {
       execute.mockRejectedValue(new Error('boom'));
       const reply = await responder.listEvents({ tenantId: TENANT, activeOnly: true, limit: 5 });
-      expect(reply).toEqual({ ok: false, error: 'INTERNAL_ERROR' });
+      expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INTERNAL_ERROR' });
     });
   });
 
@@ -159,8 +168,8 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
         limit: 5,
       });
       const query = execute.mock.calls[0][0] as ListLiceCountsQuery;
+      expect(query.scope.tenantId).toBe(TENANT);
       expect(query).toMatchObject({
-        tenantId: TENANT,
         siteId: undefined,
         tankId: BATCH,
         reportingYear: 2026,
@@ -170,7 +179,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
   });
 
   describe(FARM_AI_QUERY_SUBJECTS.FH_HARVEST_ELIGIBILITY, () => {
-    it('asks the eligibility service (tenant-pinned inside) and echoes batch + date', async () => {
+    it('asks the eligibility service on the skeleton scope and echoes batch + date', async () => {
       checkEligibility.mockResolvedValue({
         eligible: false,
         blockedUntil: new Date('2026-10-06T00:00:00Z'),
@@ -193,9 +202,14 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
         harvestDate: '2026-10-01',
       });
 
-      expect(checkEligibility).toHaveBeenCalledWith(TENANT, BATCH, new Date('2026-10-01'));
+      expect(checkEligibility).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: TENANT }),
+        BATCH,
+        new Date('2026-10-01'),
+      );
       expect(reply).toEqual({
         ok: true,
+        tenantId: TENANT,
         data: {
           batchId: BATCH,
           harvestDate: '2026-10-01',
@@ -222,7 +236,7 @@ describe('FishHealthAiQueryResponder (FARM-MEDIUM-328)', () => {
         batchId: BATCH,
         harvestDate: 'next tuesday',
       });
-      expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+      expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
       expect(checkEligibility).not.toHaveBeenCalled();
     });
   });

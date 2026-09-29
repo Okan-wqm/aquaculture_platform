@@ -222,3 +222,4 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: npm run invariants:fast
+

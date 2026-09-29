@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { carryingCapacity, type CarryingCapacityResult } from '@platform/aquaculture-engines';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
 import {
   ALL_TIERS,
   POSITIVE_NUMBER_SCHEMA,
@@ -82,7 +82,7 @@ export class CalculateCarryingCapacityTool extends BaseTool<
 > {
   protected async run(
     input: CarryingCapacityInput,
-    _ctx: ToolExecutionContext,
+    _ctx: TenantBoundToolContext,
   ): Promise<CarryingCapacityResult> {
     return roundNumbersDeep(
       carryingCapacity({

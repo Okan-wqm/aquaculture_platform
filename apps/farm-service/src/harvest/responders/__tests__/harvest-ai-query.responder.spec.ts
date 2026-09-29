@@ -5,6 +5,10 @@ import { FARM_AI_QUERY_SUBJECTS } from '@platform/event-contracts';
 import { ListOverdueHarvestPlansQuery } from '../../queries/list-overdue-harvest-plans.query';
 import { ListUpcomingHarvestPlansQuery } from '../../queries/list-upcoming-harvest-plans.query';
 import { HarvestAiQueryResponder } from '../harvest-ai-query.responder';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const PLAN = '22222222-2222-4222-8222-222222222222';
@@ -12,11 +16,13 @@ const PLAN = '22222222-2222-4222-8222-222222222222';
 describe('HarvestAiQueryResponder (FARM-MEDIUM-328)', () => {
   let execute: jest.Mock;
   let responder: HarvestAiQueryResponder;
+  let harness: FarmScopeHarness;
 
   beforeEach(() => {
     execute = jest.fn();
     const queryBus: Pick<QueryBus, 'execute'> = { execute };
-    responder = new HarvestAiQueryResponder(queryBus as QueryBus);
+    harness = createFarmScopeHarness();
+    responder = new HarvestAiQueryResponder(harness.responder, queryBus as QueryBus);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 
@@ -53,6 +59,7 @@ describe('HarvestAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect((execute.mock.calls[0][0] as ListUpcomingHarvestPlansQuery).days).toBe(45);
     expect(upcoming).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         items: [
           {
@@ -80,7 +87,7 @@ describe('HarvestAiQueryResponder (FARM-MEDIUM-328)', () => {
       days: 30,
       limit: 10,
     });
-    expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+    expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -103,6 +110,7 @@ describe('HarvestAiQueryResponder (FARM-MEDIUM-328)', () => {
     const reply = await responder.getStats({ tenantId: TENANT });
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: { total: 3, totalEstimatedBiomassKg: 6000, upcomingCount: 2 },
     });
   });

@@ -22,84 +22,18 @@ import {
 import { assertSelfOrManager, type SelfScopeCaller } from '@aquaculture/backend-common/security';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { randomUUID } from 'crypto';
-import {
-  Task,
-  StoredTaskChecklistItem,
-  TaskChecklistItem,
-  TaskStatus,
-  TaskPriority,
-} from '../entities/task.entity';
+import { Task, TaskStatus, TaskPriority } from '../entities/task.entity';
 import { RecurringTemplate } from '../entities/recurring-template.entity';
 import { CreateTaskInput } from '../dto/create-task.dto';
 import { UpdateTaskInput } from '../dto/update-task.dto';
 import { EventNames } from '../../events/event-types';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
+import { normaliseChecklistItem, normaliseChecklistItems } from './task-checklist';
+import { TaskCreator } from './task-creator';
 
 @Injectable()
 export class TaskService {
   private readonly logger = new Logger(TaskService.name);
-
-  /**
-   * Normalise a single `checklistItems` entry so every stored item
-   * carries (a) a server-assigned UUID `id` and (b) the canonical
-   * `isCompleted` boolean flag.
-   *
-   * Two historical shapes are accepted on input:
-   *   - UI/DTO shape: `{ text, isCompleted? }` — the `TaskChecklistItemInput`
-   *     DTO's field set.
-   *   - Legacy toggle shape: `{ completed, completedAt }` — produced
-   *     by older `toggleChecklistItem` writes before the canonical
-   *     field was unified.
-   *
-   * The return is always `{ id, text, isCompleted, completedAt?, completedBy? }`:
-   * the `completed` field is dropped from future writes so there's a
-   * single source of truth for UI reads. Existing rows with the
-   * legacy field stay readable (TypeORM doesn't delete JSONB keys on
-   * save — whatever we emit REPLACES the array entry, so the stale
-   * `completed` is gone after the first normalise-and-save).
-   */
-  static normaliseChecklistItem(raw: Partial<StoredTaskChecklistItem>): TaskChecklistItem {
-    const canonicalCompleted = raw.isCompleted ?? raw.completed ?? false;
-    const normalised: TaskChecklistItem = {
-      id: raw.id ?? randomUUID(),
-      text: raw.text ?? '',
-      isCompleted: canonicalCompleted,
-    };
-    if (raw.completedAt !== undefined) normalised.completedAt = raw.completedAt;
-    if (raw.completedBy !== undefined) normalised.completedBy = raw.completedBy;
-    return normalised;
-  }
-
-  /**
-   * Public because it is ALSO the read path: the `checklistItems` field
-   * resolvers on Task and RecurringTemplate serve every row through it, so the
-   * wire never carries the permissive stored shape (FARM-HIGH-320).
-   */
-  static normaliseChecklistItems(
-    raw: Partial<StoredTaskChecklistItem>[] | undefined,
-  ): TaskChecklistItem[] {
-    if (!raw || !Array.isArray(raw)) return [];
-    return raw.map((item) => TaskService.normaliseChecklistItem(item));
-  }
-
-  /**
-   * Clone a template's checklist items into a fresh list suitable
-   * for a new Task. Each propagated item gets a fresh UUID so
-   * toggles on the spawned task don't collide with the template's
-   * ids (or with sibling tasks spawned from the same template),
-   * and the `isCompleted`/`completedAt`/`completedBy` audit fields
-   * are reset — a brand-new task starts with everything unchecked.
-   */
-  static propagateChecklistItemsFromTemplate(
-    templateItems: Partial<StoredTaskChecklistItem>[] | undefined,
-  ): TaskChecklistItem[] {
-    if (!templateItems || !Array.isArray(templateItems)) return [];
-    return templateItems.map((t) => ({
-      id: randomUUID(),
-      text: t.text ?? '',
-      isCompleted: false,
-    }));
-  }
 
   private static readonly VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
     [TaskStatus.PENDING]: [TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED],
@@ -118,6 +52,8 @@ export class TaskService {
     private readonly outboxPublisher: OutboxPublisher,
     private readonly mobileCommandReceipts: MobileCommandReceiptService,
     @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
+    private readonly taskCreator: TaskCreator,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -134,85 +70,13 @@ export class TaskService {
   ): Promise<Task> {
     this.logger.log(`Creating task "${input.title}" for tenant ${tenantId}`);
 
-    // Atomic: save + TaskCreated outbox enqueue in one transaction. The
-    // event is durably persisted with the row (at-least-once), never
-    // fire-and-forget — a crash or NATS gap can no longer drop it.
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
-      const saved = await this.createWithManager(
-        queryRunner.manager,
-        tenantId,
-        input,
-        createdBy,
-      );
-      await queryRunner.commitTransaction();
-      return saved;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-  }
-
-  /**
-   * SSoT for the task row + TaskCreated outbox write, keyed to a caller-supplied
-   * EntityManager so it composes with either an owned transaction (the request
-   * path above) OR an ambient tenant-scoped transaction (the NATS
-   * request.farm.createTask responder, which sets the tenant search_path via
-   * runInTenantTransaction before delegating here). Keeping it manager-driven is
-   * why both entry points share ONE create-and-emit path rather than duplicating
-   * the entity shape + event contract.
-   */
-  async createWithManager(
-    manager: EntityManager,
-    tenantId: string,
-    input: CreateTaskInput,
-    createdBy: string,
-  ): Promise<Task> {
-    const task = this.taskRepository.create({
-      tenantId,
-      title: input.title,
-      description: input.description,
-      category: input.category,
-      priority: input.priority,
-      status: TaskStatus.PENDING,
-      assignedTo: input.assignedTo,
-      assignedToName: input.assignedToName,
-      createdBy,
-      dueDate: new Date(input.dueDate),
-      dueTime: input.dueTime,
-      siteId: input.siteId,
-      location: input.location,
-      estimatedMinutes: input.estimatedMinutes,
-      checklistItems: TaskService.normaliseChecklistItems(input.checklistItems),
-      notes: [],
-      tags: input.tags,
-      isRecurring: input.isRecurring || false,
-      recurringTemplateId: input.recurringTemplateId,
-    });
-
-    const saved = await manager.save(task);
-
-    await this.outboxPublisher.enqueue(
-      {
-        ...createBaseEvent('TaskCreated', tenantId, { userId: createdBy }),
-        taskId: saved.id,
-        title: saved.title,
-        category: saved.category,
-        priority: saved.priority,
-        assignedTo: saved.assignedTo,
-        assignedToName: saved.assignedToName,
-        dueDate: input.dueDate,
-        createdBy,
-      },
-      manager,
+    // Atomic: save + TaskCreated outbox enqueue in one write scope — the
+    // tenant schema and RLS setting pinned and asserted — so the event is
+    // durably persisted with the row (at-least-once), never fire-and-forget.
+    // TaskCreator is the one create path the AI createTask responder shares.
+    return this.tenantScopes.write(tenantId, (scope) =>
+      this.taskCreator.create(scope, input, createdBy),
     );
-
-    this.logger.log(`Task created: ${saved.id}`);
-    return saved;
   }
 
   /**
@@ -260,7 +124,7 @@ export class TaskService {
     if (input.location !== undefined) task.location = input.location;
     if (input.estimatedMinutes !== undefined) task.estimatedMinutes = input.estimatedMinutes;
     if (input.checklistItems !== undefined) {
-      task.checklistItems = TaskService.normaliseChecklistItems(input.checklistItems);
+      task.checklistItems = normaliseChecklistItems(input.checklistItems);
     }
     if (input.notes !== undefined) task.notes = input.notes;
     if (input.tags !== undefined) task.tags = input.tags;
@@ -630,7 +494,7 @@ export class TaskService {
       // Normalise the whole list so any legacy rows (missing id, or `completed`
       // instead of `isCompleted`) are repaired on the same save.
       task.checklistItems = task.checklistItems.map((i) =>
-        TaskService.normaliseChecklistItem(i),
+        normaliseChecklistItem(i),
       );
 
       const item = task.checklistItems.find((i) => i.id === itemId);

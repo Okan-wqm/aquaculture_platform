@@ -17,6 +17,7 @@ import {
   FinanceSettings,
   PLATFORM_DEFAULT_CURRENCY,
 } from '../entities/finance-settings.entity';
+import { readFinanceDefaultCurrency } from './finance-default-currency';
 
 const CACHE_TTL_MS = 60_000;
 
@@ -76,8 +77,7 @@ export class FinanceSettingsService {
    * created is visible.
    */
   async getDefaultCurrencyInTx(manager: EntityManager, tenantId: string): Promise<string> {
-    const settings = await manager.findOne(FinanceSettings, { where: { tenantId } });
-    return settings?.defaultCurrency ?? PLATFORM_DEFAULT_CURRENCY;
+    return readFinanceDefaultCurrency(manager, tenantId);
   }
 
   /** Read-or-default the full settings shape (no row is created). */

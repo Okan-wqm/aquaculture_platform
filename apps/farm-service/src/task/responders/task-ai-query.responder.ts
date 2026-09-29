@@ -1,4 +1,4 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { QueryBus } from '@platform/cqrs';
 import {
@@ -6,16 +6,17 @@ import {
   isBoundedListRequest,
   isTaskStatsRequest,
   toEventIso,
-  type AiQueryReply,
+  type TenantBoundReply,
   type TaskDto,
   type TaskStatsReply,
   type TasksReply,
 } from '@platform/event-contracts';
-import { numberOrNull, respondAiQuery, toBoundedList } from '../../common/nats/ai-query-responder';
+import { numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import type { Task } from '../entities/task.entity';
 import type { TaskStatsResult } from '../handlers/get-task-stats.handler';
 import { GetTaskStatsQuery } from '../queries/get-task-stats.query';
 import { ListTodaysTasksQuery } from '../queries/list-todays-tasks.query';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 /** No assignee, creator, notes or checklist text crosses — only checklist progress. */
 export function projectTask(row: Task): TaskDto {
@@ -52,39 +53,42 @@ export function projectTaskStats(stats: TaskStatsResult): TaskStatsReply {
 /** Task read surface for the farm operations specialist (FARM-MEDIUM-328). */
 @Controller()
 export class TaskAiQueryResponder {
-  private readonly logger = new Logger(TaskAiQueryResponder.name);
-
-  constructor(private readonly queryBus: QueryBus) {}
+  constructor(
+    private readonly responder: FarmAiResponder,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.TASKS_TODAY)
-  listTodaysTasks(@Payload() payload: unknown): Promise<AiQueryReply<TasksReply>> {
-    return respondAiQuery(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.TASKS_TODAY,
-      payload,
-      isBoundedListRequest,
-      async (req) => {
-        const rows = await this.queryBus.execute<ListTodaysTasksQuery, Task[]>(
-          new ListTodaysTasksQuery(req.tenantId),
-        );
-        return toBoundedList(rows, req.limit, projectTask);
+  listTodaysTasks(@Payload() payload: unknown): Promise<TenantBoundReply<TasksReply>> {
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.TASKS_TODAY,
+        isRequest: isBoundedListRequest,
+        handle: async (req, scope) => {
+          const rows = await this.queryBus.execute<ListTodaysTasksQuery, Task[]>(
+            new ListTodaysTasksQuery(scope),
+          );
+          return toBoundedList(rows, req.limit, projectTask);
+        },
       },
+      payload,
     );
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.TASK_STATS)
-  getStats(@Payload() payload: unknown): Promise<AiQueryReply<TaskStatsReply>> {
-    return respondAiQuery(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.TASK_STATS,
-      payload,
-      isTaskStatsRequest,
-      async (req) => {
-        const stats = await this.queryBus.execute<GetTaskStatsQuery, TaskStatsResult>(
-          new GetTaskStatsQuery(req.tenantId),
-        );
-        return projectTaskStats(stats);
+  getStats(@Payload() payload: unknown): Promise<TenantBoundReply<TaskStatsReply>> {
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.TASK_STATS,
+        isRequest: isTaskStatsRequest,
+        handle: async (req, scope) => {
+          const stats = await this.queryBus.execute<GetTaskStatsQuery, TaskStatsResult>(
+            new GetTaskStatsQuery(scope),
+          );
+          return projectTaskStats(stats);
+        },
       },
+      payload,
     );
   }
 }

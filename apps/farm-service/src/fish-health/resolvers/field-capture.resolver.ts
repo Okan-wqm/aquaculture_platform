@@ -36,6 +36,7 @@ import { IncidentMediaService } from '../services/incident-media.service';
 import { LiceCountService } from '../services/lice-count.service';
 import { TreatmentApplicationService } from '../services/treatment-application.service';
 import { WelfareAssessmentService } from '../services/welfare-assessment.service';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 @Resolver()
 @UseGuards(TenantGuard)
@@ -49,6 +50,7 @@ export class FieldCaptureResolver {
     private readonly escapeIncidentService: EscapeIncidentService,
     private readonly incidentMediaService: IncidentMediaService,
     private readonly queryBus: QueryBus,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // =========================================================================
@@ -64,8 +66,10 @@ export class FieldCaptureResolver {
     @Args('reportingYear', { type: () => Int, nullable: true }) reportingYear?: number,
     @Args('reportingWeek', { type: () => Int, nullable: true }) reportingWeek?: number,
   ): Promise<LiceCount[]> {
-    return this.queryBus.execute(
-      new ListLiceCountsQuery(tenantId, siteId, tankId, reportingYear, reportingWeek),
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(
+        new ListLiceCountsQuery(scope, siteId, tankId, reportingYear, reportingWeek),
+      ),
     );
   }
 
@@ -79,8 +83,8 @@ export class FieldCaptureResolver {
     @Args('fromDate', { nullable: true }) fromDate?: string,
     @Args('toDate', { nullable: true }) toDate?: string,
   ): Promise<TreatmentApplication[]> {
-    return this.queryBus.execute(
-      new ListTreatmentApplicationsQuery(tenantId, siteId, fromDate, toDate),
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListTreatmentApplicationsQuery(scope, siteId, fromDate, toDate)),
     );
   }
 
@@ -95,8 +99,10 @@ export class FieldCaptureResolver {
     @Args('fromDate', { nullable: true }) fromDate?: string,
     @Args('toDate', { nullable: true }) toDate?: string,
   ): Promise<WelfareAssessment[]> {
-    return this.queryBus.execute(
-      new ListWelfareAssessmentsQuery(tenantId, siteId, tankId, fromDate, toDate),
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(
+        new ListWelfareAssessmentsQuery(scope, siteId, tankId, fromDate, toDate),
+      ),
     );
   }
 

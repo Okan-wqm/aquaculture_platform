@@ -14,6 +14,7 @@
  * the GraphQL layer.
  */
 import { Module } from '@nestjs/common';
+import { SecurityEventService } from '@aquaculture/backend-common/security';
 import { McpClientService } from './services/mcp-client.service';
 import { AiInsightsService } from './services/ai-insights.service';
 import { AiInsightsResolver } from './ai-insights.resolver';
@@ -26,6 +27,8 @@ import { AiInsightsResolver } from './ai-insights.resolver';
      * accidental coupling from other modules.
      */
     McpClientService,
+    // K10 (MT-HIGH-064): the MCP bridge reports refused cross-tenant calls.
+    SecurityEventService,
     AiInsightsService,
     AiInsightsResolver,
   ],

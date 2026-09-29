@@ -5,6 +5,10 @@ import { RegulatoryReportType } from '../../entities/regulatory-report.entity';
 import { GetBiomassReportByPeriodQuery } from '../../queries/get-biomass-report-by-period.query';
 import { ListRegulatoryReportsQuery } from '../../queries/list-regulatory-reports.query';
 import { RegulatoryAiQueryResponder } from '../regulatory-ai-query.responder';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const SITE = '22222222-2222-4222-8222-222222222222';
@@ -12,11 +16,13 @@ const SITE = '22222222-2222-4222-8222-222222222222';
 describe('RegulatoryAiQueryResponder (FARM-MEDIUM-328)', () => {
   let execute: jest.Mock;
   let responder: RegulatoryAiQueryResponder;
+  let harness: FarmScopeHarness;
 
   beforeEach(() => {
     execute = jest.fn();
     const queryBus: Pick<QueryBus, 'execute'> = { execute };
-    responder = new RegulatoryAiQueryResponder(queryBus as QueryBus);
+    harness = createFarmScopeHarness();
+    responder = new RegulatoryAiQueryResponder(harness.responder, queryBus as QueryBus);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 
@@ -31,6 +37,7 @@ describe('RegulatoryAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(execute).toHaveBeenCalledWith(expect.any(GetBiomassReportByPeriodQuery));
     expect(missing).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: { found: false, status: null, totalBiomassKg: null },
     });
 
@@ -67,6 +74,7 @@ describe('RegulatoryAiQueryResponder (FARM-MEDIUM-328)', () => {
     });
     expect(found).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         found: true,
         status: 'submitted',
@@ -112,6 +120,7 @@ describe('RegulatoryAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(query.limit).toBe(10);
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         items: [{ reportType: 'SEA_LICE', reportWeek: 37, status: 'SUBMITTED', attemptCount: 1 }],
       },

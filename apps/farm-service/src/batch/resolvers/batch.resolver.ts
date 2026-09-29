@@ -79,6 +79,7 @@ import { GetBatchPerformanceQuery } from '../queries/get-batch-performance.query
 import { GetBatchQuery } from '../queries/get-batch.query';
 import { ListAvailableTanksQuery } from '../queries/list-available-tanks.query';
 import { ListBatchesQuery } from '../queries/list-batches.query';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 /**
  * User context interface for CurrentUser decorator
@@ -136,6 +137,7 @@ export class BatchResolver {
     private readonly batchLocationDataLoader: BatchLocationDataLoader,
     private readonly batchFeedAssignmentDataLoader: BatchFeedAssignmentDataLoader,
     private readonly tankCountReconcile: TankCountReconcileService,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -217,7 +219,9 @@ export class BatchResolver {
     @Tenant() tenantId: string,
   ): Promise<BatchPerformanceResponse> {
     this.logger.debug(`Getting batch performance: ${id}`);
-    return this.queryBus.execute(new GetBatchPerformanceQuery(tenantId, id));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new GetBatchPerformanceQuery(scope, id)),
+    );
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)

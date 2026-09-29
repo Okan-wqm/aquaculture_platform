@@ -5,6 +5,10 @@ import { EquipmentStatus } from '../../entities/equipment.entity';
 import { ListEquipmentQuery } from '../../queries/list-equipment.query';
 import { ListFeederCalibrationsQuery } from '../../queries/list-feeder-calibrations.query';
 import { EquipmentAiQueryResponder } from '../equipment-ai-query.responder';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const ID = '22222222-2222-4222-8222-222222222222';
@@ -12,11 +16,13 @@ const ID = '22222222-2222-4222-8222-222222222222';
 describe('EquipmentAiQueryResponder (FARM-MEDIUM-328)', () => {
   let execute: jest.Mock;
   let responder: EquipmentAiQueryResponder;
+  let harness: FarmScopeHarness;
 
   beforeEach(() => {
     execute = jest.fn();
     const queryBus: Pick<QueryBus, 'execute'> = { execute };
-    responder = new EquipmentAiQueryResponder(queryBus as QueryBus);
+    harness = createFarmScopeHarness();
+    responder = new EquipmentAiQueryResponder(harness.responder, queryBus as QueryBus);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 
@@ -64,6 +70,7 @@ describe('EquipmentAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(query.pagination).toEqual({ page: 1, limit: 5, sortBy: 'code', sortOrder: 'ASC' });
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         total: 1,
         items: [
@@ -83,7 +90,7 @@ describe('EquipmentAiQueryResponder (FARM-MEDIUM-328)', () => {
 
   it('rejects a status outside the contract vocabulary as INVALID_REQUEST (never a silently dropped filter)', async () => {
     const reply = await responder.listEquipment({ tenantId: TENANT, status: 'flying', limit: 5 });
-    expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+    expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -107,9 +114,10 @@ describe('EquipmentAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(execute).toHaveBeenCalledWith(expect.any(ListFeederCalibrationsQuery));
     const query = execute.mock.calls[0][0] as ListFeederCalibrationsQuery;
     expect(query.equipmentId).toBe(ID);
-    expect(query.tenantId).toBe(TENANT);
+    expect(query.scope.tenantId).toBe(TENANT);
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         items: [
           { feedSizeMm: 4.5, gramsPerDispensing: 250, updatedAt: '2026-09-01T00:00:00.000Z' },

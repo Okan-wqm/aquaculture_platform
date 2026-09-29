@@ -29,11 +29,15 @@ import { RegulatoryReportTypeSummary } from './dto/regulatory-report-summary.dto
 import { ListRegulatoryReportsQuery } from './queries/list-regulatory-reports.query';
 import { GetRegulatoryReportQuery } from './queries/get-regulatory-report.query';
 import { GetRegulatoryReportSummaryQuery } from './queries/get-regulatory-report-summary.query';
+import { FarmTenantScopes } from '../common/tenant-boundary/farm-tenant-scopes';
 
 @Resolver(() => RegulatoryReport)
 @UseGuards(GqlAuthGuard)
 export class RegulatoryReportResolver {
-  constructor(private readonly queryBus: QueryBus) {}
+  constructor(
+    private readonly queryBus: QueryBus,
+    private readonly tenantScopes: FarmTenantScopes,
+  ) {}
 
   @Query(() => [RegulatoryReport], {
     description:
@@ -47,8 +51,10 @@ export class RegulatoryReportResolver {
     @Args('limit', { type: () => Int, defaultValue: 50 }) limit?: number,
     @Args('offset', { type: () => Int, defaultValue: 0 }) offset?: number,
   ): Promise<RegulatoryReport[]> {
-    return this.queryBus.execute(
-      new ListRegulatoryReportsQuery(tenantId, reportType, siteId, limit ?? 50, offset ?? 0),
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(
+        new ListRegulatoryReportsQuery(scope, reportType, siteId, limit ?? 50, offset ?? 0),
+      ),
     );
   }
 

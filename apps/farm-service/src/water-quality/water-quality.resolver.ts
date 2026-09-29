@@ -50,6 +50,7 @@ import { CreateWaterQualityInput } from './dto/create-water-quality.input';
 import { CreateBatchWaterQualityInput } from './dto/create-batch-water-quality.input';
 import { UpdateWaterQualityInput } from './dto/update-water-quality.input';
 import { WaterQualityFilterInput } from './dto/water-quality-filter.input';
+import { FarmTenantScopes } from '../common/tenant-boundary/farm-tenant-scopes';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -130,6 +131,7 @@ export class WaterQualityResolver {
     private readonly waterQualityService: WaterQualityService,
     private readonly waterTemperatureService: WaterTemperatureService,
     private readonly queryBus: QueryBus,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -160,7 +162,9 @@ export class WaterQualityResolver {
     filter?: WaterQualityFilterInput,
   ): Promise<IStandardPaginatedResult<WaterQualityMeasurement>> {
     this.logger.debug(`Listing water quality measurements for tenant: ${tenantId}`);
-    return this.queryBus.execute(new ListWaterQualityQuery(tenantId, filter));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListWaterQualityQuery(scope, filter)),
+    );
   }
 
   /**
@@ -185,7 +189,9 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<WaterQualityMeasurement[]> {
     this.logger.debug(`Getting critical water quality measurements for tenant: ${tenantId}`);
-    return this.queryBus.execute(new ListCriticalWaterQualityQuery(tenantId));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListCriticalWaterQualityQuery(scope)),
+    );
   }
 
   /**
@@ -214,7 +220,9 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<WaterQualityStatistics> {
     this.logger.debug(`Getting water quality statistics for tank: ${tankId}, days: ${days}`);
-    return this.queryBus.execute(new GetTankWaterQualityStatisticsQuery(tenantId, tankId, days));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new GetTankWaterQualityStatisticsQuery(scope, tankId, days)),
+    );
   }
 
   /**
@@ -245,8 +253,8 @@ export class WaterQualityResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<WaterQualityStatistics> {
     this.logger.debug(`Getting water quality statistics for system: ${systemId}, days: ${days}`);
-    return this.queryBus.execute(
-      new GetSystemWaterQualityStatisticsQuery(tenantId, systemId, days),
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new GetSystemWaterQualityStatisticsQuery(scope, systemId, days)),
     );
   }
 

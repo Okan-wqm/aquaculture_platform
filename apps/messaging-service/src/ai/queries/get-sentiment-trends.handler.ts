@@ -7,11 +7,17 @@
  * Visibility rule: sentiment data is NEVER shown per-message. Only weekly
  * aggregates are exposed, and only to TENANT_ADMIN role.
  *
+ * K10 layer 5 (PR-T1, MT-HIGH-062): the aggregate reads AI-produced analysis
+ * rows inside ONE fail-closed `runInTenantRead` (tenant search_path + RLS GUC
+ * pinned and asserted) and filters every table by the request tenant, so the
+ * tenant is decided by the query, never by whichever pooled connection runs it.
+ *
  * @see ADR-012 section 12.2 (Sentiment Analysis Architecture)
  */
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 
 import { GetSentimentTrendsQuery } from './get-sentiment-trends.query';
 
@@ -33,6 +39,15 @@ export interface SentimentTrend {
   trend: 'improving' | 'declining' | 'stable';
 }
 
+/** One weekly aggregate row of the sentiment query. */
+interface SentimentAggregateRow {
+  channelId: string;
+  channelName: string | null;
+  weekStart: Date;
+  avgScore: string;
+  messageCount: string;
+}
+
 @QueryHandler(GetSentimentTrendsQuery)
 export class GetSentimentTrendsHandler
   implements IQueryHandler<GetSentimentTrendsQuery, SentimentTrend[]>
@@ -46,43 +61,46 @@ export class GetSentimentTrendsHandler
    * Returns weekly aggregated sentiment scores per channel, sorted by week descending.
    */
   async execute(query: GetSentimentTrendsQuery): Promise<SentimentTrend[]> {
-    const { channelId, weeks } = query;
+    const { tenantId, channelId, weeks } = query;
 
     const weeksAgo = new Date();
     weeksAgo.setDate(weeksAgo.getDate() - weeks * 7);
 
-    const params: (string | Date)[] = [weeksAgo];
+    // $1 is always the request tenant: every joined table is filtered by it.
+    const params: (string | Date)[] = [tenantId, weeksAgo];
     let channelFilter = '';
 
     if (channelId) {
-      channelFilter = 'AND m."channelId" = $2';
+      channelFilter = 'AND m."channelId" = $3';
       params.push(channelId);
     }
 
-    const rawResults: Array<{
-      channelId: string;
-      channelName: string | null;
-      weekStart: Date;
-      avgScore: string;
-      messageCount: string;
-    }> = await this.dataSource.query(
-      `SELECT
-        m."channelId",
-        c."name" as "channelName",
-        date_trunc('week', ma."analyzedAt") as "weekStart",
-        AVG(CAST(ma."result"->>'score' AS DOUBLE PRECISION)) as "avgScore",
-        COUNT(*)::text as "messageCount"
-      FROM "message_analysis" ma
-      INNER JOIN "messages" m
-        ON ma."messageId" = m."id"
-        AND ma."messageCreatedAt" = m."createdAt"
-      LEFT JOIN "channels" c ON c."id" = m."channelId"
-      WHERE ma."analysisType" = 'sentiment'
-        AND ma."analyzedAt" >= $1
-        ${channelFilter}
-      GROUP BY m."channelId", c."name", date_trunc('week', ma."analyzedAt")
-      ORDER BY date_trunc('week', ma."analyzedAt") DESC, m."channelId"`,
-      params,
+    const rawResults = await runInTenantRead(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      (queryRunner): Promise<SentimentAggregateRow[]> =>
+        queryRunner.query(
+          `SELECT
+            m."channelId",
+            c."name" as "channelName",
+            date_trunc('week', ma."analyzedAt") as "weekStart",
+            AVG(CAST(ma."result"->>'score' AS DOUBLE PRECISION)) as "avgScore",
+            COUNT(*)::text as "messageCount"
+          FROM "message_analysis" ma
+          INNER JOIN "messages" m
+            ON ma."messageId" = m."id"
+            AND ma."messageCreatedAt" = m."createdAt"
+            AND m."tenantId" = $1
+          LEFT JOIN "channels" c ON c."id" = m."channelId" AND c."tenantId" = $1
+          WHERE ma."tenantId" = $1
+            AND ma."analysisType" = 'sentiment'
+            AND ma."analyzedAt" >= $2
+            ${channelFilter}
+          GROUP BY m."channelId", c."name", date_trunc('week', ma."analyzedAt")
+          ORDER BY date_trunc('week', ma."analyzedAt") DESC, m."channelId"`,
+          params,
+        ),
     );
 
     // Compute trend by comparing consecutive weeks per channel
@@ -110,9 +128,8 @@ export class GetSentimentTrendsHandler
       return {
         channelId: row.channelId,
         channelName: row.channelName ?? 'Unknown',
-        weekStart: row.weekStart instanceof Date
-          ? row.weekStart.toISOString()
-          : String(row.weekStart),
+        weekStart:
+          row.weekStart instanceof Date ? row.weekStart.toISOString() : String(row.weekStart),
         avgScore: parseFloat(row.avgScore),
         messageCount: parseInt(row.messageCount, 10),
         trend,

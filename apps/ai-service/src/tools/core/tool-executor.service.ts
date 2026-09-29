@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ToolExecutionContext, ToolResult } from './tool.interface';
 import { ToolRegistryService } from '../tool-registry.service';
 import { AuditService } from '../../audit/audit.service';
+import { TenantBoundaryViolation } from '../../tenant-boundary/tenant-boundary-violation';
+import { findTenantScopedKeys } from '../../tenant-boundary/tenant-scoped-keys';
 
 /**
  * Central tool execution pipeline:
@@ -46,6 +48,28 @@ export class ToolExecutorService {
     }
 
     const metadata = tool.getMetadata();
+
+    // K10 (MT-HIGH-062): the tenant is fixed by the trusted request. A tool
+    // call whose input names a tenant or schema (prompt injection, a
+    // hallucinated parameter) is refused before any authorization or I/O —
+    // no tool schema offers such a field, so a well-behaved model never sends one.
+    const smuggledKeys = findTenantScopedKeys(input);
+    if (smuggledKeys.length > 0) {
+      this.logger.warn({
+        msg: 'Tool call refused: input carries a tenant/schema selector',
+        toolName,
+        keys: smuggledKeys,
+        correlationId: ctx.correlationId,
+      });
+      const refused: ToolResult = {
+        success: false,
+        error: `Tool ${toolName} does not accept tenant or schema fields; the tenant is fixed by the session`,
+        durationMs: 0,
+        cacheable: false,
+      };
+      await this.audit(toolName, inputRecord, refused, ctx);
+      return refused;
+    }
 
     // SENSOR-MEDIUM-070: a first-class internal service principal is authorized
     // for exactly the tools it declares in `grantedToolNames` — no user-role
@@ -137,8 +161,23 @@ export class ToolExecutorService {
       return pending;
     }
 
-    // Execute the tool
-    const result = await tool.execute(input, ctx);
+    // Execute the tool. K10 (MT-HIGH-062): a TenantBoundaryViolation is the
+    // one exception a tool lets through — audit it as a denied execution and
+    // re-throw so the whole run stops (no data from the reply exists to audit).
+    let result: ToolResult;
+    try {
+      result = await tool.execute(input, ctx);
+    } catch (error) {
+      if (error instanceof TenantBoundaryViolation) {
+        await this.audit(
+          toolName,
+          inputRecord,
+          { success: false, error: error.code, durationMs: 0, cacheable: false },
+          ctx,
+        );
+      }
+      throw error;
+    }
 
     // Persist every execution to the audit trail (DB-PEOPLE-MEDIUM-003).
     // Read-only tools: best-effort — a broken audit write must never break the

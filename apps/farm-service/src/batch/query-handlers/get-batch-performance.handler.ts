@@ -14,54 +14,51 @@
  * @module Batch/QueryHandlers
  */
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
-import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { GetBatchPerformanceQuery, BatchPerformanceResult } from '../queries/get-batch-performance.query';
 import { Batch } from '../entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
-import { RedisService } from '@aquaculture/backend-common/redis';
 import { BatchCostCalculatorService } from '../services/batch-cost-calculator.service';
-import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
+import { readCumulativeFcr } from '../../growth/services/cumulative-fcr.reader';
 
 @Injectable()
 @QueryHandler(GetBatchPerformanceQuery)
 export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerformanceQuery, BatchPerformanceResult> {
   private readonly logger = new Logger(GetBatchPerformanceHandler.name);
 
-  constructor(
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
-    private readonly costCalculator: BatchCostCalculatorService,
-    private readonly fcrCalculation: FCRCalculationService,
-  ) {}
+  constructor(private readonly costCalculator: BatchCostCalculatorService) {}
 
   async execute(query: GetBatchPerformanceQuery): Promise<BatchPerformanceResult> {
-    const { tenantId, batchId } = query;
+    const { scope, batchId } = query;
+    const tenantId = scope.tenantId;
 
-    // Batch bul — read through the fail-closed tenant boundary so a lost/wrong
-    // pooled-connection search_path raises instead of silently resolving the
-    // source schema (→ NotFound / empty for a record that actually exists).
-    const batch = await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
-      queryRunner.manager.findOne(Batch, {
-        where: { id: batchId, tenantId },
-        relations: ['species'],
-      }),
-    );
-
+    // WHY every read goes through the query's scope (K10 layer 4, MT-HIGH-062
+    // — the AI get_batch_performance tool lands here): the batch, its species,
+    // the FCR ledger and the cost axes are all read on the ONE tenant-pinned
+    // connection the scope owns, so a lost/wrong pooled-connection search_path
+    // cannot resolve another schema, and an id that is not this tenant's is
+    // NotFound before anything else is read.
+    const batch = await scope.manager.findOne(Batch, {
+      where: { id: batchId, tenantId },
+      relations: ['species'],
+    });
     if (!batch) {
       throw new NotFoundException(`Batch ${batchId} bulunamadı`);
     }
-
-    // Species bilgileri — same fail-closed boundary for the relation fallback.
     const species =
       batch.species ||
-      (await runInTenantRead(this.dataSource, 'farm', tenantId, (queryRunner) =>
-        queryRunner.manager.findOne(Species, {
-          where: { id: batch.speciesId, tenantId },
-        }),
-      ));
+      (await scope.manager.findOne(Species, {
+        where: { id: batch.speciesId, tenantId },
+      }));
+    // FCR — the single authority is readCumulativeFcr, which reads
+    // net-exited biomass (mortality + cull + harvest + transfer-out −
+    // transfer-in) from the TankOperation ledger. The previous
+    // batch.calculateFCR(mortalityBiomass) only credited mortality
+    // biomass and used the stored snapshot, overstating FCR (FARM-HIGH-007).
+    const cumulativeFCR = await readCumulativeFcr(scope, batchId);
+    // Full cost breakdown (phase 2.3): treatment, labour and equipment
+    // axes on top of purchase + feed, with `warnings` for partial data.
+    const costBreakdown = await this.costCalculator.compute(batch, scope);
 
     // Weight calculations
     const initialAvgWeightG = batch.weight.initial.avgWeight;
@@ -88,12 +85,6 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
       ? ((avgDailyGrowthG - targetDailyGrowthG) / targetDailyGrowthG) * 100
       : 0;
 
-    // FCR — the single authority is FcrCalculationService.calculateCumulativeFCR,
-    // which reads net-exited biomass (mortality + cull + harvest + transfer-out
-    // − transfer-in) from the TankOperation ledger. The previous
-    // batch.calculateFCR(mortalityBiomass) only credited mortality biomass and
-    // used the stored snapshot, overstating FCR (FARM-HIGH-007).
-    const cumulativeFCR = await this.fcrCalculation.calculateCumulativeFCR(batchId, tenantId);
     const actualFCR = cumulativeFCR.fcr;
     const targetFCR = batch.fcr.target;
     const fcrVariance = actualFCR - targetFCR;
@@ -107,13 +98,9 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
     const totalFeedCost = Number(batch.totalFeedCost);
     const avgDailyFeedKg = daysInProduction > 0 ? totalFeedConsumedKg / daysInProduction : 0;
 
-    // Cost calculations — full breakdown via BatchCostCalculatorService
-    // (phase 2.3). Previous implementation was
-    //   totalCost = purchaseCost + totalFeedCost
-    // which understated treatment, labour, and equipment amortization
-    // axes entirely. The service fan-outs to health_events + work_orders
-    // and exposes a `warnings` array so the UI can flag partial data.
-    const costBreakdown = await this.costCalculator.compute(batch);
+    // Cost calculations — the breakdown read above (the previous
+    // `purchaseCost + totalFeedCost` understated treatment, labour and
+    // equipment amortization entirely).
     const purchaseCost = costBreakdown.purchaseCost;
     const totalCost = costBreakdown.totalCost;
     const costPerKg = costBreakdown.costPerKg;

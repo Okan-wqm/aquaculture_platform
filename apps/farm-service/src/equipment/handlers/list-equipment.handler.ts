@@ -7,8 +7,8 @@
  */
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
-import { numberOrUndefined, runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { DataSource, EntityManager } from 'typeorm';
+import { numberOrUndefined, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { EntityManager, In } from 'typeorm';
 import { ListEquipmentQuery } from '../queries/list-equipment.query';
 import { Equipment, EquipmentStatus, EquipmentLocation, TankSpecifications } from '../entities/equipment.entity';
 import { EquipmentSystem } from '../entities/equipment-system.entity';
@@ -59,16 +59,16 @@ function mapTankTypeToEquipmentTypeCode(tankType: TankType): string {
 
 @QueryHandler(ListEquipmentQuery)
 export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
-  // WHY: equipment + tanks are per-tenant data. Reading them through a raw injected
-  // repository resolves the table via the pooled connection's ambient search_path,
-  // which on a lost/rotated tenant context silently reads the wrong schema (or the
-  // empty source schema) — the "equipment appears then disappears" intermittent
-  // failure. WHAT: read through the fail-closed runInTenantRead boundary, which pins +
-  // asserts search_path + the RLS GUC to tenant_<uuid> before any query runs.
-  constructor(private readonly dataSource: DataSource) {}
-
+  // WHY: equipment, tanks and equipment types are per-tenant data. Reading them
+  // through a raw injected repository resolves the table via the pooled
+  // connection's ambient search_path, which on a lost/rotated tenant context
+  // silently reads the wrong schema (or the empty source schema) — the
+  // "equipment appears then disappears" intermittent failure. WHAT: every read
+  // runs on the query's TenantScope, whose connection the boundary pinned and
+  // asserted to tenant_<uuid> (search_path + RLS GUC) before any query ran.
   async execute(query: ListEquipmentQuery): Promise<PaginatedQueryResult<Equipment>> {
-    const { tenantId, filter, pagination } = query;
+    const { scope, filter, pagination } = query;
+    const tenantId = scope.tenantId;
 
     const MAX_LIMIT = 100;
     const page = pagination?.page || 1;
@@ -84,31 +84,29 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
     // We need (page * limit) rows from the merged set to satisfy the current page.
     const maxRowsNeeded = page * limit;
 
-    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const manager = queryRunner.manager;
+    const manager = scope.manager;
 
-      // Query equipment table with row cap
-      const equipmentResult = await this.queryEquipmentTable(manager, tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
+    // Query equipment table with row cap
+    const equipmentResult = await this.queryEquipmentTable(manager, tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
 
-      // Query tanks table if applicable with row cap
-      let tankResult: { items: Equipment[]; total: number } = { items: [], total: 0 };
-      if (shouldQueryTanks) {
-        tankResult = await this.queryAndTransformTanks(manager, tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
-      }
+    // Query tanks table if applicable with row cap
+    let tankResult: { items: Equipment[]; total: number } = { items: [], total: 0 };
+    if (shouldQueryTanks) {
+      tankResult = await this.queryAndTransformTanks(manager, tenantId, filter, sortBy, sortOrder, maxRowsNeeded);
+    }
 
-      // Merge results from both tables
-      const allItems = this.dedupeMergedResults([...equipmentResult.items, ...tankResult.items]);
-      const totalCount = equipmentResult.total + tankResult.total;
+    // Merge results from both tables
+    const allItems = this.dedupeMergedResults([...equipmentResult.items, ...tankResult.items]);
+    const totalCount = equipmentResult.total + tankResult.total;
 
-      // Sort merged results
-      const sortedItems = this.sortMergedResults(allItems, sortBy, sortOrder);
+    // Sort merged results
+    const sortedItems = this.sortMergedResults(allItems, sortBy, sortOrder);
 
-      // Apply pagination to merged results
-      const startIndex = (page - 1) * limit;
-      const paginatedItems = sortedItems.slice(startIndex, startIndex + limit);
+    // Apply pagination to merged results
+    const startIndex = (page - 1) * limit;
+    const paginatedItems = sortedItems.slice(startIndex, startIndex + limit);
 
-      return createPaginatedQueryResult(paginatedItems, page, limit, totalCount);
-    });
+    return createPaginatedQueryResult(paginatedItems, page, limit, totalCount);
   }
 
   /**
@@ -357,35 +355,21 @@ export class ListEquipmentHandler implements IQueryHandler<ListEquipmentQuery> {
   }
 
   /**
-   * Load equipment types into a map for quick lookup
-   * PERF(F5-007): Cached in-process with 1-hour TTL since equipment types are seeded reference data
+   * The tenant's own tank-like equipment types, by code.
+   *
+   * WHY no process-wide cache and no schema prefix (K10 layer 5, V-T1b-4):
+   * equipment_types is copied into every tenant schema on provisioning and a
+   * tenant may extend its copy. The former `"farm"."equipment_types"` read
+   * returned the source template, and its one-hour cache was shared by every
+   * tenant this process served. Reading the unqualified table on the scope's
+   * connection returns this tenant's rows only; the lookup is one small
+   * indexed read per call.
    */
-  private equipmentTypesCache: { map: Map<string, EquipmentType>; expiresAt: number } | null = null;
-  private static readonly EQUIPMENT_TYPES_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-
   private async loadEquipmentTypesMap(manager: EntityManager): Promise<Map<string, EquipmentType>> {
-    if (this.equipmentTypesCache && this.equipmentTypesCache.expiresAt > Date.now()) {
-      return this.equipmentTypesCache.map;
-    }
-
-    // Use explicit farm schema to avoid tenant shadow tables; run on the boundary's
-    // tenant-pinned connection (manager) rather than a random pooled connection.
-    const equipmentTypes: EquipmentType[] = await manager.query(
-      `SELECT * FROM "farm"."equipment_types" WHERE "category" = ANY($1)`,
-      [[EquipmentCategory.TANK, EquipmentCategory.POND, EquipmentCategory.CAGE]],
-    );
-
-    const map = new Map<string, EquipmentType>();
-    for (const type of equipmentTypes) {
-      map.set(type.code, type);
-    }
-
-    this.equipmentTypesCache = {
-      map,
-      expiresAt: Date.now() + ListEquipmentHandler.EQUIPMENT_TYPES_CACHE_TTL_MS,
-    };
-
-    return map;
+    const equipmentTypes = await manager.find(EquipmentType, {
+      where: { category: In(TANK_LIKE_CATEGORIES) },
+    });
+    return new Map(equipmentTypes.map((type) => [type.code, type]));
   }
 
   /**

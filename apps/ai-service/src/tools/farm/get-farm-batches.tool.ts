@@ -1,23 +1,15 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
-import { firstValueFrom, timeout } from 'rxjs';
+import { Injectable } from '@nestjs/common';
+import { TenantBoundNatsClient } from '../../tenant-boundary/tenant-bound-nats.client';
 import { BaseTool } from '../core/base-tool';
 import { Tool } from '../core/tool.decorator';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
+import { isBatchOverview, type BatchOverviewEntry } from './farm-overview.guards';
 
 /** Bound so a hung farm-service cannot stall the agent turn. */
 const GET_BATCHES_TIMEOUT_MS = 5000;
 
 /** No input — the tenant is taken from the (server-populated) execution context. */
 type GetFarmBatchesInput = Record<string, never>;
-
-interface BatchOverviewEntry {
-  id: string;
-  batchNumber: string;
-  name: string | null;
-  status: string;
-  statusChangedAt: string | null;
-}
 
 interface GetFarmBatchesOutput {
   batches: BatchOverviewEntry[];
@@ -46,22 +38,22 @@ interface GetFarmBatchesOutput {
   requiresConfirmation: false,
 })
 export class GetFarmBatchesTool extends BaseTool<GetFarmBatchesInput, GetFarmBatchesOutput> {
-  constructor(@Inject('NATS_SERVICE') private readonly natsClient: Pick<ClientProxy, 'send'>) {
+  constructor(private readonly farm: TenantBoundNatsClient) {
     super();
   }
 
   protected async run(
     _input: GetFarmBatchesInput,
-    ctx: ToolExecutionContext,
+    ctx: TenantBoundToolContext,
   ): Promise<GetFarmBatchesOutput> {
-    const batches = await firstValueFrom(
-      this.natsClient
-        .send<BatchOverviewEntry[]>('request.farm.getBatchOverview', {
-          tenantId: ctx.tenantId,
-        })
-        .pipe(timeout(GET_BATCHES_TIMEOUT_MS)),
-    );
-    const list = Array.isArray(batches) ? batches : [];
-    return { batches: list, count: list.length };
+    // K10 (MT-HIGH-062): the client injects ctx's bound tenant and refuses a
+    // reply served for any other tenant before this code sees the rows.
+    const batches = await this.farm.request(ctx, {
+      subject: 'request.farm.getBatchOverview',
+      fields: {},
+      isData: isBatchOverview,
+      timeoutMs: GET_BATCHES_TIMEOUT_MS,
+    });
+    return { batches, count: batches.length };
   }
 }

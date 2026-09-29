@@ -7,6 +7,7 @@ import { createMockDataSource } from '@aquaculture/testing';
 
 import { GetMortalityByCauseHandler } from '../../query-handlers/get-mortality-by-cause.handler';
 import { GetMortalityByCauseQuery } from '../../queries/get-mortality-by-cause.query';
+import { inTenantScope } from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const siteId = 'ssssssss-ssss-4sss-8sss-ssssssssssss';
@@ -45,8 +46,13 @@ describe('GetMortalityByCauseHandler', () => {
       return Promise.resolve([]);
     });
 
-    const result = await new GetMortalityByCauseHandler(mockDataSource).execute(
-      new GetMortalityByCauseQuery(tenantId, siteId, '2026-06-01', '2026-06-30'),
+    const result = await inTenantScope(
+      tenantId,
+      (scope) =>
+        new GetMortalityByCauseHandler().execute(
+          new GetMortalityByCauseQuery(scope, siteId, '2026-06-01', '2026-06-30'),
+        ),
+      mockDataSource,
     );
 
     expect(result.totalCount).toBe(150);
@@ -67,8 +73,13 @@ describe('GetMortalityByCauseHandler', () => {
   it('passes tenant + site + period as parameters (no string interpolation)', async () => {
     const { mockDataSource, mockQueryRunner } = createMockDataSource();
 
-    await new GetMortalityByCauseHandler(mockDataSource).execute(
-      new GetMortalityByCauseQuery(tenantId, siteId, '2026-06-01', '2026-06-30'),
+    await inTenantScope(
+      tenantId,
+      (scope) =>
+        new GetMortalityByCauseHandler().execute(
+          new GetMortalityByCauseQuery(scope, siteId, '2026-06-01', '2026-06-30'),
+        ),
+      mockDataSource,
     );
 
     const aggregateCall = (mockQueryRunner.query as jest.Mock).mock.calls.find(([sql]) =>
@@ -82,8 +93,13 @@ describe('GetMortalityByCauseHandler', () => {
   it('returns an empty aggregate for a period with no records', async () => {
     const { mockDataSource } = createMockDataSource();
 
-    const result = await new GetMortalityByCauseHandler(mockDataSource).execute(
-      new GetMortalityByCauseQuery(tenantId, siteId, '2026-05-01', '2026-05-31'),
+    const result = await inTenantScope(
+      tenantId,
+      (scope) =>
+        new GetMortalityByCauseHandler().execute(
+          new GetMortalityByCauseQuery(scope, siteId, '2026-05-01', '2026-05-31'),
+        ),
+      mockDataSource,
     );
 
     expect(result).toEqual({ totalCount: 0, byCause: [], details: [], recordCount: 0 });

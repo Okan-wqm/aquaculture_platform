@@ -3,19 +3,25 @@ import { Logger } from '@nestjs/common';
 import type { QueryBus } from '@platform/cqrs';
 import { GetFinanceBatchTotalsQuery } from '../../queries/get-finance-batch-totals.query';
 import { GetFinanceSummaryQuery } from '../../queries/get-finance-summary.query';
-import { FinanceGranularity } from '../../services/finance-ledger-query.service';
+import { FinanceGranularity } from '../../services/finance-ledger-model';
 import { FinanceAiQueryResponder } from '../finance-ai-query.responder';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 
 describe('FinanceAiQueryResponder (FARM-MEDIUM-328)', () => {
   let execute: jest.Mock;
   let responder: FinanceAiQueryResponder;
+  let harness: FarmScopeHarness;
 
   beforeEach(() => {
     execute = jest.fn();
     const queryBus: Pick<QueryBus, 'execute'> = { execute };
-    responder = new FinanceAiQueryResponder(queryBus as QueryBus);
+    harness = createFarmScopeHarness();
+    responder = new FinanceAiQueryResponder(harness.responder, queryBus as QueryBus);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 
@@ -73,7 +79,7 @@ describe('FinanceAiQueryResponder (FARM-MEDIUM-328)', () => {
       toDate: '2026-03-01',
       granularity: 'HOUR',
     });
-    expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+    expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
   });
 
   it('derives net result per batch and bounds the list', async () => {
@@ -87,6 +93,7 @@ describe('FinanceAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(execute).toHaveBeenCalledWith(expect.any(GetFinanceBatchTotalsQuery));
     expect(reply).toEqual({
       ok: true,
+      tenantId: TENANT,
       data: {
         items: [{ batchId: 'b1', totalExpense: 100, totalRevenue: 250, netResult: 150 }],
         truncated: false,

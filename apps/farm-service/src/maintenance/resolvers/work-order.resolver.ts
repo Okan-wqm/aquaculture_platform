@@ -47,6 +47,7 @@ import {
   ApproveWorkOrderInput,
 } from '../dto/update-work-order.dto';
 import { WorkOrderFilterInput } from '../dto/work-order-filter.dto';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 // Register enums for GraphQL
 registerEnumType(WorkOrderStatus, {
@@ -161,6 +162,7 @@ export class WorkOrderResolver {
   constructor(
     private readonly workOrderService: WorkOrderService,
     private readonly queryBus: QueryBus,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -214,7 +216,9 @@ export class WorkOrderResolver {
     @Tenant() tenantId: string,
   ): Promise<WorkOrder[]> {
     this.logger.debug(`Getting overdue work orders for tenant: ${tenantId}`);
-    return this.queryBus.execute(new ListOverdueWorkOrdersQuery(tenantId));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListOverdueWorkOrdersQuery(scope)),
+    );
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -237,8 +241,10 @@ export class WorkOrderResolver {
     @Args('dateTo', { nullable: true }) dateTo?: Date,
   ): Promise<WorkOrderStatisticsResponse> {
     this.logger.debug(`Getting work order statistics for tenant: ${tenantId}`);
-    const stats = await this.queryBus.execute<GetWorkOrderStatisticsQuery, WorkOrderStatistics>(
-      new GetWorkOrderStatisticsQuery(tenantId, dateFrom, dateTo),
+    const stats = await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute<GetWorkOrderStatisticsQuery, WorkOrderStatistics>(
+        new GetWorkOrderStatisticsQuery(scope, dateFrom, dateTo),
+      ),
     );
 
     return {

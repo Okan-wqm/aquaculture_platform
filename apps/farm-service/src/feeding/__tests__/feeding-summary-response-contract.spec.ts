@@ -1,10 +1,11 @@
 import { CommandBus, QueryBus } from '@platform/cqrs';
-import { collaborator } from '@aquaculture/testing';
+import { collaborator, createFakeTenantConnection } from '@aquaculture/testing';
 import { DataSource } from 'typeorm';
 
 import { FeedingResolver } from '../resolvers/feeding.resolver';
 import { FeedingSummaryResult } from '../queries/get-feeding-summary.query';
 import { GrowthSimulatorService } from '../services/growth-simulator.service';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 /**
  * Feeding-summary read-back contract (ORPHAN-MEDIUM-270). The resolver returned
@@ -39,7 +40,7 @@ describe('FeedingResolver.feedingSummary — response contract completeness', ()
   };
 
   function resolverReturning(value: FeedingSummaryResult): FeedingResolver {
-    // Ctor: (commandBus, queryBus, growthSimulator, dataSource). Only the query
+    // Ctor: (commandBus, queryBus, growthSimulator, dataSource, tenantScopes). Only the query
     // bus is exercised on this path; the rest are EMPTY TYPED doubles, so a
     // resolver that starts reaching for one fails by name here instead of
     // silently working against an object that models nothing.
@@ -48,13 +49,14 @@ describe('FeedingResolver.feedingSummary — response contract completeness', ()
       collaborator<QueryBus>({ execute: jest.fn().mockResolvedValue(value) }, 'QueryBus'),
       collaborator<GrowthSimulatorService>({}, 'GrowthSimulatorService'),
       collaborator<DataSource>({}, 'DataSource'),
+      new FarmTenantScopes(createFakeTenantConnection().dataSource),
     );
   }
 
   it('maps the handler Result onto a fully-populated FeedingSummaryResponse', async () => {
     const resolver = resolverReturning(result);
 
-    const response = await resolver.feedingSummary('t1', 'batch', 'batch-1', undefined, undefined);
+    const response = await resolver.feedingSummary('11111111-1111-4111-8111-111111111111', 'batch', 'batch-1', undefined, undefined);
 
     // every non-nullable @Field is present + correctly renamed
     expect(response.startDate).toEqual(result.startDate);
@@ -84,7 +86,7 @@ describe('FeedingResolver.feedingSummary — response contract completeness', ()
   it('sets batchId for a batch summary and leaves siteId/currency nullable', async () => {
     const resolver = resolverReturning({ ...result, entityType: 'tank', entityId: 'tank-9' });
 
-    const response = await resolver.feedingSummary('t1', 'tank', 'tank-9', undefined, undefined);
+    const response = await resolver.feedingSummary('11111111-1111-4111-8111-111111111111', 'tank', 'tank-9', undefined, undefined);
 
     expect(response.batchId).toBeUndefined(); // not a batch
     expect(response.siteId).toBeUndefined(); // result carries no siteId

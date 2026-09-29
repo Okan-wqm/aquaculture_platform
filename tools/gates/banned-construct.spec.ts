@@ -14,7 +14,8 @@
  *     closes — regression here would silently reopen it)
  *   - getScopedRepository( does NOT trip the bare-getRepository rule
  *   - per-rule exemption: bare getRepository( inside libs/backend-common
- *     (the scoping SSOT) is allowed
+ *     (the scoping SSOT) is allowed, and in the K10 red-team harness
+ *     helpers (not its specs)
  *   - non-code files (md/json/yml) never fire
  *   - global exemption: the verification fixture path is skipped
  */
@@ -72,6 +73,20 @@ void test('bare getRepository( is allowed inside the scoping SSOT (libs/backend-
     ),
   ]);
   assert.equal(hits.length, 0);
+});
+
+void test('bare getRepository( is allowed in the K10 red-team harness helpers, not its specs', () => {
+  const text = 'const repo = dataSource.getRepository(ProposedAction);';
+  assert.equal(
+    scanAddedLines([line('tests/ai-tenant-redteam/src/helpers/ai-two-tenant.harness.ts', text)])
+      .length,
+    0,
+  );
+  const hits = scanAddedLines([
+    line('tests/ai-tenant-redteam/src/ai-tenant-redteam.conversation.spec.ts', text),
+  ]);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0]?.label, 'bare getRepository(');
 });
 
 void test('non-code files never fire', () => {

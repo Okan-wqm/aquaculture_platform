@@ -1,4 +1,4 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { QueryBus, type PaginatedQueryResult } from '@platform/cqrs';
 import {
@@ -6,23 +6,19 @@ import {
   isBatchPerformanceRequest,
   isGrowthMeasurementsRequest,
   toEventIso,
-  type AiQueryReply,
+  type TenantBoundReply,
   type GrowthAnalysisReply,
   type GrowthMeasurementDto,
   type GrowthMeasurementsReply,
 } from '@platform/event-contracts';
-import {
-  isoOrNull,
-  numberOrNull,
-  respondAiQuery,
-  toBoundedList,
-} from '../../common/nats/ai-query-responder';
+import { isoOrNull, numberOrNull, toBoundedList } from '../../common/nats/ai-query-responder';
 import type { GrowthMeasurement } from '../entities/growth-measurement.entity';
 import {
   GetGrowthAnalysisQuery,
   type GrowthAnalysisResult,
 } from '../queries/get-growth-analysis.query';
 import { GetGrowthMeasurementsQuery } from '../queries/get-growth-measurements.query';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 /** Trend points kept in the reply — the model reasons over the recent curve, not the whole series. */
 const GROWTH_TREND_CAP = 30;
@@ -94,49 +90,54 @@ export function projectMeasurement(row: GrowthMeasurement): GrowthMeasurementDto
 /** Growth read surface for the farm production specialist (FARM-MEDIUM-328). */
 @Controller()
 export class GrowthAiQueryResponder {
-  private readonly logger = new Logger(GrowthAiQueryResponder.name);
-
-  constructor(private readonly queryBus: QueryBus) {}
+  constructor(
+    private readonly responder: FarmAiResponder,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.GROWTH_ANALYSIS)
-  getAnalysis(@Payload() payload: unknown): Promise<AiQueryReply<GrowthAnalysisReply>> {
-    return respondAiQuery(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.GROWTH_ANALYSIS,
-      payload,
-      isBatchPerformanceRequest,
-      async (req) => {
-        const result = await this.queryBus.execute<GetGrowthAnalysisQuery, GrowthAnalysisResult>(
-          new GetGrowthAnalysisQuery(req.tenantId, req.batchId),
-        );
-        return projectAnalysis(result);
+  getAnalysis(@Payload() payload: unknown): Promise<TenantBoundReply<GrowthAnalysisReply>> {
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.GROWTH_ANALYSIS,
+        isRequest: isBatchPerformanceRequest,
+        handle: async (req, scope) => {
+          const result = await this.queryBus.execute<GetGrowthAnalysisQuery, GrowthAnalysisResult>(
+            new GetGrowthAnalysisQuery(scope, req.batchId),
+          );
+          return projectAnalysis(result);
+        },
       },
+      payload,
     );
   }
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.GROWTH_MEASUREMENTS)
-  listMeasurements(@Payload() payload: unknown): Promise<AiQueryReply<GrowthMeasurementsReply>> {
-    return respondAiQuery(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.GROWTH_MEASUREMENTS,
-      payload,
-      isGrowthMeasurementsRequest,
-      async (req) => {
-        const page = await this.queryBus.execute<
-          GetGrowthMeasurementsQuery,
-          PaginatedQueryResult<GrowthMeasurement>
-        >(
-          new GetGrowthMeasurementsQuery(
-            req.tenantId,
-            { batchId: req.batchId },
-            1,
-            req.limit,
-            'measurementDate',
-            'DESC',
-          ),
-        );
-        return toBoundedList(page.data, req.limit, projectMeasurement, page.pagination.total);
+  listMeasurements(
+    @Payload() payload: unknown,
+  ): Promise<TenantBoundReply<GrowthMeasurementsReply>> {
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.GROWTH_MEASUREMENTS,
+        isRequest: isGrowthMeasurementsRequest,
+        handle: async (req, scope) => {
+          const page = await this.queryBus.execute<
+            GetGrowthMeasurementsQuery,
+            PaginatedQueryResult<GrowthMeasurement>
+          >(
+            new GetGrowthMeasurementsQuery(
+              scope,
+              { batchId: req.batchId },
+              1,
+              req.limit,
+              'measurementDate',
+              'DESC',
+            ),
+          );
+          return toBoundedList(page.data, req.limit, projectMeasurement, page.pagination.total);
+        },
       },
+      payload,
     );
   }
 }

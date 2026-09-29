@@ -152,7 +152,13 @@ function projectRootFor(file) {
   if (top === 'e2e') return 'e2e';
   if (top === 'mcp' && second) return `${top}/${second}`;
   if (top === 'scripts' && second) return 'scripts';
-  if (top === 'tests' && second === 'invariants') return 'tests/invariants';
+  // WHY: every `tests/<name>` directory that is an Nx project (it owns a
+  // project.json — tests/invariants, tests/ai-tenant-redteam, …) is its own
+  // tsconfig owner, so a new test project is type-checked on its first push
+  // without another hand-written case here.
+  if (top === 'tests' && second && existsSync(join(repoRoot, top, second, 'project.json'))) {
+    return `${top}/${second}`;
+  }
   if (top === 'tests' && second === 'e2e' && third) {
     return `${top}/${second}/${third}`;
   }
@@ -169,7 +175,10 @@ function tsconfigFor(file) {
   const root = projectRootFor(file);
   if (!root) return null;
 
-  if (root === 'tests/invariants') {
+  // A tests/<name> Nx project is test code end to end (its helpers included),
+  // so its tsconfig.spec.json — the config that carries the jest types — owns
+  // every file in it.
+  if (root.startsWith('tests/') && root.split('/').length === 2) {
     return firstExisting([`${root}/tsconfig.spec.json`, `${root}/tsconfig.json`]);
   }
 

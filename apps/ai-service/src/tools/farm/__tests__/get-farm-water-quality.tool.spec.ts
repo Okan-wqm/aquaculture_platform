@@ -1,11 +1,14 @@
 import 'reflect-metadata';
 import { of } from 'rxjs';
 import { GetFarmWaterQualityTool } from '../get-farm-water-quality.tool';
-import type { ToolExecutionContext } from '../../core/tool.interface';
+import {
+  boundReply,
+  humanToolContext,
+  tenantBoundClient,
+} from '../../../tenant-boundary/__tests__/fixtures/tenant-bound.fixture';
 
-const CTX: ToolExecutionContext = {
+const CTX = humanToolContext({
   tenantId: '33333333-3333-4333-8333-333333333333',
-  schemaName: 'tenant_3333333333333333',
   userId: 'u-1',
   userRoles: ['operator'],
   correlationId: 'corr-1',
@@ -13,7 +16,7 @@ const CTX: ToolExecutionContext = {
   personaTier: 'operator',
   offeredToolNames: [],
   actuationPolicy: 'allowed',
-};
+});
 
 const READING = {
   id: 'm1',
@@ -33,7 +36,7 @@ describe('GetFarmWaterQualityTool', () => {
 
   beforeEach(() => {
     send = jest.fn();
-    tool = new GetFarmWaterQualityTool({ send });
+    tool = new GetFarmWaterQualityTool(tenantBoundClient({ send }));
   });
 
   it('is a plain read tool (no confirmation)', () => {
@@ -43,19 +46,19 @@ describe('GetFarmWaterQualityTool', () => {
   });
 
   it('requests recent readings for the context tenant and returns them + count', async () => {
-    send.mockReturnValue(of([READING]));
+    send.mockReturnValue(of(boundReply([READING], CTX.tenant.tenantId)));
 
     const result = await tool.execute({}, CTX);
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ readings: [READING], count: 1 });
     expect(send).toHaveBeenCalledWith('request.farm.getWaterQualityOverview', {
-      tenantId: CTX.tenantId,
+      tenantId: CTX.tenant.tenantId,
     });
   });
 
   it('coalesces an empty/absent result to a zero-count result', async () => {
-    send.mockReturnValue(of([]));
+    send.mockReturnValue(of(boundReply([], CTX.tenant.tenantId)));
     const result = await tool.execute({}, CTX);
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ readings: [], count: 0 });

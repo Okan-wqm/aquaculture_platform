@@ -1877,10 +1877,65 @@ jobs:
             fi
           done
 
+  # =============================================================================
+  # ai-tenant-redteam: owner rule K10 (plan PR-T1, MT-HIGH-062) — "no AI agent
+  # may bring back another tenant's data, under any condition" — proved end to
+  # end on EVERY pull request and merge-group run, whatever it changes: no
+  # detect-changes gate, so a dependency-only change (typeorm, pg, nats) runs it
+  # too (V-T1a-7). merge-gate and build-status need it and require `success`.
+  # A tenant-A agent driven by a scripted attacker sends tenant B's real ids to
+  # every farm AI subject, replays B's conversation and proposal ids, and meets
+  # a responder whose connection serves B — through the real ai-service
+  # runner/tools/TenantBoundNatsClient and the real farm-service responders over
+  # a two-tenant PostgreSQL (Testcontainers) with the production RLS policy,
+  # connected as a role that cannot bypass it.
+  # =============================================================================
+  ai-tenant-redteam:
+    # No `needs`: `install` runs only when detect-changes finds affected code,
+    # and this gate must run whatever the change is. It restores the shared
+    # node_modules cache when present and installs itself otherwise.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore node_modules
+        id: cache-nm
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Fallback install if cache missed
+        if: steps.cache-nm.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
+
+      # The harness-owned PostgreSQL image (libs/migration-harness/src/setup.ts),
+      # pulled before Jest so a cold pull cannot eat the suites' beforeAll budget.
+      - name: Prewarm PostgreSQL testcontainer image
+        run: docker pull "$(node scripts/ci/print-migration-harness-postgres-image.mjs)"
+        timeout-minutes: 10
+
+      - name: Run the K10 AI tenant red-team
+        run: npx jest --config tests/ai-tenant-redteam/jest.config.ts --runInBand
+        timeout-minutes: 15
+
   merge-gate:
     needs:
       - detect-changes
       - install
+      - ai-tenant-redteam
       - lint
       - type-check
       - test
@@ -1923,6 +1978,12 @@ jobs:
             echo "::error::detect-changes did not succeed"
             exit 1
           fi
+          # K10 red-team must pass on every pull request — checked BEFORE the
+          # no-affected-changes exit, and `skipped` does not count as passing.
+          if [ "${{ needs.ai-tenant-redteam.result }}" != "success" ]; then
+            echo "::error::ai-tenant-redteam result=${{ needs.ai-tenant-redteam.result }}"
+            exit 1
+          fi
           if [ "${{ needs.detect-changes.outputs.has_changes }}" != "true" ]; then
             echo "No affected code/deploy changes; merge gate passes."
             exit 0
@@ -1954,6 +2015,7 @@ jobs:
     needs:
       - detect-changes
       - install
+      - ai-tenant-redteam
       - lint
       - type-check
       - test
@@ -1978,6 +2040,11 @@ jobs:
           set -euo pipefail
           if [ "${{ needs.detect-changes.result }}" != "success" ]; then
             echo "::error::Affected range resolution failed."
+            exit 1
+          fi
+          # K10 red-team runs on every event and must pass (skipped is not a pass).
+          if [ "${{ needs.ai-tenant-redteam.result }}" != "success" ]; then
+            echo "::error::ai-tenant-redteam result=${{ needs.ai-tenant-redteam.result }}"
             exit 1
           fi
 

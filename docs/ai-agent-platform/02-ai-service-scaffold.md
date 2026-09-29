@@ -67,11 +67,11 @@ Middleware 1-3 are imported from `@platform/backend-common`. Middleware 4 is loc
 
 ## Global Guards
 
-| Guard            | Purpose                                              |
-|------------------|------------------------------------------------------|
-| `TenantGuard`    | Rejects requests without a valid tenant context       |
-| `RolesGuard`     | Checks `@Roles()` decorator against user JWT roles    |
-| `ThrottlerGuard` | Rate limits per-tenant and per-user                   |
+| Guard            | Purpose                                            |
+| ---------------- | -------------------------------------------------- |
+| `TenantGuard`    | Rejects requests without a valid tenant context    |
+| `RolesGuard`     | Checks `@Roles()` decorator against user JWT roles |
+| `ThrottlerGuard` | Rate limits per-tenant and per-user                |
 
 ## TenantSchemaMiddleware
 
@@ -103,7 +103,6 @@ apps/ai-service/src/
       tool.interface.ts                           # ITool, ToolMetadata, ToolResult, ToolExecutionContext
       tool.decorator.ts                           # @Tool() class decorator
       base-tool.ts                                # BaseTool abstract class
-      base-tenant-tool.ts                         # TenantScopedTool (SET LOCAL search_path)
       tool-executor.service.ts                    # Permission check -> execute -> audit log
       index.ts                                    # Re-exports
     tool-registry.service.ts                      # Central tool registry (Map-based)
@@ -150,25 +149,25 @@ apps/ai-service/src/
 
 ## Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AI_SERVICE_PORT` | 3008 | HTTP listen port |
-| `DATABASE_HOST` | localhost | PostgreSQL host |
-| `DATABASE_PORT` | 5432 | PostgreSQL port |
-| `DATABASE_USER` | postgres | PostgreSQL user |
-| `DATABASE_PASSWORD` | (required in prod) | PostgreSQL password |
-| `DATABASE_NAME` | aquaculture | PostgreSQL database |
-| `DATABASE_SYNC` | false | TypeORM synchronize (non-prod only) |
-| `DB_SSL` | false | Enable SSL |
-| `DB_POOL_SIZE` | 5 | Connection pool max |
-| `JWT_SECRET` | (required) | JWT signing secret |
-| `JWT_EXPIRES_IN` | 1d | JWT expiration |
-| `NATS_URL` | nats://localhost:4222 | NATS server URL |
-| `NATS_STREAM_NAME` | AQUACULTURE_EVENTS | JetStream stream name |
-| `ANTHROPIC_API_KEY` | (required) | Anthropic API key |
-| `AI_MAX_TOOL_LOOPS` | 10 | Max tool loop iterations |
-| `CORS_ORIGINS` | * | Comma-separated origins (wildcard blocked in prod) |
-| `TRUST_PROXY` | false | Trust proxy configuration |
-| `NODE_ENV` | - | Environment (production enables security hardening) |
-| `GRAPHQL_PLAYGROUND` | true | Enable GraphQL playground (non-prod) |
-| `GRAPHQL_INTROSPECTION` | false | Enable GraphQL introspection (prod) |
+| Variable                | Default               | Description                                         |
+| ----------------------- | --------------------- | --------------------------------------------------- |
+| `AI_SERVICE_PORT`       | 3008                  | HTTP listen port                                    |
+| `DATABASE_HOST`         | localhost             | PostgreSQL host                                     |
+| `DATABASE_PORT`         | 5432                  | PostgreSQL port                                     |
+| `DATABASE_USER`         | postgres              | PostgreSQL user                                     |
+| `DATABASE_PASSWORD`     | (required in prod)    | PostgreSQL password                                 |
+| `DATABASE_NAME`         | aquaculture           | PostgreSQL database                                 |
+| `DATABASE_SYNC`         | false                 | TypeORM synchronize (non-prod only)                 |
+| `DB_SSL`                | false                 | Enable SSL                                          |
+| `DB_POOL_SIZE`          | 5                     | Connection pool max                                 |
+| `JWT_SECRET`            | (required)            | JWT signing secret                                  |
+| `JWT_EXPIRES_IN`        | 1d                    | JWT expiration                                      |
+| `NATS_URL`              | nats://localhost:4222 | NATS server URL                                     |
+| `NATS_STREAM_NAME`      | AQUACULTURE_EVENTS    | JetStream stream name                               |
+| `ANTHROPIC_API_KEY`     | (required)            | Anthropic API key                                   |
+| `AI_MAX_TOOL_LOOPS`     | 10                    | Max tool loop iterations                            |
+| `CORS_ORIGINS`          | \*                    | Comma-separated origins (wildcard blocked in prod)  |
+| `TRUST_PROXY`           | false                 | Trust proxy configuration                           |
+| `NODE_ENV`              | -                     | Environment (production enables security hardening) |
+| `GRAPHQL_PLAYGROUND`    | true                  | Enable GraphQL playground (non-prod)                |
+| `GRAPHQL_INTROSPECTION` | false                 | Enable GraphQL introspection (prod)                 |

@@ -15,8 +15,9 @@ describe('SensorChannelDetectionResponder (SENSOR-MEDIUM-070)', () => {
   const executeTool = jest.fn<Promise<ToolResult>, [string, unknown, ToolExecutionContext]>();
   const responder = new SensorChannelDetectionResponder({ executeTool } as never);
 
+  const TENANT = 'abcdef01-2345-4678-89ab-cdef01234567';
   const req: DetectSensorChannelsRequest = {
-    tenantId: 'tenant-abc',
+    tenantId: TENANT,
     sensorId: 's1',
     samples: [{ timestamp: '2026-01-01T00:00:00Z', values: { temp: 21.5 } }],
   };
@@ -46,7 +47,6 @@ describe('SensorChannelDetectionResponder (SENSOR-MEDIUM-070)', () => {
     success: true,
     data: {
       sensorId: 's1',
-      tenantId: 'tenant-abc',
       proposals: [
         {
           channelKey: 'temp',
@@ -101,7 +101,18 @@ describe('SensorChannelDetectionResponder (SENSOR-MEDIUM-070)', () => {
     });
     expect(ctx.userRoles).toEqual([]);
     expect(ctx.actuationPolicy).toBe('blocked');
-    expect(ctx.schemaName).toBe('tenant_tenantabc');
+    // K10 (MT-HIGH-062): the tenant binding is minted from the validated request.
+    expect(ctx.tenant.tenantId).toBe(TENANT);
+    expect(ctx.tenant.schemaName).toBe('tenant_abcdef0123454678');
+  });
+
+  it('returns BAD_REQUEST without calling any tool when the tenant is not a UUID', async () => {
+    // SCENARIO: the caller sends a schema-like or empty tenant.
+    // EXPECTS: no binding can be minted, so no tool runs.
+    const res = await responder.detectChannels({ ...req, tenantId: 'tenant-abc' });
+
+    expect(res.error?.code).toBe('BAD_REQUEST');
+    expect(executeTool).not.toHaveBeenCalled();
   });
 
   it('returns BAD_REQUEST without calling any tool when samples are empty', async () => {

@@ -44,6 +44,7 @@ import { ListParamEquipmentQuery } from './queries/list-param-equipment.query';
 import { GetEquipmentParamsQuery } from './queries/get-equipment-params.query';
 import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
 import { Cacheable } from '../common/cache/cacheable.decorator';
+import { FarmTenantScopes } from '../common/tenant-boundary/farm-tenant-scopes';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -98,6 +99,7 @@ export class WaterQualityParameterConfigResolver {
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
     private readonly seeder: WaterQualityParameterConfigSeederService,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -114,7 +116,9 @@ export class WaterQualityParameterConfigResolver {
     @Args('filter', { nullable: true }) filter?: ParameterConfigFilterInput,
   ): Promise<WaterQualityParameterConfig[]> {
     this.logger.debug(`Listing parameter configs for tenant: ${tenantId}`);
-    return this.queryBus.execute(new ListParameterConfigsQuery(tenantId, filter));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListParameterConfigsQuery(scope, filter)),
+    );
   }
 
   /**

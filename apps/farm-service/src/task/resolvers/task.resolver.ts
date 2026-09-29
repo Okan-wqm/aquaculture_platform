@@ -39,6 +39,8 @@ import {
   SetChecklistItemInput,
 } from '../dto/update-task.dto';
 import { TaskFilterInput } from '../dto/task-filter.dto';
+import { normaliseChecklistItems } from '../services/task-checklist';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 // ============================================================================
 // USER CONTEXT
@@ -99,6 +101,7 @@ export class TaskResolver {
   constructor(
     private readonly taskService: TaskService,
     private readonly queryBus: QueryBus,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -114,7 +117,7 @@ export class TaskResolver {
    */
   @ResolveField(() => [TaskChecklistItem], { name: 'checklistItems' })
   checklistItems(@Parent() task: Task): TaskChecklistItem[] {
-    return TaskService.normaliseChecklistItems(task.checklistItems);
+    return normaliseChecklistItems(task.checklistItems);
   }
 
   // -------------------------------------------------------------------------
@@ -160,7 +163,9 @@ export class TaskResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<Task[]> {
     this.logger.debug(`Getting today's tasks for tenant: ${tenantId}`);
-    return this.queryBus.execute(new ListTodaysTasksQuery(tenantId));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListTodaysTasksQuery(scope)),
+    );
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
@@ -169,7 +174,9 @@ export class TaskResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<TaskStatsResponse> {
     this.logger.debug(`Getting task stats for tenant: ${tenantId}`);
-    return this.queryBus.execute(new GetTaskStatsQuery(tenantId));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new GetTaskStatsQuery(scope)),
+    );
   }
 
   // -------------------------------------------------------------------------

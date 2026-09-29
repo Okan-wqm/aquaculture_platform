@@ -159,6 +159,7 @@ import {
   createSourceEquipmentTypesReferenceTable,
   createTenantSchemaFromSource,
 } from './helpers/tenant-schema-harness';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
@@ -424,7 +425,7 @@ describe('Site tenant isolation on real Postgres', () => {
         new FinanceSettingsService(dataSource),
       ),
       getEquipment: new GetEquipmentHandler(dataSource, tankEquipmentAdapter),
-      listEquipment: new ListEquipmentHandler(dataSource),
+      listEquipment: new ListEquipmentHandler(),
       updateEquipment: new UpdateEquipmentHandler(
         dataSource,
         auditLogService,
@@ -464,7 +465,7 @@ describe('Site tenant isolation on real Postgres', () => {
         parameterConfigCache,
       ),
       getParameterConfig: new GetParameterConfigHandler(dataSource),
-      listParameterConfigs: new ListParameterConfigsHandler(dataSource),
+      listParameterConfigs: new ListParameterConfigsHandler(),
       updateParameterConfig: new UpdateParameterConfigHandler(
         parameterConfigRepository,
         parameterConfigCache,
@@ -862,21 +863,31 @@ describe('Site tenant isolation on real Postgres', () => {
       harness.getEquipment.execute(new GetEquipmentQuery(equipmentA.id, TENANT_A, true)),
     );
     const tenantAList = await withTenantContext(TENANT_A, () =>
-      harness.listEquipment.execute(
-        new ListEquipmentQuery(
-          TENANT_A,
-          { search: 'Updated', systemId: systemA.id, isVisibleInSensor: true, isTank: false },
-          { page: 1, limit: 10 },
-        ),
+      inTenantScope(
+        TENANT_A,
+        (scope) =>
+          harness.listEquipment.execute(
+            new ListEquipmentQuery(
+              scope,
+              { search: 'Updated', systemId: systemA.id, isVisibleInSensor: true, isTank: false },
+              { page: 1, limit: 10 },
+            ),
+          ),
+        requireDataSource(),
       ),
     );
     const tenantBList = await withTenantContext(TENANT_B, () =>
-      harness.listEquipment.execute(
-        new ListEquipmentQuery(
-          TENANT_B,
-          { search: 'Updated', systemId: systemB.id, isVisibleInSensor: true, isTank: false },
-          { page: 1, limit: 10 },
-        ),
+      inTenantScope(
+        TENANT_B,
+        (scope) =>
+          harness.listEquipment.execute(
+            new ListEquipmentQuery(
+              scope,
+              { search: 'Updated', systemId: systemB.id, isVisibleInSensor: true, isTank: false },
+              { page: 1, limit: 10 },
+            ),
+          ),
+        requireDataSource(),
       ),
     );
     const systemPreview = await withTenantContext(TENANT_A, () =>
@@ -900,21 +911,31 @@ describe('Site tenant isolation on real Postgres', () => {
     );
 
     const tenantAAfterDelete = await withTenantContext(TENANT_A, () =>
-      harness.listEquipment.execute(
-        new ListEquipmentQuery(
-          TENANT_A,
-          { search: 'Sensor Pump', isTank: false },
-          { page: 1, limit: 10 },
-        ),
+      inTenantScope(
+        TENANT_A,
+        (scope) =>
+          harness.listEquipment.execute(
+            new ListEquipmentQuery(
+              scope,
+              { search: 'Sensor Pump', isTank: false },
+              { page: 1, limit: 10 },
+            ),
+          ),
+        requireDataSource(),
       ),
     );
     const tenantBAfterDelete = await withTenantContext(TENANT_B, () =>
-      harness.listEquipment.execute(
-        new ListEquipmentQuery(
-          TENANT_B,
-          { search: 'Sensor Pump', isTank: false },
-          { page: 1, limit: 10 },
-        ),
+      inTenantScope(
+        TENANT_B,
+        (scope) =>
+          harness.listEquipment.execute(
+            new ListEquipmentQuery(
+              scope,
+              { search: 'Sensor Pump', isTank: false },
+              { page: 1, limit: 10 },
+            ),
+          ),
+        requireDataSource(),
       ),
     );
 
@@ -1315,21 +1336,31 @@ describe('Site tenant isolation on real Postgres', () => {
     ).toBe(false);
 
     const tenantAList = await withTenantContext(TENANT_A, () =>
-      harness.listEquipment.execute(
-        new ListEquipmentQuery(
-          TENANT_A,
-          { search: 'Unified Tank', isTank: true, categories: [EquipmentCategory.TANK] },
-          { page: 1, limit: 10 },
-        ),
+      inTenantScope(
+        TENANT_A,
+        (scope) =>
+          harness.listEquipment.execute(
+            new ListEquipmentQuery(
+              scope,
+              { search: 'Unified Tank', isTank: true, categories: [EquipmentCategory.TANK] },
+              { page: 1, limit: 10 },
+            ),
+          ),
+        requireDataSource(),
       ),
     );
     const tenantBList = await withTenantContext(TENANT_B, () =>
-      harness.listEquipment.execute(
-        new ListEquipmentQuery(
-          TENANT_B,
-          { search: 'Unified Tank', isTank: true, categories: [EquipmentCategory.TANK] },
-          { page: 1, limit: 10 },
-        ),
+      inTenantScope(
+        TENANT_B,
+        (scope) =>
+          harness.listEquipment.execute(
+            new ListEquipmentQuery(
+              scope,
+              { search: 'Unified Tank', isTank: true, categories: [EquipmentCategory.TANK] },
+              { page: 1, limit: 10 },
+            ),
+          ),
+        requireDataSource(),
       ),
     );
 
@@ -1560,8 +1591,13 @@ describe('Site tenant isolation on real Postgres', () => {
       harness.getParameterConfig.execute(new GetParameterConfigQuery(TENANT_A, configA.id)),
     );
     const listAfterUpdate = await withTenantContext(TENANT_A, () =>
-      harness.listParameterConfigs.execute(
-        new ListParameterConfigsQuery(TENANT_A, { group: ParameterGroup.BASIC, isActive: true }),
+      inTenantScope(
+        TENANT_A,
+        (scope) =>
+          harness.listParameterConfigs.execute(
+            new ListParameterConfigsQuery(scope, { group: ParameterGroup.BASIC, isActive: true }),
+          ),
+        requireDataSource(),
       ),
     );
     const tenantACacheAfterUpdate = await withTenantContext(TENANT_A, () =>

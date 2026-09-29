@@ -3,7 +3,7 @@
  * "fôrforbruk"). Sums actual fed amounts from feeding_records — the real
  * ledger, not an estimate.
  */
-import { IQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 export interface SiteFeedTypeConsumption {
   feedName: string;
@@ -18,9 +18,9 @@ export interface SiteFeedConsumptionResult {
   recordCount: number;
 }
 
-export class GetSiteFeedConsumptionQuery implements IQuery {
+export class GetSiteFeedConsumptionQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly siteId: string,
     /** Inclusive ISO date (yyyy-mm-dd). */
     public readonly fromDate: string,

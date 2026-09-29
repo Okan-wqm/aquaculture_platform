@@ -23,7 +23,9 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SecurityEventService, tenantFingerprint } from '@aquaculture/backend-common/security';
 import { spawn, ChildProcess } from 'child_process';
+import { McpSessionBinding } from './mcp-session-binding';
 import {
   loadOptionalMcpSdk,
   McpClientPort,
@@ -63,8 +65,17 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
   private readonly serverPath: string;
   private readonly gatewayUrl: string;
   private readonly mcpEnabled: boolean;
+  /**
+   * K10 (MT-HIGH-064): the one tenant this MCP session serves, read from the
+   * session's own credential. Null when the credential names no tenant — then
+   * every call is refused (fail closed).
+   */
+  private readonly sessionBinding: McpSessionBinding | null;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly securityEvents: SecurityEventService,
+  ) {
     this.serverPath = this.configService.get<string>(
       'MCP_SERVER_PATH',
       'mcp/farm-management/src/index.ts',
@@ -79,6 +90,9 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
      * this defaults to false — preventing startup errors.
      */
     this.mcpEnabled = this.configService.get<string>('MCP_ENABLED', 'false') === 'true';
+    this.sessionBinding = McpSessionBinding.fromCredential(
+      this.configService.get<string>('MCP_JWT_TOKEN', ''),
+    );
   }
 
   async onModuleInit(): Promise<void> {
@@ -194,14 +208,41 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * True when this session's credential belongs to `tenantId` — the only
+   * tenant whose MCP answers can be served.
+   *
+   * WHY a public check separate from callTool's refusal (V-T1b-7): until the
+   * per-tenant session pool (plan PR-T2, MT-MEDIUM-065) every other tenant has
+   * no AI insights at all, which is an expected, quiet "feature unavailable".
+   * AiInsightsService asks this BEFORE the cache and before callTool, so
+   * callTool's refusal (security event + error log) fires only when a caller
+   * skipped this check — a real boundary violation, not a routine poll.
+   */
+  servesTenant(tenantId: string): boolean {
+    return this.sessionBinding !== null && this.sessionBinding.admits(tenantId);
+  }
+
+  /**
    * WHY: Single public API for invoking any MCP tool with circuit breaker
    * protection and timeout guard.
+   *
+   * K10 (MT-HIGH-064): `callerTenantId` is the caller's trusted tenant (JWT).
+   * The MCP child answers for its session's tenant only, so a caller from any
+   * other tenant is refused BEFORE the call — no MCP request, a null result,
+   * a TenantAccessDenied security event and a PII-free log. The feature is
+   * single-tenant by construction until the per-tenant session pool
+   * (plan PR-T2, MT-MEDIUM-065) replaces the static credential.
    */
   async callTool<T = unknown>(
+    callerTenantId: string,
     name: string,
     params: Record<string, unknown>,
   ): Promise<T | null> {
     if (!this.mcpEnabled || !this.available) return null;
+    if (!this.sessionBinding?.admits(callerTenantId)) {
+      await this.refuseForeignTenant(callerTenantId, name);
+      return null;
+    }
     if (!this.isCircuitAllowed()) return null;
 
     try {
@@ -283,6 +324,26 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
 
       this.childProcess.stdout.on('data', onData);
       this.childProcess.stdin.write(request);
+    });
+  }
+
+  /** Record a refused cross-tenant call. Ids only — no params, no user. */
+  private async refuseForeignTenant(callerTenantId: string, toolName: string): Promise<void> {
+    const sessionTenantId = this.sessionBinding?.tenantId ?? 'none';
+    this.logger.error({
+      msg: 'MCP call refused: caller tenant is not the session tenant',
+      code: 'tenant_mismatch',
+      toolName,
+      callerTenantId,
+      sessionTenantId,
+    });
+    // Best-effort by contract: SecurityEventService never throws.
+    await this.securityEvents.publishTenantAccessDenied({
+      tenantId: callerTenantId,
+      // The event is the caller tenant's; the session tenant appears only as a fingerprint.
+      requestedTenantId:
+        this.sessionBinding === null ? 'none' : tenantFingerprint(this.sessionBinding.tenantId),
+      reason: `mcp_session_tenant_mismatch:${toolName}`,
     });
   }
 

@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ClientsModule } from '@nestjs/microservices';
-import { NatsV3Client } from '@aquaculture/backend-common/nats';
+import { TenantBoundaryModule } from '../../tenant-boundary/tenant-boundary.module';
 import { CreateTaskTool } from './create-task.tool';
 import { GetFarmTanksTool } from './get-farm-tanks.tool';
 import { GetFarmBatchesTool } from './get-farm-batches.tool';
@@ -107,22 +106,16 @@ const TOOLS = [
 ];
 
 /**
- * Farm tools (read surface + the create_task actuation). They reach farm-service over NATS request-reply,
- * so this module registers a NATS_SERVICE client (shared cert-identity factory,
- * ADR-015). Tool registration itself is automatic — ToolRegistryService
+ * Farm tools (read surface + the create_task actuation). They reach
+ * farm-service ONLY through TenantBoundNatsClient (K10 / MT-HIGH-062): the
+ * boundary module owns the raw NATS transport and does not export it, so no
+ * tool here can put a tenant on a request or read a reply served for another
+ * tenant. Tool registration itself is automatic — ToolRegistryService
  * discovers every @Tool()-decorated provider via DiscoveryService — so listing
  * the classes as providers is the complete registration.
  */
 @Module({
-  imports: [
-    ClientsModule.register([
-      {
-        name: 'NATS_SERVICE',
-        customClass: NatsV3Client,
-        options: { serviceName: 'ai-service' },
-      },
-    ]),
-  ],
+  imports: [TenantBoundaryModule],
   providers: [...TOOLS],
   exports: [...TOOLS],
 })

@@ -28,10 +28,12 @@ import { CreateTaskInput } from '../../dto/create-task.dto';
 import { TaskService } from '../task.service';
 import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
 import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+import { FarmTenantScopes } from '../../../common/tenant-boundary/farm-tenant-scopes';
+import { TaskCreator } from '../task-creator';
 
 const scheduledJobs = createScheduledJobTestExecutor();
 
-const TENANT = 'tenant-1';
+const TENANT = '44444444-4444-4444-8444-444444444444';
 const OWNER = 'user-owner';
 const OTHER = 'user-other';
 const ENVELOPE = { clientCommandId: 'cmd-1', payloadHash: 'hash-1' };
@@ -49,7 +51,7 @@ const managerCaller = { sub: OTHER, roles: [Role.MODULE_MANAGER] };
 function createManager(
   receiptMode: 'started' | 'replay' = 'started',
   replayRow?: unknown,
-): jest.Mocked<Pick<EntityManager, 'findOne' | 'save' | 'query'>> {
+): jest.Mocked<Pick<EntityManager, 'findOne' | 'save' | 'query' | 'create'>> {
   const query = jest.fn().mockImplementation((sql: string) => {
     if (sql.includes('INSERT INTO')) {
       return Promise.resolve(receiptMode === 'started' ? [{ id: 'receipt-1' }] : []);
@@ -64,6 +66,12 @@ function createManager(
     findOne: jest.fn(),
     save: jest.fn().mockImplementation((entity: unknown) => Promise.resolve(entity)),
     query,
+    // TaskCreator builds the row on the write scope's manager (K10 layer 4).
+    create: jest
+      .fn()
+      .mockImplementation((_target: unknown, entity: Partial<Task>) =>
+        Object.assign(new Task(), entity),
+      ),
   };
 }
 
@@ -74,7 +82,7 @@ interface Harness {
 }
 
 async function buildHarness(
-  manager: jest.Mocked<Pick<EntityManager, 'findOne' | 'save' | 'query'>>,
+  manager: jest.Mocked<Pick<EntityManager, 'findOne' | 'save' | 'query' | 'create'>>,
 ): Promise<Harness> {
   const queryRunner = {
     connect: jest.fn().mockResolvedValue(undefined),
@@ -82,6 +90,9 @@ async function buildHarness(
     commitTransaction: jest.fn().mockResolvedValue(undefined),
     rollbackTransaction: jest.fn().mockResolvedValue(undefined),
     release: jest.fn().mockResolvedValue(undefined),
+    // The tenant boundary pins search_path + RLS on the runner; the double has
+    // no live connection, so the read-back finds no row and the assert skips.
+    query: jest.fn().mockResolvedValue([]),
     manager,
   };
   const dataSource = {
@@ -112,6 +123,12 @@ async function buildHarness(
       { provide: OutboxPublisher, useValue: outbox },
       { provide: MobileCommandReceiptService, useClass: MobileCommandReceiptService },
       { provide: ScheduledJobRunner, useValue: scheduledJobs.executor },
+      TaskCreator,
+      {
+        provide: FarmTenantScopes,
+        useFactory: (ds: DataSource): FarmTenantScopes => new FarmTenantScopes(ds),
+        inject: [DataSource],
+      },
     ],
   }).compile();
 

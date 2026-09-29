@@ -93,6 +93,8 @@ export * from './auth-user-queries';
 export * from './auth-credential-queries';
 export * from './farm-site-access-queries';
 export * from './farm-ai-queries';
+// K10 (MT-HIGH-062): the envelope every AI-facing request subject replies in.
+export * from './tenant-bound-reply';
 export * from './schemas';
 
 // Re-export all domain union types for convenience

@@ -8,6 +8,7 @@ import { SensorConfigToolsModule } from '../sensor-config/sensor-config-tools.mo
 import { FarmToolsModule } from '../farm/farm-tools.module';
 import { AquacultureMathToolsModule } from '../aquaculture-math/aquaculture-math-tools.module';
 import { ToolExecutionAudit } from '../../audit/tool-execution-audit.entity';
+import { AI_TENANT_BOUND_TRANSPORT } from '../../tenant-boundary/tenant-bound-nats.client';
 
 // The executor (provided by ToolRegistryModule) now depends on AuditService,
 // which is DB-backed via TypeOrmModule.forFeature. This registry-discovery spec
@@ -95,7 +96,7 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
     'get_task_stats',
   ];
 
-  /** Every tool feature module the app composes; NATS_SERVICE is stubbed so nothing dials. */
+  /** Every tool feature module the app composes; the boundary's NATS transport is stubbed so nothing dials. */
   const TOOL_MODULES = [
     WaterChemistryToolsModule,
     SensorConfigToolsModule,
@@ -109,7 +110,7 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
     })
       .overrideProvider(getRepositoryToken(ToolExecutionAudit))
       .useValue(AUDIT_REPO_STUB)
-      .overrideProvider('NATS_SERVICE')
+      .overrideProvider(AI_TENANT_BOUND_TRANSPORT)
       .useValue({ send: jest.fn() })
       .compile();
 
@@ -132,7 +133,7 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
     })
       .overrideProvider(getRepositoryToken(ToolExecutionAudit))
       .useValue(AUDIT_REPO_STUB)
-      .overrideProvider('NATS_SERVICE')
+      .overrideProvider(AI_TENANT_BOUND_TRANSPORT)
       .useValue({ send: jest.fn() })
       .compile();
     await moduleRef.init();

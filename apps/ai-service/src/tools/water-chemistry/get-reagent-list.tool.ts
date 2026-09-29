@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
 import { REAGENTS, ReagentInfo } from '@platform/aquaculture-engines';
 
 /** This tool takes no input — it returns the static reagent catalogue. */
@@ -35,7 +35,7 @@ interface ReagentListOutput {
 export class GetReagentListTool extends BaseTool<ReagentListInput, ReagentListOutput> {
   protected async run(
     _input: ReagentListInput,
-    _ctx: ToolExecutionContext,
+    _ctx: TenantBoundToolContext,
   ): Promise<ReagentListOutput> {
     return {
       reagents: REAGENTS.map((r: ReagentInfo) => ({

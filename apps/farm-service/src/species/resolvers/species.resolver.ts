@@ -32,6 +32,7 @@ import { GetSpeciesQuery } from '../queries/get-species.query';
 import { ListSpeciesQuery } from '../queries/list-species.query';
 import { GetSpeciesByCodeQuery } from '../queries/get-species-by-code.query';
 import { RestoreService } from '../../common/services/restore.service';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -83,6 +84,7 @@ export class SpeciesResolver {
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
     private readonly restoreService: RestoreService,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -126,7 +128,11 @@ export class SpeciesResolver {
     filter?: SpeciesFilterInput,
   ): Promise<IStandardPaginatedResult<Species>> {
     this.logger.debug(`Listing species for tenant: ${tenantId}`);
-    const result = await this.queryBus.execute<any, PaginatedQueryResult<Species>>(new ListSpeciesQuery(tenantId, filter));
+    const result = await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute<any, PaginatedQueryResult<Species>>(
+        new ListSpeciesQuery(scope, filter),
+      ),
+    );
     return fromCqrsPaginated(result);
   }
 
@@ -136,8 +142,8 @@ export class SpeciesResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [Species], { name: 'activeSpecies' })
   async getActiveSpecies(@CurrentTenant() tenantId: string): Promise<readonly Species[]> {
-    const result = (await this.queryBus.execute(
-      new ListSpeciesQuery(tenantId, { isActive: true, limit: 100 }),
+    const result = (await this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListSpeciesQuery(scope, { isActive: true, limit: 100 })),
     )) as PaginatedQueryResult<Species>;
     return fromCqrsPaginated(result).items;
   }

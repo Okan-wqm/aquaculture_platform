@@ -1,8 +1,8 @@
 /**
  * List Critical Health Events Query
  */
-import { IQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
-export class ListCriticalHealthEventsQuery implements IQuery {
-  constructor(public readonly tenantId: string) {}
+export class ListCriticalHealthEventsQuery {
+  constructor(public readonly scope: TenantScope) {}
 }

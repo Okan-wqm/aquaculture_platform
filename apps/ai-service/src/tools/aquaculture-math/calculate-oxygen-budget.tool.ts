@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { oxygenBudget, type OxygenBudgetResult } from '@platform/aquaculture-engines';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
 import {
   ALL_TIERS,
   POSITIVE_NUMBER_SCHEMA,
@@ -69,7 +69,7 @@ interface OxygenBudgetInput {
 export class CalculateOxygenBudgetTool extends BaseTool<OxygenBudgetInput, OxygenBudgetResult> {
   protected async run(
     input: OxygenBudgetInput,
-    _ctx: ToolExecutionContext,
+    _ctx: TenantBoundToolContext,
   ): Promise<OxygenBudgetResult> {
     // Explicit field mapping: only declared, validated fields reach the engine.
     return roundNumbersDeep(

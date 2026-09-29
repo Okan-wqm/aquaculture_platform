@@ -2,6 +2,7 @@ import { createMockDataSource } from '@aquaculture/testing';
 
 import { ListFeedingProtocolsQuery } from '../queries/list-feeding-protocols.query';
 import { ListFeedingProtocolsHandler } from '../handlers/list-feeding-protocols.handler';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 describe('ListFeedingProtocolsHandler', () => {
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -23,8 +24,8 @@ describe('ListFeedingProtocolsHandler', () => {
       .fn()
       .mockReturnValue(qb) as typeof mockManager.createQueryBuilder;
 
-    const handler = new ListFeedingProtocolsHandler(mockDataSource);
-    const result = await handler.execute(new ListFeedingProtocolsQuery(tenantId));
+    const handler = new ListFeedingProtocolsHandler();
+    const result = await inTenantScope(tenantId, (scope) => handler.execute(new ListFeedingProtocolsQuery(scope)), mockDataSource);
 
     expect(result.data).toHaveLength(1);
     expect(result.pagination.total).toBe(1);
@@ -38,10 +39,8 @@ describe('ListFeedingProtocolsHandler', () => {
       .fn()
       .mockReturnValue(qb) as typeof mockManager.createQueryBuilder;
 
-    const handler = new ListFeedingProtocolsHandler(mockDataSource);
-    await handler.execute(
-      new ListFeedingProtocolsQuery(tenantId, undefined, { sortBy: 'evil; DROP', sortOrder: 'ASC' }),
-    );
+    const handler = new ListFeedingProtocolsHandler();
+    await inTenantScope(tenantId, (scope) => handler.execute(new ListFeedingProtocolsQuery(scope, undefined, { sortBy: 'evil; DROP', sortOrder: 'ASC' })), mockDataSource);
 
     expect(qb.orderBy).toHaveBeenCalledWith('protocol.createdAt', 'ASC');
   });

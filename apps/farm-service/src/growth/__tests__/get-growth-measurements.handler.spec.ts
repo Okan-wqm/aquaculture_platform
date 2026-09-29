@@ -2,6 +2,7 @@ import { createMockDataSource } from '@aquaculture/testing';
 
 import { GetGrowthMeasurementsQuery } from '../queries/get-growth-measurements.query';
 import { GetGrowthMeasurementsHandler } from '../query-handlers/get-growth-measurements.handler';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 describe('GetGrowthMeasurementsHandler', () => {
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -24,8 +25,12 @@ describe('GetGrowthMeasurementsHandler', () => {
       .fn()
       .mockReturnValue(qb) as typeof mockManager.createQueryBuilder;
 
-    const handler = new GetGrowthMeasurementsHandler(mockDataSource);
-    const result = await handler.execute(new GetGrowthMeasurementsQuery(tenantId));
+    const handler = new GetGrowthMeasurementsHandler();
+    const result = await inTenantScope(
+      tenantId,
+      (scope) => handler.execute(new GetGrowthMeasurementsQuery(scope)),
+      mockDataSource,
+    );
 
     expect(result.data).toHaveLength(2);
     expect(result.pagination.total).toBe(2);
@@ -39,9 +44,14 @@ describe('GetGrowthMeasurementsHandler', () => {
       .fn()
       .mockReturnValue(qb) as typeof mockManager.createQueryBuilder;
 
-    const handler = new GetGrowthMeasurementsHandler(mockDataSource);
-    await handler.execute(
-      new GetGrowthMeasurementsQuery(tenantId, undefined, 1, 20, 'evil; DROP', 'ASC'),
+    const handler = new GetGrowthMeasurementsHandler();
+    await inTenantScope(
+      tenantId,
+      (scope) =>
+        handler.execute(
+          new GetGrowthMeasurementsQuery(scope, undefined, 1, 20, 'evil; DROP', 'ASC'),
+        ),
+      mockDataSource,
     );
 
     expect(qb.orderBy).toHaveBeenCalledWith('gm.measurementDate', 'ASC');
@@ -54,9 +64,14 @@ describe('GetGrowthMeasurementsHandler', () => {
       .fn()
       .mockReturnValue(qb) as typeof mockManager.createQueryBuilder;
 
-    const handler = new GetGrowthMeasurementsHandler(mockDataSource);
-    await handler.execute(
-      new GetGrowthMeasurementsQuery(tenantId, { batchId: 'batch-1', isVerified: true }),
+    const handler = new GetGrowthMeasurementsHandler();
+    await inTenantScope(
+      tenantId,
+      (scope) =>
+        handler.execute(
+          new GetGrowthMeasurementsQuery(scope, { batchId: 'batch-1', isVerified: true }),
+        ),
+      mockDataSource,
     );
 
     expect(qb.andWhere).toHaveBeenCalledWith('gm.batchId = :batchId', { batchId: 'batch-1' });

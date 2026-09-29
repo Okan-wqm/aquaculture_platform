@@ -2,19 +2,17 @@ import { Injectable } from '@nestjs/common';
 import { IQueryHandler, QueryHandler } from '@platform/cqrs';
 
 import { GetFinanceSummaryQuery } from '../queries/get-finance-summary.query';
-import {
-  FinanceLedgerQueryService,
-  FinanceSummaryShape,
-} from '../services/finance-ledger-query.service';
+import type { FinanceSummaryShape } from '../services/finance-ledger-model';
+import { FinanceLedgerReader } from '../services/finance-ledger-reader';
 
 @Injectable()
 @QueryHandler(GetFinanceSummaryQuery)
 export class GetFinanceSummaryHandler implements IQueryHandler<GetFinanceSummaryQuery> {
-  constructor(private readonly ledgerService: FinanceLedgerQueryService) {}
+  constructor(private readonly reader: FinanceLedgerReader) {}
 
   async execute(query: GetFinanceSummaryQuery): Promise<FinanceSummaryShape> {
-    return this.ledgerService.getSummary(
-      query.tenantId,
+    return this.reader.readSummary(
+      query.scope,
       { from: query.from, to: query.to },
       query.granularity,
     );

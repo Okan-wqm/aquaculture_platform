@@ -27,7 +27,7 @@
  *      and the trigger is best-effort by design (a lost trigger loses one AI
  *      reply, never a user message). Redis errors SKIP the trigger
  *      (fail-closed for AI) rather than retry-spamming.
- *   3. Channel in-flight lock: Redis SETNX msg:ai-inflight:{channelId} TTL
+ *   3. Channel in-flight lock: Redis SETNX msg:ai-inflight:{tenantId}:{channelId} TTL
  *      60s. Two near-simultaneous messages in one channel must NOT run two
  *      parallel AI turns (interleaved replies + double token spend). A
  *      skipped message is correct: the in-flight turn's context fetch
@@ -45,6 +45,7 @@
  * read below is tenant-pinned through runInTenantRead (search_path +
  * app.current_tenant GUC + explicit tenantId predicate).
  */
+import { aiChannelDailyKey, aiChannelInflightKey, aiTriggerClaimKey } from './ai-redis-keys';
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
@@ -201,7 +202,7 @@ export class AiTriggerNatsHandler implements OnModuleInit, IEventHandler<Message
     }
 
     // Gate 3 — one AI turn per channel at a time.
-    const lockAcquired = await this.acquireChannelLock(channelId);
+    const lockAcquired = await this.acquireChannelLock(tenantId, channelId);
     if (!lockAcquired) {
       this.logger.debug(
         `AI turn already in flight for channel ${channelId} — skipping trigger for ${messageId}`,
@@ -223,7 +224,7 @@ export class AiTriggerNatsHandler implements OnModuleInit, IEventHandler<Message
     } finally {
       // Release the slot for the next message; the TTL covers a crash
       // between acquire and release.
-      await this.safeReleaseChannelLock(channelId);
+      await this.safeReleaseChannelLock(tenantId, channelId);
     }
     return HandlerOutcome.ack();
   }
@@ -238,7 +239,7 @@ export class AiTriggerNatsHandler implements OnModuleInit, IEventHandler<Message
   private async claimTrigger(tenantId: string, messageId: string): Promise<boolean> {
     try {
       const result = await this.redis.set(
-        `msg:ai-trigger:${tenantId}:${messageId}`,
+        aiTriggerClaimKey(tenantId, messageId),
         'claimed',
         'EX',
         TRIGGER_IDEMPOTENCY_TTL_SECONDS,
@@ -252,10 +253,10 @@ export class AiTriggerNatsHandler implements OnModuleInit, IEventHandler<Message
     }
   }
 
-  private async acquireChannelLock(channelId: string): Promise<boolean> {
+  private async acquireChannelLock(tenantId: string, channelId: string): Promise<boolean> {
     try {
       const result = await this.redis.set(
-        `msg:ai-inflight:${channelId}`,
+        aiChannelInflightKey(tenantId, channelId),
         'inflight',
         'EX',
         CHANNEL_INFLIGHT_TTL_SECONDS,
@@ -269,9 +270,9 @@ export class AiTriggerNatsHandler implements OnModuleInit, IEventHandler<Message
     }
   }
 
-  private async safeReleaseChannelLock(channelId: string): Promise<void> {
+  private async safeReleaseChannelLock(tenantId: string, channelId: string): Promise<void> {
     try {
-      await this.redis.del(`msg:ai-inflight:${channelId}`);
+      await this.redis.del(aiChannelInflightKey(tenantId, channelId));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.warn(`AI channel lock release failed (${msg}) — TTL will expire it`);
@@ -289,7 +290,7 @@ export class AiTriggerNatsHandler implements OnModuleInit, IEventHandler<Message
     channelId: string,
     dayKey: string,
   ): Promise<{ counterOk: boolean; allowed: boolean; count: number }> {
-    const key = `msg:ai-daily:${tenantId}:${channelId}:${dayKey}`;
+    const key = aiChannelDailyKey(tenantId, channelId, dayKey);
     try {
       const count = await this.redis.incr(key);
       if (count === 1) {

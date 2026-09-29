@@ -8,7 +8,7 @@
  */
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import {
   HealthEvent,
@@ -18,7 +18,6 @@ import {
 } from '../entities/health-event.entity';
 import { CreateHealthEventInput } from '../dto/create-health-event.input';
 import { UpdateHealthEventInput } from '../dto/update-health-event.input';
-import { HealthEventFilterInput } from '../dto/health-event-filter.input';
 
 export interface HealthEventStats {
   total: number;
@@ -231,89 +230,4 @@ export class HealthEventService {
   // PRIVATE HELPERS
   // =========================================================================
 
-  // Static so the ListHealthEvents query handler reuses the one filter SSoT
-  // without instantiating the service (FARM-HIGH-060 read-boundary migration).
-  static applyFilters(
-    query: SelectQueryBuilder<HealthEvent>,
-    filter?: HealthEventFilterInput,
-  ): void {
-    if (!filter) return;
-
-    // Location filters
-    if (filter.batchId) {
-      query.andWhere('he.batchId = :batchId', { batchId: filter.batchId });
-    }
-    if (filter.batchIds?.length) {
-      query.andWhere('he.batchId IN (:...batchIds)', { batchIds: filter.batchIds });
-    }
-    if (filter.tankId) {
-      query.andWhere('he.tankId = :tankId', { tankId: filter.tankId });
-    }
-
-    // Event type filters
-    if (filter.eventType) {
-      query.andWhere('he.eventType = :eventType', { eventType: filter.eventType });
-    }
-    if (filter.eventTypes?.length) {
-      query.andWhere('he.eventType IN (:...eventTypes)', { eventTypes: filter.eventTypes });
-    }
-
-    // Severity and status filters
-    if (filter.severity) {
-      query.andWhere('he.severity = :severity', { severity: filter.severity });
-    }
-    if (filter.severities?.length) {
-      query.andWhere('he.severity IN (:...severities)', { severities: filter.severities });
-    }
-    if (filter.status) {
-      query.andWhere('he.status = :status', { status: filter.status });
-    }
-    if (filter.statuses?.length) {
-      query.andWhere('he.status IN (:...statuses)', { statuses: filter.statuses });
-    }
-
-    // Disease filters
-    if (filter.diseaseCategory) {
-      query.andWhere('he.diseaseCategory = :diseaseCategory', { diseaseCategory: filter.diseaseCategory });
-    }
-    if (filter.diseaseName) {
-      query.andWhere('he.diseaseName ILIKE :diseaseName', { diseaseName: `%${filter.diseaseName}%` });
-    }
-
-    // Date filters
-    if (filter.fromDate) {
-      query.andWhere('he.eventDate >= :fromDate', { fromDate: filter.fromDate });
-    }
-    if (filter.toDate) {
-      query.andWhere('he.eventDate <= :toDate', { toDate: filter.toDate });
-    }
-
-    // Treatment filters
-    if (filter.isUnderTreatment !== undefined) {
-      query.andWhere('he.isUnderTreatment = :isUnderTreatment', { isUnderTreatment: filter.isUnderTreatment });
-    }
-    if (filter.isQuarantined !== undefined) {
-      query.andWhere('he.isQuarantined = :isQuarantined', { isQuarantined: filter.isQuarantined });
-    }
-
-    // Special filters
-    if (filter.activeOnly) {
-      query.andWhere('he.status IN (:...activeStatuses)', {
-        activeStatuses: [HealthEventStatus.ACTIVE, HealthEventStatus.MONITORING],
-      });
-    }
-    if (filter.criticalOnly) {
-      query.andWhere('he.severity IN (:...criticalSeverities)', {
-        criticalSeverities: [HealthSeverity.CRITICAL, HealthSeverity.SEVERE],
-      });
-    }
-
-    // Text search
-    if (filter.searchText) {
-      query.andWhere(
-        '(he.title ILIKE :search OR he.description ILIKE :search OR he.notes ILIKE :search)',
-        { search: `%${filter.searchText}%` },
-      );
-    }
-  }
 }

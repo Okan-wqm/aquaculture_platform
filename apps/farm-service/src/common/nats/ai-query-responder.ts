@@ -1,55 +1,15 @@
-import { Logger } from '@nestjs/common';
-import { withTenantContext } from '@aquaculture/backend-common/context';
-import {
-  FARM_AI_QUERY_LIMITS,
-  toEventIso,
-  type AiQueryList,
-  type AiQueryReply,
-  type AiQueryRequest,
-  type FarmAiQuerySubject,
-} from '@platform/event-contracts';
+import { FARM_AI_QUERY_LIMITS, toEventIso, type AiQueryList } from '@platform/event-contracts';
 
 /**
- * The one responder skeleton for every farm AI read subject (FARM-MEDIUM-328):
- * guard the payload at the NATS trust boundary, run the handler, wrap the
- * outcome in the reply envelope. Never throws into the reply channel — a
- * malformed request is `INVALID_REQUEST`, a failure is `INTERNAL_ERROR`, and
- * the ai-service tool turns either into a visible tool error (not an empty
- * list).
+ * Projection helpers shared by the farm AI read responders (FARM-MEDIUM-328).
  *
- * Tenant pinning: the handler runs inside `withTenantContext(tenantId)`, so
- * the AsyncLocalStorage frame every ambient repository resolves its RLS GUC
- * and search_path from is ALWAYS present — a NATS request has no HTTP
- * middleware to establish it. Most farm query handlers additionally pin with
- * `runInTenantRead`; the ones that fan out to ambient-repository services
- * (`FcrCalculationService`, `BatchCostCalculatorService` behind
- * GetBatchPerformance / GetGrowthAnalysis) read an empty tenant without this
- * frame and silently returned zeros. The frame is established here, once,
- * for all forty subjects, so no responder can forget it.
+ * The responder skeleton itself (guard → tenant scope → owned-id check →
+ * handler → served-tenant read-back → tenant-bound envelope) is
+ * `respondTenantBound` in `@aquaculture/backend-common/nats`, wired for farm
+ * as `FarmAiResponder` (common/tenant-boundary) — one skeleton for every
+ * AI-facing subject (K10 / MT-HIGH-062), so the tenant a reply names is the
+ * tenant its connection served.
  */
-export async function respondAiQuery<TRequest extends AiQueryRequest, TData>(
-  logger: Logger,
-  subject: FarmAiQuerySubject,
-  payload: unknown,
-  isRequest: (value: unknown) => value is TRequest,
-  handle: (request: TRequest) => Promise<TData>,
-): Promise<AiQueryReply<TData>> {
-  if (!isRequest(payload)) {
-    logger.warn(`${subject} rejected: payload failed the contract guard`);
-    return { ok: false, error: 'INVALID_REQUEST' };
-  }
-  try {
-    const data = await withTenantContext(payload.tenantId, () => handle(payload));
-    return { ok: true, data };
-  } catch (error) {
-    logger.error(
-      `${subject} failed for tenant ${payload.tenantId}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-    return { ok: false, error: 'INTERNAL_ERROR' };
-  }
-}
 
 /**
  * Bound a row set to `limit` rows and flag the overflow. Callers pass the

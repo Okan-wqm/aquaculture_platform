@@ -1,11 +1,14 @@
 import 'reflect-metadata';
 import { of } from 'rxjs';
 import { GetFarmBatchesTool } from '../get-farm-batches.tool';
-import type { ToolExecutionContext } from '../../core/tool.interface';
+import {
+  boundReply,
+  humanToolContext,
+  tenantBoundClient,
+} from '../../../tenant-boundary/__tests__/fixtures/tenant-bound.fixture';
 
-const CTX: ToolExecutionContext = {
+const CTX = humanToolContext({
   tenantId: '22222222-2222-4222-8222-222222222222',
-  schemaName: 'tenant_2222222222222222',
   userId: 'u-1',
   userRoles: ['operator'],
   correlationId: 'corr-1',
@@ -13,7 +16,7 @@ const CTX: ToolExecutionContext = {
   personaTier: 'operator',
   offeredToolNames: [],
   actuationPolicy: 'allowed',
-};
+});
 
 describe('GetFarmBatchesTool', () => {
   let send: jest.Mock;
@@ -21,7 +24,7 @@ describe('GetFarmBatchesTool', () => {
 
   beforeEach(() => {
     send = jest.fn();
-    tool = new GetFarmBatchesTool({ send });
+    tool = new GetFarmBatchesTool(tenantBoundClient({ send }));
   });
 
   it('is a plain read tool (no confirmation)', () => {
@@ -32,22 +35,27 @@ describe('GetFarmBatchesTool', () => {
 
   it('requests the overview for the context tenant and returns the batch list + count', async () => {
     send.mockReturnValue(
-      of([
-        {
-          id: 'b1',
-          batchNumber: 'B-2024-001',
-          name: 'Levrek A',
-          status: 'ACTIVE',
-          statusChangedAt: null,
-        },
-        {
-          id: 'b2',
-          batchNumber: 'B-2024-002',
-          name: null,
-          status: 'GROWING',
-          statusChangedAt: null,
-        },
-      ]),
+      of(
+        boundReply(
+          [
+            {
+              id: 'b1',
+              batchNumber: 'B-2024-001',
+              name: 'Levrek A',
+              status: 'ACTIVE',
+              statusChangedAt: null,
+            },
+            {
+              id: 'b2',
+              batchNumber: 'B-2024-002',
+              name: null,
+              status: 'GROWING',
+              statusChangedAt: null,
+            },
+          ],
+          CTX.tenant.tenantId,
+        ),
+      ),
     );
 
     const result = await tool.execute({}, CTX);
@@ -73,12 +81,12 @@ describe('GetFarmBatchesTool', () => {
       count: 2,
     });
     expect(send).toHaveBeenCalledWith('request.farm.getBatchOverview', {
-      tenantId: CTX.tenantId,
+      tenantId: CTX.tenant.tenantId,
     });
   });
 
   it('coalesces an empty/absent overview to a zero-count result', async () => {
-    send.mockReturnValue(of([]));
+    send.mockReturnValue(of(boundReply([], CTX.tenant.tenantId)));
     const result = await tool.execute({}, CTX);
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ batches: [], count: 0 });

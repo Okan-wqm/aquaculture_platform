@@ -46,6 +46,7 @@ import { GetHarvestPlanStatsQuery } from '../queries/get-harvest-plan-stats.quer
 import { CreateHarvestPlanInput } from '../dto/create-harvest-plan.input';
 import { UpdateHarvestPlanInput } from '../dto/update-harvest-plan.input';
 import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -139,6 +140,7 @@ export class HarvestPlanResolver {
   constructor(
     private readonly harvestPlanService: HarvestPlanService,
     private readonly queryBus: QueryBus,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // =========================================================================
@@ -205,7 +207,9 @@ export class HarvestPlanResolver {
     @Tenant() tenantId: string,
     @Args('days', { type: () => Int, nullable: true, defaultValue: 30 }) days: number,
   ): Promise<HarvestPlan[]> {
-    return this.queryBus.execute(new ListUpcomingHarvestPlansQuery(tenantId, days));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListUpcomingHarvestPlansQuery(scope, days)),
+    );
   }
 
   /**
@@ -216,7 +220,9 @@ export class HarvestPlanResolver {
   async overdueHarvestPlans(
     @Tenant() tenantId: string,
   ): Promise<HarvestPlan[]> {
-    return this.queryBus.execute(new ListOverdueHarvestPlansQuery(tenantId));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new ListOverdueHarvestPlansQuery(scope)),
+    );
   }
 
   /**
@@ -227,7 +233,9 @@ export class HarvestPlanResolver {
   async harvestPlanStats(
     @Tenant() tenantId: string,
   ): Promise<HarvestPlanStats> {
-    return this.queryBus.execute(new GetHarvestPlanStatsQuery(tenantId));
+    return this.tenantScopes.read(tenantId, (scope) =>
+      this.queryBus.execute(new GetHarvestPlanStatsQuery(scope)),
+    );
   }
 
   // =========================================================================

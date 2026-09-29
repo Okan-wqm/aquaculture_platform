@@ -14,6 +14,7 @@ import { ListWaterQualityHandler } from '../query-handlers/list-water-quality.ha
 import { ListWaterQualityQuery } from '../queries/list-water-quality.query';
 import { GetSystemWaterQualityChartHandler } from '../query-handlers/get-system-water-quality-chart.handler';
 import { GetSystemWaterQualityChartQuery } from '../queries/get-system-water-quality-chart.query';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -68,8 +69,13 @@ describe('Water-quality read handlers (fail-closed tenant boundary)', () => {
       const { mockDataSource, mockManager } = createMockDataSource();
       (mockManager.findAndCount as jest.Mock).mockResolvedValueOnce([[{ id: 'wq-1' }], 1]);
 
-      const result = await new ListWaterQualityHandler(mockDataSource).execute(
-        new ListWaterQualityQuery(tenantId, { tankId: 'tank-1', limit: 50, offset: 0 }),
+      const result = await inTenantScope(
+        tenantId,
+        (scope) =>
+          new ListWaterQualityHandler().execute(
+            new ListWaterQualityQuery(scope, { tankId: 'tank-1', limit: 50, offset: 0 }),
+          ),
+        mockDataSource,
       );
 
       expect(result.total).toBe(1);

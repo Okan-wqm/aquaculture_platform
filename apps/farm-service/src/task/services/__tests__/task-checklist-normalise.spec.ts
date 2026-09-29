@@ -1,5 +1,5 @@
 /**
- * TaskService.normaliseChecklistItem + propagateChecklistItemsFromTemplate
+ * normaliseChecklistItem + propagateChecklistItemsFromTemplate (task-checklist.ts)
  *
  * Unit tests for the checklist-item normalisation logic that closes
  * two latent bugs discovered during the type-safety audit:
@@ -18,12 +18,12 @@
  * at every write entry point (create / update / toggle /
  * propagateFromTemplate).
  */
-import { TaskService } from '../task.service';
+import { normaliseChecklistItem, propagateChecklistItemsFromTemplate } from '../task-checklist';
 import type { StoredTaskChecklistItem, TaskChecklistItem } from '../../entities/task.entity';
 
-describe('TaskService.normaliseChecklistItem', () => {
+describe('normaliseChecklistItem', () => {
   it('assigns a fresh UUID when the input item has no id', () => {
-    const out = TaskService.normaliseChecklistItem({ text: 'feed the tank' });
+    const out = normaliseChecklistItem({ text: 'feed the tank' });
     expect(out.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
@@ -33,7 +33,7 @@ describe('TaskService.normaliseChecklistItem', () => {
   });
 
   it('preserves a provided id on the input (round-trip stable)', () => {
-    const out = TaskService.normaliseChecklistItem({
+    const out = normaliseChecklistItem({
       id: '11111111-1111-4111-8111-111111111111',
       text: 'x',
     });
@@ -42,7 +42,7 @@ describe('TaskService.normaliseChecklistItem', () => {
 
   it('maps legacy `completed` field onto canonical `isCompleted`', () => {
     // Legacy toggle-written shape.
-    const out = TaskService.normaliseChecklistItem({
+    const out = normaliseChecklistItem({
       id: 'item-1',
       text: 'legacy',
       completed: true,
@@ -60,7 +60,7 @@ describe('TaskService.normaliseChecklistItem', () => {
   it('prefers `isCompleted` when both legacy and canonical are set', () => {
     // Edge case: a half-migrated row carrying both fields. Canonical
     // wins.
-    const out = TaskService.normaliseChecklistItem({
+    const out = normaliseChecklistItem({
       id: 'item-1',
       text: 't',
       isCompleted: false,
@@ -70,12 +70,12 @@ describe('TaskService.normaliseChecklistItem', () => {
   });
 
   it('defaults text to empty string when the input omits it', () => {
-    const out = TaskService.normaliseChecklistItem({});
+    const out = normaliseChecklistItem({});
     expect(out.text).toBe('');
   });
 
   it('preserves completedBy when present', () => {
-    const out = TaskService.normaliseChecklistItem({
+    const out = normaliseChecklistItem({
       text: 't',
       isCompleted: true,
       completedBy: 'user-7',
@@ -84,14 +84,14 @@ describe('TaskService.normaliseChecklistItem', () => {
   });
 });
 
-describe('TaskService.propagateChecklistItemsFromTemplate', () => {
+describe('propagateChecklistItemsFromTemplate', () => {
   it('clones template items with FRESH uuids (no id collision)', () => {
     const template: Partial<TaskChecklistItem>[] = [
       { id: 'tpl-1', text: 'check oxygen', isCompleted: true },
       { id: 'tpl-2', text: 'record readings', isCompleted: false },
     ];
 
-    const cloned = TaskService.propagateChecklistItemsFromTemplate(template);
+    const cloned = propagateChecklistItemsFromTemplate(template);
 
     expect(cloned).toHaveLength(2);
     expect(cloned[0]!.id).not.toBe('tpl-1');
@@ -107,14 +107,14 @@ describe('TaskService.propagateChecklistItemsFromTemplate', () => {
   });
 
   it('returns empty array when the template has no items', () => {
-    expect(TaskService.propagateChecklistItemsFromTemplate(undefined)).toEqual([]);
-    expect(TaskService.propagateChecklistItemsFromTemplate([])).toEqual([]);
+    expect(propagateChecklistItemsFromTemplate(undefined)).toEqual([]);
+    expect(propagateChecklistItemsFromTemplate([])).toEqual([]);
   });
 
   it('two propagations from the same template produce non-colliding ids', () => {
     const template: Partial<TaskChecklistItem>[] = [{ text: 'x' }];
-    const a = TaskService.propagateChecklistItemsFromTemplate(template);
-    const b = TaskService.propagateChecklistItemsFromTemplate(template);
+    const a = propagateChecklistItemsFromTemplate(template);
+    const b = propagateChecklistItemsFromTemplate(template);
     expect(a[0]!.id).not.toBe(b[0]!.id);
   });
 });

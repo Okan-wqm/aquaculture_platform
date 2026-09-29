@@ -43,6 +43,7 @@ import {
 import { BiomassReportPayload } from '../entities/biomass-report.entity';
 import { AssembledDraft, fromRecords, manualRequired } from './provenance.types';
 import { isStandingStockStale, monthRange, round2 } from './period.util';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 interface StockingRow {
   date: string;
@@ -69,6 +70,7 @@ export class BiomassReportAssembler {
     private readonly queryBus: QueryBus,
     private readonly biomassCalculator: BiomassCalculatorService,
     private readonly stockReconstruction: StockReconstructionService,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   async assemble(
@@ -93,14 +95,20 @@ export class BiomassReportAssembler {
     const [siteBiomass, mortality, transfers, feed, directReads, reconstructed] =
       await Promise.all([
         this.biomassCalculator.getSiteBiomassReport(siteId, tenantId),
-        this.queryBus.execute<GetMortalityByCauseQuery, MortalityByCauseResult>(
-          new GetMortalityByCauseQuery(tenantId, siteId, fromDate, toDate),
+        this.tenantScopes.read(tenantId, (scope) =>
+          this.queryBus.execute<GetMortalityByCauseQuery, MortalityByCauseResult>(
+            new GetMortalityByCauseQuery(scope, siteId, fromDate, toDate),
+          ),
         ),
-        this.queryBus.execute<GetTransfersSummaryQuery, TransfersSummaryResult>(
-          new GetTransfersSummaryQuery(tenantId, siteId, fromDate, toDate),
+        this.tenantScopes.read(tenantId, (scope) =>
+          this.queryBus.execute<GetTransfersSummaryQuery, TransfersSummaryResult>(
+            new GetTransfersSummaryQuery(scope, siteId, fromDate, toDate),
+          ),
         ),
-        this.queryBus.execute<GetSiteFeedConsumptionQuery, SiteFeedConsumptionResult>(
-          new GetSiteFeedConsumptionQuery(tenantId, siteId, fromDate, toDate),
+        this.tenantScopes.read(tenantId, (scope) =>
+          this.queryBus.execute<GetSiteFeedConsumptionQuery, SiteFeedConsumptionResult>(
+            new GetSiteFeedConsumptionQuery(scope, siteId, fromDate, toDate),
+          ),
         ),
         runInTenantRead(this.dataSource, 'farm', tenantId, async (qr) => ({
           stockingRows: await this.queryStockings(qr, tenantId, siteId, fromDate, toDate),

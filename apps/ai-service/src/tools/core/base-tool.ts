@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
-import { ITool, ToolMetadata, ToolExecutionContext, ToolResult } from './tool.interface';
+import { ITool, ToolMetadata, ToolExecutionContext, ToolResult, TenantBoundToolContext } from './tool.interface';
+import { TenantBoundaryViolation } from '../../tenant-boundary/tenant-boundary-violation';
 import { getToolMetadata } from './tool.decorator';
 
 /**
@@ -53,7 +54,7 @@ export abstract class BaseTool<TInput = unknown, TOutput = unknown>
       }
 
       this.logger.debug(
-        `Executing tool ${metadata.name} for tenant ${ctx.tenantId}`,
+        `Executing tool ${metadata.name} for tenant ${ctx.tenant.tenantId}`,
       );
 
       // Call the implementation
@@ -67,6 +68,11 @@ export abstract class BaseTool<TInput = unknown, TOutput = unknown>
         cacheTtlSeconds: this.getCacheTtl(),
       };
     } catch (error) {
+      // K10 (MT-HIGH-062): a tenant-boundary violation is not a tool error the
+      // model may retry around — it ends the run. Re-throw past the executor.
+      if (error instanceof TenantBoundaryViolation) {
+        throw error;
+      }
       this.logger.error(
         `Tool ${metadata.name} failed: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -79,10 +85,14 @@ export abstract class BaseTool<TInput = unknown, TOutput = unknown>
     }
   }
 
-  /** Implement this in each tool - the actual computation */
+  /**
+   * Implement this in each tool - the actual computation. A tool sees only the
+   * tenant-bound view of the execution (K10): who it acts for, which tenant
+   * binding it carries, and the correlation id — never authorization fields.
+   */
   protected abstract run(
     input: TInput,
-    ctx: ToolExecutionContext,
+    ctx: TenantBoundToolContext,
   ): Promise<TOutput>;
 
   /** Override to enable caching (default: false) */

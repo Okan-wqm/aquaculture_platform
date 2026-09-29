@@ -6,7 +6,6 @@ import {
   FARM_AI_QUERY_SUBJECTS,
   clampListLimit,
   isAiQueryList,
-  isAiQueryReply,
   isBoundedDateRange,
   isHarvestEligibilityRequest,
   isHealthEventDto,
@@ -57,14 +56,6 @@ describe('FARM_AI_QUERY_SUBJECTS', () => {
 });
 
 describe('envelope guards', () => {
-  it('isAiQueryReply accepts both envelope arms and rejects the legacy bare-array reply', () => {
-    expect(isAiQueryReply({ ok: true, data: [] })).toBe(true);
-    expect(isAiQueryReply({ ok: false, error: 'INTERNAL_ERROR' })).toBe(true);
-    expect(isAiQueryReply({ ok: false, error: 'SOMETHING_ELSE' })).toBe(false);
-    expect(isAiQueryReply([])).toBe(false);
-    expect(isAiQueryReply({ ok: true })).toBe(false);
-  });
-
   it('isAiQueryList checks every item and the truncated flag', () => {
     const isNum = (v: unknown): v is number => typeof v === 'number';
     expect(isAiQueryList({ items: [1, 2], truncated: false }, isNum)).toBe(true);

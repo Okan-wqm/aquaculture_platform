@@ -39,7 +39,6 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
     userId: '99999999-8888-7777-6666-555555555555',
     userRoles: ['operator'],
     resourcePermissions: ['ai_personas:operator'],
-    schemaName: 'tenant_aaaaaaaabbbbcccc',
     correlationId: 'corr-1',
   };
 

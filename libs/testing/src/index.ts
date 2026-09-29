@@ -5,6 +5,7 @@
  * Import from '@aquaculture/testing' in any service's test files.
  */
 export * from './factories/mock-datasource.factory';
+export * from './factories/fake-tenant-connection.factory';
 export * from './factories/mock-repository.factory';
 export * from './factories/mock-event-bus.factory';
 export * from './doubles/typed-double';

@@ -35,6 +35,7 @@ import { FCRCalculationService } from '../../growth/services/fcr-calculation.ser
 import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { BatchLifecyclePolicyService } from '../services/batch-lifecycle-policy.service';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 @Injectable()
 @CommandHandler(CloseBatchCommand)
@@ -46,6 +47,7 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
+    private readonly tenantScopes: FarmTenantScopes,
     private readonly lifecyclePolicy: BatchLifecyclePolicyService,
     private readonly fcrCalculation: FCRCalculationService,
     @Optional()
@@ -87,10 +89,8 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
       // gate cannot be bypassed by role. Food-safety compliance
       // (Mattilsynet / EU Reg 37/2010) applies regardless of who is
       // closing the batch.
-      const eligibility = await this.harvestEligibility.checkEligibility(
-        tenantId,
-        batchId,
-        new Date(),
+      const eligibility = await this.tenantScopes.read(tenantId, (scope) =>
+        this.harvestEligibility.checkEligibility(scope, batchId, new Date()),
       );
       if (!eligibility.eligible && !acknowledgeActiveTreatments) {
         this.metricsService?.incWithdrawalBlock({

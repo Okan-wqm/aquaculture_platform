@@ -28,8 +28,9 @@ import { FeedingProgramTank } from '../../feeding/entities/feeding-program-tank.
 import { BatchLocation } from '../../batch/entities/batch-location.entity';
 import { GrowthMeasurement, FCRAnalysis } from '../entities/growth-measurement.entity';
 import { Batch } from '../../batch/entities/batch.entity';
-import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
 import { Species } from '../../species/entities/species.entity';
+import { readCumulativeFcr, type CumulativeFcr } from './cumulative-fcr.reader';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 import { ProtocolRateService } from '../../feeding-protocol/services/protocol-rate.service';
 import {
   FcrMatrix,
@@ -212,9 +213,8 @@ export class FCRCalculationService {
     private readonly feedingProgramRepository: Repository<FeedingProgram>,
     @InjectRepository(FeedingProgramTank)
     private readonly feedingProgramTankRepository: Repository<FeedingProgramTank>,
-    @InjectRepository(TankOperation)
-    private readonly tankOperationRepository: Repository<TankOperation>,
     private readonly protocolRateService: ProtocolRateService,
+    private readonly tenantScopes: FarmTenantScopes,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -321,97 +321,18 @@ export class FCRCalculationService {
   /**
    * Kümülatif FCR hesaplar (batch başından bugüne).
    *
-   * Realized growth is corrected with the TankOperation ledger: biomass that
-   * left the system via mortality / cull / harvest / transfer-out also grew by
-   * consuming feed, so a plain `current − start` difference undercounts it and
-   * overstates FCR (masking the herd-health degradation FCR exists to surface).
-   * Transfer-ins are feed-free biomass entering the batch and are subtracted.
-   *
-   *   realized growth = (current biomass + net removed biomass) − start
-   *   net removed     = Σ(mortality + cull + harvest + transfer_out) − Σ(transfer_in)
+   * The computation is `readCumulativeFcr` (cumulative-fcr.reader.ts), the
+   * single authority; this entry point opens a tenant read scope for callers
+   * that start from a tenant id. Callers that already hold a scope (the AI
+   * read handlers) call the reader with it, so both paths run one computation
+   * on a tenant-pinned connection (K10 layer 4).
    */
   async calculateCumulativeFCR(
     batchId: string,
     tenantId: string,
     endDate?: Date,
-  ): Promise<{ fcr: number; totalFeed: number; totalGrowth: number; removedBiomassKg: number }> {
-    const batch = await this.batchRepository.findOne({
-      where: { id: batchId, tenantId },
-    });
-
-    if (!batch) {
-      return { fcr: 0, totalFeed: 0, totalGrowth: 0, removedBiomassKg: 0 };
-    }
-
-    // Tüm yemleme kayıtlarını al
-    const feedQuery = this.feedingRecordRepository
-      .createQueryBuilder('fr')
-      .where('fr.tenantId = :tenantId', { tenantId })
-      .andWhere('fr.batchId = :batchId', { batchId });
-
-    if (endDate) {
-      feedQuery.andWhere('fr.feedingDate <= :endDate', { endDate });
-    }
-
-    const feedResult = await feedQuery.select('SUM(fr.actualAmount)', 'totalFeed').getRawOne();
-
-    const totalFeed = Number(feedResult?.totalFeed || 0);
-
-    // NOTE: the latest growth measurement is no longer queried here. Current
-    // biomass is the derive-on-read value (batch.getCurrentBiomass), so the
-    // stale-prone measurement snapshot does not feed the FCR growth term.
-
-    // Ledger: biomass that LEFT the batch (mortality/cull/harvest/transfer-out)
-    // or entered it feed-free (transfer-in). Counting TRANSFER_OUT and
-    // TRANSFER_IN together makes within-batch tank moves (same batchId out +
-    // in) net to zero naturally. Tenant-filtered (op.tenantId) as defence in
-    // depth on top of the tenant search_path routing (ADR-011).
-    const ledgerQuery = this.tankOperationRepository
-      .createQueryBuilder('op')
-      .where('op.tenantId = :tenantId', { tenantId })
-      .andWhere('op.batchId = :batchId', { batchId })
-      .andWhere('op.isDeleted = false')
-      .andWhere('op.operationType IN (:...ledgerTypes)', {
-        ledgerTypes: [
-          OperationType.MORTALITY,
-          OperationType.CULL,
-          OperationType.HARVEST,
-          OperationType.TRANSFER_OUT,
-          OperationType.TRANSFER_IN,
-        ],
-      });
-
-    if (endDate) {
-      ledgerQuery.andWhere('op.operationDate <= :endDate', { endDate });
-    }
-
-    const ledgerResult = await ledgerQuery
-      .select(
-        `COALESCE(SUM(CASE WHEN op.operationType = :transferIn THEN -COALESCE(op.biomassKg, 0) ELSE COALESCE(op.biomassKg, 0) END), 0)`,
-        'netRemovedKg',
-      )
-      .setParameter('transferIn', OperationType.TRANSFER_IN)
-      .getRawOne<{ netRemovedKg: string | number | null }>();
-
-    const removedBiomassKg = Number(ledgerResult?.netRemovedKg ?? 0);
-
-    // Başlangıç biomass (initialQuantity * initial avgWeight)
-    const initialWeight = batch.weight?.initial?.avgWeight || 0;
-    const startBiomass = (batch.initialQuantity * initialWeight) / 1000; // kg
-    // Current biomass is the single derive-on-read value (currentQuantity ×
-    // effectiveAvgWeightG / 1000) — the SAME source the GraphQL resolver and
-    // removal handlers read. Sourcing it from the stored measurement snapshot
-    // (GrowthMeasurement.estimatedBiomass) would let FCR growth and the
-    // displayed biomass diverge, because that snapshot goes stale on every
-    // removal while the derived value tracks the live count. When no count is
-    // available yet, fall back to the start biomass.
-    const currentBiomass = batch.currentQuantity > 0 ? batch.getCurrentBiomass() : startBiomass;
-    // Realized growth includes the growth of biomass that exited the system.
-    const totalGrowth = currentBiomass + removedBiomassKg - startBiomass;
-
-    const fcr = totalGrowth > 0 ? totalFeed / totalGrowth : 0;
-
-    return { fcr, totalFeed, totalGrowth, removedBiomassKg };
+  ): Promise<CumulativeFcr> {
+    return this.tenantScopes.read(tenantId, (scope) => readCumulativeFcr(scope, batchId, endDate));
   }
 
   /**

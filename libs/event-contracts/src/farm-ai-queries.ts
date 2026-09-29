@@ -9,14 +9,16 @@
  * them, and tests/invariants/farm-ai-query-contract-ssot.spec.ts proves each
  * one has its responder, its tool and its explicit services.yaml grants.
  *
- * Replies travel in an envelope: `{ ok: true, data }` or `{ ok: false, error }`.
- * The pre-existing overview responders answered `[]` on any failure, which the
+ * Replies travel in the tenant-bound envelope (./tenant-bound-reply.ts):
+ * `{ ok: true, tenantId, data }` or `{ ok: false, tenantId, error }`. The
+ * pre-existing overview responders answered `[]` on any failure, which the
  * model could not tell from "no data"; the envelope makes farm-service being
- * down a visible tool error instead of an empty list.
+ * down a visible tool error instead of an empty list, and the echoed tenantId
+ * lets ai-service refuse a reply served for another tenant (K10).
  *
- * Request shapes carry the tenant id, which the ai-service tool base composes
- * from the execution context — never from the model. The per-domain shape
- * modules live under ./farm-ai-queries/ and are re-exported here.
+ * Request shapes carry the tenant id, which ai-service's TenantBoundNatsClient
+ * injects from the execution context — never from the model. The per-domain
+ * shape modules live under ./farm-ai-queries/ and are re-exported here.
  */
 
 export const FARM_AI_QUERY_NAMESPACE = 'request.farm.ai.' as const;
@@ -85,16 +87,15 @@ export const FARM_AI_QUERY_LIMITS = {
   MAX_UPCOMING_DAYS: 180,
 } as const;
 
-// ── Envelope ────────────────────────────────────────────────────────────────
+// ── Request ─────────────────────────────────────────────────────────────────
+// Replies use the tenant-bound envelope (./tenant-bound-reply.ts, K10): every
+// reply names the tenant it served and the ai-service client rejects a
+// foreign one before the data reaches the model.
 
-/** Every request carries the tenant; the ai-service tool base sets it from context. */
+/** Every request carries the tenant; the ai-service TenantBoundNatsClient injects it, never the model. */
 export interface AiQueryRequest {
   tenantId: string;
 }
-
-export type AiQueryErrorCode = 'INVALID_REQUEST' | 'INTERNAL_ERROR';
-
-export type AiQueryReply<T> = { ok: true; data: T } | { ok: false; error: AiQueryErrorCode };
 
 /** A bounded list: `truncated` tells the model the cap bit and to narrow the window. */
 export interface AiQueryList<T> {
@@ -151,12 +152,6 @@ export function isAiQueryRequestShape(
   if (!isRecord(value) || !isUuidString(value['tenantId'])) return false;
   const allowed = new Set<string>(['tenantId', ...allowedKeys]);
   return Object.keys(value).every((key) => allowed.has(key));
-}
-
-export function isAiQueryReply(value: unknown): value is AiQueryReply<unknown> {
-  if (!isRecord(value) || typeof value['ok'] !== 'boolean') return false;
-  if (value['ok'] === true) return 'data' in value;
-  return value['error'] === 'INVALID_REQUEST' || value['error'] === 'INTERNAL_ERROR';
 }
 
 export function isAiQueryList<T>(

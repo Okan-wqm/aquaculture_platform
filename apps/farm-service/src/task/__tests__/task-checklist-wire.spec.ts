@@ -15,6 +15,8 @@ import { RecurringTemplateResolver } from '../resolvers/recurring-template.resol
 import { TaskResolver } from '../resolvers/task.resolver';
 import { RecurringTaskService } from '../services/recurring-task.service';
 import { TaskService } from '../services/task.service';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
+import { collaborator } from '@aquaculture/testing';
 
 // The field resolvers are pure over the parent row: no service or bus is
 // touched, so the collaborators are empty by construction.
@@ -23,7 +25,11 @@ const recurringTaskService: Pick<RecurringTaskService, never> = {};
 const queryBus: Pick<QueryBus, never> = {};
 
 describe('checklistItems wire shape (FARM-HIGH-320)', () => {
-  const taskResolver = new TaskResolver(taskService as TaskService, queryBus as QueryBus);
+  const taskResolver = new TaskResolver(
+    taskService as TaskService,
+    queryBus as QueryBus,
+    collaborator<FarmTenantScopes>({}, 'FarmTenantScopes'),
+  );
   const templateResolver = new RecurringTemplateResolver(
     recurringTaskService as RecurringTaskService,
     queryBus as QueryBus,

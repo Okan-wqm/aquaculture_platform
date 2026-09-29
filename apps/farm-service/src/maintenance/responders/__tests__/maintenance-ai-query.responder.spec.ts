@@ -6,6 +6,10 @@ import { ListLowStockAlertsQuery } from '../../queries/list-low-stock-alerts.que
 import { ListMaintenanceScheduleAlertsQuery } from '../../queries/list-maintenance-schedule-alerts.query';
 import { ListOverdueWorkOrdersQuery } from '../../queries/list-overdue-work-orders.query';
 import { MaintenanceAiQueryResponder } from '../maintenance-ai-query.responder';
+import {
+  createFarmScopeHarness,
+  type FarmScopeHarness,
+} from '../../../__tests__/helpers/farm-tenant-scope.helper';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const ID = '22222222-2222-4222-8222-222222222222';
@@ -13,11 +17,13 @@ const ID = '22222222-2222-4222-8222-222222222222';
 describe('MaintenanceAiQueryResponder (FARM-MEDIUM-328)', () => {
   let execute: jest.Mock;
   let responder: MaintenanceAiQueryResponder;
+  let harness: FarmScopeHarness;
 
   beforeEach(() => {
     execute = jest.fn();
     const queryBus: Pick<QueryBus, 'execute'> = { execute };
-    responder = new MaintenanceAiQueryResponder(queryBus as QueryBus);
+    harness = createFarmScopeHarness();
+    responder = new MaintenanceAiQueryResponder(harness.responder, queryBus as QueryBus);
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
   });
@@ -55,6 +61,7 @@ describe('MaintenanceAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(execute).toHaveBeenCalledWith(expect.any(ListOverdueWorkOrdersQuery));
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: {
         items: [
           {
@@ -93,6 +100,7 @@ describe('MaintenanceAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(query.dateFrom).toEqual(new Date('2026-08-01'));
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: { total: 12, avgCompletionMinutes: 95.5, totalCost: 1200, overdue: 1 },
     });
   });
@@ -118,6 +126,7 @@ describe('MaintenanceAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(execute).toHaveBeenCalledWith(expect.any(ListMaintenanceScheduleAlertsQuery));
     expect(reply).toEqual({
       ok: true,
+      tenantId: TENANT,
       data: {
         items: [
           {
@@ -160,6 +169,7 @@ describe('MaintenanceAiQueryResponder (FARM-MEDIUM-328)', () => {
     expect(execute).toHaveBeenCalledWith(expect.any(ListLowStockAlertsQuery));
     expect(reply).toMatchObject({
       ok: true,
+      tenantId: TENANT,
       data: { items: [{ code: 'SP-9', partNumber: 'B-77', deficit: 3, leadTimeDays: 5 }] },
     });
     expect(JSON.stringify(reply)).not.toContain('12.5');
@@ -168,7 +178,7 @@ describe('MaintenanceAiQueryResponder (FARM-MEDIUM-328)', () => {
 
   it('rejects a payload with unknown keys', async () => {
     const reply = await responder.getStockSummary({ tenantId: TENANT, warehouse: 'W1' });
-    expect(reply).toEqual({ ok: false, error: 'INVALID_REQUEST' });
+    expect(reply).toEqual({ ok: false, tenantId: TENANT, error: 'INVALID_REQUEST' });
     expect(execute).not.toHaveBeenCalled();
   });
 });

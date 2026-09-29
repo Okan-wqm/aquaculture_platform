@@ -34,6 +34,7 @@ import type {
   MobileCommandReceiptService,
   MobileCommandReceiptState,
 } from '@aquaculture/backend-common/mobile-command';
+import { FarmTenantScopes } from '../../../common/tenant-boundary/farm-tenant-scopes';
 
 const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -178,6 +179,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
     commandBus,
     harvestEligibility as never,
+    new FarmTenantScopes(createMockDataSource().mockDataSource),
     backdatePolicy as never,
     harvestPolicy as never,
     createMockRepository<HarvestRecord>(),

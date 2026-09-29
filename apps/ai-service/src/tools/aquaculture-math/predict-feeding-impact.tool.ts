@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { feedingImpact, type FeedingImpactResult } from '@platform/aquaculture-engines';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
 import {
   ALL_TIERS,
   POSITIVE_NUMBER_SCHEMA,
@@ -74,7 +74,7 @@ interface FeedingImpactInput {
 export class PredictFeedingImpactTool extends BaseTool<FeedingImpactInput, FeedingImpactResult> {
   protected async run(
     input: FeedingImpactInput,
-    _ctx: ToolExecutionContext,
+    _ctx: TenantBoundToolContext,
   ): Promise<FeedingImpactResult> {
     return roundNumbersDeep(
       feedingImpact({

@@ -10,6 +10,12 @@ import {
   ToolMetadata,
   ToolResult,
 } from '../tool.interface';
+import {
+  TENANT_A,
+  humanToolContext,
+} from '../../../tenant-boundary/__tests__/fixtures/tenant-bound.fixture';
+import { buildServicePrincipalContext } from '../../../tenant-boundary/tool-context.factory';
+import { TenantBoundaryViolation } from '../../../tenant-boundary/tenant-boundary-violation';
 
 /**
  * AISAFETY-MEDIUM-017: actuation fail-closed enforcement + real audit persistence.
@@ -48,17 +54,18 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
     collaborator<AuditService>({ logToolExecution }, 'AuditService'),
   );
 
-  const ctx = (policy: ActuationPolicy): ToolExecutionContext => ({
-    tenantId: 't1',
-    schemaName: 'tenant_t1',
-    userId: 'u1',
-    userRoles: ['MODULE_USER'],
-    correlationId: 'corr-1',
-    persona: 'operator-v1',
-    personaTier: 'operator',
-    offeredToolNames: ['dose_reagent', 'read_ph', 'calculate_reagent_dosing'],
-    actuationPolicy: policy,
-  });
+  const ctx = (policy: ActuationPolicy): ToolExecutionContext =>
+    humanToolContext({
+      userId: 'u1',
+      userRoles: ['MODULE_USER'],
+      persona: 'operator-v1',
+      personaTier: 'operator',
+      offeredToolNames: ['dose_reagent', 'read_ph', 'calculate_reagent_dosing'],
+      actuationPolicy: policy,
+    });
+
+  /** K10: the context carries tenant A's binding (a nested matcher, typed unknown for lint). */
+  const boundToTenantA: unknown = expect.objectContaining({ tenantId: TENANT_A });
 
   const okResult: ToolResult = {
     success: true,
@@ -85,7 +92,7 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
       'dose_reagent',
       { kg: 5 },
       expect.objectContaining({ requiresConfirmation: true }),
-      expect.objectContaining({ tenantId: 't1' }),
+      expect.objectContaining({ tenant: boundToTenantA }),
     );
   });
 
@@ -247,25 +254,21 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
       'nope',
       expect.any(Object),
       expect.objectContaining({ success: false }),
-      expect.objectContaining({ tenantId: 't1' }),
+      expect.objectContaining({ tenant: boundToTenantA }),
     );
   });
 
   // SENSOR-MEDIUM-070: a first-class internal service principal authorizes a
   // fixed read-only tool allowlist WITHOUT fabricating user roles.
   describe('service principal (SENSOR-MEDIUM-070)', () => {
-    const svcCtx = (grant: string[]): ToolExecutionContext => ({
-      tenantId: 't1',
-      schemaName: 'tenant_t1',
-      userId: 'service:sensor-service',
-      userRoles: [], // no user roles — the service grant is the sole authority
-      correlationId: 'corr-1',
-      persona: 'service',
-      personaTier: null,
-      offeredToolNames: [],
-      actuationPolicy: 'blocked',
-      servicePrincipal: { name: 'sensor-service', grantedToolNames: grant },
-    });
+    // No user roles — the service grant is the sole authority.
+    const svcCtx = (grant: string[]): ToolExecutionContext =>
+      buildServicePrincipalContext({
+        tenantId: TENANT_A,
+        serviceName: 'sensor-service',
+        grantedToolNames: grant,
+        correlationId: 'corr-1',
+      });
 
     it('authorizes a granted read-only tool with no user roles', async () => {
       registry.getTool.mockReturnValue(
@@ -313,6 +316,51 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
       expect(execute).not.toHaveBeenCalled();
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/permission denied/i);
+    });
+  });
+
+  // K10 (MT-HIGH-062): the tenant is fixed by the trusted request.
+  describe('tenant boundary (MT-HIGH-062)', () => {
+    const readTool = (): ITool =>
+      makeTool({ name: 'read_ph', requiresConfirmation: false, category: 'farm_query' });
+
+    it.each([
+      [{ tenantId: '99999999-9999-4999-8999-999999999999' }],
+      [{ tankId: 'x', filter: { tenant_id: 'other' } }],
+      [{ SchemaName: 'tenant_other' }],
+      [{ items: [{ searchPath: 'tenant_other' }] }],
+    ])('refuses a prompt-injected tool call that names a tenant or schema: %j', async (input) => {
+      // SCENARIO: the model emits a tool_use whose input carries a tenant/schema selector.
+      // EXPECTS: the tool never runs; the refusal is audited; the result says why.
+      registry.getTool.mockReturnValue(readTool());
+
+      const result = await service.executeTool('read_ph', input, ctx('allowed'));
+
+      expect(execute).not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/does not accept tenant or schema fields/);
+      expect(logToolExecution).toHaveBeenCalledWith(
+        'read_ph',
+        expect.any(Object),
+        expect.objectContaining({ success: false }),
+        expect.any(Object),
+      );
+    });
+
+    it('audits a tenant-boundary violation and re-throws it so the run stops', async () => {
+      // SCENARIO: the tool's reply was served for another tenant (the client threw).
+      // EXPECTS: one audit row with tenant_mismatch, then the violation propagates.
+      registry.getTool.mockReturnValue(readTool());
+      const violation = new TenantBoundaryViolation('request.farm.ai.x', 'reply_tenant_mismatch');
+      execute.mockRejectedValueOnce(violation);
+
+      await expect(service.executeTool('read_ph', {}, ctx('allowed'))).rejects.toBe(violation);
+      expect(logToolExecution).toHaveBeenCalledWith(
+        'read_ph',
+        expect.any(Object),
+        expect.objectContaining({ success: false, error: 'tenant_mismatch' }),
+        expect.any(Object),
+      );
     });
   });
 });

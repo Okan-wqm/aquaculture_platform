@@ -28,29 +28,39 @@ export type ToolCategory =
 export type ToolRuntime = 'cloud' | 'edge' | 'both';
 
 export interface ToolMetadata {
-  name: string;                    // Snake_case tool identifier (e.g., 'calculate_ammonia_toxicity')
-  description: string;             // Sent to Claude as tool description
+  name: string; // Snake_case tool identifier (e.g., 'calculate_ammonia_toxicity')
+  description: string; // Sent to Claude as tool description
   category: ToolCategory;
-  runtime: ToolRuntime;            // 'cloud' | 'edge' | 'both'
-  requiredPermissions: string[];   // e.g. ['operator', 'manager', 'expert']
-  inputSchema: Record<string, unknown>;  // JSON Schema sent to Claude
-  requiresModule: string | null;   // Billing module required, null for free tools
-  requiresConfirmation: boolean;   // true = pause and ask human before executing
+  runtime: ToolRuntime; // 'cloud' | 'edge' | 'both'
+  requiredPermissions: string[]; // e.g. ['operator', 'manager', 'expert']
+  inputSchema: Record<string, unknown>; // JSON Schema sent to Claude
+  requiresModule: string | null; // Billing module required, null for free tools
+  requiresConfirmation: boolean; // true = pause and ask human before executing
 }
 ```
 
 ## ToolExecutionContext
 
-Populated from JWT on every request. Never trust client-supplied values.
+Built only by `apps/ai-service/src/tenant-boundary/tool-context.factory.ts`
+from the trusted request (gateway JWT, messaging bridge, or a service
+principal's mTLS identity). Never from model output or client-supplied values.
 
 ```typescript
-export interface ToolExecutionContext {
-  tenantId: string;
-  schemaName: string;       // 'tenant_{id}' for DB queries
-  userId: string;
-  userRoles: string[];      // From JWT claims only
-  correlationId: string;    // For distributed tracing
-  persona: string;          // The agent persona executing this tool
+/** The view a tool's run() receives. */
+export interface TenantBoundToolContext {
+  readonly tenant: TenantBinding; // the one tenant this execution may touch
+  readonly userId: string;
+  readonly correlationId: string; // For distributed tracing
+}
+
+/** What the executor evaluates (authorization fields a tool never sees). */
+export interface ToolExecutionContext extends TenantBoundToolContext {
+  userRoles: string[];
+  persona: string;
+  personaTier: AiPersonaTier | null;
+  offeredToolNames: readonly string[];
+  actuationPolicy: ActuationPolicy;
+  servicePrincipal?: { name: string; grantedToolNames: string[] };
 }
 ```
 
@@ -61,8 +71,8 @@ export interface ToolResult<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
-  durationMs: number;       // Execution time in milliseconds
-  cacheable: boolean;       // Whether this result should be cached
+  durationMs: number; // Execution time in milliseconds
+  cacheable: boolean; // Whether this result should be cached
   cacheTtlSeconds?: number; // Cache TTL in seconds (if cacheable)
 }
 ```
@@ -123,42 +133,44 @@ export abstract class BaseTool<TInput = unknown, TOutput = unknown>
     // 4. Catch errors and return ToolResult with success: false
   }
 
-  /** Subclasses implement this -- the actual computation */
-  protected abstract run(input: TInput, ctx: ToolExecutionContext): Promise<TOutput>;
+  /** Subclasses implement this -- the actual computation (tenant-bound view only) */
+  protected abstract run(input: TInput, ctx: TenantBoundToolContext): Promise<TOutput>;
 
   /** Override to enable caching (default: false) */
-  protected isCacheable(): boolean { return false; }
+  protected isCacheable(): boolean {
+    return false;
+  }
 
   /** Override to set cache TTL in seconds (default: 300) */
-  protected getCacheTtl(): number { return 300; }
+  protected getCacheTtl(): number {
+    return 300;
+  }
 }
 ```
 
 The `execute` method handles validation, timing, error catching, and cache metadata. Subclasses only implement `run()`.
 
-## TenantScopedTool
+## Tenant boundary (K10)
 
-File: `apps/ai-service/src/tools/core/base-tenant-tool.ts`
+Tools have no database path of their own. A tool reaches tenant data only by
+sending a request through `TenantBoundNatsClient`
+(`apps/ai-service/src/tenant-boundary/tenant-bound-nats.client.ts`):
 
-For tools that need database access. Overrides `execute()` to set `search_path` before calling the parent `execute()`.
+- `run(input, ctx)` receives a `TenantBoundToolContext`. Its `tenant` is a
+  `TenantBinding` minted only by `tenant-boundary/tool-context.factory.ts` from
+  the trusted request, never from model output.
+- Request fields are typed tenant-free (`Omit<XRequest, 'tenantId'>`); the
+  client writes the bound tenant itself and refuses any tenant/schema key.
+- The owning service answers with the tenant-bound envelope
+  `{ ok, tenantId, data | error }` and reads inside `runInTenantRead`. A reply
+  naming another tenant is refused before its data is read: the run stops with
+  `tenant_mismatch` and a `TenantAccessDenied` security event is written.
 
-```typescript
-export abstract class TenantScopedTool<TInput, TOutput> extends BaseTool<TInput, TOutput> {
-  constructor(protected readonly dataSource: DataSource) { super(); }
-
-  async execute(input: TInput, ctx: ToolExecutionContext): Promise<ToolResult<TOutput>> {
-    // Validate schema name (alphanumeric + underscore only)
-    if (!/^[a-z0-9_]+$/.test(ctx.schemaName)) {
-      return { success: false, error: 'Invalid schema name', durationMs: 0, cacheable: false };
-    }
-    // SET LOCAL scopes to current transaction only
-    await this.dataSource.query(`SET LOCAL search_path TO "${ctx.schemaName}", ai, public`);
-    return super.execute(input, ctx);
-  }
-}
-```
-
-Note: Uses `SET LOCAL` (not `SET`) so the search_path is scoped to the current transaction and does not leak across connection pool reuse.
+The former `TenantScopedTool` base class (a tool-held `DataSource` with a
+session `search_path` that also exposed the cross-tenant `ai` schema) was
+removed with PR-T1. `tests/invariants/ai-tenant-boundary.spec.ts` §A and the
+ESLint block for `apps/ai-service/src/tools/**` keep transports and TypeORM out
+of tool code.
 
 ## ToolExecutorService
 
@@ -212,11 +224,11 @@ export class ToolRegistryService implements OnModuleInit {
     // Throws on duplicate tool names
   }
 
-  getTool(name: string): ITool | undefined;          // O(1) Map lookup
-  getAllMetadata(): ToolMetadata[];                    // All registered tool metadata
+  getTool(name: string): ITool | undefined; // O(1) Map lookup
+  getAllMetadata(): ToolMetadata[]; // All registered tool metadata
   getMetadataByCategory(category: ToolCategory): ToolMetadata[];
   getToolNamesForRoles(roles: string[]): string[];
-  getClaudeToolDefinitions(toolNames: string[]): Array<{ name, description, input_schema }>;
+  getClaudeToolDefinitions(toolNames: string[]): Array<{ name; description; input_schema }>;
   hasTool(name: string): boolean;
 }
 ```
@@ -288,7 +300,6 @@ The tool is automatically discovered by `ToolRegistryService`, registered in the
 - `apps/ai-service/src/tools/core/tool.interface.ts` - ITool, ToolMetadata, ToolResult, ToolExecutionContext, TOOL_PROVIDERS
 - `apps/ai-service/src/tools/core/tool.decorator.ts` - @Tool() decorator, getToolMetadata()
 - `apps/ai-service/src/tools/core/base-tool.ts` - BaseTool abstract class
-- `apps/ai-service/src/tools/core/base-tenant-tool.ts` - TenantScopedTool (DB-aware base)
 - `apps/ai-service/src/tools/core/tool-executor.service.ts` - ToolExecutorService (permission + execute + audit)
 - `apps/ai-service/src/tools/core/index.ts` - Re-exports
 - `apps/ai-service/src/tools/tool-registry.service.ts` - ToolRegistryService

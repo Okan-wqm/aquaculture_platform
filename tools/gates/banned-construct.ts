@@ -210,6 +210,12 @@ const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
       // rule protects request-scoped data access from bypassing tenant
       // isolation, and nothing here serves a request.
       /^apps\/[^/]+\/src\/__tests__\/e2e\/helpers\//,
+      // The K10 red-team's shared harness (PR-T1), same rationale: it drives
+      // the production ai-service and farm-service classes against a real
+      // two-tenant PostgreSQL, as an application role under the production
+      // RLS policy, and those constructors declare plain repositories. Scoped
+      // to `helpers/` — the red-team specs stay subject to the rule.
+      /^tests\/ai-tenant-redteam\/src\/helpers\//,
     ],
   },
 ];

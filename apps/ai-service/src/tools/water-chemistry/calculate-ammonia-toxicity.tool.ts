@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
 import {
   fractionNH3,
   calcNH3,
@@ -74,7 +74,7 @@ export class CalculateAmmoniaToxicityTool extends BaseTool<
 > {
   protected async run(
     input: AmmoniaToxicityInput,
-    _ctx: ToolExecutionContext,
+    _ctx: TenantBoundToolContext,
   ): Promise<AmmoniaToxicityOutput> {
     const { totalAmmoniacalNitrogen: TAN, pH, temperature: T, salinity: S } = input;
 

@@ -3,6 +3,7 @@
  */
 import { EquipmentStatus } from '../entities/equipment.entity';
 import { EquipmentCategory } from '../entities/equipment-type.entity';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 export interface EquipmentFilter {
   departmentId?: string;
@@ -29,7 +30,7 @@ export interface EquipmentPagination {
 
 export class ListEquipmentQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly filter?: EquipmentFilter,
     public readonly pagination?: EquipmentPagination,
   ) {}

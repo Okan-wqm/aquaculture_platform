@@ -12,10 +12,13 @@
  * patching does NOT apply. The default connection uses `search_path=messaging,public`,
  * which is the template schema — not any tenant's data.
  *
- * To enforce tenant isolation, the batch iterates over all provisioned tenant
- * schemas (via `listTenantSchemas()`) and pins transaction-local `search_path`
- * to the tenant's schema for every batch query. The tank registry fetch also
- * sends the tenantId so farm-service can return the correct tenant's registry.
+ * To enforce tenant isolation, the batch iterates over the verified tenant
+ * schema ledger (`listActiveTenantSchemaIdentities()`) and pins
+ * transaction-local `search_path` to the tenant's schema for every batch
+ * query. The tank registry is read through TankRegistryClient, which sends
+ * the ledger tenantId and verifies that the tenant-bound reply names the same
+ * tenant (K10). Every row written carries that tenantId (K10 layer 5: the
+ * knowledge store is tenant-schema AND tenant-keyed).
  *
  * MSGFIX-FAZ2 (2026-09-16) DELIBERATE DECISION — this cron stays env-gated
  * OFF (MESSAGING_AI_KNOWLEDGE_CRON_ENABLED, default 'false') and the service
@@ -33,14 +36,11 @@ import {
   ScheduledJobRunner,
   type ScheduledJobExecutor,
 } from '@aquaculture/backend-common/scheduling';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, QueryRunner } from 'typeorm';
-import { ClientProxy } from '@nestjs/microservices';
-import { firstValueFrom, timeout, catchError, of } from 'rxjs';
+import { DataSource, QueryRunner } from 'typeorm';
 import {
-  bindTenantRlsContext,
+  getTenantSchemaName,
   listActiveTenantSchemaIdentities,
-  pinTenantSchemaTransactionSearchPath,
+  runInTenantTransaction,
 } from '@aquaculture/backend-common/database';
 
 import {
@@ -49,13 +49,11 @@ import {
 } from '../entities/message-entity-reference.entity';
 import { KnowledgeEntry, KnowledgeCategory } from '../entities/knowledge-entry.entity';
 import { AiPrivacyService } from './ai-privacy.service';
+import { TankRegistryClient, type TankRegistryEntry } from './tank-registry.client';
 import {
   MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV,
   messagingAiFlagEnabled,
 } from '../ai-trigger.config';
-
-/** NATS request timeout in milliseconds (30 seconds). */
-const NATS_TIMEOUT_MS = 30_000;
 
 /** Regex patterns for extracting tank code references from messages. */
 const TANK_CODE_PATTERNS: RegExp[] = [/\bTank[-\s]?([A-Z]\d{1,3})\b/gi, /\b([A-Z]\d{1,2})\b/g];
@@ -84,15 +82,6 @@ const INCIDENT_KEYWORDS = [
   'alarm',
   'emergency',
 ];
-
-/**
- * Tank registry entry from farm-service.
- */
-interface TankRegistryEntry {
-  id: string;
-  code: string;
-  name: string;
-}
 
 /**
  * Raw message for knowledge processing.
@@ -126,14 +115,12 @@ export class KnowledgeExtractionService implements OnModuleInit {
    */
   private readonly cronEnabled = messagingAiFlagEnabled(MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV);
 
+  // WHY no repositories are injected: every tenant read and write of this
+  // pipeline runs on the per-tenant QueryRunner it pins (K10 layer 5) — an
+  // injected repository would be an ambient, tenant-unbound handle.
   constructor(
-    @InjectRepository(MessageEntityReference)
-    private readonly entityRefRepo: Repository<MessageEntityReference>,
-    @InjectRepository(KnowledgeEntry)
-    private readonly knowledgeRepo: Repository<KnowledgeEntry>,
     private readonly dataSource: DataSource,
-    @Inject('NATS_SERVICE')
-    private readonly natsClient: ClientProxy,
+    private readonly tankRegistryClient: TankRegistryClient,
     private readonly privacyService: AiPrivacyService,
     @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
@@ -181,14 +168,11 @@ export class KnowledgeExtractionService implements OnModuleInit {
    * Process messages from the last hour for knowledge extraction.
    *
    * SECURITY (C-07): This method iterates over each provisioned tenant schema
-   * and processes messages within that schema's scope. Each tenant's queries
-   * use an explicit transaction-local search_path pin to the tenant schema AND
-   * the RLS tenant GUC (`bindTenantRlsContext` — MSGFIX-FAZ3 3.6/V1 RLS
-   * completion for batch jobs: the search_path pin alone routes the queries,
-   * but leaves the RLS policy GUC unset, so any query that touches an
-   * RLS-protected table inside this transaction would be denied every row by
-   * the policy. Binding the GUC keeps the batch on the sanctioned tenant
-   * identity end-to-end), ensuring:
+   * and processes messages within that schema's scope. Each tenant's batch runs
+   * in its own `runInTenantTransaction` — transaction-local search_path pin,
+   * RLS tenant GUC bound, bypass forced off, and both asserted on the
+   * connection before any query (MSGFIX-FAZ3 3.6 RLS completion, K10 layer 5)
+   * — ensuring:
    *   - No cross-tenant data leakage between batches
    *   - Knowledge entries and entity references are written to the correct
    *     tenant schema
@@ -223,62 +207,59 @@ export class KnowledgeExtractionService implements OnModuleInit {
   /**
    * Process a single tenant schema's messages for knowledge extraction.
    *
-   * SECURITY (C-07): All database operations within this method use a dedicated
-   * QueryRunner with search_path pinned to the tenant's schema AND the RLS
-   * tenant context bound (app.current_tenant set + verified read-back,
-   * app.bypass_rls forced off). This guarantees tenant isolation even though
-   * we're running outside HTTP context.
+   * SECURITY (C-07, K10 layer 5 — V-T1b-5): every read and write of the batch
+   * runs inside `runInTenantTransaction`, which pins the transaction-local
+   * search_path to the tenant's schema, binds the RLS tenant GUC, forces the
+   * RLS bypass off, and ASSERTS `current_schema()` + the GUC on the connection
+   * before any domain query. The message read also carries explicit
+   * `m."tenantId"` / `mer."tenantId"` predicates, so even a connection that
+   * somehow resolved another schema returns no row of another tenant.
    *
-   * @param tenantSchema - Validated tenant schema name (e.g. "tenant_4b529829ea7948da")
+   * @param tenantSchema - Validated tenant schema name from the ledger (e.g. "tenant_4b529829ea7948da")
    * @param tenantId - Canonical tenant UUID resolved from the schema-mapping
    *   ledger (ORPHAN-MEDIUM-336 — authoritative identity for the RLS GUC and
-   *   the farm tank-registry request; previously recovered from message rows
-   *   AFTER the un-GUC'd read had already run).
+   *   the farm tank-registry request).
    */
   private async runBatchForTenantSchema(tenantSchema: string, tenantId: string): Promise<void> {
+    // The ledger pairs schema and tenant; a pair whose schema is not the one the
+    // platform derives from the tenant is refused before any read.
+    if (getTenantSchemaName(tenantId) !== tenantSchema) {
+      this.logger.error({
+        msg: 'Knowledge extraction skipped: ledger schema does not belong to its tenant',
+        tenantSchema,
+      });
+      return;
+    }
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      // Pin search_path to the specific tenant schema for all subsequent queries
-      await pinTenantSchemaTransactionSearchPath(queryRunner, 'messaging', tenantSchema);
-      // MSGFIX-FAZ3 3.6: complete the tenant boundary with the RLS GUC —
-      // search_path-only routing left every RLS-protected table read-denied.
-      await bindTenantRlsContext(queryRunner, tenantId, 'messaging');
-
+    await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       const messages: ProcessableMessage[] = await queryRunner.query(
         `SELECT m."id", m."channelId", m."senderId", m."content", m."createdAt", m."tenantId"
          FROM "messages" m
-         LEFT JOIN "message_entity_references" mer ON mer."messageId" = m."id"
-         WHERE m."createdAt" > $1
+         LEFT JOIN "message_entity_references" mer
+           ON mer."messageId" = m."id" AND mer."tenantId" = $2
+         WHERE m."tenantId" = $2
+           AND m."createdAt" > $1
            AND m."isDeleted" = false
            AND m."content" IS NOT NULL
            AND m."content" != ''
            AND mer."id" IS NULL
          ORDER BY m."createdAt" ASC
          LIMIT 500`,
-        [oneHourAgo],
+        [oneHourAgo, tenantId],
       );
 
-      if (messages.length === 0) {
-        await queryRunner.commitTransaction();
-        return;
-      }
+      if (messages.length === 0) return;
 
       this.logger.debug(`Processing ${messages.length} messages for schema ${tenantSchema}`);
 
-      // Fetch tank registry for this tenant from farm-service using the
-      // canonical tenant UUID from the schema-mapping ledger (the fail-closed,
-      // GUC-asserted responder key — no longer recovered from message rows,
-      // which required reading BEFORE the boundary was fully established).
-      const tankRegistry = await this.fetchTankRegistry(tenantId);
+      // The canonical tenant UUID from the schema-mapping ledger is the key of
+      // the farm registry responder; the client checks the reply names it (K10).
+      const tankRegistry = await this.tankRegistryClient.fetch(tenantId);
 
       for (const msg of messages) {
         try {
-          await this.processMessage(msg, tankRegistry, queryRunner);
+          await this.processMessage(msg, tenantId, tankRegistry, queryRunner);
         } catch (err: unknown) {
           const errMessage = err instanceof Error ? err.message : String(err);
           this.logger.warn(
@@ -286,15 +267,7 @@ export class KnowledgeExtractionService implements OnModuleInit {
           );
         }
       }
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      if (queryRunner.isTransactionActive) {
-        await queryRunner.rollbackTransaction();
-      }
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 
   /**
@@ -304,11 +277,13 @@ export class KnowledgeExtractionService implements OnModuleInit {
    * to ensure all writes go to the correct tenant.
    *
    * @param msg - The message to process
+   * @param tenantId - The ledger tenant this batch is bound to (every row written carries it)
    * @param tankRegistry - The tenant's tank registry for validation
    * @param queryRunner - QueryRunner with tenant-scoped search_path
    */
   private async processMessage(
     msg: ProcessableMessage,
+    tenantId: string,
     tankRegistry: TankRegistryEntry[],
     queryRunner: QueryRunner,
   ): Promise<void> {
@@ -329,7 +304,10 @@ export class KnowledgeExtractionService implements OnModuleInit {
       });
 
       if (!existing) {
+        // K10 layer 5: the reference is keyed to the batch's ledger tenant
+        // (tenantId is NOT NULL — a row without it never persisted).
         const ref = queryRunner.manager.create(MessageEntityReference, {
+          tenantId,
           messageId: msg.id,
           messageCreatedAt: msg.createdAt,
           entityType: DomainEntityType.TANK,
@@ -350,6 +328,7 @@ export class KnowledgeExtractionService implements OnModuleInit {
       }));
 
       const entry = queryRunner.manager.create(KnowledgeEntry, {
+        tenantId,
         sourceMessageId: msg.id,
         sourceMessageCreatedAt: msg.createdAt,
         category,
@@ -402,36 +381,5 @@ export class KnowledgeExtractionService implements OnModuleInit {
     if (hasWq) return KnowledgeCategory.WATER_QUALITY_NOTE;
 
     return null;
-  }
-
-  /**
-   * Fetch the tenant's tank registry from farm-service via NATS request-reply.
-   * Returns an empty array if farm-service is unavailable (graceful degradation).
-   *
-   * ORPHAN-MEDIUM-336: sends the canonical tenant UUID — the key the
-   * `request.farm.getTankRegistry` responder validates and feeds to its
-   * fail-closed, RLS-GUC-asserted `runInTenantRead`. (It previously sent the
-   * tenant SCHEMA name, which the responder rejects as a non-UUID and answers
-   * empty — the extraction was silently non-functional.)
-   *
-   * @param tenantId - Authoritative tenant UUID (from the tenant's own message rows)
-   */
-  private async fetchTankRegistry(tenantId: string): Promise<TankRegistryEntry[]> {
-    const response = await firstValueFrom(
-      this.natsClient
-        .send<TankRegistryEntry[]>('request.farm.getTankRegistry', {
-          tenantId,
-        })
-        .pipe(
-          timeout(NATS_TIMEOUT_MS),
-          catchError((err: unknown) => {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            this.logger.warn(`Failed to fetch tank registry for tenant ${tenantId}: ${errMsg}`);
-            return of([]);
-          }),
-        ),
-    );
-
-    return response ?? [];
   }
 }

@@ -7,7 +7,7 @@
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, type EntityManager } from 'typeorm';
 
 import { BatchLocation } from '../../../batch/entities/batch-location.entity';
 import { Batch } from '../../../batch/entities/batch.entity';
@@ -19,6 +19,9 @@ import { Species } from '../../../species/entities/species.entity';
 import { GrowthMeasurement } from '../../entities/growth-measurement.entity';
 import { ProtocolRateService } from '../../../feeding-protocol/services/protocol-rate.service';
 import { FCRCalculationService, FCRCalculationInput } from '../../services/fcr-calculation.service';
+import { FarmTenantScopes } from '../../../common/tenant-boundary/farm-tenant-scopes';
+import { dataSourceOver } from '../../../__tests__/helpers/farm-tenant-scope.helper';
+import { collaborator } from '@aquaculture/testing';
 
 describe('FCRCalculationService', () => {
   let service: FCRCalculationService;
@@ -83,11 +86,31 @@ describe('FCRCalculationService', () => {
     createQueryBuilder: jest.fn(),
     manager: { query: mockGrowthMeasurementQuery },
   };
+  const mockBatchFindOne = jest.fn();
   const mockBatchRepository = {
-    findOne: jest.fn(),
+    findOne: mockBatchFindOne,
     // Toplu yol (`getTargetFCRForBatches`) batch'leri `find` ile ön-yükler.
     find: jest.fn(),
-    manager: { query: mockManagerQuery },
+    // calculateCumulativeFCR runs readCumulativeFcr on a tenant scope backed by
+    // this manager (cumulative-fcr.reader.ts — K10 layer 4: the reader reads
+    // only through the scope it is handed). The double routes each entity to the per-entity
+    // doubles the tests already program, so the expectations below are unchanged.
+    manager: {
+      query: mockManagerQuery,
+      findOne: jest
+        .fn()
+        .mockImplementation(
+          (entity: unknown, options: unknown): Promise<unknown> =>
+            entity === Batch ? mockBatchFindOne(options) : Promise.resolve(null),
+        ),
+      createQueryBuilder: jest
+        .fn()
+        .mockImplementation((entity: unknown) =>
+          entity === TankOperation
+            ? mockTankOperationRepository.createQueryBuilder()
+            : mockFeedingRecordRepository.createQueryBuilder(),
+        ),
+    },
   };
 
   const mockSpeciesRepository = {
@@ -166,9 +189,15 @@ describe('FCRCalculationService', () => {
           provide: getRepositoryToken(FeedingProgramTank),
           useValue: mockFeedingProgramTankRepository,
         },
+        // calculateCumulativeFCR opens a tenant read scope (K10 layer 4); the
+        // scope reads through the batch-repository manager double below.
         {
-          provide: getRepositoryToken(TankOperation),
-          useValue: mockTankOperationRepository,
+          provide: FarmTenantScopes,
+          useValue: new FarmTenantScopes(
+            dataSourceOver(
+              collaborator<EntityManager>(mockBatchRepository.manager, 'EntityManager'),
+            ),
+          ),
         },
       ],
     }).compile();
@@ -190,7 +219,7 @@ describe('FCRCalculationService', () => {
   });
 
   describe('calculatePeriodFCR', () => {
-    const tenantId = 'tenant-123';
+    const tenantId = '12312312-3123-4123-8123-123123123123';
     const batchId = 'batch-456';
     const startDate = new Date('2024-01-01');
     const endDate = new Date('2024-01-31');
@@ -323,7 +352,7 @@ describe('FCRCalculationService', () => {
   });
 
   describe('calculateCumulativeFCR', () => {
-    const tenantId = 'tenant-123';
+    const tenantId = '12312312-3123-4123-8123-123123123123';
     const batchId = 'batch-456';
 
     it('should return zeros when batch not found', async () => {
@@ -438,7 +467,7 @@ describe('FCRCalculationService', () => {
   });
 
   describe('analyzeFCRTrend', () => {
-    const tenantId = 'tenant-123';
+    const tenantId = '12312312-3123-4123-8123-123123123123';
     const batchId = 'batch-456';
 
     it('should return stable trend when insufficient data', async () => {
@@ -497,7 +526,7 @@ describe('FCRCalculationService', () => {
   });
 
   describe('compareFCR', () => {
-    const tenantId = 'tenant-123';
+    const tenantId = '12312312-3123-4123-8123-123123123123';
     const batchId = 'batch-456';
 
     beforeEach(() => {
@@ -547,7 +576,7 @@ describe('FCRCalculationService', () => {
   });
 
   describe('detectFCRAnomalies', () => {
-    const tenantId = 'tenant-123';
+    const tenantId = '12312312-3123-4123-8123-123123123123';
     const batchId = 'batch-456';
 
     beforeEach(() => {
@@ -600,7 +629,7 @@ describe('FCRCalculationService', () => {
   });
 
   describe('getTargetFCR — P-14 v2 protokol zinciri (compareFCR üzerinden)', () => {
-    const tenantId = 'tenant-123';
+    const tenantId = '12312312-3123-4123-8123-123123123123';
     const batchId = 'batch-456';
 
     // makeBatch 120g ortalama üretir (1200kg / 10000 adet) — band [0, 1e6) kapsar.
@@ -758,7 +787,7 @@ describe('FCRCalculationService', () => {
   });
 
   describe('getBatchFCRSummary', () => {
-    const tenantId = 'tenant-123';
+    const tenantId = '12312312-3123-4123-8123-123123123123';
     const batchId = 'batch-456';
 
     it('should return null when batch not found', async () => {

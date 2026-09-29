@@ -2,6 +2,7 @@
  * List Feeding Protocols Query
  */
 import { FeedType } from '../entities/feed.entity';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 export interface FeedingProtocolFilter {
   stage?: FeedType;
@@ -21,7 +22,7 @@ export interface FeedingProtocolPagination {
 
 export class ListFeedingProtocolsQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly filter?: FeedingProtocolFilter,
     public readonly pagination?: FeedingProtocolPagination,
   ) {}

@@ -1,25 +1,15 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { ClientProxy } from '@nestjs/microservices';
-import { firstValueFrom, timeout } from 'rxjs';
+import { Injectable } from '@nestjs/common';
+import { TenantBoundNatsClient } from '../../tenant-boundary/tenant-bound-nats.client';
 import { BaseTool } from '../core/base-tool';
 import { Tool } from '../core/tool.decorator';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
+import { isFeedingOverview, type FeedingRecordEntry } from './farm-overview.guards';
 
 /** Bound so a hung farm-service cannot stall the agent turn. */
 const GET_FEEDING_TIMEOUT_MS = 5000;
 
 /** No input — the tenant is taken from the (server-populated) execution context. */
 type GetFeedingInput = Record<string, never>;
-
-interface FeedingRecordEntry {
-  id: string;
-  batchId: string;
-  tankId: string | null;
-  feedingDate: string;
-  feedingTime: string;
-  plannedAmountKg: number;
-  actualAmountKg: number;
-}
 
 interface GetFeedingOutput {
   feedings: FeedingRecordEntry[];
@@ -48,22 +38,22 @@ interface GetFeedingOutput {
   requiresConfirmation: false,
 })
 export class GetFarmFeedingTool extends BaseTool<GetFeedingInput, GetFeedingOutput> {
-  constructor(@Inject('NATS_SERVICE') private readonly natsClient: Pick<ClientProxy, 'send'>) {
+  constructor(private readonly farm: TenantBoundNatsClient) {
     super();
   }
 
   protected async run(
     _input: GetFeedingInput,
-    ctx: ToolExecutionContext,
+    ctx: TenantBoundToolContext,
   ): Promise<GetFeedingOutput> {
-    const feedings = await firstValueFrom(
-      this.natsClient
-        .send<FeedingRecordEntry[]>('request.farm.getFeedingOverview', {
-          tenantId: ctx.tenantId,
-        })
-        .pipe(timeout(GET_FEEDING_TIMEOUT_MS)),
-    );
-    const list = Array.isArray(feedings) ? feedings : [];
-    return { feedings: list, count: list.length };
+    // K10 (MT-HIGH-062): the client injects ctx's bound tenant and refuses a
+    // reply served for any other tenant before this code sees the rows.
+    const feedings = await this.farm.request(ctx, {
+      subject: 'request.farm.getFeedingOverview',
+      fields: {},
+      isData: isFeedingOverview,
+      timeoutMs: GET_FEEDING_TIMEOUT_MS,
+    });
+    return { feedings, count: feedings.length };
   }
 }

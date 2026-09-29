@@ -80,6 +80,7 @@ import {
   createSourceEquipmentTypesReferenceTable,
   createTenantSchemaDerived,
 } from './helpers/tenant-schema-harness';
+import { FarmTenantScopes } from '../../common/tenant-boundary/farm-tenant-scopes';
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
@@ -257,6 +258,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       dayPlanRecalc as never,
       commandBus as never,
       harvestEligibility as never,
+      new FarmTenantScopes(dataSource),
       backdatePolicy as never,
       harvestPolicy as never,
       harvestRepository,

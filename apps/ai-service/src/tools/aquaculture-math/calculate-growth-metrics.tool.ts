@@ -15,7 +15,7 @@ import {
 } from '@platform/aquaculture-engines';
 import { Tool } from '../core/tool.decorator';
 import { BaseTool } from '../core/base-tool';
-import { ToolExecutionContext } from '../core/tool.interface';
+import { TenantBoundToolContext } from '../core/tool.interface';
 import {
   ALL_TIERS,
   POSITIVE_NUMBER_SCHEMA,
@@ -175,7 +175,7 @@ function isTransferTank(value: unknown): value is TransferTank {
 export class CalculateGrowthMetricsTool extends BaseTool<GrowthMetricsInput, GrowthMetricsOutput> {
   protected async run(
     input: GrowthMetricsInput,
-    _ctx: ToolExecutionContext,
+    _ctx: TenantBoundToolContext,
   ): Promise<GrowthMetricsOutput> {
     return roundNumbersDeep(this.compute(input));
   }

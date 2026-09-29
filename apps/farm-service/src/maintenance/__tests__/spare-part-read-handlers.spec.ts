@@ -13,6 +13,7 @@ import { ListLowStockAlertsHandler } from '../handlers/list-low-stock-alerts.han
 import { ListLowStockAlertsQuery } from '../queries/list-low-stock-alerts.query';
 import { GetStockSummaryHandler } from '../handlers/get-stock-summary.handler';
 import { GetStockSummaryQuery } from '../queries/get-stock-summary.query';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -48,9 +49,7 @@ describe('Spare-part read handlers (fail-closed tenant boundary)', () => {
       { id: 'sp-2', quantity: 1, minStock: 5, reorderPoint: 8 },
     ]);
 
-    const result = await new ListLowStockAlertsHandler(mockDataSource).execute(
-      new ListLowStockAlertsQuery(tenantId),
-    );
+    const result = await inTenantScope(tenantId, (scope) => new ListLowStockAlertsHandler().execute(new ListLowStockAlertsQuery(scope)), mockDataSource);
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ currentQuantity: 1, minStock: 5, reorderPoint: 8, deficit: 7 });
@@ -62,9 +61,7 @@ describe('Spare-part read handlers (fail-closed tenant boundary)', () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.find as jest.Mock).mockResolvedValueOnce([]); // none → zeroed summary
 
-    const result = await new GetStockSummaryHandler(mockDataSource).execute(
-      new GetStockSummaryQuery(tenantId),
-    );
+    const result = await inTenantScope(tenantId, (scope) => new GetStockSummaryHandler().execute(new GetStockSummaryQuery(scope)), mockDataSource);
 
     expect(result.totalParts).toBe(0);
     expect(result.totalValue).toBe(0);

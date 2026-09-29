@@ -80,6 +80,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { CqrsModule } from '@platform/cqrs';
 import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
 import { DatabaseModule } from './database/database.module';
+import { FarmTenantBoundaryModule } from './common/tenant-boundary/farm-tenant-boundary.module';
 import { FarmMetricsModule } from './common/metrics/farm-metrics.module';
 import { FarmAppErrorFilter } from './common/errors/farm-app-error.filter';
 import { CacheableModule } from './common/cache/cacheable.module';
@@ -352,6 +353,10 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
     // Database module (audit, code generation, migration runner)
     DatabaseModule,
+
+    // K10 layer 4 (PR-T1): the tenant data boundary — FarmTenantScopes for
+    // callers that start from a tenant id, FarmAiResponder for AI responders.
+    FarmTenantBoundaryModule,
 
     // Domain Prometheus metrics — phase 5.3. Registers
     // FarmDomainMetricsService (counters + histograms) and the

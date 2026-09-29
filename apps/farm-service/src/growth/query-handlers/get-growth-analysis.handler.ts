@@ -9,35 +9,26 @@
  *
  * @module Growth/QueryHandlers
  */
-import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { GetGrowthAnalysisQuery, GrowthAnalysisResult } from '../queries/get-growth-analysis.query';
 import { GrowthMeasurement } from '../entities/growth-measurement.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
-import { FCRCalculationService } from '../services/fcr-calculation.service';
+import { readCumulativeFcr } from '../services/cumulative-fcr.reader';
 
 @Injectable()
 @QueryHandler(GetGrowthAnalysisQuery)
 export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysisQuery, GrowthAnalysisResult> {
   private readonly logger = new Logger(GetGrowthAnalysisHandler.name);
 
-  constructor(
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
-    private readonly fcrCalculation: FCRCalculationService,
-  ) {}
-
   async execute(query: GetGrowthAnalysisQuery): Promise<GrowthAnalysisResult> {
-    const { tenantId, batchId } = query;
+    const { scope, batchId } = query;
+    const tenantId = scope.tenantId;
 
-    // Read through the fail-closed tenant boundary.
-    return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+    // Every read runs on the query's tenant scope (K10 layer 4).
     // Batch'i bul
-    const batch = await queryRunner.manager.findOne(Batch, {
+    const batch = await scope.manager.findOne(Batch, {
       where: { id: batchId, tenantId },
       relations: ['species'],
     });
@@ -47,12 +38,12 @@ export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysis
     }
 
     // Species bilgilerini al
-    const species = batch.species || await queryRunner.manager.findOne(Species, {
+    const species = batch.species || await scope.manager.findOne(Species, {
       where: { id: batch.speciesId, tenantId },
     });
 
     // Tüm ölçümleri al
-    const measurements = await queryRunner.manager.find(GrowthMeasurement, {
+    const measurements = await scope.manager.find(GrowthMeasurement, {
       where: { tenantId, batchId },
       order: { measurementDate: 'ASC' },
     });
@@ -103,11 +94,13 @@ export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysis
       ? (biomassGainKg / initialBiomassKg) * 100
       : 0;
 
-    // FCR bilgileri — single authority is FcrCalculationService, which derives
+    // FCR bilgileri — single authority is readCumulativeFcr, which derives
     // realized growth from the TankOperation ledger + the live count. The old
     // `batch.fcr?.actual || batch.calculateFCR(0)` fallback used the entity's
     // naive weight-gain formula (ledger-blind), overstating FCR (FARM-HIGH-007).
-    const cumulativeFcrResult = await this.fcrCalculation.calculateCumulativeFCR(batchId, tenantId);
+    // K10 layer 4 (MT-HIGH-062 — the AI get_growth_analysis tool lands here):
+    // read on THIS query's tenant scope, never an ambient pooled connection.
+    const cumulativeFcrResult = await readCumulativeFcr(scope, batchId);
     const cumulativeFCR = cumulativeFcrResult.fcr;
     const targetFCR = batch.fcr?.target || 1.5;
     const fcrVariancePercent = ((cumulativeFCR - targetFCR) / targetFCR) * 100;
@@ -204,7 +197,6 @@ export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysis
     };
 
     return result;
-    });
   }
 
   private getDaysBetween(start: Date, end: Date): number {

@@ -3,7 +3,10 @@ import { MessagePattern, Payload } from '@nestjs/microservices';
 import { randomUUID } from 'crypto';
 
 import { ToolExecutorService } from '../tools/core/tool-executor.service';
+import { isValidUUID } from '@aquaculture/backend-common/database';
+
 import { ToolExecutionContext } from '../tools/core/tool.interface';
+import { buildServicePrincipalContext } from '../tenant-boundary/tool-context.factory';
 import {
   AnalyzeSensorDataOutput,
   DetectedField,
@@ -65,7 +68,8 @@ export class SensorChannelDetectionResponder {
     @Payload() payload: DetectSensorChannelsRequest,
   ): Promise<DetectSensorChannelsResponse> {
     if (
-      !payload.tenantId ||
+      typeof payload.tenantId !== 'string' ||
+      !isValidUUID(payload.tenantId) ||
       !payload.sensorId ||
       !Array.isArray(payload.samples) ||
       payload.samples.length === 0
@@ -76,33 +80,20 @@ export class SensorChannelDetectionResponder {
         confidence: 'low',
         error: {
           code: 'BAD_REQUEST',
-          message: 'tenantId, sensorId and at least one sample are required',
+          message: 'a UUID tenantId, a sensorId and at least one sample are required',
         },
       };
     }
 
-    // Derive the tenant schema the same way the chat responder does; the tools
-    // scope any tenant query to it.
-    const cleanId = payload.tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
-    const ctx: ToolExecutionContext = {
+    // K10 (MT-HIGH-062): the tenant binding is minted from this validated
+    // request by the one factory allowed to mint bindings. A service turn has
+    // no persona and no user RBAC — the grant list is the sole authority.
+    const ctx: ToolExecutionContext = buildServicePrincipalContext({
       tenantId: payload.tenantId,
-      schemaName: `tenant_${cleanId}`,
-      // A service identity, deliberately NOT a user UUID — the executor never
-      // consults user RBAC for it; the service grant below is the sole authority.
-      userId: `service:${SERVICE_PRINCIPAL}`,
-      userRoles: [],
+      serviceName: SERVICE_PRINCIPAL,
+      grantedToolNames: GRANTED_TOOLS,
       correlationId: payload.correlationId ?? randomUUID(),
-      persona: 'service',
-      // No persona drives a service turn; the service grant is the sole authority.
-      personaTier: null,
-      // A service turn offers no persona tools; `servicePrincipal.grantedToolNames`
-      // is the sole authority (the executor skips the offer check on a service grant).
-      offeredToolNames: [],
-      // Fail-closed: a service principal never actuates. Combined with the
-      // read-only grant, an actuation tool is refused twice over.
-      actuationPolicy: 'blocked',
-      servicePrincipal: { name: SERVICE_PRINCIPAL, grantedToolNames: GRANTED_TOOLS },
-    };
+    });
 
     try {
       const analyze = await this.toolExecutor.executeTool(

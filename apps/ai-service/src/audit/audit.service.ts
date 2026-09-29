@@ -27,6 +27,31 @@ export function servicePrincipalUuid(serviceName: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+/** The fingerprint of a tool output: what the audit row keeps instead of the payload. */
+export interface ToolOutputFingerprint {
+  readonly outputSha256: string;
+  readonly outputBytes: number;
+}
+
+/**
+ * sha256 + byte size of a tool output's JSON serialization, or undefined when
+ * the tool returned nothing.
+ *
+ * WHY not the payload (K7 / V-T1b-6): `ai.tool_execution_audit` is ONE table for
+ * every tenant. Tool outputs are tenant business data (water quality, finance,
+ * fish health); keeping them there would put that data in a cross-tenant table
+ * and outside per-tenant GDPR erasure. The fingerprint still proves which
+ * output a call produced when an incident needs it.
+ */
+export function fingerprintToolOutput(data: unknown): ToolOutputFingerprint | undefined {
+  if (data === undefined) return undefined;
+  const serialized = JSON.stringify(data) ?? 'null';
+  return {
+    outputSha256: createHash('sha256').update(serialized).digest('hex'),
+    outputBytes: Buffer.byteLength(serialized, 'utf8'),
+  };
+}
+
 @Injectable()
 export class AuditService {
   private readonly logger = new Logger(AuditService.name);
@@ -45,14 +70,16 @@ export class AuditService {
     strict = false,
   ): Promise<void> {
     try {
+      const fingerprint = result.success ? fingerprintToolOutput(result.data) : undefined;
       const audit = this.auditRepo.create({
-        tenantId: ctx.tenantId,
+        tenantId: ctx.tenant.tenantId,
         userId: isUUID(ctx.userId) ? ctx.userId : servicePrincipalUuid(ctx.userId),
         toolName,
         persona: ctx.persona,
         input,
         success: result.success,
-        output: result.success ? (result.data as Record<string, unknown>) : undefined,
+        outputSha256: fingerprint?.outputSha256,
+        outputBytes: fingerprint?.outputBytes,
         errorMessage: result.error,
         durationMs: result.durationMs,
         correlationId: ctx.correlationId,

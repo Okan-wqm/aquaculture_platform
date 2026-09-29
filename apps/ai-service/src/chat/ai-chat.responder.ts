@@ -10,6 +10,7 @@ import {
 } from '../agent/agent-runner.service';
 import { PersonaNotPermittedError } from '../agent/agent-profile.service';
 import { UnknownPersonaError } from '../agent/agent-persona-catalogue.service';
+import { TenantBoundaryViolation } from '../tenant-boundary/tenant-boundary-violation';
 
 /**
  * Unified `request.ai.chat` NATS request-reply contract — the SINGLE AI chat
@@ -110,7 +111,10 @@ export interface AiChatNatsResponse {
    * BAD_REQUEST = unknown persona / persona-conversation mismatch / missing
    * fields; FORBIDDEN = the caller may not drive the persona.
    */
-  error?: { code: 'AI_KEY_MISSING' | 'BAD_REQUEST' | 'FORBIDDEN' | 'INTERNAL'; message: string };
+  error?: {
+    code: 'AI_KEY_MISSING' | 'BAD_REQUEST' | 'FORBIDDEN' | 'TENANT_MISMATCH' | 'INTERNAL';
+    message: string;
+  };
 }
 
 @Controller()
@@ -158,9 +162,8 @@ export class AiChatResponder {
       };
     }
 
-    // Derive the tenant schema the same way the old ChatController did — the
-    // agent runner scopes every tool query to it (tenant isolation).
-    const cleanId = payload.tenantId.replace(/-/g, '').substring(0, 16).toLowerCase();
+    // K10 (MT-HIGH-062): no schema is derived here — the runner's tool-context
+    // factory binds the tenant (and derives its schema) from this validated id.
     const chatRequest: ChatRequest = {
       message,
       conversationId: payload.conversationId,
@@ -170,7 +173,6 @@ export class AiChatResponder {
       userId: payload.userId,
       userRoles: payload.userRoles ?? [],
       resourcePermissions: payload.resourcePermissions ?? [],
-      schemaName: `tenant_${cleanId}`,
       correlationId: payload.correlationId ?? randomUUID(),
       // FARM-AI Sprint 1.2: service-path fields — identity for the grant map,
       // conversation-less runs, and the namespaced rate counter. All three
@@ -234,7 +236,16 @@ export class AiChatResponder {
       const isBadRequest =
         error instanceof UnknownPersonaError || error instanceof PersonaConversationMismatchError;
       const isForbidden = error instanceof PersonaNotPermittedError;
-      if (isKeyMissing) {
+      // K10 (MT-HIGH-062): a tool reply served for another tenant stopped the
+      // run. The violation was already reported (security event); the reply to
+      // the caller names the outcome only — no tenant id, no data.
+      const tenantViolation = error instanceof TenantBoundaryViolation ? error : null;
+      const isTenantMismatch = tenantViolation !== null;
+      if (tenantViolation) {
+        this.logger.error(
+          `request.ai.chat stopped for ${payload.tenantId}: tenant-boundary violation (${tenantViolation.reason})`,
+        );
+      } else if (isKeyMissing) {
         this.logger.warn(`request.ai.chat blocked: tenant ${payload.tenantId} has no valid AI key`);
       } else if (isBadRequest || isForbidden) {
         this.logger.warn(
@@ -247,18 +258,22 @@ export class AiChatResponder {
           }`,
         );
       }
-      const code: NonNullable<AiChatNatsResponse['error']>['code'] = isKeyMissing
-        ? 'AI_KEY_MISSING'
-        : isBadRequest
-          ? 'BAD_REQUEST'
-          : isForbidden
-            ? 'FORBIDDEN'
-            : 'INTERNAL';
-      const userFacing = isKeyMissing
-        ? 'No AI API key is configured. Ask a tenant admin to add one in AI settings.'
-        : isBadRequest || isForbidden
-          ? (error as Error).message
-          : 'The AI is temporarily unavailable. Please try again later.';
+      const code: NonNullable<AiChatNatsResponse['error']>['code'] = isTenantMismatch
+        ? 'TENANT_MISMATCH'
+        : isKeyMissing
+          ? 'AI_KEY_MISSING'
+          : isBadRequest
+            ? 'BAD_REQUEST'
+            : isForbidden
+              ? 'FORBIDDEN'
+              : 'INTERNAL';
+      const userFacing = isTenantMismatch
+        ? 'The AI stopped this request because a data source answered for the wrong account. The incident was recorded.'
+        : isKeyMissing
+          ? 'No AI API key is configured. Ask a tenant admin to add one in AI settings.'
+          : isBadRequest || isForbidden
+            ? (error as Error).message
+            : 'The AI is temporarily unavailable. Please try again later.';
       return {
         // Non-empty so the messaging bridge posts a meaningful AI reply; `error`
         // lets the socket.io assistant route the user to AI settings.

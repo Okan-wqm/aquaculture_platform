@@ -25,8 +25,8 @@
  * docs/illustrator/farm-modulu-kor-noktalar-dogrulama.md (Girdi 14h).
  */
 import { Injectable, Logger } from '@nestjs/common';
-import { DataSource, In, MoreThan } from 'typeorm';
-import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { In, MoreThan } from 'typeorm';
+import { tenantManagerRepo, type TenantScope } from '@aquaculture/backend-common/database';
 
 import {
   HealthEvent,
@@ -60,8 +60,11 @@ export class BatchHarvestEligibilityService {
   // WHY: harvest-eligibility reads tenant health_events; a raw injected repository
   // resolves the table via the pooled connection's ambient search_path and can read
   // another tenant's events (a wrong, safety-relevant harvest decision). WHAT: read
-  // through the fail-closed runInTenantRead boundary (search_path + RLS pinned).
-  constructor(private readonly dataSource: DataSource) {}
+  // on the caller's TenantScope, whose connection the boundary pinned and asserted
+  // (search_path + RLS). The AI checkBatchHarvestEligibility subject hands in the
+  // responder skeleton's scope, after the skeleton resolved the batch in the tenant
+  // (an unknown batch is NOT_FOUND, never "eligible"); the GraphQL and command
+  // callers open a scope through FarmTenantScopes.
 
   /**
    * Check whether the given batch can be harvested on (or after) the
@@ -77,29 +80,28 @@ export class BatchHarvestEligibilityService {
    *     has not yet elapsed are blocking
    */
   async checkEligibility(
-    tenantId: string,
+    scope: TenantScope,
     batchId: string,
     harvestDate: Date,
   ): Promise<HarvestEligibilityResult> {
-    const events = await runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) =>
-      // tenantId auto-injected by the tenant-scoped repo
-      tenantManagerRepo(queryRunner.manager, HealthEvent, tenantId).find({
-        where: {
-          batchId,
-          status: In([HealthEventStatus.ACTIVE, HealthEventStatus.MONITORING]),
-          earliestHarvestDate: MoreThan(harvestDate),
-        },
-        order: { earliestHarvestDate: 'DESC' },
-        select: [
-          'id',
-          'title',
-          'diseaseName',
-          'earliestHarvestDate',
-          'withdrawalPeriodDays',
-          'status',
-        ],
-      }),
-    );
+    const { tenantId } = scope;
+    // tenantId auto-injected by the tenant-scoped repo
+    const events = await tenantManagerRepo(scope.manager, HealthEvent, tenantId).find({
+      where: {
+        batchId,
+        status: In([HealthEventStatus.ACTIVE, HealthEventStatus.MONITORING]),
+        earliestHarvestDate: MoreThan(harvestDate),
+      },
+      order: { earliestHarvestDate: 'DESC' },
+      select: [
+        'id',
+        'title',
+        'diseaseName',
+        'earliestHarvestDate',
+        'withdrawalPeriodDays',
+        'status',
+      ],
+    });
 
     const blockingEvents: BlockingHealthEvent[] = events.map((e) => ({
       id: e.id,

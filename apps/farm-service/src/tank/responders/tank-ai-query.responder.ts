@@ -1,14 +1,14 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { QueryBus } from '@platform/cqrs';
 import {
   FARM_AI_QUERY_SUBJECTS,
   isTankCapacityRequest,
-  type AiQueryReply,
+  type TenantBoundReply,
   type TankCapacityReply,
 } from '@platform/event-contracts';
-import { respondAiQuery } from '../../common/nats/ai-query-responder';
 import { GetTankCapacityQuery, type TankCapacityResult } from '../queries/get-tank-capacity.query';
+import { FarmAiResponder } from '../../common/tenant-boundary/farm-ai-responder';
 
 export function projectCapacity(result: TankCapacityResult): TankCapacityReply {
   return {
@@ -39,23 +39,25 @@ export function projectCapacity(result: TankCapacityResult): TankCapacityReply {
 /** Tank capacity for the production and operations specialists (FARM-MEDIUM-328). */
 @Controller()
 export class TankAiQueryResponder {
-  private readonly logger = new Logger(TankAiQueryResponder.name);
-
-  constructor(private readonly queryBus: QueryBus) {}
+  constructor(
+    private readonly responder: FarmAiResponder,
+    private readonly queryBus: QueryBus,
+  ) {}
 
   @MessagePattern(FARM_AI_QUERY_SUBJECTS.TANK_CAPACITY)
-  getCapacity(@Payload() payload: unknown): Promise<AiQueryReply<TankCapacityReply>> {
-    return respondAiQuery(
-      this.logger,
-      FARM_AI_QUERY_SUBJECTS.TANK_CAPACITY,
-      payload,
-      isTankCapacityRequest,
-      async (req) => {
-        const result = await this.queryBus.execute<GetTankCapacityQuery, TankCapacityResult>(
-          new GetTankCapacityQuery(req.tenantId, req.tankId),
-        );
-        return projectCapacity(result);
+  getCapacity(@Payload() payload: unknown): Promise<TenantBoundReply<TankCapacityReply>> {
+    return this.responder.respond(
+      {
+        subject: FARM_AI_QUERY_SUBJECTS.TANK_CAPACITY,
+        isRequest: isTankCapacityRequest,
+        handle: async (req, scope) => {
+          const result = await this.queryBus.execute<GetTankCapacityQuery, TankCapacityResult>(
+            new GetTankCapacityQuery(scope, req.tankId),
+          );
+          return projectCapacity(result);
+        },
       },
+      payload,
     );
   }
 }

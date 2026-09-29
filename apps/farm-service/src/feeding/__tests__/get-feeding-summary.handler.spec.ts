@@ -4,6 +4,7 @@ import { createMockDataSource } from '@aquaculture/testing';
 
 import { GetFeedingSummaryQuery } from '../queries/get-feeding-summary.query';
 import { GetFeedingSummaryHandler } from '../query-handlers/get-feeding-summary.handler';
+import { inTenantScope } from '../../__tests__/helpers/farm-tenant-scope.helper';
 
 describe('GetFeedingSummaryHandler', () => {
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -35,8 +36,12 @@ describe('GetFeedingSummaryHandler', () => {
       .mockReturnValue(qb) as typeof mockManager.createQueryBuilder;
     (mockManager.find as jest.Mock).mockResolvedValueOnce([{ id: 'feed-1', name: 'Starter' }]);
 
-    const handler = new GetFeedingSummaryHandler(mockDataSource);
-    const result = await handler.execute(new GetFeedingSummaryQuery(tenantId, 'batch', batchId));
+    const handler = new GetFeedingSummaryHandler();
+    const result = await inTenantScope(
+      tenantId,
+      (scope) => handler.execute(new GetFeedingSummaryQuery(scope, 'batch', batchId)),
+      mockDataSource,
+    );
 
     expect(result.entityName).toBe('B-001');
     expect(result.totalFeedingsCount).toBe(1);
@@ -50,10 +55,14 @@ describe('GetFeedingSummaryHandler', () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.findOne as jest.Mock).mockResolvedValueOnce(null);
 
-    const handler = new GetFeedingSummaryHandler(mockDataSource);
+    const handler = new GetFeedingSummaryHandler();
 
     await expect(
-      handler.execute(new GetFeedingSummaryQuery(tenantId, 'batch', batchId)),
+      inTenantScope(
+        tenantId,
+        (scope) => handler.execute(new GetFeedingSummaryQuery(scope, 'batch', batchId)),
+        mockDataSource,
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

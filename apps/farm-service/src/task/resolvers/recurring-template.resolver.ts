@@ -36,11 +36,11 @@ import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-co
 import { RecurringTemplate, RecurrenceFrequency } from '../entities/recurring-template.entity';
 import { TaskCategory, TaskChecklistItem, TaskPriority } from '../entities/task.entity';
 import { TaskChecklistItemInput } from '../dto/create-task.dto';
-import { TaskService } from '../services/task.service';
 import { QueryBus } from '@platform/cqrs';
 import { RecurringTaskService } from '../services/recurring-task.service';
 import { ListRecurringTemplatesQuery } from '../queries/list-recurring-templates.query';
 import { GetRecurringTemplateQuery } from '../queries/get-recurring-template.query';
+import { normaliseChecklistItems } from '../services/task-checklist';
 
 // ============================================================================
 // USER CONTEXT
@@ -219,7 +219,7 @@ export class RecurringTemplateResolver {
   /** Same canonical read path as TaskResolver.checklistItems (FARM-HIGH-320). */
   @ResolveField(() => [TaskChecklistItem], { name: 'checklistItems' })
   checklistItems(@Parent() template: RecurringTemplate): TaskChecklistItem[] {
-    return TaskService.normaliseChecklistItems(template.checklistItems);
+    return normaliseChecklistItems(template.checklistItems);
   }
 
   // -------------------------------------------------------------------------

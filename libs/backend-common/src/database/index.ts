@@ -38,6 +38,7 @@ export * from './query-result-normalizer';
 export * from './tenant-scoped-repository';
 export * from './tenant-scoped-repository.module';
 export * from './tenant-transaction';
+export * from './tenant-scope';
 export * from './tenant-context-error';
 
 // Transformers

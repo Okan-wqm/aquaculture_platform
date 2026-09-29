@@ -1,11 +1,11 @@
 /**
  * Get Work Order Statistics Query
  */
-import { IQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
-export class GetWorkOrderStatisticsQuery implements IQuery {
+export class GetWorkOrderStatisticsQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly dateFrom?: Date,
     public readonly dateTo?: Date,
   ) {}

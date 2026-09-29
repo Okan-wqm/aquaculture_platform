@@ -1,13 +1,14 @@
 import 'reflect-metadata';
 import { of } from 'rxjs';
 import { FARM_AI_QUERY_SUBJECTS } from '@platform/event-contracts';
-import type { ToolExecutionContext } from '../../../core/tool.interface';
+import {
+  humanToolContext,
+  tenantBoundClient,
+} from '../../../../tenant-boundary/__tests__/fixtures/tenant-bound.fixture';
 import { ListWelfareAssessmentsTool } from '../list-welfare-assessments.tool';
 
 const TANK = '22222222-2222-4222-8222-222222222222';
-const CTX: ToolExecutionContext = {
-  tenantId: '11111111-1111-4111-8111-111111111111',
-  schemaName: 'tenant_1111111111111111',
+const CTX = humanToolContext({
   userId: 'u-1',
   userRoles: ['MODULE_USER'],
   correlationId: 'corr-1',
@@ -15,15 +16,19 @@ const CTX: ToolExecutionContext = {
   personaTier: 'operator',
   offeredToolNames: [],
   actuationPolicy: 'confirm_required',
-};
+});
 
 describe('ListWelfareAssessmentsTool', () => {
   let send: jest.Mock;
   let tool: ListWelfareAssessmentsTool;
 
   beforeEach(() => {
-    send = jest.fn().mockReturnValue(of({ ok: true, data: { items: [], truncated: false } }));
-    tool = new ListWelfareAssessmentsTool({ send });
+    send = jest
+      .fn()
+      .mockReturnValue(
+        of({ ok: true, tenantId: CTX.tenant.tenantId, data: { items: [], truncated: false } }),
+      );
+    tool = new ListWelfareAssessmentsTool(tenantBoundClient({ send }));
   });
 
   it('is a module-scoped farm read tool', () => {
@@ -40,7 +45,7 @@ describe('ListWelfareAssessmentsTool', () => {
     expect(result.success).toBe(true);
     expect(send).toHaveBeenCalledWith(FARM_AI_QUERY_SUBJECTS.FH_WELFARE, {
       ...{ limit: 20 },
-      tenantId: CTX.tenantId,
+      tenantId: CTX.tenant.tenantId,
     });
   });
 
@@ -49,7 +54,7 @@ describe('ListWelfareAssessmentsTool', () => {
 
     expect(send).toHaveBeenCalledWith(FARM_AI_QUERY_SUBJECTS.FH_WELFARE, {
       ...{ tankId: TANK, limit: 8 },
-      tenantId: CTX.tenantId,
+      tenantId: CTX.tenant.tenantId,
     });
   });
 });

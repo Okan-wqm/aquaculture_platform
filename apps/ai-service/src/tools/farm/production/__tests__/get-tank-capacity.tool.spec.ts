@@ -1,13 +1,14 @@
 import 'reflect-metadata';
 import { of } from 'rxjs';
 import { FARM_AI_QUERY_SUBJECTS } from '@platform/event-contracts';
-import type { ToolExecutionContext } from '../../../core/tool.interface';
+import {
+  humanToolContext,
+  tenantBoundClient,
+} from '../../../../tenant-boundary/__tests__/fixtures/tenant-bound.fixture';
 import { GetTankCapacityTool } from '../get-tank-capacity.tool';
 
 const TANK = '22222222-2222-4222-8222-222222222222';
-const CTX: ToolExecutionContext = {
-  tenantId: '11111111-1111-4111-8111-111111111111',
-  schemaName: 'tenant_1111111111111111',
+const CTX = humanToolContext({
   userId: 'u-1',
   userRoles: ['MODULE_USER'],
   correlationId: 'corr-1',
@@ -15,7 +16,7 @@ const CTX: ToolExecutionContext = {
   personaTier: 'manager',
   offeredToolNames: [],
   actuationPolicy: 'confirm_required',
-};
+});
 
 describe('GetTankCapacityTool', () => {
   let send: jest.Mock;
@@ -25,6 +26,7 @@ describe('GetTankCapacityTool', () => {
     send = jest.fn().mockReturnValue(
       of({
         ok: true,
+        tenantId: CTX.tenant.tenantId,
         data: {
           tankId: TANK,
           volumeM3: 100,
@@ -35,7 +37,7 @@ describe('GetTankCapacityTool', () => {
         },
       }),
     );
-    tool = new GetTankCapacityTool({ send });
+    tool = new GetTankCapacityTool(tenantBoundClient({ send }));
   });
 
   it('is a module-scoped farm read tool', () => {
@@ -52,7 +54,7 @@ describe('GetTankCapacityTool', () => {
     expect(result.success).toBe(true);
     expect(send).toHaveBeenCalledWith(FARM_AI_QUERY_SUBJECTS.TANK_CAPACITY, {
       ...{ tankId: TANK },
-      tenantId: CTX.tenantId,
+      tenantId: CTX.tenant.tenantId,
     });
   });
 
@@ -61,7 +63,7 @@ describe('GetTankCapacityTool', () => {
 
     expect(send).toHaveBeenCalledWith(FARM_AI_QUERY_SUBJECTS.TANK_CAPACITY, {
       ...{ tankId: TANK },
-      tenantId: CTX.tenantId,
+      tenantId: CTX.tenant.tenantId,
     });
   });
 });

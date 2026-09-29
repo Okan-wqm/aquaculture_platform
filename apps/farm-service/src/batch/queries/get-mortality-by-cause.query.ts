@@ -5,7 +5,7 @@
  * mortality splits) — the GROUP BY that the indexed
  * mortality_records (tenantId, cause) column was built for.
  */
-import { IQuery } from '@platform/cqrs';
+import type { TenantScope } from '@aquaculture/backend-common/database';
 
 export interface MortalityCauseBreakdown {
   cause: string;
@@ -30,9 +30,9 @@ export interface MortalityByCauseResult {
   recordCount: number;
 }
 
-export class GetMortalityByCauseQuery implements IQuery {
+export class GetMortalityByCauseQuery {
   constructor(
-    public readonly tenantId: string,
+    public readonly scope: TenantScope,
     public readonly siteId: string,
     /** Inclusive ISO date (yyyy-mm-dd). */
     public readonly fromDate: string,

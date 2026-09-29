@@ -590,7 +590,7 @@ rollback_deployed_services() {
     return 0
   fi
 
-  local image_id override="${DEPLOY_STATE_DIR}/rollback-compose.json" temporary
+  local image_id override="${DEPLOY_STATE_DIR}/rollback-compose.json" staging_file
   printf '{"services":{}}\n' > "${override}"
   for svc in "${scope_services[@]}"; do
     image_id="$(awk -F "$(printf '\t')" -v svc="${svc}" '$1 == svc {print $2; exit}' "${ROLLBACK_MANIFEST}")"
@@ -598,10 +598,10 @@ rollback_deployed_services() {
       export ROLLBACK_SKIPPED_REASON=incomplete_runtime_snapshot
       return 1
     }
-    temporary=$(mktemp "${DEPLOY_STATE_DIR}/.rollback-compose.XXXXXXXX") || return
+    staging_file=$(mktemp "${DEPLOY_STATE_DIR}/.rollback-compose.XXXXXXXX") || return
     jq --arg service "${svc}" --arg image "${image_id}" \
-      '.services[$service] = {image:$image}' "${override}" > "${temporary}" || return
-    mv "${temporary}" "${override}"
+      '.services[$service] = {image:$image}' "${override}" > "${staging_file}" || return
+    mv "${staging_file}" "${override}"
   done
   TAG="${rollback_generation%%/*}" DEPLOY_CERTS_DIR="${rollback_config}/certs" \
     docker compose --project-name aqua-saas --project-directory "${rollback_source}" \

@@ -19,6 +19,7 @@ import {
   type SuspendTenantLifecycleCommand,
 } from '@platform/event-contracts';
 import { collaborator, stub } from '@aquaculture/testing';
+import type { IUserTokenRevocation } from '@aquaculture/backend-common/security';
 
 import { AuditLog } from '../../../../audit/audit-log.entity';
 import { DurableUserTokenInvalidationService } from '../../../authentication/services/durable-user-token-invalidation.service';
@@ -79,7 +80,10 @@ function createService(manager: MockManager): {
     {} as never, // invitationRepository — unused on the lifecycle path
     dataSource as never,
     outbox as never,
-    { revokeUserTokens: jest.fn(), isTokenValid: jest.fn() } as never,
+    collaborator<IUserTokenRevocation>(
+      { revokeUserTokens: jest.fn(), isTokenValid: jest.fn() },
+      'IUserTokenRevocation',
+    ),
     collaborator<DurableUserTokenInvalidationService>(
       revocation,
       'DurableUserTokenInvalidationService',

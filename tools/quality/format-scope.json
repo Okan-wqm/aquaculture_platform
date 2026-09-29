@@ -40104,6 +40104,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/nats/__tests__/nats-connection.factory.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/nats/__tests__/nats-production-acl.integration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/nats/__tests__/nats-response-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/nats/__tests__/nats-v3-client.proxy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/nats/__tests__/nats-v3-wire-compat.spec.ts",
       "prettier_managed": true
     },
@@ -40117,6 +40141,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/nats/nats-connection.factory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/nats/nats-response-policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/nats/nats-response-policy.ts",
       "prettier_managed": true
     },
     {
@@ -43088,6 +43124,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/__tests__/jetstream-storage-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/event-bus/src/nats/__tests__/nats-event-bus.dlq.spec.ts",
       "prettier_managed": true
     },
@@ -43143,6 +43185,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/event-bus/src/nats/event-route-registry.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/jetstream-storage-policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/src/nats/jetstream-storage-policy.ts",
       "prettier_managed": true
     },
     {
@@ -43569,6 +43623,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/ci/hosted-validation.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/jest.nats-acl.config.cjs",
       "prettier_managed": true
     },
     {
@@ -45879,6 +45939,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/nats-config-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/nats-storage-policy.spec.ts",
       "prettier_managed": true
     },
     {

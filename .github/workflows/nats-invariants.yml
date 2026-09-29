@@ -42,7 +42,9 @@ on:
       - 'scripts/nats/**'
       - 'apps/**'
       - 'libs/event-contracts/**'
+      - 'libs/backend-common/src/nats/**'
       - 'platform/libs/event-bus/**'
+      - 'infrastructure/monitoring/droplet/rules/35-broker-jetstream.yml'
       - 'e2e/tests/integration/nats-invariants.spec.ts'
       - 'e2e/tests/integration/nats-subject-contract.spec.ts'
       - '.github/workflows/nats-invariants.yml'
@@ -60,6 +62,12 @@ on:
       - 'scripts/nats/**'
       - 'apps/**'
       - 'libs/event-contracts/**'
+      - 'libs/backend-common/src/nats/**'
+      - 'platform/libs/event-bus/**'
+      - 'infrastructure/monitoring/droplet/rules/35-broker-jetstream.yml'
+      - 'e2e/tests/integration/nats-invariants.spec.ts'
+      - 'e2e/tests/integration/nats-subject-contract.spec.ts'
+      - '.github/workflows/nats-invariants.yml'
 
 permissions:
   contents: read
@@ -86,6 +94,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --ignore-scripts --no-fund
+
+      - name: Install the generator's pinned Python dependency on hosted runner
+        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.2
 
       # Read-only. The generator's --check mode names the stale artifact and
       # exits 3; it does not write, so the specs below run against the commit

@@ -140,12 +140,12 @@ materialize_deploy_checkout() {
 
 promote_deploy_configuration() {
   local key="${DEPLOY_SHA}/${DEPLOY_ATTEMPT}"
-  local temporary
-  temporary=$(mktemp "${DEPLOY_CONFIG_ROOT}/.current.XXXXXXXX") || return
-  printf '%s\n' "${key}" > "${temporary}"
-  chmod 0400 "${temporary}"
-  sync -f "${temporary}"
-  mv -- "${temporary}" "${DEPLOY_CONFIG_ROOT}/current"
+  local staging_path
+  staging_path=$(mktemp "${DEPLOY_CONFIG_ROOT}/.current.XXXXXXXX") || return
+  printf '%s\n' "${key}" > "${staging_path}"
+  chmod 0400 "${staging_path}"
+  sync -f "${staging_path}"
+  mv -- "${staging_path}" "${DEPLOY_CONFIG_ROOT}/current"
   sync -f "${DEPLOY_CONFIG_ROOT}"
 }
 

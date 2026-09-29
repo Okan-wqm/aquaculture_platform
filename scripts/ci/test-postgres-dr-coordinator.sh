@@ -456,8 +456,8 @@ record = {
 }
 output = Path(repository) / 'artifacts/postgres-recovery'
 output.mkdir(parents=True, exist_ok=True)
-temporary = output / '.coordinator-results.json'
-temporary.write_text(json.dumps(record, indent=2) + '\n')
-temporary.chmod(0o644)
-temporary.replace(output / 'coordinator-results.json')
+results_staging = output / '.coordinator-results.json'
+results_staging.write_text(json.dumps(record, indent=2) + '\n')
+results_staging.chmod(0o644)
+results_staging.replace(output / 'coordinator-results.json')
 PY

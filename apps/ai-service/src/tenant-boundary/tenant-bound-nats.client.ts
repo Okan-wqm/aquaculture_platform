@@ -49,9 +49,10 @@ export interface TenantBoundCall<TFields extends TenantFreeFields, TData> {
  *      the tool cannot (type + runtime key check);
  *   3. the reply names the tenant it served (tenant-bound envelope) and that
  *      tenant equals the binding's, checked by `verifyTenantBoundReply`
- *      BEFORE the data is looked at. A mismatch is reported (security event +
- *      PII-free log) and thrown as TenantBoundaryViolation, which ends the
- *      run: the data never reaches the model, the tool result, or toolCalls.
+ *      BEFORE the data is looked at. A mismatch — or a reply that names no
+ *      tenant at all — is reported (security event + PII-free log) and thrown
+ *      as TenantBoundaryViolation, which ends the run: the data never reaches
+ *      the model, the tool result, or toolCalls.
  *
  * Same-tenant failures (INVALID_REQUEST / NOT_FOUND / INTERNAL_ERROR, bad
  * shapes) are ordinary errors: BaseTool turns them into a tool error the model
@@ -59,10 +60,20 @@ export interface TenantBoundCall<TFields extends TenantFreeFields, TData> {
  */
 @Injectable()
 export class TenantBoundNatsClient {
+  /**
+   * The raw transport, held in an ES private field (V-T1a-3): a TypeScript
+   * `private` is erased at runtime, so `client['transport'].send(...)` would
+   * reach it and skip the tenant check. `#transport` is not reachable from
+   * outside this class by any property access.
+   */
+  readonly #transport: Pick<ClientProxy, 'send'>;
+
   constructor(
-    @Inject(AI_TENANT_BOUND_TRANSPORT) private readonly transport: Pick<ClientProxy, 'send'>,
+    @Inject(AI_TENANT_BOUND_TRANSPORT) transport: Pick<ClientProxy, 'send'>,
     private readonly violations: TenantBoundaryViolationReporter,
-  ) {}
+  ) {
+    this.#transport = transport;
+  }
 
   async request<TFields extends TenantFreeFields, TData>(
     ctx: TenantBoundToolContext,
@@ -79,7 +90,7 @@ export class TenantBoundNatsClient {
     }
 
     const reply: unknown = await firstValueFrom(
-      this.transport
+      this.#transport
         .send<unknown>(call.subject, { ...call.fields, tenantId })
         .pipe(timeout(call.timeoutMs)),
     );
@@ -95,12 +106,17 @@ export class TenantBoundNatsClient {
       }
       case 'error':
         throw new Error(FAILURE_TEXT[verdict.error]);
-      case 'malformed':
-        throw new Error(
-          verdict.reason === 'envelope'
-            ? `${call.subject} returned an unrecognised reply`
-            : `${call.subject} reply failed the contract guard`,
-        );
+      case 'malformed': {
+        if (verdict.reason === 'contract') {
+          // The reply named OUR tenant; only its data shape is wrong — an ordinary tool error.
+          throw new Error(`${call.subject} reply failed the contract guard`);
+        }
+        // A reply that names no tenant cannot prove whose rows it carries: it is a
+        // boundary violation, not a flaky reply — recorded and the run stopped.
+        const violation = new TenantBoundaryViolation(call.subject, 'reply_without_tenant');
+        await this.report(violation, tenantId, null, ctx.correlationId);
+        throw violation;
+      }
     }
   }
 

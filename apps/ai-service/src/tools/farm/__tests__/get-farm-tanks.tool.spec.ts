@@ -70,10 +70,12 @@ describe('GetFarmTanksTool', () => {
 
   it('refuses a pre-K10 bare-array reply instead of handing it to the model', async () => {
     // SCENARIO: a farm-service that predates the tenant-bound envelope answers with a bare list.
-    // EXPECTS: a tool error — the rows carry no proof of which tenant they belong to.
+    // EXPECTS: the run stops with a boundary violation — the rows carry no proof of which
+    //          tenant they belong to, so they never reach the model (not even as a tool error).
     send.mockReturnValue(of([{ id: 't1', code: 'TNK-001', name: 'Havuz 1', status: 'ACTIVE' }]));
-    const result = await tool.execute({}, CTX);
-    expect(result.success).toBe(false);
-    expect(result.error).toMatch(/unrecognised reply/);
+    await expect(tool.execute({}, CTX)).rejects.toMatchObject({
+      code: 'tenant_mismatch',
+      reason: 'reply_without_tenant',
+    });
   });
 });

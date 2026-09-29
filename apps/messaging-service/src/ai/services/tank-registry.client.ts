@@ -17,7 +17,7 @@
  */
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { SecurityEventService } from '@aquaculture/backend-common/security';
+import { SecurityEventService, tenantFingerprint } from '@aquaculture/backend-common/security';
 import { verifyTenantBoundReply } from '@platform/event-contracts';
 import { catchError, firstValueFrom, of, timeout } from 'rxjs';
 
@@ -108,6 +108,14 @@ export class TankRegistryClient {
           tenantId,
           reason: verdict.reason,
         });
+        if (verdict.reason === 'envelope') {
+          // A reply that names no tenant cannot prove whose tanks it lists — recorded like a mismatch.
+          await this.securityEvents.publishTenantAccessDenied({
+            tenantId,
+            requestedTenantId: 'none',
+            reason: `knowledge_extraction_reply_without_tenant:${TANK_REGISTRY_SUBJECT}`,
+          });
+        }
         return [];
     }
   }
@@ -123,7 +131,8 @@ export class TankRegistryClient {
     });
     await this.securityEvents.publishTenantAccessDenied({
       tenantId,
-      requestedTenantId: servedTenantId ?? 'none',
+      // The event is this tenant's; the other tenant appears only as a fingerprint (V-T1a-10).
+      requestedTenantId: servedTenantId === null ? 'none' : tenantFingerprint(servedTenantId),
       reason: `knowledge_extraction_reply_tenant_mismatch:${TANK_REGISTRY_SUBJECT}`,
     });
   }

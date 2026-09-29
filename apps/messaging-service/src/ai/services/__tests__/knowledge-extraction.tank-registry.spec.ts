@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 import { of } from 'rxjs';
-import { SecurityEventService } from '@aquaculture/backend-common/security';
+import { SecurityEventService, tenantFingerprint } from '@aquaculture/backend-common/security';
 
 import { AiPrivacyService } from '../ai-privacy.service';
 import { KnowledgeEntry } from '../../entities/knowledge-entry.entity';
@@ -209,23 +209,30 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
     // K10 layer 3: the same security event ai-service writes — ids only, never the rows.
     expect(publishTenantAccessDenied).toHaveBeenCalledWith({
       tenantId: TENANT_ID,
-      requestedTenantId: OTHER_TENANT_ID,
+      // V-T1a-10: the other tenant appears in this tenant's event only as a fingerprint.
+      requestedTenantId: tenantFingerprint(OTHER_TENANT_ID),
       reason: 'knowledge_extraction_reply_tenant_mismatch:request.farm.getTankRegistry',
     });
+    expect(JSON.stringify(publishTenantAccessDenied.mock.calls)).not.toContain(OTHER_TENANT_ID);
     expect(JSON.stringify(publishTenantAccessDenied.mock.calls)).not.toContain('foreign-tank');
     errorSpy.mockRestore();
   });
 
   it('treats a pre-K10 bare-array reply as no registry', async () => {
     // SCENARIO: an old farm-service answers with a bare array.
-    // EXPECTS: the envelope check fails and no tank reference is written.
+    // EXPECTS: the envelope check fails, no tank reference is written, and the
+    //          tenant-less reply is recorded as a security event.
     messageContent = 'Tank A1 feeding done';
     send.mockReturnValue(of([{ id: 'tank-a1', code: 'A1', name: 'Tank A1' }]));
 
     await service.processHourlyBatch();
 
     expect(lastQueryRunner?.manager.create).not.toHaveBeenCalled();
-    expect(publishTenantAccessDenied).not.toHaveBeenCalled();
+    expect(publishTenantAccessDenied).toHaveBeenCalledWith({
+      tenantId: TENANT_ID,
+      requestedTenantId: 'none',
+      reason: 'knowledge_extraction_reply_without_tenant:request.farm.getTankRegistry',
+    });
   });
 });
 

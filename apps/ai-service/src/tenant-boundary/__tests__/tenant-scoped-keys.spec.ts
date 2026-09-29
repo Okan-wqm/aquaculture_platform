@@ -16,11 +16,17 @@ describe('tenant-scoped key detection', () => {
     'schemaName',
     'search_path',
     'searchPath',
+    // V-T1a-9: substring match — every spelling of a tenant selector is refused.
+    'tenantUuid',
+    'x-tenant-id',
+    'targetTenantId',
+    'ownerTenant',
+    'targetSchema',
   ])('flags %s', (name) => {
     expect(isTenantScopedKey(name)).toBe(true);
   });
 
-  it.each(['tankId', 'siteId', 'batchId', 'systemId', 'limit', 'contentSchemaVersion'])(
+  it.each(['tankId', 'siteId', 'batchId', 'systemId', 'limit', 'harvestDate'])(
     'does not flag %s',
     (name) => {
       expect(isTenantScopedKey(name)).toBe(false);
@@ -50,5 +56,55 @@ describe('tenant-scoped key detection', () => {
         },
       }).sort(),
     ).toEqual(['pick.<anyOf[0]>.Schema', 'rows.<items>.search_path', 'tenantId'].sort());
+  });
+
+  it.each([
+    [
+      '$defs (a local $ref target)',
+      {
+        type: 'object',
+        properties: { filter: { $ref: '#/$defs/Filter' } },
+        $defs: { Filter: { type: 'object', properties: { tenantUuid: {} } } },
+      },
+      '<$defs.Filter>.tenantUuid',
+    ],
+    [
+      'definitions',
+      { definitions: { F: { properties: { 'x-tenant-id': {} } } } },
+      '<definitions.F>.x-tenant-id',
+    ],
+    [
+      'if / then / else',
+      { if: { properties: { a: {} } }, then: { properties: { targetTenantId: {} } } },
+      '<then>.targetTenantId',
+    ],
+    [
+      'dependentSchemas',
+      { dependentSchemas: { a: { properties: { tenant: {} } } } },
+      '<dependentSchemas.a>.tenant',
+    ],
+    [
+      'propertyNames enum',
+      { propertyNames: { enum: ['tankId', 'tenantId'] } },
+      '<propertyNames:tenantId>',
+    ],
+    ['propertyNames pattern', { propertyNames: { pattern: '^.*$' } }, '<propertyNames:^.*$>'],
+    ['patternProperties', { patternProperties: { '^t.*': {} } }, '<patternProperties:^t.*>'],
+    [
+      'a non-local $ref',
+      { properties: { x: { $ref: 'https://example.com/s.json' } } },
+      'x.<unverifiable $ref https://example.com/s.json>',
+    ],
+  ])('walks %s', (_keyword, schema, expected) => {
+    // SCENARIO (V-T1a-9): a tenant parameter hidden behind a keyword the first walk skipped.
+    // EXPECTS: the walk reports it (or the $ref it cannot follow).
+    expect(findTenantScopedParameters(schema)).toContain(expected);
+  });
+
+  it('does not flag a pattern that cannot match a tenant or schema name', () => {
+    expect(findTenantScopedParameters({ patternProperties: { '^[0-9]+$': {} } })).toEqual([]);
+    expect(findTenantScopedParameters({ propertyNames: { pattern: '^(tankId|limit)$' } })).toEqual(
+      [],
+    );
   });
 });

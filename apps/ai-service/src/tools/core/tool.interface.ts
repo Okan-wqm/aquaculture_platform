@@ -74,11 +74,16 @@ export interface TenantBoundToolContext {
   readonly correlationId: string;
 }
 
-/** Context passed to every tool execution - populated from the trusted request, never from the model */
+/**
+ * Context passed to every tool execution — populated from the trusted request,
+ * never from the model. Every field is readonly and tool-context.factory.ts
+ * freezes the object and its arrays: one turn's context is shared by all of
+ * the turn's tool calls and audit rows (K10, V-T1a-1).
+ */
 export interface ToolExecutionContext extends TenantBoundToolContext {
-  userRoles: string[];
+  readonly userRoles: readonly string[];
   /** The agent persona executing this tool */
-  persona: string;
+  readonly persona: string;
   /**
    * AISAFETY-MEDIUM-021 (hotfix): the persona's TIER (operator|manager|
    * expert|supervisor). Tools declare requiredPermissions in TIER vocabulary,
@@ -87,7 +92,7 @@ export interface ToolExecutionContext extends TenantBoundToolContext {
    * executor now checks personaTier against requiredPermissions; userRoles
    * remains for the service-principal/serviceGrant path.
    */
-  personaTier: AiPersonaTier | null;
+  readonly personaTier: AiPersonaTier | null;
   /**
    * RBAC-MEDIUM-016 (execute-time): the tool names this turn OFFERED the
    * model — the resolved profile's effective tools (bundle ∩ registry ∩ tier
@@ -99,14 +104,14 @@ export interface ToolExecutionContext extends TenantBoundToolContext {
    * those rules are evaluated, and this is what makes it binding. Service
    * principals authorize through `servicePrincipal.grantedToolNames` instead.
    */
-  offeredToolNames: readonly string[];
+  readonly offeredToolNames: readonly string[];
   /**
    * AISAFETY-MEDIUM-017: the resolved actuation policy (persona ∧ tenant, most
    * restrictive wins). REQUIRED so the executor can never fail open — an
    * actuation tool runs autonomously only under 'allowed'. Populated by the
    * agent runner from the resolved profile; never from Claude.
    */
-  actuationPolicy: ActuationPolicy;
+  readonly actuationPolicy: ActuationPolicy;
   /**
    * SENSOR-MEDIUM-070: a first-class internal SERVICE principal. Set ONLY when a
    * trusted platform service (not a human user) drives the tool call — e.g.
@@ -117,11 +122,11 @@ export interface ToolExecutionContext extends TenantBoundToolContext {
    * executor refuses any grant for an actuation (`requiresConfirmation`) tool,
    * so a service principal can never actuate. Absent for every human request.
    */
-  servicePrincipal?: {
+  readonly servicePrincipal?: {
     /** Stable identity of the calling service, e.g. 'sensor-service'. */
-    name: string;
+    readonly name: string;
     /** Exact allowlist of tool names this principal may run. */
-    grantedToolNames: string[];
+    readonly grantedToolNames: readonly string[];
   };
 }
 

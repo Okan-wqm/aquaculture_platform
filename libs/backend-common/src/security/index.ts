@@ -59,6 +59,7 @@ export * from './encryption';
 
 // Security Event Service (Audit logging for security events)
 export * from './security-event.service';
+export * from './tenant-fingerprint';
 
 // SEC-HIGH-050: canonical direct-namespace self-scope authorization SSoT
 export * from './assert-self-scope';

@@ -15,9 +15,26 @@ import { TenantBinding } from './tenant-binding';
  * always taken from the entry point's validated request, and plan PR-A1a can
  * turn the result into a human | service union in one file.
  *
+ * Every context is frozen (arrays included): one turn's context is shared by
+ * every tool call of the turn and by its audit rows, so nothing a tool does
+ * may change the tenant, principal or grants the next call runs under
+ * (V-T1a-1). Only the three trusted entry points import this module
+ * (tests/invariants/ai-tenant-boundary.spec.ts §B; ESLint bans it in tools).
+ *
  * INVARIANT: no parameter here comes from model output; if violated → the
  * model could choose the tenant its tools read.
  */
+
+/** Freeze a context and the arrays it carries. */
+function sealed(context: ToolExecutionContext): ToolExecutionContext {
+  Object.freeze(context.userRoles);
+  Object.freeze(context.offeredToolNames);
+  if (context.servicePrincipal !== undefined) {
+    Object.freeze(context.servicePrincipal.grantedToolNames);
+    Object.freeze(context.servicePrincipal);
+  }
+  return Object.freeze(context);
+}
 
 /** A human chat turn (request.ai.chat — gateway JWT or messaging bridge). */
 export interface HumanTurnContextInput {
@@ -32,16 +49,16 @@ export interface HumanTurnContextInput {
 }
 
 export function buildHumanTurnContext(input: HumanTurnContextInput): ToolExecutionContext {
-  return {
+  return sealed({
     tenant: TenantBinding.fromTrustedRequest(input.tenantId),
     userId: input.userId,
-    userRoles: input.userRoles,
+    userRoles: [...input.userRoles],
     correlationId: input.correlationId,
     persona: input.persona,
     personaTier: input.personaTier,
-    offeredToolNames: input.offeredToolNames,
+    offeredToolNames: [...input.offeredToolNames],
     actuationPolicy: input.actuationPolicy,
-  };
+  });
 }
 
 /**
@@ -62,17 +79,17 @@ export interface ConfirmedProposalContextInput {
 export function buildConfirmedProposalContext(
   input: ConfirmedProposalContextInput,
 ): ToolExecutionContext {
-  return {
+  return sealed({
     tenant: TenantBinding.fromTrustedRequest(input.tenantId),
     userId: input.requestedBy,
-    userRoles: input.requesterRoles,
+    userRoles: [...input.requesterRoles],
     correlationId: input.correlationId,
     persona: input.persona,
     personaTier: input.personaTier,
     // RBAC-MEDIUM-016: the stored row itself is the grant; nothing else may run under it.
     offeredToolNames: [input.toolName],
     actuationPolicy: 'allowed',
-  };
+  });
 }
 
 /**
@@ -91,7 +108,7 @@ export interface ServicePrincipalContextInput {
 export function buildServicePrincipalContext(
   input: ServicePrincipalContextInput,
 ): ToolExecutionContext {
-  return {
+  return sealed({
     tenant: TenantBinding.fromTrustedRequest(input.tenantId),
     // A service identity, deliberately NOT a user UUID.
     userId: `service:${input.serviceName}`,
@@ -102,6 +119,6 @@ export function buildServicePrincipalContext(
     offeredToolNames: [],
     // Fail-closed: a service principal never actuates.
     actuationPolicy: 'blocked',
-    servicePrincipal: { name: input.serviceName, grantedToolNames: input.grantedToolNames },
-  };
+    servicePrincipal: { name: input.serviceName, grantedToolNames: [...input.grantedToolNames] },
+  });
 }

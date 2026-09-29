@@ -128,10 +128,9 @@ describe('FarmAiQueryTool', () => {
   });
 
   it('rejects a legacy bare-array reply and a payload that fails the contract guard', async () => {
+    // A bare array names no tenant: a boundary violation that ends the run.
     send.mockReturnValue(of([]));
-    const bare = await tool.execute({}, CTX);
-    expect(bare.success).toBe(false);
-    expect(bare.error).toMatch(/unrecognised reply/);
+    await expect(tool.execute({}, CTX)).rejects.toMatchObject({ reason: 'reply_without_tenant' });
 
     send.mockReturnValue(of(boundReply({ total: 'three' })));
     const malformed = await tool.execute({}, CTX);

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import type { ConfigService } from '@nestjs/config';
-import { SecurityEventService } from '@aquaculture/backend-common/security';
+import { SecurityEventService, tenantFingerprint } from '@aquaculture/backend-common/security';
 import { collaborator } from '@aquaculture/testing';
 
 import { McpClientService } from '../mcp-client.service';
@@ -69,9 +69,11 @@ describe('McpClientService tenant binding', () => {
     expect(mcpCallTool).not.toHaveBeenCalled();
     expect(publishTenantAccessDenied).toHaveBeenCalledWith({
       tenantId: TENANT_B,
-      requestedTenantId: TENANT_A,
+      // Tenant B's event names the session tenant only by fingerprint (V-T1a-10).
+      requestedTenantId: tenantFingerprint(TENANT_A),
       reason: 'mcp_session_tenant_mismatch:assess_risk',
     });
+    expect(JSON.stringify(publishTenantAccessDenied.mock.calls)).not.toContain(TENANT_A);
   });
 
   it("serves a caller of the session's own tenant", async () => {

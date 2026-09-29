@@ -2,6 +2,8 @@
 export type TenantBoundaryViolationReason =
   /** A reply named a tenant other than the one the request was bound to. */
   | 'reply_tenant_mismatch'
+  /** A reply carried no tenant-bound envelope, so it cannot prove whose data it holds. */
+  | 'reply_without_tenant'
   /** A tool tried to put a tenant/schema field into a request the client builds. */
   | 'tenant_field_in_request'
   /** The context's tenant binding was not minted by TenantBinding (a structural copy). */

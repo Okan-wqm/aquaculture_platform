@@ -8,19 +8,19 @@
  *     (a prompt-injected or hallucinated `tenantId`), and
  *     TenantBoundNatsClient refuses request fields that carry one.
  *
- * WHY normalised matching: `tenantId`, `tenant_id`, `TENANT-ID` and
- * `searchPath` are the same smuggling attempt spelled differently.
+ * WHY normalised SUBSTRING matching (V-T1a-9): `tenantId`, `tenant_id`,
+ * `x-tenant-id`, `tenantUuid`, `targetTenantId` and `searchPath` are the same
+ * smuggling attempt spelled differently. An exact-name list lets every new
+ * spelling through; a fragment match refuses them all, and a legitimate field
+ * that happens to contain a fragment must be reviewed into the allowlist.
  */
-const FORBIDDEN_NORMALISED_NAMES: ReadonlySet<string> = new Set([
-  'tenant',
-  'tenantid',
-  'tenants',
-  'tenantids',
-  'tenantschema',
-  'schema',
-  'schemaname',
-  'searchpath',
-]);
+const FORBIDDEN_FRAGMENTS: readonly string[] = ['tenant', 'schema', 'searchpath'];
+
+/**
+ * Normalised names that contain a forbidden fragment but select nothing,
+ * each with the reviewed reason. Empty today: no tool offers such a field.
+ */
+export const TENANT_KEY_ALLOWLIST: Readonly<Record<string, string>> = {};
 
 function normalise(name: string): string {
   return name.toLowerCase().replace(/[^a-z]/g, '');
@@ -28,7 +28,31 @@ function normalise(name: string): string {
 
 /** True when `name` names a tenant or schema selector in any spelling. */
 export function isTenantScopedKey(name: string): boolean {
-  return FORBIDDEN_NORMALISED_NAMES.has(normalise(name));
+  const normalised = normalise(name);
+  if (normalised in TENANT_KEY_ALLOWLIST) return false;
+  return FORBIDDEN_FRAGMENTS.some((fragment) => normalised.includes(fragment));
+}
+
+/** Spellings a property-name pattern must not admit (probed against regex keywords). */
+const TENANT_NAME_PROBES: readonly string[] = [
+  'tenantId',
+  'tenant_id',
+  'tenant',
+  'x-tenant-id',
+  'schema',
+  'search_path',
+];
+
+/** True when a JSON Schema `pattern` would accept a tenant/schema selector name. */
+function patternAdmitsTenantKey(pattern: string): boolean {
+  let regex: RegExp;
+  try {
+    regex = new RegExp(pattern, 'u');
+  } catch {
+    // An unparseable pattern cannot be proven tenant-free: treat it as admitting one.
+    return true;
+  }
+  return TENANT_NAME_PROBES.some((probe) => regex.test(probe));
 }
 
 /**
@@ -54,25 +78,34 @@ function isSchemaObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Every parameter a JSON Schema offers (at any depth: `properties`, `items`,
- * `additionalProperties`, `patternProperties`, `anyOf`/`oneOf`/`allOf`,
- * `required`) whose name selects a tenant or schema. Empty means the model is
- * never offered a way to name a tenant.
+ * Every parameter a JSON Schema offers — at any depth, through `properties`,
+ * `required`, `items`/`prefixItems`/`contains`, `additionalProperties`,
+ * `unevaluatedProperties`, `patternProperties`, `propertyNames`,
+ * `anyOf`/`oneOf`/`allOf`/`not`, `if`/`then`/`else`, `dependentSchemas`,
+ * `dependencies`, and `$defs`/`definitions` (the targets of local `$ref`s) —
+ * whose name selects a tenant or schema, plus every `$ref` the walk cannot
+ * follow. Empty means the model is never offered a way to name a tenant.
  *
  * WHY a schema-aware walk instead of findTenantScopedKeys: JSON Schema
  * keywords (`$schema`, `description`) are not parameters, and parameter names
  * live under `properties`, one level below the keyword.
+ *
+ * WHY a non-local `$ref` is a hit (V-T1a-9): the walk cannot see the schema it
+ * points at, so it cannot prove that schema offers no tenant parameter.
  */
 export function findTenantScopedParameters(schema: unknown, path = ''): string[] {
   if (!isSchemaObject(schema)) return [];
   const hits = new Set<string>();
   const at = (name: string): string => (path ? `${path}.${name}` : name);
+  const walk = (child: unknown, childPath: string): void => {
+    findTenantScopedParameters(child, childPath).forEach((hit) => hits.add(hit));
+  };
 
   const properties = schema['properties'];
   if (isSchemaObject(properties)) {
     for (const [name, child] of Object.entries(properties)) {
       if (isTenantScopedKey(name)) hits.add(at(name));
-      findTenantScopedParameters(child, at(name)).forEach((hit) => hits.add(hit));
+      walk(child, at(name));
     }
   }
   const required = schema['required'];
@@ -81,24 +114,52 @@ export function findTenantScopedParameters(schema: unknown, path = ''): string[]
       .filter((name): name is string => typeof name === 'string' && isTenantScopedKey(name))
       .forEach((name) => hits.add(at(name)));
   }
-  for (const keyword of ['items', 'additionalProperties', 'not', 'contains']) {
-    findTenantScopedParameters(schema[keyword], at(`<${keyword}>`)).forEach((hit) => hits.add(hit));
+  for (const keyword of [
+    'items',
+    'additionalProperties',
+    'unevaluatedProperties',
+    'not',
+    'contains',
+    'if',
+    'then',
+    'else',
+  ]) {
+    walk(schema[keyword], at(`<${keyword}>`));
   }
   const patternProperties = schema['patternProperties'];
   if (isSchemaObject(patternProperties)) {
-    Object.values(patternProperties).forEach((child) =>
-      findTenantScopedParameters(child, at('<patternProperties>')).forEach((hit) => hits.add(hit)),
-    );
+    for (const [pattern, child] of Object.entries(patternProperties)) {
+      if (patternAdmitsTenantKey(pattern)) hits.add(at(`<patternProperties:${pattern}>`));
+      walk(child, at('<patternProperties>'));
+    }
+  }
+  const propertyNames = schema['propertyNames'];
+  if (isSchemaObject(propertyNames)) {
+    const enumerated: unknown[] = Array.isArray(propertyNames['enum']) ? propertyNames['enum'] : [];
+    const named: unknown[] = [propertyNames['const'], ...enumerated];
+    named
+      .filter((name): name is string => typeof name === 'string' && isTenantScopedKey(name))
+      .forEach((name) => hits.add(at(`<propertyNames:${name}>`)));
+    const pattern = propertyNames['pattern'];
+    if (typeof pattern === 'string' && patternAdmitsTenantKey(pattern)) {
+      hits.add(at(`<propertyNames:${pattern}>`));
+    }
   }
   for (const keyword of ['anyOf', 'oneOf', 'allOf', 'prefixItems']) {
     const branches = schema[keyword];
     if (Array.isArray(branches)) {
-      branches.forEach((branch, index) =>
-        findTenantScopedParameters(branch, at(`<${keyword}[${index}]>`)).forEach((hit) =>
-          hits.add(hit),
-        ),
-      );
+      branches.forEach((branch, index) => walk(branch, at(`<${keyword}[${index}]>`)));
     }
+  }
+  for (const keyword of ['$defs', 'definitions', 'dependentSchemas', 'dependencies']) {
+    const map = schema[keyword];
+    if (isSchemaObject(map)) {
+      Object.entries(map).forEach(([name, child]) => walk(child, at(`<${keyword}.${name}>`)));
+    }
+  }
+  const ref = schema['$ref'];
+  if (typeof ref === 'string' && !/^#\/(?:\$defs|definitions)\/[^/]+$/.test(ref)) {
+    hits.add(at(`<unverifiable $ref ${ref}>`));
   }
   return [...hits];
 }

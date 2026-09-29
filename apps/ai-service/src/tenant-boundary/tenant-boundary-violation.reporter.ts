@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SecurityEventService } from '@aquaculture/backend-common/security';
+import { SecurityEventService, tenantFingerprint } from '@aquaculture/backend-common/security';
 
 import type { TenantBoundaryViolation } from './tenant-boundary-violation';
 
@@ -22,7 +22,14 @@ export interface TenantBoundaryViolationReport {
  * WHY no user id and no payload: the log/event must be safe to ship anywhere
  * (PII-masked by construction). The correlationId joins it to the
  * tool_execution_audit row, which already attributes the call to its user.
+ *
+ * WHY the served tenant is a fingerprint (V-T1a-10): the event belongs to the
+ * EXPECTED tenant and may surface in that tenant's security views. Naming
+ * another tenant's UUID there would itself be a cross-tenant disclosure. An
+ * operator correlates incidents by the fingerprint, which is stable per tenant
+ * and does not reveal the UUID.
  */
+
 @Injectable()
 export class TenantBoundaryViolationReporter {
   private readonly logger = new Logger(TenantBoundaryViolationReporter.name);
@@ -31,12 +38,15 @@ export class TenantBoundaryViolationReporter {
 
   async report(entry: TenantBoundaryViolationReport): Promise<void> {
     const { violation, expectedTenantId, servedTenantId, correlationId } = entry;
+    const servedFingerprint = servedTenantId === null ? 'none' : tenantFingerprint(servedTenantId);
     this.logger.error({
       msg: 'AI tenant-boundary violation — execution stopped, reply discarded',
       code: violation.code,
       reason: violation.reason,
       subject: violation.subject,
       expectedTenantId,
+      // Operator log only (never tenant-visible): the raw id is what an
+      // investigation needs; the tenant-visible event carries the fingerprint.
       servedTenantId,
       correlationId,
     });
@@ -44,7 +54,7 @@ export class TenantBoundaryViolationReporter {
     await this.securityEvents.publishTenantAccessDenied({
       tenantId: expectedTenantId,
       correlationId,
-      requestedTenantId: servedTenantId ?? 'none',
+      requestedTenantId: servedFingerprint,
       reason: `ai_tool_${violation.reason}:${violation.subject}`,
     });
   }

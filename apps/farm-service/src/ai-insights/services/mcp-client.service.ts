@@ -23,7 +23,7 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SecurityEventService } from '@aquaculture/backend-common/security';
+import { SecurityEventService, tenantFingerprint } from '@aquaculture/backend-common/security';
 import { spawn, ChildProcess } from 'child_process';
 import { McpSessionBinding } from './mcp-session-binding';
 import {
@@ -325,7 +325,9 @@ export class McpClientService implements OnModuleInit, OnModuleDestroy {
     // Best-effort by contract: SecurityEventService never throws.
     await this.securityEvents.publishTenantAccessDenied({
       tenantId: callerTenantId,
-      requestedTenantId: sessionTenantId,
+      // The event is the caller tenant's; the session tenant appears only as a fingerprint.
+      requestedTenantId:
+        this.sessionBinding === null ? 'none' : tenantFingerprint(this.sessionBinding.tenantId),
       reason: `mcp_session_tenant_mismatch:${toolName}`,
     });
   }

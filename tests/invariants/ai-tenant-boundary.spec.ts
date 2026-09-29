@@ -1,12 +1,14 @@
 import { resolve } from 'node:path';
 
 import { FARM_AI_QUERY_SUBJECTS } from '../../libs/event-contracts/src/farm-ai-queries';
+import { declaresTool, toolBoundaryViolations } from './helpers/ai-tool-boundary';
 import {
   aiRequestSubjects,
   allTs,
   code,
   offenders,
   publishGrants,
+  read,
   REPO_ROOT,
   respondersBySubject,
   sources,
@@ -20,12 +22,20 @@ import {
  * boot-time schema refusal) make the wrong thing hard; this spec makes the
  * remaining ways around them visible in every PR:
  *
- *   A. ai-service tool code cannot reach the raw NATS transport: only
+ *   A. ai-service tool code (every file under tools/ and every file that
+ *      declares a `@Tool(` class) cannot reach a raw transport: only
  *      TenantBoundNatsClient sends, only the boundary module owns the token,
- *      tools import no transport, no tool writes a `tenantId` property, and
- *      tool code has no database path of its own (no TypeORM).
- *   B. A TenantBinding is minted in ONE file (tool-context.factory.ts), is
- *      never cast, and no ToolExecutionContext is assembled by hand.
+ *      tools import no transport / HTTP client / TypeORM, name no raw-client
+ *      token or DI escape hatch (EVENT_BUS, getRawConnection, NatsEventBus,
+ *      ModuleRef, HttpService, global fetch), call `.request(` only on their
+ *      injected TenantBoundNatsClient, inject nothing else, and write no
+ *      `tenantId` property. The checks are an AST walk
+ *      (helpers/ai-tool-boundary.ts) and gate every PR even though ai-service
+ *      ESLint is quarantined to warnings.
+ *   B. A TenantBinding is minted in ONE file (tool-context.factory.ts), only
+ *      the three trusted entry points import that factory, a binding is
+ *      imported as a value only inside tenant-boundary/, is never cast, and
+ *      no ToolExecutionContext is assembled by hand.
  *   C. Every AI-facing `request.*` subject ai_service may publish is answered
  *      through the responder skeleton (`respondTenantBound`, wired per service
  *      as a `*AiResponder`), which opens the tenant scope and echoes the
@@ -47,38 +57,33 @@ const AI_SRC = 'apps/ai-service/src';
 
 describe('INVARIANT (K10 / MT-HIGH-062): AI tenant boundary', () => {
   const aiSources = sources(AI_SRC);
-  const toolSources = sources(`${AI_SRC}/tools`);
+  const TOOL_ROOT = `${AI_SRC}/tools/`;
+  // The boundary follows the decorator, not the directory (V-T1a-4).
+  const toolSources = aiSources.filter(
+    (file) => file.startsWith(TOOL_ROOT) || declaresTool(read(file)),
+  );
   const BOUND_CLIENT = `${AI_SRC}/tenant-boundary/tenant-bound-nats.client.ts`;
   const BOUNDARY_MODULE = `${AI_SRC}/tenant-boundary/tenant-boundary.module.ts`;
   const CONTEXT_FACTORY = `${AI_SRC}/tenant-boundary/tool-context.factory.ts`;
   const BINDING = `${AI_SRC}/tenant-boundary/tenant-binding.ts`;
 
   describe('A. tool code reaches other services only through TenantBoundNatsClient', () => {
-    it('tool sources import no NATS transport and name no raw client token', () => {
-      // SCENARIO: a tool that injects ClientProxy / NatsV3Client / 'NATS_SERVICE', the
-      //           platform event bus (its NatsRequestReply.requestTyped is a raw request-reply)
-      //           or a @nats-io connection could build its own payload and pick the tenant.
-      // EXPECTS: none of the transport entry points appears under tools/ — by package name
-      //          or by a relative path into the library.
-      expect(toolSources.length).toBeGreaterThan(50);
+    it('every @Tool class lives under the enforced tool root', () => {
+      // SCENARIO: a @Tool() class placed outside src/tools/ is still registered by discovery.
+      // EXPECTS: none — every tool is subject to the directory-scoped ESLint block too.
       expect(
-        offenders(
-          toolSources,
-          /@nestjs\/microservices|@aquaculture\/backend-common\/nats|backend-common\/src\/nats|@platform\/event-bus|libs\/event-bus|@nats-io\/|\bClientProxy\b|\bNatsV3Client\b|\bNatsRequestReply\b|['"]NATS_SERVICE['"]|AI_TENANT_BOUND_TRANSPORT/,
-        ),
+        aiSources.filter((file) => declaresTool(read(file)) && !file.startsWith(TOOL_ROOT)),
       ).toEqual([]);
     });
 
-    it('tool code has no database path of its own — no TypeORM, DataSource or QueryRunner', () => {
-      // SCENARIO: a tool holds a DataSource and reads tenant rows with its own search_path.
-      // EXPECTS: none — tenant data reaches a tool only as a tenant-bound reply from the
-      //          owning service, which reads inside runInTenantRead (K10 layer 4).
-      expect(
-        offenders(
-          toolSources,
-          /from\s+'(?:typeorm|@nestjs\/typeorm)'|\bDataSource\b|\bQueryRunner\b|\bEntityManager\b/,
-        ),
-      ).toEqual([]);
+    it('tool sources reach no transport, HTTP client, database or DI escape hatch (AST)', () => {
+      // SCENARIO: a tool injects ClientProxy / NatsV3Client / 'EVENT_BUS', resolves a provider
+      //           through ModuleRef, calls getRawConnection().request(…), fetch(…), node:http,
+      //           axios or HttpService, holds a DataSource, or imports the context factory.
+      // EXPECTS: none — tenant data reaches a tool only as a tenant-bound reply through
+      //          TenantBoundNatsClient (K10 layers 1 + 3).
+      expect(toolSources.length).toBeGreaterThan(50);
+      expect(toolSources.flatMap((file) => toolBoundaryViolations(file, read(file)))).toEqual([]);
     });
 
     it('only TenantBoundNatsClient calls .send on a NATS client in ai-service', () => {
@@ -119,6 +124,32 @@ describe('INVARIANT (K10 / MT-HIGH-062): AI tenant boundary', () => {
       expect(offenders(aiSources, /TenantBinding\.fromTrustedRequest\s*\(/)).toEqual([
         CONTEXT_FACTORY,
       ]);
+    });
+
+    it('only the three trusted entry points import the tool-context factory (V-T1a-2)', () => {
+      // SCENARIO: tool (or any other) code imports buildServicePrincipalContext and mints a
+      //           context for a tenant it chose.
+      // EXPECTS: the importers are exactly the chat runner, the confirmed-proposal service and
+      //          the sensor-service channel-detection responder.
+      expect(
+        offenders(aiSources, /from\s+'[^']*tenant-boundary\/tool-context\.factory'/).sort(),
+      ).toEqual(
+        [
+          `${AI_SRC}/actions/action-proposal.service.ts`,
+          `${AI_SRC}/agent/agent-runner.service.ts`,
+          `${AI_SRC}/sensor-detection/sensor-channel-detection.responder.ts`,
+        ].sort(),
+      );
+    });
+
+    it('a TenantBinding is imported as a value only inside tenant-boundary/', () => {
+      const valueImporters = offenders(
+        aiSources,
+        /import\s*\{[^}]*\bTenantBinding\b[^}]*\}\s*from\s*'[^']*tenant-binding'/,
+      ).filter((file) => !/import\s+type\s*\{[^}]*\bTenantBinding\b/.test(read(file)));
+      expect(
+        valueImporters.filter((file) => !file.startsWith(`${AI_SRC}/tenant-boundary/`)),
+      ).toEqual([]);
     });
 
     it('no code anywhere in ai-service (tests included) casts to TenantBinding', () => {

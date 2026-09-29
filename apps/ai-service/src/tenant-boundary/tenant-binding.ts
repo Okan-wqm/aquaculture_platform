@@ -24,9 +24,13 @@ export class UntrustedTenantError extends Error {
  *     but `#brand` is not structural: `isGenuine` rejects such a forgery at
  *     runtime, and TenantBoundNatsClient calls it before every request.
  *
+ *   - `readonly` is a compile-time promise only; the constructor freezes the
+ *     instance, so `Reflect.set(binding, 'tenantId', other)` fails at runtime
+ *     and the brand cannot be kept while the tenant is swapped (V-T1a-1).
+ *
  * INVARIANT: every tenant id that reaches a tool request was minted here from
- * a trusted request; if violated → a model-influenced value could pick the
- * tenant a tool reads.
+ * a trusted request and cannot change afterwards; if violated → a
+ * model-influenced value could pick the tenant a tool reads.
  */
 export class TenantBinding {
   readonly #brand = true;
@@ -36,7 +40,9 @@ export class TenantBinding {
     readonly tenantId: string,
     /** The tenant's schema, derived by the platform SSoT — never supplied separately. */
     readonly schemaName: string,
-  ) {}
+  ) {
+    Object.freeze(this);
+  }
 
   /**
    * Mint a binding from a trusted request's tenant id.

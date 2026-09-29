@@ -282,7 +282,22 @@ const AI_TOOL_DATABASE_MESSAGE =
   'K10 / MT-HIGH-062: AI tool code has no database path of its own. Tenant data reaches a tool ' +
   'only as a tenant-bound reply from the owning service (read inside runInTenantRead); request ' +
   'it through TenantBoundNatsClient.';
+const AI_TOOL_HTTP_MESSAGE =
+  'K10 / MT-HIGH-062 (V-T1a-8): AI tool code makes no HTTP calls of its own. ai-service holds the ' +
+  'shared service-identity keyring, so a tool with an HTTP client could sign a request as another ' +
+  'service for any tenant. Tenant data reaches a tool only through TenantBoundNatsClient.';
+const AI_TOOL_MINTING_MESSAGE =
+  'K10 / MT-HIGH-062 (V-T1a-2): only the three trusted entry points (agent runner, confirmed ' +
+  'proposals, sensor channel detection) build a tool context or mint a TenantBinding. A tool ' +
+  'receives its context; it never builds one.';
+const AI_TOOL_ESCAPE_MESSAGE =
+  'K10 / MT-HIGH-062 (V-T1a-3): this names a raw transport or a DI escape hatch that resolves ' +
+  'one without importing it. Inject TenantBoundNatsClient instead.';
 const aiToolTransportBoundaryBlock = {
+  // Every file that can hold a @Tool — the invariant (tests/invariants/
+  // ai-tenant-boundary.spec.ts §A) proves every @Tool class lives here and
+  // applies the same rules on the AST, so the gate holds even while ai-service
+  // lint runs as a warning (INFRA-MEDIUM-154).
   files: ['apps/ai-service/src/tools/**/*.ts'],
   ignores: ['apps/ai-service/src/tools/**/__tests__/**', 'apps/ai-service/src/tools/**/*.spec.ts'],
   rules: {
@@ -297,6 +312,21 @@ const aiToolTransportBoundaryBlock = {
           { name: '@platform/event-bus', message: AI_TOOL_TRANSPORT_MESSAGE },
           { name: 'typeorm', message: AI_TOOL_DATABASE_MESSAGE },
           { name: '@nestjs/typeorm', message: AI_TOOL_DATABASE_MESSAGE },
+          ...[
+            '@aquaculture/backend-common/http',
+            '@nestjs/axios',
+            'axios',
+            'undici',
+            'node-fetch',
+            'http',
+            'https',
+            'http2',
+            'net',
+            'node:http',
+            'node:https',
+            'node:http2',
+            'node:net',
+          ].map((name) => ({ name, message: AI_TOOL_HTTP_MESSAGE })),
         ],
         patterns: [
           { group: ['@nats-io/*'], message: AI_TOOL_TRANSPORT_MESSAGE },
@@ -304,6 +334,58 @@ const aiToolTransportBoundaryBlock = {
             group: ['**/tenant-boundary/tenant-bound-nats.client'],
             importNames: ['AI_TENANT_BOUND_TRANSPORT'],
             message: AI_TOOL_TRANSPORT_MESSAGE,
+          },
+          { group: ['**/service-identity*'], message: AI_TOOL_HTTP_MESSAGE },
+          { group: ['**/tenant-boundary/tool-context.factory'], message: AI_TOOL_MINTING_MESSAGE },
+        ],
+      },
+    ],
+    'no-restricted-globals': [
+      'error',
+      { name: 'fetch', message: AI_TOOL_HTTP_MESSAGE },
+      { name: 'XMLHttpRequest', message: AI_TOOL_HTTP_MESSAGE },
+      { name: 'WebSocket', message: AI_TOOL_HTTP_MESSAGE },
+    ],
+    'no-restricted-syntax': [
+      'error',
+      // ai-service's own selectors, restated: a later block replaces a rule's options.
+      ...AI_SERVICE_LINT_POLICY.rules['no-restricted-syntax'].slice(1),
+      ...['EVENT_BUS', 'NATS_SERVICE', 'NATS_CLIENT'].map((token) => ({
+        selector: `Literal[value='${token}']`,
+        message: AI_TOOL_ESCAPE_MESSAGE,
+      })),
+      ...[
+        'getRawConnection',
+        'NatsEventBus',
+        'NatsRequestReply',
+        'ModuleRef',
+        'LazyModuleLoader',
+        'HttpService',
+        'SignedHttpClient',
+      ].map((name) => ({
+        selector: `Identifier[name='${name}']`,
+        message: AI_TOOL_ESCAPE_MESSAGE,
+      })),
+      {
+        selector:
+          "MemberExpression[object.name='TenantBinding'][property.name='fromTrustedRequest']",
+        message: AI_TOOL_MINTING_MESSAGE,
+      },
+      {
+        // `.request(` only as `this.<injected TenantBoundNatsClient>.request(`.
+        selector:
+          "CallExpression[callee.property.name='request']:not([callee.object.type='MemberExpression'][callee.object.object.type='ThisExpression'])",
+        message: AI_TOOL_TRANSPORT_MESSAGE,
+      },
+    ],
+    '@typescript-eslint/no-restricted-imports': [
+      'error',
+      {
+        patterns: [
+          {
+            group: ['**/tenant-boundary/tenant-binding'],
+            allowTypeImports: true,
+            message: AI_TOOL_MINTING_MESSAGE,
           },
         ],
       },

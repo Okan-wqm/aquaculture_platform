@@ -1,5 +1,5 @@
 import { of } from 'rxjs';
-import { SecurityEventService } from '@aquaculture/backend-common/security';
+import { SecurityEventService, tenantFingerprint } from '@aquaculture/backend-common/security';
 
 import type { TenantBoundToolContext } from '../../tools/core/tool.interface';
 import type { TenantFreeFields } from '../tenant-bound-nats.client';
@@ -84,9 +84,11 @@ describe('TenantBoundNatsClient', () => {
     expect(publishTenantAccessDenied).toHaveBeenCalledWith({
       tenantId: TENANT_A,
       correlationId: 'corr-7',
-      requestedTenantId: TENANT_B,
+      // V-T1a-10: tenant A's event names B only by fingerprint, never by UUID.
+      requestedTenantId: tenantFingerprint(TENANT_B),
       reason: `ai_tool_reply_tenant_mismatch:${SUBJECT}`,
     });
+    expect(JSON.stringify(publishTenantAccessDenied.mock.calls)).not.toContain(TENANT_B);
     const logged = JSON.stringify(errorLog.mock.calls);
     expect(logged).not.toContain('u-1');
     expect(logged).not.toContain('4,2');
@@ -126,10 +128,34 @@ describe('TenantBoundNatsClient', () => {
   });
 
   it.each([
+    [{ ok: true, data: [1, 2] }, 'an envelope without tenantId'],
+    [[1, 2], 'a bare array'],
+    [{ ok: true, tenantId: 42, data: [1] }, 'a non-string tenant'],
+  ])('stops the run and reports a reply that names no tenant: %j (%s)', async (reply, _shape) => {
+    // SCENARIO: a responder (or anything on the inbox) answers without the tenant-bound envelope.
+    // EXPECTS: TenantBoundaryViolation(reply_without_tenant), one security event, no data returned.
+    send.mockReturnValue(of(reply));
+    await expect(tenantBoundClient({ send }, reporter).request(ctx, call())).rejects.toMatchObject({
+      code: 'tenant_mismatch',
+      reason: 'reply_without_tenant',
+    });
+    expect(publishTenantAccessDenied).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: TENANT_A, requestedTenantId: 'none' }),
+    );
+  });
+
+  it('keeps the raw transport out of reach: no property of the client leads to it', () => {
+    // SCENARIO (V-T1a-3): tool code tries `client['transport'].send(...)` to skip the tenant check.
+    // EXPECTS: the transport is an ES private field — no own or prototype property exposes it.
+    const client = tenantBoundClient({ send }, reporter);
+    expect(Reflect.get(client, 'transport')).toBeUndefined();
+    expect(Object.values(client)).not.toContainEqual(expect.objectContaining({ send }));
+  });
+
+  it.each([
     [boundFailure('NOT_FOUND'), /No record with that id exists/],
     [boundFailure('INVALID_REQUEST'), /rejected as invalid/],
     [boundFailure('INTERNAL_ERROR'), /temporarily unavailable/],
-    [[1, 2], /unrecognised reply/],
     [boundReply(['x']), /contract guard/],
   ])('turns same-tenant failure %j into an ordinary error', async (reply, message) => {
     send.mockReturnValue(of(reply));

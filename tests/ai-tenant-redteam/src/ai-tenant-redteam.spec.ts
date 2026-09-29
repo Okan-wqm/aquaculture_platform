@@ -27,6 +27,8 @@
  * foreign batch refused before its cost collaborator is consulted — now driven
  * through the real agent path, on every pull request.
  */
+import { tenantFingerprint } from '@aquaculture/backend-common/security';
+
 import type {
   ChatRequest,
   ChatResponse,
@@ -220,9 +222,11 @@ describe('K10 red-team: a tenant-A agent cannot bring back tenant B data', () =>
     expect(agent.securityEvents).toHaveBeenCalledWith({
       tenantId: TENANT_A,
       correlationId: 'corr-redteam',
-      requestedTenantId: TENANT_B,
+      // V-T1a-10: tenant A's security event names B only by fingerprint.
+      requestedTenantId: tenantFingerprint(TENANT_B),
       reason: 'ai_tool_reply_tenant_mismatch:request.farm.getTankRegistry',
     });
+    expectNoTenantBData('security event', agent.securityEvents.mock.calls);
     expect(agent.auditRows).toHaveBeenCalledWith(
       'get_farm_tanks',
       expect.any(Object),

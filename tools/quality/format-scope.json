@@ -43645,6 +43645,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/security/tenant-fingerprint.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/security/throttler/index.ts",
       "prettier_managed": true
     },
@@ -48303,6 +48309,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/ai-tool-boundary.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/alert-rules-select-real-series.spec.ts",
       "prettier_managed": true
     },
@@ -49018,6 +49030,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/helpers/ai-tenant-boundary-sources.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/helpers/ai-tool-boundary.ts",
       "prettier_managed": true
     },
     {

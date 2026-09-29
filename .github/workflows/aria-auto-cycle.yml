@@ -789,14 +789,12 @@ jobs:
           # installation token where it is consumed and revokes it after;
           # ARIA_REQUIRE_MODE_A (env above) makes that mint refuse by name
           # when the App is not configured, instead of falling back.
-          # The ambient GH_TOKEN below authors no PR: it serves the lane's
-          # own gh reads, from the machine PAT (runner .env) when present.
-          if [ -n "${ARIA_GH_TOKEN:-}" ]; then
-            export GH_TOKEN="$ARIA_GH_TOKEN"
-            echo "ambient gh identity (reads): machine PAT (ARIA_GH_TOKEN)"
-          else
-            echo "ambient gh identity (reads): job token"
-          fi
+          # ARIA-CRITICAL-246 — the ambient GH_TOKEN (env above) is the job
+          # token and nothing else. It serves the lane's own gh reads and the
+          # kernel's issue writes, which GitHub authors as a Bot. The runner
+          # .env's operator PAT (ARIA_GH_TOKEN) is never exported: a write
+          # made with it is authored by the operator, and an operator act is
+          # what an ARIA-APPROVE line is verified against.
           set -euo pipefail
           # The App key, from the secret into a private file in RUNNER_TEMP:
           # outside the workspace every sandbox binds, removed on any exit.

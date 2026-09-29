@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from ..github_writes import GitHubWriteRefused, run_gh_write
 from ..ledger import append_declared_jsonl, load_declared_jsonl
 from ..tool_registry import append_tools_governance, ensure_tools_dir, utc_now
 from ..tool_registry import parse_utc_stamp as _parse_utc_stamp
@@ -170,17 +171,12 @@ def due_schedules(*, now: datetime, base_dir: str | Path | None = None) -> list[
     return due
 
 
-def _default_runner(argv: list[str]) -> "subprocess.CompletedProcess[str]":
-    return subprocess.run(argv, capture_output=True, text=True, timeout=120, check=False)
-
-
 def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str | Path, runner: Runner | None = None,
                schedule_name: str | None = None, ref: str = "main", ran_at: str | None = None) -> dict[str, Any]:
     """Execute one closed action. Workflow actions respect the operator pause
     and the host lease; local actions run in-process."""
     root = ensure_tools_dir(base_dir)
     action = validate_action(action, base_dir=root)
-    run = runner or _default_runner
     result: dict[str, Any] = {"action": action, "status": "ran", "detail": {}}
     if action in ACTION_WORKFLOWS:
         from ..control import effective_control
@@ -189,13 +185,19 @@ def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str 
             result.update({"status": "skipped", "detail": {"reason": "operator_paused"}})
         else:
             workflow, inputs = ACTION_WORKFLOWS[action]
-            argv = ["gh", "workflow", "run", workflow, "--ref", ref]
-            for key, value in inputs.items():
-                argv += ["-f", f"{key}={value}"]
-            done = run(argv)
-            result["detail"] = {"workflow": workflow, "returncode": done.returncode, "stderr": (done.stderr or "")[:200]}
-            if done.returncode != 0:
-                result["status"] = "failed"
+            fields = [flag for key, value in inputs.items() for flag in ("-f", f"{key}={value}")]
+            # ARIA-CRITICAL-246 — a dispatch is a write to GitHub, so it runs
+            # on an installation token or is refused by name. An injected
+            # runner stays argv-only; the credential check runs before it.
+            seam = None if runner is None else (lambda argv, **_kwargs: runner(argv))
+            try:
+                done = run_gh_write(["workflow", "run", workflow, "--ref", ref, *fields], timeout=120, runner=seam)
+            except GitHubWriteRefused as exc:
+                result.update({"status": "failed", "detail": {"workflow": workflow, "refused": str(exc)}})
+            else:
+                result["detail"] = {"workflow": workflow, "returncode": done.returncode, "stderr": (done.stderr or "")[:200]}
+                if done.returncode != 0:
+                    result["status"] = "failed"
     elif action == "doctor":
         from ..doctor import run_doctor
 

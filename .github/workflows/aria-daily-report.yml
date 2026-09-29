@@ -251,10 +251,11 @@ jobs:
     # ORPHAN-HIGH-736 (F-4) — this job OPENS the daily-report PR, and a PR
     # opened with the ephemeral job token parks every check suite in
     # `action_required` (measured on #1282: 7 suites, zero checks started,
-    # merge blocked until a human presses Approve). The PAT identity that
-    # fixes this (ORPHAN-722) lives in the self-hosted runner's .env — so
-    # the job moves to that runner instead of distributing a new secret.
-    # generate-report stays hosted: it is read-only and needs no identity.
+    # merge blocked until a human presses Approve). The job moved to the
+    # self-hosted runner for the PAT in its .env. Since ARIA-CRITICAL-246
+    # the PR identity is an App token minted in this job (step below), and
+    # no operator credential is read. generate-report stays hosted: it is
+    # read-only and needs no identity.
     runs-on: [self-hosted, linux, claude]
     timeout-minutes: 10
     if: github.ref == 'refs/heads/main'
@@ -326,27 +327,52 @@ jobs:
           name: aria-daily-report-${{ needs.generate-report.outputs.date }}
           path: report-checkout/aria-tools/reports/daily/
 
+      # ARIA-CRITICAL-246 — the PR's identity is the ARIA GitHub App. It used
+      # to be the runner .env's ARIA_GH_TOKEN, the operator's own PAT, so the
+      # report PR was authored as the operator. The preflight above already
+      # declared `github_app:installation`; this makes it true. An App PR
+      # starts its checks (the job token's PR is parked in action_required,
+      # ORPHAN-736). The App is required: runner-preflight uses the same
+      # three secrets, so there is no fallback identity.
+      - name: Mint GitHub App installation token
+        id: app_token
+        env:
+          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
+          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+          # Mode A or a refusal by name: the mint never copies an ambient
+          # GH_TOKEN (Mode B) into the PR's author, as in the kernel lanes.
+          ARIA_REQUIRE_MODE_A: 'true'
+          PYTHONPATH: aria-kernel
+        working-directory: report-checkout
+        run: |
+          set -euo pipefail
+          KEY_FILE="$RUNNER_TEMP/aria-daily-report-app-key-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.pem"
+          trap 'rm -f "$KEY_FILE"' EXIT
+          umask 077
+          printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE"
+          unset ARIA_GH_APP_PRIVATE_KEY
+          TOKEN="$(ARIA_GH_APP_PRIVATE_KEY_PATH="$KEY_FILE" python3 -c "
+          from pathlib import Path
+          from aria_kernel.gh_token_factory import mint_installation_token
+          lease = mint_installation_token(cycle_id='aria-daily-report-r${GITHUB_RUN_ID}', workspace_root='.')
+          print(Path(lease.token_file).read_text(encoding='utf-8').strip())
+          Path(lease.token_file).unlink()
+          ")"
+          echo "::add-mask::${TOKEN}"
+          echo "token=${TOKEN}" >> "$GITHUB_OUTPUT"
+
       - name: Open or update daily report PR
         env:
           # Plan 024 v3 §B-3 — read date via needs.<job>.outputs.* (env
           # does not cross job boundaries; this is the canonical
           # GHA inter-job data transfer mechanism).
           REPORT_DATE: ${{ needs.generate-report.outputs.date }}
-          GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN || github.token }}
-          PR_TOKEN_SOURCE: ${{ secrets.ARIA_GITHUB_APP_TOKEN && 'aria-github-app' || 'actions-default' }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          PR_TOKEN_SOURCE: aria-github-app
         working-directory: report-checkout
         run: |
           set -euo pipefail
-          # ORPHAN-722 identity ladder, verbatim from the cycle lane: the
-          # fine-grained PAT (runner .env, ARIA_GH_TOKEN) takes precedence
-          # so the PR carries the machine identity whose checks RUN.
-          if [ -n "${ARIA_GH_TOKEN:-}" ]; then
-            export GH_TOKEN="$ARIA_GH_TOKEN"
-            export PR_TOKEN_SOURCE="machine-pat"
-            echo "gh identity: machine PAT (ARIA_GH_TOKEN)"
-          else
-            echo "gh identity: ${PR_TOKEN_SOURCE} fallback"
-          fi
           REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
           BODY_FILE="$RUNNER_TEMP/aria-daily-report-body.md"
           # The body is rendered by python from the environment, not by the
@@ -395,6 +421,18 @@ jobs:
           export COMMIT_MESSAGE="chore(aria-reports): daily ${REPORT_DATE}"
           export CHANGED_PATHS="$REPORT"
           bash tools/scripts/automation/open-report-pr.sh
+
+      # ARIA-CRITICAL-246 — the App token lives one hour at GitHub. It is
+      # revoked with its own value as soon as the PR step is done, whatever
+      # that step's outcome; the provider expiry is the backstop when the
+      # DELETE fails (the aria-merge-runner.yml cleanup does the same).
+      - name: Revoke GitHub App installation token
+        if: always() && steps.app_token.outputs.token != ''
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+        run: |
+          gh api -X DELETE /installation/token >/dev/null \
+            || echo "::warning::installation token revoke failed; provider expiry applies"
 
       # ADR-036 — upload the enterprise-preflight audit proof so the
       # commit-report job's governed-write decision is retained as CI evidence.

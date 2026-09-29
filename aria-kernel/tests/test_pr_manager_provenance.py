@@ -28,6 +28,7 @@ from aria_kernel.pr_manager import open_pr_for_action
 from aria_kernel.proposal import approve_proposal, record_proposal
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 from tests._helpers.operator_acts import operator_set_profile
 
 
@@ -139,6 +140,10 @@ class PrNumberParseTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tools, self.repo, self.base_sha = _seed_workspace()
         self.proposal = _seed_action_and_proposal(tools=self.tools, repo=self.repo, base_sha=self.base_sha)
+        # The lane opens the PR on its installation token (ARIA-CRITICAL-246).
+        credential = patch.dict("os.environ", LANE_CREDENTIAL_ENV)
+        credential.start()
+        self.addCleanup(credential.stop)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tools.parent, ignore_errors=True)

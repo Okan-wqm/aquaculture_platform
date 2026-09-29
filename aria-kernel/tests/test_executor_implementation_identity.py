@@ -95,6 +95,7 @@ import ci_executor_drain as drain  # noqa: E402
 
 from aria_kernel.recovery import unresolved_intents as recovery_unresolved_intents  # noqa: E402
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit  # noqa: E402
+from tests._helpers.installation_credential import INSTALLATION_TOKEN  # noqa: E402
 from tests._helpers.production_shaped import production_staged_implementation_request  # noqa: E402
 
 SOURCE = "apps/farm-service/src/sample-interval.ts"
@@ -635,9 +636,12 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
             # so the sandbox acknowledgement changes nothing about what runs.
             "ARIA_CLAUDE_SANDBOX": "1",
             # The implementer profile declares external_writes: its delivery
-            # credential is minted in the PAT-fallback mode from this value,
-            # which is not a credential and is sent nowhere.
-            "GH_TOKEN": "fixture-only-invalid-token",
+            # credential is minted in the fallback mode from this value,
+            # which is not a credential and is sent nowhere (`gh` is a
+            # fixture). It is installation-shaped, the lane's job token:
+            # the PR is a write, and a write runs on an installation token
+            # (ARIA-CRITICAL-246).
+            "GH_TOKEN": INSTALLATION_TOKEN,
             # ARIA-HIGH-143 — the egress boundary the gate probes.
             "HTTPS_PROXY": https_proxy,
             # The suite's hermetic git layers (tests/_helpers/hermetic_git),

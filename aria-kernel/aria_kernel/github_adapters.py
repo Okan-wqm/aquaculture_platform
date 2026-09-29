@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .auto_merge import GhCliGitHubAdapter
+from .github_writes import GitHubWriteRefused, run_gh_write
 
 __all__ = [
     "GhCliGitHubAdapter",
@@ -269,6 +270,21 @@ class GhCliIssueWriter:
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             return False, f"{exc.__class__.__name__}: {str(exc)[:200]}"
+        return self._outcome(done)
+
+    def _gh_write(self, args: list[str]) -> tuple[bool, str]:
+        # ARIA-CRITICAL-246 — a write runs on an installation token; a refusal
+        # is this call's failed outcome, by name, like any transport failure.
+        try:
+            done = run_gh_write(args, cwd=self._cwd, timeout=ISSUE_WRITE_TIMEOUT_SECONDS)
+        except GitHubWriteRefused as exc:
+            return False, str(exc)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return False, f"{exc.__class__.__name__}: {str(exc)[:200]}"
+        return self._outcome(done)
+
+    @staticmethod
+    def _outcome(done: "subprocess.CompletedProcess[str]") -> tuple[bool, str]:
         if done.returncode != 0:
             detail = ((done.stderr or done.stdout or "").strip().splitlines() or ["?"])[0][:200]
             return False, f"rc={done.returncode}: {detail}"
@@ -303,8 +319,8 @@ class GhCliIssueWriter:
             return "label_list_unparseable"
         for label in labels:
             if label not in existing:
-                created, detail = self._gh(["label", "create", label, "--description",
-                                            "Written by the ARIA kernel"])
+                created, detail = self._gh_write(["label", "create", label, "--description",
+                                                  "Written by the ARIA kernel"])
                 if not created:
                     return f"label_create_failed:{label}:{detail}"
         return None
@@ -314,17 +330,15 @@ class GhCliIssueWriter:
         if not found_ok:
             return {"outcome": "failed", "reason": reason}
         if found is not None:
-            ok, out = self._gh(["issue", "edit", str(found["number"]), "--body", body])
+            ok, out = self._gh_write(["issue", "edit", str(found["number"]), "--body", body])
             if not ok:
                 return {"outcome": "failed", "reason": f"issue_edit_failed:{out}", "number": found["number"]}
             return {"outcome": "updated", "number": int(found["number"]), "url": found.get("url")}
         refused = self._ensure_labels(labels)
         if refused is not None:
             return {"outcome": "failed", "reason": refused}
-        args = ["issue", "create", "--title", title, "--body", body]
-        for label in labels:
-            args.extend(["--label", label])
-        ok, out = self._gh(args)
+        label_flags = [flag for label in labels for flag in ("--label", label)]
+        ok, out = self._gh_write(["issue", "create", "--title", title, "--body", body, *label_flags])
         if not ok:
             return {"outcome": "failed", "reason": f"issue_create_failed:{out}"}
         match = _ISSUE_URL_RE.search(out)
@@ -338,7 +352,7 @@ class GhCliIssueWriter:
             return {"outcome": "failed", "reason": reason}
         if found is None:
             return {"outcome": "absent"}
-        ok, out = self._gh(["issue", "close", str(found["number"]), "--comment", comment])
+        ok, out = self._gh_write(["issue", "close", str(found["number"]), "--comment", comment])
         if not ok:
             return {"outcome": "failed", "reason": f"issue_close_failed:{out}", "number": found["number"]}
         return {"outcome": "closed", "number": int(found["number"]), "url": found.get("url")}

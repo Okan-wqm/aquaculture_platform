@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `1d382aa70ffbd3e044badea5bd37398bd8e5f43e8b8423b4c21ac2c82e8b001d`
+Registry tip: `de8d0ce366eb2e42a3b42e234afe2648281e65d22826683095841a984544fb21`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -436,6 +436,12 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
   while farm signals use synthetic keys — the likely reason the live DB holds 0 incidents. Real open
   work, owner alert-engine-expert (registry owner_user okan), deadline 2026-10-15; closed by plan
   PR-S1 (`docs/reviews/alert-engine-expert/2026-09-29-ai-tracking-program.md`).
+- `ARIA-CRITICAL-246` (2026-09-29, ARIA sync risks): ARIA could author its own operator approval,
+  because every kernel GitHub write ran on the ambient credential, and the lanes exported the
+  operator's PAT. Real open work until the identity PR merges (`github_writes` door, lanes without
+  the PAT) and the operator retires the PAT on the runner (plan M3); owner claude (registry
+  owner_user okan), deadline 2026-10-06
+  (`docs/reviews/claude/2026-09-27-aria-sync-risks.md`).
 
 - `SENSOR-CRITICAL-127`, `BILLING-CRITICAL-019`, `FARM-CRITICAL-331`, `SEC-CRITICAL-169` (2026-09-20,
   the boot-path outage): a re-provided sensor MQTT auth service, a type-only import of an injected
@@ -958,3 +964,6 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
 - `ADMIN-CRITICAL-157`: registry state is `RESOLVED` with closing commit
   `6bcf14fcd`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `already-fixed-needs-close`.
+- `ARIA-CRITICAL-246`: registry state is `RESOLVED` with closing commit
+  `8c3857aff`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.

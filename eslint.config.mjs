@@ -256,6 +256,9 @@ const NON_PROVENANCE_TS_PROJECTS = [
   // Without this pin the parser fell back to the repo-wide node-resolution
   // project and reported `no-unsafe-*` on correctly-typed code.
   'tools/scripts',
+  // The K10 two-tenant red-team (plan PR-T1): a test-only project whose
+  // sources span ai-service and farm-service.
+  'tests/ai-tenant-redteam',
 ];
 
 /**
@@ -810,6 +813,23 @@ export default [
     files: ['web/**/vite.config.ts'],
     rules: {
       '@typescript-eslint/no-unsafe-call': 'off',
+      '@nx/enforce-module-boundaries': 'off',
+    },
+  },
+
+  // ── override: the K10 two-tenant red-team (tests/ai-tenant-redteam, plan PR-T1) ──
+  //    WHY @nx/enforce-module-boundaries is off here and ONLY here: the suite's
+  //    whole point is to compose ai-service's real runner/tools and
+  //    farm-service's real responders/handlers in one process. Both are
+  //    applications, not libraries: they publish no npm-scope entry, so the only
+  //    way to import their source is a relative path — which is what the rule
+  //    forbids. No production project imports this one (it is a test-only Nx
+  //    project with implicitDependencies on both apps), so no boundary between
+  //    shipped projects is relaxed. Every other rule (type-aware no-unsafe-*,
+  //    import/order, require-await, …) still applies to it.
+  {
+    files: ['tests/ai-tenant-redteam/**/*.ts'],
+    rules: {
       '@nx/enforce-module-boundaries': 'off',
     },
   },

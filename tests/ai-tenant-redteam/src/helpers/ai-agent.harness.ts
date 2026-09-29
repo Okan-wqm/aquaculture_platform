@@ -27,6 +27,7 @@ import { GetFarmTanksTool } from '../../../../apps/ai-service/src/tools/farm/get
 import { GetBatchPerformanceTool } from '../../../../apps/ai-service/src/tools/farm/production/get-batch-performance.tool';
 import { GetTankCapacityTool } from '../../../../apps/ai-service/src/tools/farm/production/get-tank-capacity.tool';
 import { ToolRegistryService } from '../../../../apps/ai-service/src/tools/tool-registry.service';
+
 import type { InProcessNatsTransport } from './in-process-nats.transport';
 import type { ScriptedAttacker } from './scripted-attacker.provider';
 
@@ -47,11 +48,14 @@ function offeredToolNames(): string[] {
   });
 }
 
+/** The audit writer's double, typed by the real signature so a spec reads rows without `any`. */
+type AuditRowsMock = jest.Mock<Promise<void>, Parameters<AuditService['logToolExecution']>>;
+
 /** What the red-team inspects after a turn. */
 export interface AttackedAgent {
   readonly runner: AgentRunnerService;
-  /** tool_execution_audit rows the executor wrote: [toolName, input, result, ctx]. */
-  readonly auditRows: jest.Mock;
+  /** tool_execution_audit rows the executor wrote: [toolName, input, result, ctx, …]. */
+  readonly auditRows: AuditRowsMock;
   /** TenantAccessDenied security events. */
   readonly securityEvents: jest.Mock;
   /** Messages persisted to the conversation (what a later turn would replay). */
@@ -73,7 +77,9 @@ export async function buildAttackedAgent(
   transport: InProcessNatsTransport,
   attacker: ScriptedAttacker,
 ): Promise<AttackedAgent> {
-  const auditRows = jest.fn().mockResolvedValue(undefined);
+  const auditRows: AuditRowsMock = jest
+    .fn<Promise<void>, Parameters<AuditService['logToolExecution']>>()
+    .mockResolvedValue(undefined);
   const securityEvents = jest.fn().mockResolvedValue(undefined);
   const persisted = jest.fn().mockResolvedValue(undefined);
   const reporter = new TenantBoundaryViolationReporter(

@@ -62,7 +62,11 @@ export class InProcessNatsTransport {
         for (const pattern of patterns) {
           if (typeof pattern !== 'string') continue;
           if (this.routes.has(pattern)) throw new Error(`two responders claim ${pattern}`);
-          this.routes.set(pattern, (payload) => Reflect.apply(method, responder, [payload]));
+          this.routes.set(pattern, async (payload): Promise<unknown> => {
+            // The responder's reply is whatever it put on the wire: unknown until verified.
+            const reply: unknown = await Reflect.apply(method, responder, [payload]);
+            return reply;
+          });
         }
       }
     }

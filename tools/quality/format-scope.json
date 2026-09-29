@@ -47859,6 +47859,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/ai-tenant-redteam/tsconfig.eslint.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/ai-tenant-redteam/tsconfig.json",
       "prettier_managed": true
     },

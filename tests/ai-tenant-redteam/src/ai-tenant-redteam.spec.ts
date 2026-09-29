@@ -27,11 +27,12 @@
  * foreign batch refused before its cost collaborator is consulted — now driven
  * through the real agent path, on every pull request.
  */
-import { TenantBoundaryViolation } from '../../../apps/ai-service/src/tenant-boundary/tenant-boundary-violation';
 import type {
   ChatRequest,
   ChatResponse,
 } from '../../../apps/ai-service/src/agent/agent-runner.service';
+import { TenantBoundaryViolation } from '../../../apps/ai-service/src/tenant-boundary/tenant-boundary-violation';
+
 import { buildAttackedAgent, type AttackedAgent } from './helpers/ai-agent.harness';
 import {
   bootFarmTwoTenantHarness,
@@ -181,18 +182,11 @@ describe('K10 red-team: a tenant-A agent cannot bring back tenant B data', () =>
     const response = await run();
 
     expect(transport.exchanges.map((e) => e.request['tenantId'])).toEqual([TENANT_A, TENANT_A]);
-    // Both replies are bound to A and carry exactly A's one tank / one batch.
-    expect(transport.exchanges.map((e) => e.reply)).toEqual([
-      {
-        ok: true,
-        tenantId: TENANT_A,
-        data: [expect.objectContaining({ id: farm.tenantA.tank.id })],
-      },
-      {
-        ok: true,
-        tenantId: TENANT_A,
-        data: [expect.objectContaining({ id: farm.tenantA.batch.id })],
-      },
+    // Both replies are bound to A and carry exactly A's one tank / one batch
+    // (toMatchObject is strict on array length).
+    expect(transport.exchanges.map((e) => e.reply)).toMatchObject([
+      { ok: true, tenantId: TENANT_A, data: [{ id: farm.tenantA.tank.id }] },
+      { ok: true, tenantId: TENANT_A, data: [{ id: farm.tenantA.batch.id }] },
     ]);
     expect(attacker.everythingShown).toContain(farm.tenantA.tank.id);
     expect(attacker.everythingShown).toContain(farm.tenantA.batch.id);
@@ -247,14 +241,14 @@ describe('K10 red-team: a tenant-A agent cannot bring back tenant B data', () =>
 
     await run();
 
-    expect(transport.exchanges).toEqual([
-      expect.objectContaining({
-        reply: expect.objectContaining({
+    expect(transport.exchanges).toMatchObject([
+      {
+        reply: {
           ok: true,
           tenantId: TENANT_A,
-          data: expect.objectContaining({ tankId: farm.tenantA.tank.id, tankCode: 'AIA-TANK' }),
-        }),
-      }),
+          data: { tankId: farm.tenantA.tank.id, tankCode: 'AIA-TANK' },
+        },
+      },
     ]);
     expect(attacker.everythingShown).toContain('AIA-TANK');
     await agent.close();

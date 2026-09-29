@@ -31,11 +31,13 @@ export class ScriptedAttacker {
   /** Every `messages` array the runner sent, serialised at call time. */
   readonly shown: string[] = [];
 
-  readonly chat = jest.fn(async (params: LlmChatParams): Promise<LlmChatResult> => {
+  readonly chat = jest.fn((params: LlmChatParams): Promise<LlmChatResult> => {
     this.shown.push(JSON.stringify(params.messages));
     const next = this.script.shift();
-    if (next === undefined) throw new Error('the attacker script ran out of turns');
-    return next;
+    if (next === undefined) {
+      return Promise.reject(new Error('the attacker script ran out of turns'));
+    }
+    return Promise.resolve(next);
   });
 
   constructor(script: readonly LlmChatResult[]) {

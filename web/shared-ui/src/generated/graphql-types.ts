@@ -20575,13 +20575,14 @@ export type StockMovementFilterInput = {
 };
 
 export type StockMovementInput = {
-  /** in | out | adjustment */
+  /** in | out | adjustment | transfer */
   movementType: Scalars['String']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
   quantity: Scalars['Int']['input'];
   reason?: InputMaybe<Scalars['String']['input']>;
   sparePartId: Scalars['ID']['input'];
   storageLocationId?: InputMaybe<Scalars['ID']['input']>;
+  toStorageLocationId?: InputMaybe<Scalars['ID']['input']>;
   workOrderId?: InputMaybe<Scalars['ID']['input']>;
 };
 
@@ -22596,6 +22597,7 @@ export type TransferStockInput = {
   /** Client-generated idempotency key for at-most-once transfer execution */
   idempotencyKey?: InputMaybe<Scalars['String']['input']>;
   itemId: Scalars['ID']['input'];
+  /** FEED, CHEMICAL or CONSUMABLE. Spare parts move through recordSparePartStockMovement (transfer). */
   itemType: StorageItemType;
   lotNumber?: InputMaybe<Scalars['String']['input']>;
   /** Mobile operation type, e.g. recordMortality or transferStock */

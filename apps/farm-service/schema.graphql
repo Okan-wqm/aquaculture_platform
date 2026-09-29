@@ -9200,6 +9200,10 @@ input TransferStockInput {
 
   """Optional mobile command payload schema version"""
   schemaVersion: String
+
+  """
+  FEED, CHEMICAL or CONSUMABLE. Spare parts move through recordSparePartStockMovement (transfer).
+  """
   itemType: StorageItemType!
   itemId: ID!
   quantity: Float!
@@ -11686,9 +11690,10 @@ input StockMovementInput {
   sparePartId: ID!
   quantity: Int!
 
-  """in | out | adjustment"""
+  """in | out | adjustment | transfer"""
   movementType: String!
   storageLocationId: ID
+  toStorageLocationId: ID
   reason: String
   workOrderId: ID
   notes: String

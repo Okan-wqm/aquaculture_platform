@@ -996,6 +996,7 @@ export type TransferStockInput = {
   /** Client-generated idempotency key for at-most-once transfer execution */
   idempotencyKey?: string | null | undefined;
   itemId: string;
+  /** FEED, CHEMICAL or CONSUMABLE. Spare parts move through recordSparePartStockMovement (transfer). */
   itemType: StorageItemType;
   lotNumber?: string | null | undefined;
   /** Mobile operation type, e.g. recordMortality or transferStock */

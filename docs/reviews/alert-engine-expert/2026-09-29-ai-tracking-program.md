@@ -3,9 +3,9 @@
 Raised in the 2026-09-29 adversarial review of the ai-service program plan (automatic tasks,
 tracking agents, AI configuration). Four reviewers (alert-engine, AI safety, farm domain,
 architecture) attacked plan rev 2 against origin/main `dae95efb3`; the main session re-verified the
-load-bearing claims in code, and ALERT-CRITICAL-004 on the live database. MT-HIGH-064 and
-MT-MEDIUM-065 come from the PR-T1 audit. Each finding names the plan PR that closes it; "owner
-decision" entries need a product decision before any code.
+load-bearing claims in code, and ALERT-CRITICAL-004 on the live database. Later entries
+(MT-HIGH-064, MT-MEDIUM-065, ALERT-CRITICAL-009, FARM-MEDIUM-355) come from the implementation
+lanes. Each finding names the plan PR that closes it.
 
 ## ALERT-CRITICAL-004
 
@@ -79,3 +79,17 @@ notification-service has no per-user notification preferences.
 - **Rule:** Dead code; notification preference SSoT.
 
 Closed by plan PR-S3.
+
+## ALERT-CRITICAL-009
+
+Every farm-signal incident insert fails: alert_incidents.rule_id is a uuid NOT NULL foreign key to
+alert_rules while farm signals use synthetic non-uuid keys.
+
+- **Severity:** CRITICAL. **Deadline:** 2026-10-15. **Closes in:** plan PR-S1.
+- **Evidence:** `apps/alert-engine/src/database/migrations/1800000000000-Baseline.ts:22` — rule_id
+  uuid NOT NULL, FK to alert_rules at :43.
+- **Rule:** Life-safety alarm persistence.
+
+Found by the PR-S1 implementer; the likely reason the live DB holds 0 incidents. Fix keeps rule_id
+as a nullable FK for rule incidents and adds signal_key for farm signals with a CHECK that exactly
+one is set. Closed by plan PR-S1.

@@ -3,9 +3,9 @@
 Raised in the 2026-09-29 adversarial review of the ai-service program plan (automatic tasks,
 tracking agents, AI configuration). Four reviewers (alert-engine, AI safety, farm domain,
 architecture) attacked plan rev 2 against origin/main `dae95efb3`; the main session re-verified the
-load-bearing claims in code, and ALERT-CRITICAL-004 on the live database. MT-HIGH-064 and
-MT-MEDIUM-065 come from the PR-T1 audit. Each finding names the plan PR that closes it; "owner
-decision" entries need a product decision before any code.
+load-bearing claims in code, and ALERT-CRITICAL-004 on the live database. Later entries
+(MT-HIGH-064, MT-MEDIUM-065, ALERT-CRITICAL-009, FARM-MEDIUM-355) come from the implementation
+lanes. Each finding names the plan PR that closes it.
 
 ## AISAFETY-HIGH-027
 

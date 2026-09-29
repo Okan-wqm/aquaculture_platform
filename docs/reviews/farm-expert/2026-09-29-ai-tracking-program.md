@@ -3,9 +3,9 @@
 Raised in the 2026-09-29 adversarial review of the ai-service program plan (automatic tasks,
 tracking agents, AI configuration). Four reviewers (alert-engine, AI safety, farm domain,
 architecture) attacked plan rev 2 against origin/main `dae95efb3`; the main session re-verified the
-load-bearing claims in code, and ALERT-CRITICAL-004 on the live database. MT-HIGH-064 and
-MT-MEDIUM-065 come from the PR-T1 audit. Each finding names the plan PR that closes it; "owner
-decision" entries need a product decision before any code.
+load-bearing claims in code, and ALERT-CRITICAL-004 on the live database. Later entries
+(MT-HIGH-064, MT-MEDIUM-065, ALERT-CRITICAL-009, FARM-MEDIUM-355) come from the implementation
+lanes. Each finding names the plan PR that closes it.
 
 ## FARM-HIGH-334
 
@@ -261,3 +261,17 @@ drafts have no confirmable write path.
 - **Rule:** Human-confirmed decision support.
 
 Closed by plan PR-C4 except transfer/grading which need capacity and override-audit rules.
+
+## FARM-MEDIUM-355
+
+Mortality recordDate is derived from an ambiguous observedAt: the web sends a picked date, the
+mobile app an instant, so the stored business day is the UTC date and is wrong around local midnight
+for non-UTC sites.
+
+- **Severity:** MEDIUM. **Deadline:** 2026-10-31. **Closes in:** plan PR-S1b.
+- **Evidence:** `apps/farm-service/src/batch/handlers/record-mortality.handler.ts:242` — recordDate
+  taken from observedAt.
+- **Rule:** Site-local business days.
+
+Found by the PR-S1 implementer. Fix splits the contract into observedAt (instant) and recordDate
+(site-local LocalDate) across GraphQL, web and aquamobil. Closed by plan PR-S1b.

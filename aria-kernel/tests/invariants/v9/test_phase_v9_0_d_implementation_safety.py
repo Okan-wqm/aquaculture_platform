@@ -852,6 +852,73 @@ class TestPhaseAGateExitCriterion(unittest.TestCase):
             )
 
 
+class TestCanonicalSuiteExecutableSpelling(unittest.TestCase):
+    """ORPHAN-CRITICAL-727 — one suite, two gates, one spelling that clears both.
+
+    The pre-PR-open perimeter accepts the bare ``nx ...`` form (or that form
+    behind an ``npx`` prefix). ``validation.parse_allowed_command`` pins argv-0
+    and admits ``npx nx`` only. A lane that staged the perimeter's spelling
+    therefore declared a suite its own runner would refuse to execute, and the
+    change could never produce the evidence it promised. These pins fail if
+    either gate's rules move away from the derived tuple.
+    """
+
+    def test_every_executable_command_is_runnable_by_the_validation_lane(self):
+        from aria_kernel.validation import parse_allowed_command
+
+        for command in _is.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE:
+            with self.subTest(command=command):
+                argv, _env = parse_allowed_command(command)
+                self.assertTrue(argv)
+
+    def test_the_executable_suite_satisfies_the_pre_pr_open_perimeter(self):
+        context = _is.HardFailContext(
+            validation_commands=tuple(_is.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE),
+        )
+        result = _is._check_test_gate_canonical_suite(context)
+        self.assertTrue(result.passed, result.reason)
+
+    def test_every_canonical_command_is_executable_by_the_runner(self):
+        """The claim that matters: BOTH gates accept the same suite.
+
+        ORPHAN-CRITICAL-728 rewrites this pin. The version it replaces
+        asserted `executable.endswith(canonical)` and equal lengths over a
+        tuple built by prepending `"npx "` in a comprehension — it restated
+        the comprehension in the assertion and could not fail whatever either
+        gate did. What the derivation exists to guarantee is not a string
+        shape: it is that the spelling the pre-PR-open perimeter demands
+        (`_check_test_gate_canonical_suite`) is a spelling
+        `validation.parse_allowed_command` will actually run. That is a claim
+        about two INDEPENDENT judges, and it can fail.
+        """
+        from aria_kernel.validation import parse_allowed_command
+
+        # 1. Every executable spelling really parses on the runner's lane.
+        for command in _is.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE:
+            parse_allowed_command(command)
+
+        # 2. And the perimeter accepts that same set as the canonical suite.
+        context = _is.HardFailContext(
+            validation_commands=tuple(_is.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE),
+        )
+        self.assertTrue(_is._check_test_gate_canonical_suite(context).passed)
+
+        # 3. The bare canonical spelling is what the perimeter documents and
+        #    what the runner REFUSES — the disagreement the derivation exists
+        #    to bridge. If a future edit made both accept the same literal,
+        #    this fails and the derivation should be deleted, not the pin.
+        from aria_kernel.tool_registry import GovernanceError
+
+        refused = [
+            command for command in _is.CANONICAL_VALIDATION_COMMANDS
+            if command not in _is.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
+        ]
+        self.assertTrue(refused, "nothing needed bridging; drop the derivation")
+        for command in refused:
+            with self.assertRaises(GovernanceError):
+                parse_allowed_command(command)
+
+
 class TestV9PublicApi(unittest.TestCase):
 
     def test_i_v9_safety_public_api_complete(self):
@@ -885,6 +952,14 @@ class TestV9PublicApi(unittest.TestCase):
             # the two cannot disagree, and the canonical validation suite
             # is what the test gate requires an implementation to declare.
             "ARIA_IMPL_BRANCH_FRAGMENT", "CANONICAL_VALIDATION_COMMANDS",
+            # ORPHAN-CRITICAL-727 — the executable spelling of that same
+            # suite. Two gates read it and disagreed on the prefix: the
+            # perimeter accepts bare `nx ...`, while validation's
+            # parse_allowed_command pins argv-0 and admits `npx nx` only, so
+            # the staging path could declare a suite its own runner refused
+            # to execute. Registered here rather than relaxing the pin, per
+            # the note above: an API addition is a review event.
+            "CANONICAL_VALIDATION_COMMANDS_EXECUTABLE",
             # RC-2 — the observe/authorise split is public contract, because
             # the whole guarantee is that an observation is a DIFFERENT TYPE
             # from an authorisation. A caller has to be able to name the
@@ -898,6 +973,24 @@ class TestV9PublicApi(unittest.TestCase):
             # and these four are that addition.
             "observe_perimeter", "PerimeterObservation", "PerimeterVerdict",
             "NOT_EVALUABLE_AT_THIS_STAGE",
+            # ORPHAN-CRITICAL-728 — three additions, each a review event.
+            #
+            # `classify_declared_surface` is the single-surface rule extracted
+            # out of `_check_kernel_self_modification_at_mint`, and
+            # `implementation_allowed_scope` is the
+            # `affected_surfaces − READONLY_PATHS` subtraction the
+            # implementation envelope derives its scope from. The subtraction
+            # and the perimeter check that judges the result MUST decide
+            # "readonly" the same way; two copies of that rule is how a path
+            # comes to be subtracted by one and admitted by the other.
+            #
+            # `CANONICAL_VALIDATION_TIMEOUT_MS` is public because both sides
+            # of the gate (the staged baseline and the gated candidate) have
+            # to be measured under the same ceiling, and the 120s default in
+            # `validation.run_validation_commands` cannot finish this
+            # repository's `nx affected --target=test`.
+            "classify_declared_surface", "implementation_allowed_scope",
+            "CANONICAL_VALIDATION_TIMEOUT_MS",
         }
         self.assertEqual(
             set(_is.__all__), canonical,

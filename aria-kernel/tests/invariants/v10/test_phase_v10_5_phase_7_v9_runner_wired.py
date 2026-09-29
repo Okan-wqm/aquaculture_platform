@@ -233,10 +233,8 @@ class V9RunnerWiredInvariants(unittest.TestCase):
                 plan_id="plan-test-f027",
                 workspace_root=Path(tmpdir),
                 base_dir=Path(tmpdir),
-                converged_plan={},
                 cross_review_summary={},
                 profile="standard",
-                implementer_poll_seconds=1.0,
             )
         self.assertEqual(
             result.terminal_state, "IMPLEMENTATION_REQUEST_REFUSED",

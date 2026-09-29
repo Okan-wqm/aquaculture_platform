@@ -98,10 +98,18 @@ class OrchestratorSignatureTests(unittest.TestCase):
             profile_param.kind, inspect.Parameter.KEYWORD_ONLY,
             "profile MUST be keyword-only",
         )
-        # implementer_poll_seconds default 1800.0
-        self.assertIn("implementer_poll_seconds", sig.parameters)
-        poll_param = sig.parameters["implementer_poll_seconds"]
-        self.assertEqual(poll_param.default, 1800.0)
+        # K6 (ORPHAN-CRITICAL-727) — REWRITTEN PIN. This used to assert
+        # `implementer_poll_seconds` was a parameter defaulting to 1800.0.
+        # That is now false, deliberately: the V9 implementation phase mints
+        # the envelope and returns, because the executor lane claims it in a
+        # LATER workflow run and nothing the cycle waited for could arrive
+        # inside the cycle. With the poll gone the budget had no reader, and a
+        # knob nothing reads is a promise to the operator that nothing keeps.
+        self.assertNotIn(
+            "implementer_poll_seconds", sig.parameters,
+            "the V9 implementation phase no longer polls; a poll budget "
+            "parameter would be a knob with no reader",
+        )
 
     def test_i_v31_e_04_orchestrator_body_has_zero_get_profile_calls(self) -> None:
         """Plan ARIA-V3.1-E-4 — orchestrator uses ONLY the profile

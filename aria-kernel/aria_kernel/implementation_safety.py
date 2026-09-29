@@ -118,6 +118,14 @@ ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     # anchor). Scoped to the `pr` subcommand on purpose: the rest of the
     # kernel CLI is operator surface, not implementer surface.
     re.compile(r"^(?:/[\w./-]+/)?python3?(\.\d+)?\s+-m\s+aria_kernel\s+pr\s+create(\s+\S+)*\s*$"),
+    # ORPHAN-CRITICAL-727 — the gate that MAKES `pr create` openable, admitted
+    # the same way and for the same reason. `open_pr_for_action` refuses an
+    # action that is not `ready_for_pr` with a `validation_gate_ref`, and the
+    # only promoter is `apply_engine.gate_apply_action`, which had CLI-only
+    # callers: the implementer could be told to open a PR but had no reachable
+    # command that produced the ids the PR opener demands. Scoped to the
+    # `gate` subcommand — `apply scan-diff` is operator surface.
+    re.compile(r"^(?:/[\w./-]+/)?python3?(\.\d+)?\s+-m\s+aria_kernel\s+apply\s+gate(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+checks(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+view(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+diff(\s+\S+)*\s*$"),
@@ -1254,6 +1262,38 @@ CANONICAL_VALIDATION_COMMANDS: tuple[str, ...] = (
     "npm run type-check",
 )
 
+# ORPHAN-CRITICAL-727 — the same suite, spelled the way a lane can RUN it.
+#
+# Two gates read the suite and they disagreed on the spelling. The
+# pre-PR-open perimeter accepts the bare `nx ...` form above (or that form
+# behind an `npx` prefix); `validation.parse_allowed_command` admits
+# `npx nx` and refuses a bare `nx`, because argv-0 is what it pins. A lane
+# that staged the perimeter's spelling therefore declared a suite its own
+# validation runner would refuse to execute — the change would carry a
+# declaration nobody could produce evidence for.
+#
+# Derived rather than retyped so the two tuples cannot drift: the executable
+# form IS the canonical form with the runner prefix the allowlist requires.
+CANONICAL_VALIDATION_COMMANDS_EXECUTABLE: tuple[str, ...] = tuple(
+    f"npx {command}" if command.startswith("nx ") else command
+    for command in CANONICAL_VALIDATION_COMMANDS
+)
+
+# ORPHAN-CRITICAL-728 — how long the canonical suite is allowed to take.
+#
+# `validation.run_validation_commands` defaults to 120_000 ms, which is the
+# right default for the one-command experiment recipes that were its only
+# caller. `npx nx affected --target=test` on THIS monorepo runs for twenty to
+# thirty minutes, so the staged baseline and the gated candidate both timed
+# out, both recorded status="failed", `_regression_status` read that as
+# `no_regression`, and `evaluate_validation_gate`'s require_worktree_ok
+# blocked forever: the gate could never pass, whatever the code did.
+#
+# 45 minutes covers the observed worst case with headroom and stays under
+# `experiment.MAX_RECIPE_TIMEOUT_MS` (60 min), which is the operator-declared
+# ceiling for any single command on this lane.
+CANONICAL_VALIDATION_TIMEOUT_MS: int = 2_700_000
+
 
 def _normalize_declared_path(raw: str) -> str:
     """Collapse a declared surface to a comparable repo-relative form.
@@ -1277,6 +1317,76 @@ def _normalize_declared_path(raw: str) -> str:
     text = str(raw).strip().replace("\\", "/")
     segments = [seg for seg in text.split("/") if seg not in ("", ".")]
     return "/".join(segments)
+
+
+def classify_declared_surface(raw: Any) -> str | None:
+    """Why a declared surface may not be written, or ``None`` when it may.
+
+    ORPHAN-CRITICAL-728 — extracted from
+    ``_check_kernel_self_modification_at_mint`` because the envelope mint now
+    has to make the same judgement one step EARLIER: the bridge derives
+    ``allowed_scope`` as the plan's declared surfaces minus READONLY_PATHS,
+    and "minus" and "refuse" have to agree on what a readonly surface is. Two
+    copies of this rule would let a path be subtracted by one and admitted by
+    the other, which is how a scope claim comes to differ from the perimeter
+    that judges it.
+    """
+    surface = _normalize_declared_path(raw)
+    if not surface:
+        return "empty_declared_surface"
+    if ".." in surface.split("/"):
+        return f"traversal_in_declared_surface:{raw}"
+    # A glob cannot be compared against a prefix without expanding it
+    # against a filesystem that does not exist at mint time, so it is
+    # unclassifiable rather than safe. `aria-kernel/**/*.py` passed.
+    if any(ch in surface for ch in "*?["):
+        return f"glob_in_declared_surface:{raw}"
+    for readonly in READONLY_PATHS:
+        ro = readonly.rstrip("/")
+        # ORPHAN-CRITICAL-461 — BOTH directions. The check used to ask
+        # only "is the declared surface inside a readonly path", so a
+        # strictly BROADER claim walked straight through: declaring one
+        # file under aria-kernel/aria_kernel/ failed, while declaring
+        # `aria-kernel` — which contains it — passed, and so did
+        # `tools`. A scope claim that CONTAINS a protected path is not
+        # safer than one that names it; it is the same write with a
+        # vaguer envelope.
+        if surface == ro or surface.startswith(ro + "/"):
+            return f"readonly_surface_declared:{surface}"
+        if ro.startswith(surface + "/"):
+            return f"declared_surface_contains_readonly:{surface}->{ro}"
+    return None
+
+
+def implementation_allowed_scope(
+    affected_surface_paths: list[str],
+) -> tuple[list[str], list[dict[str, str]]]:
+    """``(writable, refused)`` — the subtraction the implementation envelope needs.
+
+    ORPHAN-CRITICAL-728 — ``cross_review_bridge``'s docstring said the
+    orchestrator "MUST compute this as ... affected_surfaces minus
+    READONLY_PATHS" and pinned the claim on an invariant id (I-V9-IMPL-04)
+    that exists nowhere in this repository. No orchestrator computed it; the
+    one caller passed ``converged_plan.get("allowed_scope")``, a key no plan
+    schema defines. Deriving it HERE, from the paths the plan validator
+    already accepted, is what makes the subtraction real instead of
+    documented.
+
+    Refusals are RETURNED rather than raised so the mint can name every
+    dropped surface in one governance event: a plan that lands three files
+    in ``aria-kernel/`` should tell its author all three, not the first.
+    """
+    writable: list[str] = []
+    refused: list[dict[str, str]] = []
+    for raw in affected_surface_paths:
+        reason = classify_declared_surface(raw)
+        if reason is None:
+            normalized = _normalize_declared_path(raw)
+            if normalized not in writable:
+                writable.append(normalized)
+        else:
+            refused.append({"surface": str(raw), "reason": reason})
+    return writable, refused
 
 
 _FORCE_PUSH_LONG_FLAGS: frozenset[str] = frozenset({"--force", "--force-with-lease"})
@@ -1396,30 +1506,9 @@ def _check_kernel_self_modification_at_mint(
     if len(declared) == 0:
         return _failed(name, "affected_surfaces_empty")
     for raw in declared:
-        surface = _normalize_declared_path(raw)
-        if not surface:
-            return _failed(name, "empty_declared_surface")
-        if ".." in surface.split("/"):
-            return _failed(name, f"traversal_in_declared_surface:{raw}")
-        # A glob cannot be compared against a prefix without expanding it
-        # against a filesystem that does not exist at mint time, so it is
-        # unclassifiable rather than safe. `aria-kernel/**/*.py` passed.
-        if any(ch in surface for ch in "*?["):
-            return _failed(name, f"glob_in_declared_surface:{raw}")
-        for readonly in READONLY_PATHS:
-            ro = readonly.rstrip("/")
-            # ORPHAN-CRITICAL-461 — BOTH directions. The check used to ask
-            # only "is the declared surface inside a readonly path", so a
-            # strictly BROADER claim walked straight through: declaring one
-            # file under aria-kernel/aria_kernel/ failed, while declaring
-            # `aria-kernel` — which contains it — passed, and so did
-            # `tools`. A scope claim that CONTAINS a protected path is not
-            # safer than one that names it; it is the same write with a
-            # vaguer envelope.
-            if surface == ro or surface.startswith(ro + "/"):
-                return _failed(name, f"readonly_surface_declared:{surface}")
-            if ro.startswith(surface + "/"):
-                return _failed(name, f"declared_surface_contains_readonly:{surface}->{ro}")
+        reason = classify_declared_surface(raw)
+        if reason is not None:
+            return _failed(name, reason)
     return _passed(name)
 
 
@@ -1825,6 +1914,8 @@ __all__ = (
     # validation suite the test gate requires.
     "ARIA_IMPL_BRANCH_FRAGMENT",
     "CANONICAL_VALIDATION_COMMANDS",
+    "CANONICAL_VALIDATION_COMMANDS_EXECUTABLE",
+    "CANONICAL_VALIDATION_TIMEOUT_MS",
     # exceptions
     "SecretLeakDetected",
     "PathEscape",
@@ -1838,6 +1929,11 @@ __all__ = (
     "mint_unpredictable_feature_branch_name",
     "verify_no_path_escape",
     "verify_bash_command_allowed",
+    # ORPHAN-CRITICAL-728 — the READONLY_PATHS subtraction the implementation
+    # envelope derives its allowed_scope from, and the single-surface rule it
+    # shares with the pre-PR-open perimeter check.
+    "classify_declared_surface",
+    "implementation_allowed_scope",
     "is_gh_api_path_forbidden",
     "SandboxUnavailable",
     "sandbox_backend",

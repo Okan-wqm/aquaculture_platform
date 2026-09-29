@@ -17,12 +17,26 @@ V3.1-B installs three concrete variants behind this Protocol:
 * ``StrictV9ImplementationRunner`` — profile=strict; refuses with
   `policy_strict_no_implementation` so the operator-side review still
   fires on the CONVERGED plan.
-* ``AutonomousV9ImplementationRunner`` — profile=autonomous; mints the
-  signing key + scoped installation token + issues the implementation
-  envelope + polls for outcome + verifies signature + records via
-  `plan_convergence.record_implementation_outcome`. try/finally
-  cleans the keypair + revokes the installation token regardless of
-  outcome (closes C-11, H-4).
+* ``AutonomousV9ImplementationRunner`` — profile=autonomous; stages the
+  CONVERGED plan for PR (ORPHAN-CRITICAL-727), mints the signing key +
+  scoped installation token, issues the implementation envelope, and
+  RETURNS. try/finally cleans the keypair + revokes the installation
+  token regardless of outcome (closes C-11, H-4).
+
+K6 (ORPHAN-CRITICAL-727) removed the synchronous poll that used to sit
+after the mint. Two independent reasons, either sufficient:
+
+  * the executor lane claims the envelope in a LATER workflow run, so
+    nothing the poll waited for could arrive inside the cycle that
+    minted it — the same fact CL-1 acted on when it deleted the
+    convergence-drainer polls;
+  * the poll called ``fold_plan_state(plan_id, base_dir=...)``
+    POSITIONALLY against a keyword-only function, so every real
+    invocation raised ``TypeError`` — not caught by its
+    ``except (KeyError, ValueError, GovernanceError)`` arm — and the
+    phase died at the first iteration. The tests were green because
+    they patched ``fold_plan_state`` with a mock, and a mock accepts a
+    positional call the real function refuses.
 
 V3.1-0 ships ONLY the Protocol + NoOp variant. The three real variants
 ship in V3.1-B.
@@ -46,6 +60,13 @@ if TYPE_CHECKING:  # pragma: no cover
 # `--strict` mypy / pyright).
 TerminalState = Literal[
     "IMPLEMENTATION_MERGED",
+    # K6 (ORPHAN-CRITICAL-727) — the honest end of a mint-and-return phase:
+    # the plan is staged, the envelope is on the queue, and the executor lane
+    # delivers the implementation in a later run. It is not MERGED, not
+    # RECORDED, not REJECTED, and calling it TIMEOUT (what the dead poll
+    # returned) told the operator a deadline had passed when nothing had
+    # even been claimed yet.
+    "IMPLEMENTATION_DISPATCHED",
     # E2/F1 — the successful end of the IMPLEMENTATION PHASE: the agent
     # applied the diff, validated, opened the PR, and the outcome row
     # landed. MERGED belongs to the merge-authority chain (operator-gated)
@@ -53,7 +74,12 @@ TerminalState = Literal[
     # timed out on every success.
     "IMPLEMENTATION_RECORDED",
     "IMPLEMENTATION_REJECTED",
-    "IMPLEMENTATION_TIMEOUT",
+    # K6 (ORPHAN-CRITICAL-727) — ``IMPLEMENTATION_TIMEOUT`` is gone with the
+    # poll that was its only producer. "We waited and nothing arrived" is no
+    # longer a state this phase can be in, because the phase no longer waits:
+    # an envelope that the executor has not yet claimed is DISPATCHED, and a
+    # deadline belongs to the lease that governs the claim, not to a cycle
+    # that has already handed the work over.
     "IMPLEMENTATION_REQUEST_REFUSED",
 ]
 
@@ -94,6 +120,15 @@ class V9ImplementationRunner(Protocol):
 
     Profile dispatch happens at the orchestrator entry (V3.1-E sets up
     the profile_gate before the runner fires).
+
+    ORPHAN-CRITICAL-728 — ``converged_plan`` was an input and is gone. Its
+    only production producer was
+    ``ConvergenceResult.converged_plan = eval_result.get("plan_content", {})``
+    and ``plan_convergence.evaluate_plan`` returns no ``plan_content`` key, so
+    every autonomous run received ``{}``. The body now comes from the plan
+    ledger, keyed by ``plan_id``, hash-verified against the revision that
+    converged — which is the only reading of "the CONVERGED plan" that a
+    caller cannot get wrong.
     """
 
     def run(
@@ -103,10 +138,8 @@ class V9ImplementationRunner(Protocol):
         plan_id: str,
         workspace_root: Path,
         base_dir: Path,
-        converged_plan: dict,
         cross_review_summary: dict,
         profile: str,
-        implementer_poll_seconds: float,
     ) -> V9ImplementationResult:
         ...
 
@@ -123,10 +156,8 @@ class NoOpV9ImplementationRunner:
         plan_id: str,
         workspace_root: Path,
         base_dir: Path,
-        converged_plan: dict,
         cross_review_summary: dict,
         profile: str,
-        implementer_poll_seconds: float,
     ) -> V9ImplementationResult:
         return V9ImplementationResult(
             terminal_state="IMPLEMENTATION_REQUEST_REFUSED",
@@ -151,10 +182,8 @@ class StrictV9ImplementationRunner:
         plan_id: str,
         workspace_root: Path,
         base_dir: Path,
-        converged_plan: dict,
         cross_review_summary: dict,
         profile: str,
-        implementer_poll_seconds: float,
     ) -> V9ImplementationResult:
         return V9ImplementationResult(
             terminal_state="IMPLEMENTATION_REQUEST_REFUSED",
@@ -168,22 +197,27 @@ class AutonomousV9ImplementationRunner:
     """Plan ARIA-V3.1-B — autonomous-profile variant (closes the
     final value gap "CONVERGED plans never become real code").
 
-    Pipeline:
+    Pipeline (K6 / ORPHAN-CRITICAL-727):
 
       1. mint_signing_key(cycle_id) — per-cycle ed25519 keypair +
-         git_config commit signing wired (V3.1-B-3 closes C-7).
+         git_config commit signing wired (V3.1-B-3 closes C-7). First,
+         so the workspace's commit identity is configured before any
+         later step runs git in it.
       2. mint_installation_token(cycle_id) — 5-min TTL scoped GH
          installation token (V9.0-C Mode A / Mode B shim).
-      3. issue_implementation_envelope(plan_id, ...) — submits the
-         agent invocation request with base64-encoded delimiters
-         (V3.1-B-2 prompt).
-      4. _poll_for_implementation_state(plan_id, deadline) —
-         exponential backoff up to implementer_poll_seconds (default
-         1800s). Distinct from challenger_timeout (V3.1-B-9 closes
-         H-13).
-      5. record_implementation_outcome — verify_commit_signature
-         against the per-cycle public-key fingerprint before
-         accepting the row (V3.1-B-3 closes C-7).
+      3. ``apply_engine.stage_converged_plan_for_pr`` — records the
+         proposal (machine-approved against the CONVERGED content hash),
+         opens the change chain, mints the branch name and runs the
+         BASELINE validation. Without this step the envelope told the
+         agent to run `apply gate` / `pr create` with ids nobody had
+         minted, and every CONVERGED plan died at the last command.
+      4. issue_implementation_envelope(plan_id, ..., proposal_id=,
+         change_id=, branch=) — the mint IS the CONVERGED ->
+         IMPLEMENTATION_REQUESTED transition, and it now carries the
+         staged ids as structured envelope fields.
+      5. RETURN ``IMPLEMENTATION_DISPATCHED``. The executor lane claims
+         the envelope in a later run; see the module docstring for why
+         waiting here could never have observed the result.
       6. try/finally cleanup — revoke_signing_key + revoke_installation_token
          regardless of outcome (V3.1-B-7 closes C-11 + H-4).
 
@@ -200,12 +234,11 @@ class AutonomousV9ImplementationRunner:
         plan_id: str,
         workspace_root: Path,
         base_dir: Path,
-        converged_plan: dict,
         cross_review_summary: dict,
         profile: str,
-        implementer_poll_seconds: float,
     ) -> V9ImplementationResult:
         # Lazy imports preserve cold-start hermetic discipline.
+        from ..apply_engine import stage_converged_plan_for_pr
         from ..bridge_exceptions import BridgeContractViolation
         from ..cross_review_bridge import issue_implementation_envelope
         from ..gh_token_factory import (
@@ -214,10 +247,8 @@ class AutonomousV9ImplementationRunner:
             revoke_installation_token,
             revoke_signing_key,
         )
-        from ..plan_convergence import fold_plan_state
         from ..tool_registry import GovernanceError, append_tools_governance
         import json as _json
-        import time as _time
 
         signing_key = None
         installation_lease = None
@@ -228,29 +259,59 @@ class AutonomousV9ImplementationRunner:
             installation_lease = mint_installation_token(
                 cycle_id=cycle_id, workspace_root=workspace_root,
             )
+            # K6 (ORPHAN-CRITICAL-727) — staging BEFORE the mint, because the
+            # envelope carries the staged ids and the mint is the state
+            # transition out of CONVERGED: staging afterwards would leave a
+            # plan in IMPLEMENTATION_REQUESTED whose agent has no ids to use,
+            # and the transition is not reversible.
+            try:
+                staged = stage_converged_plan_for_pr(
+                    plan_id=plan_id,
+                    workspace_root=workspace_root,
+                    base_dir=base_dir,
+                )
+            except GovernanceError as exc:
+                append_tools_governance(
+                    base_dir, "implementation_staging_governance_error",
+                    {
+                        "plan_id": plan_id,
+                        "cycle_id": cycle_id,
+                        "error_class": type(exc).__name__,
+                        "error_message": str(exc)[:1000],
+                    },
+                )
+                return V9ImplementationResult(
+                    terminal_state="IMPLEMENTATION_REQUEST_REFUSED",
+                    pr_url=None,
+                    rejection_class="staging_governance_error",
+                    specialist_review_signal="review_converged_plan",
+                )
+
             # Plan ARIA-V3.1-B — issue the implementation envelope.
             # The envelope ships with base64-encoded delimiter
             # payloads (cross_review_bridge._implementation_suggested_prompt
             # V3.1-B-2 rewrite).
             try:
-                envelope = issue_implementation_envelope(
+                # ORPHAN-CRITICAL-728 — the plan's own content is no longer
+                # passed here. `must_satisfy` and `allowed_scope` are not
+                # plan-content fields, so `converged_plan.get(...)` handed the
+                # mint two empty lists and it refused its own envelope; and
+                # `converged_plan` itself arrives as `{}` from the drainer,
+                # because `evaluate_plan` has no `plan_content` key to read.
+                # The bridge reads the hash-verified body from the plan ledger
+                # and derives all of it.
+                issue_implementation_envelope(
                     plan_id=plan_id,
-                    converged_plan_revision_id=str(
-                        converged_plan.get("revision_id")
-                        or converged_plan.get("plan_id") or plan_id
-                    ),
-                    converged_plan_text=_json.dumps(
-                        converged_plan, sort_keys=True, indent=2,
-                    ),
                     cross_review_revision_id=str(
                         cross_review_summary.get("revision_id") or "cr-unknown"
                     ),
                     cross_review_summary_text=_json.dumps(
                         cross_review_summary, sort_keys=True, indent=2,
                     ),
-                    must_satisfy=list(converged_plan.get("must_satisfy") or []),
-                    evidence_refs=list(converged_plan.get("evidence_refs") or []),
-                    allowed_scope=list(converged_plan.get("allowed_scope") or []),
+                    proposal_id=str(staged["proposal_id"]),
+                    change_id=str(staged["change_id"]),
+                    branch=str(staged["branch"]),
+                    base_sha=str(staged["base_sha"]),
                     base_dir=base_dir,
                 )
             except BridgeContractViolation as exc:
@@ -286,57 +347,26 @@ class AutonomousV9ImplementationRunner:
                     specialist_review_signal="review_converged_plan",
                 )
 
-            # Plan ARIA-V3.1-B-9 — poll loop with exponential backoff.
-            # Distinct from challenger_timeout. Max polling interval
-            # 30s so the kernel doesn't waste cycles on a slow agent.
-            deadline = _time.monotonic() + implementer_poll_seconds
-            poll_interval = 1.0
-            max_interval = 30.0
-            terminal_state: TerminalState = "IMPLEMENTATION_TIMEOUT"
-            pr_url: str | None = None
-            rejection_class: str | None = None
-            while _time.monotonic() < deadline:
-                try:
-                    state = fold_plan_state(plan_id, base_dir=base_dir)
-                except (KeyError, ValueError, GovernanceError):
-                    state = None
-                if isinstance(state, dict):
-                    s = str(state.get("state", "")).upper()
-                    if s == "IMPLEMENTATION_MERGED":
-                        terminal_state = "IMPLEMENTATION_MERGED"
-                        pr_url = state.get("pr_url") if isinstance(state, dict) else None
-                        break
-                    if s == "IMPLEMENTATION_RECORDED":
-                        terminal_state = "IMPLEMENTATION_RECORDED"
-                        impl_block = state.get("implementation") if isinstance(state, dict) else None
-                        if isinstance(impl_block, dict):
-                            pr_url = impl_block.get("pr_url")
-                        break
-                    if s == "IMPLEMENTATION_REJECTED":
-                        terminal_state = "IMPLEMENTATION_REJECTED"
-                        rejection_class = str(state.get("rejection_class") or "unknown")
-                        break
-                _time.sleep(poll_interval)
-                poll_interval = min(poll_interval * 1.5, max_interval)
-
-            # Plan ARIA-V3.1-B-1 — signal-typed signal for specialist_review.
-            if terminal_state == "IMPLEMENTATION_MERGED":
-                signal: SpecialistReviewSignal = "review_merged_pr"
-            elif terminal_state == "IMPLEMENTATION_RECORDED":
-                # PR is open and recorded; the specialist reviews the diff.
-                signal = "review_merged_pr"
-            elif terminal_state == "IMPLEMENTATION_REJECTED":
-                signal = "review_rejected_pr"
-            elif terminal_state == "IMPLEMENTATION_TIMEOUT":
-                signal = "review_converged_plan"
-            else:
-                signal = "review_converged_plan"
-
+            # K6 — mint and return. The specialist reviews the CONVERGED plan
+            # in this cycle because the plan is the only artifact that exists
+            # yet; the diff and the PR are reviewed on the PR itself, by the
+            # own-PR CI lane and the merge gates, once the executor delivers.
+            append_tools_governance(
+                base_dir, "implementation_dispatched",
+                {
+                    "plan_id": plan_id,
+                    "cycle_id": cycle_id,
+                    "proposal_id": staged["proposal_id"],
+                    "change_id": staged["change_id"],
+                    "branch": staged["branch"],
+                    "baseline_ref": staged["baseline_ref"],
+                },
+            )
             return V9ImplementationResult(
-                terminal_state=terminal_state,
-                pr_url=pr_url,
-                rejection_class=rejection_class,
-                specialist_review_signal=signal,
+                terminal_state="IMPLEMENTATION_DISPATCHED",
+                pr_url=None,
+                rejection_class=None,
+                specialist_review_signal="review_converged_plan",
             )
         finally:
             # Plan ARIA-V3.1-B-7 (closes C-11 + H-4) — cleanup happens

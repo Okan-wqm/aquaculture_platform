@@ -224,8 +224,8 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
         result = runner.run(
             cycle_id="cyc-test", plan_id="plan-test",
             workspace_root=repo, base_dir=tools,
-            converged_plan={}, cross_review_summary={},
-            profile="standard", implementer_poll_seconds=60.0,
+            cross_review_summary={},
+            profile="standard",
         )
         self.assertEqual(result.terminal_state, "IMPLEMENTATION_REQUEST_REFUSED")
         self.assertEqual(result.specialist_review_signal, "review_converged_plan")

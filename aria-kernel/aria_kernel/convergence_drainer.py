@@ -70,6 +70,7 @@ from .ledger import load_declared_jsonl
 from .plan_convergence import (
     TERMINAL_STATES,
     _plan_requires_coverage,
+    converged_plan_body,
     evaluate_plan,
     fold_plan_state,
     record_coverage,
@@ -1470,11 +1471,17 @@ def run_convergence_drainer(
                         )
                     except Exception:
                         pass
-            converged_plan = (
-                eval_result.get("plan_content", {})
-                if arbiter_verdict == "converged"
-                else {}
-            )
+            # ORPHAN-CRITICAL-728 — read the body from the ledger, not from
+            # the evaluation result. `evaluate_plan` returns
+            # {schema_version, plan_id, event_appended, idempotent, event}
+            # and has never carried a `plan_content` key, so this expression
+            # resolved to {} on EVERY converged plan and the implementation
+            # lane was handed an empty dict all the way to staging.
+            converged_plan: dict[str, Any] = {}
+            if arbiter_verdict == "converged":
+                converged_plan = converged_plan_body(
+                    plan_id=plan_id, base_dir=base_dir,
+                )["plan_content"]
             unsatisfied = eval_result.get("unsatisfied_items", [])
             if persistence.exists():
                 try:

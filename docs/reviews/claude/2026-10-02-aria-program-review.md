@@ -473,3 +473,49 @@ cost is bounded by construction, and no cap is raised to make room.
 
 Re-checked on fix/aria-invocation-ledger-rollover 5cf8e0f61. Program plan rev2 does not cover this
 budget (K3 segments the ledger; the sum stays counted). Owner okan, deadline 2026-10-23.
+
+## ARIA-HIGH-286
+
+ARIA-HIGH-278 (e25d5ea8a) bounds what a publish folds by carrying each carried ledger's verified
+prefix in an `evidence_checkpoints` row. A checkpoint of another fold version is never read, and a
+store that has never recorded one has none, so after any change to how evidence is counted
+(`EVIDENCE_CHECKPOINT_FOLD_VERSION` bump) and on a store's first publish, the next publish folds
+every carried ledger from row 0 inside the same 80 MiB budget. Those ledgers hold 32.3 MiB and grow
+1.5-2.8 MiB a day: from between 2026-10-19 and 2026-11-02 on, a fold bump or a bootstrap refuses
+every publish, so the evidence-counting code can no longer change.
+
+Evidence (e25d5ea8a):
+
+- `aria-kernel/aria_kernel/autonomy_evidence.py:607` (`EVIDENCE_CHECKPOINT_FOLD_VERSION`; a
+  checkpoint of another version is not evidence)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2598` (`_carried_claim_cursors` skips every
+  other-version row, so after a bump each cursor starts at row 0)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2605` (a carried claim is charged its size less its
+  base: the whole ledger when no current checkpoint exists)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2654-2664` (`evidence_checkpoints_due` records a
+  checkpoint only at the parent claim's end, so a rebuild has no step smaller than a whole ledger)
+- `aria-kernel/aria_kernel/state_store.py:2052-2053` (checkpoint rows are deduplicated by `row_id`,
+  which omits the fold version at `autonomy_evidence.py:2661`: a rebuilt checkpoint at an old one's
+  row is never written)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2858-2863` (over budget raises
+  `state_commit_evidence_budget_exceeded`; `state_store.py:1140` verifies every just-created commit)
+- `origin/aria/state` 05c5d3160: carried ledgers 33,898,497 bytes (requests 18,492,881, governance
+  11,539,576, fixture runs 1,766,557, operator feedback 1,061,280, autonomy_state 761,494,
+  calibration 256,518, auto-merge 20,191), plus 606,243 never carried: 47.1 MiB of headroom, gone
+  around 2026-10-19 at 2.8 MiB/day and 2026-11-02 at 1.5 MiB/day
+
+The second residual e25d5ea8a named, recorded here with its numbers and no code: the counted ledgers
+that are never carried (cycles, agent_invocation_results, enterprise_readiness_claims, promotions,
+enterprise_acceptance_events, findings) are folded in full on every publish. On 05c5d3160 they hold
+606,243 bytes (results 566,985, cycles 36,209, promotions 3,049; the other three are absent), up
+from 360,726 on 09-18 (c48caea28): 0.017 MiB a day, nearly all of it results.jsonl before 09-26,
+flat since. With a rebuild bounded to two fifths of the budget, they share the remaining 48 MiB
+with the checkpoint ledger (about 1 KiB per carried MiB): about seven and a half years at that
+rate. A result row averages 1,745 bytes; an executor recording one per request (140 requests a day
+over the last three days) would add about 0.23 MiB a day, about 200 days of headroom.
+
+Rule: A change to how evidence is counted, and a store's first publish, rebuild their checkpoints in
+bounded steps: no publish folds more than a fixed slice of the carried ledgers, at any ledger age,
+and evidence the slice cannot reach is withheld by name, never estimated.
+
+Fix on fix/aria-evidence-checkpoint-rebuild (stacked on e25d5ea8a). Owner okan, deadline 2026-10-16.

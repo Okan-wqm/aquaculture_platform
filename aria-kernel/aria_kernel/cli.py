@@ -3053,6 +3053,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the full report as JSON instead of the one-line-per-check text.",
     )
 
+    # ADR-0023 / ARIA-HIGH-281 — the T2 boundary probe the hourly host timer
+    # (scripts/aria/runner-habitat/systemd/aria-t2-probe.timer) runs as gharunner.
+    habitat_parser = add_subparser(sub, "habitat")
+    habitat_sub = habitat_parser.add_subparsers(dest="habitat_command", required=True)
+    t2_probe = add_subparser(habitat_sub, "t2-probe")
+    t2_probe.add_argument("--workspace-root", required=True,
+                          help="The runner's checkout: its origin/main holds the allowed-signers file judged")
+    t2_probe.add_argument("--runner-env", required=True, help="The runner .env (values are never printed)")
+    t2_probe.add_argument("--key-dir", action="append", default=[],
+                          help="A directory whose keys the runner account holds (repeatable)")
+    t2_probe.add_argument("--textfile", default=None, help="Write the verdict here in Prometheus text format")
+
     # Plan 032 Faz 032b-2 — the Claude Code hook entry points. The CLI reads
     # the hook payload on stdin and prints the protocol's decision JSON.
     # ARIA-HIGH-123 — this is the KERNEL-side entry (an operator replaying a
@@ -3446,7 +3458,8 @@ def _main(argv: list[str] | None = None) -> int:
         from aria_kernel.operator_request_signature import record_enrolment
 
         print(json.dumps(record_enrolment(
-            repo_root=args.repo_root, signing_key=args.signing_key, signer_principal=args.signer_principal,
+            repo_root=args.repo_root, base_dir=args.tools_dir, signing_key=args.signing_key,
+            signer_principal=args.signer_principal,
             actor_class=args.actor_class, expires_in_hours=args.expires_in_hours, subject_stream=sys.stderr,
         ), indent=2, sort_keys=True))
         return 0
@@ -6793,6 +6806,7 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(sign_mcp_write_approval(
                 args.tool, json.loads(args.arguments), signing_key=args.signing_key, signer_principal=args.signer_principal,
                 actor_class=args.actor_class, expires_in_hours=args.expires_in_hours, workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
             ), indent=2, sort_keys=True))
             return 0
         if args.mcp_command == "registry":
@@ -6942,6 +6956,25 @@ def _main(argv: list[str] | None = None) -> int:
         hits = search(args.query, workspace_root=args.workspace_root, kinds=args.kinds, limit=args.limit)
         print(json.dumps([h.__dict__ for h in hits], indent=2, sort_keys=True))
         return 0
+
+    if args.command == "habitat" and args.habitat_command == "t2-probe":
+        from .habitat import probe_t2_boundary, t2_boundary_textfile
+        from .main_anchor import committed_blob, main_tip
+        from .operator_request_signature import ALLOWED_SIGNERS_PATH, runner_key_blobs
+
+        workspace = Path(args.workspace_root).resolve()
+        tip = main_tip(workspace)
+        signers = committed_blob(workspace, commit=tip, path=ALLOWED_SIGNERS_PATH) if tip else None
+        boundary = probe_t2_boundary(
+            allowed_signers=signers.content if signers else None,
+            registered_keys=runner_key_blobs(workspace_root=workspace, base_dir=args.tools_dir),
+            key_dirs=[Path(directory) for directory in args.key_dir], runner_env=Path(args.runner_env),
+        )
+        if args.textfile:
+            Path(args.textfile).write_text(t2_boundary_textfile(boundary, probed_at=time.time()), encoding="utf-8")
+        print(json.dumps({"identity": boundary.identity, "held": boundary.held, "allowed_signers_commit": tip,
+                          "violations": list(boundary.violations)}, indent=2, sort_keys=True))
+        return 0 if boundary.held else 3
 
     if args.command == "doctor":
         from .doctor import render_doctor_text, run_doctor

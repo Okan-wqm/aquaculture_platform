@@ -157,7 +157,7 @@ class OperatorRequestFixture:
         """Change the allowed-signers file and/or the registry through a signed enrolment, on main."""
         for relative, text in files.items():
             (self.repo / relative).write_text(text, encoding="utf-8")
-        row = record_enrolment(repo_root=self.repo, signing_key=key or self.key,
+        row = record_enrolment(repo_root=self.repo, base_dir=self.tools, signing_key=key or self.key,
                                signer_principal=principal or self.principal, actor_class=actor_class,
                                expires_in_hours=expires_in_hours, subject_stream=self.subjects)
         paths = (ALLOWED_SIGNERS_PATH, NAMESPACE_REGISTRY_PATH, ENROLMENTS_PATH)

@@ -182,17 +182,17 @@ class RegistryAnchorTests(unittest.TestCase):
         self.fx = OperatorRequestFixture(Path(self.tmp.name) / "fixture")
 
     def test_the_registry_is_the_committed_object_not_the_working_tree(self) -> None:
-        anchor, reason = ors.allowed_signers_for_checkout(self.fx.repo)
+        anchor, reason = ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)
         self.assertIsNone(reason)
         self.assertEqual(set(anchor.namespaces), set(ors.parse_namespace_registry(REGISTRY_BYTES)))
         (self.fx.repo / ors.NAMESPACE_REGISTRY_PATH).write_bytes(b"{}")
-        self.assertIsNotNone(ors.allowed_signers_for_checkout(self.fx.repo)[0])
+        self.assertIsNotNone(ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[0])
 
     def test_a_missing_or_broken_registry_leaves_no_anchor(self) -> None:
         self.fx.commit_files({ors.NAMESPACE_REGISTRY_PATH: "{}"}, message="chore(test): break the registry")
-        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo), (None, ors.NAMESPACE_REGISTRY_INVALID))
+        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools), (None, ors.NAMESPACE_REGISTRY_INVALID))
         self.fx.commit_files({ors.NAMESPACE_REGISTRY_PATH: None}, message="chore(test): drop the registry")
-        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo), (None, ors.ALLOWED_SIGNERS_UNAVAILABLE))
+        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools), (None, ors.ALLOWED_SIGNERS_UNAVAILABLE))
 
 
 if __name__ == "__main__":
@@ -215,7 +215,7 @@ class CommittedChainTests(unittest.TestCase):
             self.assertTrue(ors.genesis_pinned(genesis["child"]))
             self.assertIsNone(ors.verify_enrolment_chain(
                 blobs[ors.ENROLMENTS_PATH], allowed_signers=blobs[ors.ALLOWED_SIGNERS_PATH],
-                registry=blobs[ors.NAMESPACE_REGISTRY_PATH]))
+                registry=blobs[ors.NAMESPACE_REGISTRY_PATH], runner_keys=frozenset()))
         for name in ors.OPERATOR_NAMESPACES:
             self.assertIn(name, genesis["child_allowed_signers"], "the genesis enrols the operator for every act")
 
@@ -318,14 +318,14 @@ class EnrolmentChainTests(unittest.TestCase):
                                                            namespace=ALL_OPERATOR_NAMESPACES)
 
     def _reason(self) -> str | None:
-        return ors.allowed_signers_for_checkout(self.fx.repo)[1]
+        return ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[1]
 
     def _reset(self) -> None:
         git(self.fx.repo, "reset", "-q", "--hard", self.base)
         git(self.fx.repo, "update-ref", main_anchor.MAIN_TRACKING_REF, self.base)
 
     def _newcomer_request_verifies(self) -> bool:
-        anchor = ors.allowed_signers_for_checkout(self.fx.repo)[0]
+        anchor = ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[0]
         row = ors.sign_operator_request(self.fx.request_row(), signing_key=self.newcomer,
                                         signer_principal="newcomer@aria.test")
         return anchor is not None and ors.verify_operator_request(row, allowed_signers=anchor).valid

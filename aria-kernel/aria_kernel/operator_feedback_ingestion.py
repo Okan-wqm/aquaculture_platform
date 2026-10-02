@@ -215,7 +215,7 @@ def ingest_operator_feedback(
     moment = now or datetime.now(timezone.utc)
     ledger = root / OPERATOR_FEEDBACK_LEDGER_NAME
     history = request_history_for(root)
-    signers, anchor_reason = allowed_signers_for_checkout(repo_root)
+    signers, anchor_reason = allowed_signers_for_checkout(repo_root, base_dir=root)
     scan = _Scan(root, cycle_id, history)
     spent_rows: list[dict[str, Any]] = []
     groups: dict[str, list[tuple[dict[str, Any], str]]] = {}

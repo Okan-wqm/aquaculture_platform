@@ -98,13 +98,13 @@ class TermsFromTheAnchorTests(unittest.TestCase):
         policy = self.fx.repo / OPERATORS_POLICY_RELPATH
         committed = json.loads(policy.read_text(encoding="utf-8"))
         policy.write_text(json.dumps(dict(committed, repository="intruder/repo")), encoding="utf-8")
-        anchor = ors.allowed_signers_for_checkout(self.fx.repo)[0]
+        anchor = ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[0]
         self.assertEqual(anchor.audience, committed["repository"])
         self.assertEqual(anchor.namespaces[ors.SIGNATURE_NAMESPACE].expiry_hours, 168)
 
     def test_a_committed_policy_that_is_not_one_leaves_no_anchor(self) -> None:
         self.fx.commit_files({OPERATORS_POLICY_RELPATH: "{}"}, message="chore(test): break the policy")
-        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo), (None, ors.OPERATORS_POLICY_UNAVAILABLE))
+        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools), (None, ors.OPERATORS_POLICY_UNAVAILABLE))
 
 
 class RunnerHabitatT2BoundaryTests(unittest.TestCase):

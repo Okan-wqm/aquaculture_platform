@@ -36,6 +36,8 @@ plan candidates, and nothing here verifies them.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import re
@@ -151,6 +153,16 @@ ENROL_CHAIN_BROKEN = "enrol_chain_broken"
 ENROL_SIGNATURE_INVALID = "enrol_signature_invalid"
 ENROL_TIP_MISMATCH = "enrol_tip_mismatch"
 OPERATORS_POLICY_UNAVAILABLE = "operators_policy_unavailable"
+# ADR-0023 key separation (ARIA-HIGH-281), anchor reasons too: an
+# allowed-signers file that enrols a key ARIA's runner (T2) holds, a record of
+# those keys that cannot be read, and an enrolment row a runner key signed.
+RUNNER_KEY_ENROLLED = "runner_key_enrolled"
+RUNNER_KEYS_UNAVAILABLE = "runner_keys_unavailable"
+ENROL_SIGNED_BY_RUNNER_KEY = "enrol_signed_by_runner_key"
+_KEY_TYPE_RE = re.compile(
+    r"^(?:ssh-(?:ed25519|rsa|dss)|ecdsa-sha2-nistp(?:256|384|521)"
+    r"|sk-(?:ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com)$"
+)
 # What a registry entry demands of a FRESH act's terms (an MCP write approval).
 NAMESPACE_RETIRED = "signature_namespace_retired"
 SUBJECT_FIELD_MISSING = "signed_subject_field_missing"
@@ -301,7 +313,9 @@ def _child(row: Any) -> tuple[bytes, bytes] | None:
     return signers, registry
 
 
-def verify_enrolment_chain(enrolments: bytes | None, *, allowed_signers: bytes, registry: bytes) -> str | None:
+def verify_enrolment_chain(
+    enrolments: bytes | None, *, allowed_signers: bytes, registry: bytes, runner_keys: frozenset[str],
+) -> str | None:
     """Why the committed pair is not reached from the pinned genesis by enrolments, or None.
 
     Row 0 is the genesis (its pair must be the pin); every later row names
@@ -309,7 +323,10 @@ def verify_enrolment_chain(enrolments: bytes | None, *, allowed_signers: bytes, 
     by a key the CURRENT (parent) allowed-signers file enrols for it, as an
     actor class the parent registry admits; the last child must be the pair
     committed beside the file. A merged row is history: its expiry was
-    checked before merge and is not re-checked here.
+    checked before merge and is not re-checked here. A row signed by a key in
+    ``runner_keys`` breaks the chain for good (ARIA-HIGH-281): T2 signing an
+    enrolment is the compromise the chain exists to exclude, so no later row
+    can launder it, and repairing it is a genesis amendment of ADR-0023.
     """
     try:
         rows = [json.loads(line) for line in (enrolments or b"").decode("utf-8").splitlines() if line.strip()]
@@ -329,6 +346,8 @@ def verify_enrolment_chain(enrolments: bytes | None, *, allowed_signers: bytes, 
         verdict = verify_operator_signature(row, namespace=ENROL_NAMESPACE, allowed_signers=state[0], namespaces=namespaces)
         if not verdict.valid:
             return verdict.reason if verdict.reason in VERIFICATION_RUNNER_FAULTS else ENROL_SIGNATURE_INVALID
+        if signature_key_blob(str(row["signature"])) in runner_keys:
+            return ENROL_SIGNED_BY_RUNNER_KEY
         state = child
     return None if _pair(*state) == _pair(allowed_signers, registry) else ENROL_TIP_MISMATCH
 
@@ -383,7 +402,10 @@ def _committed_audience(repo_root: str | Path, *, commit: str) -> str | None:
         return None
 
 
-def _anchor_at(repo_root: str | Path, *, commit: str) -> tuple[AllowedSigners | None, str | None]:
+def _anchor_at(
+    repo_root: str | Path, *, commit: str, runner_keys: frozenset[str],
+) -> tuple[AllowedSigners | None, str | None]:
+    """The pair at ``commit`` once the enrolment walk reaches it. The tip's own keys are judged by the caller."""
     blob = committed_blob(repo_root, commit=commit, path=ALLOWED_SIGNERS_PATH)
     registry = committed_blob(repo_root, commit=commit, path=NAMESPACE_REGISTRY_PATH)
     if blob is None or registry is None or not blob.content.strip():
@@ -393,7 +415,7 @@ def _anchor_at(repo_root: str | Path, *, commit: str) -> tuple[AllowedSigners | 
         return None, NAMESPACE_REGISTRY_INVALID
     enrolments = committed_blob(repo_root, commit=commit, path=ENROLMENTS_PATH)
     chain = verify_enrolment_chain(enrolments.content if enrolments else None, allowed_signers=blob.content,
-                                   registry=registry.content)
+                                   registry=registry.content, runner_keys=runner_keys)
     if chain is not None:
         return None, chain
     audience = _committed_audience(repo_root, commit=commit)
@@ -403,29 +425,47 @@ def _anchor_at(repo_root: str | Path, *, commit: str) -> tuple[AllowedSigners | 
                           namespaces=namespaces, audience=audience), None
 
 
-def allowed_signers_at(repo_root: str | Path, *, commit: str) -> AllowedSigners | None:
+def _trusted_anchor_at(
+    repo_root: str | Path, *, commit: str, base_dir: str | Path | None,
+) -> tuple[AllowedSigners | None, str | None]:
+    """ADR-0023 key separation (ARIA-HIGH-281): an anchor that enrols a key ARIA's runner holds is no anchor."""
+    runner_keys = runner_key_blobs(workspace_root=repo_root, base_dir=base_dir)
+    if runner_keys is None:
+        return None, RUNNER_KEYS_UNAVAILABLE
+    anchor, reason = _anchor_at(repo_root, commit=commit, runner_keys=runner_keys)
+    if anchor is not None and enrolled_key_blobs(anchor.content) & runner_keys:
+        return None, RUNNER_KEY_ENROLLED
+    return anchor, reason
+
+
+def allowed_signers_at(repo_root: str | Path, *, commit: str, base_dir: str | Path | None) -> AllowedSigners | None:
     """The allowed-signers file and the registry as committed at ``commit``, read through the hardened git.
 
     ``main_anchor.committed_blob``: a scrubbed environment, replace objects
     off, each blob re-hashed against its object id. None is not a pass —
     every caller turns it into :data:`ALLOWED_SIGNERS_UNAVAILABLE`.
+    ``base_dir`` is the tools store whose signer registry names the keys ARIA's
+    runner holds (:func:`runner_key_blobs`); every reader passes its own.
     """
-    return _anchor_at(repo_root, commit=commit)[0]
+    return _trusted_anchor_at(repo_root, commit=commit, base_dir=base_dir)[0]
 
 
-def allowed_signers_for_checkout(repo_root: str | Path) -> tuple[AllowedSigners | None, str | None]:
+def allowed_signers_for_checkout(
+    repo_root: str | Path, *, base_dir: str | Path | None,
+) -> tuple[AllowedSigners | None, str | None]:
     """The anchor a cycle (or the recorder) may trust: its checkout's commit, proven on main.
 
     Returns ``(anchor, None)`` or ``(None, reason)`` with a
     ``main_anchor.ANCHOR_*`` reason, :data:`ALLOWED_SIGNERS_UNAVAILABLE`
     when the proven commit carries no allowed-signers file or registry,
-    :data:`NAMESPACE_REGISTRY_INVALID`, an ``ENROL_*`` reason of the walk, or
+    :data:`NAMESPACE_REGISTRY_INVALID`, an ``ENROL_*`` reason of the walk,
+    :data:`RUNNER_KEYS_UNAVAILABLE`, :data:`RUNNER_KEY_ENROLLED` or
     :data:`OPERATORS_POLICY_UNAVAILABLE`.
     """
     anchor = resolve_main_anchor(repo_root)
     if anchor.commit is None:
         return None, anchor.reason
-    return _anchor_at(repo_root, commit=anchor.commit)
+    return _trusted_anchor_at(repo_root, commit=anchor.commit, base_dir=base_dir)
 
 
 def request_subject_digest(row: dict[str, Any]) -> str:
@@ -446,6 +486,55 @@ def enrolled_principals(allowed_signers: bytes) -> frozenset[str]:
             continue
         principals.update(part for part in line.split()[0].split(",") if part)
     return frozenset(principals)
+
+
+def enrolled_key_blobs(allowed_signers: bytes) -> frozenset[str]:
+    """The base64 key blobs an allowed-signers file enrols: the token after each line's key type."""
+    blobs: set[str] = set()
+    for raw in allowed_signers.decode("utf-8", errors="replace").splitlines():
+        tokens = raw.split()
+        if not tokens or tokens[0].startswith("#"):
+            continue
+        blobs.update(tokens[index + 1] for index, token in enumerate(tokens[:-1]) if _KEY_TYPE_RE.fullmatch(token))
+    return frozenset(blobs)
+
+
+def signature_key_blob(signature: str) -> str | None:
+    """The public key blob an armored SSH signature carries, or None.
+
+    The SSHSIG layout is the 6-byte magic, a uint32 version, then the signer's
+    public key as a length-prefixed string; base64 of those bytes is the blob
+    an allowed-signers line names.
+    """
+    body = "".join(signature.strip().splitlines()[1:-1])
+    try:
+        raw = base64.b64decode(body, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    size = int.from_bytes(raw[10:14], "big") if raw[:6] == b"SSHSIG" and len(raw) >= 14 else 0
+    key = raw[14:14 + size]
+    return base64.b64encode(key).decode("ascii") if size and len(key) == size else None
+
+
+def runner_key_blobs(*, workspace_root: str | Path, base_dir: str | Path | None) -> frozenset[str] | None:
+    """ADR-0023 key separation — every public key the kernel knows ARIA's runner (T2) holds, or None.
+
+    The cycle keys registered in ``kg_signers`` (each key that signed for T2)
+    and the public halves in the workspace's signing-key directory (the keys
+    held now). None when either cannot be read, so an anchor read has no
+    answer rather than a pass.
+    """
+    from .gh_token_factory import SIGNING_KEYS_RELATIVE_PATH
+    from .knowledge_graph import registered_signer_key_blobs
+    from .ledger import LedgerIntegrityError
+
+    try:
+        keys = set(registered_signer_key_blobs(base_dir=base_dir, workspace_root=workspace_root))
+        for public in sorted(Path(workspace_root).joinpath(*SIGNING_KEYS_RELATIVE_PATH).glob("*.pub")):
+            keys.update(public.read_text(encoding="utf-8").split()[1:2])
+    except (GovernanceError, LedgerIntegrityError, OSError, UnicodeDecodeError, ValueError):
+        return None
+    return frozenset(keys)
 
 
 def sign_operator_subject(
@@ -615,19 +704,27 @@ def operator_act_terms_reason(
 
 
 def record_enrolment(
-    *, repo_root: str | Path, signing_key: str | Path, signer_principal: str, actor_class: str,
-    expires_in_hours: int, subject_stream: TextIO | None = None,
+    *, repo_root: str | Path, base_dir: str | Path | None, signing_key: str | Path, signer_principal: str,
+    actor_class: str, expires_in_hours: int, subject_stream: TextIO | None = None,
 ) -> dict[str, Any]:
     """Sign the checkout's edited allowed-signers file and registry as the child of the anchor's pair.
 
     The parent is the pair committed at the checkout's commit proven on
     main; the row is appended to the working tree's enrolment file, which
     must still be the committed one (one enrolment per change). Refused
-    unless it verifies as the walk will verify it, with fresh terms.
+    unless it verifies as the walk will verify it, with fresh terms. A parent
+    that enrols a key ARIA's runner holds is still a parent, because an
+    enrolment is how that key leaves; the child never enrols one and the
+    signing key is never one (ARIA-HIGH-281).
     """
     from .operator_request_terms import utc_iso
 
-    anchor, reason = allowed_signers_for_checkout(repo_root)
+    runner_keys = runner_key_blobs(workspace_root=repo_root, base_dir=base_dir)
+    if runner_keys is None:
+        raise GovernanceError(f"operator_enrol_anchor_unavailable: {RUNNER_KEYS_UNAVAILABLE}")
+    main = resolve_main_anchor(repo_root)
+    anchor, reason = (_anchor_at(repo_root, commit=main.commit, runner_keys=runner_keys) if main.commit
+                      else (None, main.reason))
     if anchor is None:
         raise GovernanceError(f"operator_enrol_anchor_unavailable: {reason}")
     root = Path(repo_root)
@@ -641,6 +738,8 @@ def record_enrolment(
     child = ((root / ALLOWED_SIGNERS_PATH).read_bytes(), (root / NAMESPACE_REGISTRY_PATH).read_bytes())
     if child == parent:
         raise GovernanceError("operator_enrol_unchanged")
+    if enrolled_key_blobs(child[0]) & runner_keys:
+        raise GovernanceError(f"operator_enrol_refused: {RUNNER_KEY_ENROLLED}")
     row = dict(enrolment_genesis_row(*child), kind="enrolment", parent=_pair(*parent), actor_class=actor_class,
                audience=anchor.audience)
     if _child(row) is None:
@@ -653,7 +752,8 @@ def record_enrolment(
                                    subject_stream=subject_stream)
     refused = operator_act_terms_reason(signed, entry=entry, audience=anchor.audience, now=now) or \
         verify_operator_signature(signed, namespace=ENROL_NAMESPACE, allowed_signers=anchor.content,
-                                  namespaces=anchor.namespaces).reason
+                                  namespaces=anchor.namespaces).reason or \
+        (ENROL_SIGNED_BY_RUNNER_KEY if signature_key_blob(signed["signature"]) in runner_keys else None)
     if refused is not None:
         raise GovernanceError(f"operator_enrol_refused: {refused}")
     line = json.dumps(signed, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -672,6 +772,7 @@ __all__ = [
     "ENROL_SIGNATURE_INVALID",
     "ENROL_TIP_MISMATCH",
     "ENROL_NAMESPACE",
+    "ENROL_SIGNED_BY_RUNNER_KEY",
     "JOURNEY_NAMESPACE",
     "LABEL_NAMESPACE",
     "MAX_SIGNATURE_CHARS",
@@ -684,6 +785,8 @@ __all__ = [
     "OPERATORS_POLICY_UNAVAILABLE",
     "REQUEST_DOMAIN_TAG",
     "REQUEST_ROW_SCHEMA_VERSION",
+    "RUNNER_KEYS_UNAVAILABLE",
+    "RUNNER_KEY_ENROLLED",
     "SIGNATURE_INVALID",
     "SIGNATURE_MALFORMED",
     "SIGNATURE_MISSING",
@@ -706,6 +809,7 @@ __all__ = [
     "allowed_signers_at",
     "appended_enrolments_reason",
     "allowed_signers_for_checkout",
+    "enrolled_key_blobs",
     "enrolled_principals",
     "enrolment_genesis_row",
     "genesis_pinned",
@@ -715,8 +819,10 @@ __all__ = [
     "pre_merge_enrolment_reason",
     "request_signing_bytes",
     "request_subject_digest",
+    "runner_key_blobs",
     "sign_operator_request",
     "sign_operator_subject",
+    "signature_key_blob",
     "subject_signing_bytes",
     "valid_principal",
     "verify_operator_request",

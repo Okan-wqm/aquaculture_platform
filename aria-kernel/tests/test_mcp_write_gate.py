@@ -64,7 +64,8 @@ class McpWriteGateTests(unittest.TestCase):
 
     def _approve(self, tool: str = "runtime_signal_ingest", arguments: dict | None = None, **kwargs) -> dict:
         options = {"signing_key": self.fx.key, "signer_principal": self.fx.principal, "actor_class": "T0",
-                   "expires_in_hours": 1, "workspace_root": self.fx.repo, "subject_stream": io.StringIO()}
+                   "expires_in_hours": 1, "workspace_root": self.fx.repo, "base_dir": self.fx.tools,
+                   "subject_stream": io.StringIO()}
         options.update(kwargs)
         return sign_mcp_write_approval(tool, dict(_SIGNAL if arguments is None else arguments), **options)
 
@@ -108,7 +109,7 @@ class McpWriteGateTests(unittest.TestCase):
     def test_a_signature_in_another_namespace_is_refused(self) -> None:
         # The fixture key is enrolled for the label namespace too, and the
         # bytes are the request subject's: only the -n namespace differs.
-        self.assertIn(ors.LABEL_NAMESPACE, ors.allowed_signers_for_checkout(self.fx.repo)[0].content.decode())
+        self.assertIn(ors.LABEL_NAMESPACE, ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[0].content.decode())
         self._assert_refused(self._call(self._hand_signed(namespace=ors.LABEL_NAMESPACE)), ors.SIGNATURE_INVALID)
         self.assertFalse(self._call(self._hand_signed())["isError"], "the same act in its own namespace verifies")
 

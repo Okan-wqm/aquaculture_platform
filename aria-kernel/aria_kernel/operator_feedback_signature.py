@@ -298,7 +298,7 @@ def record_operator_request(
     ledger = root / OPERATOR_FEEDBACK_LEDGER_NAME
     if identifier in _ids_already_used(ledger, root):
         raise GovernanceError(f"operator_request_id_reused: {identifier!r}")
-    signers, anchor_reason = allowed_signers_for_checkout(repo_root)
+    signers, anchor_reason = allowed_signers_for_checkout(repo_root, base_dir=root)
     if signers is None:
         raise GovernanceError(f"operator_request_anchor_unavailable: {anchor_reason}")
     # ADR-0023 — the lifetime bound is the committed registry's request entry.

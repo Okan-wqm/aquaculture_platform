@@ -200,12 +200,23 @@ ${HABITAT_SYSTEMD}/actions-runner.limits.conf|/etc/systemd/system/${SERVICE_NAME
 ${HABITAT_SYSTEMD}/actions-runner.identity.conf|/etc/systemd/system/${SERVICE_NAME}.d/identity.conf
 ${HABITAT_SYSTEMD}/user-.slice.d/50-aria-memory-discipline.conf|/etc/systemd/system/user-.slice.d/50-aria-memory-discipline.conf
 ${HABITAT_SYSTEMD}/user.slice.d/50-aria-cpu-discipline.conf|/etc/systemd/system/user.slice.d/50-aria-cpu-discipline.conf
+${HABITAT_SYSTEMD}/aria-t2-probe.service|/etc/systemd/system/aria-t2-probe.service
+${HABITAT_SYSTEMD}/aria-t2-probe.timer|/etc/systemd/system/aria-t2-probe.timer
 EOF
 if [ "$reload_needed" -eq 1 ]; then
   # daemon-reload re-applies resource-control properties to RUNNING units
   # (verified live 2026-09-02: MemoryMax moved 2G→3G without a restart), so
   # an in-flight job is never cancelled to pick the new budget up.
   systemctl daemon-reload && ok "systemd reloaded (limits applied to running units)"
+fi
+# ADR-0023 / ARIA-HIGH-281 — the T2 boundary is measured every hour as
+# gharunner (aria-t2-probe.timer); a boundary nobody measures is a claim.
+if systemctl is-active --quiet aria-t2-probe.timer; then
+  ok "aria-t2-probe.timer active"
+elif [ "$DRY_RUN" -eq 1 ]; then
+  bad "aria-t2-probe.timer not active (apply mode enables it)"
+else
+  systemctl enable --now aria-t2-probe.timer && ok "aria-t2-probe.timer enabled"
 fi
 # Effective values, not file contents: what the kernel enforces right now.
 # identity.conf's User/NoNewPrivileges take effect at the next service start

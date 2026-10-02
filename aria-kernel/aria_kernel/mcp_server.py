@@ -107,14 +107,15 @@ def judge_mcp_write(subject: dict[str, Any], anchor: AllowedSigners, *, now: dat
 
 def sign_mcp_write_approval(
     tool: str, arguments: dict[str, Any], *, signing_key: str | Path, signer_principal: str,
-    actor_class: str, expires_in_hours: int, workspace_root: str | Path, subject_stream: TextIO | None = None,
+    actor_class: str, expires_in_hours: int, workspace_root: str | Path, base_dir: str | Path | None,
+    subject_stream: TextIO | None = None,
 ) -> dict[str, Any]:
     """The operator half of the gate: sign one write, and refuse what the gate would refuse."""
     if tool not in WRITE_TOOLS:
         raise GovernanceError(f"mcp_write_tool_unknown: {tool!r}")
     if not isinstance(arguments, dict) or APPROVAL_ARGUMENT in arguments:
         raise GovernanceError("mcp_write_arguments_must_be_an_object_without_an_approval")
-    anchor, anchor_reason = allowed_signers_for_checkout(workspace_root)
+    anchor, anchor_reason = allowed_signers_for_checkout(workspace_root, base_dir=base_dir)
     if anchor is None:
         raise GovernanceError(f"mcp_write_anchor_unavailable: {anchor_reason}")
     entry = anchor.namespaces[SIGNATURE_NAMESPACE]
@@ -265,7 +266,7 @@ class AriaMcpServer:
         approval = args.get(APPROVAL_ARGUMENT)
         if not isinstance(approval, dict):
             raise PermissionError(f"{APPROVAL_ARGUMENT} (signed with `aria-kernel mcp approve`) is required for a write tool")
-        anchor, anchor_reason = allowed_signers_for_checkout(self.workspace)
+        anchor, anchor_reason = allowed_signers_for_checkout(self.workspace, base_dir=self.root)
         if anchor is None:
             raise PermissionError(f"mcp_write_anchor_unavailable: {anchor_reason}")
         subject = mcp_write_subject(tool, args, approval)

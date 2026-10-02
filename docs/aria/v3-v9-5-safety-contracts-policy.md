@@ -123,7 +123,9 @@ V9.6 (auto_merge runner) consumes the registry via a sequential loop pre-merge. 
   ingestion and again at merge against `.github/manifests/aria-operator-signers` read as a git object
   (`operator_request_signature.VERIFICATION_REASONS`); no key file is read on any lane. The text above
   still describes the kernel-written row kinds (verdict rows, calibration fixtures), which keep their
-  HMAC and are never plan candidates.
+  HMAC and are never plan candidates. Ingestion rows from schema v2 on record the request's `signer`
+  (the allowed-signers principal) instead of `signer_kid`, and the pre-merge evidence field is
+  `operator_feedback_consumed_signers`.
 
 ### 13. `pr_body_templating`
 - **Closes:** ai HIGH-012 + sec HIGH-008

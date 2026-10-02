@@ -62,7 +62,7 @@ the aria/state store that path is never published, and the self-hosted lanes run
 `git reset --hard; git clean -ffdx` before `state checkout` (`aria-auto-cycle.yml:197-205`,
 `aria-agent-executor.yml:176-184`), so the key does not survive a job. An auto-ack minted and
 consumed in one job is unaffected; an operator-minted token cannot verify in any later runner job.
-This is the custody class of the operator-feedback key (ARCH-CRITICAL-201).
+This is the custody class of the operator-feedback key (ARIA-CRITICAL-255 (named ARCH-CRITICAL-201 in the arbiter ruling)).
 
 Rule: Signing material that a later job must verify against lives where that job can read it, and
 no runner-readable location holds operator signing authority.

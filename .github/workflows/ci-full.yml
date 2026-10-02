@@ -524,21 +524,36 @@ jobs:
       # everything else, including an expired exception and an advisory that
       # has reached a package its exception was not reviewed against. The JSON
       # reports above are still produced and uploaded either way, so the raw
-      # npm output stays available to a reviewer.
+      # npm output stays available to a reviewer. Every leg runs and prints its
+      # own verdict before the step decides: under Actions' `bash -e` a bare
+      # sequence stopped at the first red leg and hid the others
+      # (SUPPLY-HIGH-014). The exact script is pinned by
+      # tests/invariants/dependency-security-floor.spec.ts.
       - name: Gate npm audit on reviewed exceptions
         run: |
+          FAILED_LEGS=""
           node scripts/ci/npm-audit-gate.mjs --audit npm-audit-root-production.json \
-            --level moderate --scope root-production --exceptions scripts/ci/npm-audit-exceptions.json
+            --level moderate --scope root-production --exceptions scripts/ci/npm-audit-exceptions.json \
+            || FAILED_LEGS="$FAILED_LEGS root-production"
           node scripts/ci/npm-audit-gate.mjs --audit npm-audit-root-full.json \
-            --level high --scope root-full --exceptions scripts/ci/npm-audit-exceptions.json
+            --level high --scope root-full --exceptions scripts/ci/npm-audit-exceptions.json \
+            || FAILED_LEGS="$FAILED_LEGS root-full"
           node scripts/ci/npm-audit-gate.mjs --audit npm-audit-aquamobil-production.json \
-            --level moderate --scope aquamobil-production --exceptions scripts/ci/npm-audit-exceptions.json
+            --level moderate --scope aquamobil-production --exceptions scripts/ci/npm-audit-exceptions.json \
+            || FAILED_LEGS="$FAILED_LEGS aquamobil-production"
           node scripts/ci/npm-audit-gate.mjs --audit npm-audit-aquamobil-full.json \
-            --level high --scope aquamobil-full --exceptions scripts/ci/npm-audit-exceptions.json
+            --level high --scope aquamobil-full --exceptions scripts/ci/npm-audit-exceptions.json \
+            || FAILED_LEGS="$FAILED_LEGS aquamobil-full"
           node scripts/ci/npm-audit-gate.mjs --audit npm-audit-e2e-production.json \
-            --level moderate --scope e2e-production --exceptions scripts/ci/npm-audit-exceptions.json
+            --level moderate --scope e2e-production --exceptions scripts/ci/npm-audit-exceptions.json \
+            || FAILED_LEGS="$FAILED_LEGS e2e-production"
           node scripts/ci/npm-audit-gate.mjs --audit npm-audit-e2e-full.json \
-            --level high --scope e2e-full --exceptions scripts/ci/npm-audit-exceptions.json
+            --level high --scope e2e-full --exceptions scripts/ci/npm-audit-exceptions.json \
+            || FAILED_LEGS="$FAILED_LEGS e2e-full"
+          if [ -n "$FAILED_LEGS" ]; then
+            echo "::error title=npm audit gate::red leg(s):$FAILED_LEGS"
+            exit 1
+          fi
       - name: Upload npm audit source map
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

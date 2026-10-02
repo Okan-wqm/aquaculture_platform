@@ -11,9 +11,122 @@ const ROUTER_VERSION = '7.18.2';
 const API_EXTRACTOR_VERSION = '7.59.0';
 const E2E_SECURITY_FLOORS = {
   '@babel/core': '7.29.7',
-  'brace-expansion': '1.1.18',
-  'fast-uri': '3.1.6',
+  // 1.1.21 clears GHSA-6j4f-fj2g-mc7p (1.1.19), GHSA-qhr7-859c-m2p7 (1.1.20)
+  // and GHSA-q2hr-2g5m-vwhr (1.1.21) on the 1.x line jest's minimatch uses.
+  'brace-expansion': '1.1.21',
+  // 3.1.8 clears GHSA-qw65-cvwx-89v3 and GHSA-58mr-gqgx-xq4g (fixed in 3.1.7)
+  // plus GHSA-hrr3-gc8f-f4qj (fixed in 3.1.8, SUPPLY-HIGH-014).
+  'fast-uri': '3.1.8',
 } as const;
+
+/**
+ * WHAT: one floor for every copy of a package, or one per major line when the
+ * graph legitimately carries several majors (brace-expansion 1.x, 2.x and 5.x
+ * sit under different minimatch majors). WHY per major: a single 5.0.12 floor
+ * would reject the patched 1.1.21, and a single 1.1.21 floor would wave
+ * through a vulnerable 5.0.9. A copy on a major the table does not name is
+ * unvetted and fails.
+ */
+type SecurityFloor = string | Readonly<Record<string, string>>;
+
+function floorFor(floor: SecurityFloor, version: string): string | undefined {
+  return typeof floor === 'string' ? floor : floor[version.split('.')[0] ?? ''];
+}
+
+/**
+ * The root graph is the production graph: every backend image installs from
+ * the root package-lock.json. SUPPLY-HIGH-014's floors, per package. fast-uri
+ * matters most here: GHSA-hrr3-gc8f-f4qj (fixed in 3.1.8) is not in npm's
+ * advisory feed yet, so `npm audit` would not notice a slide back to 3.1.7 —
+ * this table is the only guard.
+ */
+const ROOT_SECURITY_FLOORS = {
+  // 12 advisories fixed in 1.20.0: GHSA-vh66-26gq-q6x8, GHSA-9fr6-4gfg-395g,
+  // GHSA-c29m-xwm3-cm6r, GHSA-mghh-pgcx-3jjj, GHSA-x97p-jq2g-jp4f,
+  // GHSA-3pq3-5fj3-cg6v, GHSA-542g-h47m-68v8, GHSA-j8rh-479h-cp32,
+  // GHSA-4hqw-qxg8-jxx2, GHSA-m8m8-qj5v-23w3, GHSA-44g4-m2mj-wpvx,
+  // GHSA-r4gj-5m52-g5wh. nx 22.7.8 pins axios exactly at 1.18.1, so only the
+  // override can lift it.
+  axios: '1.20.0',
+  // GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7, GHSA-q2hr-2g5m-vwhr, each fixed
+  // per line: 1.1.19/1.1.20/1.1.21, 2.1.5/2.1.6/2.1.7, 5.0.10/5.0.11/5.0.12.
+  // 5.x is in the production graph; 1.x and 2.x are lint/test tooling.
+  'brace-expansion': { '1': '1.1.21', '2': '2.1.7', '5': '5.0.12' },
+  // GHSA-2gc4-cqfq-p2gv (fixed in 6.6.10). Reached through socket.io's
+  // `~6.6.0`, itself pinned exactly by @nestjs/platform-socket.io, so the lock
+  // is the only place this floor lives.
+  'engine.io': '6.6.10',
+  // GHSA-qw65-cvwx-89v3, GHSA-58mr-gqgx-xq4g (3.1.7) + GHSA-hrr3-gc8f-f4qj (3.1.8).
+  'fast-uri': '3.1.8',
+  // GHSA-m9gg-hp2v-232j, GHSA-f596-whhp-79r4 (1.14.x line fixed in 1.14.5).
+  '@grpc/grpc-js': '1.14.5',
+  // GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc.
+  'ip-address': '10.5.1',
+  // GHSA-3pph-fpjx-jg34.
+  multer: '2.4.0',
+  // GHSA-m8vh-jmq9-5rjg (fixed in 11.2.4) + GHSA-96h4-vgxj-gvm2 (11.2.5). The
+  // whole Nest lockstep family moves with it; see NEST_LOCKSTEP_PACKAGES.
+  '@nestjs/microservices': '11.2.5',
+  // GHSA-6vj9-mwq6-2f5v is fixed in 10.0.2; 10.0.3-10.0.12 add the linear-time
+  // address/reply parsing, bare-CR-to-CRLF and requireTLS fixes the review
+  // file cites, so the adopted release is the floor.
+  nodemailer: '10.0.12',
+  // GHSA-67c8-pqhq-4rmx (critical, fixed in 5.3.2): ThreadPool options read
+  // through the prototype chain, so a polluted Object.prototype reaches
+  // execArgv and runs code in every worker.
+  piscina: '5.3.2',
+  // 10 advisories fixed in 7.29.1: GHSA-3wwx-pv8p-q78v, GHSA-pmjh-fq2x-6v4x,
+  // GHSA-r53p-7pc4-xj5r, GHSA-rfgv-xxqx-mfg5, GHSA-3xpg-4rpp-hhhm,
+  // GHSA-2jfj-6hjv-fm6j, GHSA-2gqq-gqf2-x968, GHSA-w293-vg96-wgc3,
+  // GHSA-8436-99hf-9mmv, GHSA-rx4f-c7p8-82vq. @module-federation/dts-plugin
+  // 2.8.2 pins undici exactly at 7.29.0, so only the override can lift it.
+  undici: '7.29.1',
+} as const satisfies Readonly<Record<string, SecurityFloor>>;
+
+interface RootFloorDeclaration {
+  dependency: keyof typeof ROOT_SECURITY_FLOORS;
+  field: 'dependencies' | 'overrides';
+  /** The manifest key when it is not the bare package name (`name@range` overrides). */
+  key?: string;
+}
+
+/** Where the root manifest pins each floored package, and under which field. */
+const ROOT_FLOOR_DECLARATIONS: readonly RootFloorDeclaration[] = [
+  { dependency: 'axios', field: 'overrides' },
+  { dependency: 'brace-expansion', field: 'overrides', key: 'brace-expansion@^5.0.1' },
+  { dependency: 'brace-expansion', field: 'overrides', key: 'brace-expansion@^5.0.5' },
+  { dependency: 'fast-uri', field: 'overrides' },
+  { dependency: '@grpc/grpc-js', field: 'overrides' },
+  { dependency: 'ip-address', field: 'overrides' },
+  { dependency: 'multer', field: 'overrides' },
+  { dependency: 'multer', field: 'dependencies' },
+  { dependency: '@nestjs/microservices', field: 'dependencies' },
+  { dependency: 'nodemailer', field: 'dependencies' },
+  { dependency: 'piscina', field: 'dependencies' },
+  { dependency: 'undici', field: 'overrides' },
+];
+
+/**
+ * WHY: the Nest monorepo publishes these packages in lockstep and they
+ * deep-import each other's files by path. @nestjs/microservices 11.2.7
+ * requires `@nestjs/core/helpers/safe-instance-decorator`, which core 11.1.27
+ * does not ship, so raising microservices alone (what `npm audit fix` does for
+ * GHSA-m8vh-jmq9-5rjg) gives a lockfile npm accepts and a service that throws
+ * MODULE_NOT_FOUND the first time it loads @nestjs/microservices. WHAT: every
+ * copy of every member resolves to one version, and every root declaration of
+ * a member has that same floor.
+ */
+const NEST_LOCKSTEP_PACKAGES = [
+  '@nestjs/common',
+  '@nestjs/core',
+  '@nestjs/microservices',
+  '@nestjs/platform-express',
+  '@nestjs/platform-fastify',
+  '@nestjs/platform-socket.io',
+  '@nestjs/platform-ws',
+  '@nestjs/testing',
+  '@nestjs/websockets',
+] as const;
 
 const NX_PACKAGES = [
   'nx',
@@ -211,6 +324,43 @@ function gateStepCovers(script: string, graphs: readonly AuditGraph[]): string[]
         ),
     )
     .map((graph) => graph.json);
+}
+
+/**
+ * The gate step must run EVERY leg and only then decide. Under Actions'
+ * `bash -e`, a bare sequence of gate calls stops at the first red leg, so a
+ * run names one failing graph and hides the rest (SUPPLY-HIGH-014: fast-uri
+ * was red in two legs CI never reached). The contract is the exact script:
+ * each leg records its own failure, one final check fails the step.
+ */
+function gateStepReportsEveryLeg(script: string, graphs: readonly AuditGraph[]): boolean {
+  const lines = script
+    .replace(/\\\n\s+/g, ' ')
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/\s+/g, ' '))
+    .filter((line) => line !== '');
+  const expected = [
+    'FAILED_LEGS=""',
+    ...graphs.map(
+      (graph) =>
+        `node scripts/ci/npm-audit-gate.mjs --audit ${graph.json} ` +
+        `--level ${graph.level} --scope ${graph.scope} ` +
+        `--exceptions scripts/ci/npm-audit-exceptions.json ` +
+        `|| FAILED_LEGS="$FAILED_LEGS ${graph.scope}"`,
+    ),
+    'if [ -n "$FAILED_LEGS" ]; then',
+    'echo "::error title=npm audit gate::red leg(s):$FAILED_LEGS"',
+    'exit 1',
+    'fi',
+  ];
+  return lines.length === expected.length && lines.every((line, index) => line === expected[index]);
+}
+
+/** WHAT: the lowest version a `1.2.3`, `^1.2.3` or `~1.2.3` range admits; null otherwise. */
+function rangeFloor(range: unknown): string | null {
+  if (typeof range !== 'string') return null;
+  const match = /^[\^~]?(\d+\.\d+\.\d+)$/.exec(range);
+  return match === null ? null : (match[1] ?? null);
 }
 
 function trackedManifestsDeclaring(dependency: string): readonly string[] {
@@ -504,19 +654,27 @@ describe('JavaScript dependency security floor', () => {
     expect(manifest.devDependencies?.postcss).toBe('^8.5.23');
     expect(manifest.overrides).toEqual({
       ...(manifest.overrides ?? {}),
+      // GHSA-m9gg-hp2v-232j, GHSA-f596-whhp-79r4: fixed in 1.13.6 / 1.14.5, and
+      // @firebase/firestore (latest included) still asks for `~1.9.0`, whose
+      // last release is 1.9.16. Only the Node build of firestore loads
+      // grpc-js; the PWA bundles the browser build, which does not.
+      '@grpc/grpc-js': '1.14.5',
       'socket.io-parser': '4.2.7',
-      // 3.1.6 clears GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf
-      // and GHSA-jqff-g426-hqxp; the previous floor had itself become vulnerable.
-      'fast-uri': '3.1.6',
+      // 3.1.6 cleared GHSA-5jgf-p345-68v8, GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf
+      // and GHSA-jqff-g426-hqxp, then became vulnerable itself: 3.1.8 clears
+      // GHSA-qw65-cvwx-89v3, GHSA-58mr-gqgx-xq4g and GHSA-hrr3-gc8f-f4qj
+      // (SUPPLY-HIGH-014).
+      'fast-uri': '3.1.8',
       // 4.28.9 clears the unbounded cache growth and the prototype write.
       browserslist: '4.28.9',
       nanoid: '3.3.18',
       protobufjs: '7.6.5',
       esbuild: '^0.28.1',
     });
+    expect(resolvedVersions(lock, '@grpc/grpc-js')).toEqual(['1.14.5']);
     expect(resolvedVersions(lock, 'socket.io-parser')).toEqual(['4.2.7']);
     expect(resolvedVersions(lock, 'protobufjs')).toEqual(['7.6.5']);
-    expect(resolvedVersions(lock, 'fast-uri')).toEqual(['3.1.6']);
+    expect(resolvedVersions(lock, 'fast-uri')).toEqual(['3.1.8']);
     expect(resolvedVersions(lock, 'browserslist')).toEqual(['4.28.9']);
     expect(resolvedVersions(lock, 'nanoid')).toEqual(['3.3.18']);
     const esbuildVersions = resolvedVersions(lock, 'esbuild');
@@ -535,7 +693,155 @@ describe('JavaScript dependency security floor', () => {
         safe: true,
       });
     }
-    expect(resolvedVersions(lock, 'brace-expansion')).toEqual(['2.1.4', '5.0.9']);
+    // 2.1.7 / 5.0.12 clear GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7 and
+    // GHSA-q2hr-2g5m-vwhr on each line.
+    expect(resolvedVersions(lock, 'brace-expansion')).toEqual(['2.1.7', '5.0.12']);
+  });
+
+  test('keeps the root production graph at its SUPPLY-HIGH-014 floors, in the manifest and every lock copy', () => {
+    const manifest = readJson<PackageManifest>('package.json');
+    const lock = readJson<Lockfile>('package-lock.json');
+
+    // The manifest ranges decide what the next `npm install` may resolve.
+    for (const { dependency, field, key = dependency } of ROOT_FLOOR_DECLARATIONS) {
+      const declared = rangeFloor(manifest[field]?.[key]);
+      const floor =
+        declared === null ? undefined : floorFor(ROOT_SECURITY_FLOORS[dependency], declared);
+      expect({
+        dependency,
+        field,
+        key,
+        safe: declared !== null && floor !== undefined && comparable(declared) >= comparable(floor),
+      }).toEqual({ dependency, field, key, safe: true });
+    }
+
+    // The lock decides what CI and the images install today — every copy,
+    // nested ones included.
+    for (const [dependency, floors] of Object.entries(ROOT_SECURITY_FLOORS)) {
+      const versions = resolvedVersions(lock, dependency);
+      expect({ dependency, hasResolution: versions.length > 0 }).toEqual({
+        dependency,
+        hasResolution: true,
+      });
+      for (const version of versions) {
+        const floor = floorFor(floors, version);
+        expect({
+          dependency,
+          version,
+          safe: floor !== undefined && comparable(version) >= comparable(floor),
+        }).toEqual({ dependency, version, safe: true });
+      }
+    }
+  });
+
+  test('per-major floors reject a vulnerable copy on any line and a copy on an unvetted line', () => {
+    const floors = ROOT_SECURITY_FLOORS['brace-expansion'];
+    const verdict = (version: string): boolean => {
+      const floor = floorFor(floors, version);
+      return floor !== undefined && comparable(version) >= comparable(floor);
+    };
+    expect(['1.1.21', '2.1.7', '5.0.12', '5.1.0'].map(verdict)).toEqual([true, true, true, true]);
+    // 1.1.20 / 2.1.6 / 5.0.11 each miss one line's last fix; 3.0.1 and 4.0.0
+    // are majors no reviewed floor covers.
+    expect(['1.1.20', '2.1.6', '5.0.11', '3.0.1', '4.0.0'].map(verdict)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  test('keeps the lockstep Nest packages on one release, declared and resolved', () => {
+    const manifest = readJson<PackageManifest>('package.json');
+    const lock = readJson<Lockfile>('package-lock.json');
+
+    // The release is @nestjs/core's; every other member is measured against it,
+    // so a failure names the member that drifted rather than just "two versions".
+    const [release] = resolvedVersions(lock, '@nestjs/core');
+    expect(release).toBeDefined();
+
+    // A member the graph does not carry (platform-fastify, platform-ws) is
+    // skipped; every copy of one it does carry must be on the release.
+    const carried = NEST_LOCKSTEP_PACKAGES.map((dependency) => ({
+      dependency,
+      versions: resolvedVersions(lock, dependency),
+    })).filter(({ versions }) => versions.length > 0);
+    expect(carried).toEqual(carried.map(({ dependency }) => ({ dependency, versions: [release] })));
+
+    // The declarations decide what the next install may pick: each member the
+    // root declares must start at the same release, or the next lock refresh
+    // can split the family again.
+    const declared = NEST_LOCKSTEP_PACKAGES.flatMap((dependency) => {
+      const range = declarationFromManifest(manifest, dependency);
+      return range === undefined ? [] : [{ dependency, declaredFloor: rangeFloor(range) }];
+    });
+    expect(declared.map(({ dependency }) => dependency)).toContain('@nestjs/microservices');
+    expect(declared).toEqual(
+      declared.map(({ dependency }) => ({ dependency, declaredFloor: release })),
+    );
+  });
+
+  test('root floor range parser rejects the shapes it cannot bound from below', () => {
+    expect(['3.1.8', '^3.1.8', '~3.1.8'].map(rangeFloor)).toEqual(['3.1.8', '3.1.8', '3.1.8']);
+    expect(
+      ['*', 'latest', '>=3.1.8', '3.x', undefined, { nested: '3.1.8' }].map(rangeFloor),
+    ).toEqual([null, null, null, null, null, null]);
+  });
+
+  test('gate step contract rejects a stop-at-first-red leg sequence and its partial fixes', () => {
+    const graphs: AuditGraph[] = [
+      {
+        command: '',
+        json: 'npm-audit-root-production.json',
+        markdown: '',
+        status: '',
+        level: 'moderate',
+        scope: 'root-production',
+      },
+      {
+        command: '',
+        json: 'npm-audit-e2e-full.json',
+        markdown: '',
+        status: '',
+        level: 'high',
+        scope: 'e2e-full',
+      },
+    ];
+    const invocation = (graph: AuditGraph): string =>
+      `node scripts/ci/npm-audit-gate.mjs --audit ${graph.json} \\\n` +
+      `  --level ${graph.level} --scope ${graph.scope} --exceptions scripts/ci/npm-audit-exceptions.json`;
+    const valid = [
+      'FAILED_LEGS=""',
+      ...graphs.map(
+        (graph) => `${invocation(graph)} \\\n  || FAILED_LEGS="$FAILED_LEGS ${graph.scope}"`,
+      ),
+      'if [ -n "$FAILED_LEGS" ]; then',
+      '  echo "::error title=npm audit gate::red leg(s):$FAILED_LEGS"',
+      '  exit 1',
+      'fi',
+    ].join('\n');
+    const mutants = [
+      // The pre-fix shape: bare calls, `bash -e` stops at the first red leg.
+      graphs.map(invocation).join('\n'),
+      // One leg still aborts the step instead of recording its failure.
+      valid.replace(' \\\n  || FAILED_LEGS="$FAILED_LEGS root-production"', ''),
+      // Every leg records, nothing ever fails the step.
+      valid.replace('  exit 1\n', ''),
+      // A leg records under another leg's name, so the report lies.
+      valid.replace(
+        'FAILED_LEGS="$FAILED_LEGS e2e-full"',
+        'FAILED_LEGS="$FAILED_LEGS root-production"',
+      ),
+    ];
+
+    expect(gateStepReportsEveryLeg(valid, graphs)).toBe(true);
+    expect(mutants.map((script) => gateStepReportsEveryLeg(script, graphs))).toEqual([
+      false,
+      false,
+      false,
+      false,
+    ]);
   });
 
   test('keeps the standalone E2E graph above its patched CI supply-chain floors', () => {
@@ -719,6 +1025,8 @@ describe('JavaScript dependency security floor', () => {
       expect(auditScriptSatisfiesContract(audit, auditGraphs)).toBe(true);
       // Every graph the step produces is also judged, at its own level and scope.
       expect(gateStepCovers(gate, auditGraphs)).toEqual([]);
+      // …and every leg runs and reports before the step decides.
+      expect(gateStepReportsEveryLeg(gate, auditGraphs)).toBe(true);
       for (const graph of auditGraphs) {
         expect(artifactPaths).toContain(graph.json);
         expect(artifactPaths).toContain(graph.markdown);

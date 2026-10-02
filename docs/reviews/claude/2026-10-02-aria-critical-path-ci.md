@@ -68,3 +68,28 @@ which branch the pinned commit came from.
 Fix: the step passes `toolchain: nightly`. `tests/invariants/toolchain-config-ssot.spec.ts` scans
 every workflow and local composite action and fails on a `dtolnay/rust-toolchain` step without a
 non-empty `with.toolchain`; it fails on the old workflow and passes on the new one.
+
+## ARIA-MEDIUM-251
+
+`aria-daily-report.yml`'s `commit-report` job runs on the self-hosted runner and checks out into its
+own `report-checkout/` (ORPHAN-HIGH-736, so its clean never reaches ARIA's state store). Its
+enterprise preflight step runs with `working-directory: report-checkout` and a report path relative
+to it, but called `verify_workflow_preflight(workspace_root=os.environ["GITHUB_WORKSPACE"])`. On
+that runner `GITHUB_WORKSPACE` is the shared ARIA workspace, where this job's `report-checkout/` and
+`dataflow-integrity-watchdog`'s `watchdog-checkout/` are untracked directories, so the
+clean-worktree check (`preflight.py:677`) refused every run.
+
+Evidence:
+
+- Last green run 32225322089 (2026-08-19, the day the isolated checkout landed in #1287); red every
+  day since with `workspace_worktree_not_clean;workspace_worktree_dirty_paths:report-checkout/;watchdog-checkout/`.
+- The same `verify_workflow_preflight` call, rooted at a clean checkout of `main` with the job's
+  arguments, returns `valid=True`.
+
+Rule: A job that checks out into its own subdirectory preflights that subdirectory, the tree it
+writes.
+
+Fix: the preflight is rooted at `os.getcwd()`, the step's `working-directory`.
+`aria-kernel/tests/test_z1_store_isolation.py` requires every self-hosted job with a scoped checkout
+to run its preflight inside that checkout and never at `GITHUB_WORKSPACE`; it fails on the old
+workflow and passes on the new one.

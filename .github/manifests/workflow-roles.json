@@ -1,0 +1,377 @@
+{
+  "$comment": [
+    "ADR-0019: what each workflow's verdict is about. ARIA's failing_ci plan source",
+    "(aria-kernel/aria_kernel/plan_synthesizer.py scan_failing_ci) supplies a candidate only for",
+    "a red main_verdict workflow; a red pr_verdict or observer workflow is logged once per cycle",
+    "as failing_ci_workflow_excluded. A workflow missing from this file counts as main_verdict.",
+    "",
+    "main_verdict: the verdict is about main or production (CI on main, post-deploy e2e,",
+    "  production probes, ARIA lanes running main's kernel, aria-daily-report).",
+    "pr_verdict: the verdict is about one pull request.",
+    "observer: the verdict is computed from OTHER workflows' runs; `observes` names them.",
+    "",
+    "`name` is the workflow's `name:` key: GitHub reports a run under it, and the kernel joins",
+    "runs to roles on it. tests/invariants/workflow-roles.spec.ts pins every entry to the files",
+    "under .github/workflows/."
+  ],
+  "schemaVersion": 1,
+  "workflows": [
+    {
+      "workflow": "apollo-router-security.yml",
+      "name": "Apollo Router Security",
+      "role": "main_verdict",
+      "reason": "Dispatched header-stripping pen-test of a live Apollo Router (the deployed edge)."
+    },
+    {
+      "workflow": "apollo-supergraph-validate.yml",
+      "name": "Apollo Supergraph Validate",
+      "role": "main_verdict",
+      "reason": "Supergraph composition check that runs on push to main."
+    },
+    {
+      "workflow": "aria-agent-eval.yml",
+      "name": "aria-agent-eval",
+      "role": "main_verdict",
+      "reason": "Weekly agent-eval fixtures run by main's kernel."
+    },
+    {
+      "workflow": "aria-agent-executor.yml",
+      "name": "aria-agent-executor",
+      "role": "main_verdict",
+      "reason": "ARIA drain lane on main's kernel; it reads cycle runs only to chain the next one."
+    },
+    {
+      "workflow": "aria-auto-cycle.yml",
+      "name": "aria-auto-cycle",
+      "role": "main_verdict",
+      "reason": "Nightly ARIA producer lane on main's kernel."
+    },
+    {
+      "workflow": "aria-daily-report.yml",
+      "name": "aria-daily-report",
+      "role": "main_verdict",
+      "reason": "Daily ARIA report published from main; ADR-0019 names it a main verdict."
+    },
+    {
+      "workflow": "aria-external-watchdog.yml",
+      "name": "ARIA External Watchdog",
+      "role": "observer",
+      "observes": ["aria-auto-cycle.yml", "aria-agent-executor.yml"],
+      "reason": "Judges the ARIA lanes' last success and the aria/state tip they publish."
+    },
+    {
+      "workflow": "aria-kernel.yml",
+      "name": "aria-kernel",
+      "role": "main_verdict",
+      "reason": "ARIA kernel suite that runs on push to main."
+    },
+    {
+      "workflow": "aria-merge-authority.yml",
+      "name": "aria-merge-authority",
+      "role": "pr_verdict",
+      "reason": "Required check on each PR and merge group: judges the PR head's merge evidence."
+    },
+    {
+      "workflow": "aria-merge-runner.yml",
+      "name": "aria-merge-runner",
+      "role": "main_verdict",
+      "reason": "Merge lane on main's kernel; `merge-lane run` exits 0 whatever it decides on a PR."
+    },
+    {
+      "workflow": "aria-operational-proof.yml",
+      "name": "ARIA Operational Proof",
+      "role": "main_verdict",
+      "reason": "Dispatched proof of ARIA's suite and observe burn-in on main."
+    },
+    {
+      "workflow": "aria-readiness-claim.yml",
+      "name": "aria-readiness-claim",
+      "role": "pr_verdict",
+      "reason": "Assembles one PR head's readiness claim after its aria-merge-authority run."
+    },
+    {
+      "workflow": "aria-runner-capability-probe.yml",
+      "name": "ARIA runner capability probe",
+      "role": "main_verdict",
+      "reason": "Probes the self-hosted runner that main's ARIA lanes run on."
+    },
+    {
+      "workflow": "aria-state-maintenance.yml",
+      "name": "ARIA State Maintenance",
+      "role": "main_verdict",
+      "reason": "Compacts and republishes aria/state with main's kernel."
+    },
+    {
+      "workflow": "backup-manifest-invariant.yml",
+      "name": "backup-manifest-invariant",
+      "role": "pr_verdict",
+      "reason": "pull_request-only gate: backup bundle and its hash manifest stay in lockstep."
+    },
+    {
+      "workflow": "backup-production.yml",
+      "name": "Backup - Production Postgres",
+      "role": "main_verdict",
+      "reason": "Production Postgres backup: a red is a production backup failure."
+    },
+    {
+      "workflow": "backup-ssh-broker-release.yml",
+      "name": "Backup SSH Broker Release",
+      "role": "main_verdict",
+      "reason": "Builds and signs the backup SSH broker from a push to main."
+    },
+    {
+      "workflow": "build-images.yml",
+      "name": "Build Selected Images",
+      "role": "main_verdict",
+      "reason": "Reusable image build called by CI - Affected; it judges the code it builds."
+    },
+    {
+      "workflow": "ci-affected.yml",
+      "name": "CI - Affected",
+      "role": "main_verdict",
+      "reason": "CI that runs on push to main as well as on pull requests."
+    },
+    {
+      "workflow": "ci-edge.yml",
+      "name": "CI - Edge Agent (sens-api-gateway)",
+      "role": "main_verdict",
+      "reason": "Edge agent CI that runs on push to main."
+    },
+    {
+      "workflow": "ci-full.yml",
+      "name": "CI - Full",
+      "role": "main_verdict",
+      "reason": "Scheduled full CI of main and release-tag builds."
+    },
+    {
+      "workflow": "closes-footer-check.yml",
+      "name": "Closes Footer Check",
+      "role": "pr_verdict",
+      "reason": "pull_request-only gate on the Closes trailers of a PR's commits."
+    },
+    {
+      "workflow": "database-wal-archive-freshness.yml",
+      "name": "Database WAL Archive Freshness",
+      "role": "main_verdict",
+      "reason": "Production probe of WAL archive freshness; ADR-0019 names it a main verdict."
+    },
+    {
+      "workflow": "dataflow-integrity-watchdog.yml",
+      "name": "dataflow-integrity-watchdog",
+      "role": "main_verdict",
+      "reason": "Probes the production edge, containers and tenant data; it reads no workflow runs."
+    },
+    {
+      "workflow": "db-migration-check.yml",
+      "name": "Database Migration Check",
+      "role": "main_verdict",
+      "reason": "Migration and schema checks that run on push to main and on a schedule."
+    },
+    {
+      "workflow": "dependency-review.yml",
+      "name": "Dependency Review",
+      "role": "pr_verdict",
+      "reason": "pull_request-only review of a PR's dependency diff."
+    },
+    {
+      "workflow": "deploy-capacity-maintenance.yml",
+      "name": "Deploy Capacity Maintenance",
+      "role": "main_verdict",
+      "reason": "Production probe of droplet deploy capacity; ADR-0019 names it a main verdict."
+    },
+    {
+      "workflow": "deploy-development.yml",
+      "name": "Deploy Development",
+      "role": "main_verdict",
+      "reason": "Reusable development deploy called by CI - Affected for main."
+    },
+    {
+      "workflow": "deploy-digitalocean.yml",
+      "name": "Deploy to DigitalOcean",
+      "role": "main_verdict",
+      "reason": "Production deploy of main."
+    },
+    {
+      "workflow": "deploy-staging.yml",
+      "name": "Deploy to DigitalOcean (Staging)",
+      "role": "main_verdict",
+      "reason": "Staging deploy of main."
+    },
+    {
+      "workflow": "e2e-messaging.yml",
+      "name": "E2E - Messaging Service",
+      "role": "main_verdict",
+      "reason": "Messaging e2e suite that runs on push to main."
+    },
+    {
+      "workflow": "e2e-tests.yml",
+      "name": "E2E Tests",
+      "role": "main_verdict",
+      "reason": "Post-deploy e2e after Deploy to DigitalOcean on main (ADR-0019)."
+    },
+    {
+      "workflow": "edge-agent-release.yml",
+      "name": "Edge Agent Release",
+      "role": "main_verdict",
+      "reason": "Edge agent release build from a release tag."
+    },
+    {
+      "workflow": "finding-closure-reconcile.yml",
+      "name": "Finding Closure Reconcile",
+      "role": "main_verdict",
+      "reason": "Reconciles the finding registry on every push to main."
+    },
+    {
+      "workflow": "finding-state-sweep.yml",
+      "name": "Finding State Sweep",
+      "role": "main_verdict",
+      "reason": "Daily sweep of main's finding registry."
+    },
+    {
+      "workflow": "fuzz-st-parser-nightly.yml",
+      "name": "Nightly Fuzz - ST Parser (sens-api-gateway)",
+      "role": "main_verdict",
+      "reason": "Nightly fuzzing of main's ST parser."
+    },
+    {
+      "workflow": "graphql-codegen-validate.yml",
+      "name": "GraphQL Codegen Up-To-Date",
+      "role": "main_verdict",
+      "reason": "GraphQL codegen drift check that runs on push to main."
+    },
+    {
+      "workflow": "infra-helm-lint.yml",
+      "name": "Infrastructure - Helm Lint",
+      "role": "main_verdict",
+      "reason": "Helm lint that runs on push to main."
+    },
+    {
+      "workflow": "monitoring-stack-validate.yml",
+      "name": "Monitoring Stack Validate",
+      "role": "main_verdict",
+      "reason": "Monitoring stack validation that runs on push to main."
+    },
+    {
+      "workflow": "nats-invariants.yml",
+      "name": "NATS SSoT Invariants",
+      "role": "main_verdict",
+      "reason": "NATS SSoT invariants that run on push to main."
+    },
+    {
+      "workflow": "performance-benchmark.yml",
+      "name": "Performance Benchmark",
+      "role": "main_verdict",
+      "reason": "Runs on main only by dispatch, against main's web build or a live API."
+    },
+    {
+      "workflow": "pitr-restore-production.yml",
+      "name": "PITR Restore - Production Postgres",
+      "role": "main_verdict",
+      "reason": "Production point-in-time restore drill."
+    },
+    {
+      "workflow": "postgres-dr-bootstrap-candidate.yml",
+      "name": "PostgreSQL DR Bootstrap Candidate",
+      "role": "main_verdict",
+      "reason": "Builds and attests the DR bootstrap candidate for an exact main commit."
+    },
+    {
+      "workflow": "production-post-deploy-verify.yml",
+      "name": "Production Post-Deploy Verify",
+      "role": "main_verdict",
+      "reason": "Production probe after a deploy."
+    },
+    {
+      "workflow": "quality-gates.yml",
+      "name": "Quality Gates",
+      "role": "main_verdict",
+      "reason": "Quality gates that run on push to main."
+    },
+    {
+      "workflow": "rule-health-report.yml",
+      "name": "Rule Health Report",
+      "role": "main_verdict",
+      "reason": "Monthly report from main's finding registry and allowlists; reads no runs."
+    },
+    {
+      "workflow": "rust-ci.yml",
+      "name": "Rust CI",
+      "role": "main_verdict",
+      "reason": "Rust CI that runs on push to main."
+    },
+    {
+      "workflow": "scheduled-workflow-watchdog.yml",
+      "name": "Scheduled Workflow Watchdog",
+      "role": "observer",
+      "observes": [
+        "aria-agent-eval.yml",
+        "aria-agent-executor.yml",
+        "aria-auto-cycle.yml",
+        "aria-daily-report.yml",
+        "aria-external-watchdog.yml",
+        "aria-merge-runner.yml",
+        "aria-state-maintenance.yml",
+        "backup-production.yml",
+        "ci-full.yml",
+        "database-wal-archive-freshness.yml",
+        "dataflow-integrity-watchdog.yml",
+        "db-migration-check.yml",
+        "deploy-capacity-maintenance.yml",
+        "finding-state-sweep.yml",
+        "fuzz-st-parser-nightly.yml",
+        "rule-health-report.yml",
+        "secret-rotation-reminder.yml",
+        "security-trivy.yml"
+      ],
+      "reason": "Judges from their runs whether the scheduled-workflows.json lanes are fresh."
+    },
+    {
+      "workflow": "secret-rotation-reminder.yml",
+      "name": "Secret Rotation Reminder",
+      "role": "main_verdict",
+      "reason": "Opens rotation reminders from main's cadence table."
+    },
+    {
+      "workflow": "security-gitleaks.yml",
+      "name": "Security - Gitleaks",
+      "role": "main_verdict",
+      "reason": "Secret scan that runs on push to main."
+    },
+    {
+      "workflow": "security-snyk.yml",
+      "name": "Security - Snyk",
+      "role": "main_verdict",
+      "reason": "Dispatched dependency scan of the dispatched ref."
+    },
+    {
+      "workflow": "security-trivy.yml",
+      "name": "Security - Trivy",
+      "role": "main_verdict",
+      "reason": "Vulnerability scan that runs on push to main and on a schedule."
+    },
+    {
+      "workflow": "sens-api-gateway-ci.yml",
+      "name": "SENS API Gateway CI",
+      "role": "main_verdict",
+      "reason": "Edge gateway CI that runs on push to main."
+    },
+    {
+      "workflow": "sensor-ingestion-release.yml",
+      "name": "Sensor-Ingestion Release",
+      "role": "main_verdict",
+      "reason": "Sensor-ingestion release from a push to main."
+    },
+    {
+      "workflow": "verify-backup-dr-closure.yml",
+      "name": "Backup DR - Verify Enterprise Closure",
+      "role": "main_verdict",
+      "reason": "Verifies production backup evidence and DR bounds from main."
+    },
+    {
+      "workflow": "verify-backup-ssh-broker.yml",
+      "name": "Verify Backup SSH Broker",
+      "role": "main_verdict",
+      "reason": "Verifies a signed broker release and the production broker it installs."
+    }
+  ]
+}

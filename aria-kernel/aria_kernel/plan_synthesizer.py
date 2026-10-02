@@ -503,6 +503,23 @@ _FAILING_CI_RUN_WINDOW: int = 200
 # clears a red workflow nor turns a green one red.
 _DECISIVE_RUN_CONCLUSIONS: frozenset[str] = frozenset({"success", "failure"})
 
+# ADR-0019 — FAILING_CI is the slot ARCH-HIGH-002 gives production breakage,
+# so only a red workflow whose verdict is about `main` or production fills it.
+# The role manifest says what each workflow judges; a red `pr_verdict` or
+# `observer` workflow is disclosed once per cycle and supplies no candidate.
+# A workflow the manifest does not name counts as `main_verdict`, so a new
+# workflow is never silently excluded. tests/invariants/workflow-roles.spec.ts
+# pins the manifest to the files under .github/workflows/.
+WORKFLOW_ROLES_MANIFEST_PATH = ".github/manifests/workflow-roles.json"
+WORKFLOW_ROLES: tuple[str, ...] = ("main_verdict", "pr_verdict", "observer")
+_MAIN_VERDICT_ROLE = "main_verdict"
+FAILING_CI_WORKFLOW_EXCLUDED_EVENT = "failing_ci_workflow_excluded"
+FAILING_CI_WORKFLOW_ROLES_UNAVAILABLE_EVENT = "failing_ci_workflow_roles_unavailable"
+# The cache holds every red workflow BEFORE the role filter, each with its run
+# id, so a manifest change applies on the next scan and every cycle discloses
+# its own exclusions. Version 1 held the filtered candidates without a run id.
+_GH_RUN_LIST_CACHE_SCHEMA_VERSION: int = 2
+
 # Plan ARIA-V9.4 — per-source scan slowness threshold (perf HIGH-005).
 # When a single source > 2s, emit plan_source_scan_slow governance.
 _SOURCE_SCAN_SLOW_SECONDS: float = 2.0
@@ -627,6 +644,8 @@ def _read_gh_run_list_cache(cache_path: Path) -> list[dict[str, Any]] | None:
         return None
     if not isinstance(cached, dict):
         return None
+    if cached.get("schema_version") != _GH_RUN_LIST_CACHE_SCHEMA_VERSION:
+        return None
     cached_at = cached.get("cached_at_epoch")
     if not isinstance(cached_at, (int, float)):
         return None
@@ -639,7 +658,7 @@ def _read_gh_run_list_cache(cache_path: Path) -> list[dict[str, Any]] | None:
 def _write_gh_run_list_cache(cache_path: Path, payload: list[dict[str, Any]]) -> None:
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps({
-        "schema_version": 1,
+        "schema_version": _GH_RUN_LIST_CACHE_SCHEMA_VERSION,
         "cached_at_epoch": time.time(),
         "cached_at_utc": datetime.now(timezone.utc).isoformat(),
         "payload": payload,
@@ -675,51 +694,14 @@ def _newest_failures_of_red_workflows(rows: list[Any]) -> list[dict[str, Any]]:
     return failing
 
 
-def scan_failing_ci(
-    workspace_root: str | Path,
-    *,
-    cache_dir: str | Path | None = None,
-    gh_cli: str = "gh",
-    branch: str = "main",
-    gh_token: str | None = None,
-) -> list[dict[str, Any]]:
-    """Plan ARIA-V9.4 + V3.1-D-4 source — the workflows that are red on
-    ``main`` now: each workflow's newest decisive run (see
-    ``_DECISIVE_RUN_CONCLUSIONS``) among the newest
-    ``_FAILING_CI_RUN_WINDOW`` completed runs, kept when it failed. One
-    candidate per red workflow, carrying that newest failed run
-    (ARIA-HIGH-250).
-
-    Cached at ``<workspace>/aria-tools/cache/gh-run-list.json`` with
-    10-min TTL (arb MED-003 + perf CRIT-003 rate-limit mitigation).
-
-    Plan ARIA-V3.1-D-4 (closes 6-validator audit H-6 token scope):
-    `gh_token` kwarg accepts a scoped READ_ACTIONS_ONLY installation
-    token (5-min TTL, `actions:read` scope only). When supplied, the
-    subprocess.run uses an explicit `env={"GH_TOKEN": gh_token, "PATH":
-    os.environ["PATH"]}` so the gh CLI cannot inherit the operator's
-    full-scope PAT from the orchestrator's parent environment. Under
-    profile=autonomous the orchestrator MUST mint + pass this scoped
-    token; under strict/standard the function falls back to the
-    operator PAT in the inherited env (legacy V9.4 behavior + a
-    `gh_token_fallback_to_operator_pat` governance event is emitted by
-    the caller).
-
-    Returns ordered most-recent-first. Network failures / gh CLI
-    absence → empty list (degraded silently; orchestrator picks a
-    different source).
-    """
+def _red_workflow_runs(
+    *, gh_cli: str, branch: str, gh_token: str | None,
+) -> list[dict[str, Any]] | None:
+    """The newest failed run of every workflow red on ``branch`` now, as
+    candidate dicts, before any role filter; None when GitHub was not asked
+    or did not answer."""
     import os as _os
     import shutil
-    workspace = Path(workspace_root).resolve()
-    if cache_dir is None:
-        cache_path = workspace / "aria-tools" / "cache" / "gh-run-list.json"
-    else:
-        cache_path = Path(cache_dir) / "gh-run-list.json"
-
-    cached = _read_gh_run_list_cache(cache_path)
-    if cached is not None:
-        return cached[:_MAX_CANDIDATES_PER_SOURCE]
 
     # Plan ARIA-V3.1-F-2 — ARIA_DRY_RUN system-wide gate (closes C-8).
     # When set, short-circuit BEFORE the `gh run list` subprocess.
@@ -728,10 +710,10 @@ def scan_failing_ci(
     # preflight gate (V3.1-E) catches misconfigured hosts; this gate
     # is the per-call defense-in-depth.
     if _os.environ.get("ARIA_DRY_RUN", "").lower() in ("true", "1", "yes"):
-        return []
+        return None
 
     if not shutil.which(gh_cli):
-        return []
+        return None
     # Plan ARIA-V3.1-D-4 — explicit env when scoped token supplied.
     # When gh_token is None, fall through to subprocess's default
     # parent-env inheritance (V8 backward-compat).
@@ -755,29 +737,190 @@ def scan_failing_ci(
             env=subprocess_env,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        return []
+        return None
     if proc.returncode != 0:
-        return []
+        return None
     try:
         rows = json.loads(proc.stdout)
     except json.JSONDecodeError:
-        return []
+        return None
     if not isinstance(rows, list):
-        return []
-    candidates: list[dict[str, Any]] = []
+        return None
+    red: list[dict[str, Any]] = []
     for r in _newest_failures_of_red_workflows(rows):
         run_id = r.get("databaseId")
         workflow = r.get("workflowName") or "unknown"
-        candidates.append({
+        red.append({
             "source_type": PlanCandidateSource.FAILING_CI.value,
             "candidate_id": f"ci-run-{run_id}",
+            "run_id": run_id,
             "workflow_name": workflow,
             "head_sha": r.get("headSha"),
             "conclusion": r.get("conclusion"),
             "created_at": r.get("createdAt"),
             "title_hint": f"Fix failing CI workflow '{workflow}' (run #{run_id})",
         })
-    _write_gh_run_list_cache(cache_path, candidates)
+    return red
+
+
+def _parse_workflow_roles(raw: bytes) -> dict[str, str] | None:
+    """Role by the workflow name GitHub reports a run under, or None when
+    the manifest is not the schema the invariant pins (no partial reading:
+    a manifest the kernel cannot fully trust excludes nothing)."""
+    try:
+        manifest = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 1:
+        return None
+    entries = manifest.get("workflows")
+    if not isinstance(entries, list):
+        return None
+    roles: dict[str, str] = {}
+    for entry in entries:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        role = entry.get("role") if isinstance(entry, dict) else None
+        if not isinstance(name, str) or not name or name in roles or role not in WORKFLOW_ROLES:
+            return None
+        roles[name] = role
+    return roles
+
+
+def _read_workflow_roles(workspace: Path) -> tuple[dict[str, str] | None, dict[str, Any]]:
+    """The role manifest and where it was read from (ADR-0019).
+
+    Read the way the operator channel reads its allowed-signers file: as
+    committed at the checkout's commit once ``main_anchor`` proves that
+    commit is on ``main``, through the hardened git. A checkout that cannot
+    be anchored (no git, a commit not on main) is read from its working
+    tree, and the provenance names which one was read. None: no usable
+    manifest, so no workflow is excluded; the reason rides in the provenance.
+
+    Only a workspace that is itself a checkout root (``.git`` dir, or file
+    in a linked worktree) is anchored: git discovers a repository by walking
+    UP from ``-C``, so a workspace that is not one would be judged by the
+    manifest of whatever repository encloses it.
+    """
+    from .main_anchor import committed_blob, resolve_main_anchor
+
+    anchor = resolve_main_anchor(workspace) if (workspace / ".git").exists() else None
+    raw: bytes | None
+    if anchor is not None and anchor.commit is not None:
+        provenance: dict[str, Any] = {
+            "manifest_source": "main_anchor", "manifest_commit": anchor.commit,
+        }
+        blob = committed_blob(workspace, commit=anchor.commit, path=WORKFLOW_ROLES_MANIFEST_PATH)
+        raw = blob.content if blob is not None else None
+    else:
+        provenance = {
+            "manifest_source": "checkout", "manifest_commit": None,
+            "anchor_reason": anchor.reason if anchor is not None else "workspace_not_checkout_root",
+        }
+        try:
+            raw = (workspace / WORKFLOW_ROLES_MANIFEST_PATH).read_bytes()
+        except OSError:
+            raw = None
+    if raw is None:
+        return None, {**provenance, "reason": "manifest_unavailable"}
+    roles = _parse_workflow_roles(raw)
+    if roles is None:
+        return None, {**provenance, "reason": "manifest_malformed"}
+    return roles, provenance
+
+
+def _main_verdict_candidates(
+    red: list[dict[str, Any]], *, workspace: Path, tools_root: Path, cycle_id: str | None,
+) -> list[dict[str, Any]]:
+    """The red workflows whose verdict is about ``main`` (ADR-0019).
+
+    Every excluded red workflow is disclosed as ONE governance event per
+    cycle (workflow, role, run id), never dropped silently; without a usable
+    manifest every red stays a candidate and that is disclosed once per
+    cycle instead.
+    """
+    if not red:
+        return []
+    from .tool_registry import append_tools_governance_once
+
+    roles, provenance = _read_workflow_roles(workspace)
+    if roles is None:
+        append_tools_governance_once(tools_root, FAILING_CI_WORKFLOW_ROLES_UNAVAILABLE_EVENT, {
+            "cycle_id": cycle_id, "manifest_path": WORKFLOW_ROLES_MANIFEST_PATH,
+            "red_workflows": sorted({str(entry.get("workflow_name")) for entry in red}),
+            **provenance,
+        }, claim_keys=("cycle_id", "reason"))
+    candidates: list[dict[str, Any]] = []
+    for entry in red:
+        declared = roles.get(str(entry.get("workflow_name"))) if roles is not None else None
+        role = declared or _MAIN_VERDICT_ROLE
+        if role == _MAIN_VERDICT_ROLE:
+            candidates.append({
+                **entry, "workflow_role": role, "workflow_role_declared": declared is not None,
+            })
+            continue
+        append_tools_governance_once(tools_root, FAILING_CI_WORKFLOW_EXCLUDED_EVENT, {
+            "cycle_id": cycle_id, "workflow_name": entry.get("workflow_name"), "role": role,
+            "run_id": entry.get("run_id"), "head_sha": entry.get("head_sha"), **provenance,
+        }, claim_keys=("cycle_id", "workflow_name", "role", "run_id"))
+    return candidates
+
+
+def scan_failing_ci(
+    workspace_root: str | Path,
+    *,
+    cache_dir: str | Path | None = None,
+    gh_cli: str = "gh",
+    branch: str = "main",
+    gh_token: str | None = None,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Plan ARIA-V9.4 + V3.1-D-4 source — the workflows that are red on
+    ``main`` now and whose verdict is about ``main``: each workflow's newest
+    decisive run (see ``_DECISIVE_RUN_CONCLUSIONS``) among the newest
+    ``_FAILING_CI_RUN_WINDOW`` completed runs, kept when it failed. One
+    candidate per red workflow, carrying that newest failed run
+    (ARIA-HIGH-250). Only a ``main_verdict`` workflow of the role manifest
+    (or one it does not name) supplies a candidate; each excluded red
+    workflow is disclosed once per ``cycle_id`` in the governance ledger of
+    ``base_dir`` (default ``<workspace>/aria-tools``) — ADR-0019.
+
+    Cached at ``<workspace>/aria-tools/cache/gh-run-list.json`` with
+    10-min TTL (arb MED-003 + perf CRIT-003 rate-limit mitigation). The
+    cache holds the red workflows before the role filter.
+
+    Plan ARIA-V3.1-D-4 (closes 6-validator audit H-6 token scope):
+    `gh_token` kwarg accepts a scoped READ_ACTIONS_ONLY installation
+    token (5-min TTL, `actions:read` scope only). When supplied, the
+    subprocess.run uses an explicit `env={"GH_TOKEN": gh_token, "PATH":
+    os.environ["PATH"]}` so the gh CLI cannot inherit the operator's
+    full-scope PAT from the orchestrator's parent environment. Under
+    profile=autonomous the orchestrator MUST mint + pass this scoped
+    token; under strict/standard the function falls back to the
+    operator PAT in the inherited env (legacy V9.4 behavior + a
+    `gh_token_fallback_to_operator_pat` governance event is emitted by
+    the caller).
+
+    Returns ordered most-recent-first. Network failures / gh CLI
+    absence → empty list (degraded silently; orchestrator picks a
+    different source).
+    """
+    workspace = Path(workspace_root).resolve()
+    if cache_dir is None:
+        cache_path = workspace / "aria-tools" / "cache" / "gh-run-list.json"
+    else:
+        cache_path = Path(cache_dir) / "gh-run-list.json"
+
+    red = _read_gh_run_list_cache(cache_path)
+    if red is None:
+        red = _red_workflow_runs(gh_cli=gh_cli, branch=branch, gh_token=gh_token)
+        if red is None:
+            return []
+        _write_gh_run_list_cache(cache_path, red)
+    tools_root = Path(base_dir) if base_dir is not None else workspace / "aria-tools"
+    candidates = _main_verdict_candidates(
+        red, workspace=workspace, tools_root=tools_root, cycle_id=cycle_id,
+    )
     return candidates[:_MAX_CANDIDATES_PER_SOURCE]
 
 
@@ -881,10 +1024,11 @@ def rank_candidate_sources(
     Per-source scan timing emitted as ``plan_source_scan_slow``
     governance event when single source > 2s (perf HIGH-005).
 
-    ``base_dir`` / ``cycle_id`` reach only the operator-feedback scanner:
-    its ingestion row is written to the tools store and stamped with the
-    cycle so the provider can bind the synthesis it selects to that scan
-    (V9.5 check 12).
+    ``base_dir`` / ``cycle_id`` reach the operator-feedback scanner — its
+    ingestion row is written to the tools store and stamped with the cycle
+    so the provider can bind the synthesis it selects to that scan (V9.5
+    check 12) — and the failing-CI scanner, which discloses each red
+    workflow it excludes once per cycle in that store (ADR-0019).
     """
     workspace = Path(workspace_root).resolve()
     all_candidates: list[dict[str, Any]] = []
@@ -893,9 +1037,12 @@ def rank_candidate_sources(
     def _scan_operator_feedback(root: Path) -> list[dict[str, Any]]:
         return scan_operator_feedback(root, base_dir=base_dir, cycle_id=cycle_id)
 
+    def _scan_failing_ci(root: Path) -> list[dict[str, Any]]:
+        return scan_failing_ci(root, base_dir=base_dir, cycle_id=cycle_id)
+
     for source_name, scanner in (
         (PlanCandidateSource.OPERATOR_FEEDBACK.value, _scan_operator_feedback),
-        (PlanCandidateSource.FAILING_CI.value, scan_failing_ci),
+        (PlanCandidateSource.FAILING_CI.value, _scan_failing_ci),
         (PlanCandidateSource.ORPHAN_FINDING.value, scan_orphan_findings),
         (PlanCandidateSource.F_FINDING.value, scan_f_findings),
         (PlanCandidateSource.GITHUB_ISSUE.value, scan_github_issue_missions),

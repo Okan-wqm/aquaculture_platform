@@ -987,6 +987,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/workflow-roles.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/provisioned-secrets.json",
       "prettier_managed": true
     },
@@ -49822,6 +49828,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/workflow-npm-script-references.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/workflow-roles.spec.ts",
       "prettier_managed": true
     },
     {

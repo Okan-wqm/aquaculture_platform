@@ -75,13 +75,27 @@ Evidence:
 - `.github/workflows/e2e-tests.yml:12` — runs on `workflow_run` after deploy and judges `main`, so
   an exclusion keyed on `event == workflow_run` would drop a real verdict.
 
-Rule: FAILING_CI means a red workflow whose verdict is about `main` itself (proposed ADR-0019).
+Rule: FAILING_CI means a red workflow whose verdict is about `main` itself (ADR-0019, accepted by
+the operator 2026-10-02).
 
-Fix (proposed, owner okan, decision by 2026-10-16): a role manifest under `.github/manifests/`
-(`main_verdict` | `pr_verdict` | `observer`, undeclared counts as `main_verdict`), an invariant over
-each workflow's `on:` triggers, and a per-cycle log of every red workflow the source excludes.
-Nothing of it is implemented in the branch that registers this finding; until it is decided, the
-signed operator request (ADR-0018) is how a one-time decision outranks failing CI.
+Fix (implemented 2026-10-02):
+
+- `.github/manifests/workflow-roles.json` gives each of the 56 workflows one role with a one-line
+  reason: 49 `main_verdict`, 5 `pr_verdict` (`aria-merge-authority`, `aria-readiness-claim`,
+  `backup-manifest-invariant`, `closes-footer-check`, `dependency-review`), 2 `observer`
+  (`scheduled-workflow-watchdog`, `aria-external-watchdog`, each with its `observes` list).
+- `tests/invariants/workflow-roles.spec.ts` pins it to `.github/workflows/`: every file declared
+  once, no stale entry, `name` equal to the workflow's `name:` and unique, the closed role set, a
+  pull-request trigger for `pr_verdict` (directly or via `workflow_run`), and for `observer` an
+  `observes` list of existing workflows that its source (or a manifest its source loads) names,
+  plus a `workflow_run` trigger or a runs API call.
+- `scan_failing_ci` reads the manifest at the checkout's commit once `main_anchor` proves it on
+  `main`, else from the working tree. Only a `main_verdict` or undeclared red workflow is a
+  candidate; each excluded one is disclosed once per cycle as `failing_ci_workflow_excluded`
+  (workflow, role, run id). A missing or malformed manifest excludes nothing and is disclosed once
+  per cycle as `failing_ci_workflow_roles_unavailable`. The run cache holds the reds before the
+  role filter (cache schema 2), so a cached scan discloses its own cycle's exclusions too.
+- Tests: `aria-kernel/tests/test_failing_ci_main_verdict.py`.
 
 ## ARIA-HIGH-260
 

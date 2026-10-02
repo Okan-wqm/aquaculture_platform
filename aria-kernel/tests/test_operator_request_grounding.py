@@ -250,7 +250,7 @@ class FindingBodyNeverReachesThePlanTests(_Fixture):
 
 
 class ProviderTests(_Fixture):
-    def _failing_ci(self, _workspace) -> list[dict]:
+    def _failing_ci(self, _workspace, *, base_dir=None, cycle_id=None) -> list[dict]:
         return [{"source_type": "failing_ci", "candidate_id": "ci-run-1", "workflow_name": "CI",
                  "head_sha": "a" * 40, "created_at": "2026-10-02T00:00:00Z", "title_hint": "Fix CI"}]
 

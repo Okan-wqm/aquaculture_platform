@@ -128,6 +128,20 @@ require_preprovisioned_sentinel_hub_key() {
 #                             ai-service; the transformer accepts a 64-hex key as
 #                             32 bytes. MUST stay stable — rotating it makes every
 #                             stored tenant AI key undecryptable.
+#   EMPLOYEE_PII_ENCRYPTION_KEY — farm-service AES-256-GCM key for farm_workers
+#                             PII columns (worker.entity.ts, migration
+#                             1801100000000-EncryptFarmWorkerPii); fail-closed
+#                             under NODE_ENV=production. Generate-if-absent is
+#                             safe: no compose revision ever delivered this
+#                             variable to farm-service or hr-service, and the
+#                             transformer refuses to write without it, so no
+#                             production ciphertext under another key exists. MUST stay stable once set — rotating it
+#                             makes every encrypted worker row undecryptable.
+#   EMPLOYEE_PII_BLIND_INDEX_KEY — farm-service HMAC key for the
+#                             farm_workers.emailHash blind index (uniqueness +
+#                             equality lookup over the encrypted email). Same
+#                             stability rule: rotating it orphans every stored
+#                             hash and silently disables the UNIQUE guarantee.
 REQUIRED_ENV_SECRET_SPECS=(
   "POSTGRES_PASSWORD" "generate_base64_32_secret"
   "REDIS_PASSWORD" "generate_base64_32_secret"
@@ -139,6 +153,8 @@ REQUIRED_ENV_SECRET_SPECS=(
   "CONFIG_ENCRYPTION_KEY" "generate_hex_32_secret"
   "AI_TENANT_SECRET_ENCRYPTION_KEY" "generate_hex_32_secret"
   "SENTINEL_HUB_ENCRYPTION_KEY" "require_preprovisioned_sentinel_hub_key"
+  "EMPLOYEE_PII_ENCRYPTION_KEY" "generate_hex_32_secret"
+  "EMPLOYEE_PII_BLIND_INDEX_KEY" "generate_hex_32_secret"
 )
 
 validate_required_env_secret_specs() {

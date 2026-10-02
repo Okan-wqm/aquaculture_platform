@@ -30,7 +30,6 @@ import { CreateHarvestPlanInput } from '../dto/create-harvest-plan.input';
 import { UpdateHarvestPlanInput } from '../dto/update-harvest-plan.input';
 import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
-import { TankAllocation } from '../../batch/entities/tank-allocation.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { MUTATION_ROLES } from '../../common/authz/permission-matrix';
 import { CreateHarvestRecordCommand } from '../commands/create-harvest-record.command';
@@ -88,8 +87,6 @@ export class HarvestPlanService {
   constructor(
     @InjectRepository(HarvestPlan)
     private readonly harvestPlanRepository: Repository<HarvestPlan>,
-    @InjectRepository(TankAllocation)
-    private readonly tankAllocationRepository: Repository<TankAllocation>,
     @InjectRepository(TankBatch)
     private readonly tankBatchRepository: Repository<TankBatch>,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
@@ -520,13 +517,10 @@ export class HarvestPlanService {
     // kendi gerçekleşen alanlarını yazıyor, batch/tank stoğu hiç düşmüyordu.
     // DİKKAT — sıra: hareketler plan IN_PROGRESS'ken koşar (komutun plan
     // doğrulaması COMPLETED planı reddediyor); plan.complete en sonda.
-    // Güncel konumlar: tank_allocations HAREKET DEFTERİNİN tank başına
-    // toplamı (SSoT — batch_locations tablosu eski yollarca yazılmıyor);
-    // boşsa TankBatch primary yakınsamasına geri dönülür.
     // Canlı konum SSoT'u: TankBatch.batchDetails (tank başına batch ayrıntı
-    // JSON'u — applyBatchDelta'nın okuduğu/yazdığı aynı veri). Hareket
-    // defteri (tank_allocations) E2E çöp veriyle canlı durumdan kopmuş
-    // olabilir; komutun kendi doğrulaması batchDetails'e göre reddediyor.
+    // JSON'u — applyBatchDelta'nın okuduğu/yazdığı ve komutun kendi
+    // doğrulamasının baktığı aynı veri); ayrıntısı olmayan tankta primary
+    // batch toplamı kullanılır.
     const tankBatches = await this.tankBatchRepository.find({ where: { tenantId } });
     const stocked: { tankId: string; quantity: number }[] = [];
     for (const tb of tankBatches) {
@@ -555,7 +549,7 @@ export class HarvestPlanService {
       const share =
         index === stocked.length - 1
           ? remaining
-          : Math.min(remaining, Math.floor(((loc.quantity ?? 0) / totalQty) * actualQuantity));
+          : Math.min(remaining, Math.floor((loc.quantity / totalQty) * actualQuantity));
       if (share <= 0) continue;
       remaining -= share;
       await this.commandBus.execute(
@@ -563,7 +557,7 @@ export class HarvestPlanService {
           tenantId,
           {
             batchId: plan.batchId,
-            tankId: loc.tankId as string,
+            tankId: loc.tankId,
             quantityHarvested: share,
             averageWeight: actualAvgWeight,
             totalBiomass: Number(((share * actualAvgWeight) / 1000).toFixed(3)),

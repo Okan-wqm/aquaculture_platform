@@ -20,7 +20,6 @@ import { collaborator, stubMember } from '@aquaculture/testing';
 import type { CommandBus } from '@platform/cqrs';
 import type { Repository } from 'typeorm';
 
-import type { TankAllocation } from '../../batch/entities/tank-allocation.entity';
 import { TankBatch, type BatchDetail } from '../../batch/entities/tank-batch.entity';
 import type { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
 import { CreateHarvestRecordCommand } from '../commands/create-harvest-record.command';
@@ -84,7 +83,6 @@ function harness(status: HarvestPlanStatus, tankBatches: TankBatch[]) {
       },
       'HarvestPlanRepository',
     ),
-    collaborator<Repository<TankAllocation>>({}, 'TankAllocationRepository'),
     collaborator<Repository<TankBatch>>(
       { find: stubMember<Repository<TankBatch>['find']>(() => Promise.resolve(tankBatches)) },
       'TankBatchRepository',

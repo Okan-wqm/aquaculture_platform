@@ -48069,6 +48069,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/aria-suite-selector.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/aria-workflow-input-injection.spec.ts",
       "prettier_managed": true
     },

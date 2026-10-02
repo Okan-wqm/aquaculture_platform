@@ -2590,6 +2590,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/settings/__tests__/email-sender.smtp-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/settings/__tests__/reliability/email-circuit-breaker.spec.ts",
       "prettier_managed": true
     },
@@ -25530,6 +25536,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/notification-service/src/notification/services/__tests__/email.service.smtp-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/notification-service/src/notification/services/__tests__/notification-log-dead-letter.sink.spec.ts",
       "prettier_managed": true
     },
@@ -28552,6 +28564,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/scada-runtime/services/__tests__/alarm-engine.tenant-isolation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/scada-runtime/services/__tests__/notification.service.smtp-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -38458,6 +38476,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/supply-chain-auditor/2026-09-29-npm-advisories.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/supply-chain/2026-06-13-esbuild-high-advisory-override.md",
       "prettier_managed": true
     },
@@ -39762,7 +39786,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "fcc93344aa742f0a4d8e4f5ac8102c77785e5e6a1a4fbb6ba488864f3056befc",
+      "content_sha256": "fb3f45c3a5afd1b0f50ad9710d39af6c87f47b92c764d81b39372699cf861f30",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "e2e/package-lock.json",
@@ -45592,6 +45616,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/testing/src/smtp/__tests__/fake-smtp-server.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/smtp/default-ca-trust.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/smtp/fake-smtp-server.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/smtp/loopback-certificate.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/testing/src/vitest-test-policy.d.ts",
       "prettier_managed": true
     },
@@ -45987,7 +46035,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "fc470a5ebd81ea0b33c179c7c6242ee3c8934570ddd77e0bca2853cf442dafb9",
+      "content_sha256": "1f3e79d1c0d6c3710d861aa57211e12907d451a0b13329d4e797b2c005f3d6a8",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -51777,7 +51825,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "2433b7ee39a667efa4ee75fe8957f96e76c0148327a2c5d10cd1081f6a0d231d",
+      "content_sha256": "3df75d17d6c4082b11cd1d410ba1383207e8ffd8ab325162f7f1d44716104a60",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",

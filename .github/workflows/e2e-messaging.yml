@@ -152,7 +152,8 @@ jobs:
       # Tenant schemas are created dynamically by the test setup.
       - name: Run E2E tests
         run: |
-          TEST_FILTER="${{ github.event.inputs.test_filter || '' }}"
+          # TEST_FILTER arrives through the step env below, as data
+          # (INFRA-CRITICAL-080) — never spliced into this script's text.
           if [ -n "$TEST_FILTER" ]; then
             npx jest \
               --config apps/messaging-service/test/jest-e2e.config.ts \
@@ -168,6 +169,7 @@ jobs:
               --forceExit
           fi
         env:
+          TEST_FILTER: ${{ github.event.inputs.test_filter || '' }}
           # ── Database ──
           DATABASE_HOST: localhost
           DATABASE_PORT: 5432

@@ -1,0 +1,13 @@
+{
+  "$schema": "aria/capability-semantic-equivalence-pins/v1",
+  "_doc": "ARIA-HIGH-288 — for each declared semantic authority (aria_kernel/data/capability_semantic_authority.json), the digest of what the executing fold makes of corpus.jsonl for that capability (test_capability_semantic_equivalence.digest). An entry is recorded by the operator when a version is bumped, never by ARIA's implementer (READONLY path). An entry is never edited: a changed fold under an existing authority is a semantic change that needs a version bump.",
+  "pins": {
+    "aria/capability-semantic-authority/v1:autonomy_unlock@1:fold@2:upcasters@1": "sha256:17062dc19cb35ccab642a5a4c5619eaed08fd878fa6cc158405e3a21d0960299",
+    "aria/capability-semantic-authority/v1:cycle_runtime@1:fold@2:upcasters@1": "sha256:9012f49b1f3751f91dc1e7b886bdbf72fe5eef5f366ea256cd8ead78991d5411",
+    "aria/capability-semantic-authority/v1:enterprise_readiness@1:fold@2:upcasters@1": "sha256:289256b46f655ed4f113917ab5633b51a9be67a461f9e1b52c81dab4ea073747",
+    "aria/capability-semantic-authority/v1:executor@1:fold@2:upcasters@1": "sha256:cda070d7e36cbbf414ad878f9dcbfce598e8454813fcfd4bda85779b40fdfe62",
+    "aria/capability-semantic-authority/v1:finding_funnel@1:fold@2:upcasters@1": "sha256:acb97b25bf10062a4fa6c3bca76a80fd7900a69e71a615297c6455367ad966b0",
+    "aria/capability-semantic-authority/v1:fixture_calibration@1:fold@2:upcasters@1": "sha256:b48d51fb3a41cb488bb84165e3391da0bd5c95bca9e83628c701d2ea493dbfb8",
+    "aria/capability-semantic-authority/v1:pre_merge_perimeter@1:fold@2:upcasters@1": "sha256:ada32852bf7300a0fce6dd7f7adf30d9b9455caaa368bc920617f35f3390e26c"
+  }
+}

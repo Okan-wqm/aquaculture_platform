@@ -583,8 +583,21 @@ _EXPECTED_CLOSURE_POLICY_REFERENCES: Mapping[
 })
 _EXPECTED_CLOSURE_SCOPE = frozenset(_EXPECTED_CLOSURE_POLICY_SEMANTICS)
 _MAX_EVALUATOR_BLOB_BYTES = 2 * 1024 * 1024
-_MAX_AUTHORITY_BLOB_BYTES = 2 * 1024 * 1024
-_MAX_AUTHORITY_CAPABILITY_BYTES = 16 * 1024 * 1024
+# ARIA-HIGH-288 — a proof is bound to the semantic authority its commit
+# DECLARES, never to source bytes: a hash over a roster of kernel files reset
+# every capability on each storage refactor. The declaration is read from Git
+# at the proof's commit and at the target; test_capability_semantic_equivalence
+# pins each declared authority to what the fold makes of a frozen corpus, so
+# semantics cannot move without a bump and a bump cannot pin itself.
+SEMANTIC_AUTHORITY_PATH = "aria-kernel/aria_kernel/data/capability_semantic_authority.json"
+_SEMANTIC_AUTHORITY_SCHEMA = "aria/capability-semantic-authority/v1"
+_SEMANTIC_AUTHORITY_KEYS = frozenset({
+    "$schema",
+    "evidence_fold_version",
+    "upcaster_set_version",
+    "capability_contract_versions",
+})
+_MAX_SEMANTIC_AUTHORITY_BYTES = 64 * 1024
 _MAX_POLICY_BLOB_BYTES = 2 * 1024 * 1024
 _MAX_SNAPSHOT_TREE_BYTES = 16 * 1024 * 1024
 _MAX_SNAPSHOT_TREE_ENTRIES = 10_000
@@ -601,10 +614,59 @@ _MAX_EVIDENCE_LEDGER_ROWS = 100_000
 # publish consumes at most one stride plus two publishes' growth, at any age.
 EVIDENCE_CHECKPOINT_SURFACE = "evidence_checkpoints"
 EVIDENCE_CHECKPOINT_STRIDE_BYTES = 1024 * 1024
+
+
+def _declared_version(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+def _parse_semantic_authority(payload: bytes) -> dict[str, Any]:
+    """One commit's declared semantic versions, strictly shaped."""
+    try:
+        declared = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        raise RuntimeError("git_authority_declaration_invalid") from exc
+    versions = (
+        declared.get("capability_contract_versions")
+        if isinstance(declared, dict) else None
+    )
+    if (
+        not isinstance(declared, dict)
+        or set(declared) - {"_doc"} != _SEMANTIC_AUTHORITY_KEYS
+        or declared["$schema"] != _SEMANTIC_AUTHORITY_SCHEMA
+        or not _declared_version(declared["evidence_fold_version"])
+        or not _declared_version(declared["upcaster_set_version"])
+        or not isinstance(versions, dict)
+        or not versions
+        or not all(_declared_version(version) for version in versions.values())
+    ):
+        raise RuntimeError("git_authority_declaration_invalid")
+    return declared
+
+
+def _semantic_authority(declared: Mapping[str, Any], capability: str) -> str:
+    """What a proof of ``capability`` is proven under: every declared version
+    its meaning depends on, spelled so the provenance reads without a lookup."""
+    version = declared["capability_contract_versions"].get(capability)
+    if not _declared_version(version):
+        raise RuntimeError("git_authority_declaration_invalid")
+    return (
+        f"{_SEMANTIC_AUTHORITY_SCHEMA}:{capability}@{version}"
+        f":fold@{declared['evidence_fold_version']}"
+        f":upcasters@{declared['upcaster_set_version']}"
+    )
+
+
+# The executing kernel's own declaration (SEMANTIC_AUTHORITY_PATH).
+_DECLARED_SEMANTICS: dict[str, Any] = _parse_semantic_authority(
+    (Path(__file__).resolve().parent / "data" / Path(SEMANTIC_AUTHORITY_PATH).name)
+    .read_bytes(),
+)
 # Bumped whenever how a carried row folds into the projection changes
 # (pinned by test_evidence_checkpoints): a checkpoint of another fold
-# version is not evidence and is never read.
-EVIDENCE_CHECKPOINT_FOLD_VERSION = 2
+# version is not evidence and is never read. It IS the declared fold version,
+# so a fold bump moves every capability's semantic authority by construction.
+EVIDENCE_CHECKPOINT_FOLD_VERSION: int = _DECLARED_SEMANTICS["evidence_fold_version"]
 _EVIDENCE_CHECKPOINT_ROW_TYPE = "evidence_checkpoint"
 # ARIA-HIGH-286 — named on every capability that counts a carried claim the
 # publish's slice (`_evidence_slice_bytes`) could not reach.
@@ -681,7 +743,12 @@ class EvidenceContract:
 
 @dataclass(frozen=True, slots=True)
 class CapabilitySpec:
-    """Immutable authority and proof ownership for one capability."""
+    """Immutable proof ownership for one capability.
+
+    ``authority_paths`` is the code a capability's proofs are produced and
+    judged by; the evaluator runs only from a clean checkout of it. Its bytes
+    are not the proof's authority (ARIA-HIGH-288): SEMANTIC_AUTHORITY_PATH is.
+    """
 
     authority_paths: tuple[str, ...]
     producer_paths: tuple[str, ...]
@@ -753,7 +820,9 @@ class EvidenceRef:
     row_hash: str
     evidence_target_sha: str | None
     evaluated_target_sha: str
-    capability_authority_hash: str
+    # Provenance (ARIA-HIGH-288): the semantic authority the proof was
+    # proven under — equal at the evidence commit and the evaluated target.
+    semantic_authority: str
     state_commit: str
 
 
@@ -1744,49 +1813,38 @@ def _git_tree_entries(
     return entries
 
 
-def _capability_authority_hash(
+def _capability_semantic_authority(
     repo_root: str | Path,
     capability: str,
     commit_sha: str,
-) -> str:
-    """Hash exact authority path names and blobs from one Git tree."""
+) -> str | None:
+    """The semantic authority one commit declares for ``capability``.
+
+    None when the commit declares none: a proof from before ARIA-HIGH-288
+    (the byte-hash era) is never mapped onto a semantic authority.
+    """
     root = Path(repo_root).resolve()
     if not _commit_exists(root, commit_sha):
         raise RuntimeError(f"git_commit_unavailable:{commit_sha}")
-    digest = hashlib.sha256()
-    aggregate_size = 0
-    for path in sorted(CAPABILITY_SPECS[capability].authority_paths):
-        digest.update(path.encode("utf-8"))
-        digest.update(b"\0")
-        entry = _git_tree_entry(root, commit_sha, path)
-        if entry is None:
-            digest.update(b"MISSING")
-        else:
-            record, mode, object_type, object_id = entry
-            if object_type != "blob" or mode not in {"100644", "100755"}:
-                raise RuntimeError("git_authority_tree_invalid")
-            digest.update(b"ENTRY\0")
-            digest.update(record)
-            try:
-                size, chunks = _iter_git_blob_bounded(
-                    root,
-                    object_id,
-                    max_bytes=_MAX_AUTHORITY_BLOB_BYTES,
-                    too_large="git_authority_blob_too_large",
-                    unavailable="git_authority_blob_unavailable",
-                )
-            except RuntimeError as exc:
-                if str(exc) == "git_authority_blob_too_large":
-                    raise
-                raise RuntimeError("git_authority_blob_unavailable") from exc
-            aggregate_size += size
-            if aggregate_size > _MAX_AUTHORITY_CAPABILITY_BYTES:
-                raise RuntimeError("git_authority_capability_budget_exceeded")
-            digest.update(b"BLOB\0")
-            for chunk in chunks:
-                digest.update(chunk)
-        digest.update(b"\0")
-    return "sha256:" + digest.hexdigest()
+    entry = _git_tree_entry(root, commit_sha, SEMANTIC_AUTHORITY_PATH)
+    if entry is None:
+        return None
+    _record, mode, object_type, object_id = entry
+    if object_type != "blob" or mode not in {"100644", "100755"}:
+        raise RuntimeError("git_authority_tree_invalid")
+    try:
+        payload = _read_git_blob_bounded(
+            root,
+            object_id,
+            max_bytes=_MAX_SEMANTIC_AUTHORITY_BYTES,
+            too_large="git_authority_blob_too_large",
+            unavailable="git_authority_blob_unavailable",
+        )
+    except RuntimeError as exc:
+        if str(exc) == "git_authority_blob_too_large":
+            raise
+        raise RuntimeError("git_authority_blob_unavailable") from exc
+    return _semantic_authority(_parse_semantic_authority(payload), capability)
 
 
 def _executing_repository_root() -> Path | None:
@@ -1859,52 +1917,31 @@ def _evaluator_capability_blocker(
     )
     if definition_blocker is not None:
         return definition_blocker
+    # The semantics this process applies are the ones it loaded; the target
+    # must declare the same, or the evaluator would judge it by other rules.
     try:
-        returncode, current_head = _git_text(
-            repo_root,
-            "rev-parse",
-            "--verify",
-            "HEAD^{commit}",
-        )
+        executing = _semantic_authority(_DECLARED_SEMANTICS, capability)
+        target = _capability_semantic_authority(repo_root, capability, target_sha)
     except RuntimeError as exc:
         named = str(exc)
-        if named in {
-            "git_authority_blob_too_large",
-            "git_authority_capability_budget_exceeded",
-        }:
+        if named.startswith("git_authority_"):
             return named
         return f"evaluator_authority_unavailable:{capability}"
-    if returncode != 0 or not _FULL_SHA.fullmatch(current_head):
-        return f"evaluator_authority_unavailable:{capability}"
-    try:
-        current_hash = _capability_authority_hash(
-            repo_root,
-            capability,
-            current_head,
-        )
-        target_hash = _capability_authority_hash(
-            repo_root,
-            capability,
-            target_sha,
-        )
-    except RuntimeError as exc:
-        named = str(exc)
-        if named in {
-            "git_authority_blob_too_large",
-            "git_authority_capability_budget_exceeded",
-        }:
-            return named
-        return f"evaluator_authority_unavailable:{capability}"
-    if current_hash != target_hash:
+    if target is None:
+        return f"evaluator_authority_undeclared:{capability}"
+    if target != executing:
         return f"evaluator_authority_changed:{capability}"
     return None
 
 
 def _evaluator_worktree_blocker(repo_root: Path) -> str | None:
     authority_paths = tuple(sorted({
-        path
-        for spec in CAPABILITY_SPECS.values()
-        for path in spec.authority_paths
+        SEMANTIC_AUTHORITY_PATH,
+        *(
+            path
+            for spec in CAPABILITY_SPECS.values()
+            for path in spec.authority_paths
+        ),
     }))
     try:
         result = _run_git(
@@ -2015,11 +2052,11 @@ def _derive_capability_evidence(
     proof_kinds: set[ProofKind] = set()
     proof_cardinality: dict[str, int] = {}
     ancestry_cache: dict[str, str | None] = {}
-    authority_cache: dict[str, str] = {}
+    authority_cache: dict[str, str | None] = {}
 
-    def authority_hash(sha: str) -> str:
+    def authority(sha: str) -> str | None:
         if sha not in authority_cache:
-            authority_cache[sha] = _capability_authority_hash(
+            authority_cache[sha] = _capability_semantic_authority(
                 root,
                 capability,
                 sha,
@@ -2036,7 +2073,7 @@ def _derive_capability_evidence(
             reverse=True,
         )
         witness: _TargetCandidate | None = None
-        witness_hash: str | None = None
+        witness_authority: str | None = None
         for retained in ordered:
             candidate = retained.candidate
             evidence_sha = candidate.evidence_target_sha
@@ -2051,8 +2088,8 @@ def _derive_capability_evidence(
                 blockers.add(blocker)
                 continue
             try:
-                evidence_hash = authority_hash(evidence_sha)
-                target_hash = authority_hash(target_sha)
+                evidence_authority = authority(evidence_sha)
+                target_authority = authority(target_sha)
             except RuntimeError as exc:
                 named = str(exc)
                 blockers.add(
@@ -2060,12 +2097,16 @@ def _derive_capability_evidence(
                     else "git_authority_unavailable"
                 )
                 continue
-            if evidence_hash != target_hash:
+            if evidence_authority is None:
+                # Proven before ARIA-HIGH-288 declared any semantics.
+                blockers.add(f"proof_authority_undeclared:{capability}")
+                continue
+            if evidence_authority != target_authority:
                 blockers.add(f"proof_authority_changed:{capability}")
                 continue
             if witness is None:
                 witness = retained
-                witness_hash = target_hash
+                witness_authority = evidence_authority
         for version in contract.schema_versions:
             proof_cardinality[_proof_cardinality_key(
                 contract.surface,
@@ -2077,7 +2118,7 @@ def _derive_capability_evidence(
                 if witness is not None
                 else 0
             )
-        if witness is not None and witness_hash is not None:
+        if witness is not None and witness_authority is not None:
             candidate = witness.candidate
             refs.append(EvidenceRef(
                 surface=contract.surface,
@@ -2088,7 +2129,7 @@ def _derive_capability_evidence(
                 row_hash=candidate.row_hash,
                 evidence_target_sha=candidate.evidence_target_sha,
                 evaluated_target_sha=target_sha,
-                capability_authority_hash=witness_hash,
+                semantic_authority=witness_authority,
                 state_commit=state_commit,
             ))
             proof_kinds.add(contract.proof_kind)
@@ -4538,5 +4579,6 @@ __all__ = [
     "EvidenceContract",
     "EvidenceRef",
     "EvidenceState",
+    "SEMANTIC_AUTHORITY_PATH",
     "derive_autonomy_evidence_status",
 ]

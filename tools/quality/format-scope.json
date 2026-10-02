@@ -29565,6 +29565,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-kernel/aria_kernel/data/capability_semantic_authority.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-kernel/aria_kernel/data/default_failure_modes.json",
       "prettier_managed": true
     },
@@ -29917,6 +29923,12 @@
       "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
       "review_required": true,
       "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/invariants/capability_semantic_equivalence/pins.json",
+      "prettier_managed": true
     },
     {
       "class": "canonical_source",

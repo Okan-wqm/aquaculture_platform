@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 from types import MappingProxyType
+from typing import Any
 from unittest import mock
 
 import aria_kernel.autonomy_evidence as autonomy_evidence_module
@@ -28,7 +29,8 @@ from aria_kernel.autonomy_evidence import (
     CapabilityEvidence,
     EvidenceContract,
     EvidenceRef,
-    _capability_authority_hash,
+    SEMANTIC_AUTHORITY_PATH,
+    _capability_semantic_authority,
     _apply_operator_prerequisites,
     _ancestry_blocker,
     _capability_safe_counts,
@@ -1318,7 +1320,7 @@ def alias_factory(root):
             row_hash="sha256:" + "1" * 64,
             evidence_target_sha="a" * 40,
             evaluated_target_sha="a" * 40,
-            capability_authority_hash="sha256:" + "2" * 64,
+            semantic_authority="aria/capability-semantic-authority/v1:cycle_runtime@1:fold@2:upcasters@1",
             state_commit="b" * 40,
         )
         capability = CapabilityEvidence(
@@ -3087,9 +3089,15 @@ def _git(cwd: Path, *args: str) -> str:
 
 
 def _write_current_evaluator(repo: Path) -> Path:
+    """Install the executing evaluator and the semantic authority it declares."""
     target = repo / "aria-kernel" / "aria_kernel" / "autonomy_evidence.py"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(Path(autonomy_evidence_module.__file__).read_bytes())
+    declaration = repo / SEMANTIC_AUTHORITY_PATH
+    declaration.parent.mkdir(parents=True, exist_ok=True)
+    declaration.write_bytes(
+        (Path(autonomy_evidence_module.__file__).parent / "data" / declaration.name).read_bytes(),
+    )
     return target
 
 
@@ -3240,11 +3248,20 @@ class TargetBoundGitProofTests(unittest.TestCase):
         evidence = self._derive(self.event_sha)
         self.assertEqual(evidence.state, "live_proven")
         self.assertEqual(len(evidence.evidence_refs), 1)
+        # Provenance: the witness names the semantic authority it was proven under.
+        authority = evidence.evidence_refs[0].semantic_authority
+        self.assertRegex(
+            authority,
+            r"^aria/capability-semantic-authority/v1:cycle_runtime@[1-9][0-9]*"
+            r":fold@[1-9][0-9]*:upcasters@[1-9][0-9]*$",
+        )
         self.assertEqual(
-            evidence.evidence_refs[0].capability_authority_hash,
-            _capability_authority_hash(
-                self.repo, "cycle_runtime", self.event_sha,
-            ),
+            authority,
+            _capability_semantic_authority(self.repo, "cycle_runtime", self.event_sha),
+        )
+        self.assertEqual(
+            evidence.to_dict()["evidence_refs"][0]["semantic_authority"],
+            authority,
         )
 
     def test_target_must_contain_the_exact_executing_evaluator(self) -> None:
@@ -3368,43 +3385,6 @@ class TargetBoundGitProofTests(unittest.TestCase):
             "evaluator_definition_too_large",
         )
 
-    def test_current_transitive_authority_must_match_historical_target(self) -> None:
-        self._commit(
-            "aria-kernel/aria_kernel/state_snapshot.py",
-            "SNAPSHOT = 'new evaluator dependency'\n",
-            "change current transitive authority",
-        )
-        evidence = self._derive(self.event_sha)
-        self.assertEqual(evidence.state, "declared")
-        self.assertEqual(evidence.evidence_refs, ())
-        self.assertIn(
-            "evaluator_authority_changed:cycle_runtime",
-            evidence.blockers,
-        )
-
-    def test_executor_acceptance_delegates_change_the_target_tree_hash(self) -> None:
-        previous_sha = self.event_sha
-        previous_hash = _capability_authority_hash(
-            self.repo,
-            "executor",
-            previous_sha,
-        )
-        for ordinal, path in enumerate(EXECUTOR_ACCEPTANCE_AUTHORITY):
-            with self.subTest(path=path):
-                changed_sha = self._commit(
-                    path,
-                    f"ACCEPTANCE_AUTHORITY = {ordinal}\n",
-                    f"mutate executor acceptance authority {ordinal}",
-                )
-                changed_hash = _capability_authority_hash(
-                    self.repo,
-                    "executor",
-                    changed_sha,
-                )
-                self.assertNotEqual(previous_hash, changed_hash)
-                previous_sha = changed_sha
-                previous_hash = changed_hash
-
     def test_unchanged_authority_and_unrelated_docs_descendants_preserve_proof(
         self,
     ) -> None:
@@ -3413,53 +3393,129 @@ class TargetBoundGitProofTests(unittest.TestCase):
         self.assertEqual(self._derive(readme_sha).state, "live_proven")
         self.assertEqual(self._derive(docs_sha).state, "live_proven")
 
-    def test_relevant_blob_change_invalidates_proof(self) -> None:
-        changed_sha = self._commit(
-            "aria-kernel/aria_kernel/cycle.py",
-            "CYCLE = 2\n",
-            "change cycle",
+    def _declare(self, message: str, **changes: int) -> str:
+        """Commit the semantic authority declaration with ``changes`` applied."""
+        declared = json.loads(
+            (self.repo / SEMANTIC_AUTHORITY_PATH).read_text(encoding="utf-8"),
         )
-        evidence = self._derive(changed_sha)
-        self.assertEqual(evidence.state, "declared")
-        self.assertIn("proof_authority_changed:cycle_runtime", evidence.blockers)
-
-    def test_authority_mode_only_change_invalidates_proof(self) -> None:
-        cycle = self.repo / "aria-kernel" / "aria_kernel" / "cycle.py"
-        cycle.chmod(0o755)
-        _git(self.repo, "add", "aria-kernel/aria_kernel/cycle.py")
-        _git(self.repo, "commit", "-m", "make cycle executable")
-        changed_sha = _git(self.repo, "rev-parse", "HEAD")
-
-        self.assertNotEqual(
-            _capability_authority_hash(
-                self.repo, "cycle_runtime", self.event_sha,
-            ),
-            _capability_authority_hash(
-                self.repo, "cycle_runtime", changed_sha,
-            ),
+        for key, value in changes.items():
+            versions = declared["capability_contract_versions"]
+            (versions if key in versions else declared)[key] = value
+        return self._commit(
+            SEMANTIC_AUTHORITY_PATH,
+            json.dumps(declared, indent=2) + "\n",
+            message,
         )
-        evidence = self._derive(changed_sha)
-        self.assertEqual(evidence.state, "declared")
-        self.assertIn("proof_authority_changed:cycle_runtime", evidence.blockers)
 
-    def test_regular_to_symlink_with_same_blob_bytes_invalidates_proof(
+    def test_a_storage_only_refactor_keeps_live_proven(self) -> None:
+        """ARIA-HIGH-288 — the evolution wall. A refactor touching every common
+        roster file (state store, ledger, snapshot, manifest, workspace ...) and
+        every cycle producer used to reset all capabilities to declared."""
+        refactor = self.event_sha
+        for ordinal, path in enumerate((
+            *EXPECTED_COMMON_AUTHORITY,
+            *CAPABILITY_SPECS["cycle_runtime"].producer_paths,
+        )):
+            if path == f"{KERNEL}autonomy_evidence.py":
+                continue  # the executing evaluator: pinned byte-equal to the target
+            refactor = self._commit(
+                path,
+                f"STORAGE_LAYOUT = {ordinal}\n",
+                f"storage-only refactor {ordinal}",
+            )
+        evidence = self._derive(refactor)
+        self.assertEqual(evidence.state, "live_proven")
+        self.assertEqual(evidence.evidence_refs[0].evidence_target_sha, self.event_sha)
+        # The refactored HEAD still evaluates the historical target.
+        self.assertEqual(self._derive(self.event_sha).state, "live_proven")
+
+    def test_an_evaluator_of_other_semantics_than_the_target_is_refused(self) -> None:
+        executing = json.loads(json.dumps(autonomy_evidence_module._DECLARED_SEMANTICS))
+        executing["capability_contract_versions"]["cycle_runtime"] += 1
+        with mock.patch.object(
+            autonomy_evidence_module, "_DECLARED_SEMANTICS", executing,
+        ):
+            evidence = self._derive(self.event_sha)
+        self.assertEqual(evidence.state, "declared")
+        self.assertEqual(evidence.evidence_refs, ())
+        self.assertIn("evaluator_authority_changed:cycle_runtime", evidence.blockers)
+        # A target declaring the evaluator's semantics is judged again.
+        bumped = self._declare("bump the cycle contract", cycle_runtime=2)
+        with mock.patch.object(
+            autonomy_evidence_module, "_DECLARED_SEMANTICS", executing,
+        ):
+            self.assertEqual(self._derive(bumped, bumped).state, "live_proven")
+
+    def _evaluated_by(self, sha: str) -> Any:
+        """The kernel that lands a declaration evaluates with it."""
+        declared = json.loads(_git(self.repo, "show", f"{sha}:{SEMANTIC_AUTHORITY_PATH}"))
+        return mock.patch.object(autonomy_evidence_module, "_DECLARED_SEMANTICS", declared)
+
+    def test_a_declared_version_bump_resets_the_proof_to_declared(self) -> None:
+        declared = autonomy_evidence_module._DECLARED_SEMANTICS
+        # Another capability's contract is not this capability's semantics.
+        executor = self._declare("bump the executor contract", executor=2)
+        with self._evaluated_by(executor):
+            self.assertEqual(self._derive(executor).state, "live_proven")
+
+        bumped = self._declare("bump the cycle contract", cycle_runtime=2)
+        with self._evaluated_by(bumped):
+            evidence = self._derive(bumped)
+            renewed = self._derive(bumped, bumped)
+        self.assertEqual(evidence.state, "declared")
+        self.assertEqual(evidence.evidence_refs, ())
+        self.assertIn("proof_authority_changed:cycle_runtime", evidence.blockers)
+        self.assertEqual(renewed.state, "live_proven")
+        self.assertIn(":cycle_runtime@2:", renewed.evidence_refs[0].semantic_authority)
+
+        previous = bumped
+        for field in ("evidence_fold_version", "upcaster_set_version"):
+            with self.subTest(field=field):
+                shared = self._declare(f"bump {field}", **{field: declared[field] + 1})
+                with self._evaluated_by(shared):
+                    evidence = self._derive(shared, previous)
+                self.assertEqual(evidence.state, "declared")
+                self.assertIn("proof_authority_changed:cycle_runtime", evidence.blockers)
+                previous = shared
+
+    def test_byte_era_evidence_starts_declared_under_the_first_semantic_authority(
         self,
     ) -> None:
-        cycle = self.repo / "aria-kernel" / "aria_kernel" / "cycle.py"
-        original = cycle.read_text(encoding="utf-8")
-        cycle.unlink()
-        cycle.symlink_to(original)
-        _git(self.repo, "add", "aria-kernel/aria_kernel/cycle.py")
-        _git(self.repo, "commit", "-m", "replace cycle with symlink")
+        """Migration: a proof from a commit that declares no semantic authority
+        (the byte-hash era) is never mapped onto one."""
+        text = (self.repo / SEMANTIC_AUTHORITY_PATH).read_text(encoding="utf-8")
+        _git(self.repo, "rm", "-q", SEMANTIC_AUTHORITY_PATH)
+        _git(self.repo, "commit", "-m", "byte-hash era: no declaration")
+        byte_era = _git(self.repo, "rev-parse", "HEAD")
+        self.assertIsNone(
+            _capability_semantic_authority(self.repo, "cycle_runtime", byte_era),
+        )
+        first = self._commit(SEMANTIC_AUTHORITY_PATH, text, "first semantic authority")
+
+        evidence = self._derive(first, byte_era)
+        self.assertEqual(evidence.state, "declared")
+        self.assertEqual(evidence.evidence_refs, ())
+        self.assertEqual(evidence.blockers, ("proof_authority_undeclared:cycle_runtime",))
+        self.assertIn(
+            "evaluator_authority_undeclared:cycle_runtime",
+            self._derive(byte_era, byte_era).blockers,
+        )
+        self.assertEqual(self._derive(first, first).state, "live_proven")
+
+    def test_the_declaration_must_be_a_regular_blob(self) -> None:
+        declaration = self.repo / SEMANTIC_AUTHORITY_PATH
+        declaration.unlink()
+        declaration.symlink_to("../../../README.md")
+        _git(self.repo, "add", SEMANTIC_AUTHORITY_PATH)
+        _git(self.repo, "commit", "-m", "replace the declaration with a symlink")
         changed_sha = _git(self.repo, "rev-parse", "HEAD")
 
-        with self.assertRaisesRegex(
-            RuntimeError,
+        with self.assertRaisesRegex(RuntimeError, "git_authority_tree_invalid"):
+            _capability_semantic_authority(self.repo, "cycle_runtime", changed_sha)
+        self.assertIn(
             "git_authority_tree_invalid",
-        ):
-            _capability_authority_hash(
-                self.repo, "cycle_runtime", changed_sha,
-            )
+            self._derive(changed_sha, changed_sha).blockers,
+        )
         with mock.patch.object(
             autonomy_evidence_module,
             "_evaluator_capability_blocker",
@@ -3469,34 +3525,16 @@ class TargetBoundGitProofTests(unittest.TestCase):
         self.assertEqual(evidence.state, "declared")
         self.assertIn("git_authority_tree_invalid", evidence.blockers)
 
-    def test_missing_authority_member_becoming_present_invalidates_proof(self) -> None:
-        changed_sha = self._commit(
-            "aria-kernel/aria_kernel/autonomy_orchestrator.py",
-            "ORCHESTRATOR = True\n",
-            "add orchestrator",
-        )
-        self.assertNotEqual(
-            _capability_authority_hash(
-                self.repo, "cycle_runtime", self.event_sha,
-            ),
-            _capability_authority_hash(
-                self.repo, "cycle_runtime", changed_sha,
-            ),
-        )
-        evidence = self._derive(changed_sha)
-        self.assertEqual(evidence.state, "declared")
-        self.assertIn("proof_authority_changed:cycle_runtime", evidence.blockers)
-
-    def test_authority_blob_read_failure_is_unavailable_not_missing(self) -> None:
+    def test_declaration_blob_read_failure_is_unavailable_not_missing(self) -> None:
         real_stream = autonomy_evidence_module._iter_git_output_bounded
-        cycle_oid = _git(
+        declaration_oid = _git(
             self.repo,
             "rev-parse",
-            f"{self.event_sha}:aria-kernel/aria_kernel/cycle.py",
+            f"{self.event_sha}:{SEMANTIC_AUTHORITY_PATH}",
         )
 
         def fail_existing_blob(repo_root, *args, **kwargs):
-            if args == ("cat-file", "blob", cycle_oid):
+            if args == ("cat-file", "blob", declaration_oid):
                 raise RuntimeError("injected_blob_read_failure")
             return real_stream(repo_root, *args, **kwargs)
 
@@ -3514,16 +3552,35 @@ class TargetBoundGitProofTests(unittest.TestCase):
         self.assertEqual(evidence.evidence_refs, ())
         self.assertIn("git_authority_blob_unavailable", evidence.blockers)
 
-    def test_authority_size_and_decimal_preflight_are_named(self) -> None:
-        cycle = self.repo / "aria-kernel" / "aria_kernel" / "cycle.py"
-        cycle.write_bytes(
-            b"x" * (autonomy_evidence_module._MAX_AUTHORITY_BLOB_BYTES + 1),
+    def test_declaration_size_shape_and_decimal_preflight_are_named(self) -> None:
+        oversized = self._commit(
+            SEMANTIC_AUTHORITY_PATH,
+            " " * (autonomy_evidence_module._MAX_SEMANTIC_AUTHORITY_BYTES + 1),
+            "oversized declaration",
         )
-        _git(self.repo, "add", cycle.relative_to(self.repo).as_posix())
-        _git(self.repo, "commit", "-m", "oversized authority")
-        target = _git(self.repo, "rev-parse", "HEAD")
         with self.assertRaisesRegex(RuntimeError, "git_authority_blob_too_large"):
-            _capability_authority_hash(self.repo, "cycle_runtime", target)
+            _capability_semantic_authority(self.repo, "cycle_runtime", oversized)
+
+        declared = json.loads(json.dumps(autonomy_evidence_module._DECLARED_SEMANTICS))
+        for name, malformed in (
+            ("not json", "{"),
+            ("bool version", json.dumps({**declared, "evidence_fold_version": True})),
+            ("unknown key", json.dumps({**declared, "byte_hash": "sha256:" + "0" * 64})),
+            ("capability undeclared", json.dumps({
+                **declared,
+                "capability_contract_versions": {"executor": 1},
+            })),
+        ):
+            with self.subTest(name=name):
+                target = self._commit(SEMANTIC_AUTHORITY_PATH, malformed, name)
+                with self.assertRaisesRegex(
+                    RuntimeError, "git_authority_declaration_invalid",
+                ):
+                    _capability_semantic_authority(self.repo, "cycle_runtime", target)
+                self.assertIn(
+                    "git_authority_declaration_invalid",
+                    self._derive(target, target).blockers,
+                )
 
         with mock.patch.object(
             autonomy_evidence_module,
@@ -5422,7 +5479,7 @@ class OperatorPrerequisiteTests(unittest.TestCase):
                 row_hash="sha256:" + str(schema_version) * 64,
                 evidence_target_sha="a" * 40,
                 evaluated_target_sha="a" * 40,
-                capability_authority_hash="sha256:" + "b" * 64,
+                semantic_authority="aria/capability-semantic-authority/v1:enterprise_readiness@1:fold@2:upcasters@1",
                 state_commit="c" * 40,
             )
 

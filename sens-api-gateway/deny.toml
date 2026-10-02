@@ -76,21 +76,6 @@ ignore = [
     "RUSTSEC-2023-0089",
 
     # -----------------------------------------------------------------
-    # EDGE-CI-007: proc-macro-error2 2.0.1 unmaintained (RUSTSEC-2026-0173,
-    # published 2026-06-07). Owner: platform-team. Deadline: 2026-10-01.
-    # Build-time-only transitive: proc-macro-error2 <- defmt-macros <-
-    # defmt <- lorawan stack. STILL RESOLVES in Cargo.lock (proc-macro-error2
-    # 2.0.1 via defmt-macros 1.0.1); the advisory is live upstream
-    # (informational=unmaintained, patched=[]). The 2026-07-11 removal was
-    # reverted on 2026-07-12 (PR935-HIGH-001) — the crate had NOT left the
-    # tree, so cargo-audit/cargo-deny would have failed the audit gates.
-    # Re-check on each defmt release for an upgrade path. Unmaintained signal
-    # only, no active vulnerability; the crate never reaches the shipped
-    # binary (proc-macro host dependency).
-    # -----------------------------------------------------------------
-    "RUSTSEC-2026-0173",
-
-    # -----------------------------------------------------------------
     # EDGE-CI-008: paste 1.0.15 unmaintained (RUSTSEC-2024-0436,
     # published 2024-10-07). Owner: platform-team. Deadline: 2026-12-01.
     # Build-time-only transitive: paste <- wasmi_core / wasmi <- the
@@ -171,6 +156,10 @@ deny = [
     # must never re-enter the graph. Fix: ../crates/local-rumqttc fork.
     { name = "rustls-webpki", version = "<0.103", reason = "RUSTSEC-2026-0098/0099/0049/0104 — use >= 0.103" },
     { name = "rustls-pemfile", reason = "RUSTSEC-2025-0134 unmaintained — use rustls-pki-types pem API" },
+    # EDGE-CI-007 (RUSTSEC-2026-0173): proc-macro-error2 is unmaintained. defmt 1.1
+    # dropped it (defmt-macros 1.1.1), so the ignore was retired on 2026-10-02 and
+    # the crate is banned; a dependency bump that pulls it back fails here first.
+    { name = "proc-macro-error2", reason = "RUSTSEC-2026-0173 unmaintained — defmt >= 1.1 does not need it" },
 ]
 
 # Skip checking tree for these crates

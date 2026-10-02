@@ -17,6 +17,7 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { print } from 'graphql';
 
 import { type GraphQLErrorPayload, readGraphQLResponse } from '@/utils/graphql-response';
+import { decodeTenantId } from '@/utils/jwt-claims';
 
 // ---------------------------------------------------------------------------
 // Module-level auth store — kept in sync by AuthProvider via syncAuthStore()
@@ -35,6 +36,23 @@ const authStore: AuthStore = {
   refreshAuth: null,
   logout: null,
 };
+
+/**
+ * The tenant a request is sent for — the ONE place the X-Tenant-Id header value
+ * is decided.
+ *
+ * WHY the token claim first: the access token is what the server signed and what
+ * the gateway trusts; `authStore.tenantId` is a copy that AuthProvider pushes in
+ * through syncAuthStore after React commits its state, so it can lag the token
+ * (or arrive null from an auth response that omits it). Boot-time queries fired
+ * in that gap reached the subgraphs with no tenant and failed with "Tenant ID is
+ * required" (2026-09-17 field finding, GetMyNotifications and peers). Reading
+ * the claim makes the header agree with the token by construction; the stored
+ * id only fills in for a token that carries no tenant claim.
+ */
+function currentTenantId(): string | null {
+  return decodeTenantId(authStore.accessToken) ?? authStore.tenantId;
+}
 
 // ---------------------------------------------------------------------------
 // Auth readiness barrier
@@ -205,11 +223,12 @@ export async function authenticatedFetch(
     // Barrier timed out — proceed anyway; request will fail 401 if no token
   });
 
+  const tenantId = currentTenantId();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Requested-With': 'XMLHttpRequest',
     ...(authStore.accessToken ? { Authorization: `Bearer ${authStore.accessToken}` } : {}),
-    ...(authStore.tenantId ? { 'X-Tenant-Id': authStore.tenantId } : {}),
+    ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
     // Caller-supplied headers win (spread last)
     ...(options?.headers as Record<string, string> | undefined),
   };
@@ -236,8 +255,9 @@ export async function authenticatedFetch(
     const refreshed = await runSingleFlightRefresh();
     if (refreshed && authStore.accessToken) {
       headers['Authorization'] = `Bearer ${authStore.accessToken}`;
-      if (authStore.tenantId) {
-        headers['X-Tenant-Id'] = authStore.tenantId;
+      const refreshedTenantId = currentTenantId();
+      if (refreshedTenantId) {
+        headers['X-Tenant-Id'] = refreshedTenantId;
       }
       response = await fetch(url, {
         ...options,

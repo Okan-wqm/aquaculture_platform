@@ -64,3 +64,40 @@ fail on the old code) and `jwt-claims.spec.ts`.
 
 Not covered: the 2026-09-17 notes also record one boot-time caller that still fires before any
 tenant exists; it was not identified then and is not addressed here.
+
+## Package findings under PROC-HIGH-047
+
+PROC-HIGH-047 closes with the rollout. The source it needs on main is tracked per package, so
+each landing commit closes exactly what it lands and anything not landed stays open by name.
+
+### FE-MEDIUM-312 — Ten tenant-admin page edits exist only in the production build
+
+The 2026-09-21 16:01-16:09 edits add `sd-page` (the Suderra page scope) to ten tenant-admin page
+roots and are in no commit. One wraps the "Appearance — coming soon" placeholder, a tab main
+removed under ADMIN-LOW-027; the other nine apply. (Two farm-module edits from the same minutes
+are not in the running farm-module image and are not part of this finding.)
+
+### FE-HIGH-313 — The Suderra shell and shared-ui skin exist only in the production build
+
+The production login (`ReefScene`, a shadow-DOM reef replacing `FishBackground`), the
+`SuderraSidebar` rail with its `MainLayout`, the Suderra modal/confirm styling and the shell's
+Suderra stylesheet (the `sd-*` page surface every federated page is scoped by) come from #1569's
+tree and the working directory only. Main meanwhile gained the MFA setup screen (ADR-046), the
+app-wide `ToastProvider` and the dark-theme and design-system ratchets, so the port is a
+re-expression on main's primitives and tokens, not a file copy.
+
+### FE-HIGH-314 — The tenant-admin Suderra restyle exists only in the production build
+
+#1569 restyles thirteen tenant-admin files (dashboard, activity, roles, users, role and status
+badges, user modals and filters). On main the same files moved to DataTable, shared-ui form
+controls, Badge and dark variants, and the settings pages gained the `canEdit` gate; #1569's
+restyle carries 194 static inline style blocks and 89 raw hex colours that main's design-system
+ratchet holds at zero for the package.
+
+### MOB-HIGH-025 — AquaMobil v4 exists only in the production build
+
+The SUDERRA FIELD redesign (tablet board and phone shell split, the `components/ui` set, drives
+and units surfaces, scan, reports, theme tokens and fonts) is in #1569's tree and the working
+directory: 100 paths that main does not have, and 320 changed files of which 72 conflict with
+main's own AquaMobil refactor (one primitive vocabulary, PageHeader bands, lucide icons, the
+persisted locale, BottomSheet dialogs).

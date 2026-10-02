@@ -2,11 +2,18 @@
  * useLocalConfirm — farm-module içi, federation-context'e bağlanmayan onay diyaloğu.
  *
  * WHY (2026-09-21 canlı olay): shared-ui'nin `useConfirm()` hook'u, context'i
- * shell'de mount edilen `ConfirmProvider`'dan okur. Üretimde shell ile remote
- * arasında context örneği eşleşmediğinde hook ya fırlıyor ya —daha kötüsü—
- * diyaloğu hiç çizmeden askıda kalıyordu; Species/Suppliers/Consumables/
- * Chemicals/Feeds/Workers sekmelerinde Delete butonları "ölü" görünüyordu
- * (istek gitmiyor, hata da görünmüyordu).
+ * shell'de mount edilen `ConfirmProvider`'dan okur. Species/Suppliers/
+ * Consumables/Chemicals/Feeds/Workers sekmelerinde Delete butonları "ölü"
+ * görünüyordu (istek gitmiyor, hata da görünmüyordu).
+ *
+ * Ölçülen kök neden (FE-HIGH-311, docs/reviews/claude/
+ * 2026-10-03-landing-1670-review-followups.md): her federation vite config'i
+ * `@aquaculture/shared-ui`'yi dosya yoluna alias'lıyor; @module-federation/vite
+ * bu yüzden paketi PAYLAŞMIYOR (build uyarısı: "will bypass Module
+ * Federation's sharing mechanism"; hiçbir bundle'da shared-ui loadShare'i yok).
+ * Remote kendi shared-ui kopyasını, dolayısıyla kendi ConfirmContext'ini
+ * taşır; shell'in provider'ı ona ulaşmaz ve `confirm()` tıklama işleyicisinin
+ * içinde MISSING_PROVIDER fırlatır. FE-HIGH-311 kapanana dek bu hook kalır.
  *
  * Bu hook aynı sözleşmeyi (await confirm({...}) → boolean) YEREL state ile
  * sağlar ve diyaloğu çağıran sekmenin ağacında çizer — modülün kendi Modal

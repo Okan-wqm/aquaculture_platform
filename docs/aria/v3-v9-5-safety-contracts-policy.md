@@ -115,6 +115,15 @@ V9.6 (auto_merge runner) consumes the registry via a sequential loop pre-merge. 
   consumed signature; the predicate refuses on any named gap
   (`operator_feedback_synthesis_binding_unavailable`, `…_ingestion_unavailable`,
   `…_consumption_mismatch`, `…_consumed_row_unavailable`, `…_consumed_row_unsigned:<reason>`).
+- **Superseded for request rows (2026-10-02):** ADR-0020
+  (`docs/recommendations/architectural-arbiter/2026-10-02-adr-0020-operator-request-signature-scheme.md`)
+  replaces the keyed-HMAC signing and re-verification of operator REQUEST rows described above. A
+  request row is signed by the operator with an ed25519 key held off-runner
+  (`ssh-keygen -Y sign -n aria-operator-request`), names an F finding (ADR-0018), and is verified at
+  ingestion and again at merge against `.github/manifests/aria-operator-signers` read as a git object
+  (`operator_request_signature.VERIFICATION_REASONS`); no key file is read on any lane. The text above
+  still describes the kernel-written row kinds (verdict rows, calibration fixtures), which keep their
+  HMAC and are never plan candidates.
 
 ### 13. `pr_body_templating`
 - **Closes:** ai HIGH-012 + sec HIGH-008

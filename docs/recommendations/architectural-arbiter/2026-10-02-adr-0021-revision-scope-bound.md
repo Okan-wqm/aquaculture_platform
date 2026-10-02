@@ -69,10 +69,17 @@ Options considered and rejected:
 7. **No record, no write.** A finding-origin plan whose `plan_started` carries no bound (a ledger
    written before this ADR) cannot record a body or mint an implementation
    (`admission_scope_missing`); it is restarted, never left unbounded.
-8. **Subject pins are policy data.** Paths a subject pins into a bound (CB-5) live in
-   `plan_origin.SUBJECT_PIN_POLICY`, a typed tuple of `SubjectPin(subject, paths)` matched against
-   the plan's origin finding id and closure project names, and the bound unions them in. It ships
-   empty; the kernel holds no literal pinned path.
+8. **Subject pins are committed policy data.** Paths a subject pins into a bound live in
+   `docs/aria/policy/subject-pins.json` (`aria/subject-pins/v1`: `subject_pins[]` of
+   `{subject, paths}`, matched against the plan's origin finding id and closure project names),
+   and the bound unions them in. `plan_origin.load_subject_pin_policy` reads the file as committed
+   at the workspace's main-proven commit through `main_anchor` (scrubbed git, blob re-hashed), never
+   from the working tree, and no caller can pass pins in. The admission record names the blob it
+   read (`pin_policy`). A missing, malformed or unanchored policy pins nothing, names why on the
+   record and is disclosed once as `subject_pin_policy_refused`. It ships empty. Amended
+   2026-10-02 (ARIA-LOW-280) per program ruling 15; the first text kept the pins in a kernel tuple.
+   A fix's journey pin (`<project>/src/__journeys__/…`) needs no entry: it lies under its own
+   project's closure root (decision 2).
 
 ## Consequences
 

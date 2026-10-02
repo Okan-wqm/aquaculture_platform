@@ -46,7 +46,6 @@ from aria_kernel.plan_origin import (
     ADMISSION_SCOPE_MISSING,
     REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE,
     AdmissionScopeExceeded,
-    SubjectPin,
     compute_admission_scope,
     paths_outside_admission_scope,
 )
@@ -205,13 +204,7 @@ class RevisionScopeBoundTests(unittest.TestCase):
             self._revise(plan_id, _body(seed, [SHARED, AUTH], admission_scope=claimed))
         self.assertTrue(self._revise(plan_id, _body(seed, [SHARED, GATEWAY]))["event_appended"])
         self.assertEqual(self._scope(plan_id), scope)
-        # Subject pins are policy data the bound unions in; the shipped policy is empty.
-        pinned = compute_admission_scope(seed, workspace_root=self.root, base_dir=self.tools,
-                                         pin_policy=(SubjectPin("F-007", ("docs/runbooks/x.md",)),
-                                                     SubjectPin("F-999", ("docs/other.md",))))
-        self.assertEqual(pinned["policy_pins"], ["docs/runbooks/x.md"])
-        self.assertEqual(paths_outside_admission_scope(pinned, ["docs/runbooks/x.md", "docs/other.md"]),
-                         ["docs/other.md"])
+        # Subject pins come from the committed policy alone (test_subject_pin_policy).
 
     def test_a_tampered_admitted_half_is_refused_on_the_record(self) -> None:
         seed = _seed("f_finding", "F-007", [FARM])

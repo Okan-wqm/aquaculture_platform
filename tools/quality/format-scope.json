@@ -31420,6 +31420,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/policy/subject-pins.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md",
       "prettier_managed": true
     },

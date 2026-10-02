@@ -1,11 +1,14 @@
-"""V9.5 hard-fail check 12 — operator-feedback rows are signed by the kernel.
+"""V9.5 hard-fail check 12 — kernel-written operator-feedback rows are HMAC-signed.
 
 Pre-fix, ``plan_synthesizer._verify_operator_feedback_signature`` accepted
 any row whose ``signature`` / ``signature_kid`` were non-empty strings, so
 ``"signature": "x"`` spoke with operator authority. These pins cover the
-signing round trip, the key custody (0600, rolling list, rotation keeps
-history verifiable), the kernel-owned recorders, and the static rule that
-no kernel module appends to the surface any way but through the signer.
+kernel-written row kinds (verdicts, calibration fixtures): the signing round
+trip, the key custody (0600, rolling list, rotation keeps history
+verifiable), the kernel-owned recorders, and the static rule that no kernel
+module appends to the surface any way but through this module. Operator
+REQUEST rows are signed by the operator since ADR-0020; their pins live in
+``tests/test_operator_request_signature.py``.
 """
 from __future__ import annotations
 
@@ -105,29 +108,6 @@ class KernelRecordersTests(unittest.TestCase):
         return load_declared_jsonl(
             self.tools / "operator-feedback.jsonl", expected_surface="operator_feedback",
         )
-
-    def test_record_operator_request_writes_a_signed_unaddressed_row(self) -> None:
-        stored = ofs.record_operator_request(
-            request="Tighten the harvest weight validator", priority="high",
-            authored_by="okan", base_dir=self.tools,
-        )
-        rows = self._ledger_rows()
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["ledger_hash"], stored["ledger_hash"])
-        self.assertEqual(rows[0]["status"], ofs.OPERATOR_REQUEST_STATUS_UNADDRESSED)
-        self.assertEqual(rows[0]["row_kind"], ofs.OPERATOR_REQUEST_ROW_KIND)
-        self.assertTrue(rows[0]["id"].startswith("OP-"))
-        self.assertTrue(ofs.verify_operator_feedback_row(rows[0], base_dir=self.tools).valid)
-        self.assertTrue(ofs.operator_request_schema_valid(rows[0]))
-        for bad in (
-            dict(request="", priority="high"),
-            dict(request="x", priority="max"),
-            dict(request="x" * (ofs.MAX_OPERATOR_REQUEST_CHARS + 1), priority="low"),
-        ):
-            with self.subTest(bad=bad), self.assertRaises(GovernanceError):
-                ofs.record_operator_request(authored_by="okan", base_dir=self.tools, **bad)
-        with self.assertRaises(GovernanceError):
-            ofs.record_operator_request(request="x", priority="low", authored_by=" ", base_dir=self.tools)
 
     def test_feedback_store_verdict_rows_are_signed_too(self) -> None:
         from aria_kernel.feedback_store import record_operator_feedback

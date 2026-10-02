@@ -8,7 +8,7 @@ export default {
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
   // ORPHAN-HIGH-102: the `@nestjs/microservices` moduleNameMapper stub was
-  // removed. The real package (^11.1.19, a declared dependency) now loads, so
+  // removed. The real package (a declared root dependency) now loads, so
   // the backend-common/nats barrel's `class NatsV3Server extends Server`
   // resolves a real base class at import time instead of `undefined`. NATS is
   // isolated at the DI seam (`.overrideProvider('NATS_SERVICE')` in e2e-setup),

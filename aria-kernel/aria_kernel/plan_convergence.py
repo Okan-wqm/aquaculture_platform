@@ -588,13 +588,19 @@ def _validate_submitted_plan(
     ``architectural_tier`` claim and the declared validation vocabulary) binds
     every writer that appends a challenger draft or a structured revision
     from here on, while every historical ledger keeps folding.
+
+    ADR-0018 D4 — one origin check for every origin kind: a body whose
+    ``finding_id`` differs from, adds to or drops the started plan's is
+    refused (``plan_origin.PLAN_ORIGIN_CHANGED``).
     """
     from .plan_contract import require_plan_contract
+    from .plan_origin import require_origin_unchanged
 
     state_validator(state, payload)
     if body is None:
         return
     _validate_plan_content(body)
+    require_origin_unchanged(state, body)
     require_plan_contract(body, base_dir=root)
 
 

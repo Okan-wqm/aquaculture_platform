@@ -121,10 +121,27 @@ class TestV9OperatorFeedbackSignature(unittest.TestCase):
 
     The pre-fix scanner accepted any row whose ``signature`` and
     ``signature_kid`` were non-empty strings, so these cases used to pass
-    stub signatures through. A row now reaches the synthesizer only when
-    the kernel signed it (``operator_feedback_signature``); a stub is
-    dropped with an ``unsigned_operator_feedback`` governance event.
+    stub signatures through. A request row now reaches the synthesizer only
+    when the OPERATOR signed it with a key the committed allowed-signers file
+    enrols (ADR-0020, ``operator_request_signature``) and it names an F
+    finding (ADR-0018); a stub is dropped with an
+    ``unsigned_operator_feedback`` governance event.
     """
+
+    def _fixture(self, tmp: str):
+        import os
+        from unittest import mock
+
+        from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture
+
+        env = {k: v for k, v in os.environ.items() if k != "ARIA_REPO_STATE_ROOT"}
+        patcher = mock.patch.dict(os.environ, env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        fixture = OperatorRequestFixture(Path(tmp))
+        # A request names an OPEN, repo-grounded F finding (ADR-0018).
+        fixture.seed_finding("F-007", refs=[f"{GROUNDED_FILE}:12"])
+        return fixture
 
     def _tools(self, tmp: str) -> Path:
         from aria_kernel.tool_registry import ensure_tools_dir
@@ -179,59 +196,45 @@ class TestV9OperatorFeedbackSignature(unittest.TestCase):
             self.assertEqual([d["reason"] for d in self._drops(tools)], ["signature_malformed"])
 
     def test_signed_row_accepted(self):
-        from aria_kernel.operator_feedback_signature import record_operator_request
         with tempfile.TemporaryDirectory() as tmp:
-            tools = self._tools(tmp)
-            stored = record_operator_request(
-                request="valid request", priority="high", authored_by="operator",
-                request_id="OP-002", base_dir=tools,
-            )
-            results = _ps.scan_operator_feedback(tmp)
+            fixture = self._fixture(tmp)
+            stored = fixture.record(request="valid request", priority="high", request_id="OP-002")
+            results = _ps.scan_operator_feedback(fixture.repo)
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["candidate_id"], "OP-002")
-            self.assertEqual(results[0]["signer_kid"], stored["signer_kid"])
+            self.assertEqual(results[0]["signer"], fixture.principal)
+            self.assertEqual(results[0]["finding_id"], "F-007")
             self.assertEqual(results[0]["row_ledger_hash"], stored["ledger_hash"])
-            self.assertEqual(self._drops(tools), [])
+            self.assertEqual(self._drops(fixture.tools), [])
 
     def test_invented_priority_max_rejected(self):
         """Per arb CRIT-006 — priority MUST be in closed set
         {low, medium, high}; 'max' was a v1 plan invention that
         could override severity ladder. The recorder refuses it, and a
-        row signed under a leaked key with that priority is still
+        row the operator's key signed with that priority is still
         dropped at ingestion."""
-        from aria_kernel.operator_feedback_signature import (
-            record_operator_request, sign_operator_feedback_row,
-        )
         from aria_kernel.tool_registry import GovernanceError
         with tempfile.TemporaryDirectory() as tmp:
-            tools = self._tools(tmp)
+            fixture = self._fixture(tmp)
             with self.assertRaises(GovernanceError):
-                record_operator_request(
-                    request="evil max", priority="max", authored_by="operator", base_dir=tools,
-                )
-            self._write_unsigned(tools, [sign_operator_feedback_row({
-                "id": "OP-003",
-                "status": "unaddressed",
-                "authored_at": "2026-05-18T00:00:00Z",
-                "request": "evil max",
-                "priority": "max",  # INVENTED
-            }, base_dir=tools)])
-            results = _ps.scan_operator_feedback(tmp)
+                fixture.record(request="evil max", priority="max")
+            fixture.append_raw(fixture.sign(fixture.request_row(
+                id="OP-003",
+                request="evil max",
+                priority="max",  # INVENTED
+            )))
+            results = _ps.scan_operator_feedback(fixture.repo)
             self.assertEqual(results, [])
-            self.assertEqual([d["reason"] for d in self._drops(tools)], ["schema_invalid"])
+            self.assertEqual([d["reason"] for d in self._drops(fixture.tools)], ["schema_invalid"])
 
     def test_priority_ordering(self):
-        from aria_kernel.operator_feedback_signature import record_operator_request
         with tempfile.TemporaryDirectory() as tmp:
-            tools = self._tools(tmp)
+            fixture = self._fixture(tmp)
             for identifier, priority, text in (
                 ("L1", "low", "low task"), ("H1", "high", "high task"), ("M1", "medium", "medium task"),
             ):
-                record_operator_request(
-                    request=text, priority=priority, authored_by="operator",
-                    request_id=identifier, base_dir=tools,
-                )
-            results = _ps.scan_operator_feedback(tmp)
+                fixture.record(request=text, priority=priority, request_id=identifier)
+            results = _ps.scan_operator_feedback(fixture.repo)
             self.assertEqual([r["candidate_id"] for r in results], ["H1", "M1", "L1"])
 
 

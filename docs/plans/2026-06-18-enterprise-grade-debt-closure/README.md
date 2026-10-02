@@ -7,22 +7,18 @@ more consistent enterprise-grade architecture. It is intentionally not a loose
 roadmap: every sprint item must map to registry evidence, an owner agent, and a
 machine-checkable exit gate.
 
-The companion manifest is `manifest.json`. It captures the registry tip hash,
-active finding counts, wave layout, sprint gates, and the adversarial
-reverse-engineering review lanes. The initial Wave 0 finding truth table is
-`finding-truth-table.md`. GitHub required status checks are governed by
+The companion manifest is `manifest.json`. It captures the wave layout, sprint
+gates, and the adversarial reverse-engineering review lanes. The initial Wave 0
+finding truth table is `finding-truth-table.md`. GitHub required status checks are governed by
 `.github/manifests/main-required-status-checks.json` and enforced statically by
 `npm run gates:required-status-checks`.
 
 ## Registry Snapshot
 
 - Base commit: `2de67e4a5a6ffdcf675be0fcd4322854fcecd62f`
-- Registry entries: 2322
-- Registry tip hash: `3abe87f298156d17a7e320e38edc2823d955b0be3d912459c4b110de417230b7`
-- OPEN findings: 469
-- IN-PROGRESS findings: 63
-- Active CRITICAL findings: 33
-- `npm run findings:verify`: passing against registry tip `3abe87f298156d17a7e320e38edc2823d955b0be3d912459c4b110de417230b7`
+- Current registry counts, tip hash and active CRITICAL set are not recorded
+  here; `npm run gates:debt-plan` derives them from
+  `docs/reviews/_registry/findings.jsonl` (PROC-HIGH-046).
 - Worktree state at plan creation: dirty before this plan was written; existing
   source changes are treated as user work and are not part of this plan artifact.
 
@@ -37,9 +33,10 @@ reverse-engineering review lanes. The initial Wave 0 finding truth table is
   gate that catches recurrence.
 - Direct edits to registry state, plan manifest, or control-plane files require
   CODEOWNERS coverage and `npm run findings:verify`.
-- Plan counts and active CRITICAL rows are not manually trusted. The plan
-  contract invariant compares `manifest.json` and `finding-truth-table.md`
-  against `docs/reviews/_registry/findings.jsonl`; registry drift fails
+- Plan counts are derived, never recorded, and active CRITICAL rows are not
+  manually trusted. The plan contract invariant derives the active CRITICAL set
+  from `docs/reviews/_registry/findings.jsonl` and requires exactly one
+  `finding-truth-table.md` row per active CRITICAL; drift fails
   `npm run invariants:fast`.
 - Required status checks for `main` are not prose. The SSOT is
   `.github/manifests/main-required-status-checks.json`; static drift fails
@@ -101,7 +98,7 @@ plan manifest must be validated.
 ### Wave 1 - Stop-The-Line Platform Gates
 
 Sprint 1.1 attacks remaining infra/schema/deploy boot blockers first, including
-the active INFRA-CRITICAL entries listed in `manifest.active_critical_ids`,
+the active INFRA-CRITICAL entries in the registry,
 tenant fan-out, runtime
 `synchronize`, schema drift, HR/admin drift, and shared schema moves.
 

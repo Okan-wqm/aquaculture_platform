@@ -310,9 +310,10 @@ describe('INVARIANT: both IP access-rule stacks stay deleted (ADR-0010)', () => 
       .filter((path) => !HISTORICAL_PATH.test(path))
       .filter((path) => path !== 'tests/invariants/no-dead-guards.spec.ts')
       // Baseline ledger whose notes narrate past cleanups; history, not code.
-      .filter((path) => path !== 'tools/gates/type-check-spec-baseline.json')
-      // Formatter scope manifest is regenerated from git; stale rows are not code.
-      .filter((path) => path !== 'tools/quality/format-scope.json');
+      .filter((path) => path !== 'tools/gates/type-check-spec-baseline.json');
+    // No exemption for a formatter manifest: the format scope is derived in
+    // memory from `git ls-files` (PROC-MEDIUM-040), so no committed file lists
+    // every tracked path — retired names included — any more.
     expect(offenders).toEqual([]);
   });
 

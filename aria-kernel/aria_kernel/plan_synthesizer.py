@@ -446,8 +446,8 @@ def _evidence_refs_from_hunks(
 #   * architectural-arbiter MED-003 — gh run list 10-min TTL cache
 #   * architectural-arbiter MED-004 — explicit source priority order
 #   * ai-safety-auditor HIGH-010 — operator-feedback signature verification
-#     (V9.5 check 12: keyed HMAC at ingestion, owned by
-#     operator_feedback_ingestion / operator_feedback_signature)
+#     (V9.5 check 12: operator ed25519 signature at ingestion, ADR-0020,
+#     owned by operator_feedback_ingestion / operator_request_signature)
 #   * performance-expert HIGH-005 — per-source time budget governance event
 #   * performance-expert HIGH-006 — F-finding aging stat-only (no JSON
 #     parse until candidate selected)
@@ -787,7 +787,7 @@ def scan_operator_feedback(
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Plan ARIA-V9.4 source — signed operator-feedback rows from
+    """Plan ARIA-V9.4 source — operator-signed request rows from
     ``aria-tools/operator-feedback.jsonl``, verified at ingestion.
 
     V9.5 hard-fail check 12 (ai-safety HIGH-010): the pre-fix verifier
@@ -795,10 +795,12 @@ def scan_operator_feedback(
     process that could append a line spoke with operator authority, and the
     drop count rode on the first surviving candidate where nothing read it.
     ``operator_feedback_ingestion.ingest_operator_feedback`` now owns the
-    read: keyed-HMAC verification per row, one ``unsigned_operator_feedback``
-    governance event per drop, and an ingestion row the pre-merge perimeter
-    joins the merged plan back to. This function only orders what it
-    admitted — highest priority first, oldest first within a priority.
+    read: ed25519 verification of every request against the allowed-signers
+    file committed at the checkout's HEAD (ADR-0020), one
+    ``unsigned_operator_feedback`` governance event per drop, spent requests
+    skipped (ADR-0018 D3), and an ingestion row the pre-merge perimeter joins
+    the merged plan back to. This function only orders what it admitted —
+    highest priority first, oldest first within a priority.
 
     ``base_dir`` names the tools store when the caller knows it (the
     provider does; ``ARIA_TOOLS_DIR`` can point it away from
@@ -808,7 +810,9 @@ def scan_operator_feedback(
     from .operator_feedback_ingestion import ingest_operator_feedback
 
     tools_root = Path(base_dir) if base_dir is not None else Path(workspace_root) / "aria-tools"
-    candidates = list(ingest_operator_feedback(base_dir=tools_root, cycle_id=cycle_id).candidates)
+    candidates = list(ingest_operator_feedback(
+        base_dir=tools_root, cycle_id=cycle_id, repo_root=workspace_root,
+    ).candidates)
     priority_rank = {"high": 0, "medium": 1, "low": 2}
     candidates.sort(key=lambda c: (priority_rank.get(c["priority"], 99), c["authored_at"]))
     return candidates[:_MAX_CANDIDATES_PER_SOURCE]
@@ -935,64 +939,13 @@ def rank_candidate_sources(
 _FINDING_EVIDENCE_CAP = 50
 
 
-def _evidence_refs_from_finding_json(finding_path: Any) -> tuple[list[str], list[str]]:
-    """Extract (evidence_refs, affected_surfaces) from an aria-findings JSON.
-
-    ORPHAN-312 root fix: the F-finding's ``evidence_chain[].reference`` entries
-    are already ``path:line`` refs to the REAL code the drift lives in (e.g.
-    ``web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346``). Those are
-    the evidence a challenger must ground its plan in — NOT the finding JSON
-    file itself. Returns ([], []) when the file is missing/unparseable or
-    carries no usable references, so the caller can fall back.
-    """
-    if not isinstance(finding_path, str) or not finding_path:
-        return [], []
-    try:
-        finding = json.loads(Path(finding_path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, ValueError):
-        return [], []
-    # Two shapes carry the finding's code references. The adapter-era
-    # ``evidence_chain[].reference`` (a ``path:line`` string), and the
-    # ``aria/finding/v1`` shape the consensus promotion emits
-    # (`finding.emit_finding`): ``evidences[].evidence_envelope`` with
-    # ``canonical_ref`` + ``line`` and a ``trust_grade``. ARIA-HIGH-183 — the
-    # first five findings the live ring promoted (F-009…F-013, 2026-09-20)
-    # carried only the second shape; this reader saw an empty chain, and the
-    # plan candidate the cycle selected from them (F-013) could never become
-    # a plan. A ref that is not ``repo_verified`` or is self-output is not a
-    # ground a challenger can stand on and is skipped.
-    references: list[str] = []
-    chain = finding.get("evidence_chain")
-    if isinstance(chain, list):
-        for entry in chain:
-            if isinstance(entry, dict) and isinstance(entry.get("reference"), str):
-                references.append(entry["reference"])
-    evidences = finding.get("evidences")
-    if isinstance(evidences, list):
-        for entry in evidences:
-            if not isinstance(entry, dict):
-                continue
-            envelope = entry.get("evidence_envelope") if isinstance(entry.get("evidence_envelope"), dict) else {}
-            if envelope.get("trust_grade") not in (None, "repo_verified") or envelope.get("self_output_class"):
-                continue
-            canonical = envelope.get("canonical_ref") or entry.get("ref")
-            if not isinstance(canonical, str) or not canonical.strip():
-                continue
-            canonical = canonical.strip()
-            line = envelope.get("line")
-            if isinstance(line, int) and line > 0 and not re.search(r":\d+$", canonical):
-                canonical = f"{canonical}:{line}"
-            references.append(canonical)
-    return _finding_refs_and_surfaces(references)
-
-
 def _finding_refs_and_surfaces(references: list[Any]) -> tuple[list[str], list[str]]:
-    """(evidence_refs, affected_surfaces) from a finding's code references.
+    """(evidence_refs, affected_surfaces) from an ORPHAN finding's registry references.
 
     An evidence ref may pin a line (``path:line``); a surface is the path the
-    fix touches, so the line is split off. Both finding sources (ORPHAN from
-    the registry, F from ``aria-findings/``) read their references through
-    this one function. ARIA-HIGH-211 — ORPHAN candidates once copied
+    fix touches, so the line is split off. F findings no longer come through
+    here: their refs are read from the finding-event fold and judged by
+    ``finding_grounding.admit_finding`` (ADR-0018 D5). ARIA-HIGH-211 — ORPHAN candidates once copied
     ``docs/x.md:12`` into ``affected_surfaces``, a string no path and no risk
     lane is written for.
     """
@@ -1020,9 +973,18 @@ def _looks_unsafe_repo_path(value: str) -> bool:
 
 def convert_candidate_to_plan_content(
     candidate: Mapping[str, Any],
+    *,
+    admission: "FindingAdmission | None" = None,
 ) -> "CyclePlanEnvelope | None":
     """Plan ARIA-V3.1-A — convert one ranked candidate into a
     CyclePlanEnvelope (closes 6-validator audit C-5 + H-2 + H-8).
+
+    ``admission`` is the verdict of ``finding_grounding.admit_candidate``
+    for the same candidate (ADR-0018 D5). A source that names an F finding
+    (``f_finding``, ``operator_feedback``) converts ONLY on an admitted
+    verdict for that finding, and its evidence and surfaces are the
+    admission's — grounded in tracked files of the cycle's checkout, never a
+    self-output path, never a readonly surface. Without one it returns None.
 
     Returns None when the candidate cannot be converted (caller
     iterates to the next ranked candidate per V3.1-A-3 iterative
@@ -1049,9 +1011,10 @@ def convert_candidate_to_plan_content(
 
     Candidate shapes (per source_type):
 
-    * `operator_feedback` — { candidate_id, priority, request,
-      authored_at, signer_kid, row_ledger_hash, ingestion_ledger_hash,
-      title_hint } (admitted by ``operator_feedback_ingestion``)
+    * `operator_feedback` — { candidate_id, finding_id, priority,
+      request, authored_at, signer, row_ledger_hash,
+      ingestion_ledger_hash, title_hint } (admitted by
+      ``operator_feedback_ingestion``)
     * `failing_ci` — { candidate_id, workflow_name, head_sha,
       conclusion, created_at, title_hint }
     * `orphan_finding` — { candidate_id, severity, raw_id,
@@ -1085,15 +1048,40 @@ def convert_candidate_to_plan_content(
         candidate.get("title_hint") or f"Address {candidate_id}",
         max_len=200,
     )
+    finding_sourced = source_type in {
+        PlanCandidateSource.OPERATOR_FEEDBACK.value,
+        PlanCandidateSource.F_FINDING.value,
+    }
+    if finding_sourced and (admission is None or not admission.admitted):
+        return None
     # Per-source content authoring. Each branch builds the same
     # canonical 7-field plan_content; only the textual hints differ.
     if source_type == PlanCandidateSource.OPERATOR_FEEDBACK.value:
+        # ADR-0018 D6 — the summary is fixed text naming the request, its
+        # priority and the finding, plus the operator's own sanitized words.
+        # No field of the finding BODY (title, claim summary, scope, risks,
+        # recommendation) reaches the plan: the finding is ARIA's output, and
+        # its prose is not the operator's instruction. The finding id comes
+        # from the signed row, so the admission must be for that id.
+        if admission.finding_id != candidate.get("finding_id"):
+            return None
         request = sanitize_untrusted_text(candidate.get("request") or "", max_len=1024)
         if not request:
             return None
-        summary = f"Operator-feedback request: {request}"
-        evidence_refs = [f"aria-tools/operator-feedback.jsonl:{candidate_id}"]
-        affected_surfaces = ["aria-tools/operator-feedback.jsonl"]
+        priority = sanitize_untrusted_text(candidate.get("priority") or "", max_len=16)
+        title_hint = sanitize_untrusted_text(
+            f"Operator request {candidate_id}: remediate {admission.finding_id}", max_len=200,
+        )
+        summary = (
+            f"Operator request {candidate_id} (priority {priority}) asks for a "
+            f"root-cause remediation of finding {admission.finding_id}. "
+            f"Operator text: {request}"
+        )
+        evidence_refs = [
+            *admission.evidence_refs,
+            f"aria-tools/operator-feedback.jsonl:{candidate_id}",
+        ]
+        affected_surfaces = list(admission.affected_surfaces)
     elif source_type == PlanCandidateSource.FAILING_CI.value:
         workflow = sanitize_untrusted_text(
             candidate.get("workflow_name") or "unknown", max_len=200,
@@ -1132,30 +1120,20 @@ def convert_candidate_to_plan_content(
             ]
             affected_surfaces = ["docs/reviews/orphan-findings.md"]
     else:  # F_FINDING
+        if admission.finding_id != candidate_id:
+            return None
         summary = (
             f"Process aging F-finding {candidate_id}; verify status + "
             "land remediation if OPEN."
         )
-        # ORPHAN-312 root fix — ground the plan in the finding's REAL code
-        # references (evidence_chain), not the finding JSON file. This is what
-        # a challenger must cite.
-        #
-        # ARIA-HIGH-181 — a finding whose chain yields no code reference is
-        # NOT converted. The fallback that once stood here minted the plan on
-        # `aria-findings/<id>.json`: a path under evidence_trust's
-        # SELF_OUTPUT_PREFIXES, gitignored, unresolvable at any workspace
-        # SHA — so the validator's non-empty rule was satisfied by a ref the
-        # kernel's own trust rule names inadmissible. The challenger planner
-        # dispatched on it (AIR-aria-challenger-planner-2d16fdbb749e, run
-        # 35485712865, 27 turns) found exactly that and refused; the refusal
-        # cost a requeue and the request could never be answered. The
-        # candidate is skipped by name (`plan_candidate_conversion_skipped`)
-        # and the next ranked candidate is tried, as the None contract says.
-        evidence_refs, affected_surfaces = _evidence_refs_from_finding_json(
-            candidate.get("path"),
-        )
-        if not evidence_refs:
-            return None
+        # ORPHAN-312 / ARIA-HIGH-181 — the plan is grounded in the finding's
+        # REAL code references, never the finding JSON (self-output,
+        # gitignored, unresolvable at any SHA). ADR-0018 D5 moved that
+        # judgement into the shared admission: OPEN in the event fold, refs
+        # that are tracked files of this checkout, at least one writable
+        # surface. A finding that fails it never reaches this branch.
+        evidence_refs = list(admission.evidence_refs)
+        affected_surfaces = list(admission.affected_surfaces)
 
     content: dict[str, Any] = {
         # schema_version 2 — coverage-gated (see synthesize_plan_content_from_cycle).
@@ -1191,13 +1169,17 @@ def convert_candidate_to_plan_content(
     # chain and fell back to `plan:<plan_id>` because no producer wrote it;
     # `plan_origin.commit_contract_for_plan` derives the commit trailer from
     # it. A finding-sourced candidate's id IS the finding id (ORPHAN-<SEV>-NNN
-    # from the orphan register, F-NNN from aria-findings/); the other sources
-    # have no finding, so the key is absent rather than invented.
+    # from the orphan register, F-NNN from aria-findings/); an operator
+    # request carries the F finding it signed (ADR-0018), the admitted one.
+    # The other sources have no finding, so the key is absent rather than
+    # invented.
     if source_type in {
         PlanCandidateSource.ORPHAN_FINDING.value,
         PlanCandidateSource.F_FINDING.value,
     }:
         content["finding_id"] = candidate_id
+    elif source_type == PlanCandidateSource.OPERATOR_FEEDBACK.value:
+        content["finding_id"] = admission.finding_id
     metadata: dict[str, Any] = {
         "_pressure_source_type": source_type,
         "_candidate_id": candidate_id,

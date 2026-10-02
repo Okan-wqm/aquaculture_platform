@@ -1895,9 +1895,9 @@ class _PreMergeEvidence:
     # Sixth predicate (operator_feedback_signature, V9.5 check 12): the
     # merge owner walks plan_started.content_hash → the synthesis_bound row
     # the provider wrote → the ingestion row that scan recorded → every
-    # consumed operator-feedback row, re-verifying each signature against
-    # the store's key file at capture time
-    # (operator_feedback_ingestion.observe_operator_feedback_for_plan). A
+    # consumed operator request row, re-verifying each operator signature
+    # against the allowed-signers file committed on main (ADR-0020;
+    # operator_feedback_ingestion.observe_operator_feedback_for_plan). A
     # plan with no binding, a binding with no ingestion, a consumed row the
     # ingestion never admitted, or a signature the store cannot vouch for
     # now is a named reason; ``verified`` is True only when the whole walk
@@ -1908,7 +1908,7 @@ class _PreMergeEvidence:
     operator_feedback_ingestion_hash: str | None = None
     operator_feedback_dropped_count: int | None = None
     operator_feedback_consumed_row_hashes: tuple[str, ...] = ()
-    operator_feedback_consumed_signer_kids: tuple[str, ...] = ()
+    operator_feedback_consumed_signers: tuple[str, ...] = ()
     operator_feedback_verified: bool | None = None
     operator_feedback_unavailable_reason: str | None = None
     # Seventh predicate (cycle_and_turn_budget_cap): the hook_decisions rows
@@ -2213,12 +2213,12 @@ def _check_operator_feedback_signature(context: HardFailContext) -> HardFailResu
     if (
         evidence.operator_feedback_verified is not True
         or len(evidence.operator_feedback_consumed_row_hashes)
-        != len(evidence.operator_feedback_consumed_signer_kids)
+        != len(evidence.operator_feedback_consumed_signers)
     ):
         return _failed(name, "native_operator_feedback_signature_unverified")
     # The synthesizer applied the rule to THIS plan's synthesis: unsigned
     # rows were dropped with their governance events, and every row the
-    # plan consumed still verifies under the store's key material.
+    # plan consumed still verifies against the committed trust anchor.
     return _passed(name, "native_operator_feedback_ingestion_verified")
 
 
@@ -2962,18 +2962,20 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         check=_check_per_file_mutual_exclusion,
         gate=GATE_PRE_MERGE,
     ),
-    # V9.5 check 12 — the synthesizer drops rows whose keyed-HMAC signature
-    # / signer_kid is missing or invalid (one unsigned_operator_feedback
+    # V9.5 check 12 — the synthesizer drops request rows whose operator
+    # ed25519 signature is missing or does not verify against the committed
+    # allowed-signers file (ADR-0020; one unsigned_operator_feedback
     # governance row per drop) and records what it admitted; the merge
     # owner captures that ingestion for the plan being merged and this
     # predicate refuses unless every consumed row re-verifies.
     HardFailCheck(
         name="operator_feedback_signature",
         description=(
-            "operator_feedback_ingestion: keyed-HMAC verification at "
-            "ingestion, unsigned rows dropped with governance events, and "
-            "the merged plan's synthesis bound to an ingestion whose "
-            "consumed rows re-verify at merge time"
+            "operator_feedback_ingestion: operator ed25519 verification at "
+            "ingestion against the committed allowed-signers file, unsigned "
+            "rows dropped with governance events, and the merged plan's "
+            "synthesis bound to an ingestion whose consumed rows re-verify "
+            "at merge time"
         ),
         closes_findings=("ai-HIGH-010",),
         check=_check_operator_feedback_signature,

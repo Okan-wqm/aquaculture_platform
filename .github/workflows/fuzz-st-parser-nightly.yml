@@ -96,7 +96,17 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain (nightly — required by cargo-fuzz)
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # nightly 2026-06-30
+        # `toolchain` is named here, never inherited from the pin. The action
+        # takes its default toolchain from the BRANCH its ref sits on
+        # (`@nightly` defaults to nightly, `master` has no default). A SHA pin
+        # carries no branch, so when Dependabot #1264 moved this pin from a
+        # nightly-branch commit to a master commit the default vanished and
+        # every night died at "'toolchain' is a required input" (2026-08-31
+        # onward). tests/invariants/toolchain-config-ssot.spec.ts fails any
+        # rust-toolchain step that omits it.
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: nightly
 
       - name: Cache cargo-fuzz install + corpus
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

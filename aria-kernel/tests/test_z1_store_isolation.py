@@ -123,6 +123,55 @@ class SharedWorkspaceGroupPins(unittest.TestCase):
             "an exemption with nothing to earn it is a hole",
         )
 
+    def test_scoped_checkout_jobs_preflight_their_own_checkout(self) -> None:
+        """ARIA-MEDIUM-251 — a job that checks out into a subdirectory writes
+        that subdirectory, so its enterprise preflight must judge it.
+
+        aria-daily-report's commit-report job rooted the preflight at
+        GITHUB_WORKSPACE: on the self-hosted runner that is the shared ARIA
+        workspace, where its own `report-checkout/` and the watchdog's
+        `watchdog-checkout/` are untracked directories, so the clean-worktree
+        check refused every run from 2026-08-20 on. The scoped checkout that
+        earns the group exemption above is the same thing that makes the
+        workspace root the wrong tree to judge.
+        """
+        checked = 0
+        for path in _workflows_with_selfhosted():
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+            for job_name, job in (doc.get("jobs") or {}).items():
+                runs_on = job.get("runs-on")
+                if not (isinstance(runs_on, list) and "self-hosted" in runs_on):
+                    continue
+                steps = job.get("steps") or []
+                checkout_paths = {
+                    (s.get("with") or {}).get("path")
+                    for s in steps
+                    if str(s.get("uses", "")).startswith("actions/checkout")
+                }
+                checkout_paths.discard(None)
+                if not checkout_paths:
+                    continue
+                for step in steps:
+                    run = str(step.get("run") or "")
+                    if "verify_workflow_preflight(" not in run:
+                        continue
+                    checked += 1
+                    where = f"{path.name}:{job_name}:{step.get('name')}"
+                    self.assertIn(
+                        step.get("working-directory"), checkout_paths,
+                        f"{where}: preflight must run inside the job's own checkout",
+                    )
+                    self.assertNotIn(
+                        'workspace_root=os.environ["GITHUB_WORKSPACE"]', run,
+                        f"{where}: GITHUB_WORKSPACE is the shared runner workspace, "
+                        "not the tree this job writes",
+                    )
+                    self.assertIn("workspace_root=os.getcwd()", run, where)
+        self.assertGreater(
+            checked, 0,
+            "aria-daily-report's commit-report preflight must be among the checked steps",
+        )
+
     def test_watchdog_checkout_is_scoped_away_from_the_store(self) -> None:
         doc = yaml.safe_load(
             (_WF / "dataflow-integrity-watchdog.yml").read_text(encoding="utf-8"),

@@ -490,6 +490,19 @@ _MAX_CANDIDATES_PER_SOURCE: int = 50
 # mitigation + arb MED-003).
 _GH_RUN_LIST_CACHE_TTL_SECONDS: int = 600  # 10 minutes
 
+# ARIA-HIGH-250 — the failing_ci source answers "which workflows are red
+# NOW", so it reads completed runs, not failed ones: a failed run stays failed
+# after its workflow recovers, and the five newest failures on main named
+# workflows that had long since gone green. The window is how many of the
+# newest completed runs on the branch are read to find each workflow's newest
+# verdict; a workflow with no completed run inside it has no current verdict.
+_FAILING_CI_RUN_WINDOW: int = 200
+
+# Only a pass or a fail says whether a workflow works. A cancelled, skipped,
+# neutral, stale or action_required run says nothing about it, so it neither
+# clears a red workflow nor turns a green one red.
+_DECISIVE_RUN_CONCLUSIONS: frozenset[str] = frozenset({"success", "failure"})
+
 # Plan ARIA-V9.4 — per-source scan slowness threshold (perf HIGH-005).
 # When a single source > 2s, emit plan_source_scan_slow governance.
 _SOURCE_SCAN_SLOW_SECONDS: float = 2.0
@@ -633,6 +646,35 @@ def _write_gh_run_list_cache(cache_path: Path, payload: list[dict[str, Any]]) ->
     }, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def _newest_failures_of_red_workflows(rows: list[Any]) -> list[dict[str, Any]]:
+    """The newest failed run of every workflow whose newest decisive run
+    failed, newest first (ARIA-HIGH-250).
+
+    A workflow is identified by ``workflowDatabaseId``: two workflow files
+    may share a display name, and one going green must not clear the other.
+    Runs are ordered here by ``createdAt`` rather than trusting the order
+    ``gh`` printed them in, because "newest" is what decides the verdict.
+    A row that names no workflow cannot be attributed to one and is skipped.
+    """
+    runs = [
+        r for r in rows
+        if isinstance(r, dict) and r.get("workflowDatabaseId") is not None
+    ]
+    runs.sort(key=lambda r: str(r.get("createdAt") or ""), reverse=True)
+    decided: set[Any] = set()
+    failing: list[dict[str, Any]] = []
+    for r in runs:
+        if r.get("conclusion") not in _DECISIVE_RUN_CONCLUSIONS:
+            continue
+        workflow_id = r["workflowDatabaseId"]
+        if workflow_id in decided:
+            continue
+        decided.add(workflow_id)
+        if r.get("conclusion") == "failure":
+            failing.append(r)
+    return failing
+
+
 def scan_failing_ci(
     workspace_root: str | Path,
     *,
@@ -641,8 +683,12 @@ def scan_failing_ci(
     branch: str = "main",
     gh_token: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Plan ARIA-V9.4 + V3.1-D-4 source — failing CI runs from
-    ``gh run list --branch main --status failure --limit 5``.
+    """Plan ARIA-V9.4 + V3.1-D-4 source — the workflows that are red on
+    ``main`` now: each workflow's newest decisive run (see
+    ``_DECISIVE_RUN_CONCLUSIONS``) among the newest
+    ``_FAILING_CI_RUN_WINDOW`` completed runs, kept when it failed. One
+    candidate per red workflow, carrying that newest failed run
+    (ARIA-HIGH-250).
 
     Cached at ``<workspace>/aria-tools/cache/gh-run-list.json`` with
     10-min TTL (arb MED-003 + perf CRIT-003 rate-limit mitigation).
@@ -700,9 +746,10 @@ def scan_failing_ci(
             [
                 gh_cli, "run", "list",
                 "--branch", branch,
-                "--status", "failure",
-                "--limit", "5",
-                "--json", "databaseId,workflowName,headSha,conclusion,createdAt,event",
+                "--status", "completed",
+                "--limit", str(_FAILING_CI_RUN_WINDOW),
+                "--json",
+                "databaseId,workflowDatabaseId,workflowName,headSha,conclusion,createdAt,event",
             ],
             capture_output=True, text=True, timeout=15,
             env=subprocess_env,
@@ -718,9 +765,7 @@ def scan_failing_ci(
     if not isinstance(rows, list):
         return []
     candidates: list[dict[str, Any]] = []
-    for r in rows:
-        if not isinstance(r, dict):
-            continue
+    for r in _newest_failures_of_red_workflows(rows):
         run_id = r.get("databaseId")
         workflow = r.get("workflowName") or "unknown"
         candidates.append({

@@ -281,6 +281,7 @@ versions, and every lineage event names the matcher digest it came from.
 
 ## Status of this record
 
-Proposed. The operator and the architectural arbiter accept or amend it. Nothing on the branch that
-records it implements it, and until it is accepted no extractor writes a node ID and no
-critical-journey anchor is signed (constraint K-8).
+Accepted by the operator on 2026-10-02 after review of the draft, as the header records. From the
+first node ID written to a committed or published surface (constraint K-8), every extractor,
+finding, label, pin and critical-journey anchor uses this `node_id`. A change to this decision is
+an amendment: a new record that names this one.

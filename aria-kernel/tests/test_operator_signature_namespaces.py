@@ -26,9 +26,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+from aria_kernel import implementation_safety as safety
 from aria_kernel import main_anchor
 from aria_kernel import operator_request_signature as ors
 from aria_kernel import state_snapshot
+from aria_kernel.operator_request_terms import parse_utc
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers import operator_requests as helpers
 from tests._helpers.operator_requests import (
@@ -220,11 +222,11 @@ class CommittedChainTests(unittest.TestCase):
     def test_an_enrolment_this_change_appends_has_not_expired(self) -> None:
         # Runs in the required aria-merge-authority job: on a pull request
         # the merge base with main is main's tip, so these are the PR's rows.
+        # The clock is this run's; the merge authority re-judges the same
+        # rows with its own clock immediately before it merges (ARIA-MEDIUM-282).
         base = _git_out("merge-base", "HEAD", main_anchor.MAIN_TRACKING_REF)
-        read = {commit: main_anchor.committed_blob(_REPO_ROOT, commit=commit, path=ors.ENROLMENTS_PATH)
-                for commit in (base, _git_out("rev-parse", "HEAD"))}
-        before, after = (blob.content if blob else None for blob in read.values())
-        self.assertIsNone(ors.appended_enrolments_reason(before, after, now=datetime.now(timezone.utc)))
+        self.assertIsNone(ors.pre_merge_enrolment_reason(
+            _REPO_ROOT, base=base, head=_git_out("rev-parse", "HEAD"), now=datetime.now(timezone.utc)))
 
     def test_the_pre_merge_check_refuses_rewrites_and_expired_rows(self) -> None:
         now = datetime.now(timezone.utc)
@@ -238,6 +240,64 @@ class CommittedChainTests(unittest.TestCase):
         self.assertIsNone(ors.appended_enrolments_reason(genesis, genesis + row(1), now=now))
         self.assertEqual(ors.appended_enrolments_reason(genesis, genesis + row(-1), now=now), ors.SUBJECT_EXPIRED)
         self.assertEqual(ors.appended_enrolments_reason(genesis + row(1), genesis, now=now), ors.ENROL_CHAIN_BROKEN)
+
+
+class MergeTimeEnrolmentExpiryTests(unittest.TestCase):
+    """ARIA-MEDIUM-282 — an appended enrolment row is judged with the clock of the merge decision.
+
+    The required check runs when CI runs; a row valid then can be expired by
+    the time the merge happens. The merge authority's pre-merge perimeter,
+    evaluated immediately before ARIA merges, re-judges the rows the change
+    appends with its own clock, through the function the CI check calls.
+    """
+
+    _BOUND = ("repo_identity", "snapshot_hash", "pr_row_hash", "planned_row_hash", "committed_row_hash",
+              "request_id", "claim_id", "request_row_hash", "claim_row_hash", "result_row_hash",
+              "implementation_event_hash")
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(prefix="aria-enrol-merge-")
+        self.addCleanup(self.tmp.cleanup)
+        env = {k: v for k, v in os.environ.items() if k != "ARIA_REPO_STATE_ROOT"}
+        patcher = mock.patch.dict(os.environ, env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.fx = OperatorRequestFixture(Path(self.tmp.name) / "fixture")
+        self.base = git(self.fx.repo, "rev-parse", "HEAD").strip()
+        newcomer = mint_ed25519_key(Path(self.tmp.name) / "newcomer", name="k")
+        signers = (self.fx.repo / ors.ALLOWED_SIGNERS_PATH).read_text(encoding="utf-8")
+        row = self.fx.enrol({ors.ALLOWED_SIGNERS_PATH: signers + allowed_signers_line(
+            "newcomer@aria.test", newcomer, namespace=ALL_OPERATOR_NAMESPACES)}, expires_in_hours=1)
+        self.expires_at = parse_utc(row["expires_at"])
+        self.head = git(self.fx.repo, "rev-parse", "HEAD").strip()
+
+    def _perimeter(self, *, at: datetime, base: str | None = None, head: str | None = None,
+                   bound: bool = True) -> safety.HardFailResult:
+        fields = {field: f"{field}-x" for field in self._BOUND} if bound else {}
+        evidence = safety._PreMergeEvidence((), base_sha=base or self.base, head_sha=head or self.head, **fields)
+        context = safety.HardFailContext(workspace_root=self.fx.repo, pre_merge_evidence=evidence)
+        with mock.patch.object(safety, "datetime") as clock:
+            clock.now.return_value = at
+            return safety._check_enrolments_unexpired_at_merge(context)
+
+    def test_a_row_valid_when_ci_ran_is_refused_at_a_merge_after_its_expiry(self) -> None:
+        ci_clock = datetime.now(timezone.utc)
+        self.assertIsNone(ors.pre_merge_enrolment_reason(self.fx.repo, base=self.base, head=self.head, now=ci_clock))
+        self.assertTrue(self._perimeter(at=ci_clock).passed)
+        late = self._perimeter(at=self.expires_at + timedelta(seconds=1))
+        self.assertEqual((late.passed, late.reason), (False, ors.SUBJECT_EXPIRED))
+        entry = {check.name: check for check in safety.HARD_FAIL_CHECKS}["enrolments_unexpired_at_merge"]
+        self.assertEqual((entry.gate, entry.closes_findings), (safety.GATE_PRE_MERGE, ("ARIA-MEDIUM-282",)))
+
+    def test_a_rewrite_an_unreadable_commit_or_no_binding_never_passes(self) -> None:
+        now = datetime.now(timezone.utc)
+        ledger = (self.fx.repo / ors.ENROLMENTS_PATH).read_text(encoding="utf-8")
+        rewritten = self.fx.commit_files({ors.ENROLMENTS_PATH: ledger.splitlines(keepends=True)[0]})
+        self.assertEqual(self._perimeter(at=now, base=self.head, head=rewritten).reason, ors.ENROL_CHAIN_BROKEN)
+        self.assertEqual(self._perimeter(at=now, head="f" * 40).reason, ors.ENROL_CHAIN_BROKEN)
+        self.assertEqual(self._perimeter(at=now, bound=False).reason, "native_implementation_binding_unavailable")
+        # A change that appends nothing has nothing to judge, at any clock.
+        self.assertTrue(self._perimeter(at=self.expires_at + timedelta(days=30), base=self.head).passed)
 
 
 class EnrolmentChainTests(unittest.TestCase):

@@ -5,9 +5,10 @@ Before the fix the gate was defined and default-gated but no production path
 invoked it — the only perimeter callsites were pr_manager's GATE_PRE_PR_OPEN
 pair, so ADR-041 decision 3's "fresh pre-merge re-check" existed in prose only.
 
-Behavioral pin: a perimeter refusal stops the merge. All eight GATE_PRE_MERGE
+Behavioral pin: a perimeter refusal stops the merge. All nine GATE_PRE_MERGE
 checks consume native evidence — the PR's changed paths against
-READONLY_PATHS (INFRA-MEDIUM-197), unwaived plan-time coverage, the accepted
+READONLY_PATHS (INFRA-MEDIUM-197), the enrolment rows it appends at the
+merge authority's clock (ARIA-MEDIUM-282), unwaived plan-time coverage, the accepted
 expert panel, the operator-feedback ingestion the merged plan's synthesis
 was bound to, and the hook's turn-budget verdicts (cycle_and_turn_budget_cap).
 Waiver adjudication and current graph reattestation are not established by
@@ -172,9 +173,9 @@ class PreMergePerimeterTests(unittest.TestCase):
         self.assertIn("pre_merge_perimeter_blocked", reasons)
         # Every pre-merge predicate is live and answers from native evidence;
         # a fixture with no implementation binding is refused by name by all
-        # eight, never by a placeholder.
+        # nine, never by a placeholder.
         perimeter_reasons = [reason for reason in reasons if reason != "pre_merge_perimeter_blocked"]
-        self.assertEqual(len(perimeter_reasons), 8, reasons)
+        self.assertEqual(len(perimeter_reasons), 9, reasons)
         self.assertTrue(
             all(reason.endswith(":native_implementation_binding_unavailable") for reason in perimeter_reasons),
             reasons,
@@ -692,7 +693,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             for path in tools.rglob("*") if path.is_file() and path.suffix in {".json", ".jsonl"}}, native_before)
 
         # Earlier authority gates are fixture controls. The normal runner,
-        # authority capture and eight predicates below execute their real code.
+        # authority capture and nine predicates below execute their real code.
         from contextlib import ExitStack
         from aria_kernel.auto_merge import SnapshotGitHubAdapter
         from aria_kernel.auto_merge_runners import RealAutoMergeRunner

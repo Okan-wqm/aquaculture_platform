@@ -48,7 +48,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, TextIO
 
-from .main_anchor import committed_blob, resolve_main_anchor
+from .main_anchor import committed_blob, resolve_main_anchor, tracked_files_at
 from .operator_request_terms import parse_utc
 from .tool_registry import GovernanceError
 
@@ -350,6 +350,26 @@ def appended_enrolments_reason(base: bytes | None, head: bytes | None, *, now: d
         if row.get("kind") != "genesis" and (expires is None or now >= expires):
             return SUBJECT_EXPIRED
     return None
+
+
+def pre_merge_enrolment_reason(repo_root: str | Path, *, base: str, head: str, now: datetime) -> str | None:
+    """ARIA-MEDIUM-282 — the enrolment rows ``head`` appends to ``base``, judged at ``now``, or None.
+
+    ``now`` is the clock of the decision that lands the change: the merge
+    authority's pre-merge perimeter passes its own, read immediately before
+    it merges; the required check passes the clock of its run. Both commits
+    are read through the hardened reader; a commit that cannot be listed, or
+    a listed file that cannot be read, refuses (``enrol_chain_broken``) and
+    never reads as "nothing appended".
+    """
+    contents: list[bytes] = []
+    for commit in (base, head):
+        listed = tracked_files_at(repo_root, commit=commit, paths=[ENROLMENTS_PATH])
+        blob = committed_blob(repo_root, commit=commit, path=ENROLMENTS_PATH) if listed else None
+        if listed is None or (listed and blob is None):
+            return ENROL_CHAIN_BROKEN
+        contents.append(blob.content if blob is not None else b"")
+    return appended_enrolments_reason(contents[0], contents[1], now=now)
 
 
 def _committed_audience(repo_root: str | Path, *, commit: str) -> str | None:
@@ -692,6 +712,7 @@ __all__ = [
     "record_enrolment",
     "operator_act_terms_reason",
     "parse_namespace_registry",
+    "pre_merge_enrolment_reason",
     "request_signing_bytes",
     "request_subject_digest",
     "sign_operator_request",

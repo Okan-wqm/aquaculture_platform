@@ -42,6 +42,7 @@ import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from collections.abc import Mapping, Sequence
@@ -2398,6 +2399,28 @@ def _check_readonly_paths_untouched_at_merge(context: HardFailContext) -> HardFa
     return _passed(name, "no_changed_path_is_read_only")
 
 
+def _check_enrolments_unexpired_at_merge(context: HardFailContext) -> HardFailResult:
+    """ARIA-MEDIUM-282 — ADR-0023's enrolment expiry, judged with the merge authority's own clock.
+
+    The required check judges the rows a change appends when CI runs, and a
+    row valid then can be expired when the merge happens. The perimeter is
+    evaluated immediately before ARIA's merge call, so the clock read here is
+    the merge's. Same judgement as the CI check
+    (``operator_request_signature.pre_merge_enrolment_reason``), on the
+    implementation base and head the native capture bound.
+    """
+    name = "enrolments_unexpired_at_merge"
+    evidence = context.pre_merge_evidence
+    if (evidence is None or not _native_implementation_is_bound(context) or context.workspace_root is None
+            or not evidence.base_sha or not evidence.head_sha):
+        return _failed(name, "native_implementation_binding_unavailable")
+    from .operator_request_signature import pre_merge_enrolment_reason
+
+    reason = pre_merge_enrolment_reason(context.workspace_root, base=evidence.base_sha, head=evidence.head_sha,
+                                        now=datetime.now(timezone.utc))
+    return _failed(name, reason) if reason is not None else _passed(name, "no_appended_enrolment_expired_at_merge")
+
+
 # ORPHAN-CRITICAL-428 phase A — the five mechanical pre-PR-open checks.
 #
 # Each one is deliberately narrow and total: it inspects declared fields
@@ -3066,6 +3089,13 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         description="the PR's changed paths, as the native capture records them, avoid every READONLY_PATHS entry",
         closes_findings=("INFRA-MEDIUM-197",),
         check=_check_readonly_paths_untouched_at_merge,
+        gate=GATE_PRE_MERGE,
+    ),
+    HardFailCheck(
+        name="enrolments_unexpired_at_merge",
+        description="every enrolment row the PR appends is unexpired at the merge authority's clock (ADR-0023)",
+        closes_findings=("ARIA-MEDIUM-282",),
+        check=_check_enrolments_unexpired_at_merge,
         gate=GATE_PRE_MERGE,
     ),
     HardFailCheck(

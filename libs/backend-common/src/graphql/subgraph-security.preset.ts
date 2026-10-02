@@ -30,7 +30,16 @@ export function subgraphFormatError(
   if (!isProduction) return undefined;
   return (formattedError: GraphQLFormattedError): GraphQLFormattedError => {
     const code = formattedError.extensions?.['code'];
-    const keepMessage = code === 'BAD_USER_INPUT' || code === 'GRAPHQL_VALIDATION_FAILED';
+    // 2026-09-21: istemcinin aksiyon alabileceği güvenli kodların mesajı da
+    // maskelenmemeli — yoksa 429 ("Retry after Xs") kullanıcıya anlamsız
+    // "An error occurred..." olarak gelir (canlı olay).
+    const keepMessage =
+      code === 'BAD_USER_INPUT' ||
+      code === 'GRAPHQL_VALIDATION_FAILED' ||
+      code === 'TOO_MANY_REQUESTS' ||
+      code === 'UNAUTHENTICATED' ||
+      code === 'FORBIDDEN' ||
+      code === 'NOT_FOUND';
     if (keepMessage) return formattedError;
     return {
       message: 'An error occurred while processing your request',

@@ -3,7 +3,9 @@
  * per-tenant table clones (2026-07-06 grant incident).
  *
  * Proves: assert aligns owner + service DML (and owned sequences) ONLY for
- * registered tables that exist; verify reports owner/privilege drift as
+ * registered tables that exist and grants schema USAGE to both the service
+ * and the owner role; verify reports owner/privilege drift (including an
+ * owner without schema USAGE) as
  * violations and unregistered tables as unknowns (partition children of
  * registered parents excluded); non-tenant schemas and unregistered source
  * schemas are refused.
@@ -81,7 +83,11 @@ describe('assertTenantSchemaPrivileges', () => {
     expect(report.absentTables.length).toBeGreaterThan(5);
 
     const sql = queries.map((q) => q.sql);
-    expect(sql).toContainEqual(expect.stringContaining(`GRANT USAGE ON SCHEMA "${TENANT}"`));
+    expect(sql).toContain(`GRANT USAGE ON SCHEMA "${TENANT}" TO "farm_service"`);
+    // FARM-HIGH-356: FK (RI) checks run as the table OWNER, so the owner role
+    // needs schema USAGE too or the first insert into a table whose FK targets
+    // another tenant table fails with "permission denied for schema".
+    expect(sql).toContain(`GRANT USAGE ON SCHEMA "${TENANT}" TO "farm_schema_owner"`);
     expect(sql).toContainEqual(
       `ALTER TABLE "${TENANT}"."tank_batches" OWNER TO "farm_schema_owner"`,
     );
@@ -133,8 +139,12 @@ describe('verifyTenantSchemaPrivileges', () => {
     owner?: string;
     hasDelete?: boolean;
     extraTables?: string[];
+    ownerHasSchemaUsage?: boolean;
   }) {
     return (sql: string) => {
+      if (sql.includes('has_schema_privilege')) {
+        return [{ ok: overrides.ownerHasSchemaUsage ?? true }];
+      }
       if (sql.includes('has_table_privilege')) {
         return [
           {
@@ -172,6 +182,14 @@ describe('verifyTenantSchemaPrivileges', () => {
     expect(v.violations[1]).toMatchObject({ table: 'tank_batches', kind: 'privilege' });
   });
 
+  it('reports an owner role without schema USAGE (RI checks would fail) as an owner violation', async () => {
+    const { executor } = executorWith(verifyResponder({ ownerHasSchemaUsage: false }));
+    const v = await verifyTenantSchemaPrivileges(executor, TENANT, ['farm']);
+    expect(v.violations).toHaveLength(1);
+    expect(v.violations[0]).toMatchObject({ table: '<schema>', kind: 'owner' });
+    expect(v.violations[0]?.detail).toContain('lacks USAGE');
+  });
+
   it('reports unregistered tables as unknown, but not partition children of registered parents', async () => {
     const { executor } = executorWith(
       verifyResponder({ extraTables: ['deploy_artifacts', 'messages_2026_07'] }),
@@ -184,6 +202,9 @@ describe('verifyTenantSchemaPrivileges', () => {
 
   it('requires SELECT-only and reports a restored write grant on a protected ledger', async () => {
     const { executor } = executorWith((sql) => {
+      if (sql.includes('has_schema_privilege')) {
+        return [{ ok: true }];
+      }
       if (sql.includes('has_table_privilege')) {
         return [
           {

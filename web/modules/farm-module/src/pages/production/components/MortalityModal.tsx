@@ -2,6 +2,7 @@
  * Mortality Modal
  * Records fish mortality in a tank with reason and biomass calculation
  */
+import { toGraphqlEnumName } from '../../../utils/graphql-enum';
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import { TankBatch, MortalityReason, MortalityReasonLabels } from '../types/batch.types';
@@ -129,10 +130,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
         batchId: selectedBatchId,
         tankId: tank.equipmentId, // Backend expects tankId, frontend uses equipmentId
         quantity,
-        // `reason` is a MortalityReason enum value whose string literal
-        // (e.g. `'disease'`) matches the hook's `MortalityReason` union
-        // type exactly — no cast required.
-        reason,
+        reason: (toGraphqlEnumName(reason) ?? reason) as MortalityReason,
         avgWeightG: avgWeightG > 0 ? avgWeightG : undefined,
         observedAt,
         notes,

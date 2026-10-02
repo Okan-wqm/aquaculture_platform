@@ -443,3 +443,33 @@ Rule: A scheduled lane either runs at its declared cadence or reports the gap; n
 cancel another lane's pending run.
 
 Owner okan, deadline 2026-11-13.
+
+## ARIA-HIGH-278
+
+Every aria/state publish re-verifies its own commit and refuses it once the counted evidence ledgers
+pass the 80 MiB evidence-input budget. They hold 32.9 MiB and grow about 1.5 MiB a day, so
+publishing stops around 2026-11-02. Rollover into segments (ARIA-HIGH-275) does not lower the sum:
+every segment of a counted family is still counted.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/autonomy_evidence.py:594` (`_MAX_EVIDENCE_INPUT_BYTES`, 80 MiB)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2467-2471` (counted set: every capability's
+  `count_surfaces`, 15 ledgers, 11 present on aria/state)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2563-2574` (each counted blob and segment adds to
+  `evidence_total`; over budget raises `state_commit_evidence_budget_exceeded`)
+- `aria-kernel/aria_kernel/state_store.py:1140` (`_publish_state_locked` runs that verifier on the
+  just-created commit; any exception refuses the publish)
+- `origin/aria/state` 05c5d3160: 34,504,740 bytes counted; agent-invocations/requests.jsonl
+  17.64 MiB and governance.jsonl 11.00 MiB are 87% of it
+- growth from 23.34 MiB (e6f462fb8, 09-25): 1.32 MiB/day end to end, 1.50 MiB/day least squares;
+  14 days 1.43-1.76; last 3 days 2.05-2.80 (requests.jsonl +6.72 MiB while results.jsonl stayed
+  flat, so an enabled executor adds its results on top)
+- 47.09 MiB of headroom: exceeded around 2026-11-02 (2026-10-19 at the 3-day rate, 2026-11-07 at
+  the 7-day end-to-end rate)
+
+Rule: History ARIA must keep can never make a publish-time budget refuse a publish: the verifier's
+cost is bounded by construction, and no cap is raised to make room.
+
+Re-checked on fix/aria-invocation-ledger-rollover 5cf8e0f61. Program plan rev2 does not cover this
+budget (K3 segments the ledger; the sum stays counted). Owner okan, deadline 2026-10-23.

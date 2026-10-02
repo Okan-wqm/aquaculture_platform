@@ -1,7 +1,19 @@
 #!/usr/bin/env bash
-# Production PostgreSQL readiness plus continuous-archive freshness. A live SQL
-# socket is insufficient: a stalled archive queue violates the five-minute RPO
-# while the database can continue accepting writes.
+# Production PostgreSQL readiness plus the archive contract its declared DR
+# activation state requires. WALG_ARCHIVE_ACTIVATION is the compose projection
+# of `production-wal-archive` in .github/manifests/dr-activation.json, pinned to
+# it by tests/invariants/wal-archive-activation.spec.ts:
+#
+#   active         continuous-archive freshness. A live SQL socket is
+#                  insufficient: a stalled archive queue violates the
+#                  five-minute RPO while the database can continue accepting
+#                  writes.
+#   not-activated  archive_mode must be off. Archiving with no provisioned
+#                  destination retains every WAL segment until the disk fills
+#                  (INFRA-CRITICAL-195), so undeclared archiving is the fault
+#                  and "archiving is off" is the healthy state.
+#
+# Readiness and pg_wal filesystem headroom are required in both states.
 
 set -euo pipefail
 
@@ -10,6 +22,7 @@ POSTGRES_USER="${POSTGRES_USER:-aquaculture}"
 POSTGRES_DB="${POSTGRES_DB:-aquaculture}"
 MAX_RPO_SECONDS=300
 MAX_WAL_DISK_PERCENT=90
+ARCHIVE_ACTIVATION="${WALG_ARCHIVE_ACTIVATION:-}"
 
 die() {
   printf 'WAL-G healthcheck failed: %s\n' "$*" >&2
@@ -24,6 +37,47 @@ require_positive_seconds() {
     die "${variable_name} must be a positive integer number of seconds"
   fi
 }
+
+# pg_wal lives on the droplet's shared root filesystem; a full disk stops
+# PostgreSQL writing WAL whether or not archiving is activated.
+assert_wal_disk_headroom() {
+  local wal_disk_percent
+  wal_disk_percent=$(df -P "${PGDATA}/pg_wal" | awk 'NR == 2 { gsub(/%/, "", $5); print $5 }')
+  if [[ ! "${wal_disk_percent}" =~ ^[0-9]+$ ]]; then
+    die 'could not determine pg_wal filesystem utilization'
+  fi
+  if [ "${wal_disk_percent}" -ge "${MAX_WAL_DISK_PERCENT}" ]; then
+    die "pg_wal filesystem utilization is ${wal_disk_percent}% (limit ${MAX_WAL_DISK_PERCENT}%)"
+  fi
+}
+
+# An unknown value fails closed: guessing a contract would let a typo pass the
+# not-activated check on an archiving server, or skip the RPO on an active one.
+case "${ARCHIVE_ACTIVATION}" in
+  active | not-activated) ;;
+  *) die "WALG_ARCHIVE_ACTIVATION must be 'active' or 'not-activated' (got '${ARCHIVE_ACTIVATION}')" ;;
+esac
+
+for required_command in date df find pg_isready psql stat; do
+  command -v "${required_command}" >/dev/null 2>&1 || die "${required_command} is unavailable"
+done
+
+# Not activated: no WAL-G budget, coordinate or credential is consulted, because
+# none of them may be in use. The server must be ready and must not archive.
+if [ "${ARCHIVE_ACTIVATION}" = 'not-activated' ]; then
+  pg_isready -q -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" || die 'PostgreSQL is not ready'
+  ARCHIVE_MODE=$(PGPASSWORD="${POSTGRES_PASSWORD:-}" \
+    psql -X -qAt \
+      -U "${POSTGRES_USER}" \
+      -d "${POSTGRES_DB}" \
+      -v ON_ERROR_STOP=1 \
+      -c "SELECT current_setting('archive_mode');") || die 'could not read archive_mode'
+  if [ "${ARCHIVE_MODE}" != 'off' ]; then
+    die "archive_mode is '${ARCHIVE_MODE}' but WAL archiving is not activated; it must be off"
+  fi
+  assert_wal_disk_headroom
+  exit 0
+fi
 
 for budget_name in \
   WALG_RPO_BUDGET_SECONDS \
@@ -45,9 +99,6 @@ if [ "${ALLOCATED_RPO_SECONDS}" -ne "${WALG_RPO_BUDGET_SECONDS}" ]; then
 fi
 MAX_READY_AGE_SECONDS=${WALG_WAL_PUSH_BUDGET_SECONDS}
 
-for required_command in date df find pg_isready psql stat; do
-  command -v "${required_command}" >/dev/null 2>&1 || die "${required_command} is unavailable"
-done
 for required_config in WALG_BACKUP_EPOCH WALG_S3_PREFIX WALG_S3_ENDPOINT WALG_S3_REGION; do
   [ -n "${!required_config:-}" ] || die "${required_config} is empty"
 done
@@ -97,10 +148,4 @@ if [ -n "${OLDEST_READY_EPOCH}" ]; then
   fi
 fi
 
-WAL_DISK_PERCENT=$(df -P "${PGDATA}/pg_wal" | awk 'NR == 2 { gsub(/%/, "", $5); print $5 }')
-if [[ ! "${WAL_DISK_PERCENT}" =~ ^[0-9]+$ ]]; then
-  die 'could not determine pg_wal filesystem utilization'
-fi
-if [ "${WAL_DISK_PERCENT}" -ge "${MAX_WAL_DISK_PERCENT}" ]; then
-  die "pg_wal filesystem utilization is ${WAL_DISK_PERCENT}% (limit ${MAX_WAL_DISK_PERCENT}%)"
-fi
+assert_wal_disk_headroom

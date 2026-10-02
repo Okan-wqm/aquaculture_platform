@@ -40,7 +40,7 @@ class CliExitCodeMapTests(unittest.TestCase):
         unmapped status — fail-loud, not silent-zero."""
         canonical = {
             "ok", "crash", "schema_error", "output_unparseable",
-            "budget_exceeded", "tool_unhealthy",
+            "budget_exceeded", "tool_unhealthy", "truncated",
         }
         for status in canonical:
             self.assertIn(status, _TOOL_RUN_EXIT_CODES,
@@ -61,6 +61,8 @@ class CliExitCodeMapTests(unittest.TestCase):
             "budget_exceeded distinct exit code so operators can rate-limit")
         self.assertEqual(_TOOL_RUN_EXIT_CODES["tool_unhealthy"], 3,
             "tool_unhealthy distinct so operators can quarantine-respond")
+        self.assertEqual(_TOOL_RUN_EXIT_CODES["truncated"], 2,
+            "truncated is the output budget class: a prefix kept, the rest named")
 
 
 class SpineOrchestratorStatusWhitelistTests(unittest.TestCase):
@@ -77,7 +79,7 @@ class SpineOrchestratorStatusWhitelistTests(unittest.TestCase):
         self.assertIn('"ok"', spine_src)
         # Exclude vocabulary covers crash + schema_error + tool_unhealthy.
         for excluded in ("crash", "schema_error", "tool_unhealthy",
-                         "output_unparseable", "budget_exceeded"):
+                         "output_unparseable", "budget_exceeded", "truncated"):
             self.assertIn(f'"{excluded}"', spine_src,
                 f"Plan 024 §H-6 — exclude status {excluded!r} missing "
                 f"from spine_orchestrator vocabulary")

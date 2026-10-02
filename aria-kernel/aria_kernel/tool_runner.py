@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import codecs
 import hashlib
 import json
 import os
+import selectors
 import subprocess
+import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from .confidence import confidence_in_unit_interval
 from .evidence_validator import validate_tool_output_evidence
@@ -20,19 +24,27 @@ from .ledger_inline import (
 from .runtime_profile import enforce_profile_for_write
 from .canonical_path import lexical_repo_path
 from .snapshot import build_repo_snapshot, ignored_dirty_path, snapshot_allowed_set
+from .state_snapshot import SNAPSHOT_MAX_SURFACE_BLOB_BYTES
 from .artifact_safety import scrub_text
-from .tool_health import can_emit_operator_facing, find_scope_violations, record_run
+from .tool_health import PARSED_RUN_STATUSES, can_emit_operator_facing, find_scope_violations, record_run
 from .tool_registry import GovernanceError, ensure_tools_binding, get_tool
 
 
 MINIMUM_OUTPUT_FIELDS = ("observations", "findings", "read_paths", "evidence_sources")
 RAW_SAMPLE_LIMIT = 50
-# Measured (2026-08-13): tenant-scoping over the full repo emits 5.84 MB
-# (66 findings + 11,471 observations) — 17% over the old 5 MB cap, which
-# made every night's cycle "failed" via budget_exceeded/output_too_large.
-# 12 MB = measured reality × 2 headroom; the adapter-side per-type
-# observation cap (tenant-scoping-adapter) bounds the growth class itself.
-STDOUT_PARSE_MAX_BYTES = 12 * 1024 * 1024
+# ARIA-HIGH-292 — past a 12 MiB stdout cap the runner recorded
+# `budget_exceeded` with EMPTY output, so a tool's output size decided whether
+# its findings existed. stdout is now parsed as it arrives (OutputStream).
+# Retention is bounded per pool (claims, provenance) at a quarter of the
+# per-surface publish cap, so the stored document stays publishable; past it
+# the run is `truncated` and keeps its prefix. A manifest may lower the bound
+# (`runner.output_retain_bytes`), never raise it.
+TOOL_OUTPUT_RETAIN_BYTES = SNAPSHOT_MAX_SURFACE_BLOB_BYTES // 4
+STREAM_CHUNK_BYTES = 64 * 1024
+# The largest record (a list element or a field's value) the protocol admits.
+STREAM_RECORD_MAX_BYTES = 8 * 1024 * 1024
+# Budgeted apart: dropping claims never drops the paths their evidence cites.
+PROVENANCE_FIELDS = frozenset({"read_paths", "evidence_sources"})
 
 
 def run_tool(
@@ -96,7 +108,7 @@ def run_tool(
     # verdict then compared internally inconsistent moments.
     before, before_raw = _workspace_snapshots(root, tool)
     started = time.monotonic()
-    stdout = ""
+    stream: OutputStream | None = None
     stderr = ""
     exit_code: int | None = None
     timed_out = False
@@ -136,34 +148,24 @@ def run_tool(
             run_env["NODE_OPTIONS"] = (
                 f"{existing_node_options} --max-old-space-size={node_heap_mb}"
             ).strip()
-            completed = subprocess.run(
+            stream, stderr, exit_code, timed_out = _stream_tool_output(
                 runner["argv"],
                 cwd=cwd,
-                input=input_bytes.decode("utf-8") if runner.get("stdin_json") else None,
-                capture_output=True,
-                text=True,
-                timeout=runner["timeout_ms"] / 1000,
-                shell=False,
+                stdin=input_bytes if runner.get("stdin_json") else None,
+                timeout_s=runner["timeout_ms"] / 1000,
                 env=run_env,
+                retain_bytes=min(int(runner.get("output_retain_bytes") or TOOL_OUTPUT_RETAIN_BYTES), TOOL_OUTPUT_RETAIN_BYTES),
             )
-            stdout = completed.stdout or ""
-            stderr = completed.stderr or ""
-            exit_code = completed.returncode
-            if len(stdout.encode("utf-8")) > STDOUT_PARSE_MAX_BYTES:
+            if timed_out:
                 status = "budget_exceeded"
-                parse_error = "output_too_large"
-                output = {}
-            elif completed.returncode != 0:
+            elif exit_code != 0:
                 status = "crash"
             else:
-                output, parse_error = _parse_tool_output(stdout, tool)
+                output, parse_error = stream.result(tool)
                 if output is None:
                     status = "schema_error"
-    except subprocess.TimeoutExpired as exc:
-        stdout = _decode_timeout_stream(exc.stdout)
-        stderr = _decode_timeout_stream(exc.stderr)
-        timed_out = True
-        status = "budget_exceeded"
+                elif stream.truncated:
+                    status = "truncated"
     except OSError as exc:
         stderr = str(exc)
         status = "tool_unhealthy" if getattr(exc, "filename", None) else "crash"
@@ -185,7 +187,7 @@ def run_tool(
         "evidence_sources": _array_or_empty(output.get("evidence_sources")),
         "repository_mutation_attempt": mutated,
     }
-    if status == "ok":
+    if status in PARSED_RUN_STATUSES:
         evidence_validation.update(validate_tool_output_evidence(tool, output, root, repo_snapshot=repo_snapshot))
         memory_errors = _memory_candidate_snapshot_errors(output.get("belief_candidates", []), repo_snapshot)
         if memory_errors:
@@ -204,7 +206,8 @@ def run_tool(
         "cycle_id": cycle_id,
         "status": status,
         "input_hash": _sha256(input_bytes),
-        "output_hash": _sha256(stdout.encode("utf-8")),
+        # The digest of every stdout byte the adapter wrote, past any bound.
+        "output_hash": stream.sha256 if stream is not None else _sha256(b""),
         # NOTE: read_paths stays a plain array on purpose — it is a
         # schema-owned field of the run envelope (validate_run_envelope
         # requires an array). Its observed worst case (88 KB) sits far
@@ -249,15 +252,13 @@ def run_tool(
             # PARSE_ERROR_CODES (plus dynamic missing_field:<f> /
             # field_not_list:<f> shapes for minimum-output fields).
             "parse_error": parse_error,
+            # ARIA-HIGH-292 — per-field kept/dropped record counts and the
+            # bound they were kept under; `truncated` when anything dropped.
+            "output_stream": stream.summary() if stream is not None else None,
         },
         "repo_snapshot": _compact_snapshot(repo_snapshot),
-        "_runtime_artifact_payload": {
-            "stdout": stdout,
-            "stderr": stderr,
-            "parsed_output": output,
-            "raw_observations": _array_or_empty(raw_observations),
-            "raw_findings": _array_or_empty(raw_findings),
-        },
+        # record_run stores `output` once, content-addressed (output_ref).
+        "_runtime_artifact_payload": {"stderr": stderr, "output": output},
     }
     decision = record_run(envelope, base_dir=tools_root)
     # Plan 024 v3 §B-7 — return contract split. Pre-fix run_tool returned
@@ -348,6 +349,8 @@ PARSE_ERROR_CODES: frozenset[str] = frozenset({
     "cost_units_invalid",
     "metadata_not_dict",
     "belief_candidates_not_list",
+    # One record over STREAM_RECORD_MAX_BYTES: the protocol bounds a record.
+    "record_too_large",
     # Plus dynamic codes:
     #   missing_field:<field>
     #   field_not_list:<field>
@@ -366,14 +369,18 @@ def _parse_tool_output(
     Post-fix: `(payload, None)` on success, `(None, error_code)` on
     rejection. The runner-envelope writer carries `runner.parse_error`
     so operators and observability layers see the specific failure
-    mode.
+    mode. A caller holding the whole text reads it through the stream
+    parser a live adapter's stdout goes through (ARIA-HIGH-292).
     """
-    try:
-        payload = json.loads(stdout)
-    except json.JSONDecodeError:
-        return None, "output_not_json"
-    if not isinstance(payload, dict):
-        return None, "output_not_dict"
+    data = stdout.encode("utf-8")
+    stream = OutputStream(retain_bytes=len(data))
+    stream.feed(data, final=True)
+    return stream.result(tool)
+
+
+def _validated_output(
+    payload: dict[str, Any], tool: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str | None]:
     required = set(MINIMUM_OUTPUT_FIELDS)
     required.update(tool.get("output_schema", {}).get("required", []))
     # Deterministic order for missing-field detection — the caller's
@@ -393,6 +400,208 @@ def _parse_tool_output(
     if "belief_candidates" in payload and not isinstance(payload["belief_candidates"], list):
         return None, "belief_candidates_not_list"
     return payload, None
+
+
+_JSON_WHITESPACE = frozenset(" \t\n\r")
+_DECODER = json.JSONDecoder()
+# (state, punctuation) -> next state. A state absent here reads a JSON value:
+# a member name ("key"), a field's whole value ("value") or a list element.
+_PUNCTUATION: dict[tuple[str, str], str] = {
+    ("open", "{"): "key|}", ("key|}", "}"): "done", ("colon", ":"): "value",
+    ("value", "["): "item|]", ("item|]", "]"): "next|}", ("next|]", ","): "item",
+    ("next|]", "]"): "next|}", ("next|}", ","): "key", ("next|}", "}"): "done",
+}
+_READS: dict[str, str] = {"key|}": "key", "key": "key", "value": "value", "item|]": "item", "item": "item"}
+
+
+class OutputStream:
+    """ARIA-HIGH-292 — the adapter protocol read as a stream of records.
+
+    Each list element is a record of its field; the only text held is one
+    incomplete record. Claims and provenance are each retained up to
+    ``retain_bytes``; past it a pool's records are parsed and COUNTED in
+    ``dropped``, never held, so the kept records are the prefix before the bound.
+    """
+
+    def __init__(self, retain_bytes: int) -> None:
+        self.retain_bytes = retain_bytes
+        self.output: dict[str, Any] = {}
+        self.kept: dict[str, int] = {}
+        self.dropped: dict[str, int] = {}
+        self.dropped_bytes = self.consumed_bytes = self.peak_pending = 0
+        self.error: str | None = None
+        self._used = {"claims": 0, "provenance": 0}
+        self._full: set[str] = set()
+        self._digest = hashlib.sha256()
+        self._decode = codecs.getincrementaldecoder("utf-8")().decode
+        self._text, self._at, self._retry_at = "", 0, 0
+        self._state, self._field = "open", ""
+
+    @property
+    def truncated(self) -> bool:
+        return bool(self.dropped)
+
+    @property
+    def sha256(self) -> str:
+        return "sha256:" + self._digest.hexdigest()
+
+    def feed(self, chunk: bytes, *, final: bool = False) -> None:
+        self.consumed_bytes += len(chunk)
+        self._digest.update(chunk)
+        if self.error is not None:
+            return
+        try:
+            text = self._decode(chunk, final)
+        except UnicodeDecodeError:
+            self.error = "output_not_json"
+            return
+        self._text = self._text[self._at:] + text
+        self._at = 0
+        self.peak_pending = max(self.peak_pending, len(self._text))
+        if final or len(self._text) >= self._retry_at:
+            self._advance(final)
+        if self.error is None and len(self._text) - self._at > STREAM_RECORD_MAX_BYTES:
+            self.error = "record_too_large"
+
+    def close(self) -> None:
+        self.feed(b"", final=True)
+
+    def result(self, tool: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+        error = self.error or (None if self._state == "done" else "output_not_json")
+        return (None, error) if error is not None else _validated_output(self.output, tool)
+
+    def summary(self) -> dict[str, Any]:
+        return {"retain_bytes": self.retain_bytes, "consumed_bytes": self.consumed_bytes, "sha256": self.sha256,
+                "kept": dict(self.kept), "dropped": dict(self.dropped), "dropped_bytes": self.dropped_bytes,
+                "truncated": self.truncated}
+
+    def _advance(self, final: bool) -> None:
+        text = self._text
+        while self.error is None:
+            at = self._at
+            while at < len(text) and text[at] in _JSON_WHITESPACE:
+                at += 1
+            self._at = at
+            if at == len(text):
+                self._retry_at = 0
+                if final and self._state != "done":
+                    self.error = "output_not_json"
+                return
+            following = _PUNCTUATION.get((self._state, text[at]))
+            if following is not None:
+                if following == "item|]":
+                    self.output[self._field] = []
+                    self.kept[self._field] = 0
+                self._at, self._state = at + 1, following
+                continue
+            if self._state in ("open", "foreign"):
+                # Not an object: held (bounded) only to tell not_dict from not_json.
+                self._state = "foreign"
+                if final:
+                    try:
+                        json.loads(text[at:])
+                        self.error = "output_not_dict"
+                    except ValueError:
+                        self.error = "output_not_json"
+                return
+            reading = _READS.get(self._state)
+            if reading is None or text[at] in "]},:" or (reading == "key" and text[at] != '"'):
+                self.error = "output_not_json"
+                return
+            try:
+                value, end = _DECODER.raw_decode(text, at)
+            except json.JSONDecodeError:
+                end = -1
+            if end < 0 or (not final and (end == len(text) or _number_continues(value, text[end]))):
+                # Incomplete ("12" of "12.5"): re-scan once the pending text
+                # has doubled, never once per chunk.
+                if final:
+                    self.error = "output_not_json"
+                self._retry_at = 2 * (len(text) - at)
+                return
+            self._at = end
+            if reading == "key":
+                self._field, self._state = value, "colon"
+            elif reading == "value":
+                self.output[self._field], self._state = value, "next|}"
+            else:
+                self._record(value, len(text[at:end].encode("utf-8")))
+                self._state = "next|]"
+
+    def _record(self, value: Any, size: int) -> None:
+        pool = "provenance" if self._field in PROVENANCE_FIELDS else "claims"
+        if pool not in self._full and self._used[pool] + size <= self.retain_bytes:
+            self._used[pool] += size
+            self.output[self._field].append(value)
+            self.kept[self._field] += 1
+            return
+        self._full.add(pool)
+        self.dropped[self._field] = self.dropped.get(self._field, 0) + 1
+        self.dropped_bytes += size
+
+
+def _number_continues(value: Any, following: str) -> bool:
+    """A decoded number that the next character could still extend."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and following in "0123456789.eE+-"
+
+
+def _stream_tool_output(
+    argv: list[str], *, cwd: Path, stdin: bytes | None, timeout_s: float, env: dict[str, str], retain_bytes: int,
+) -> tuple[OutputStream, str, int | None, bool]:
+    """Run an adapter, parsing stdout as it arrives: ``(stream, stderr, exit_code, timed_out)``.
+
+    stderr spools to an unnamed file and stdin is written from a thread, so
+    neither pipe stalls the stdout read; at the deadline the child is killed.
+    """
+    stream = OutputStream(retain_bytes)
+    deadline = time.monotonic() + timeout_s
+    with tempfile.TemporaryFile() as stderr_file, subprocess.Popen(
+        argv, cwd=cwd, env=env, shell=False, stdin=subprocess.PIPE if stdin is not None else None,
+        stdout=subprocess.PIPE, stderr=stderr_file,
+    ) as process:
+        writer = threading.Thread(target=_write_stdin, args=(process.stdin, stdin), daemon=True)
+        writer.start()
+        timed_out = not _drain_stdout(process, stream, deadline)
+        if not timed_out:
+            try:
+                process.wait(timeout=max(deadline - time.monotonic(), 0))
+            except subprocess.TimeoutExpired:
+                timed_out = True
+        if timed_out:
+            process.kill()
+            process.wait()
+        else:
+            stream.close()
+        writer.join()
+        stderr_file.seek(0)
+        stderr = stderr_file.read().decode("utf-8", errors="replace")
+    return stream, stderr, None if timed_out else process.returncode, timed_out
+
+
+def _drain_stdout(process: subprocess.Popen[bytes], stream: OutputStream, deadline: float) -> bool:
+    """Feed every stdout chunk to ``stream``; False when the deadline came first."""
+    descriptor = process.stdout.fileno() if process.stdout is not None else -1
+    with selectors.DefaultSelector() as selector:
+        selector.register(descriptor, selectors.EVENT_READ)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not selector.select(remaining):
+                return False
+            chunk = os.read(descriptor, STREAM_CHUNK_BYTES)
+            if not chunk:
+                return True
+            stream.feed(chunk)
+
+
+def _write_stdin(pipe: IO[bytes] | None, data: bytes | None) -> None:
+    """An adapter that exits without reading its input is judged by its output."""
+    if pipe is None or data is None:
+        return
+    try:
+        pipe.write(data)
+        pipe.close()
+    except BrokenPipeError:
+        pass
 
 
 def _workspace_snapshots(root: Path, tool: dict[str, Any] | None = None) -> tuple[Any, Any]:
@@ -622,7 +831,7 @@ def _canonical_json_bytes(payload: Any) -> bytes:
 # The discipline itself lives in ``ledger_inline`` (ARIA-HIGH-034: one
 # implementation for every writer); this module only names where a
 # runs.jsonl reader recovers the bulk.
-_RUNS_ROW_RECOVERY = "the full value persists in this run's runtime artifact (parsed_output)"
+_RUNS_ROW_RECOVERY = "re-derivable from this run's stored output document (output_ref)"
 
 
 def _spill_oversized_inline(field: str, value):

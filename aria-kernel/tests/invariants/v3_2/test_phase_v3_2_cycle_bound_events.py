@@ -58,6 +58,8 @@ CYCLE_BOUND_EVENT_KINDS: frozenset[str] = frozenset({
     "aria_watchdog_iteration_started",
     "aria_watchdog_finding_emitted",
     "aria_watchdog_finding_suppressed",
+    # ARIA-HIGH-292 — a run's output passed its retention bound.
+    "tool_output_truncated",
     "aria_watchdog_emit_rejected",
 })
 

@@ -16,6 +16,9 @@ def _decode_json(value: str) -> object:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-b64")
+    # A protocol document too large for one argv (the b64 path caps near
+    # 128 KiB): copied to stdout in pipe-sized writes, as a real adapter does.
+    parser.add_argument("--output-file")
     parser.add_argument("--invalid-json", action="store_true")
     parser.add_argument("--echo-input", action="store_true")
     parser.add_argument("--exit-code", type=int, default=0)
@@ -41,6 +44,11 @@ def main(argv: list[str] | None = None) -> int:
             "cost_units": 1,
             "metadata": {"fixture": True},
         }))
+    elif args.output_file:
+        with open(args.output_file, "rb") as source:
+            while chunk := source.read(1 << 16):
+                sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
     elif args.output_b64:
         print(json.dumps(_decode_json(args.output_b64)))
     else:

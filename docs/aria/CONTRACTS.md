@@ -277,6 +277,16 @@ workspace migrate/rollback is operator responsibility until Phase-2 locking is s
 Run status enum owner is `aria-kernel/aria_kernel/tool_health.py::RUN_STATUSES`; new runner statuses
 must be added there before any producer emits them.
 
+Adapter stdout is read as a record stream (`tool_runner.OutputStream`): one JSON object whose list
+elements are records, each record (a list element or a field's value) at most
+`STREAM_RECORD_MAX_BYTES` (8 MiB). Claims and provenance (`read_paths`, `evidence_sources`) are each
+retained up to `TOOL_OUTPUT_RETAIN_BYTES` (a manifest's `runner.output_retain_bytes` may lower it).
+Past it the run is `truncated`: the records before the bound are kept, `runner.output_stream` names
+per-field kept/dropped counts, and governance gets `tool_output_truncated`. The retained output is
+stored once, content-addressed, as the run's `tool_output` artifact
+(`run-artifacts/hot/<cycle>/<run>/sha256/<aa>/<hex>.json`); the run row and its `tool_run` artifact
+carry its `output_ref`.
+
 ---
 
 ## 0 — Why this document exists

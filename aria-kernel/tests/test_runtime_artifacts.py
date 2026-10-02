@@ -84,12 +84,16 @@ def _run(**overrides) -> dict:
         "cost_units": 1,
         "schema_version": 1,
         "runner": {"raw_findings_count": 1, "raw_findings_sample": [finding]},
+        # The runner's hand-off: record_run stores `output` once, content-
+        # addressed, beside the tool_run artifact (two artifacts per run).
         "_runtime_artifact_payload": {
-            "stdout": "{\"findings\":[]}",
             "stderr": "",
-            "parsed_output": {},
-            "raw_findings": [finding],
-            "raw_observations": [],
+            "output": {
+                "observations": [],
+                "findings": [finding],
+                "read_paths": ["apps/farm-service/src/app.module.ts"],
+                "evidence_sources": ["apps/farm-service/src/app.module.ts"],
+            },
         },
     }
     run.update(overrides)
@@ -224,7 +228,7 @@ def _cold_runtime_fixture(case: unittest.TestCase, root: Path, *, legacy: bool):
             )
             detail = "Current native cold payload detail absent from the thin summary."
             run = _run(run_id="run-current-retention", cycle_id="cyc-20200101T000000Z-current")
-            run["_runtime_artifact_payload"]["stdout"] = detail
+            run["_runtime_artifact_payload"]["stderr"] = detail
             record_run(run, base_dir=tools)
             native_runs = load_declared_jsonl(tools / "runs.jsonl", expected_surface="runs")
             case.assertEqual(len(native_runs), 1)
@@ -238,13 +242,14 @@ def _cold_runtime_fixture(case: unittest.TestCase, root: Path, *, legacy: bool):
                 workspace_root=source, reason="ordinary sequential cold fixture",
                 operator_approval_ref=_APPROVAL_REF,
             )
-            case.assertEqual(applied["archived_count"], 1)
+            # The run's two artifacts: its tool_run record and its stored output.
+            case.assertEqual(applied["archived_count"], 2)
             archives = load_declared_jsonl(tools / "retention/events.jsonl", expected_surface="retention_events")
-            case.assertEqual(len(archives), 1)
-            archived = archives[0]
+            case.assertEqual(len(archives), 2)
+            archived = next(row for row in archives if row["artifact_id"] == ref["artifact_id"])
             compacted = compact_state(base_dir=tools, retain_days=7, dry_run=False)
             case.assertEqual(compacted["hot_artifacts_removed"], 1)  # Removed cycle directory.
-            case.assertEqual(compacted["artifact_index_rows_dropped"], 1)
+            case.assertEqual(compacted["artifact_index_rows_dropped"], 2)
 
         case.assertEqual(ref["sha256"], "sha256:" + hashlib.sha256(original).hexdigest())
         case.assertEqual(archived["artifact_id"], ref["artifact_id"])
@@ -348,7 +353,7 @@ class RuntimeArtifactTests(unittest.TestCase):
     def test_retention_requires_acknowledge_and_restores_archive(self) -> None:
         record_run(_run(cycle_id="cycle-old"), base_dir=self.tools)
         plan = retention_dry_run(base_dir=self.tools, retain_hot_cycles=0)
-        self.assertEqual(plan["candidate_count"], 1)
+        self.assertEqual(plan["candidate_count"], 2)  # tool_run + stored output
         with self.assertRaises(Exception):
             retention_apply(base_dir=self.tools, retain_hot_cycles=0)
         applied = retention_apply(
@@ -359,7 +364,7 @@ class RuntimeArtifactTests(unittest.TestCase):
             reason="unit-test-retention",
             operator_approval_ref=_APPROVAL_REF,
         )
-        self.assertEqual(applied["archived_count"], 1)
+        self.assertEqual(applied["archived_count"], 2)
         artifact_id = applied["archived"][0]["artifact_id"]
         restored = restore_artifact(
             base_dir=self.tools,
@@ -379,13 +384,19 @@ class RuntimeArtifactTests(unittest.TestCase):
                     tools, ref = fixture["tools"], fixture["ref"]
                     before = _tree_bytes_and_modes(tools)
                     original = json.loads(fixture["original"])
+                    # A legacy artifact carries its findings inline; a current
+                    # one names its stored output document, archived beside it.
+                    expected_finding = (
+                        original["payload"]["raw_findings"][0] if legacy
+                        else _run()["_runtime_artifact_payload"]["output"]["findings"][0]
+                    )
                     for _ in range(2):
                         payload = resolve_artifact_payload(ref, base_dir=tools)
                         self.assertIsNotNone(payload, "the complete archived payload must remain resolvable")
                         self.assertEqual(payload, original)
                         self.assertEqual(
                             resolve_finding_from_artifact(fixture["raw"], base_dir=tools),
-                            original["payload"]["raw_findings"][0],
+                            expected_finding,
                         )
                     verification = verify_runtime_artifacts(base_dir=tools, workspace_root=fixture["source"])
                     self.assertEqual(verification["status"], "ok", verification)
@@ -505,9 +516,9 @@ class RuntimeArtifactTests(unittest.TestCase):
             self.assertEqual(retained_path.read_bytes(), first_bytes)
             for relative, prefix in history_before.items():
                 self.assertTrue((tools / relative).read_bytes().startswith(prefix), relative)
-            created = load_declared_jsonl(
+            created = [row for row in load_declared_jsonl(
                 tools / "run-artifacts/manifest.jsonl", expected_surface="runtime_artifact_manifest",
-            )
+            ) if row["kind"] == "tool_run"]
             self.assertEqual(len(created), 2)
             for row, ref in zip(created, (first_ref, second_ref)):
                 self.assertEqual(row["event"], "artifact_created")

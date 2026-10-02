@@ -196,6 +196,8 @@ _TOOL_RUN_EXIT_CODES: dict[str, int] = {
     "schema_error": 1,
     "output_unparseable": 1,
     "budget_exceeded": 2,
+    # ARIA-HIGH-292 — output past its per-run bound, prefix kept: a budget class.
+    "truncated": 2,
     "tool_unhealthy": 3,
     "environment_unavailable": 1,
 }

@@ -950,6 +950,11 @@ def validate_runner_definition(runner: Any) -> dict[str, Any]:
     node_heap = candidate.get("node_max_old_space_mb")
     if node_heap is not None and (not isinstance(node_heap, int) or node_heap <= 0):
         raise GovernanceError("runner.node_max_old_space_mb must be a positive integer")
+    # ARIA-HIGH-292 — optional per-run retention bound for the output stream;
+    # tool_runner caps it at TOOL_OUTPUT_RETAIN_BYTES, so it can only lower it.
+    retain = candidate.get("output_retain_bytes")
+    if retain is not None and (not isinstance(retain, int) or isinstance(retain, bool) or retain <= 0):
+        raise GovernanceError("runner.output_retain_bytes must be a positive integer")
     if not isinstance(candidate.get("stdin_json"), bool):
         raise GovernanceError("runner.stdin_json must be a boolean")
     return candidate

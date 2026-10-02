@@ -10,7 +10,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 import yaml from 'js-yaml';
 
@@ -19,6 +19,8 @@ const POSTGRES_MANIFEST_PATH = join(REPO_ROOT, '.github', 'manifests', 'postgres
 
 interface PostgresRuntimeManifest {
   consumers: string[];
+  productionConsumers: string[];
+  dockerfile: string;
   image: string;
   pgdata: string;
   runtimeUser: string;
@@ -30,6 +32,9 @@ interface ComposeService {
   extends?: unknown;
   environment?: unknown;
   volumes?: unknown;
+  entrypoint?: unknown;
+  command?: unknown;
+  healthcheck?: unknown;
 }
 
 interface ComposeFile {
@@ -61,6 +66,8 @@ function readManifest(): PostgresRuntimeManifest {
   }
   return {
     consumers: manifestStringArray(parsed.consumers, 'consumers'),
+    productionConsumers: manifestStringArray(parsed.production_consumers, 'production_consumers'),
+    dockerfile: stringField(parsed.dockerfile, 'dockerfile'),
     image: stringField(parsed.image, 'image'),
     pgdata: stringField(parsed.pgdata, 'pgdata'),
     runtimeUser: stringField(parsed.runtime_user, 'runtime_user'),
@@ -120,6 +127,22 @@ function nonCommentShellLines(content: string): string[] {
     .filter((line) => line.length > 0 && !line.startsWith('#'));
 }
 
+const IMAGE_BIN = '/usr/local/bin/';
+const CHECKOUT_SCRIPTS = 'infrastructure/docker/scripts/';
+
+/** Script names the production Dockerfile COPYs into the image's /usr/local/bin/. */
+function imageBakedScripts(dockerfile: string): Set<string> {
+  const baked = new Set<string>();
+  for (const instruction of dockerfile.replace(/\\\r?\n/g, ' ').split(/\r?\n/)) {
+    const tokens = instruction.trim().split(/\s+/);
+    if (tokens[0] !== 'COPY' || tokens[tokens.length - 1] !== IMAGE_BIN) continue;
+    for (const token of tokens.slice(1, -1)) {
+      if (token.startsWith(CHECKOUT_SCRIPTS)) baked.add(basename(token));
+    }
+  }
+  return baked;
+}
+
 describe('INVARIANT: Postgres runtime contract is SSoT-backed', () => {
   const manifest = readManifest();
 
@@ -171,5 +194,37 @@ describe('INVARIANT: Postgres runtime contract is SSoT-backed', () => {
       rootOwnedTlsSource,
     ]);
     expect(chownLines).not.toEqual(expect.arrayContaining([expect.stringMatching(/\b999:999\b/)]));
+  });
+
+  it('runs the production entrypoint, command and healthcheck from the image, never the checkout', () => {
+    // ORPHAN-CRITICAL-810. The deploy lane preserves the postgres container by
+    // design while the checkout moves. When the entrypoint was bind-mounted from
+    // the checkout, a container created from one release executed the entrypoint
+    // of a later one: on 2026-09-05 a July base-image container restarted into a
+    // root-staging entrypoint it could not run (exit 126, 25 restarts). Every
+    // script the production service executes must be COPYed into the image, so a
+    // preserved container keeps running the release it was created from.
+    const baked = imageBakedScripts(readFileSync(resolve(REPO_ROOT, manifest.dockerfile), 'utf8'));
+    expect(baked.has(basename(manifest.sslEntrypoint))).toBe(true);
+
+    for (const path of manifest.productionConsumers) {
+      const service = readCompose(path).services?.postgres;
+      expect(service).toBeDefined();
+      if (!service) continue;
+
+      expect(service.entrypoint).toEqual([`${IMAGE_BIN}${basename(manifest.sslEntrypoint)}`]);
+      const executed =
+        JSON.stringify([service.entrypoint, service.command, service.healthcheck]).match(
+          /\/usr\/local\/bin\/[A-Za-z0-9._-]+/g,
+        ) ?? [];
+      expect(executed.length).toBeGreaterThan(0);
+      expect(executed.filter((script) => !baked.has(basename(script)))).toEqual([]);
+
+      const checkoutExecutables = stringList(service.volumes).filter((volume) => {
+        const [source = '', target = ''] = volume.split(':');
+        return source.includes(CHECKOUT_SCRIPTS) || target.startsWith(IMAGE_BIN);
+      });
+      expect(checkoutExecutables).toEqual([]);
+    }
   });
 });

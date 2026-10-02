@@ -80,22 +80,35 @@ deadline 2026-12-31.
 
 ## INFRA-MEDIUM-197
 
-Main's branch protection lets ARIA's trust anchors change with one non-owner approval: code-owner
-review, last-push approval and stale-review dismissal are all off.
+main requires no pull-request review at all, so on GitHub the trust anchors ARIA verifies against
+(`.github/manifests/aria-operator-signers`, `docs/aria/policy/operators.json`) are guarded only by
+the four required status checks. A review rule cannot separate the operator from agents that act
+under the operator's identity, and readiness forbids the bypass actor such a rule would need.
 
 Evidence:
 
-- `gh` api repos/Okan-wqm/aquaculture_platform/branches/main/protection:
-  require_code_owner_reviews=false, required_approving_review_count=1,
-  require_last_push_approval=false, dismiss_stale_reviews=false
-- `.github/CODEOWNERS:52` (the signers manifest is owned by @Okan-wqm, which is advisory while
-  code-owner review is off)
+- `.github/CODEOWNERS:52`: the manifests directory is code-owned by the operator, but no review rule
+  enforces it.
+- `aria-kernel/aria_kernel/enterprise_readiness.py:625`: any ruleset bypass actor on main fails
+  readiness (ARIA-HIGH-207).
+- `aria-kernel/aria_kernel/implementation_safety.py:73`: READONLY_PATHS covers `.github/` but not
+  `docs/aria/policy/` (ARIA-LOW-267).
+- Measured 2026-10-02: `branches/main/protection` returns `required_pull_request_reviews: null`,
+  `enforce_admins: true`, strict status checks on sens-enterprise-summary, merge-gate,
+  aria-merge-authority and build-status.
 
-Rule: A change to an operator trust anchor (.github/manifests/aria-operator-signers,
-docs/aria/policy/operators.json) merges only with the code owner's review on the final push.
+The adversarial reviewer proposed code-owner review, last-push approval and stale dismissal. That
+would either lock every operator-authored pull request (`enforce_admins` on, one human code owner
+who cannot approve their own pull request) or need an admin bypass actor that readiness forbids. The
+actor to keep out is ARIA's runner (`gharunner`, App identity), so the guard belongs in the kernel
+(program plan rev2 K5/S1) and in `aria-merge-authority`. The `aria/state-cold` branch was added to
+the `aria-state-protection` ruleset on 2026-10-02 (no deletion, no non-fast-forward, no bypass).
 
-Operator settings change in program plan rev2 Faz 0a-7, plus a ruleset over the anchor paths that no
-App can bypass. Owner okan, deadline 2026-10-09.
+Rule: An operator trust anchor changes only through a path ARIA's own identity cannot complete: the
+kernel refuses to write it, and the merge-authority check refuses an ARIA-authored pull request that
+touches it.
+
+Owner okan, deadline 2026-10-23.
 
 ## ARIA-HIGH-274
 

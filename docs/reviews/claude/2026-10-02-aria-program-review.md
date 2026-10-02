@@ -519,3 +519,37 @@ bounded steps: no publish folds more than a fixed slice of the carried ledgers, 
 and evidence the slice cannot reach is withheld by name, never estimated.
 
 Fix on fix/aria-evidence-checkpoint-rebuild (stacked on e25d5ea8a). Owner okan, deadline 2026-10-16.
+
+## ARIA-HIGH-288
+
+A capability's autonomy evidence is bound to a hash over the source bytes of a roster of kernel
+files. `_capability_authority_hash` hashes the path, tree record and blob of every file in a
+capability's `authority_paths`, and `_paths()` adds the common set to all seven capabilities
+(`autonomy_evidence`, `contention_replay`, `file_lock`, `ledger`, `state_manifest`,
+`state_snapshot`, `state_store`, `tool_registry`, `tools_binding`, `workspace`, the closure
+policy). A proof counts only while the hash at its commit equals the hash at the evaluated target,
+so any byte change to the roster (a storage refactor, a comment, a mode bit) drops every affected
+capability to `declared` (`proof_authority_changed`) until new live proof exists at the new hash.
+The common set is where the storage lanes work (CE, K2, K3, the evidence-budget lanes), so kernel
+evolution erases the autonomy evidence ARIA has earned.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/autonomy_evidence.py:846-864` (`_COMMON_AUTHORITY_PATHS`, joined into
+  every capability's roster by `_paths`)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:1747-1789` (`_capability_authority_hash`: path
+  names, tree records and blob bytes)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2020-2064` (a proof whose commit hashes differently
+  from the target is `proof_authority_changed`)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:1848-1899` (the evaluator refuses a target whose
+  hash differs from HEAD's: `evaluator_authority_changed`)
+- `origin/main` 2026-09-03..10-02, 220 first-parent commits: 15 touched the common set, 29 touched
+  at least one capability's roster, 17 reset all seven capabilities
+
+Rule: A proof is bound to the semantics it was proven under. A change that keeps every declared
+semantic version keeps earned evidence; a change of semantics moves a declared version, enforced
+against a frozen corpus whose fold output is pinned on a path ARIA's implementer cannot write; and
+each proof records the authority it was proven under.
+
+Re-checked on fix/aria-evidence-checkpoint-rebuild 19d1cc687 (wall #4 of the 2026-10-02
+inventory). Owner okan, deadline 2026-10-09.

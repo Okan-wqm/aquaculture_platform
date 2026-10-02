@@ -1094,6 +1094,14 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}plan_convergence.py",
             f"{_KERNEL}file_claims.py",
             f"{_KERNEL}operator_feedback_signature.py",
+            # ADR-0020 — check 12 re-verifies consumed operator requests
+            # here, against the allowed-signers file committed on main and
+            # read through the hardened anchor reader, and re-checks their
+            # signed terms and merged-once proof (review round 2).
+            f"{_KERNEL}operator_request_signature.py",
+            f"{_KERNEL}operator_feedback_observation.py",
+            f"{_KERNEL}operator_request_terms.py",
+            f"{_KERNEL}main_anchor.py",
             f"{_KERNEL}expert_review_gate.py",
             f"{_KERNEL}plan_coverage.py",
             f"{_KERNEL}budget.py",
@@ -1115,6 +1123,14 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}plan_convergence.py",
             f"{_KERNEL}file_claims.py",
             f"{_KERNEL}operator_feedback_signature.py",
+            # ADR-0020 — check 12 re-verifies consumed operator requests
+            # here, against the allowed-signers file committed on main and
+            # read through the hardened anchor reader, and re-checks their
+            # signed terms and merged-once proof (review round 2).
+            f"{_KERNEL}operator_request_signature.py",
+            f"{_KERNEL}operator_feedback_observation.py",
+            f"{_KERNEL}operator_request_terms.py",
+            f"{_KERNEL}main_anchor.py",
             f"{_KERNEL}expert_review_gate.py",
             f"{_KERNEL}plan_coverage.py",
             f"{_KERNEL}budget.py",

@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `7b5a364163e875f707b6ee136d014b99f8b3cd96e1cad0866121b9d82cf146c6`
+Registry tip: `39c7587644eda2c3c37e03cb8f607fcfdc82d4bbbdd9510031f8153e3e5db1a6`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -285,6 +285,7 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
 | `ARIA-CRITICAL-216` | OPEN | 2026-09-26 | claude | real-open |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
+| `ARIA-CRITICAL-255` | OPEN | 2026-10-02 | claude | real-open |
 
 ## Mutation Rules
 
@@ -436,6 +437,12 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
   while farm signals use synthetic keys — the likely reason the live DB holds 0 incidents. Real open
   work, owner alert-engine-expert (registry owner_user okan), deadline 2026-10-15; closed by plan
   PR-S1 (`docs/reviews/alert-engine-expert/2026-09-29-ai-tracking-program.md`).
+- `ARIA-CRITICAL-255` (2026-10-02, operator request channel): a signed operator request could not
+  reach a merged plan — re-admitted every cycle, planned on ARIA's own output only, signed by a
+  runner-held HMAC key the self-hosted lanes swept and the GitHub-hosted merge lane never held, and
+  its finding droppable by a revision. Real open work until the operator-channel branch merges
+  (ADR-0018, ADR-0020); owner claude (registry owner_user okan), deadline 2026-10-09
+  (`docs/reviews/claude/2026-10-02-aria-operator-channel.md`).
 - `ARIA-CRITICAL-246` (2026-09-29, ARIA sync risks): ARIA could author its own operator approval,
   because every kernel GitHub write ran on the ambient credential, and the lanes exported the
   operator's PAT. Real open work until the identity PR merges (`github_writes` door, lanes without

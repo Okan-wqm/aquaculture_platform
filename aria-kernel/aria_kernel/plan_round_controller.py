@@ -269,6 +269,10 @@ def submit_synthetic_challenger_for_tests(
             "risks": [],
         },
     }
+    # ADR-0018 D4 — the same origin carry the challenger bridge applies.
+    from .plan_origin import carry_started_origin
+
+    payload["plan_content"] = carry_started_origin(payload["plan_content"], state)
     payload["content_hash"] = content_hash(payload["plan_content"])
     return submit_challenger_plan(plan_id=plan_id, challenger=payload, base_dir=root)
 

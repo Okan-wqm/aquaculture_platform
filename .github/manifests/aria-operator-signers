@@ -1,0 +1,5 @@
+# ADR-0020 — the trust anchor for operator plan requests (aria-kernel feedback request).
+# ssh-keygen allowed_signers format: principal namespaces="aria-operator-request" keytype key [comment].
+# Read by the kernel as a git object at a commit on main, never from the working tree.
+# .github/ is in implementation_safety.READONLY_PATHS: ARIA cannot enrol a key; rotation is a reviewed PR.
+Okan-Wqm@suderra namespaces="aria-operator-request" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEvZ1vnhzDUljXxWEAsyBox9Lz1RTs1+LyJHDjIK7ZhC okan-aria-operator-request

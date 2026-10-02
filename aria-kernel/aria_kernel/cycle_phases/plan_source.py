@@ -174,7 +174,10 @@ class V9PressureSourceProvider:
         base_dir: Path,
         profile: str,
     ) -> CyclePlanEnvelope | None:
-        from ..operator_feedback_ingestion import bind_plan_synthesis
+        from ..finding_grounding import admit_candidate
+        from ..operator_feedback_ingestion import bind_plan_synthesis, record_request_refused
+        from ..operator_request_spend import REQUEST_TEXT_UNUSABLE
+        from ..plan_candidate_source import PlanCandidateSource
         from ..plan_synthesizer import (
             convert_candidate_to_plan_content,
             rank_candidate_sources,
@@ -190,8 +193,20 @@ class V9PressureSourceProvider:
         )
         attempted = 0
         for candidate in candidates:
-            envelope = convert_candidate_to_plan_content(candidate)
+            # ADR-0018 D5 — one admission for every source that names an F
+            # finding (aging F findings and operator requests alike), judged
+            # against THIS checkout; None for sources that name none.
+            admission = admit_candidate(candidate, repo_root=workspace_root)
+            envelope = convert_candidate_to_plan_content(candidate, admission=admission)
             attempted += 1
+            grounding: dict[str, Any] = {}
+            if admission is not None:
+                # Refused surfaces are named in the conversion event, never
+                # dropped silently.
+                grounding = {
+                    "finding_id": admission.finding_id,
+                    "refused_surfaces": admission.refused_surface_records(),
+                }
             if envelope is not None:
                 # Bind BEFORE announcing the selection: the synthesized content
                 # hash is what plan_started will record, and the pre-merge
@@ -210,17 +225,30 @@ class V9PressureSourceProvider:
                         "attempted": attempted,
                         "operator_feedback_binding_hash": binding.get("ledger_hash"),
                         "operator_feedback_ingestion_hash": binding.get("ingestion_ledger_hash"),
+                        **grounding,
                     },
                 )
                 return envelope
+            if admission is not None:
+                grounding["reason"] = admission.reason or REQUEST_TEXT_UNUSABLE
             append_tools_governance(
                 base_dir, "plan_candidate_conversion_skipped",
                 {
                     "cycle_id": cycle_id,
                     "candidate_id": candidate.get("candidate_id"),
                     "source_type": candidate.get("source_type"),
+                    **grounding,
                 },
             )
+            if candidate.get("source_type") == PlanCandidateSource.OPERATOR_FEEDBACK.value:
+                # ADR-0018 I4 — the request's target is not a plan ground: the
+                # refusal is recorded once on the ingestion ledger and spends
+                # the request, so it does not hold priority 0 forever.
+                record_request_refused(
+                    base_dir=base_dir, cycle_id=cycle_id, candidate=candidate,
+                    reason=grounding["reason"],
+                    refused_surfaces=grounding["refused_surfaces"],
+                )
         # All V9.4 candidates failed conversion. Merge-class authority is
         # read from the SSoT table: a second copy of "which profiles are
         # dangerous" is the ORPHAN-HIGH-728 defect class, and this branch is

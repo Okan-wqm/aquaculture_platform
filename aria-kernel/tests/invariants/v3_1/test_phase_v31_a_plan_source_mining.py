@@ -66,33 +66,45 @@ class CyclePlanEnvelopeShapeTests(unittest.TestCase):
 class ConvertCandidateToPlanContentTests(unittest.TestCase):
     """Plan ARIA-V3.1-A — candidate-to-envelope conversion."""
 
-    def _finding_with_code_reference(self, finding_id: str) -> str:
-        import json
-        import tempfile
+    def setUp(self) -> None:
+        # ADR-0018 D5 — operator requests and F findings convert only on the
+        # shared admission against a real checkout: an OPEN finding whose
+        # refs are tracked files with a writable surface.
+        import os
 
-        root = Path(tempfile.mkdtemp(prefix="aria-v31-finding-"))
-        self.addCleanup(__import__("shutil").rmtree, root, True)
-        path = root / f"{finding_id}.json"
-        path.write_text(json.dumps({
-            "id": finding_id,
-            "evidence_chain": [{"reference": "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346"}],
-        }), encoding="utf-8")
-        return str(path)
+        from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture
+
+        tmp = tempfile.TemporaryDirectory(prefix="aria-v31-finding-")
+        self.addCleanup(tmp.cleanup)
+        env = {k: v for k, v in os.environ.items() if k != "ARIA_REPO_STATE_ROOT"}
+        patcher = patch.dict(os.environ, env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.checkout = OperatorRequestFixture(Path(tmp.name))
+        self.checkout.seed_finding("F-099", refs=[f"{GROUNDED_FILE}:346"])
+
+    def _convert(self, candidate: dict):
+        from aria_kernel.finding_grounding import admit_candidate
+        from aria_kernel.plan_synthesizer import convert_candidate_to_plan_content
+
+        return convert_candidate_to_plan_content(
+            candidate, admission=admit_candidate(candidate, repo_root=self.checkout.repo),
+        )
 
     def test_i_v31_a_02_handles_all_four_source_types(self) -> None:
         """Plan ARIA-V3.1-A-2 — every PlanCandidateSource except
         GIT_DIFF (which goes through V7 fallback) yields a valid
         CyclePlanEnvelope on the canonical candidate shape."""
         from aria_kernel.plan_candidate_source import PlanCandidateSource
-        from aria_kernel.plan_synthesizer import convert_candidate_to_plan_content
         cases = [
             {
                 "source_type": PlanCandidateSource.OPERATOR_FEEDBACK.value,
                 "candidate_id": "op-1",
+                "finding_id": "F-099",
                 "priority": "high",
                 "request": "Add invariant for X",
                 "authored_at": "2026-05-19T00:00:00Z",
-                "signature_kid": "kid-1",
+                "signer": "operator@aria.test",
                 "title_hint": "Operator request op-1",
             },
             {
@@ -116,12 +128,11 @@ class ConvertCandidateToPlanContentTests(unittest.TestCase):
                 # ARIA-HIGH-181 — an F-finding converts only on a code reference
                 # from its own evidence chain; the JSON path itself is never
                 # the evidence.
-                "path": self._finding_with_code_reference("F-099"),
                 "title_hint": "Process aging F-finding F-099",
             },
         ]
         for case in cases:
-            envelope = convert_candidate_to_plan_content(case)
+            envelope = self._convert(case)
             self.assertIsNotNone(envelope,
                                  f"conversion None for {case['source_type']!r}")
             assert envelope is not None  # type narrow for mypy
@@ -146,18 +157,18 @@ class ConvertCandidateToPlanContentTests(unittest.TestCase):
         with adversarial payloads (HTML, bidi, control chars) emerge
         sanitized in plan_content fields."""
         from aria_kernel.plan_candidate_source import PlanCandidateSource
-        from aria_kernel.plan_synthesizer import convert_candidate_to_plan_content
         attack = "innocent <script>alert('xss')</script>"
         candidate = {
             "source_type": PlanCandidateSource.OPERATOR_FEEDBACK.value,
             "candidate_id": "op-attack",
+            "finding_id": "F-099",
             "priority": "high",
             "request": attack,
             "authored_at": "2026-05-19T00:00:00Z",
-            "signature_kid": "kid-attack",
+            "signer": "operator@aria.test",
             "title_hint": attack,
         }
-        env = convert_candidate_to_plan_content(candidate)
+        env = self._convert(candidate)
         self.assertIsNotNone(env)
         assert env is not None
         # < / > stripped via HTML-encode.
@@ -247,7 +258,7 @@ class V9PressureSourceProviderTests(unittest.TestCase):
             metadata={"_pressure_source_type": "operator_feedback"},
         )
         call_count = [0]
-        def fake_convert(candidate):
+        def fake_convert(candidate, **_admission):
             call_count[0] += 1
             if call_count[0] >= 3:
                 return valid_env

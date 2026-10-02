@@ -1,31 +1,29 @@
-"""V9.5 hard-fail check 12 — the kernel signs every operator-feedback row it records.
+"""V9.5 hard-fail check 12 — who signs each row of ``operator-feedback.jsonl``.
 
-WHY: ``aria-tools/operator-feedback.jsonl`` is the highest-priority plan
+WHY: ``aria-tools/operator-feedback.jsonl`` carries the highest-priority plan
 source (``PlanCandidateSource.OPERATOR_FEEDBACK`` outranks every discovered
-lane), and until this module the "signature" the synthesizer demanded was
-field PRESENCE: any process that could append a line carrying
-``"signature": "x"`` spoke with operator authority (ai-safety HIGH-010, the
-unauthenticated injection lane). A signature nobody can verify is not a
-signature.
+lane), and until check 12 the "signature" the synthesizer demanded was field
+PRESENCE: any process that could append a line carrying ``"signature": "x"``
+spoke with operator authority (ai-safety HIGH-010).
 
-WHAT: a keyed HMAC-SHA256 over the canonical row, under key material the
-kernel holds at ``aria-tools/secrets/operator-feedback-hmac.key`` (0600,
-rolling list, ``signer_kid`` = key id — the same custody the ack ledger
-uses, via :mod:`hmac_keyring`). The kernel is both signer and verifier: a
-row carries a valid signature exactly when it went through one of this
-module's recorders. Every kernel writer of the ledger routes through
-:func:`append_signed_operator_feedback_row` (verdict rows from
-``feedback_store``, corpus fixtures from ``calibration_bootstrap``, request
-rows from :func:`record_operator_request`), so an unsigned kernel-written
-row is not a code path. The plan synthesizer verifies at ingestion
-(:mod:`operator_feedback_ingestion`) and the pre-merge perimeter re-verifies
-what a merged plan consumed.
+WHAT: two row families share the ledger and are signed by two different
+parties.
 
-The key is minted on first use rather than by an operator ceremony because
-the signature attests "the kernel recorded this row", not "an operator
-authorised it" — operator authority is carried by the CLI verb that reaches
-the recorder, and the ack ledger keeps its own ceremony for tokens that DO
-carry operator authorisation.
+* Kernel-written rows — verdict rows from ``feedback_store`` and corpus
+  fixtures from ``calibration_bootstrap`` — carry a keyed HMAC-SHA256 under
+  key material the kernel holds at
+  ``aria-tools/secrets/operator-feedback-hmac.key`` (0600, rolling list,
+  ``signer_kid`` = key id, :mod:`hmac_keyring`). The signature attests "the
+  kernel recorded this row"; these rows are never plan candidates. Every
+  kernel writer routes through :func:`append_signed_operator_feedback_row`.
+* Operator REQUEST rows (``row_kind`` ``operator_request``) are the plan
+  source. ADR-0020: they are signed by the operator with an ed25519 key held
+  off-runner and verified against the committed allowed-signers file
+  (:mod:`operator_request_signature`). The runner-held HMAC key could not
+  carry that authority — any runner-uid process could mint with it, the
+  self-hosted lanes swept it at job start, and the GitHub-hosted merge lane
+  never held it. :func:`record_operator_request` is the one writer; a request
+  row must name the F finding it is about (ADR-0018).
 """
 from __future__ import annotations
 
@@ -39,6 +37,7 @@ from typing import Any
 
 from .hmac_keyring import HmacKeyring, hmac_sign
 from .ledger import append_declared_jsonl
+from .operator_request_signature import REQUEST_ROW_SCHEMA_VERSION
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 OPERATOR_FEEDBACK_SURFACE = "operator_feedback"
@@ -54,13 +53,26 @@ _SIGNING_EXCLUDED_FIELDS: frozenset[str] = frozenset({
 })
 _HEX_SIGNATURE = re.compile(r"^[0-9a-f]{64}$")
 
-# The plan-request row the synthesizer consumes. ``status`` is what the
-# scanner keys on; ``priority`` is a closed set (arb CRIT-006 — an invented
-# "max" must not outrank the severity ladder).
+# The plan-request row the synthesizer consumes. ``status`` /
+# ``row_kind`` are what the scanner keys on; ``priority`` is a closed set
+# (arb CRIT-006 — an invented "max" must not outrank the severity ladder).
+# Schema version 2 is the operator-signed shape (ADR-0020) that names its
+# finding (ADR-0018); a version-1 row was signed by the runner's HMAC key
+# and carries no operator authority.
 OPERATOR_REQUEST_ROW_KIND = "operator_request"
+OPERATOR_REQUEST_SCHEMA_VERSION = REQUEST_ROW_SCHEMA_VERSION
 OPERATOR_REQUEST_PRIORITIES: tuple[str, ...] = ("low", "medium", "high")
 OPERATOR_REQUEST_STATUS_UNADDRESSED = "unaddressed"
 MAX_OPERATOR_REQUEST_CHARS = 4096
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+# The request names one of ARIA's own F findings (ADR-0018): the kernel's
+# allocator form, so `F-1000` after `F-999` is a valid target.
+_REQUEST_FINDING_ID_RE = re.compile(r"^F-\d{3,}$")
+# Schema-refusal vocabulary, beside the signature reasons of
+# ``operator_request_signature.VERIFICATION_REASONS``.
+FINDING_ID_MISSING = "finding_id_missing"
+FINDING_ID_INVALID = "finding_id_invalid"
+SCHEMA_INVALID = "schema_invalid"
 
 # Closed vocabulary of verification failures. The ingestion governance event
 # and the pre-merge evidence both speak it, so a reader can tell "no
@@ -156,12 +168,16 @@ def verify_operator_feedback_row(
 def append_signed_operator_feedback_row(
     row: dict[str, Any], *, base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    """The ONE kernel write path into ``operator-feedback.jsonl``: sign, then append.
+    """The ONE kernel write path for kernel-written rows: HMAC-sign, then append.
 
-    Returns the stored row (with chain fields). Every kernel writer of the
-    ledger calls this; ``tests/test_operator_feedback_signature.py`` pins
-    that no kernel module appends to the surface any other way.
+    Returns the stored row (with chain fields). Every kernel writer of a
+    verdict or calibration row calls this; ``tests/test_operator_feedback_signature.py``
+    pins that no other kernel module appends to the surface. A request row
+    is refused here (ADR-0020): the runner's key cannot speak for the
+    operator, so the kernel has no path to mint one with it.
     """
+    if is_operator_request_row(row):
+        raise GovernanceError("operator_request_rows_are_operator_signed")
     root = ensure_tools_dir(base_dir)
     signed = sign_operator_feedback_row(row, base_dir=root)
     return append_declared_jsonl(
@@ -199,22 +215,42 @@ def rotate_signing_key(*, base_dir: str | Path | None = None, reason: str) -> di
     }
 
 
+def is_operator_request_row(row: Any) -> bool:
+    """A row that asks for a plan — judged by either marker, so a row that
+    drops one of them is refused as a request instead of ignored as a verdict."""
+    return isinstance(row, dict) and (
+        row.get("status") == OPERATOR_REQUEST_STATUS_UNADDRESSED
+        or row.get("row_kind") == OPERATOR_REQUEST_ROW_KIND
+    )
+
+
 def record_operator_request(
     *,
     request: str,
     priority: str,
     authored_by: str,
+    finding_id: str,
+    signing_key: str | Path,
+    signer_principal: str,
     request_id: str | None = None,
     base_dir: str | Path | None = None,
+    repo_root: str | Path = ".",
 ) -> dict[str, Any]:
     """The kernel-owned writer for the plan-request rows the synthesizer mines.
 
-    WHY: before this recorder existed the only way to author a request row
-    was to append it by hand, which is exactly the lane check 12 closes. The
-    CLI verb ``aria-kernel feedback request`` is the operator's channel;
-    the row it produces is the only shape ``ingest_operator_feedback``
-    admits.
+    WHY: a request is an operator act, so the operator signs it (ADR-0020)
+    and names the F finding it wants planned (ADR-0018); the CLI verb
+    ``aria-kernel feedback request`` is the channel. The recorder refuses
+    what ingestion would refuse, so a row that can never be admitted is
+    never written: a reused id, a malformed finding id, and a signature the
+    allowed-signers file committed at ``repo_root``'s HEAD does not verify.
     """
+    from .operator_request_signature import (
+        committed_allowed_signers,
+        sign_operator_request,
+        verify_operator_request,
+    )
+
     text = str(request or "").strip()
     if not text:
         raise GovernanceError("operator_request_text_required")
@@ -227,56 +263,91 @@ def record_operator_request(
     author = str(authored_by or "").strip()
     if not author:
         raise GovernanceError("operator_request_author_required")
+    target = str(finding_id or "").strip()
+    if _REQUEST_FINDING_ID_RE.fullmatch(target) is None:
+        raise GovernanceError(f"operator_request_finding_id_invalid: {finding_id!r}")
     identifier = str(request_id or "").strip() or f"OP-{uuid.uuid4()}"
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", identifier):
+    if _REQUEST_ID_RE.fullmatch(identifier) is None:
         raise GovernanceError(f"operator_request_id_invalid: {identifier!r}")
     root = ensure_tools_dir(base_dir)
-    row = {
-        "schema_version": 1,
+    ledger = root / OPERATOR_FEEDBACK_LEDGER_NAME
+    if any(row.get("id") == identifier for row in _request_rows(ledger, root)):
+        raise GovernanceError(f"operator_request_id_reused: {identifier!r}")
+    row = sign_operator_request({
+        "schema_version": OPERATOR_REQUEST_SCHEMA_VERSION,
         "row_kind": OPERATOR_REQUEST_ROW_KIND,
         "id": identifier,
+        "finding_id": target,
         "authored_at": utc_now(),
         "authored_by": author,
         "request": text,
         "priority": priority,
         "status": OPERATOR_REQUEST_STATUS_UNADDRESSED,
-    }
-    stored = append_signed_operator_feedback_row(row, base_dir=root)
+    }, signing_key=signing_key, signer_principal=signer_principal)
+    verdict = verify_operator_request(
+        row, allowed_signers=committed_allowed_signers(repo_root, rev="HEAD"),
+    )
+    if not verdict.valid:
+        raise GovernanceError(f"operator_request_signature_unverified: {verdict.reason}")
+    stored = append_declared_jsonl(ledger, row, expected_surface=OPERATOR_FEEDBACK_SURFACE)
     from .tool_registry import append_tools_governance
 
     append_tools_governance(root, "operator_request_recorded", {
         "id": identifier,
+        "finding_id": target,
         "priority": priority,
-        "signer_kid": stored["signer_kid"],
+        "signer": verdict.signer,
         "ledger_hash": stored.get("ledger_hash"),
     })
     return stored
 
 
-def operator_request_schema_valid(row: dict[str, Any]) -> bool:
-    """Shape check for a request row: the fields the synthesizer consumes.
+def _request_rows(ledger: Path, root: Path) -> list[dict[str, Any]]:
+    from .strict_jsonl_reader import read_strict_jsonl
+
+    if not ledger.exists():
+        return []
+    return [row for row in read_strict_jsonl(ledger, on_corruption="tolerant", base_dir=root)
+            if is_operator_request_row(row)]
+
+
+def operator_request_schema_reason(row: dict[str, Any]) -> str | None:
+    """Why a request row is not one the synthesizer consumes, or None.
 
     Kept separate from signature verification so the drop reason can say
-    which of the two failed. A kernel-signed row always satisfies this; a
-    signed row that does not is a leaked key, and it is still dropped.
+    which of the two failed: a validly signed row without a finding id is
+    a malformed operator act, still refused.
     """
+    finding_id = row.get("finding_id")
+    if not isinstance(finding_id, str) or not finding_id.strip():
+        return FINDING_ID_MISSING
+    if _REQUEST_FINDING_ID_RE.fullmatch(finding_id) is None:
+        return FINDING_ID_INVALID
     for field in ("id", "authored_at", "request", "priority", "status"):
         value = row.get(field)
         if not isinstance(value, str) or not value.strip():
-            return False
-    return row["priority"] in OPERATOR_REQUEST_PRIORITIES
+            return SCHEMA_INVALID
+    if _REQUEST_ID_RE.fullmatch(row["id"]) is None:
+        return SCHEMA_INVALID
+    if row["priority"] not in OPERATOR_REQUEST_PRIORITIES:
+        return SCHEMA_INVALID
+    return None
 
 
 __all__ = [
+    "FINDING_ID_INVALID",
+    "FINDING_ID_MISSING",
     "MAX_OPERATOR_REQUEST_CHARS",
     "OPERATOR_FEEDBACK_LEDGER_NAME",
     "OPERATOR_FEEDBACK_SURFACE",
     "OPERATOR_REQUEST_PRIORITIES",
     "OPERATOR_REQUEST_ROW_KIND",
+    "OPERATOR_REQUEST_SCHEMA_VERSION",
     "OPERATOR_REQUEST_STATUS_UNADDRESSED",
     "SIGNATURE_INVALID",
     "SIGNATURE_MALFORMED",
     "SIGNATURE_MISSING",
+    "SCHEMA_INVALID",
     "SIGNER_KID_MISSING",
     "SIGNER_KID_UNKNOWN",
     "SIGNING_DOMAIN",
@@ -284,8 +355,9 @@ __all__ = [
     "OperatorFeedbackSignatureVerdict",
     "append_signed_operator_feedback_row",
     "canonical_signing_bytes",
+    "is_operator_request_row",
     "operator_feedback_ledger_path",
-    "operator_request_schema_valid",
+    "operator_request_schema_reason",
     "record_operator_request",
     "rotate_signing_key",
     "sign_operator_feedback_row",

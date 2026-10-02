@@ -273,18 +273,27 @@ class TheSynthesizerRecordsTheOriginTests(unittest.TestCase):
         self.assertEqual(orphan.content["finding_id"], "ORPHAN-HIGH-104")
         self.assertEqual(commit_contract_for_plan(orphan.content, plan_id="p")["trailer"],
                          "Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-104")
-        finding_dir = Path(tempfile.mkdtemp(prefix="aria-origin-finding-"))
-        self.addCleanup(__import__("shutil").rmtree, finding_dir, True)
-        finding_path = finding_dir / "F-099.json"
-        finding_path.write_text(
-            '{"id": "F-099", "evidence_chain": [{"reference": "apps/hr-service/src/leave.ts:12"}]}',
-            encoding="utf-8",
-        )
-        # ARIA-HIGH-181 — an F-finding converts only on a code reference.
-        f_finding = convert_candidate_to_plan_content({
-            "source_type": PlanCandidateSource.F_FINDING.value, "candidate_id": "F-099",
-            "mtime": 1.0, "path": str(finding_path), "title_hint": "Process F-099",
-        })
+        # ARIA-HIGH-181 / ADR-0018 D5 — an F-finding converts only on the
+        # shared admission: OPEN, a code reference tracked in the checkout.
+        import os
+        from unittest import mock
+
+        from aria_kernel.finding_grounding import admit_candidate
+        from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture
+
+        checkout = tempfile.TemporaryDirectory(prefix="aria-origin-finding-")
+        self.addCleanup(checkout.cleanup)
+        env = {k: v for k, v in os.environ.items() if k != "ARIA_REPO_STATE_ROOT"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            fixture = OperatorRequestFixture(Path(checkout.name))
+            fixture.seed_finding("F-099", refs=[f"{GROUNDED_FILE}:12"])
+            candidate = {
+                "source_type": PlanCandidateSource.F_FINDING.value, "candidate_id": "F-099",
+                "mtime": 1.0, "title_hint": "Process F-099",
+            }
+            f_finding = convert_candidate_to_plan_content(
+                candidate, admission=admit_candidate(candidate, repo_root=fixture.repo),
+            )
         self.assertEqual(f_finding.content["finding_id"], "F-099")
         ci = convert_candidate_to_plan_content({
             "source_type": PlanCandidateSource.FAILING_CI.value, "candidate_id": "run-1",

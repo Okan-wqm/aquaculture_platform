@@ -21,7 +21,6 @@ from aria_kernel.instinct_candidate import list_candidates
 from aria_kernel.handoff_ledger import list_handoffs
 from aria_kernel.ledger import read_jsonl_reverse_verified
 from aria_kernel.operator_feedback_ingestion import ingest_operator_feedback
-from aria_kernel.operator_feedback_signature import sign_operator_feedback_row
 from aria_kernel.plan_synthesizer import scan_operator_feedback
 from aria_kernel.planner_dispatch_hook import _release_abandoned_claim
 from aria_kernel.reflection import _phase_digest_summary
@@ -35,6 +34,7 @@ from tests._helpers.declared_fixtures import (
     append_declared_fixture,
     init_test_tools_root,
 )
+from tests._helpers.operator_requests import OperatorRequestFixture
 
 ARIA_POC = Path(__file__).resolve().parents[2] / "tools" / "aria-poc"
 if str(ARIA_POC) not in sys.path:
@@ -360,28 +360,29 @@ def test_planner_release_guard_sees_replayed_terminal_claim(tmp_path: Path) -> N
 def test_operator_handoff_watchdog_and_report_consumers_see_replayed_rows(
     tmp_path: Path,
 ) -> None:
-    operator_workspace = tmp_path / "operator-workspace"
-    operator_winner = init_test_tools_root(operator_workspace / "aria-tools")
+    # ADR-0020 — the row the loser recorded carries the OPERATOR's signature,
+    # verified against the allowed-signers file the winner's checkout
+    # commits (the loser is the same lineage's contending writer). A stub
+    # signature would be dropped at ingestion, which is the point: replay
+    # preserves bytes, and only an operator-signed row carries authority.
+    operator = OperatorRequestFixture(tmp_path / "operator")
+    operator_workspace = operator.repo
+    operator_winner = operator.tools
     operator_loser = init_test_tools_root(tmp_path / "operator-loser" / "aria-tools")
     operator_path = operator_winner / "operator-feedback.jsonl"
     operator_loser_path = operator_loser / "operator-feedback.jsonl"
-    # V9.5 check 12 — the row the loser recorded was signed by the kernel
-    # under the store's key material (the winner holds it; the loser is
-    # the same lineage's contending writer). A stub signature would now be
-    # dropped at ingestion, which is the point: replay preserves bytes,
-    # and only a kernel-signed row carries operator authority.
     append_declared_fixture(
         operator_loser_path,
-        sign_operator_feedback_row(
+        operator.sign(
             {
-                "schema_version": 1,
+                "row_kind": "operator_request",
                 "id": "OP-replayed",
+                "finding_id": "F-007",
                 "status": "unaddressed",
                 "authored_at": "2026-08-22T01:00:00Z",
                 "request": "preserve replayed operator authority",
                 "priority": "high",
             },
-            base_dir=operator_winner,
         ),
         expected_surface="operator_feedback",
     )

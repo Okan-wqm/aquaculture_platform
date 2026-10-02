@@ -48,19 +48,44 @@ class FFindingEvidenceTests(unittest.TestCase):
             "web/apps/aquamobil/src/types/index.ts",
         ])
 
+    # ADR-0018 D5 — an F_FINDING candidate converts only on the shared
+    # admission (OPEN in the fold, refs tracked in the checkout, a writable
+    # surface), so the conversion pins below run against a real checkout.
+    def _checkout(self) -> "OperatorRequestFixture":
+        import os
+        from unittest import mock
+
+        from tests._helpers.operator_requests import OperatorRequestFixture
+
+        tmp = tempfile.TemporaryDirectory(prefix="aria-fde-")
+        self.addCleanup(tmp.cleanup)
+        env = {k: v for k, v in os.environ.items() if k != "ARIA_REPO_STATE_ROOT"}
+        patcher = mock.patch.dict(os.environ, env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        fixture = OperatorRequestFixture(Path(tmp.name))
+        fixture.commit_files({
+            "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx": "x\n",
+            "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts": "x\n",
+            "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md": "x\n",
+        })
+        return fixture
+
+    def _convert(self, fixture, finding_id: str):
+        from aria_kernel.finding_grounding import admit_candidate
+
+        candidate = {"source_type": PlanCandidateSource.F_FINDING.value, "candidate_id": finding_id,
+                     "title_hint": "leaverequest UI drift"}
+        return convert_candidate_to_plan_content(
+            candidate, admission=admit_candidate(candidate, repo_root=fixture.repo),
+        )
+
     def test_convert_f_finding_grounds_plan_in_code_not_json(self) -> None:
-        path = self._write_finding({
-            "id": "F-101",
-            "evidence_chain": [
-                {"reference": "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346"},
-            ],
-        })
-        env = convert_candidate_to_plan_content({
-            "source_type": PlanCandidateSource.F_FINDING.value,
-            "candidate_id": "F-101",
-            "path": path,
-            "title_hint": "leaverequest UI drift",
-        })
+        fixture = self._checkout()
+        fixture.seed_finding("F-101", refs=[], body={"evidence_chain": [
+            {"reference": "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346"},
+        ], "evidences": []})
+        env = self._convert(fixture, "F-101")
         self.assertIsNotNone(env)
         self.assertIn(
             "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346",
@@ -79,12 +104,13 @@ class FFindingEvidenceTests(unittest.TestCase):
         # ARIA-HIGH-181 — no code reference, no plan: the finding JSON is
         # self-output (evidence_trust.SELF_OUTPUT_PREFIXES) and gitignored,
         # so a plan minted on it could never be answered.
-        path = self._write_finding({"id": "F-101", "evidence_chain": []})
-        env = convert_candidate_to_plan_content({
-            "source_type": PlanCandidateSource.F_FINDING.value,
-            "candidate_id": "F-101", "path": path, "title_hint": "x",
-        })
-        self.assertIsNone(env)
+        from aria_kernel.finding_grounding import FINDING_EVIDENCE_UNAVAILABLE, admit_finding
+
+        fixture = self._checkout()
+        fixture.seed_finding("F-101", refs=[], body={"evidence_chain": [], "evidences": []})
+        self.assertEqual(admit_finding(repo_root=fixture.repo, finding_id="F-101").reason,
+                         FINDING_EVIDENCE_UNAVAILABLE)
+        self.assertIsNone(self._convert(fixture, "F-101"))
 
     def test_missing_path_is_not_converted(self) -> None:
         env = convert_candidate_to_plan_content({
@@ -98,24 +124,19 @@ class FFindingEvidenceTests(unittest.TestCase):
         # emits carries its code references in `evidences[].evidence_envelope`
         # (canonical_ref + line, trust_grade), not `evidence_chain`: the first
         # five findings the live ring promoted converted to nothing.
-        path = self._write_finding({
-            "$schema": "aria/finding/v1", "id": "F-013", "claim_type": "wrong_code",
-            "evidences": [
-                {"ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
-                 "evidence_envelope": {"canonical_ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
-                                       "line": 150, "trust_grade": "repo_verified", "self_output_class": None}},
-                {"ref": "aria-findings/F-001.json",
-                 "evidence_envelope": {"canonical_ref": "aria-findings/F-001.json", "line": 1,
-                                       "trust_grade": "self_output", "self_output_class": "finding"}},
-                {"ref": "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:42",
-                 "evidence_envelope": {"canonical_ref": "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:42",
-                                       "line": 42, "trust_grade": "repo_verified"}},
-            ],
-        })
-        env = convert_candidate_to_plan_content({
-            "source_type": PlanCandidateSource.F_FINDING.value,
-            "candidate_id": "F-013", "path": path, "title_hint": "x",
-        })
+        fixture = self._checkout()
+        fixture.seed_finding("F-013", refs=[], body={"evidences": [
+            {"ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+             "evidence_envelope": {"canonical_ref": "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md",
+                                   "line": 150, "trust_grade": "repo_verified", "self_output_class": None}},
+            {"ref": "aria-findings/F-001.json",
+             "evidence_envelope": {"canonical_ref": "aria-findings/F-001.json", "line": 1,
+                                   "trust_grade": "self_output", "self_output_class": "finding"}},
+            {"ref": "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:42",
+             "evidence_envelope": {"canonical_ref": "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts:42",
+                                   "line": 42, "trust_grade": "repo_verified"}},
+        ]})
+        env = self._convert(fixture, "F-013")
         self.assertIsNotNone(env)
         self.assertEqual(env.content["evidence_refs"], [
             "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md:150",
@@ -127,14 +148,12 @@ class FFindingEvidenceTests(unittest.TestCase):
     def test_no_converted_plan_cites_self_output(self) -> None:
         from aria_kernel.evidence_trust import SELF_OUTPUT_PREFIXES
 
-        path = self._write_finding({
-            "id": "F-101",
-            "evidence_chain": [{"reference": "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346"}],
-        })
-        env = convert_candidate_to_plan_content({
-            "source_type": PlanCandidateSource.F_FINDING.value,
-            "candidate_id": "F-101", "path": path, "title_hint": "x",
-        })
+        fixture = self._checkout()
+        fixture.seed_finding("F-101", refs=[], body={"evidence_chain": [
+            {"reference": "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346"},
+            {"reference": "aria-tools/plans/events.jsonl:3"},
+        ], "evidences": []})
+        env = self._convert(fixture, "F-101")
         self.assertIsNotNone(env)
         for ref in env.content["evidence_refs"] + env.content["affected_surfaces"]:
             self.assertFalse(any(ref.startswith(prefix) for prefix in SELF_OUTPUT_PREFIXES), ref)

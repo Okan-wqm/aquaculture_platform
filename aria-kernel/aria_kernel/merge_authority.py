@@ -1029,7 +1029,6 @@ def _capture_pre_merge_context(
         expert_observation: dict[str, Any] = {}
         expert_files: dict[Path, bytes | None] = {}
         feedback_observation: dict[str, Any] = {}
-        feedback_files: dict[Path, bytes | None] = {}
         budget_observation: dict[str, Any] = {}
         if implementation.get("request_id"):
             coverage_observation, coverage_files = _capture_pre_merge_coverage(
@@ -1040,8 +1039,8 @@ def _capture_pre_merge_context(
                 tools=tools, workspace=workspace, rows=rows, implementation=implementation,
                 plan_id=plan_id, body=body, head_sha=head_sha,
             )
-            feedback_observation, feedback_files = _capture_pre_merge_operator_feedback(
-                tools=tools, state=state, rows=rows,
+            feedback_observation = _capture_pre_merge_operator_feedback(
+                state=state, rows=rows, workspace=workspace, trust_sha=live_base_sha,
             )
             budget_observation = _capture_pre_merge_turn_budget(
                 tools=tools, rows=rows, implementation=implementation,
@@ -1059,8 +1058,6 @@ def _capture_pre_merge_context(
                        for path, data in coverage_files.items())
                 or any(_read_pre_merge_coverage_file(path) != data
                        for path, data in expert_files.items())
-                or any(_read_pre_merge_coverage_file(path) != data
-                       for path, data in feedback_files.items())
             ):
                 raise GovernanceError(reason)
             if implementation.get("request_id"):
@@ -1232,23 +1229,29 @@ def _capture_pre_merge_coverage(
 
 
 def _capture_pre_merge_operator_feedback(
-    *, tools: Path, state: dict[str, Any], rows: dict[str, list[dict[str, Any]]],
-) -> tuple[dict[str, Any], dict[Path, bytes | None]]:
+    *, state: dict[str, Any], rows: dict[str, list[dict[str, Any]]],
+    workspace: Path, trust_sha: str,
+) -> dict[str, Any]:
     """Observe the synthesizer's operator-feedback ingestion for THIS plan.
 
     The join is by ``plan_started.content_hash``: the provider bound the
     synthesized content to its ingestion under exactly that hash, so the
     walk starts from a value the plan ledger already carries. The reader
     lives with the ingestion owner (``operator_feedback_ingestion``); this
-    wrapper only hands it the verified prefixes captured above and returns
-    the key-file bytes it read so the final recheck covers them too.
+    wrapper hands it the verified prefixes captured above and the
+    allowed-signers file as committed at ``trust_sha`` — the PR's live base
+    on ``main``, so a principal revoked on ``main`` after the cycle cannot
+    merge what it asked for (ADR-0020). A git object needs no recheck and
+    the lane holds no key.
     """
     from .operator_feedback_ingestion import observe_operator_feedback_for_plan
+    from .operator_request_signature import committed_allowed_signers
 
     return observe_operator_feedback_for_plan(
-        tools=tools, plan_started=state.get("plan_started"),
+        plan_started=state.get("plan_started"),
         ingestion_rows=rows["operator_feedback_ingestion"],
         feedback_rows=rows["operator_feedback"],
+        allowed_signers=committed_allowed_signers(workspace, rev=trust_sha),
     )
 
 

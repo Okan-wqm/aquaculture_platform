@@ -257,7 +257,8 @@ class AnExhaustionIsNeverARetryableFailure(unittest.TestCase):
     def test_the_helper_raises_the_provider_exhaustion_instead_of_returning_exit_1(self) -> None:
         with self.assertRaises(claude_runtime.ClaudeCreditExhausted) as raised:
             claude_runtime.run_with_model_fallback(
-                run=lambda model, effort: self._result(), model="opus", effort="max", write_capable=False,
+                run=lambda model, effort: self._result(), model="opus", failover=None, effort="max",
+                write_capable=False,
             )
         self.assertEqual(raised.exception.provider, "anthropic")
         self.assertEqual(raised.exception.detail["signature"], "claude_usage_limit_notice")

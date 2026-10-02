@@ -87,16 +87,11 @@ VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 # roles it can serve. Nothing here ever selects sonnet, haiku or fable.
 #
 # What survives is the cross-vendor AUTH failover (ARIA-HIGH-023): a dead
-# credential is a fact about the vendor, so the first tier authenticating
-# through a DIFFERENT vendor is a genuinely different attempt. Bidirectional
-# on purpose — a dead Z.ai key falls glm-5.3 back to the Anthropic pool.
-# The walk is role-conditioned IN CODE (see _cross_provider_auth_fallback):
-# the fleet row says which providers admit writes, and a write-scope profile
-# is never retried on a provider whose runtime is read-only.
-AUTH_FAILOVER_TIER: dict[str, str] = {
-    "opus": "glm-5.3",
-    "glm-5.3": "opus",
-}
+# credential is a fact about the vendor, so a tier authenticating through a
+# DIFFERENT vendor is a genuinely different attempt. WHICH tier is routing
+# data, not a table here (ARIA-HIGH-290): the spawn lane passes the next rung
+# of the role's ladder (`aria_kernel.runtime_profiles.routed_models`) as
+# `failover`, and the native lane passes none — its admission owns failover.
 
 
 def _model_provider(model: str | None) -> str:
@@ -126,32 +121,6 @@ def _provider_admits_writes(provider: str) -> bool:
     from aria_kernel.model_fleet import provider_admits_writes
 
     return provider_admits_writes(provider)
-
-
-def _cross_provider_auth_fallback(model: str | None, *, write_capable: bool) -> str | None:
-    """First ladder tier authenticating through a DIFFERENT vendor (ARIA-HIGH-023).
-
-    Walks ``AUTH_FAILOVER_TIER`` from ``model``, skipping same-vendor rungs
-    (they share the dead credential), and returns the first cross-vendor tier
-    whose provider can serve THIS role: ``write_capable`` is the profile's
-    own fact (``AgentRuntimeProfile.write_capable``), and a rung whose
-    provider is a read-only runtime is skipped for a write-scope profile
-    rather than handed a request it cannot execute. Cycle-bounded: the map
-    is cyclic (``opus -> glm-5.3 -> opus``), so the walk tracks visited tiers
-    and gives up at the first repeat. Returns ``None`` when no admissible
-    cross-vendor tier is reachable — the caller then treats the auth failure
-    as terminal.
-    """
-    origin_provider = _model_provider(model)
-    visited: set[str] = set()
-    current = AUTH_FAILOVER_TIER.get(str(model or ""))
-    while current is not None and current not in visited:
-        visited.add(current)
-        provider = _model_provider(current)
-        if provider != origin_provider and (not write_capable or _provider_admits_writes(provider)):
-            return current
-        current = AUTH_FAILOVER_TIER.get(current)
-    return None
 
 
 ALLOW_API_KEY_MODE_ENV_VAR = "ARIA_ALLOW_CLAUDE_API_KEY_MODE"
@@ -270,8 +239,8 @@ class ClaudeRunResult:
     credit_exhaustion: dict[str, Any] | None = None
     # Authentication failure record, or None. Detection only; executors own the
     # policy. Not recoverable by any SAME-vendor rung — ARIA-HIGH-023 lets
-    # run_with_model_fallback cross vendors on auth failure; see
-    # AUTH_FAILURE_MARKERS and _cross_provider_auth_fallback.
+    # run_with_model_fallback cross vendors on auth failure, on the rung the
+    # role's routing ladder names; see AUTH_FAILURE_MARKERS.
     auth_failure: dict[str, Any] | None = None
     # ARIA-HIGH-002 — typed terminal classification of THIS result (auth
     # failure / credit-exhaustion markers, process exit), stamped by the
@@ -1877,6 +1846,7 @@ def run_with_model_fallback(
     *,
     run: Callable[[str, str], ClaudeRunResult],
     model: str,
+    failover: str | None,
     effort: str,
     write_capable: bool,
     on_credit: Callable[[str, dict[str, Any]], None] | None = None,
@@ -1903,21 +1873,27 @@ def run_with_model_fallback(
       retried when the provider is back, never on a weaker tier.
     * A REFUSAL is returned on the result (``.refusal``), not retried: the
       executors escalate it to HUMAN_REQUIRED (``model_safety_refusal_unresolved``).
-    * ARIA-HIGH-023 — an AUTH failure walks ``AUTH_FAILOVER_TIER`` (same-vendor
-      rungs skipped, cycle-bounded) to the first CROSS-provider tier whose
-      runtime can serve this role and retries there at the original effort:
-      a dead credential is a vendor-level fact, and the other vendor's
-      credential is genuinely different. A write-scope profile has no such
-      rung — the other vendors' runtimes are read-only — so its auth failure
-      is terminal at once. Both vendors failing auth raises
+    * ARIA-HIGH-023 — an AUTH failure retries once on ``failover``, the
+      caller's next rung of the role's routing ladder (ARIA-HIGH-290), at
+      the original effort: a dead credential is a vendor-level fact, and the
+      other vendor's credential is genuinely different. ``None`` (a
+      write-scope profile, whose other vendors' runtimes are read-only, or
+      the native lane, whose admission owns failover) makes the auth failure
+      terminal at once. A ``failover`` on the same vendor, or a read-only
+      one for a write-scope profile, is refused before any attempt. Both vendors failing auth raises
       :class:`ClaudeAuthFailure`; no mock verdict is ever produced here. The
       failover attempt's own credit exhaustion is the same terminal raise,
       naming the vendor that ran out.
     * Exactly ONE retry per call, never chained.
     """
+    if failover is not None and (_model_provider(failover) == _model_provider(model)
+                                 or (write_capable and not _provider_admits_writes(_model_provider(failover)))):
+        raise ClaudePolicyViolation(
+            f"auth_failover_rung_inadmissible: {model!r} -> {failover!r} (write_capable={write_capable})"
+        )
     completed = run(model, effort)
     if completed.auth_failure is not None:
-        cross = _cross_provider_auth_fallback(model, write_capable=write_capable)
+        cross = failover
         if cross is not None:
             try:
                 retried = run(cross, effort)

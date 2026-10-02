@@ -30,9 +30,9 @@ from .model_fleet import (
     _RUNTIME_BINARIES,
     Provider,
     _credential_named,
-    provider_for_model,
-    provider_model,
+    route_model,
 )
+from .runtime_profiles import load_provider_routing
 from .status_probe import (
     AdmissionClock,
     ProbeRecord,
@@ -98,10 +98,10 @@ class _NativeRuntimeAdmission:
     """The provider whose row halted the ladder — undecided after its bound
     (`PROVIDER_UNDECIDED`) or unbindable on this host
     (`PROVIDER_CONTROL_UNAVAILABLE`); None for the other outcomes."""
-    declared_provider: str = "anthropic"
-    """ARIA-HIGH-161 — the provider the profile's own `model:` names
-    (`declared_provider_for_profile`). The ladder starts here; the first
-    eligible route is this provider's whenever it is available."""
+    declared_provider: str | None = "anthropic"
+    """The head of the role's ladder in the routing table (`provider_routing`,
+    ARIA-HIGH-290; ARIA-HIGH-161 made the ladder start at the declared
+    provider). None when every rung of the role's ladder is suspended."""
 
     def __post_init__(self) -> None:
         # The outcomes and the routes they carry cannot disagree: an
@@ -137,41 +137,11 @@ def native_admission_budget_seconds(policy: _AdaptiveRuntimePolicy) -> float:
     return status_probe_liveness_seconds(policy.recheck_timeout_seconds) * len(_FLEET)
 
 
-def declared_provider_for_profile(profile: _AgentRuntimeProfile) -> str:
-    """The fleet member the profile's own ``model:`` frontmatter names.
-
-    ARIA-HIGH-161 — a model outside the fleet's vocabulary (or an unset one)
-    is the managed Anthropic route, exactly as the route builder treats it.
-    """
-    return provider_for_model(profile.model) or "anthropic"
-
-
-def fleet_ladder_for(declared_provider: str) -> tuple[Provider, ...]:
-    """The fleet in the order this profile's admission walks it.
-
-    ARIA-HIGH-161 — measured on the first production executor after the
-    chain restart (run 35444645590, 2026-09-19): the ladder walked
-    ``_FLEET`` in its fixed preference order, so an adversarial judge whose
-    frontmatter declares ``glm-5.3`` was admitted on ``anthropic/opus`` (the
-    fleet's first member) whenever the managed Claude session was logged in.
-    The claude wrapper then ran the Z.ai transport as a failover rung and
-    released the finished verdict as ``usage_unavailable``: every night, the
-    same judge, the same release, at requeue budget zero. Two distinct
-    models — the anchor grade's whole point — could never form.
-
-    The declared provider leads; the rest keep the fleet's preference order
-    as the AUTH failover ladder they already were. Halting semantics are
-    unchanged: an undecided or unbindable first member still halts.
-    """
-    leading = tuple(provider for provider in _FLEET if provider.key == declared_provider)
-    trailing = tuple(provider for provider in _FLEET if provider.key != declared_provider)
-    return leading + trailing
-
-
 def _native_runtime_admission(
     *,
     repo_root: Path,
     profile: _AgentRuntimeProfile,
+    role: str,
     policy: _AdaptiveRuntimePolicy,
     environ: dict[str, str],
     observe_status: _Callable[[Provider, float], _RuntimeStatusObservation],
@@ -193,9 +163,10 @@ def _native_runtime_admission(
     `status_deadline_elapsed`. The fleet owns this arithmetic so no caller
     can hand the whole fleet a single probe's budget.
 
-    The ladder walks the fleet in the PROFILE's order — the provider its
-    ``model:`` declares first, then the fleet's preference order as the
-    failover rungs (`fleet_ladder_for`, ARIA-HIGH-161) — and moves past a
+    The ladder is the ROLE's (ARIA-HIGH-290): the providers the routing
+    table names for this role and seat (`provider_routing`, the profile's
+    agent is the seat), suspended providers removed, in the table's order —
+    its second rung is the automatic failover — and the walk moves past a
     provider ONLY on a DECIDED unavailable observation or a policy fact the row names
     (operator decision 2026-09-12: read-only roles fail over across vendors
     for AUTH reasons only). The first provider still in contention whose
@@ -245,17 +216,11 @@ def _native_runtime_admission(
     eligible: list[dict[str, str]] = []
     halted: tuple[AdmissionOutcome, str] | None = None
     search_path = environ.get("PATH", os.defpath)
-    declared_provider = declared_provider_for_profile(profile)
-    for provider in fleet_ladder_for(declared_provider):
-        if provider.key == "openai":
-            model = "gpt-6-astra"
-        elif provider.key == "anthropic" and provider_for_model(profile.model) in (None, "anthropic"):
-            # The managed Claude route runs the agent's own declared tier
-            # (its frontmatter), exactly as the legacy spawn does; a foreign
-            # tier in the frontmatter falls back to the fleet default.
-            model = profile.model
-        else:
-            model = provider_model(provider, environ)
+    ladder = load_provider_routing().ladder_for(role, profile.agent_name)
+    declared_provider = ladder[0] if ladder else None
+    rows_by_key = {provider.key: provider for provider in _FLEET}
+    for provider in (rows_by_key[key] for key in ladder):
+        model = route_model(provider, profile.model, environ)
         effort = "ultra" if provider.key == "openai" else profile.effort
         route = {"provider": provider.key, "runtime": provider.runtime_hint,
                  "model": model, "effort": effort}
@@ -364,8 +329,6 @@ def _native_runtime_admission(
 
 
 __all__ = [
-    "declared_provider_for_profile",
-    "fleet_ladder_for",
     "COOLDOWN_STATUS_REASON",
     "HALTING_OUTCOMES",
     "READONLY_RUNTIME_STATUS_REASON",

@@ -244,6 +244,9 @@ class _FleetFixture(unittest.TestCase):
                                              tools=("Read", "Grep", "Glob"))
         self.fake = _FakeClock()
         self.probed: list[str] = []
+        # ARIA-HIGH-290 — the ladder is the role's (routing table); this
+        # role's ladder is the fleet order every test here was written for.
+        self.role = "evidence_judgment"
 
     def _admit(self, answers: dict[str, list[_RuntimeStatusObservation]], cooled: dict | None = None) -> _NativeRuntimeAdmission:
         """`answers[provider]` is the observation of each successive attempt;
@@ -264,7 +267,7 @@ class _FleetFixture(unittest.TestCase):
             return answer
 
         return _native_runtime_admission(
-            repo_root=self.root, profile=self.read_only, policy=self.policy, environ=self.environ,
+            repo_root=self.root, profile=self.read_only, role=self.role, policy=self.policy, environ=self.environ,
             observe_status=observe, cooled_providers=cooled or {}, clock=_clock(self.fake),
         )
 

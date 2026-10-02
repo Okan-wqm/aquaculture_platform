@@ -37,11 +37,8 @@ from pathlib import Path
 
 from aria_kernel.agent_runtime_profile import AgentRuntimeProfile
 from aria_kernel.model_fleet import _FLEET
-from aria_kernel.native_admission import (
-    AdmissionOutcome,
-    declared_provider_for_profile,
-    fleet_ladder_for,
-)
+from aria_kernel.native_admission import AdmissionOutcome
+from aria_kernel.runtime_profiles import load_provider_routing
 from aria_kernel.status_probe import StatusDecision
 
 from tests.test_native_admission_undecided import (
@@ -64,27 +61,28 @@ def _judge_glm() -> AgentRuntimeProfile:
                                source="frontmatter", tools=("Read", "Grep", "Glob"))
 
 
-class TheLadderIsOrderedByTheProfile(unittest.TestCase):
-    def test_the_declared_provider_is_read_from_the_model(self) -> None:
-        self.assertEqual(declared_provider_for_profile(_judge_glm()), "zai")
-        opus = AgentRuntimeProfile(agent_name="planner", model="opus", effort="max", source="frontmatter",
-                                   tools=("Read",))
-        self.assertEqual(declared_provider_for_profile(opus), "anthropic")
+class TheLadderIsOrderedByTheRole(unittest.TestCase):
+    """ARIA-HIGH-290 — the ladder ARIA-HIGH-161 ordered by the profile's
+    model is now the role's, in the routing table: the adversarial judge's
+    role leads with Z.ai, the evidence judge's with Anthropic."""
 
-    def test_the_ladder_keeps_every_member_once_with_the_leader_first(self) -> None:
-        keys = [provider.key for provider in _FLEET]
-        for leader in keys:
-            ladder = [provider.key for provider in fleet_ladder_for(leader)]
-            self.assertEqual(ladder[0], leader)
-            self.assertEqual(sorted(ladder), sorted(keys))
-            self.assertEqual([key for key in ladder if key != leader], [key for key in keys if key != leader],
-                             "the rungs behind the leader keep the fleet's preference order")
+    def test_the_declared_provider_is_the_head_of_the_roles_ladder(self) -> None:
+        routing = load_provider_routing()
+        self.assertEqual(routing.ladder_for("adversarial_judgment", "aria-adversarial-judge")[0], "zai")
+        self.assertEqual(routing.ladder_for("evidence_judgment", "aria-evidence-judge")[0], "anthropic")
+
+    def test_the_failover_ladders_keep_every_fleet_member_once(self) -> None:
+        keys = sorted(provider.key for provider in _FLEET)
+        for role in ("adversarial_judgment", "evidence_judgment"):
+            ladder = load_provider_routing().ladder_for(role, "aria-any")
+            self.assertEqual(sorted(ladder), keys, role)
 
 
 class ADeclaredZaiProfileIsAdmittedOnZai(_FleetFixture):
     def setUp(self) -> None:
         super().setUp()
         self.read_only = _judge_glm()
+        self.role = "adversarial_judgment"
 
     def test_zai_leads_when_every_vendor_is_available(self) -> None:
         admission = self._admit({})

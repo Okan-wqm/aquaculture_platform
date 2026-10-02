@@ -137,9 +137,10 @@ class Principal:
     * two seats SHARE A MIND when they share the route — the question a
       decision that clears something must also answer
       (:func:`verify_route_distinctness`). It is not a disjointness rule for
-      every panel: the convergence roles (planner, planner, judge_opus) all
-      run opus, so a route rule there would refuse every convergence rather
-      than measure one.
+      every panel: the convergence seats share a vendor whenever one of the
+      two routed vendors is out (`runtime_profiles.INDEPENDENCE_PAIRS`,
+      ARIA-HIGH-290), so a route rule there would refuse every convergence
+      run under a cooldown rather than measure one.
     """
 
     agent: str

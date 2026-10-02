@@ -1379,6 +1379,10 @@ def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
 
 
 STDERR_TAIL_MAX_CHARS = 2000
+# ARIA-HIGH-290 — the runtimes the spawn lane's `_dispatch_attempt` can run:
+# the managed Claude CLI and the Z.ai transport (`_run_zai_as_claude_result`).
+# A routing rung on any other runtime is skipped by `routed_models` there.
+_SPAWN_LANE_RUNTIMES: tuple[str, ...] = ("claude", "zai")
 
 
 def _bounded_stderr_tail(stderr: str | None) -> str | None:
@@ -1873,6 +1877,11 @@ def invoke_claude_cli(
     # class, detail code and the bounded stderr tail. The int return stays
     # the exit code every other caller branches on.
     on_outcome: Callable[[dict[str, Any]], None] | None = None,
+    # ARIA-HIGH-290 — the model the native admission ADMITTED for this
+    # request (its route), or None on the spawn lane, which reads the role's
+    # ladder from the routing table instead. Never the profile's own model:
+    # a role routed off its profile's vendor runs the route's model.
+    route_model: str | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
@@ -2121,6 +2130,29 @@ def invoke_claude_cli(
     if claim_id:
         spawn_extra_env["ARIA_CLAIM_ID"] = str(claim_id)
     try:
+        # ARIA-HIGH-290 — the models this spawn may run come from the ONE
+        # routing table: the native lane's admitted route (its admission owns
+        # failover, so there is no second rung here), else the role's ladder
+        # as the spawn lane's wrapper can run it — first rung, then ONE auth
+        # failover on the next.
+        if route_model is not None:
+            _models: tuple[str, ...] = (route_model,)
+        else:
+            from aria_kernel.runtime_profiles import routed_models
+
+            _models = routed_models(role, subagent_type, profile_model=agent_profile.model,
+                                    write_capable=agent_profile.write_capable, environ=os.environ,
+                                    runtimes=_SPAWN_LANE_RUNTIMES)
+        if not _models:
+            # Every rung of the role's ladder is suspended or cannot host
+            # this profile: nothing may run, and the summary says so.
+            _emit_dispatch_summary(
+                outcome="failed",
+                failure=DispatchFailure(failure_class="policy_violation", retryable=False,
+                                        detail_code="provider_routing_no_rung", phase="preflight", exit_code=1),
+                exit_code=1,
+            )
+            return 1
         # Model dispatch through the claude_runtime SSoT helper: a credit
         # exhaustion is terminal for the attempt (ClaudeCreditExhausted,
         # handled by main()'s requeue arm), a refusal rides the result and is
@@ -2244,7 +2276,7 @@ def invoke_claude_cli(
             # 82 requests, 0 results, 2026-09-04. The ledger prices through
             # budget's alias map; the reservation now takes the same road,
             # so the gate cannot price a model the ledger prices differently.
-            _reservation = price_spawn_reservation(model=agent_profile.model)
+            _reservation = price_spawn_reservation(model=_models[0])
             if _reservation.source == PRICING_SOURCE_UNKNOWN and not os.environ.get("ARIA_COST_UNKNOWN_ACK", "").strip():
                 # A typed failure, not a string: the summary writer reads
                 # .failure_class, and a str here crashed the refusal path.
@@ -2281,7 +2313,8 @@ def invoke_claude_cli(
         _effort = effective_effort(agent_profile.effort, target_agent=subagent_type, role=role, base_dir=tools_dir, request_id=request_id)
         completed = run_with_model_fallback(
             run=_dispatch_attempt,
-            model=agent_profile.model,
+            model=_models[0],
+            failover=_models[1] if len(_models) > 1 else None,
             effort=_effort,
             # The role condition of the auth failover, from the profile SSoT:
             # a write-scope profile is never handed to a read-only runtime.
@@ -2292,7 +2325,8 @@ def invoke_claude_cli(
             _unresolved_payload = {
                 "request_id": request_id,
                 "subagent_type": subagent_type,
-                "model": agent_profile.model,
+                # The rung that answered (stamped by run_with_model_fallback).
+                "model": completed.model,
                 "refusal": completed.refusal,
             }
             if tools_dir is not None:
@@ -2316,7 +2350,7 @@ def invoke_claude_cli(
                         tools_dir=tools_dir, request_id=request_id, severity="HIGH",
                         reason=f"model_safety_refusal:{_hr_category}: the model refused the request",
                         context={"code": f"model_safety_refusal:{_hr_category}", "stage": "model_refusal",
-                                 "claim_id": claim_id, "category": _hr_category, "model": agent_profile.model},
+                                 "claim_id": claim_id, "category": _hr_category, "model": completed.model},
                     )
                 except HumanRequiredRecordUnavailable as _hr_exc:
                     sys.stderr.write(
@@ -2330,7 +2364,7 @@ def invoke_claude_cli(
             )
             raise ClaudeCliUnavailable(
                 "model_safety_refusal_unresolved: request "
-                f"{request_id} refused by {agent_profile.model} "
+                f"{request_id} refused by {completed.model} "
                 f"(category={completed.refusal.get('category')!r}); "
                 "escalated to HUMAN_REQUIRED"
             )
@@ -3567,6 +3601,7 @@ def _invoke_native_claude(
             role=request["role"], must_satisfy=request.get("must_satisfy") or [],
             request_envelope=request, tools_dir=tools_dir, spawn_control=spawn_control,
             signer_key_fp=signer_key_fp, git_containment=git_containment,
+            route_model=native_runtime.route["model"],
         )
         if cli_exit != 0:
             result_admission = "provider_nonzero"
@@ -4037,7 +4072,7 @@ def _admit_native_route(
     from aria_kernel.provider_cooldown import active_provider_cooldowns
 
     admission = _native_runtime_admission(
-        repo_root=policy_root, profile=profile, policy=policy, environ=environment,
+        repo_root=policy_root, profile=profile, role=request["role"], policy=policy, environ=environment,
         observe_status=observe_status,
         # The exhausted-provider memory: a provider cooled by a previous
         # attempt's ClaudeCreditExhausted is refused here without a probe.

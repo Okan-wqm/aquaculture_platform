@@ -268,8 +268,10 @@ class _AdmissionFixture(_ToolsFixture):
                                          decision=StatusDecision.AVAILABLE)
 
     def _admit(self, profile: AgentRuntimeProfile, cooled: dict):
+        # ARIA-HIGH-290 — a role on the fleet-order ladder (the routing table's
+        # `claude_first`), so a writer meets every read-only runtime by name.
         return _native_runtime_admission(
-            repo_root=self.root, profile=profile, policy=self.policy, environ=self.environ,
+            repo_root=self.root, profile=profile, role="evidence_judgment", policy=self.policy, environ=self.environ,
             observe_status=self._observe, cooled_providers=cooled,
         )
 

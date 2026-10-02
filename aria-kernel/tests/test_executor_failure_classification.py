@@ -318,14 +318,21 @@ class RouteTests(unittest.TestCase):
             ("anthropic", "opus", "implementation", "aria-implementer"),
         )
 
-    def test_a_fleet_listed_model_resolves_its_fleet_provider(self) -> None:
-        # The provider comes from the fleet row, not from any spawn redirect:
-        # glm-5.3 is Z.ai's tier and is served by the Z.ai transport.
-        request = {"target_agent": "aria-adversarial-judge", "role": "judge"}
+    def test_a_routed_role_resolves_the_head_of_its_ladder(self) -> None:
+        # ARIA-HIGH-290 — the declared route is the routing table's: the
+        # adversarial judge's role is glm-led, the evidence judge's Claude-led,
+        # whatever model the agent's profile names.
+        request = {"target_agent": "aria-adversarial-judge", "role": "adversarial_judgment"}
+        route = resolve_dispatch_route(request=request, repo_root=_REPO_ROOT)
+        self.assertEqual((route.provider, route.model), ("zai", "glm-5.3"))
+        request = {"target_agent": "aria-challenger-planner", "role": "challenger_plan"}
+        self.assertEqual(resolve_dispatch_route(request=request, repo_root=_REPO_ROOT).provider, "zai")
+
+    def test_a_role_less_worker_dispatch_keeps_the_fleet_binding(self) -> None:
+        request = {"target_agent": "aria-worker", "role": ""}
         with patch.object(dispatch_failure, "resolve_claude_model", return_value="glm-5.3"):
             route = resolve_dispatch_route(request=request, repo_root=_REPO_ROOT)
-        self.assertEqual(route.provider, "zai")
-        self.assertEqual(route.model, "glm-5.3")
+        self.assertEqual((route.provider, route.model), ("zai", "glm-5.3"))
 
     def test_missing_target_agent_fails_closed(self) -> None:
         with self.assertRaises(ValueError):

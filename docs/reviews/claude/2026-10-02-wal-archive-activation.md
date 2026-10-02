@@ -134,15 +134,15 @@ sha256sum .github/manifests/postgres-dr-contract.sha256           # must equal t
 ```
 
 `GHCR_READ_TOKEN` is a token with `read:packages`; the droplet keeps no registry login (the deploy
-uses a throwaway `DOCKER_CONFIG` the same way). `ghcr.io/…/postgres:${MERGE_SHA}` exists only if CI - Affected ran `build-development-images` on
-the merge commit; it is skipped when an upstream gate on `main` is red. If the pull says the
-manifest is unknown, the signed alternative is `PostgreSQL DR Bootstrap Candidate`
-(`workflow_dispatch`, `main_sha=MERGE_SHA`) followed by
+uses a throwaway `DOCKER_CONFIG` the same way). `ghcr.io/…/postgres:${MERGE_SHA}` exists only if CI
+Affected ran `build-development-images` on the merge commit; it is skipped when an upstream gate
+on `main` is red. If the pull says the manifest is unknown, the signed alternative is `PostgreSQL DR
+Bootstrap Candidate` (`workflow_dispatch`, `main_sha=MERGE_SHA`) followed by
 `infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh` from the provider console,
 which recreates only `postgres` from the attested digest. If `config --quiet` names a missing
-`WALG_*`/`SPACES_*` value, export the same value the running container has (`docker inspect`
-shows `WALG_BACKUP_EPOCH`, `WALG_S3_PREFIX`, `WALG_S3_ENDPOINT`, `WALG_S3_REGION`); they are inert
-while archiving is off.
+`WALG_*`/`SPACES_*` value, export the same value the running container has (`docker inspect` shows
+`WALG_BACKUP_EPOCH`, `WALG_S3_PREFIX`, `WALG_S3_ENDPOINT`, `WALG_S3_REGION`); they are inert while
+archiving is off.
 
 To stop WAL growth before the new image is available, run step 3 with
 `TAG=9b44390f98e16c4de759bfbc4d524e4312d2a81b`. Archiving stops, but the old image's healthcheck

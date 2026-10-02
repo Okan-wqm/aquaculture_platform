@@ -1040,7 +1040,7 @@ def _capture_pre_merge_context(
                 plan_id=plan_id, body=body, head_sha=head_sha,
             )
             feedback_observation = _capture_pre_merge_operator_feedback(
-                state=state, rows=rows, workspace=workspace, trust_sha=live_base_sha,
+                plan_id=plan_id, state=state, rows=rows, workspace=workspace, trust_sha=live_base_sha,
             )
             budget_observation = _capture_pre_merge_turn_budget(
                 tools=tools, rows=rows, implementation=implementation,
@@ -1229,7 +1229,7 @@ def _capture_pre_merge_coverage(
 
 
 def _capture_pre_merge_operator_feedback(
-    *, state: dict[str, Any], rows: dict[str, list[dict[str, Any]]],
+    *, plan_id: str, state: dict[str, Any], rows: dict[str, list[dict[str, Any]]],
     workspace: Path, trust_sha: str,
 ) -> dict[str, Any]:
     """Observe the synthesizer's operator-feedback ingestion for THIS plan.
@@ -1237,21 +1237,25 @@ def _capture_pre_merge_operator_feedback(
     The join is by ``plan_started.content_hash``: the provider bound the
     synthesized content to its ingestion under exactly that hash, so the
     walk starts from a value the plan ledger already carries. The reader
-    lives with the ingestion owner (``operator_feedback_ingestion``); this
-    wrapper hands it the verified prefixes captured above and the
-    allowed-signers file as committed at ``trust_sha`` — the PR's live base
-    on ``main``, so a principal revoked on ``main`` after the cycle cannot
-    merge what it asked for (ADR-0020). A git object needs no recheck and
-    the lane holds no key.
+    lives with the ingestion owner (``operator_feedback_observation``); this
+    wrapper hands it the verified prefixes captured above — the plan ledger
+    included, for the merged-once proof — and the allowed-signers file as
+    committed at ``trust_sha`` (the PR's live base on ``main``), read through
+    the hardened git reader of ``main_anchor``: a principal revoked on
+    ``main`` after the cycle cannot merge what it asked for (ADR-0020). A git
+    object needs no recheck and the lane holds no key.
     """
-    from .operator_feedback_ingestion import observe_operator_feedback_for_plan
-    from .operator_request_signature import committed_allowed_signers
+    from .operator_feedback_observation import observe_operator_feedback_for_plan
+    from .operator_request_signature import allowed_signers_at
 
+    signers = allowed_signers_at(workspace, commit=trust_sha)
     return observe_operator_feedback_for_plan(
+        plan_id=plan_id,
         plan_started=state.get("plan_started"),
         ingestion_rows=rows["operator_feedback_ingestion"],
         feedback_rows=rows["operator_feedback"],
-        allowed_signers=committed_allowed_signers(workspace, rev=trust_sha),
+        plan_events=rows["plan_convergence_events"],
+        allowed_signers=signers.content if signers is not None else None,
     )
 
 

@@ -278,7 +278,7 @@ class TheSynthesizerRecordsTheOriginTests(unittest.TestCase):
         import os
         from unittest import mock
 
-        from aria_kernel.finding_grounding import admit_candidate
+        from aria_kernel.finding_grounding import admit_candidate, load_grounding_context
         from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture
 
         checkout = tempfile.TemporaryDirectory(prefix="aria-origin-finding-")
@@ -292,7 +292,7 @@ class TheSynthesizerRecordsTheOriginTests(unittest.TestCase):
                 "mtime": 1.0, "title_hint": "Process F-099",
             }
             f_finding = convert_candidate_to_plan_content(
-                candidate, admission=admit_candidate(candidate, repo_root=fixture.repo),
+                candidate, admission=admit_candidate(candidate, load_grounding_context(fixture.repo)),
             )
         self.assertEqual(f_finding.content["finding_id"], "F-099")
         ci = convert_candidate_to_plan_content({

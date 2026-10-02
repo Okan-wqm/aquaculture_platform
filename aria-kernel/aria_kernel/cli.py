@@ -776,7 +776,9 @@ def build_parser() -> argparse.ArgumentParser:
     fb_request.add_argument("--signer-principal", required=True,
                             help="Principal the committed .github/manifests/aria-operator-signers names for that key")
     fb_request.add_argument("--repo-root", default=".",
-                            help="Checkout whose HEAD holds the allowed-signers file the signature is checked against")
+                            help="Checkout on main whose commit holds the allowed-signers file and the tracked evidence")
+    fb_request.add_argument("--expires-in-hours", type=int, default=None,
+                            help="Signed expiry (default and maximum: the operator-act lifetime, 168h)")
     fb_request.add_argument("--request-id", default=None, help="Optional stable id (default OP-<uuid4>)")
     fb_rotate = add_subparser(feedback_sub, "rotate-signing-key")
     fb_rotate.add_argument("--reason", required=True, type=_validate_reason)
@@ -3412,6 +3414,7 @@ def _main(argv: list[str] | None = None) -> int:
             signing_key=args.signing_key,
             signer_principal=args.signer_principal,
             request_id=args.request_id,
+            expires_in_hours=args.expires_in_hours,
             base_dir=args.tools_dir,
             repo_root=args.repo_root,
         ), indent=2, sort_keys=True))

@@ -1,4 +1,4 @@
-"""V9.5 check 12 — operator-feedback ingestion, and the evidence a merge reads back.
+"""V9.5 check 12 — operator-feedback ingestion, the binding a merge reads back, and spends.
 
 WHY: the contract (docs/aria/v3-v9-5-safety-contracts-policy.md §12,
 superseded for request rows by ADR-0020) has three parts: the synthesizer
@@ -8,43 +8,60 @@ pre-merge predicate must prove — from captured evidence, not from a flag —
 that the rule was applied to the synthesis the merged plan came from.
 
 WHAT: :func:`ingest_operator_feedback` is the one reader of the ledger for
-plan-candidate purposes. Every request row is verified against the
-allowed-signers file committed at the cycle checkout's HEAD
-(:mod:`operator_request_signature`, ADR-0020) and must name an F finding
-(ADR-0018); a request is admitted once — a spent request (ADR-0018 D3,
-:mod:`operator_request_spend`) and a reused id are not admitted again. The
-scan appends an ``ingestion`` row naming what was admitted (ledger hash +
-signer), dropped (reason + governance hash) and spent. When the provider
-selects a candidate it appends a ``synthesis_bound`` row joining that
-ingestion to the synthesized ``plan_content`` by content hash — the hash
-``plan_started`` records — and a request whose finding is not a plan ground
-gets a ``request_refused`` row (:func:`record_request_refused`). The merge
-owner walks plan → binding → ingestion → consumed rows and re-verifies each
-signature against the allowed-signers file committed on ``main``
-(:func:`observe_operator_feedback_for_plan`), so no key file and no runner
-state is needed on the GitHub-hosted lane. Absent evidence is a named
-reason, never a pass.
+plan-candidate purposes.
+
+* It reads the feedback ledger the way the merge owner reads it: only the
+  hash-chain-verified prefix can be admitted; every request row after a
+  chain break is refused by name (``ledger_chain_broken``, review round 2
+  GSEC-MEDIUM-004).
+* Every request is verified against the allowed-signers file committed at
+  the cycle checkout's commit, proven on ``main`` (:mod:`main_anchor`,
+  ADR-0020); the anchor commit and blob id are recorded on the scan row.
+* A request is admitted once, keyed on its signed id
+  (:mod:`operator_request_spend`, ADR-0018 D3): spent and reused ids come
+  from the kernel's own hash-chained ingestion history, independent of where
+  a row sits in the feedback ledger; a validly signed row that is expired,
+  for another audience, or malformed is refused AND spent
+  (``request_refused``); a runner fault (no anchor, no verifier) is reported
+  and never spends.
+* A drop already reported is not announced again (GSEC-LOW-009).
+
+When the provider selects a candidate, :func:`bind_plan_synthesis` appends a
+``synthesis_bound`` row joining the scan to the synthesized ``plan_content``
+by content hash; :func:`record_request_refused` spends a request whose
+target is not a plan ground. The merge owner's walk lives in
+:mod:`operator_feedback_observation`.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl
 from .operator_feedback_signature import (
     OPERATOR_FEEDBACK_LEDGER_NAME,
-    SCHEMA_INVALID,
     is_operator_request_row,
     operator_request_schema_reason,
 )
-from .operator_request_signature import committed_allowed_signers, verify_operator_request
+from .operator_request_signature import (
+    ALLOWED_SIGNERS_UNAVAILABLE,
+    VERIFICATION_RUNNER_FAULTS,
+    allowed_signers_for_checkout,
+    request_subject_digest,
+    verify_operator_request,
+)
 from .operator_request_spend import (
+    INGESTION_ROW_TYPE,
     REQUEST_REFUSAL_REASONS,
     REQUEST_REFUSED_ROW_TYPE,
     SYNTHESIS_BOUND_ROW_TYPE,
-    request_key,
-    spent_requests,
+    RequestHistory,
+    drop_key,
+    request_history,
     started_plan_hashes,
 )
 from .plan_candidate_source import PlanCandidateSource
@@ -52,16 +69,22 @@ from .tool_registry import GovernanceError, ensure_tools_dir_readonly, utc_now
 
 INGESTION_SURFACE = "operator_feedback_ingestion"
 INGESTION_LEDGER_NAME = "operator-feedback-ingestion.jsonl"
-INGESTION_ROW_TYPE = "ingestion"
 UNSIGNED_OPERATOR_FEEDBACK_EVENT = "unsigned_operator_feedback"
-# A second row reusing an admitted or spent request's id: a replayed copy of
-# a signed row verifies (same bytes), so the id — not the signature — is
-# what makes the request single-use.
+# A row whose id the kernel already holds under another signed subject, or
+# two subjects sharing one id in one scan: the id, not the position, is the
+# request, so neither is admitted and neither spends the other.
 REQUEST_ID_REUSED = "request_id_reused"
+# A byte-identical copy of an admitted request: the request is admitted
+# once; the copy is reported, not planned twice.
+REQUEST_DUPLICATE_COPY = "request_duplicate_copy"
+# A row after the first hash-chain break: the merge owner cannot vouch for
+# it, so the synthesizer does not admit it either.
+LEDGER_CHAIN_BROKEN = "ledger_chain_broken"
 # Evidence refs the synthesizer writes for a consumed request row; the
 # pre-merge join reads them back to prove the plan cites exactly what the
 # ingestion admitted.
 EVIDENCE_REF_PREFIX = "aria-tools/operator-feedback.jsonl:"
+_INGESTION_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -88,122 +111,205 @@ def _tools_root(base_dir: str | Path | None) -> Path:
     return root
 
 
-def _spent_requests(root: Path) -> dict[tuple[str, str], str]:
+def request_history_for(root: Path) -> RequestHistory:
+    """Claimed, spent and reported ids from the kernel's own hash-chained ledgers."""
     from .ledger import load_declared_jsonl
 
     ingestion_path = ingestion_ledger_path(root)
     ingestion_rows = (load_declared_jsonl(ingestion_path, expected_surface=INGESTION_SURFACE)
                       if ingestion_path.exists() else [])
-    # The plan ledger read the way the merge owner reads it
-    # (merge_authority's `plan_convergence_events` source), not through
+    # The plan ledger read the way the merge owner reads it, not through
     # plan_convergence.events_path: that accessor runs ensure_tools_dir, and
     # a scanner never mutates the tools root.
     plans = root / "plans" / "events.jsonl"
     plan_events = (load_declared_jsonl(plans, expected_surface="plan_convergence_events")
                    if plans.exists() else [])
-    return spent_requests(ingestion_rows=ingestion_rows, started_hashes=started_plan_hashes(plan_events))
+    return request_history(ingestion_rows=ingestion_rows, started_hashes=started_plan_hashes(plan_events))
+
+
+def _read_feedback_ledger(ledger: Path) -> tuple[list[dict[str, Any]], list[Any]] | None:
+    """(verified prefix rows, rows after the first chain break), or None when unreadable.
+
+    The same verified-prefix reader the merge owner uses
+    (``merge_authority._capture_pre_merge_context``): a row is admissible
+    only while every row before it chains.
+    """
+    from .ledger import _verify_jsonl_from_text, torn_tail_length
+    from .state_store import StateStoreError, _read_bounded_regular_file
+
+    try:
+        text = _read_bounded_regular_file(ledger)[0].decode("utf-8")
+    except (OSError, StateStoreError, UnicodeDecodeError):
+        return None
+    verdict, verified = _verify_jsonl_from_text(ledger, text, expected_surface="operator_feedback")
+    if verdict.get("valid", False):
+        return verified, []
+    # The walk stops at the first row that does not chain, so the verified
+    # rows are exactly the first len(verified) non-empty lines; everything
+    # after them is the unvouched tail (the verdict's own line number is the
+    # decoder's line within one row on a parse error, not a ledger line).
+    body = text[: len(text) - torn_tail_length(text)]
+    lines = [line for line in body.splitlines() if line.strip()]
+    tail: list[Any] = []
+    for line in lines[len(verified):]:
+        try:
+            tail.append(json.loads(line))
+        except ValueError:
+            tail.append(line)
+    return verified, tail
+
+
+def _row_key(row: Any) -> str:
+    if isinstance(row, dict) and isinstance(row.get("ledger_hash"), str) and row["ledger_hash"]:
+        return row["ledger_hash"]
+    encoded = row if isinstance(row, str) else json.dumps(row, sort_keys=True, default=str)
+    return "sha256:" + hashlib.sha256(encoded.encode("utf-8", errors="replace")).hexdigest()
+
+
+class _Scan:
+    """One ingestion's bookkeeping: drops (reported once), spends, admissions."""
+
+    def __init__(self, root: Path, cycle_id: str | None, history: RequestHistory) -> None:
+        self.root, self.cycle_id, self.history = root, cycle_id, history
+        self.dropped: list[dict[str, Any]] = []
+        self.refusals: list[tuple[dict[str, Any], str]] = []
+        self._announced: set[str] = set()
+
+    def drop(self, row: Any, line_no: int, reason: str, *, signer: str | None = None) -> None:
+        from .operator_feedback_signature import valid_request_id
+        from .tool_registry import append_tools_governance
+
+        key = _row_key(row)
+        raw_id = row.get("id") if isinstance(row, dict) else None
+        row_id = raw_id if valid_request_id(raw_id) else None
+        announce_key = drop_key(key, reason)
+        reported_before = announce_key in self.history.reported or announce_key in self._announced
+        governance_hash = None
+        if not reported_before:
+            self._announced.add(announce_key)
+            event = append_tools_governance(self.root, UNSIGNED_OPERATOR_FEEDBACK_EVENT, {
+                # Never the row body: it is untrusted text by definition.
+                "id": row_id, "line_no": line_no, "reason": reason, "signer": signer,
+                "row_key": key, "runner_fault": reason in VERIFICATION_RUNNER_FAULTS,
+                "cycle_id": self.cycle_id,
+            })
+            governance_hash = event.get("ledger_hash")
+        self.dropped.append({
+            "id": row_id, "line_no": line_no, "reason": reason, "row_key": key,
+            "runner_fault": reason in VERIFICATION_RUNNER_FAULTS,
+            "reported_before": reported_before, "governance_ledger_hash": governance_hash,
+        })
 
 
 def ingest_operator_feedback(
     *, base_dir: str | Path | None, cycle_id: str | None, repo_root: str | Path,
+    now: datetime | None = None,
 ) -> OperatorFeedbackIngestion:
-    """Verify, refuse reuse, skip spent, record. Returns the admitted rows as plan candidates.
+    """Verify, refuse, spend, record. Returns the admitted rows as plan candidates.
 
-    ``repo_root`` is the cycle's checkout: its HEAD commit holds the
-    allowed-signers file every signature is judged against.
+    ``repo_root`` is the cycle's checkout: its commit, once proven on
+    ``main``, holds the allowed-signers file every signature is judged
+    against.
     """
-    from .strict_jsonl_reader import read_strict_jsonl
-    from .tool_registry import append_tools_governance
-
     root = _tools_root(base_dir)
+    moment = now or datetime.now(timezone.utc)
     ledger = root / OPERATOR_FEEDBACK_LEDGER_NAME
-    admitted: list[dict[str, Any]] = []
-    dropped: list[dict[str, Any]] = []
+    history = request_history_for(root)
+    signers, anchor_reason = allowed_signers_for_checkout(repo_root)
+    scan = _Scan(root, cycle_id, history)
     spent_rows: list[dict[str, Any]] = []
+    groups: dict[str, list[tuple[dict[str, Any], str]]] = {}
     rows_scanned = 0
-    if ledger.exists():
-        allowed_signers = committed_allowed_signers(repo_root, rev="HEAD")
-        spent = _spent_requests(root)
-        # The id each request already holds on the ledger: only spent or
-        # verified rows claim one, so an unsigned line cannot squat an id.
-        claimed_ids: dict[str, str] = {}
-        # Tolerant per-row decoding on purpose: a hand-appended line breaks
-        # the hash chain for everything after it, and the contract wants
-        # each such row judged and reported individually, not the ledger
-        # declared unreadable at the first bad line.
-        for line_no, row in enumerate(
-            read_strict_jsonl(ledger, on_corruption="tolerant", base_dir=root), start=1,
-        ):
-            rows_scanned += 1
-            if not is_operator_request_row(row):
-                continue
-            key = request_key(row)
-            if key is not None and key in spent:
-                claimed_ids.setdefault(key[0], key[1])
-                spent_rows.append({"id": key[0], "ledger_hash": key[1], "reason": spent[key]})
-                continue
-            verdict = verify_operator_request(row, allowed_signers=allowed_signers)
-            reason = verdict.reason
-            if reason is None:
-                reason = operator_request_schema_reason(row)
-            if reason is None and key is None:
-                reason = SCHEMA_INVALID
-            if reason is None and key[0] in claimed_ids:
-                reason = REQUEST_ID_REUSED
-            if reason is not None:
-                row_id = row.get("id") if isinstance(row.get("id"), str) else None
-                event = append_tools_governance(root, UNSIGNED_OPERATOR_FEEDBACK_EVENT, {
-                    # Never the row body: it is untrusted text by definition.
-                    "id": row_id,
-                    "line_no": line_no,
-                    "reason": reason,
-                    "signer": verdict.signer,
-                    "cycle_id": cycle_id,
-                })
-                dropped.append({
-                    "id": row_id, "line_no": line_no, "reason": reason,
-                    "governance_ledger_hash": event.get("ledger_hash"),
-                })
-                continue
-            claimed_ids[key[0]] = key[1]
-            admitted.append({
-                "id": row["id"],
-                "ledger_hash": row["ledger_hash"],
-                "signer": verdict.signer,
-                "finding_id": row["finding_id"],
-                "priority": row["priority"],
-                "request": row["request"],
-                "authored_at": row["authored_at"],
-            })
+    read = _read_feedback_ledger(ledger) if ledger.exists() else ([], [])
+    verified, tail = read if read is not None else ([], [])
+    for line_no, row in enumerate(verified, start=1):
+        rows_scanned += 1
+        if not is_operator_request_row(row):
+            continue
+        verdict = verify_operator_request(row, allowed_signers=signers.content if signers else None)
+        if verdict.reason is not None:
+            scan.drop(row, line_no, verdict.reason, signer=verdict.signer)
+            continue
+        identifier, digest = str(row.get("id")), request_subject_digest(row)
+        if identifier in history.claimed and history.claimed[identifier] != digest:
+            scan.drop(row, line_no, REQUEST_ID_REUSED, signer=verdict.signer)
+            continue
+        if identifier in history.spent:
+            spent_rows.append({"id": identifier, "subject_digest": digest, "reason": history.spent[identifier]})
+            continue
+        schema = operator_request_schema_reason(row, now=moment)
+        if schema is not None:
+            scan.drop(row, line_no, schema, signer=verdict.signer)
+            scan.refusals.append((dict(row, _subject_digest=digest), schema))
+            continue
+        groups.setdefault(identifier, []).append((dict(row, _line_no=line_no, _signer=verdict.signer), digest))
+    for offset, row in enumerate(tail, start=len(verified) + 1):
+        rows_scanned += 1
+        if not isinstance(row, dict) or is_operator_request_row(row):
+            scan.drop(row, offset, LEDGER_CHAIN_BROKEN)
+    admitted: list[dict[str, Any]] = []
+    for identifier, entries in groups.items():
+        if len({digest for _row, digest in entries}) > 1:
+            # Two subjects under one id and no history to say which is the
+            # request: refuse both, whatever their order (order-independent).
+            for row, _digest in entries:
+                scan.drop(row, row["_line_no"], REQUEST_ID_REUSED, signer=row["_signer"])
+            continue
+        (row, digest), copies = entries[0], entries[1:]
+        for copy, _digest in copies:
+            scan.drop(copy, copy["_line_no"], REQUEST_DUPLICATE_COPY, signer=copy["_signer"])
+        admitted.append({
+            "id": identifier, "ledger_hash": row["ledger_hash"], "signer": row["_signer"],
+            "subject_digest": digest, "finding_id": row["finding_id"],
+            "grounding_digest": row["grounding_digest"], "expires_at": row["expires_at"],
+            "priority": row["priority"], "request": row["request"], "authored_at": row["authored_at"],
+        })
+    refused_ids: list[str] = []
+    for row, reason in scan.refusals:
+        if row["id"] in refused_ids:
+            continue
+        refused_ids.append(row["id"])
+        record_request_refused(
+            base_dir=root, cycle_id=cycle_id, request_id=row["id"],
+            request_ledger_hash=row.get("ledger_hash"), subject_digest=row["_subject_digest"],
+            finding_id=row.get("finding_id"), reason=reason, refused_surfaces=[],
+        )
     record = append_declared_jsonl(ingestion_ledger_path(root), {
-        "schema_version": 2,
+        "schema_version": _INGESTION_SCHEMA_VERSION,
         "row_type": INGESTION_ROW_TYPE,
         "ingested_at": utc_now(),
         "cycle_id": cycle_id,
         "ledger_present": ledger.exists(),
+        "ledger_readable": read is not None,
         "rows_scanned": rows_scanned,
+        "anchor": ({"commit": signers.commit, "allowed_signers_blob": signers.blob_oid} if signers
+                   else {"reason": anchor_reason or ALLOWED_SIGNERS_UNAVAILABLE}),
         "admitted": [
-            {"id": entry["id"], "ledger_hash": entry["ledger_hash"], "signer": entry["signer"]}
+            {key: entry[key] for key in ("id", "ledger_hash", "signer", "subject_digest")}
             for entry in admitted
         ],
-        "dropped": dropped,
+        "dropped": scan.dropped,
         "spent": spent_rows,
+        "refused": refused_ids,
     }, expected_surface=INGESTION_SURFACE)
     candidates = tuple({
         "source_type": PlanCandidateSource.OPERATOR_FEEDBACK.value,
         "candidate_id": entry["id"],
         "finding_id": entry["finding_id"],
+        "grounding_digest": entry["grounding_digest"],
+        "expires_at": entry["expires_at"],
         "priority": entry["priority"],
         "request": entry["request"],
         "authored_at": entry["authored_at"],
         "signer": entry["signer"],
+        "subject_digest": entry["subject_digest"],
         "row_ledger_hash": entry["ledger_hash"],
         "ingestion_ledger_hash": record.get("ledger_hash"),
         "title_hint": f"Operator request {entry['id']}",
     } for entry in admitted)
     return OperatorFeedbackIngestion(
         ledger_hash=record.get("ledger_hash"), admitted=tuple(admitted),
-        dropped=tuple(dropped), candidates=candidates, spent=tuple(spent_rows),
+        dropped=tuple(scan.dropped), candidates=candidates, spent=tuple(spent_rows),
     )
 
 
@@ -246,9 +352,10 @@ def bind_plan_synthesis(
             "id": candidate.get("candidate_id"),
             "ledger_hash": candidate.get("row_ledger_hash"),
             "signer": candidate.get("signer"),
+            "subject_digest": candidate.get("subject_digest"),
         })
     return append_declared_jsonl(ingestion_ledger_path(root), {
-        "schema_version": 2,
+        "schema_version": _INGESTION_SCHEMA_VERSION,
         "row_type": SYNTHESIS_BOUND_ROW_TYPE,
         "bound_at": utc_now(),
         "cycle_id": cycle_id,
@@ -260,135 +367,42 @@ def bind_plan_synthesis(
     }, expected_surface=INGESTION_SURFACE)
 
 
-def _consumed_refs(plan_content: Any) -> set[str]:
-    refs = plan_content.get("evidence_refs") if isinstance(plan_content, dict) else None
-    return {
-        str(ref)[len(EVIDENCE_REF_PREFIX):]
-        for ref in (refs or []) if isinstance(ref, str) and ref.startswith(EVIDENCE_REF_PREFIX)
-    }
-
-
 def record_request_refused(
     *,
     base_dir: str | Path | None,
     cycle_id: str | None,
-    candidate: dict[str, Any],
+    request_id: Any,
+    request_ledger_hash: Any,
+    subject_digest: Any,
+    finding_id: Any,
     reason: str,
     refused_surfaces: list[dict[str, str]],
 ) -> dict[str, Any]:
-    """ADR-0018 I4 — the request's target is not a plan ground; the request is spent.
+    """ADR-0018 I4/D3 — the request is refused for a reason of its own, and spent.
 
-    Written on the hash-chained ingestion ledger so ingestion reads it back
-    as a spend (``operator_request_spend.SPENT_REFUSED``): a refused request
-    never re-enters the ranking at priority 0, and the operator sees why in
-    one row instead of a skip event repeated every cycle.
+    Written on the hash-chained ingestion ledger so the next ingestion reads
+    it back as a spend: a refused request never re-enters the ranking at
+    priority 0. Only request-intrinsic reasons are accepted; a runner fault
+    is not in :data:`REQUEST_REFUSAL_REASONS`, so a transient failure cannot
+    spend a request (arbiter ruling iii).
     """
     if reason not in REQUEST_REFUSAL_REASONS:
         raise GovernanceError(f"operator_request_refusal_reason_unknown: {reason!r}")
-    if candidate.get("source_type") != PlanCandidateSource.OPERATOR_FEEDBACK.value:
-        raise GovernanceError("operator_request_refusal_requires_operator_candidate")
+    if not isinstance(request_id, str) or not request_id:
+        raise GovernanceError("operator_request_refusal_requires_request_id")
     root = _tools_root(base_dir)
     return append_declared_jsonl(ingestion_ledger_path(root), {
-        "schema_version": 2,
+        "schema_version": _INGESTION_SCHEMA_VERSION,
         "row_type": REQUEST_REFUSED_ROW_TYPE,
         "refused_at": utc_now(),
         "cycle_id": cycle_id,
-        "id": candidate.get("candidate_id"),
-        "request_ledger_hash": candidate.get("row_ledger_hash"),
-        "finding_id": candidate.get("finding_id"),
+        "id": request_id,
+        "request_ledger_hash": request_ledger_hash,
+        "subject_digest": subject_digest,
+        "finding_id": finding_id,
         "reason": reason,
         "refused_surfaces": list(refused_surfaces),
     }, expected_surface=INGESTION_SURFACE)
-
-
-def observe_operator_feedback_for_plan(
-    *,
-    plan_started: dict[str, Any] | None,
-    ingestion_rows: list[dict[str, Any]],
-    feedback_rows: list[dict[str, Any]],
-    allowed_signers: bytes | None,
-) -> dict[str, Any]:
-    """The pre-merge observation: walk plan → binding → ingestion → rows.
-
-    Reads only verified prefixes the merge owner captured (it rechecks them
-    after this returns) and the allowed-signers bytes it read from a commit
-    on ``main`` — an immutable git object, so there is no file to recheck
-    and no key the lane must hold (ADR-0020). Every gap is a named
-    ``operator_feedback_unavailable_reason``; the predicate never infers a
-    pass from an empty field.
-    """
-    observation: dict[str, Any] = {}
-    reason = "operator_feedback_plan_start_unavailable"
-    try:
-        if not isinstance(plan_started, dict):
-            raise GovernanceError(reason)
-        started_hash = plan_started.get("content_hash")
-        started_content = plan_started.get("plan_content")
-        if not isinstance(started_hash, str) or not started_hash or not isinstance(started_content, dict):
-            raise GovernanceError(reason)
-        observation["operator_feedback_plan_started_hash"] = started_hash
-        reason = "operator_feedback_synthesis_binding_unavailable"
-        bindings = [row for row in ingestion_rows
-                    if row.get("row_type") == SYNTHESIS_BOUND_ROW_TYPE
-                    and row.get("plan_content_hash") == started_hash]
-        if not bindings:
-            raise GovernanceError(reason)
-        binding = bindings[-1]
-        observation["operator_feedback_binding_hash"] = binding["ledger_hash"]
-        observation["operator_feedback_bound_content_hash"] = binding["plan_content_hash"]
-        reason = "operator_feedback_ingestion_unavailable"
-        ingestion_hash = binding.get("ingestion_ledger_hash")
-        ingestions = [row for row in ingestion_rows
-                      if row.get("row_type") == INGESTION_ROW_TYPE
-                      and ingestion_hash and row.get("ledger_hash") == ingestion_hash]
-        if len(ingestions) != 1 or ingestions[0].get("cycle_id") != binding.get("cycle_id"):
-            raise GovernanceError(reason)
-        ingestion = ingestions[0]
-        observation["operator_feedback_ingestion_hash"] = ingestion["ledger_hash"]
-        dropped = ingestion.get("dropped")
-        admitted = ingestion.get("admitted")
-        if not isinstance(dropped, list) or not isinstance(admitted, list):
-            raise GovernanceError(reason)
-        observation["operator_feedback_dropped_count"] = len(dropped)
-        reason = "operator_feedback_consumption_mismatch"
-        consumed = binding.get("consumed")
-        if not isinstance(consumed, list):
-            raise GovernanceError(reason)
-        consumed_ids = {str(entry.get("id")) for entry in consumed if isinstance(entry, dict)}
-        if consumed_ids != _consumed_refs(started_content):
-            raise GovernanceError(reason)
-        admitted_keys = {(entry.get("id"), entry.get("ledger_hash"), entry.get("signer"))
-                         for entry in admitted if isinstance(entry, dict)}
-        for entry in consumed:
-            if (entry.get("id"), entry.get("ledger_hash"), entry.get("signer")) not in admitted_keys:
-                raise GovernanceError(reason)
-        reason = "operator_feedback_consumed_row_unavailable"
-        row_hashes: list[str] = []
-        signers: list[str] = []
-        for entry in consumed:
-            matches = [row for row in feedback_rows
-                       if row.get("ledger_hash") == entry.get("ledger_hash")
-                       and row.get("id") == entry.get("id")
-                       and row.get("signer_principal") == entry.get("signer")]
-            if len(matches) != 1:
-                raise GovernanceError(reason)
-            verdict = verify_operator_request(matches[0], allowed_signers=allowed_signers)
-            if not verdict.valid:
-                # The synthesis consumed a row the committed trust anchor no
-                # longer vouches for — a revoked principal, or a rewritten row.
-                raise GovernanceError("operator_feedback_consumed_row_unsigned:" + str(verdict.reason))
-            row_hashes.append(str(entry["ledger_hash"]))
-            signers.append(str(entry["signer"]))
-        observation["operator_feedback_consumed_row_hashes"] = tuple(row_hashes)
-        observation["operator_feedback_consumed_signers"] = tuple(signers)
-        observation["operator_feedback_verified"] = True
-        return observation
-    except (GovernanceError, KeyError, TypeError, ValueError) as exc:
-        observation["operator_feedback_verified"] = False
-        observation["operator_feedback_unavailable_reason"] = (
-            str(exc) if isinstance(exc, GovernanceError) and str(exc) else reason
-        )
-        return observation
 
 
 __all__ = [
@@ -396,6 +410,8 @@ __all__ = [
     "INGESTION_LEDGER_NAME",
     "INGESTION_ROW_TYPE",
     "INGESTION_SURFACE",
+    "LEDGER_CHAIN_BROKEN",
+    "REQUEST_DUPLICATE_COPY",
     "REQUEST_ID_REUSED",
     "SYNTHESIS_BOUND_ROW_TYPE",
     "UNSIGNED_OPERATOR_FEEDBACK_EVENT",
@@ -404,6 +420,6 @@ __all__ = [
     "ingest_operator_feedback",
     "ingestion_ledger_path",
     "latest_ingestion_for_cycle",
-    "observe_operator_feedback_for_plan",
     "record_request_refused",
+    "request_history_for",
 ]

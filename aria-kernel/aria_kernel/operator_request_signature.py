@@ -14,8 +14,10 @@ merge by construction.
 WHAT. The operator signs with an ed25519 key held off-runner through
 ``ssh-keygen -Y sign`` under the namespace :data:`SIGNATURE_NAMESPACE`; the
 verifier needs only the allowed-signers file committed at
-:data:`ALLOWED_SIGNERS_PATH`, read as a git OBJECT at a named commit (never
-the working tree, which an unreviewed process can edit). ``.github/`` is in
+:data:`ALLOWED_SIGNERS_PATH`, read as a git OBJECT at a commit proven on
+``main`` through the hardened reader of :mod:`main_anchor` (scrubbed git
+environment, replace objects off, blob re-hashed) — never the working tree,
+never a commit the checkout merely points at. ``.github/`` is in
 ``implementation_safety.READONLY_PATHS``, so ARIA cannot enrol a key for
 itself; enrolment and rotation are reviewed pull requests. No signing
 material exists anywhere a runner uid can read.
@@ -26,6 +28,7 @@ plan candidates, and nothing here verifies them.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -33,8 +36,9 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
+from .main_anchor import committed_blob, resolve_main_anchor
 from .tool_registry import GovernanceError
 
 SIGNATURE_NAMESPACE = "aria-operator-request"
@@ -83,6 +87,12 @@ VERIFICATION_REASONS: tuple[str, ...] = (
     SIGNER_PRINCIPAL_INVALID, ALLOWED_SIGNERS_UNAVAILABLE, SIGNER_NOT_ENROLLED,
     VERIFIER_UNAVAILABLE, VERIFICATION_TIMEOUT, SIGNATURE_INVALID,
 )
+# The runner could not judge the row (no anchor, no verifier, a verifier
+# that hung). Never evidence against the request, so never a reason to
+# spend it (ADR-0018, arbiter ruling iii).
+VERIFICATION_RUNNER_FAULTS: frozenset[str] = frozenset({
+    ALLOWED_SIGNERS_UNAVAILABLE, VERIFIER_UNAVAILABLE, VERIFICATION_TIMEOUT,
+})
 
 
 @dataclass(frozen=True)
@@ -110,26 +120,45 @@ def valid_principal(value: Any) -> bool:
     return isinstance(value, str) and _PRINCIPAL_RE.fullmatch(value) is not None
 
 
-def committed_allowed_signers(repo_root: str | Path, *, rev: str) -> bytes | None:
-    """The trust anchor as committed at ``rev``, or None when it cannot be read.
+@dataclass(frozen=True)
+class AllowedSigners:
+    """The trust anchor's bytes and where they came from (recorded per ingestion)."""
 
-    A git object, not the working-tree file: a process that can write the
-    checkout cannot enrol a key by editing it. None is not a pass — every
-    caller turns it into :data:`ALLOWED_SIGNERS_UNAVAILABLE`.
+    content: bytes
+    commit: str
+    blob_oid: str
+
+
+def allowed_signers_at(repo_root: str | Path, *, commit: str) -> AllowedSigners | None:
+    """The allowed-signers file as committed at ``commit``, read through the hardened git.
+
+    ``main_anchor.committed_blob``: a scrubbed environment, replace objects
+    off, the blob re-hashed against its object id. None is not a pass —
+    every caller turns it into :data:`ALLOWED_SIGNERS_UNAVAILABLE`.
     """
-    if not isinstance(rev, str) or not rev or rev.startswith("-"):
+    blob = committed_blob(repo_root, commit=commit, path=ALLOWED_SIGNERS_PATH)
+    if blob is None or not blob.content.strip():
         return None
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(repo_root), "show", f"{rev}:{ALLOWED_SIGNERS_PATH}"],
-            stdin=subprocess.DEVNULL, capture_output=True, check=False,
-            timeout=_GIT_TIMEOUT_SECONDS,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if proc.returncode != 0 or not proc.stdout.strip():
-        return None
-    return proc.stdout
+    return AllowedSigners(content=blob.content, commit=blob.commit, blob_oid=blob.blob_oid)
+
+
+def allowed_signers_for_checkout(repo_root: str | Path) -> tuple[AllowedSigners | None, str | None]:
+    """The anchor a cycle (or the recorder) may trust: its checkout's commit, proven on main.
+
+    Returns ``(anchor, None)`` or ``(None, reason)`` with a
+    ``main_anchor.ANCHOR_*`` reason, or :data:`ALLOWED_SIGNERS_UNAVAILABLE`
+    when the proven commit carries no allowed-signers file.
+    """
+    anchor = resolve_main_anchor(repo_root)
+    if anchor.commit is None:
+        return None, anchor.reason
+    signers = allowed_signers_at(repo_root, commit=anchor.commit)
+    return (signers, None) if signers is not None else (None, ALLOWED_SIGNERS_UNAVAILABLE)
+
+
+def request_subject_digest(row: dict[str, Any]) -> str:
+    """``sha256:`` of the signed subject — the request's identity beyond its id."""
+    return "sha256:" + hashlib.sha256(request_signing_bytes(row)).hexdigest()
 
 
 def enrolled_principals(allowed_signers: bytes) -> frozenset[str]:
@@ -149,6 +178,7 @@ def enrolled_principals(allowed_signers: bytes) -> frozenset[str]:
 
 def sign_operator_request(
     row: dict[str, Any], *, signing_key: str | Path, signer_principal: str,
+    subject_stream: TextIO | None = None,
 ) -> dict[str, Any]:
     """Return ``row`` plus ``signer_principal`` and the armored ``signature``.
 
@@ -158,6 +188,11 @@ def sign_operator_request(
     file so stdin stays the operator's terminal for a passphrase prompt, and
     the file lives in a fresh private directory so ssh-keygen never meets an
     existing ``.sig`` it would ask to overwrite.
+
+    ``subject_stream`` (the recorder passes stderr) receives the exact bytes
+    about to be signed BEFORE ssh-keygen runs, so the operator signs what
+    they read, not what a process between them and the key assembled
+    (security-reviewer GSEC-MEDIUM-005).
     """
     if not isinstance(row, dict):
         raise GovernanceError("operator_request_row_must_be_object")
@@ -166,17 +201,23 @@ def sign_operator_request(
     key_path = Path(signing_key).expanduser()
     if not key_path.is_file():
         raise GovernanceError(f"operator_request_signing_key_missing: {key_path.as_posix()}")
-    if shutil.which("ssh-keygen") is None:
+    keygen = shutil.which("ssh-keygen")
+    if keygen is None:
         raise GovernanceError("operator_request_signing_unavailable: ssh-keygen not on PATH")
     subject = {key: value for key, value in row.items() if key not in _SIGNING_EXCLUDED_FIELDS}
     subject.setdefault("schema_version", REQUEST_ROW_SCHEMA_VERSION)
     subject["signer_principal"] = signer_principal
+    subject_bytes = request_signing_bytes(subject)
+    if subject_stream is not None:
+        subject_stream.write("aria-kernel: signing this subject (namespace "
+                             f"{SIGNATURE_NAMESPACE}):\n{subject_bytes.decode('ascii')}\n")
+        subject_stream.flush()
     with tempfile.TemporaryDirectory(prefix="aria-operator-request-") as scratch:
         data_path = Path(scratch) / "request"
-        data_path.write_bytes(request_signing_bytes(subject))
+        data_path.write_bytes(subject_bytes)
         try:
             proc = subprocess.run(
-                ["ssh-keygen", "-Y", "sign", "-f", str(key_path),
+                [keygen, "-Y", "sign", "-f", str(key_path),
                  "-n", SIGNATURE_NAMESPACE, str(data_path)],
                 capture_output=True, text=True, check=False, timeout=_SIGN_TIMEOUT_SECONDS,
             )
@@ -214,7 +255,10 @@ def verify_operator_request(
         return OperatorRequestVerdict(False, principal, ALLOWED_SIGNERS_UNAVAILABLE)
     if principal not in enrolled_principals(allowed_signers):
         return OperatorRequestVerdict(False, principal, SIGNER_NOT_ENROLLED)
-    if shutil.which("ssh-keygen") is None:
+    # Resolved once and executed by absolute path: the binary that was
+    # checked is the binary that runs (security-reviewer GSEC-LOW-006).
+    keygen = shutil.which("ssh-keygen")
+    if keygen is None:
         return OperatorRequestVerdict(False, principal, VERIFIER_UNAVAILABLE)
     with tempfile.TemporaryDirectory(prefix="aria-operator-verify-") as scratch:
         allowed_path = Path(scratch) / "allowed_signers"
@@ -223,7 +267,7 @@ def verify_operator_request(
         signature_path.write_text(signature, encoding="ascii")
         try:
             proc = subprocess.run(
-                ["ssh-keygen", "-Y", "verify", "-f", str(allowed_path), "-I", principal,
+                [keygen, "-Y", "verify", "-f", str(allowed_path), "-I", principal,
                  "-n", SIGNATURE_NAMESPACE, "-s", str(signature_path)],
                 input=request_signing_bytes(row), capture_output=True, check=False,
                 timeout=_VERIFY_TIMEOUT_SECONDS,
@@ -253,10 +297,14 @@ __all__ = [
     "VERIFICATION_REASONS",
     "VERIFICATION_TIMEOUT",
     "VERIFIER_UNAVAILABLE",
+    "VERIFICATION_RUNNER_FAULTS",
+    "AllowedSigners",
     "OperatorRequestVerdict",
-    "committed_allowed_signers",
+    "allowed_signers_at",
+    "allowed_signers_for_checkout",
     "enrolled_principals",
     "request_signing_bytes",
+    "request_subject_digest",
     "sign_operator_request",
     "valid_principal",
     "verify_operator_request",

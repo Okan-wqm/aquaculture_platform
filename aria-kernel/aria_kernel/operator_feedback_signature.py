@@ -30,10 +30,12 @@ from __future__ import annotations
 import hmac
 import json
 import re
+import sys
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from .hmac_keyring import HmacKeyring, hmac_sign
 from .ledger import append_declared_jsonl
@@ -215,6 +217,11 @@ def rotate_signing_key(*, base_dir: str | Path | None = None, reason: str) -> di
     }
 
 
+def valid_request_id(value: Any) -> bool:
+    """A request id in the recorder's closed charset (safe to name in governance)."""
+    return isinstance(value, str) and _REQUEST_ID_RE.fullmatch(value) is not None
+
+
 def is_operator_request_row(row: Any) -> bool:
     """A row that asks for a plan — judged by either marker, so a row that
     drops one of them is refused as a request instead of ignored as a verdict."""
@@ -233,8 +240,10 @@ def record_operator_request(
     signing_key: str | Path,
     signer_principal: str,
     request_id: str | None = None,
+    expires_in_hours: int | None = None,
     base_dir: str | Path | None = None,
     repo_root: str | Path = ".",
+    subject_stream: TextIO | None = None,
 ) -> dict[str, Any]:
     """The kernel-owned writer for the plan-request rows the synthesizer mines.
 
@@ -242,14 +251,22 @@ def record_operator_request(
     and names the F finding it wants planned (ADR-0018); the CLI verb
     ``aria-kernel feedback request`` is the channel. The recorder refuses
     what ingestion would refuse, so a row that can never be admitted is
-    never written: a reused id, a malformed finding id, and a signature the
-    allowed-signers file committed at ``repo_root``'s HEAD does not verify.
+    never written: a reused id (on the feedback ledger or anywhere in the
+    ingestion history), a finding that is not a plan ground at this
+    checkout's commit on main, and a signature the allowed-signers file of
+    that commit does not verify. It signs the terms that bound replay
+    (``operator_request_terms``): the audience, an expiry at most the
+    operator-act lifetime away (the default), and the digest of the
+    grounding it just admitted. The exact subject is printed to
+    ``subject_stream`` (stderr by default) before ssh-keygen runs.
     """
+    from .finding_grounding import admit_finding, load_grounding_context
     from .operator_request_signature import (
-        committed_allowed_signers,
+        allowed_signers_for_checkout,
         sign_operator_request,
         verify_operator_request,
     )
+    from .operator_request_terms import max_request_lifetime, request_audience, utc_iso
 
     text = str(request or "").strip()
     if not text:
@@ -269,24 +286,37 @@ def record_operator_request(
     identifier = str(request_id or "").strip() or f"OP-{uuid.uuid4()}"
     if _REQUEST_ID_RE.fullmatch(identifier) is None:
         raise GovernanceError(f"operator_request_id_invalid: {identifier!r}")
+    lifetime = max_request_lifetime()
+    hours = lifetime.total_seconds() / 3600 if expires_in_hours is None else expires_in_hours
+    if isinstance(hours, bool) or not 0 < hours <= lifetime.total_seconds() / 3600:
+        raise GovernanceError(f"operator_request_expiry_out_of_range: {expires_in_hours!r}")
     root = ensure_tools_dir(base_dir)
     ledger = root / OPERATOR_FEEDBACK_LEDGER_NAME
-    if any(row.get("id") == identifier for row in _request_rows(ledger, root)):
+    if identifier in _ids_already_used(ledger, root):
         raise GovernanceError(f"operator_request_id_reused: {identifier!r}")
+    signers, anchor_reason = allowed_signers_for_checkout(repo_root)
+    if signers is None:
+        raise GovernanceError(f"operator_request_anchor_unavailable: {anchor_reason}")
+    admission = admit_finding(load_grounding_context(repo_root), target)
+    if not admission.admitted:
+        raise GovernanceError(f"operator_request_finding_not_a_plan_ground: {admission.reason}")
+    authored = datetime.now(timezone.utc).replace(microsecond=0)
     row = sign_operator_request({
         "schema_version": OPERATOR_REQUEST_SCHEMA_VERSION,
         "row_kind": OPERATOR_REQUEST_ROW_KIND,
         "id": identifier,
         "finding_id": target,
-        "authored_at": utc_now(),
+        "authored_at": utc_iso(authored),
+        "expires_at": utc_iso(authored + timedelta(hours=hours)),
+        "audience": request_audience(),
+        "grounding_digest": admission.grounding_digest,
         "authored_by": author,
         "request": text,
         "priority": priority,
         "status": OPERATOR_REQUEST_STATUS_UNADDRESSED,
-    }, signing_key=signing_key, signer_principal=signer_principal)
-    verdict = verify_operator_request(
-        row, allowed_signers=committed_allowed_signers(repo_root, rev="HEAD"),
-    )
+    }, signing_key=signing_key, signer_principal=signer_principal,
+        subject_stream=subject_stream if subject_stream is not None else sys.stderr)
+    verdict = verify_operator_request(row, allowed_signers=signers.content)
     if not verdict.valid:
         raise GovernanceError(f"operator_request_signature_unverified: {verdict.reason}")
     stored = append_declared_jsonl(ledger, row, expected_surface=OPERATOR_FEEDBACK_SURFACE)
@@ -297,27 +327,38 @@ def record_operator_request(
         "finding_id": target,
         "priority": priority,
         "signer": verdict.signer,
+        "expires_at": row["expires_at"],
+        "grounding_digest": row["grounding_digest"],
+        "anchor_commit": signers.commit,
         "ledger_hash": stored.get("ledger_hash"),
     })
     return stored
 
 
-def _request_rows(ledger: Path, root: Path) -> list[dict[str, Any]]:
-    from .strict_jsonl_reader import read_strict_jsonl
+def _ids_already_used(ledger: Path, root: Path) -> set[str]:
+    """Every request id on the feedback ledger or anywhere in the ingestion history."""
+    from .operator_feedback_ingestion import request_history_for
 
-    if not ledger.exists():
-        return []
-    return [row for row in read_strict_jsonl(ledger, on_corruption="tolerant", base_dir=root)
-            if is_operator_request_row(row)]
+    used: set[str] = set()
+    if ledger.exists():
+        from .strict_jsonl_reader import read_strict_jsonl
+
+        used.update(str(row.get("id")) for row in read_strict_jsonl(ledger, on_corruption="tolerant", base_dir=root)
+                    if is_operator_request_row(row))
+    used.update(request_history_for(root).claimed)
+    return used
 
 
-def operator_request_schema_reason(row: dict[str, Any]) -> str | None:
-    """Why a request row is not one the synthesizer consumes, or None.
+def operator_request_schema_reason(row: dict[str, Any], *, now: datetime) -> str | None:
+    """Why a request row is not one the synthesizer consumes at ``now``, or None.
 
     Kept separate from signature verification so the drop reason can say
-    which of the two failed: a validly signed row without a finding id is
-    a malformed operator act, still refused.
+    which of the two failed: a validly signed row without a finding id, past
+    its expiry or for another repository is a malformed or stale operator
+    act, still refused (and, being signed, spent).
     """
+    from .operator_request_terms import request_terms_reason
+
     finding_id = row.get("finding_id")
     if not isinstance(finding_id, str) or not finding_id.strip():
         return FINDING_ID_MISSING
@@ -331,7 +372,7 @@ def operator_request_schema_reason(row: dict[str, Any]) -> str | None:
         return SCHEMA_INVALID
     if row["priority"] not in OPERATOR_REQUEST_PRIORITIES:
         return SCHEMA_INVALID
-    return None
+    return request_terms_reason(row, now=now)
 
 
 __all__ = [
@@ -356,6 +397,7 @@ __all__ = [
     "append_signed_operator_feedback_row",
     "canonical_signing_bytes",
     "is_operator_request_row",
+    "valid_request_id",
     "operator_feedback_ledger_path",
     "operator_request_schema_reason",
     "record_operator_request",

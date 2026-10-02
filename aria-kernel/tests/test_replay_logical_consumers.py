@@ -20,7 +20,6 @@ from aria_kernel.governance_reader import (
 from aria_kernel.instinct_candidate import list_candidates
 from aria_kernel.handoff_ledger import list_handoffs
 from aria_kernel.ledger import read_jsonl_reverse_verified
-from aria_kernel.operator_feedback_ingestion import ingest_operator_feedback
 from aria_kernel.plan_synthesizer import scan_operator_feedback
 from aria_kernel.planner_dispatch_hook import _release_abandoned_claim
 from aria_kernel.reflection import _phase_digest_summary
@@ -373,17 +372,9 @@ def test_operator_handoff_watchdog_and_report_consumers_see_replayed_rows(
     operator_loser_path = operator_loser / "operator-feedback.jsonl"
     append_declared_fixture(
         operator_loser_path,
-        operator.sign(
-            {
-                "row_kind": "operator_request",
-                "id": "OP-replayed",
-                "finding_id": "F-007",
-                "status": "unaddressed",
-                "authored_at": "2026-08-22T01:00:00Z",
-                "request": "preserve replayed operator authority",
-                "priority": "high",
-            },
-        ),
+        operator.sign(operator.request_row(
+            id="OP-replayed", request="preserve replayed operator authority",
+        )),
         expected_surface="operator_feedback",
     )
     replay_append_only_suffixes(
@@ -547,9 +538,16 @@ def test_roi_and_executor_anchor_consumers_keep_replayed_identity(tmp_path: Path
 
 
 def test_declared_logical_consumers_route_through_shared_readers() -> None:
+    from aria_kernel.operator_feedback_ingestion import _read_feedback_ledger, request_history_for
+
     sources = {
         # scan_operator_feedback only orders what the ingestion owner read.
-        "operator feedback": inspect.getsource(ingest_operator_feedback),
+        # Since review round 2 (GSEC-MEDIUM-004) ingest_operator_feedback
+        # reads through two helpers: the feedback ledger through the merge
+        # owner's verified-prefix reader, its own history through
+        # load_declared_jsonl.
+        "operator feedback ledger": inspect.getsource(_read_feedback_ledger),
+        "operator feedback history": inspect.getsource(request_history_for),
         "handoffs": inspect.getsource(list_handoffs),
         "watchdog": inspect.getsource(load_watchdog_rows),
         "report blocked": inspect.getsource(_blocked_reasons),
@@ -565,6 +563,7 @@ def test_declared_logical_consumers_route_through_shared_readers() -> None:
                 "read_jsonl(",
                 "read_strict_jsonl(",
                 "load_declared_jsonl(",
+                "_verify_jsonl_from_text(",
             )
         )
         for source in sources.values()

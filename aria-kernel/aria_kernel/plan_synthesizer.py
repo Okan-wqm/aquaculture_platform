@@ -939,64 +939,13 @@ def rank_candidate_sources(
 _FINDING_EVIDENCE_CAP = 50
 
 
-def _evidence_refs_from_finding_json(finding_path: Any) -> tuple[list[str], list[str]]:
-    """Extract (evidence_refs, affected_surfaces) from an aria-findings JSON.
-
-    ORPHAN-312 root fix: the F-finding's ``evidence_chain[].reference`` entries
-    are already ``path:line`` refs to the REAL code the drift lives in (e.g.
-    ``web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346``). Those are
-    the evidence a challenger must ground its plan in — NOT the finding JSON
-    file itself. Returns ([], []) when the file is missing/unparseable or
-    carries no usable references, so the caller can fall back.
-    """
-    if not isinstance(finding_path, str) or not finding_path:
-        return [], []
-    try:
-        finding = json.loads(Path(finding_path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, ValueError):
-        return [], []
-    # Two shapes carry the finding's code references. The adapter-era
-    # ``evidence_chain[].reference`` (a ``path:line`` string), and the
-    # ``aria/finding/v1`` shape the consensus promotion emits
-    # (`finding.emit_finding`): ``evidences[].evidence_envelope`` with
-    # ``canonical_ref`` + ``line`` and a ``trust_grade``. ARIA-HIGH-183 — the
-    # first five findings the live ring promoted (F-009…F-013, 2026-09-20)
-    # carried only the second shape; this reader saw an empty chain, and the
-    # plan candidate the cycle selected from them (F-013) could never become
-    # a plan. A ref that is not ``repo_verified`` or is self-output is not a
-    # ground a challenger can stand on and is skipped.
-    references: list[str] = []
-    chain = finding.get("evidence_chain")
-    if isinstance(chain, list):
-        for entry in chain:
-            if isinstance(entry, dict) and isinstance(entry.get("reference"), str):
-                references.append(entry["reference"])
-    evidences = finding.get("evidences")
-    if isinstance(evidences, list):
-        for entry in evidences:
-            if not isinstance(entry, dict):
-                continue
-            envelope = entry.get("evidence_envelope") if isinstance(entry.get("evidence_envelope"), dict) else {}
-            if envelope.get("trust_grade") not in (None, "repo_verified") or envelope.get("self_output_class"):
-                continue
-            canonical = envelope.get("canonical_ref") or entry.get("ref")
-            if not isinstance(canonical, str) or not canonical.strip():
-                continue
-            canonical = canonical.strip()
-            line = envelope.get("line")
-            if isinstance(line, int) and line > 0 and not re.search(r":\d+$", canonical):
-                canonical = f"{canonical}:{line}"
-            references.append(canonical)
-    return _finding_refs_and_surfaces(references)
-
-
 def _finding_refs_and_surfaces(references: list[Any]) -> tuple[list[str], list[str]]:
-    """(evidence_refs, affected_surfaces) from a finding's code references.
+    """(evidence_refs, affected_surfaces) from an ORPHAN finding's registry references.
 
     An evidence ref may pin a line (``path:line``); a surface is the path the
-    fix touches, so the line is split off. Both finding sources (ORPHAN from
-    the registry, F from ``aria-findings/``) read their references through
-    this one function. ARIA-HIGH-211 — ORPHAN candidates once copied
+    fix touches, so the line is split off. F findings no longer come through
+    here: their refs are read from the finding-event fold and judged by
+    ``finding_grounding.admit_finding`` (ADR-0018 D5). ARIA-HIGH-211 — ORPHAN candidates once copied
     ``docs/x.md:12`` into ``affected_surfaces``, a string no path and no risk
     lane is written for.
     """

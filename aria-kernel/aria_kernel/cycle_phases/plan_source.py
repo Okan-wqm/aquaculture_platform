@@ -174,7 +174,7 @@ class V9PressureSourceProvider:
         base_dir: Path,
         profile: str,
     ) -> CyclePlanEnvelope | None:
-        from ..finding_grounding import admit_candidate
+        from ..finding_grounding import admit_candidate, load_grounding_context
         from ..operator_feedback_ingestion import bind_plan_synthesis, record_request_refused
         from ..operator_request_spend import REQUEST_TEXT_UNUSABLE
         from ..plan_candidate_source import PlanCandidateSource
@@ -192,20 +192,27 @@ class V9PressureSourceProvider:
             workspace_root=workspace_root, base_dir=base_dir, cycle_id=cycle_id,
         )
         attempted = 0
+        # ADR-0018 D5 — the anchor commit and the finding fold are read ONCE
+        # per synthesis (arbiter ruling iv), then every finding-naming
+        # candidate is judged against the same view.
+        grounding_context = load_grounding_context(workspace_root)
         for candidate in candidates:
-            # ADR-0018 D5 — one admission for every source that names an F
-            # finding (aging F findings and operator requests alike), judged
-            # against THIS checkout; None for sources that name none.
-            admission = admit_candidate(candidate, repo_root=workspace_root)
+            # One admission for every source that names an F finding (aging
+            # F findings and operator requests alike); None for sources that
+            # name none.
+            admission = admit_candidate(candidate, grounding_context)
             envelope = convert_candidate_to_plan_content(candidate, admission=admission)
             attempted += 1
             grounding: dict[str, Any] = {}
             if admission is not None:
-                # Refused surfaces are named in the conversion event, never
-                # dropped silently.
+                # Refused surfaces and refs are named in the conversion
+                # event, never dropped silently; a ref that failed the safe
+                # charset is named by its hash, never echoed.
                 grounding = {
                     "finding_id": admission.finding_id,
+                    "anchor_commit": admission.anchor_commit,
                     "refused_surfaces": admission.refused_surface_records(),
+                    "refused_refs": admission.refused_ref_records(),
                 }
             if envelope is not None:
                 # Bind BEFORE announcing the selection: the synthesized content
@@ -231,6 +238,7 @@ class V9PressureSourceProvider:
                 return envelope
             if admission is not None:
                 grounding["reason"] = admission.reason or REQUEST_TEXT_UNUSABLE
+                grounding["runner_fault"] = admission.runner_fault
             append_tools_governance(
                 base_dir, "plan_candidate_conversion_skipped",
                 {
@@ -240,12 +248,19 @@ class V9PressureSourceProvider:
                     **grounding,
                 },
             )
-            if candidate.get("source_type") == PlanCandidateSource.OPERATOR_FEEDBACK.value:
+            if (candidate.get("source_type") == PlanCandidateSource.OPERATOR_FEEDBACK.value
+                    and not grounding.get("runner_fault")):
                 # ADR-0018 I4 — the request's target is not a plan ground: the
                 # refusal is recorded once on the ingestion ledger and spends
-                # the request, so it does not hold priority 0 forever.
+                # the request, so it does not hold priority 0 forever. A
+                # runner fault (no anchor, no finding store) is only the skip
+                # event above: the request is judged again next cycle.
                 record_request_refused(
-                    base_dir=base_dir, cycle_id=cycle_id, candidate=candidate,
+                    base_dir=base_dir, cycle_id=cycle_id,
+                    request_id=candidate.get("candidate_id"),
+                    request_ledger_hash=candidate.get("row_ledger_hash"),
+                    subject_digest=candidate.get("subject_digest"),
+                    finding_id=candidate.get("finding_id"),
                     reason=grounding["reason"],
                     refused_surfaces=grounding["refused_surfaces"],
                 )

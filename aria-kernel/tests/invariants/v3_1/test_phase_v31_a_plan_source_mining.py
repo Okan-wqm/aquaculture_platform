@@ -84,12 +84,14 @@ class ConvertCandidateToPlanContentTests(unittest.TestCase):
         self.checkout.seed_finding("F-099", refs=[f"{GROUNDED_FILE}:346"])
 
     def _convert(self, candidate: dict):
-        from aria_kernel.finding_grounding import admit_candidate
+        from aria_kernel.finding_grounding import admit_candidate, admit_finding, load_grounding_context
         from aria_kernel.plan_synthesizer import convert_candidate_to_plan_content
 
-        return convert_candidate_to_plan_content(
-            candidate, admission=admit_candidate(candidate, repo_root=self.checkout.repo),
-        )
+        context = load_grounding_context(self.checkout.repo)
+        if candidate["source_type"] == "operator_feedback":
+            # The digest the operator signed over the grounding (ADR-0018 B2).
+            candidate = dict(candidate, grounding_digest=admit_finding(context, "F-099").grounding_digest)
+        return convert_candidate_to_plan_content(candidate, admission=admit_candidate(candidate, context))
 
     def test_i_v31_a_02_handles_all_four_source_types(self) -> None:
         """Plan ARIA-V3.1-A-2 — every PlanCandidateSource except

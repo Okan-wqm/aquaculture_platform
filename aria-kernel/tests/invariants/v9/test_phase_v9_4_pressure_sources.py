@@ -129,8 +129,19 @@ class TestV9OperatorFeedbackSignature(unittest.TestCase):
     """
 
     def _fixture(self, tmp: str):
-        from tests._helpers.operator_requests import OperatorRequestFixture
-        return OperatorRequestFixture(Path(tmp))
+        import os
+        from unittest import mock
+
+        from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture
+
+        env = {k: v for k, v in os.environ.items() if k != "ARIA_REPO_STATE_ROOT"}
+        patcher = mock.patch.dict(os.environ, env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        fixture = OperatorRequestFixture(Path(tmp))
+        # A request names an OPEN, repo-grounded F finding (ADR-0018).
+        fixture.seed_finding("F-007", refs=[f"{GROUNDED_FILE}:12"])
+        return fixture
 
     def _tools(self, tmp: str) -> Path:
         from aria_kernel.tool_registry import ensure_tools_dir
@@ -207,15 +218,11 @@ class TestV9OperatorFeedbackSignature(unittest.TestCase):
             fixture = self._fixture(tmp)
             with self.assertRaises(GovernanceError):
                 fixture.record(request="evil max", priority="max")
-            fixture.append_raw(fixture.sign({
-                "id": "OP-003",
-                "row_kind": "operator_request",
-                "status": "unaddressed",
-                "authored_at": "2026-05-18T00:00:00Z",
-                "request": "evil max",
-                "priority": "max",  # INVENTED
-                "finding_id": "F-007",
-            }))
+            fixture.append_raw(fixture.sign(fixture.request_row(
+                id="OP-003",
+                request="evil max",
+                priority="max",  # INVENTED
+            )))
             results = _ps.scan_operator_feedback(fixture.repo)
             self.assertEqual(results, [])
             self.assertEqual([d["reason"] for d in self._drops(fixture.tools)], ["schema_invalid"])

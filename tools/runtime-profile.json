@@ -1,0 +1,26 @@
+{
+  "active_profile": "standard",
+  "merge_lane_grant": null,
+  "operator_approval": {
+    "act": "comment",
+    "act_id": 5947340190,
+    "consumed_event_id": "GE-operator-approval-consumed-c1a33e8472457796",
+    "kind": "gh",
+    "login": "Okan-wqm",
+    "number": 1702,
+    "posted_at": "2026-10-02T07:25:06Z",
+    "ref": "gh:Okan-wqm/aquaculture_platform#1702/comment/5947340190",
+    "scope": {
+      "ceiling": "strict",
+      "profile": "standard"
+    },
+    "surface": "runtime_profile",
+    "url": "https://github.com/Okan-wqm/aquaculture_platform/pull/1702#issuecomment-5947340190"
+  },
+  "operator_approval_ref": "gh:Okan-wqm/aquaculture_platform#1702/comment/5947340190",
+  "previous_profile": "standard",
+  "previous_scheduler_profile_ceiling": "standard",
+  "scheduler_profile_ceiling": "strict",
+  "set_at": "2026-10-02T08:34:16+00:00",
+  "set_by": "operator"
+}

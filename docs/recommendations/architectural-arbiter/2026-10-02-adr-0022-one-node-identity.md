@@ -1,6 +1,6 @@
 # ADR-0022 — One Node Identity Across Graph, Memory and Findings
 
-**Status:** proposed
+**Status:** accepted (operator, 2026-10-02)
 **Date:** 2026-10-02
 **Owner:** okan
 **Decision deadline:** before the first node ID is written to a committed or published surface

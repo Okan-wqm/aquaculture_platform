@@ -1,6 +1,6 @@
 # ADR-0023 — Signature Namespace Registry and Principal Classes
 
-**Status:** proposed
+**Status:** accepted (operator, 2026-10-02)
 **Date:** 2026-10-02
 **Owner:** okan
 **Decision deadline:** before kernel step K5 (S1) opens; target 2026-10-09

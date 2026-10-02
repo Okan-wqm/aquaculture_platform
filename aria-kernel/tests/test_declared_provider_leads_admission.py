@@ -156,7 +156,7 @@ class ANamedResultAdmissionSurvivesTheHandler(unittest.TestCase):
 
     def test_an_unnamed_attempt_is_classified_by_exception_family(self) -> None:
         unnamed = ci_executor._NATIVE_CLAUDE_ADMISSION_UNNAMED
-        self.assertEqual(ci_executor._result_admission_for(ClaudeAuthFailure("x"), unnamed), "auth_unavailable")
+        self.assertEqual(ci_executor._result_admission_for(ClaudeAuthFailure("x", provider="anthropic", model="opus", detail={}), unnamed), "auth_unavailable")
         exhausted = ClaudeCreditExhausted("x", provider="zai", model="glm-5.3", detail={"marker": "x"})
         self.assertEqual(ci_executor._result_admission_for(exhausted, unnamed), "quota_unavailable")
         self.assertEqual(ci_executor._result_admission_for(ClaudeCliUnavailable("x"), unnamed),

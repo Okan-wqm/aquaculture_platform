@@ -54,6 +54,10 @@ from aria_kernel.provider_cooldown import (
 from aria_kernel.tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 _T0 = datetime(2026, 9, 12, 3, 0, 0, tzinfo=timezone.utc)
+# ARIA-HIGH-290 — a cooldown is written only for a signature of the kernel's
+# closed table, attributed to the provider it cools.
+_CLAUDE_CREDIT = {"signature": "claude_credit_error", "matched_marker": "credit balance"}
+_ZAI_QUOTA = {"signature": "zai_quota_refusal", "marker": "quota_or_rate_limited_http_429"}
 
 
 class _ToolsFixture(unittest.TestCase):
@@ -65,7 +69,8 @@ class _ToolsFixture(unittest.TestCase):
 
 class TheRowAndItsReader(_ToolsFixture):
     def test_the_row_names_the_provider_the_reason_and_the_window(self) -> None:
-        detection = {"matched_marker": "usage-credits", "source": "cli_usage_limit_message"}
+        detection = {"signature": "claude_usage_credits_hint", "matched_marker": "usage-credits",
+                     "source": "cli_usage_limit_message"}
         row = record_provider_cooldown(
             self.tools, provider="anthropic", model="opus", cooldown_seconds=900,
             request_id="AIR-1", claim_id="CL-1", detection=detection, now=_T0,
@@ -81,17 +86,18 @@ class TheRowAndItsReader(_ToolsFixture):
         self.assertEqual(details["cooldown_seconds"], 900)
         self.assertEqual(details["recorded_at"], "2026-09-12T03:00:00Z")
         self.assertEqual(details["until"], "2026-09-12T03:15:00Z")
+        self.assertEqual(details["until_source"], "policy_default")
         self.assertEqual((details["request_id"], details["claim_id"]), ("AIR-1", "CL-1"))
         self.assertEqual(details["detection"], detection)
 
     def test_a_non_positive_window_is_refused(self) -> None:
         with self.assertRaises(ValueError):
             record_provider_cooldown(self.tools, provider="anthropic", model="opus", cooldown_seconds=0,
-                                     request_id="AIR-1", claim_id="CL-1", detection={})
+                                     request_id="AIR-1", claim_id="CL-1", detection=_CLAUDE_CREDIT)
 
     def test_the_reader_cools_until_the_window_ends_and_not_after(self) -> None:
         record_provider_cooldown(self.tools, provider="anthropic", model="opus", cooldown_seconds=900,
-                                 request_id="AIR-1", claim_id="CL-1", detection={}, now=_T0)
+                                 request_id="AIR-1", claim_id="CL-1", detection=_CLAUDE_CREDIT, now=_T0)
         inside = active_provider_cooldowns(self.tools, now=_T0 + timedelta(seconds=899))
         self.assertEqual(set(inside), {"anthropic"})
         self.assertEqual(inside["anthropic"]["until"], "2026-09-12T03:15:00Z")
@@ -101,18 +107,24 @@ class TheRowAndItsReader(_ToolsFixture):
 
     def test_the_newest_row_per_provider_decides(self) -> None:
         # An older, longer cooldown must not outlive a newer, shorter one —
-        # the ledger's newest word on a provider is its current state.
-        record_provider_cooldown(self.tools, provider="anthropic", model="opus", cooldown_seconds=3600,
-                                 request_id="AIR-1", claim_id="CL-1", detection={}, now=_T0)
-        record_provider_cooldown(self.tools, provider="anthropic", model="opus", cooldown_seconds=60,
-                                 request_id="AIR-2", claim_id="CL-2", detection={}, now=_T0 + timedelta(seconds=10))
+        # the ledger's newest word on a provider is its current state. The
+        # writer never appends inside a standing window (one row per
+        # transition), so the two rows are laid down directly: the READER's
+        # contract holds for any ledger, however it was written.
+        for request_id, seconds, at in (("AIR-1", 3600, _T0), ("AIR-2", 60, _T0 + timedelta(seconds=10))):
+            append_tools_governance(self.tools, PROVIDER_COOLDOWN_GOVERNANCE_KIND, {
+                "schema_version": 1, "provider": "anthropic", "model": "opus", "reason": "quota_unavailable",
+                "cooldown_seconds": seconds, "recorded_at": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "until": (at + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "request_id": request_id, "claim_id": f"CL-{request_id}", "detection": _CLAUDE_CREDIT,
+            })
         self.assertEqual(active_provider_cooldowns(self.tools, now=_T0 + timedelta(seconds=120)), {})
         current = active_provider_cooldowns(self.tools, now=_T0 + timedelta(seconds=30))
         self.assertEqual(current["anthropic"]["request_id"], "AIR-2")
 
     def test_one_provider_cooling_does_not_cool_another(self) -> None:
         record_provider_cooldown(self.tools, provider="zai", model="glm-5.3", cooldown_seconds=900,
-                                 request_id="AIR-1", claim_id="CL-1", detection={}, now=_T0)
+                                 request_id="AIR-1", claim_id="CL-1", detection=_ZAI_QUOTA, now=_T0)
         self.assertEqual(set(active_provider_cooldowns(self.tools, now=_T0)), {"zai"})
 
     def test_an_absent_ledger_cools_nothing(self) -> None:
@@ -120,13 +132,15 @@ class TheRowAndItsReader(_ToolsFixture):
 
     def test_the_row_a_claim_wrote_is_found_by_that_claim(self) -> None:
         record_provider_cooldown(self.tools, provider="anthropic", model="opus", cooldown_seconds=900,
-                                 request_id="AIR-1", claim_id="CL-1", detection={}, now=_T0)
+                                 request_id="AIR-1", claim_id="CL-1", detection=_CLAUDE_CREDIT, now=_T0)
+        # A later TRANSITION (after CL-1's window) is written under its own claim.
+        billing = {"signature": "claude_credit_error", "matched_marker": "billing"}
         record_provider_cooldown(self.tools, provider="anthropic", model="opus", cooldown_seconds=900,
-                                 request_id="A-W-1", claim_id="DC-7", detection={"matched_marker": "billing"},
-                                 now=_T0 + timedelta(seconds=5))
+                                 request_id="A-W-1", claim_id="DC-7", detection=billing,
+                                 now=_T0 + timedelta(seconds=905))
         found = provider_cooldown_for_claim(self.tools, claim_id="DC-7")
         self.assertIsNotNone(found)
-        self.assertEqual((found["request_id"], found["detection"]), ("A-W-1", {"matched_marker": "billing"}))
+        self.assertEqual((found["request_id"], found["detection"]), ("A-W-1", billing))
         self.assertIsNone(provider_cooldown_for_claim(self.tools, claim_id="DC-never"))
         self.assertIsNone(provider_cooldown_for_claim(self.root / "nowhere" / "aria-tools", claim_id="DC-7"))
 
@@ -164,7 +178,7 @@ class AMalformedRowIsRefusedByName(_ToolsFixture):
         return {
             "schema_version": 1, "provider": "anthropic", "model": "opus", "reason": "quota_unavailable",
             "cooldown_seconds": 900, "recorded_at": "2026-09-12T03:00:00Z", "until": "2026-09-12T03:15:00Z",
-            "request_id": "AIR-1", "claim_id": "CL-1", "detection": {},
+            "until_source": "policy_default", "request_id": "AIR-1", "claim_id": "CL-1", "detection": _CLAUDE_CREDIT,
         }
 
     def _seed(self, details: dict) -> dict:
@@ -174,7 +188,7 @@ class AMalformedRowIsRefusedByName(_ToolsFixture):
         # The fixture row must match the writer's shape byte for byte, or the
         # refusals below would be testing a shape nothing produces.
         written = record_provider_cooldown(self.tools, provider="anthropic", model="opus", cooldown_seconds=900,
-                                           request_id="AIR-1", claim_id="CL-1", detection={}, now=_T0)["details"]
+                                           request_id="AIR-1", claim_id="CL-1", detection=_CLAUDE_CREDIT, now=_T0)["details"]
         self.assertEqual(written, self._valid_details())
 
     def test_every_indexed_field_is_refused_by_name_when_broken(self) -> None:
@@ -213,7 +227,7 @@ class AMalformedRowIsRefusedByName(_ToolsFixture):
         # Even an EXPIRED malformed row is refused: the contract is on the
         # row, not on whether it would have cooled anything today.
         record_provider_cooldown(self.tools, provider="anthropic", model="opus", cooldown_seconds=900,
-                                 request_id="AIR-1", claim_id="CL-1", detection={}, now=_T0)
+                                 request_id="AIR-1", claim_id="CL-1", detection=_CLAUDE_CREDIT, now=_T0)
         self._seed({**self._valid_details(), "until": "2020-01-01T00:00:00Z", "model": ""})
         with self.assertRaises(GovernanceError):
             active_provider_cooldowns(self.tools, now=_T0)
@@ -269,7 +283,7 @@ _WRITER = AgentRuntimeProfile(agent_name="implementer", model="opus", effort="ma
 class TheFleetObeysTheCooldown(_AdmissionFixture):
     def test_a_cooled_provider_is_refused_without_a_probe_and_the_next_vendor_is_admitted(self) -> None:
         cooldown = record_provider_cooldown(self.tools, provider="anthropic", model="opus", cooldown_seconds=900,
-                                            request_id="AIR-1", claim_id="CL-1", detection={}, now=_T0)["details"]
+                                            request_id="AIR-1", claim_id="CL-1", detection=_CLAUDE_CREDIT, now=_T0)["details"]
         admission = self._admit(_READ_ONLY, {"anthropic": cooldown})
         self.assertEqual(self.probed, ["zai", "openai"], "the cooled provider is never asked")
         rows = {row["provider"]: row for row in admission.candidate_observations}
@@ -308,7 +322,7 @@ class TheFleetKnowsWhoCanWrite(_AdmissionFixture):
 
     def test_a_writer_whose_provider_is_cooled_has_no_route_and_waits(self) -> None:
         cooldown = record_provider_cooldown(self.tools, provider="anthropic", model="opus", cooldown_seconds=900,
-                                            request_id="AIR-1", claim_id="CL-1", detection={}, now=_T0)["details"]
+                                            request_id="AIR-1", claim_id="CL-1", detection=_CLAUDE_CREDIT, now=_T0)["details"]
         admission = self._admit(_WRITER, {"anthropic": cooldown})
         self.assertEqual(self.probed, [], "nothing to ask: one provider is cooled, the others cannot write")
         self.assertEqual(admission.eligible_routes, ())

@@ -309,7 +309,7 @@ class TheLadderMovesOnlyOnADecision(_FleetFixture):
 
         cooldown = record_provider_cooldown(
             self.tools, provider="anthropic", model="opus", cooldown_seconds=900,
-            request_id="AIR-1", claim_id="CL-1", detection={},
+            request_id="AIR-1", claim_id="CL-1", detection={"signature": "claude_credit_error"},
             now=datetime(2026, 9, 12, 20, 0, tzinfo=timezone.utc),
         )["details"]
         admission = self._admit({}, cooled={"anthropic": cooldown})

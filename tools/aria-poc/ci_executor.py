@@ -72,6 +72,7 @@ from claude_runtime import (
     ClaudeUsageUnavailable,
     UsageRecording,
     extract_final_message,
+    failure_cause_text,
     extract_usage,
     is_mock_mode as _claude_is_mock_mode,
     parse_claude_jsonl,
@@ -2424,7 +2425,10 @@ def invoke_claude_cli(
     # no cause is the operator reading four ledgers to learn that the
     # limiter could not reach a bus. They go to the job log AND, through
     # the summary seam, to the caller that records the attempt.
-    _stderr_tail = _bounded_stderr_tail(completed.stderr) if completed.returncode != 0 else None
+    # ARIA-HIGH-290 — cut from the cause-ordered text, not raw stderr: the
+    # CLI's start-up notices must not push the result event's cause out.
+    _stderr_tail = (_bounded_stderr_tail(failure_cause_text(stderr=completed.stderr, events=completed.events))
+                    if completed.returncode != 0 else None)
     _emit_dispatch_summary(
         outcome="succeeded" if completed.returncode == 0 else "failed",
         failure=classify_dispatch_failure(result=completed, phase="runtime"),
@@ -3173,6 +3177,7 @@ def _run_zai_as_claude_result(
     failure_class = None
     if completed.auth_failure is not None:
         auth_failure = {
+            "signature": completed.exhaustion_signature,
             "marker": completed.auth_failure, "matched_marker": completed.auth_failure,
             "vendor_error_code": completed.error_code, "vendor_error_message": completed.error_message,
             "remedy": f"re-provision the Z.ai subscription key at its boundary ({context.credential.location})",
@@ -3180,6 +3185,7 @@ def _run_zai_as_claude_result(
         failure_class = "auth_failed"
     elif completed.credit_exhaustion is not None:
         credit_exhaustion = {
+            "signature": completed.exhaustion_signature,
             "marker": completed.credit_exhaustion, "matched_marker": completed.credit_exhaustion,
             "vendor_error_code": completed.error_code, "vendor_error_message": completed.error_message,
         }
@@ -3294,7 +3300,8 @@ def _invoke_native_codex(
         transcript_path.write_text(completed.stdout, encoding="utf-8")
         if completed.auth_failure is not None:
             result_admission = "auth_unavailable"
-            raise ClaudeAuthFailure("Codex managed authentication unavailable")
+            raise ClaudeAuthFailure("Codex managed authentication unavailable", provider=route["provider"],
+                                    model=route["model"], detail=dict(completed.auth_failure))
         if completed.credit_exhaustion is not None:
             result_admission = "quota_unavailable"
             raise ClaudeCreditExhausted(
@@ -3417,13 +3424,18 @@ def _invoke_native_zai(
         transcript_path.write_text(completed.raw_body.decode("utf-8", errors="replace"), encoding="utf-8")
         if completed.auth_failure is not None:
             result_admission = "auth_unavailable"
-            raise ClaudeAuthFailure("Z.ai subscription authentication unavailable")
+            raise ClaudeAuthFailure(
+                "Z.ai subscription authentication unavailable", provider=route["provider"], model=route["model"],
+                detail={"signature": completed.exhaustion_signature, "marker": completed.auth_failure,
+                        "vendor_error_code": completed.error_code, "http_status": completed.http_status},
+            )
         if completed.credit_exhaustion is not None:
             result_admission = "quota_unavailable"
             raise ClaudeCreditExhausted(
                 "Z.ai subscription capacity unavailable", provider=route["provider"],
                 model=route["model"],
-                detail={"marker": completed.credit_exhaustion, "vendor_error_code": completed.error_code,
+                detail={"signature": completed.exhaustion_signature, "marker": completed.credit_exhaustion,
+                        "vendor_error_code": completed.error_code,
                         "vendor_error_message": completed.error_message, "http_status": completed.http_status},
             )
         if completed.returncode != 0:
@@ -5134,6 +5146,17 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             + _redact_lease_in_message(str(exc), lease_token)
             + ". No agent ran, so no result was submitted.\n"
         )
+        if native_runtime is not None:
+            # ARIA-HIGH-290 — a dead credential is a provider fact, answered
+            # like an exhausted quota: the provider is cooled (once per
+            # transition) and the next admission routes past it.
+            from aria_kernel.provider_cooldown import record_provider_cooldown
+
+            record_provider_cooldown(
+                tools_dir, provider=exc.provider, model=exc.model,
+                cooldown_seconds=native_runtime.policy.provider_cooldown_seconds,
+                request_id=request_id, claim_id=claim_id, detection=exc.detail,
+            )
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,

@@ -24,6 +24,7 @@ from typing import Any as _Any, Callable as _Callable, Mapping as _Mapping
 
 from .agent_runtime_profile import AgentRuntimeProfile as _AgentRuntimeProfile
 from .genesis_policy import _AdaptiveRuntimePolicy
+from .provider_cooldown import EXHAUSTION_KIND_REASONS
 from .model_fleet import (
     _FLEET,
     _RUNTIME_BINARIES,
@@ -268,9 +269,13 @@ def _native_runtime_admission(
                 decision=StatusDecision.UNAVAILABLE,
             )
         elif cooldown is not None:
+            # ARIA-HIGH-290 — the row names which fact cooled the provider:
+            # a dead credential or an exhausted quota.
+            auth_cooled = cooldown["reason"] == EXHAUSTION_KIND_REASONS["auth"]
             status = _RuntimeStatusObservation(
-                "unknown", quota_observation="unavailable", reason=COOLDOWN_STATUS_REASON,
-                decision=StatusDecision.UNAVAILABLE,
+                "unavailable" if auth_cooled else "unknown",
+                quota_observation="unknown" if auth_cooled else "unavailable",
+                reason=COOLDOWN_STATUS_REASON, decision=StatusDecision.UNAVAILABLE,
             )
         elif binary is not None and shutil.which(binary, path=search_path) is None:
             status = _RuntimeStatusObservation("unavailable", reason="cli_unavailable",
@@ -316,6 +321,7 @@ def _native_runtime_admission(
             # refuses a row missing any of these fields by name before it
             # can reach this admission.
             row["quota_cooldown"] = {
+                "reason": cooldown["reason"],
                 "until": cooldown["until"], "recorded_at": cooldown["recorded_at"],
                 "request_id": cooldown["request_id"], "model": cooldown["model"],
             }

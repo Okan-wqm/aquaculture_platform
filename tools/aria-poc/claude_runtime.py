@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -204,7 +205,18 @@ class ClaudeAuthFailure(RuntimeError):
     failed", which is what let five nights of dispatches die without anyone
     learning that the session had expired. It is also NOT retried on another
     tier — every tier authenticates through the same credential.
+
+    ARIA-HIGH-290 — like ClaudeCreditExhausted it names the ``provider`` whose
+    credential failed, the ``model`` that ran into it and the detection
+    record (``detail``, carrying the signature), so the native lane cools
+    that provider and the next admission routes past it.
     """
+
+    def __init__(self, message: str, *, provider: str, model: str, detail: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.model = model
+        self.detail = detail
 
 
 class ClaudeCreditExhausted(RuntimeError):
@@ -1759,6 +1771,24 @@ USAGE_LIMIT_MARKERS: tuple[str, ...] = (
     "usage-credits",              # the /usage-credits purchase command
     "switch models with /model",  # the model-switch hint in the limit notice
 )
+# (1b) THE NOTICE LINE ITSELF — ARIA-HIGH-290. The CLI's limit notice has a
+# shape no marker above names: measured 2026-10-01 on exit 1, "You've hit
+# your weekly limit · resets 6am (UTC)" (also 2026-08-22 on exit 0, sealed
+# as a judge's evidence: "... resets Aug 23, 10am (UTC)"). Matched as a whole
+# LINE that opens with "You've hit/reached your … limit", so prose that
+# merely discusses limits never matches; the line travels on the record as
+# `reset_hint`, from which the kernel's `provider_cooldown.stated_reset`
+# reads the reset the vendor stated.
+USAGE_LIMIT_NOTICE_RX = re.compile(
+    r"^\W*you(?:'|\u2019)?ve\s+(?:hit|reached)\s+your\b[^\n]{0,60}?\blimit\b[^\n]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+# The signature each Claude detection names — members of the kernel's closed
+# table (`aria_kernel.provider_cooldown.PROVIDER_EXHAUSTION_SIGNATURES`), the
+# only shapes a provider cooldown may be written for.
+CLAUDE_EXHAUSTION_SIGNATURES: tuple[str, ...] = (
+    "claude_usage_credits_hint", "claude_usage_limit_notice", "claude_credit_error", "claude_auth_failure",
+)
 # (2) API CREDIT/QUOTA ERROR — an actual failure (returncode != 0) whose text
 #     names a credit/quota/billing problem.
 #
@@ -1834,6 +1864,7 @@ def extract_auth_failure(
         return None
     return {
         "kind": "auth_failure",
+        "signature": "claude_auth_failure",
         "marker": marker,
         "returncode": returncode,
         # The remedy is a human act on the runner host, so it travels with the
@@ -1900,21 +1931,24 @@ def run_with_model_fallback(
                 raise ClaudeAuthFailure(
                     f"claude_auth_failure: {completed.auth_failure.get('marker')} on "
                     f"{model!r}, and the cross-provider rung {cross!r} is unavailable "
-                    f"({exc}); remedy: {completed.auth_failure.get('remedy')}"
+                    f"({exc}); remedy: {completed.auth_failure.get('remedy')}",
+                    provider=_model_provider(model), model=model, detail=dict(completed.auth_failure),
                 ) from exc
             if retried.auth_failure is not None:
                 raise ClaudeAuthFailure(
                     f"claude_auth_failure: {completed.auth_failure.get('marker')} on "
                     f"{model!r}, and the cross-provider rung {cross!r} failed auth "
                     f"too ({retried.auth_failure.get('marker')}) — both providers "
-                    f"are unavailable; remedy: {completed.auth_failure.get('remedy')}"
+                    f"are unavailable; remedy: {completed.auth_failure.get('remedy')}",
+                    provider=_model_provider(cross), model=cross, detail=dict(retried.auth_failure),
                 )
             return _stamp_model(_raise_if_exhausted(retried, model=cross, on_credit=on_credit), cross)
         raise ClaudeAuthFailure(
             f"claude_auth_failure: {completed.auth_failure.get('marker')} on {model!r}"
             + (" — a write-scope profile has no cross-vendor rung (the other "
                "runtimes are read-only)" if write_capable else " — no cross-vendor rung")
-            + f"; {completed.auth_failure.get('remedy')}"
+            + f"; {completed.auth_failure.get('remedy')}",
+            provider=_model_provider(model), model=model, detail=dict(completed.auth_failure),
         )
     return _stamp_model(_raise_if_exhausted(completed, model=model, on_credit=on_credit), model)
 
@@ -1968,15 +2002,16 @@ def extract_credit_exhaustion(
     Two shapes are matched over the FULL response text (stderr + final message
     + assistant content + the terminal ``result`` event):
 
-    * A CLI **usage-limit message** (``USAGE_LIMIT_MARKERS`` or the
-      "reached your … limit" co-occurrence) fires REGARDLESS of returncode —
+    * A CLI **usage-limit message** (``USAGE_LIMIT_MARKERS`` or a
+      ``USAGE_LIMIT_NOTICE_RX`` line) fires REGARDLESS of returncode —
       the CLI returns its limit notice as assistant content on a clean exit,
       so a ``returncode != 0`` gate would miss it (the 2026-07-03 live case).
     * An API **credit/quota error** (``CREDIT_ERROR_MARKERS``) fires only on a
       real failure (``returncode != 0``), so a plan that merely mentions
       "billing" on a clean run is never misread.
 
-    Returns a record naming the matched marker, or ``None``.
+    Returns a record naming the matched marker and its ``signature`` (a
+    member of ``CLAUDE_EXHAUSTION_SIGNATURES``), or ``None``.
     """
     haystacks: list[str] = [stderr or "", final_message or ""]
     for event in events:
@@ -1986,15 +2021,19 @@ def extract_credit_exhaustion(
             haystacks.append(str(event.get("result") or ""))
             haystacks.append(str(event.get("error") or ""))
             haystacks.append(str(event.get("subtype") or ""))
-    blob = "\n".join(haystacks).lower()
+    text = "\n".join(haystacks)
+    blob = text.lower()
+    notice = USAGE_LIMIT_NOTICE_RX.search(text)
+    notice_line = notice.group(0).strip() if notice is not None else None
     # (1) CLI usage-limit MESSAGE — content-based, returncode-independent.
     limit_marker = next((m for m in USAGE_LIMIT_MARKERS if m in blob), None)
-    if limit_marker is None and "reached your" in blob and "limit" in blob:
-        limit_marker = "reached_your_limit"
-    if limit_marker is not None:
+    if limit_marker is not None or notice_line is not None:
         return {
             "source": "cli_usage_limit_message",
-            "matched_marker": limit_marker,
+            "signature": ("claude_usage_credits_hint" if limit_marker is not None
+                          else "claude_usage_limit_notice"),
+            "matched_marker": limit_marker or "usage_limit_notice",
+            "reset_hint": notice_line,
             "returncode": returncode,
         }
     # (2) API credit/quota ERROR — gated on a real (nonzero-exit) failure.
@@ -2003,10 +2042,40 @@ def extract_credit_exhaustion(
             if marker in blob:
                 return {
                     "source": "cli_error_text",
+                    "signature": "claude_credit_error",
                     "matched_marker": marker,
                     "returncode": returncode,
                 }
     return None
+
+
+# CLI notices that open a spawn on a host and say nothing about how it ended.
+# Measured 2026-10-01: "Ignoring 481 permissions.allow entries from
+# .claude/settings.local.json: this workspace has not been trusted. ..." was
+# the WHOLE recorded tail of every failed attempt (ARIA-HIGH-290).
+BENIGN_CLI_NOTICE_RX = re.compile(
+    r"^Ignoring \d+ permissions\.(?:allow|deny) entries from .*has not been trusted", re.MULTILINE,
+)
+
+
+def failure_cause_text(*, stderr: str, events: tuple[dict[str, Any], ...]) -> str:
+    """The text a failed run's recorded tail is cut from, ordered cause LAST.
+
+    The executor keeps the last ``STDERR_TAIL_MAX_CHARS`` of this. The CLI
+    reports a terminal condition — the weekly-limit notice, an API error —
+    in the stream's ``result`` event, while stderr may carry only start-up
+    notices; tailing stderr alone recorded the notice and lost the cause.
+    Order: the benign notices (``BENIGN_CLI_NOTICE_RX``), then every other
+    stderr line in its own order, then the terminal ``result`` event's text
+    and error, so no length of notice can push the cause out of the tail.
+    """
+    lines = (stderr or "").splitlines()
+    notices = [line for line in lines if BENIGN_CLI_NOTICE_RX.match(line)]
+    others = [line for line in lines if not BENIGN_CLI_NOTICE_RX.match(line)]
+    terminal = next((event for event in reversed(events) if event.get("type") == "result"), None)
+    outcome = ([f"result: {part}" for part in (terminal.get("result"), terminal.get("error"))
+                if isinstance(part, str) and part.strip()] if terminal is not None else [])
+    return "\n".join(notices + others + outcome)
 
 
 def extract_usage(events: tuple[dict[str, Any], ...]) -> dict[str, Any] | None:

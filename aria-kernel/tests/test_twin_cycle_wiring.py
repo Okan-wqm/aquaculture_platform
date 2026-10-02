@@ -38,6 +38,7 @@ from aria_kernel.agent_invocations import render_invocation_prompt
 from aria_kernel.cycle import CYCLE_PHASES, _phase_twin_refresh, build_phase_context
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.twin import read_twin_map
+from tests._helpers.declared_fixtures import native_invocation_bytes
 from tests._helpers.policy_fixtures import AMPLE_QUALIFICATION_DEADLINE_SECONDS, write_source_qualification_override
 
 
@@ -248,21 +249,19 @@ class TwinRefreshPhaseTests(unittest.TestCase):
         self.assertEqual(request["prompt_ledger_hash"], native["prompt"]["ledger_hash"])
         self.assertEqual(native["context"]["repo_root"], str((root or self.repo).resolve()))
         self.assertEqual(native["context"]["budget_audit_hash"], request["budget_audit_hash"])
-        from aria_kernel.ledger import load_declared_jsonl
-        stored = next(row for row in load_declared_jsonl(
-            self.tools / "agent-invocations/requests.jsonl", expected_surface="agent_invocation_requests",
-        ) if row["request_id"] == request["request_id"])
+        from aria_kernel.ledger import load_segments
+        stored = next(row for row in load_segments(self.tools, "agent_invocation_requests")
+                      if row["request_id"] == request["request_id"])
         self.assertEqual(json.dumps(stored, sort_keys=True), json.dumps(request, sort_keys=True))
         self.assertEqual(stored["cycle_id"], cycle_id)
         return request
 
     def _native_prompt_prefixes(self) -> dict:
-        return {name: (self.tools / f"agent-invocations/{name}.jsonl").read_bytes()
-                for name in ("requests", "contexts", "prompts")}
+        return native_invocation_bytes(self.tools)
 
     def _assert_native_prompt_prefixes(self, prefixes: dict) -> None:
-        for name, payload in prefixes.items():
-            self.assertTrue((self.tools / f"agent-invocations/{name}.jsonl").read_bytes().startswith(payload), name)
+        for name, payload in self._native_prompt_prefixes().items():
+            self.assertTrue(payload.startswith(prefixes[name]), name)
 
     def test_named_scope_reaches_native_mint_with_independent_dimensions(self) -> None:
         from aria_kernel import snapshot, discovery, twin
@@ -635,7 +634,7 @@ class TwinRefreshPhaseTests(unittest.TestCase):
         import threading
         from concurrent.futures import ThreadPoolExecutor
         from aria_kernel import agent_invocations as ai, context_budget_gate as gate
-        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.ledger import load_declared_jsonl, load_segments
         self._discover_named_pilot_scope()
         arrivals = threading.Barrier(2)
         winner_done = threading.Event()
@@ -667,9 +666,10 @@ class TwinRefreshPhaseTests(unittest.TestCase):
             results = [first.result(timeout=45), later.result(timeout=45)]
         self.assertEqual(sorted(misses), ["first", "later"])
         self.assertEqual(json.dumps(results[0], sort_keys=True), json.dumps(results[1], sort_keys=True))
-        for name, surface in (("requests", "agent_invocation_requests"), ("contexts", "agent_invocation_contexts"),
-                              ("prompts", "agent_invocation_prompts")):
-            self.assertEqual(len(load_declared_jsonl(self.tools / f"agent-invocations/{name}.jsonl", expected_surface=surface)), 1)
+        self.assertEqual(len(load_declared_jsonl(self.tools / "agent-invocations/contexts.jsonl",
+                                                 expected_surface="agent_invocation_contexts")), 1)
+        for surface in ("agent_invocation_requests", "agent_invocation_prompts"):
+            self.assertEqual(len(load_segments(self.tools, surface)), 1)
         audits = gate.list_context_audits(base_dir=self.tools)
         self.assertEqual(len(audits), 1, "No speculative trial or losing-candidate audit may be persisted")
         self.assertEqual(results[0]["budget_audit_hash"], audits[0]["ledger_hash"])

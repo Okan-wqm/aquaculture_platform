@@ -11,7 +11,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Iterator
 
 from .file_lock import ExclusiveLockHandle, with_exclusive_lock
@@ -19,6 +19,7 @@ from .state_store_lifecycle_arcs import STATE_LOCK_LIVENESS_SECONDS, state_trans
 from .state_manifest import (
     normalize_surface_relative_path,
     state_group_lock_relative_path,
+    surface_by_name,
     surface_for_path,
     surface_for_relative_path,
 )
@@ -32,8 +33,12 @@ __all__ = [
     "REPLAY_TRANSPORT_SCHEMA_PREFIX",
     "ROW_FORMAT_VERSION",
     "STATE_LOCK_LIVENESS_SECONDS",
+    "SEGMENT_OPENED_ROW_TYPE",
+    "SEGMENT_ROLLOVER_BYTES",
+    "SEGMENTED_LEDGERS",
     "StateTransaction",
     "append_declared_jsonl",
+    "append_segment_rows",
     "append_jsonl",
     "canonical_json",
     "stamp_row_format",
@@ -43,6 +48,7 @@ __all__ = [
     "load_jsonl",
     "load_jsonl_verified",
     "load_jsonl_verified_text",
+    "load_segments",
     "json_nesting_within_limit",
     "is_replay_transport_row",
     "verify_jsonl_chunks",
@@ -51,6 +57,9 @@ __all__ = [
     "rewrite_declared_json",
     "rewrite_declared_jsonl",
     "rewrite_jsonl",
+    "segment_family",
+    "segment_paths",
+    "segment_rows",
     "state_transaction",
     "tools_index_group_ledgers",
     "verify_index_hashes",
@@ -542,6 +551,43 @@ class StateTransaction:
             records,
             held_file_lock_paths=self.paths,
         )
+
+    def load_segments(self, root: str | Path, surface: str) -> list[dict[str, Any]]:
+        """``load_segments`` under this transaction (ARIA-HIGH-275). Segment 0
+        anchors the family's group lock, which every segment append takes."""
+        self._canonical_path(_segment_layout(Path(root), surface)[0])
+        return load_segments(root, surface)
+
+    def append_segment_rows(
+        self,
+        root: str | Path,
+        records: list[dict[str, Any]],
+        *,
+        expected_surface: str,
+        now: datetime | None = None,
+        bypass_profile_gate: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Append to the current month's segment, opening it when due.
+
+        The target is chosen under the anchored group lock, so two writers
+        can never both open the same segment or append past a sealed one.
+        """
+        frozen, _directory, segment_surface = _segment_layout(Path(root), expected_surface)
+        self._canonical_path(frozen)
+        target, marker = _segment_for_append(
+            Path(root), expected_surface, now or datetime.now(timezone.utc),
+        )
+        _assert_declared_surface(
+            target,
+            expected_surface=segment_surface,
+            enforce_write_profile=not bypass_profile_gate,
+        )
+        stored = _append_rows_locked_body(
+            target.resolve(),
+            [marker, *records] if marker else list(records),
+            held_file_lock_paths=self.paths,
+        )
+        return stored[1:] if marker else stored
 
     def rewrite_declared_json(
         self,
@@ -1329,6 +1375,7 @@ def _append_rows_locked_body(
     """
     if not records:
         return []
+    _assert_segment_append_allowed(path, records)
     stamped = [_stamped_for_surface(path, record) for record in records]
     path.parent.mkdir(parents=True, exist_ok=True)
     _verify_existing_declared_chain_before_append(path)
@@ -1671,14 +1718,16 @@ def load_declared_jsonl(
             "declared_jsonl_strict_read_required: "
             f"surface={surface.name!r} path={Path(path).resolve().as_posix()}"
         )
+    # The verifier binds transport rows to the surface that OWNS the file,
+    # which for a segment differs from the family name the caller asked by.
     if verify:
         return load_jsonl_verified(
             Path(path).resolve(),
-            expected_surface=expected_surface,
+            expected_surface=surface.name,
         )
     return read_jsonl(
         Path(path).resolve(),
-        expected_surface=expected_surface,
+        expected_surface=surface.name,
     )
 
 
@@ -1694,7 +1743,9 @@ def _assert_declared_surface(
             f"declared_jsonl_unknown_surface: {Path(path).resolve().as_posix()}"
         )
     surface, _base_dir = match
-    if surface.name != expected_surface:
+    # A segment of a segmented family (ARIA-HIGH-275) is a file of that
+    # family's ledger: a source ref names the family and the segment path.
+    if expected_surface not in {surface.name, segment_family(surface.name)}:
         raise LedgerIntegrityError(
             "declared_jsonl_surface_mismatch: "
             f"expected={expected_surface!r} actual={surface.name!r} "
@@ -2486,3 +2537,214 @@ def _refresh_adjacent_index_grouped(
 # call `_refresh_adjacent_index_grouped` explicitly with the held lock.
 def _refresh_adjacent_index(path: Path) -> None:
     _refresh_adjacent_index_grouped(path, held_file_lock_path=path)
+
+
+# ARIA-HIGH-275 — WHY: the request and prompt ledgers grow 1-2 MiB a day,
+# nothing may compact them, and one file per surface meets the 64 MiB publish
+# cap (`state_snapshot.SNAPSHOT_MAX_SURFACE_BLOB_BYTES`) within weeks; from
+# then every publish fails `snapshot_surface_too_large`.
+# WHAT: the original file stays as frozen segment 0 (snapshot verification
+# and every source ref already written are bound to its path). New rows go to
+# `<family dir>/<YYYY-MM>[-k].jsonl`, a fresh `-k` once the month's newest
+# segment reaches SEGMENT_ROLLOVER_BYTES. Row 0 of each segment is a
+# `segment_opened` row naming the segment it continues, that segment's row
+# count and tail ledger hash: one chain `segment_rows` re-verifies on every
+# read. A producer appends only to the newest segment. Contention replay
+# (`contention_replay`) merges a losing lane's rows into the files that lane
+# wrote, so a sealed segment can grow behind its link, a segment both lanes
+# opened carries both markers, and lanes that rolled over at once fork from
+# one segment. A link therefore names an earlier segment and proves its tail
+# row sits at or after the position its opener saw, which a missing,
+# reordered or truncated segment cannot satisfy. Markers are deterministic,
+# so two lanes that opened a segment from the same view replay as one event.
+SEGMENT_ROLLOVER_BYTES = 16 * 1024 * 1024
+SEGMENTED_LEDGERS: dict[str, str] = {
+    "agent_invocation_requests": "agent_invocation_request_segments",
+    "agent_invocation_prompts": "agent_invocation_prompt_segments",
+}
+SEGMENT_OPENED_ROW_TYPE = "segment_opened"
+_SEGMENT_FAMILY = {segment: family for family, segment in SEGMENTED_LEDGERS.items()}
+_SEGMENT_NAME = re.compile(r"(?P<month>\d{4}-(?:0[1-9]|1[0-2]))(?:-(?P<k>[1-9][0-9]*))?\.jsonl")
+
+
+def segment_family(surface: str) -> str:
+    """The ledger a surface's rows belong to: a segment's family, else itself."""
+    return _SEGMENT_FAMILY.get(surface, surface)
+
+
+def _segment_layout(root: Path, surface: str) -> tuple[Path, Path, str]:
+    """(segment 0 path, monthly segment directory, segment surface name)."""
+    segment_surface = SEGMENTED_LEDGERS[surface]
+    directory = PurePosixPath(surface_by_name(segment_surface).path_pattern).parent
+    return root / surface_by_name(surface).path_pattern, root / directory, segment_surface
+
+
+def _segment_order(path: Path) -> tuple[str, int]:
+    name = _SEGMENT_NAME.fullmatch(path.name)
+    return ("", 0) if name is None else (name["month"], int(name["k"] or 0))
+
+
+def segment_paths(root: str | Path, surface: str) -> list[Path]:
+    """The existing files of a segmented ledger, in chain order."""
+    frozen, directory, _segment_surface = _segment_layout(Path(root), surface)
+    monthly = sorted(directory.glob("*.jsonl"), key=_segment_order) if directory.is_dir() else []
+    for path in monthly:
+        if _SEGMENT_NAME.fullmatch(path.name) is None:
+            raise LedgerIntegrityError(f"segment_name_invalid:{path.as_posix()}")
+    return ([frozen] if frozen.exists() else []) + monthly
+
+
+def _segment_file_rows(root: Path, surface: str, path: Path) -> list[dict[str, Any]]:
+    """Strictly verified logical rows of one file of a segmented family."""
+    frozen, _directory, segment_surface = _segment_layout(root, surface)
+    return load_jsonl_verified(path, expected_surface=surface if path == frozen else segment_surface)
+
+
+def _segment_link(previous: str | None, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """What a segment opened after ``previous`` (holding ``rows``) records."""
+    tail = rows[-1]["ledger_hash"] if rows else None
+    return {"prev_segment": previous, "prev_row_count": len(rows), "prev_tail_ledger_hash": tail}
+
+
+def _link_holds(marker: dict[str, Any], relative: str, seen: dict[str | None, list[dict[str, Any]]]) -> bool:
+    rows = seen.get(marker.get("prev_segment"))
+    count, tail = marker.get("prev_row_count"), marker.get("prev_tail_ledger_hash")
+    return (
+        marker.get("segment") == relative and rows is not None
+        and isinstance(count, int) and 0 <= count <= len(rows)
+        and (tail is None if count == 0 else any(row.get("ledger_hash") == tail for row in rows[count - 1:]))
+    )
+
+
+def segment_rows(root: str | Path, surface: str) -> list[tuple[str, dict[str, Any]]]:
+    """Every payload row of a segmented ledger with its segment's path.
+
+    Each file is strictly verified and every `segment_opened` row is checked
+    against the earlier file it names; markers are chain structure, never returned.
+    A newest segment whose marker never became a whole row (its writer died
+    mid-open) holds nothing yet; the next append opens it.
+    """
+    root = Path(root)
+    frozen = _segment_layout(root, surface)[0]
+    located: list[tuple[str, dict[str, Any]]] = []
+    seen: dict[str | None, list[dict[str, Any]]] = {None: []}  # None opens only the first file
+    paths = segment_paths(root, surface)
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        rows = _segment_file_rows(root, surface, path)
+        if path != frozen and not rows and path == paths[-1]:
+            break
+        markers = [row for row in rows if row.get("row_type") == SEGMENT_OPENED_ROW_TYPE]
+        opens = not markers if path == frozen else bool(markers) and rows[0] is markers[0]
+        if not opens or not all(_link_holds(marker, relative, seen) for marker in markers):
+            raise LedgerIntegrityError(f"segment_chain_broken:{path.as_posix()}")
+        located.extend((relative, row) for row in rows if row.get("row_type") != SEGMENT_OPENED_ROW_TYPE)
+        seen.pop(None, None)
+        seen[relative] = rows
+    return located
+
+
+def load_segments(root: str | Path, surface: str) -> list[dict[str, Any]]:
+    """THE reader of a segmented ledger: segment 0, then every monthly segment."""
+    return [row for _relative, row in segment_rows(root, surface)]
+
+
+def _segment_opened(path: Path) -> bool:
+    """A monthly segment is open once its first row — the marker — is whole."""
+    try:
+        with path.open("rb") as handle:
+            return handle.readline(LEDGER_ROW_MAX_BYTES).endswith(b"\n")
+    except FileNotFoundError:
+        return False
+
+
+def _segment_for_append(
+    root: Path, surface: str, now: datetime,
+) -> tuple[Path, dict[str, Any] | None]:
+    """The segment the next row lands in, and its opening row when it is new.
+
+    The month never moves backwards: a clock behind the newest segment keeps
+    writing there, so a segment can never open in front of an existing one.
+    """
+    frozen, directory, _segment_surface = _segment_layout(root, surface)
+    existing = segment_paths(root, surface)
+    tail = existing[-1] if existing else None
+    if tail is not None and tail != frozen and not _segment_opened(tail):
+        target, previous = tail, (existing[-2] if len(existing) > 1 else None)
+    else:
+        month = now.astimezone(timezone.utc).strftime("%Y-%m")
+        tail_month, k = _segment_order(tail) if tail is not None else ("", 0)
+        if tail is not None and tail != frozen and tail_month >= month:
+            if tail.stat().st_size < SEGMENT_ROLLOVER_BYTES:
+                return tail, None
+            target = directory / f"{tail_month}-{k + 1}.jsonl"
+        else:
+            target = directory / f"{month}.jsonl"
+        previous = tail
+    relative = target.relative_to(root).as_posix()
+    link = _segment_link(
+        previous.relative_to(root).as_posix() if previous else None,
+        _segment_file_rows(root, surface, previous) if previous else [],
+    )
+    return target, {
+        "schema_version": 1,
+        "row_id": f"{SEGMENT_OPENED_ROW_TYPE}:{relative}",
+        "row_type": SEGMENT_OPENED_ROW_TYPE,
+        "segment": relative,
+        **link,
+    }
+
+
+def _assert_segment_append_allowed(path: Path, records: list[dict[str, Any]]) -> None:
+    """A producer appends only to the newest segment; a marker opens a segment.
+
+    A replay transport row is another lane's event, merged into the file that
+    lane appended it to: sealing binds producers, not the merge.
+    """
+    match = surface_for_path(path)
+    family = segment_family(match[0].name) if match else None
+    if family not in SEGMENTED_LEDGERS:
+        return
+    frozen = _segment_layout(match[1], family)[0]
+    if path != frozen and _SEGMENT_NAME.fullmatch(path.name) is None:
+        raise LedgerIntegrityError(f"segment_name_invalid:{path.as_posix()}")
+    replayed = [is_replay_transport_row(record) for record in records]
+    if not all(replayed) and any(
+        other != path and _segment_order(other) >= _segment_order(path)
+        for other in segment_paths(match[1], family)
+    ):
+        raise LedgerIntegrityError(f"segment_sealed:{path.as_posix()}")
+    opening = path != frozen and not _segment_opened(path)
+    payloads = [record.get("producer_payload") if merged else record for record, merged in zip(records, replayed)]
+    kinds = [payload.get("row_type") if isinstance(payload, dict) else None for payload in payloads]
+    if (opening and kinds[0] != SEGMENT_OPENED_ROW_TYPE) or any(
+        kind == SEGMENT_OPENED_ROW_TYPE and (path == frozen or not (merged or (opening and index == 0)))
+        for index, (kind, merged) in enumerate(zip(kinds, replayed))
+    ):
+        raise LedgerIntegrityError(f"segment_opened_row_misplaced:{path.as_posix()}")
+
+
+def append_segment_rows(
+    root: str | Path,
+    records: list[dict[str, Any]],
+    *,
+    expected_surface: str,
+    now: datetime | None = None,
+    bypass_profile_gate: bool = False,
+) -> list[dict[str, Any]]:
+    """Append rows to a segmented ledger's current segment (ARIA-HIGH-275)."""
+    if not records:
+        return []
+    frozen = _segment_layout(Path(root), expected_surface)[0]
+    try:
+        with state_transaction([frozen]) as transaction:
+            return transaction.append_segment_rows(
+                root,
+                records,
+                expected_surface=expected_surface,
+                now=now,
+                bypass_profile_gate=bypass_profile_gate,
+            )
+    except OSError as exc:
+        _reraise_enospc_as_environment(exc)
+        raise

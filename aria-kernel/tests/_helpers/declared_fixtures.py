@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from aria_kernel.ledger import append_declared_jsonl, rewrite_declared_jsonl
+from aria_kernel.ledger import append_declared_jsonl, rewrite_declared_jsonl, segment_paths
 from aria_kernel.tool_registry import ensure_tools_dir
 
 
@@ -63,6 +63,21 @@ def seed_repo_verified_evidence(repo: Path, files: dict[str, str]) -> str:
         text=True,
     )
     return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+
+
+def segmented_ledger_bytes(tools: str | Path, surface: str) -> bytes:
+    """Every file of a segmented ledger (ARIA-HIGH-275) in chain order: what a
+    "nothing was appended" assertion compares, since rows land in segments."""
+    return b"".join(path.read_bytes() for path in segment_paths(tools, surface))
+
+
+def native_invocation_bytes(tools: str | Path) -> dict[str, bytes]:
+    """The request, context and prompt ledgers a sealed native mint wrote."""
+    return {
+        "requests": segmented_ledger_bytes(tools, "agent_invocation_requests"),
+        "contexts": (Path(tools) / "agent-invocations" / "contexts.jsonl").read_bytes(),
+        "prompts": segmented_ledger_bytes(tools, "agent_invocation_prompts"),
+    }
 
 
 def sha256_file(path: str | Path) -> str:

@@ -19,6 +19,7 @@ from types import MappingProxyType
 from typing import Any, Callable, Iterable, Iterator, Literal, Mapping
 
 from .autonomy_state import fold_autonomy_state_rows as _fold_autonomy_state_rows
+from .ledger import SEGMENT_OPENED_ROW_TYPE
 from .state_snapshot import (
     MAX_SNAPSHOT_JSON_BYTES,
     SNAPSHOT_MAX_INPUT_BYTES,
@@ -2430,6 +2431,7 @@ def _verify_snapshot_and_collect_evidence(
     from .ledger import (
         LedgerIntegrityError,
         LedgerReadLimitError,
+        segment_family,
         verify_jsonl_chunks,
     )
     from .state_manifest import (
@@ -2558,7 +2560,10 @@ def _verify_snapshot_and_collect_evidence(
         snapshot_total += observed_size
         if snapshot_total > _MAX_SNAPSHOT_INPUT_BYTES:
             raise RuntimeError("state_snapshot_budget_exceeded")
-        consumed = key == surface_name and surface_name in counted_names
+        # ARIA-HIGH-275 — every segment of a counted family is consumed and
+        # counted under the family, so rollover never shrinks the evidence.
+        counted_as = segment_family(surface_name)
+        consumed = (key == surface_name or counted_as != surface_name) and counted_as in counted_names
         if consumed:
             if observed_size > _MAX_EVIDENCE_LEDGER_BLOB_BYTES:
                 raise RuntimeError(
@@ -2672,7 +2677,7 @@ def _verify_snapshot_and_collect_evidence(
                     expected_surface=surface_name,
                     expected_surface_instance=claim["path"],
                     on_row=(
-                        (lambda row, name=surface_name: accumulator.consume(
+                        (lambda row, name=segment_family(surface_name): accumulator.consume(
                             name,
                             row,
                         ))
@@ -2970,6 +2975,9 @@ class _StreamingEvidenceAccumulator:
         self.ordinal = 0
 
     def consume(self, surface: str, row: Mapping[str, Any]) -> None:
+        # A segment's opening row is chain structure, never evidence.
+        if row.get("row_type") == SEGMENT_OPENED_ROW_TYPE:
+            return
         self.surface_counts[surface] += 1
         self.ordinal += 1
         self._consume_counts(surface, row)

@@ -25,6 +25,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel import convergence_drainer as cd
+from aria_kernel.ledger import load_segments
 from aria_kernel.agent_invocations import render_invocation_prompt
 from aria_kernel.architecture_spine_gate import InvariantMeasurement, take_baseline, take_postcheck
 from aria_kernel.cross_review_bridge import issue_primary_envelope
@@ -124,8 +125,7 @@ class CarriedDataMintsThroughTheRealBridge(unittest.TestCase):
         )
 
     def requests(self) -> list[dict]:
-        path = self.tools / "agent-invocations" / "requests.jsonl"
-        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()] if path.exists() else []
+        return load_segments(self.tools, "agent_invocation_requests")
 
     def _cross_task(self, task_id: str, reviewer: str, direction: str, rev: str, digest: str) -> dict:
         from datetime import datetime, timedelta, timezone

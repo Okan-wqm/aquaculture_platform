@@ -2874,7 +2874,7 @@ class LearnedConventionContinuity(StateStoreTestCase):
         from aria_kernel.cycle_phases import MemoryHookImpl
         from aria_kernel.gh_token_factory import mint_signing_key, revoke_signing_key
         from aria_kernel.implementation_reconciler import reconcile_recorded_implementations
-        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.ledger import load_declared_jsonl, load_segments
         from aria_kernel.operator_approval import verify_recorded_reference
         from aria_kernel.plan_convergence import (
             fold_plan_state,
@@ -3114,10 +3114,7 @@ class LearnedConventionContinuity(StateStoreTestCase):
             )
             self.assertIn("  - source refs: " + json.dumps(evidence_refs[:3], ensure_ascii=False), prompt)
             self.assertIn("  - source refs: " + json.dumps([anti_ref], ensure_ascii=False), prompt)
-            stored_prompts = load_declared_jsonl(
-                restored_tools / "agent-invocations/prompts.jsonl",
-                expected_surface="agent_invocation_prompts",
-            )
+            stored_prompts = load_segments(restored_tools, "agent_invocation_prompts")
             self.assertEqual(
                 [row["prompt_text"] for row in stored_prompts if row["request_id"] == request["request_id"]],
                 [prompt],

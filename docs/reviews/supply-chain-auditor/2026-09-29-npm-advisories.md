@@ -200,7 +200,7 @@ Root-full's sixteen unexcepted rows were axios, undici, `nx` and every `@nx/*`
 package; the nx rows are attributions (npm lists each as a dependent of axios),
 not advisories of their own.
 
-### Fix
+### Fix (second wave)
 
 Every row is fixed by upgrading; no exception was added. Every lockfile change
 was made with `--package-lock-only --ignore-scripts`, and both standalone locks
@@ -301,3 +301,14 @@ in the 4.x major; GHSA-w5hq-g745-h8pq (moderate) in the uuid copy under
 dockerode (testcontainers); GHSA-p98j-92pf-mc4p (low) in dompurify 3.4.14,
 which root-production also lists as a low; GHSA-r3ph-w7gj-g6xm (moderate) in
 e2e's js-yaml 5.4.0.
+
+### Rust advisory exception retired (RUSTSEC-2026-0173)
+
+The PR's `advisory ignore lock-step` check failed because the dated ignore for RUSTSEC-2026-0173
+(proc-macro-error2 unmaintained, EDGE-CI-007) expired on 2026-10-01. The crate came in only through
+`lorawan 0.9.0 -> defmt 0.3.100 -> defmt 1.0.1 -> defmt-macros 1.0.1`. defmt 1.1.1 and defmt-macros
+1.1.1 no longer depend on it, so `sens-api-gateway/Cargo.lock` moves to them and proc-macro-error2
+leaves the graph; lorawan 0.9.0 checks clean against defmt 1.1.1 on the pinned 1.88.0 toolchain. The
+ignore is removed from `deny.toml`, `.cargo/audit.toml` and the three workflow audit steps, and
+`deny.toml` `[bans]` denies proc-macro-error2, so a bump that pulls it back fails cargo-deny instead
+of needing another dated exception.

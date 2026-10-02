@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `92a93c5aa14e0ac601714c620c5553a5f2651faea4c42906a79d2008b0845019`
+Registry tip: `90d2e2bdf38f690073bfb2d82ac112179e59e10d5b3d467953548a2cd6f536b1`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -285,6 +285,7 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
 | `ARIA-CRITICAL-216` | OPEN | 2026-09-26 | claude | real-open |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
+| `INFRA-CRITICAL-195` | OPEN | 2026-10-09 | claude | real-open |
 
 ## Mutation Rules
 
@@ -442,6 +443,12 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
   the PAT) and the operator retires the PAT on the runner (plan M3); owner claude (registry
   owner_user okan), deadline 2026-10-06
   (`docs/reviews/claude/2026-09-27-aria-sync-risks.md`).
+- `INFRA-CRITICAL-195` (2026-10-02, production disk filled by `pg_wal`): `docker-compose.droplet.yml`
+  ran PostgreSQL with `archive_mode=on` while `dr-activation.json` declared WAL archiving
+  `not-activated` and no bucket existed, so every `wal-push` failed, 65 GB of WAL filled the disk,
+  and the healthcheck held `aqua-postgres` unhealthy (the cause of `INFRA-HIGH-191`). Real open work
+  until the fix merges and the operator applies it on the droplet; owner claude (registry owner_user
+  okan), deadline 2026-10-09 (`docs/reviews/claude/2026-10-02-wal-archive-activation.md`).
 
 - `SENSOR-CRITICAL-127`, `BILLING-CRITICAL-019`, `FARM-CRITICAL-331`, `SEC-CRITICAL-169` (2026-09-20,
   the boot-path outage): a re-provided sensor MQTT auth service, a type-only import of an injected

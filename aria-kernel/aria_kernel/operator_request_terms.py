@@ -15,10 +15,12 @@ three terms the operator's signature covers and every verifier re-checks:
   (``finding_grounding.grounding_digest``), so refs that change after
   signing never ground the request.
 
-WHAT. :func:`request_terms_reason` judges the three; the audience and the
-lifetime come from the code-owned operator policy
-(``docs/aria/policy/operators.json`` via ``operator_approval``), the same
-SSoT that bounds an operator approval's age.
+WHAT. :func:`request_terms_reason` judges the three against the anchor's
+values: the audience is ``repository`` of ``docs/aria/policy/operators.json``
+and the lifetime is the request entry's bound in the namespace registry,
+both read as git objects at the anchor commit proven on main
+(``operator_request_signature.AllowedSigners``) — never the working tree a
+runner-uid process can edit (ARIA-LOW-267, ADR-0023).
 """
 from __future__ import annotations
 
@@ -36,20 +38,6 @@ TERMS_REASONS: tuple[str, ...] = (
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
-def request_audience() -> str:
-    """``owner/repo`` this kernel serves — the only audience a request may name."""
-    from .operator_approval import load_operators_policy
-
-    return str(load_operators_policy()["repository"])
-
-
-def max_request_lifetime() -> timedelta:
-    """The longest a request may live: the operator-act age bound of the same policy."""
-    from .operator_approval import load_operators_policy
-
-    return timedelta(hours=int(load_operators_policy()["approval_max_age_hours"]))
-
-
 def utc_iso(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).isoformat()
 
@@ -65,13 +53,13 @@ def parse_utc(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo is not None else None
 
 
-def request_terms_reason(row: dict[str, Any], *, now: datetime) -> str | None:
-    """Why the request's signed terms refuse it at ``now``, or None."""
-    if row.get("audience") != request_audience():
+def request_terms_reason(row: dict[str, Any], *, now: datetime, audience: str, max_hours: int) -> str | None:
+    """Why the request's signed terms refuse it at ``now`` for the anchor's audience and bound, or None."""
+    if row.get("audience") != audience:
         return REQUEST_AUDIENCE_MISMATCH
     authored = parse_utc(row.get("authored_at"))
     expires = parse_utc(row.get("expires_at"))
-    if authored is None or expires is None or not authored < expires <= authored + max_request_lifetime():
+    if authored is None or expires is None or not authored < expires <= authored + timedelta(hours=max_hours):
         return REQUEST_EXPIRY_INVALID
     if now >= expires:
         return REQUEST_EXPIRED
@@ -87,9 +75,7 @@ __all__ = [
     "REQUEST_EXPIRED",
     "REQUEST_EXPIRY_INVALID",
     "TERMS_REASONS",
-    "max_request_lifetime",
     "parse_utc",
-    "request_audience",
     "request_terms_reason",
     "utc_iso",
 ]

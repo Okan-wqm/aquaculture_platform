@@ -29,11 +29,11 @@ from unittest import mock
 from aria_kernel import main_anchor
 from aria_kernel import operator_request_signature as ors
 from aria_kernel import state_snapshot
-from aria_kernel.operator_request_terms import request_audience
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers import operator_requests as helpers
 from tests._helpers.operator_requests import (
     ALL_OPERATOR_NAMESPACES,
+    AUDIENCE,
     REGISTRY_BYTES,
     OperatorRequestFixture,
     allowed_signers_line,
@@ -279,7 +279,7 @@ class EnrolmentChainTests(unittest.TestCase):
         parent = {"allowed_signers": "sha256:" + hashlib.sha256(self.signers.encode()).hexdigest(),
                   "registry": "sha256:" + hashlib.sha256(REGISTRY_BYTES).hexdigest()}
         row = dict(ors.enrolment_genesis_row(self.widened.encode(), REGISTRY_BYTES), kind="enrolment",
-                   parent=parent, actor_class="T0", audience=request_audience(),
+                   parent=parent, actor_class="T0", audience=AUDIENCE,
                    expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
         return ors.sign_operator_subject(row, namespace=ors.ENROL_NAMESPACE, domain_tag="aria-operator-enrol/v1",
                                          signing_key=key, signer_principal=principal)

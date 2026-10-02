@@ -118,6 +118,25 @@ READONLY_PATHS: tuple[str, ...] = (
     # in its own tree and the next dispatch would obey. The trust boundary
     # of a policy is that the agent it governs cannot author it.
     "aria-config/",
+    # ADR-0023 / ARIA-LOW-267 — the operator's trust anchors and the
+    # decisions ARIA is held to. `docs/aria/policy/` sets the operator
+    # identity and request audience; `docs/recommendations/` holds the
+    # arbiter ADRs; `packs/`, `tools/aria-labels/`, `tools/runtime-truth/`
+    # and `libs/journey-pins/` hold operator-signed journeys, label seals
+    # and runtime truth (CJ-1, F-L2). The allowed-signers file, the
+    # namespace registry and the enrolment chain sit under `.github/`.
+    "docs/aria/policy/",
+    "docs/recommendations/",
+    "packs/",
+    "tools/aria-labels/",
+    "tools/runtime-truth/",
+    "libs/journey-pins/",
+    # ARIA-HIGH-260 — report_ingestion mints `report_ingestion:external_pr`
+    # findings, which the loop guards treat as NOT ARIA's own, from this
+    # registry. Its writers are the operator's sessions and the governed
+    # finding-state-sweep / finding-closure-reconcile workflows; an ARIA plan
+    # that could add a row would launder its own finding as external.
+    "docs/reviews/_registry/",
 )
 
 # Plan ARIA-V9.0-D — ALLOWED_BASH_COMMANDS regex allowlist (NOT
@@ -2330,6 +2349,15 @@ def _check_no_main_branch_write(context: HardFailContext) -> HardFailResult:
     return _passed(name)
 
 
+def _readonly_prefix(relative: str) -> str | None:
+    """The READONLY_PATHS entry a workspace-relative POSIX path falls under, or None."""
+    for readonly in READONLY_PATHS:
+        ro = readonly.rstrip("/")
+        if relative == ro or relative.startswith(ro + "/"):
+            return readonly
+    return None
+
+
 def _check_forbidden_scope_normalized(context: HardFailContext) -> HardFailResult:
     name = "forbidden_scope_normalized"
     if context.workspace_root is None:
@@ -2344,11 +2372,30 @@ def _check_forbidden_scope_normalized(context: HardFailContext) -> HardFailResul
             relative = resolved.relative_to(workspace).as_posix()
         except ValueError:
             return _failed(name, f"outside_workspace:{raw}")
-        for readonly in READONLY_PATHS:
-            ro = readonly.rstrip("/")
-            if relative == ro or relative.startswith(ro + "/"):
-                return _failed(name, f"readonly_path_write:{relative}")
+        if _readonly_prefix(relative) is not None:
+            return _failed(name, f"readonly_path_write:{relative}")
     return _passed(name)
+
+
+def _check_readonly_paths_untouched_at_merge(context: HardFailContext) -> HardFailResult:
+    """INFRA-MEDIUM-197 — ARIA's merge authority never merges a change to a READONLY path.
+
+    The PR-open gate refuses such a write; a branch can still change after
+    it opened, and the anchors ARIA verifies against (allowed signers,
+    registry, enrolments, operator policy, arbiter ADRs) must never reach
+    main through an ARIA-authored pull request. Judged on the PR's changed
+    paths as the native pre-merge capture records them.
+    """
+    name = "readonly_paths_untouched_at_merge"
+    if not _native_implementation_is_bound(context):
+        return _failed(name, "native_implementation_binding_unavailable")
+    for raw in context.affected_paths:
+        relative = os.path.normpath(str(raw)).replace(os.sep, "/")
+        if relative.startswith(("/", "../")) or relative == "..":
+            return _failed(name, f"path_escape:{raw}")
+        if _readonly_prefix(relative) is not None:
+            return _failed(name, f"readonly_path_change:{relative}")
+    return _passed(name, "no_changed_path_is_read_only")
 
 
 # ORPHAN-CRITICAL-428 phase A — the five mechanical pre-PR-open checks.
@@ -3012,6 +3059,13 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         ),
         closes_findings=("ai-HIGH-013", "perf-CRIT-001"),
         check=_check_cycle_and_turn_budget_cap,
+        gate=GATE_PRE_MERGE,
+    ),
+    HardFailCheck(
+        name="readonly_paths_untouched_at_merge",
+        description="the PR's changed paths, as the native capture records them, avoid every READONLY_PATHS entry",
+        closes_findings=("INFRA-MEDIUM-197",),
+        check=_check_readonly_paths_untouched_at_merge,
         gate=GATE_PRE_MERGE,
     ),
     HardFailCheck(

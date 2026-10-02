@@ -150,6 +150,7 @@ ENROL_GENESIS_MISMATCH = "enrol_genesis_mismatch"
 ENROL_CHAIN_BROKEN = "enrol_chain_broken"
 ENROL_SIGNATURE_INVALID = "enrol_signature_invalid"
 ENROL_TIP_MISMATCH = "enrol_tip_mismatch"
+OPERATORS_POLICY_UNAVAILABLE = "operators_policy_unavailable"
 # What a registry entry demands of a FRESH act's terms (an MCP write approval).
 NAMESPACE_RETIRED = "signature_namespace_retired"
 SUBJECT_FIELD_MISSING = "signed_subject_field_missing"
@@ -267,6 +268,8 @@ class AllowedSigners:
     commit: str
     blob_oid: str
     namespaces: Mapping[str, NamespaceEntry]
+    # ARIA-LOW-267 — ``repository`` of the operators policy at the same commit.
+    audience: str
 
 
 def _digest(content: bytes) -> str:
@@ -349,6 +352,17 @@ def appended_enrolments_reason(base: bytes | None, head: bytes | None, *, now: d
     return None
 
 
+def _committed_audience(repo_root: str | Path, *, commit: str) -> str | None:
+    """ARIA-LOW-267 — the request audience from the operators policy committed at the anchor."""
+    from .operator_approval import OPERATORS_POLICY_RELPATH, load_operators_policy
+
+    blob = committed_blob(repo_root, commit=commit, path=OPERATORS_POLICY_RELPATH)
+    try:
+        return str(load_operators_policy(json.loads(blob.content.decode("utf-8")))["repository"]) if blob else None
+    except (GovernanceError, UnicodeDecodeError, ValueError, TypeError):
+        return None
+
+
 def _anchor_at(repo_root: str | Path, *, commit: str) -> tuple[AllowedSigners | None, str | None]:
     blob = committed_blob(repo_root, commit=commit, path=ALLOWED_SIGNERS_PATH)
     registry = committed_blob(repo_root, commit=commit, path=NAMESPACE_REGISTRY_PATH)
@@ -362,8 +376,11 @@ def _anchor_at(repo_root: str | Path, *, commit: str) -> tuple[AllowedSigners | 
                                    registry=registry.content)
     if chain is not None:
         return None, chain
+    audience = _committed_audience(repo_root, commit=commit)
+    if audience is None:
+        return None, OPERATORS_POLICY_UNAVAILABLE
     return AllowedSigners(content=blob.content, commit=blob.commit, blob_oid=blob.blob_oid,
-                          namespaces=namespaces), None
+                          namespaces=namespaces, audience=audience), None
 
 
 def allowed_signers_at(repo_root: str | Path, *, commit: str) -> AllowedSigners | None:
@@ -382,7 +399,8 @@ def allowed_signers_for_checkout(repo_root: str | Path) -> tuple[AllowedSigners 
     Returns ``(anchor, None)`` or ``(None, reason)`` with a
     ``main_anchor.ANCHOR_*`` reason, :data:`ALLOWED_SIGNERS_UNAVAILABLE`
     when the proven commit carries no allowed-signers file or registry,
-    :data:`NAMESPACE_REGISTRY_INVALID`, or an ``ENROL_*`` reason of the walk.
+    :data:`NAMESPACE_REGISTRY_INVALID`, an ``ENROL_*`` reason of the walk, or
+    :data:`OPERATORS_POLICY_UNAVAILABLE`.
     """
     anchor = resolve_main_anchor(repo_root)
     if anchor.commit is None:
@@ -587,7 +605,7 @@ def record_enrolment(
     must still be the committed one (one enrolment per change). Refused
     unless it verifies as the walk will verify it, with fresh terms.
     """
-    from .operator_request_terms import request_audience, utc_iso
+    from .operator_request_terms import utc_iso
 
     anchor, reason = allowed_signers_for_checkout(repo_root)
     if anchor is None:
@@ -604,7 +622,7 @@ def record_enrolment(
     if child == parent:
         raise GovernanceError("operator_enrol_unchanged")
     row = dict(enrolment_genesis_row(*child), kind="enrolment", parent=_pair(*parent), actor_class=actor_class,
-               audience=request_audience())
+               audience=anchor.audience)
     if _child(row) is None:
         raise GovernanceError("operator_enrol_child_registry_invalid")
     entry = anchor.namespaces[ENROL_NAMESPACE]
@@ -613,7 +631,7 @@ def record_enrolment(
     signed = sign_operator_subject(row, namespace=ENROL_NAMESPACE, domain_tag=str(entry.domain_tag),
                                    signing_key=signing_key, signer_principal=signer_principal,
                                    subject_stream=subject_stream)
-    refused = operator_act_terms_reason(signed, entry=entry, audience=request_audience(), now=now) or \
+    refused = operator_act_terms_reason(signed, entry=entry, audience=anchor.audience, now=now) or \
         verify_operator_signature(signed, namespace=ENROL_NAMESPACE, allowed_signers=anchor.content,
                                   namespaces=anchor.namespaces).reason
     if refused is not None:
@@ -643,6 +661,7 @@ __all__ = [
     "NAMESPACE_UNREGISTERED",
     "OPERATOR_ACTOR_CLASSES",
     "OPERATOR_NAMESPACES",
+    "OPERATORS_POLICY_UNAVAILABLE",
     "REQUEST_DOMAIN_TAG",
     "REQUEST_ROW_SCHEMA_VERSION",
     "SIGNATURE_INVALID",

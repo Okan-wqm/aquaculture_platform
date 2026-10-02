@@ -143,7 +143,7 @@ def observe_operator_feedback_for_plan(
                 # The synthesis consumed a row the committed trust anchor no
                 # longer vouches for — a revoked principal, or a rewritten row.
                 raise GovernanceError("operator_feedback_consumed_row_unsigned:" + str(verdict.reason))
-            terms = operator_request_schema_reason(matches[0], now=moment)
+            terms = operator_request_schema_reason(matches[0], now=moment, anchor=allowed_signers)
             if terms is not None:
                 raise GovernanceError("operator_feedback_consumed_row_refused:" + terms)
             if _merged_elsewhere(str(entry["id"]), plan_id=plan_id,

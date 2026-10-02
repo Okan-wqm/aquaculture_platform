@@ -32,7 +32,7 @@ from .operator_request_signature import (
     sign_operator_subject,
     verify_operator_signature,
 )
-from .operator_request_terms import request_audience, utc_iso
+from .operator_request_terms import utc_iso
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 PROTOCOL_VERSION = "2024-11-05"
@@ -76,7 +76,7 @@ def mcp_write_subject(tool: str, arguments: dict[str, Any], approval: dict[str, 
 def judge_mcp_write(subject: dict[str, Any], anchor: AllowedSigners, *, now: datetime) -> str | None:
     """Why the signed write is refused against ``anchor`` at ``now``, or None: terms, then signature."""
     reason = operator_act_terms_reason(
-        subject, entry=anchor.namespaces.get(SIGNATURE_NAMESPACE), audience=request_audience(), now=now,
+        subject, entry=anchor.namespaces.get(SIGNATURE_NAMESPACE), audience=anchor.audience, now=now,
     )
     if reason is not None:
         return reason
@@ -99,7 +99,7 @@ def sign_mcp_write_approval(
         raise GovernanceError(f"mcp_write_anchor_unavailable: {anchor_reason}")
     entry = anchor.namespaces[SIGNATURE_NAMESPACE]
     now = datetime.now(timezone.utc).replace(microsecond=0)
-    terms = {"actor_class": actor_class, "audience": request_audience(),
+    terms = {"actor_class": actor_class, "audience": anchor.audience,
              "expires_at": utc_iso(now + timedelta(hours=expires_in_hours))}
     signed = sign_operator_subject(
         mcp_write_subject(tool, arguments, terms), namespace=entry.namespace, domain_tag=str(entry.domain_tag),

@@ -29,9 +29,9 @@ from aria_kernel.mcp_server import (
     mcp_write_subject,
     sign_mcp_write_approval,
 )
-from aria_kernel.operator_request_terms import request_audience, utc_iso
+from aria_kernel.operator_request_terms import utc_iso
 from aria_kernel.tool_registry import GovernanceError
-from tests._helpers.operator_requests import OperatorRequestFixture, mint_ed25519_key
+from tests._helpers.operator_requests import AUDIENCE, OperatorRequestFixture, mint_ed25519_key
 
 _SIGNAL = {"source": "operator", "service": "hr-service", "summary": "leave drift", "code_refs": ["a.py"]}
 
@@ -61,7 +61,7 @@ class McpWriteGateTests(unittest.TestCase):
                      principal: str | None = None, **terms) -> dict:
         """An approval signed past ``sign_mcp_write_approval`` — what a forger could assemble."""
         now = datetime.now(timezone.utc).replace(microsecond=0)
-        approval = {"actor_class": "T0", "audience": request_audience(), "expires_at": utc_iso(now + timedelta(hours=1))}
+        approval = {"actor_class": "T0", "audience": AUDIENCE, "expires_at": utc_iso(now + timedelta(hours=1))}
         approval.update(terms)
         signed = ors.sign_operator_subject(
             mcp_write_subject("runtime_signal_ingest", _SIGNAL, approval), namespace=namespace,

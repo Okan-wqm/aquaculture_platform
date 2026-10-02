@@ -28,7 +28,6 @@ from aria_kernel import operator_feedback_signature as ofs
 from aria_kernel import operator_request_signature as ors
 from aria_kernel.finding_grounding import admit_finding, load_grounding_context
 from aria_kernel.ledger import load_declared_jsonl
-from aria_kernel.operator_request_terms import request_audience
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.operator_requests import (
     GROUNDED_FILE,
@@ -229,17 +228,18 @@ class OperatorRequestRecorderTests(unittest.TestCase):
         self.assertEqual(row["ledger_hash"], stored["ledger_hash"])
         self.assertEqual((row["finding_id"], row["signer_principal"]), ("F-007", self.fixture.principal))
         self.assertEqual(row["schema_version"], ofs.OPERATOR_REQUEST_SCHEMA_VERSION)
-        self.assertEqual(row["audience"], request_audience())
-        self.assertEqual(request_audience(), "Okan-wqm/aquaculture_platform")
+        signers, _reason = ors.allowed_signers_for_checkout(self.fixture.repo)
+        # ARIA-LOW-267 — the audience is the operators policy committed at the anchor.
+        self.assertEqual(row["audience"], signers.audience)
+        self.assertEqual(signers.audience, "Okan-wqm/aquaculture_platform")
         expires = datetime.fromisoformat(row["expires_at"])
         self.assertLessEqual(expires - before, timedelta(hours=168, seconds=2))
         self.assertGreaterEqual(expires - before, timedelta(hours=167, minutes=59))
         grounding = admit_finding(load_grounding_context(self.fixture.repo), "F-007")
         self.assertEqual(row["grounding_digest"], grounding.grounding_digest)
         self.assertNotIn("signer_kid", row, "no runner-held key signs a request")
-        signers, _reason = ors.allowed_signers_for_checkout(self.fixture.repo)
         self.assertTrue(ors.verify_operator_request(row, allowed_signers=signers).valid)
-        self.assertIsNone(ofs.operator_request_schema_reason(row, now=datetime.now(timezone.utc)))
+        self.assertIsNone(ofs.operator_request_schema_reason(row, now=datetime.now(timezone.utc), anchor=signers))
         self.assertFalse(ofs.signing_key_path(self.fixture.tools).exists(),
                          "recording a request mints no runner-side key material")
         # GSEC-MEDIUM-005 — the exact subject was shown before ssh-keygen ran.

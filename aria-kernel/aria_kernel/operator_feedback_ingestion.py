@@ -237,7 +237,7 @@ def ingest_operator_feedback(
         if identifier in history.spent:
             spent_rows.append({"id": identifier, "subject_digest": digest, "reason": history.spent[identifier]})
             continue
-        schema = operator_request_schema_reason(row, now=moment)
+        schema = operator_request_schema_reason(row, now=moment, anchor=signers)
         if schema is not None:
             scan.drop(row, line_no, schema, signer=verdict.signer)
             scan.refusals.append((dict(row, _subject_digest=digest), schema))

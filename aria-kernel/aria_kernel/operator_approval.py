@@ -53,7 +53,8 @@ class OperatorApprovalUnrecorded(Exception):
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OPERATORS_POLICY_SCHEMA = "aria/operators/v1"
-OPERATORS_POLICY_PATH = REPO_ROOT / "docs" / "aria" / "policy" / "operators.json"
+OPERATORS_POLICY_RELPATH = "docs/aria/policy/operators.json"
+OPERATORS_POLICY_PATH = REPO_ROOT / OPERATORS_POLICY_RELPATH
 
 APPROVAL_MARKER = "ARIA-APPROVE"
 APPROVAL_CONSUMED_EVENT = "operator_approval_consumed"

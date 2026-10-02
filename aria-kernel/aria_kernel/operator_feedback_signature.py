@@ -39,7 +39,7 @@ from typing import Any, TextIO
 
 from .hmac_keyring import HmacKeyring, hmac_sign
 from .ledger import append_declared_jsonl
-from .operator_request_signature import REQUEST_ROW_SCHEMA_VERSION
+from .operator_request_signature import REQUEST_ROW_SCHEMA_VERSION, SIGNATURE_NAMESPACE, AllowedSigners
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 OPERATOR_FEEDBACK_SURFACE = "operator_feedback"
@@ -272,7 +272,7 @@ def record_operator_request(
         sign_operator_request,
         verify_operator_request,
     )
-    from .operator_request_terms import max_request_lifetime, request_audience, utc_iso
+    from .operator_request_terms import utc_iso
 
     text = str(request or "").strip()
     if not text:
@@ -294,10 +294,6 @@ def record_operator_request(
         raise GovernanceError(f"operator_request_id_invalid: {identifier!r}")
     if actor_class not in OPERATOR_ACTOR_CLASSES:
         raise GovernanceError(f"operator_request_actor_class_invalid: {actor_class!r}")
-    lifetime = max_request_lifetime()
-    hours = lifetime.total_seconds() / 3600 if expires_in_hours is None else expires_in_hours
-    if isinstance(hours, bool) or not 0 < hours <= lifetime.total_seconds() / 3600:
-        raise GovernanceError(f"operator_request_expiry_out_of_range: {expires_in_hours!r}")
     root = ensure_tools_dir(base_dir)
     ledger = root / OPERATOR_FEEDBACK_LEDGER_NAME
     if identifier in _ids_already_used(ledger, root):
@@ -305,6 +301,11 @@ def record_operator_request(
     signers, anchor_reason = allowed_signers_for_checkout(repo_root)
     if signers is None:
         raise GovernanceError(f"operator_request_anchor_unavailable: {anchor_reason}")
+    # ADR-0023 — the lifetime bound is the committed registry's request entry.
+    bound = int(signers.namespaces[SIGNATURE_NAMESPACE].expiry_hours or 0)
+    hours = bound if expires_in_hours is None else expires_in_hours
+    if isinstance(hours, bool) or not 0 < hours <= bound:
+        raise GovernanceError(f"operator_request_expiry_out_of_range: {expires_in_hours!r}")
     admission = admit_finding(load_grounding_context(repo_root), target)
     if not admission.admitted:
         raise GovernanceError(f"operator_request_finding_not_a_plan_ground: {admission.reason}")
@@ -316,7 +317,7 @@ def record_operator_request(
         "finding_id": target,
         "authored_at": utc_iso(authored),
         "expires_at": utc_iso(authored + timedelta(hours=hours)),
-        "audience": request_audience(),
+        "audience": signers.audience,
         "grounding_digest": admission.grounding_digest,
         "authored_by": author,
         "request": text,
@@ -358,7 +359,7 @@ def _ids_already_used(ledger: Path, root: Path) -> set[str]:
     return used
 
 
-def operator_request_schema_reason(row: dict[str, Any], *, now: datetime) -> str | None:
+def operator_request_schema_reason(row: dict[str, Any], *, now: datetime, anchor: AllowedSigners) -> str | None:
     """Why a request row is not one the synthesizer consumes at ``now``, or None.
 
     Kept separate from signature verification so the drop reason can say
@@ -381,7 +382,8 @@ def operator_request_schema_reason(row: dict[str, Any], *, now: datetime) -> str
         return SCHEMA_INVALID
     if row["priority"] not in OPERATOR_REQUEST_PRIORITIES:
         return SCHEMA_INVALID
-    return request_terms_reason(row, now=now)
+    return request_terms_reason(row, now=now, audience=anchor.audience,
+                                max_hours=int(anchor.namespaces[SIGNATURE_NAMESPACE].expiry_hours or 0))
 
 
 __all__ = [

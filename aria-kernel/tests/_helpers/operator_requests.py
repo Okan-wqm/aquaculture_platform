@@ -46,7 +46,7 @@ from aria_kernel.operator_request_signature import (
     record_enrolment,
     sign_operator_request,
 )
-from aria_kernel.operator_request_terms import request_audience
+from aria_kernel.operator_approval import OPERATORS_POLICY_RELPATH
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._helpers.git_fixtures import make_local_git_repo
@@ -56,6 +56,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 # ADR-0023 — the registry a fixture commits is the repository's own, byte
 # for byte, so the namespaces a test signs in are the ones production reads.
 REGISTRY_BYTES = (_REPO_ROOT / NAMESPACE_REGISTRY_PATH).read_bytes()
+# ARIA-LOW-267 — the operators policy is read at the anchor commit too.
+OPERATORS_POLICY_TEXT = (_REPO_ROOT / OPERATORS_POLICY_RELPATH).read_text(encoding="utf-8")
+AUDIENCE = json.loads(OPERATORS_POLICY_TEXT)["repository"]
 # A code path every grounded finding below may cite: tracked, writable.
 GROUNDED_FILE = "apps/hr-service/src/leave/leave.service.ts"
 _ZERO_DIGEST = "sha256:" + "0" * 64
@@ -98,7 +101,8 @@ def anchor_from_bytes(allowed_signers: bytes, registry: bytes = REGISTRY_BYTES) 
     """An anchor for verifier unit tests that need no git checkout."""
     namespaces = parse_namespace_registry(registry)
     assert namespaces is not None, "the committed namespace registry must parse"
-    return AllowedSigners(content=allowed_signers, commit="0" * 40, blob_oid="0" * 40, namespaces=namespaces)
+    return AllowedSigners(content=allowed_signers, commit="0" * 40, blob_oid="0" * 40, namespaces=namespaces,
+                          audience=AUDIENCE)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -124,6 +128,7 @@ class OperatorRequestFixture:
             ALLOWED_SIGNERS_PATH: signers,
             NAMESPACE_REGISTRY_PATH: REGISTRY_BYTES.decode("utf-8"),
             ENROLMENTS_PATH: genesis_line(signers.encode("utf-8")),
+            OPERATORS_POLICY_RELPATH: OPERATORS_POLICY_TEXT,
             GROUNDED_FILE: "export const leave = 1;\n",
             "apps/hr-service/src/leave/leave.entity.ts": "export class Leave {}\n",
             ".github/workflows/ci.yml": "name: ci\n",
@@ -180,7 +185,7 @@ class OperatorRequestFixture:
         row: dict[str, Any] = {
             "schema_version": 2, "row_kind": "operator_request", "id": "OP-row",
             "finding_id": finding_id, "authored_at": _iso(now), "expires_at": _iso(now + timedelta(hours=1)),
-            "audience": request_audience(), "grounding_digest": admission.grounding_digest or _ZERO_DIGEST,
+            "audience": AUDIENCE, "grounding_digest": admission.grounding_digest or _ZERO_DIGEST,
             "authored_by": "okan", "request": "hand-built", "priority": "high", "status": "unaddressed",
         }
         row.update(overrides)
@@ -236,6 +241,7 @@ class OperatorRequestFixture:
 
 __all__ = [
     "ALL_OPERATOR_NAMESPACES",
+    "AUDIENCE",
     "GROUNDED_FILE",
     "PRINCIPAL",
     "REGISTRY_BYTES",

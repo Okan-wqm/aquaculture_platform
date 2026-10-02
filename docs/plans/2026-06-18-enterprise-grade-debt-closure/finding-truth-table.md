@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `8864fec3fec20ba896749ebe63e44f6345d5726e097e03560c5b0f0f130684f9`
+Registry tip: `44b1f58dd09235929cd5b05c5edb065efa89ad98303c5c75018228821b09b6b1`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -285,7 +285,6 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
 | `ARIA-CRITICAL-216` | OPEN | 2026-09-26 | claude | real-open |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
-| `ARIA-CRITICAL-255` | OPEN | 2026-10-02 | claude | real-open |
 
 ## Mutation Rules
 
@@ -982,4 +981,7 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `real-open`.
 - `INFRA-CRITICAL-195`: registry state is `RESOLVED` with closing commit
   `476116553`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `ARIA-CRITICAL-255`: registry state is `RESOLVED` with closing commit
+  `3f056f052`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.

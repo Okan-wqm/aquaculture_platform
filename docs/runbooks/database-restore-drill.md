@@ -442,7 +442,13 @@ drill before that exception can be admitted.
 5. Deploy the derived PostgreSQL image at the exact merged-main SHA/tag. Verify
    its OCI revision and WAL-G revision, then verify that the boot installer
    copied credentials into `/run/aqua-walg-secrets` tmpfs and left no path at
-   `PGDATA/wal-g-secrets`.
+   `PGDATA/wal-g-secrets`. The image alone does not archive: `archive_mode`
+   and the healthcheck contract follow `production-wal-archive` in
+   `.github/manifests/dr-activation.json` (INFRA-CRITICAL-195). Start archiving
+   only after steps 1-4 hold, with a merged change that sets that state to
+   `active` together with the compose lines
+   `tests/invariants/wal-archive-activation.spec.ts` requires, then recreate
+   `postgres`.
 6. Verify configuration without exposing environment or secret files:
 
    ```bash

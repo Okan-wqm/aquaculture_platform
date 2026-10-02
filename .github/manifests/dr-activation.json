@@ -6,8 +6,8 @@
     "production-wal-archive": {
       "state": "not-activated",
       "summary": "Continuous WAL archiving from production PostgreSQL to object storage via WAL-G.",
-      "activationEvidence": "aqua-postgres runs an image carrying /usr/local/bin/postgres-walg-healthcheck.sh (built by infrastructure/docker/Dockerfile.postgres-walg).",
-      "whyNotActivated": "Production still runs the bare timescale/timescaledb-ha:pg16 base image with archive_mode=off. The WAL-G derivative is built and proven but has never been deployed: `PRODUCTION_DEPLOY_ENABLED` is false, and the cutover belongs to plan phase BR-3.",
+      "activationEvidence": "aqua-postgres reports archive_mode=on (SHOW archive_mode). Running the WAL-G image is not activation: production carries that image in both states, and this state alone sets archive_mode and the healthcheck contract through docker-compose.droplet.yml (pinned by tests/invariants/wal-archive-activation.spec.ts).",
+      "whyNotActivated": "Production runs the WAL-G derivative image (infrastructure/docker/Dockerfile.postgres-walg) with archive_mode=off, because archiving has no destination: the Spaces bucket, WAL-G principal and encryption key belong to plan phase BR-1 (see production-logical-backup) and were never provisioned. Archiving without them retains every WAL segment until the disk fills, which is what happened between 2026-09-21 and 2026-10-02 (INFRA-CRITICAL-195). Activation belongs to plan phase BR-3: set this state to active.",
       "unlockPhase": "BR-3",
       "unlockPlan": "docs/plans/2026-07-30-enterprise-backup-restore-architecture/PLAN.md",
       "finding": "ORPHAN-HIGH-563",

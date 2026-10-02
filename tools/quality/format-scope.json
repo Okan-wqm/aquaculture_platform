@@ -37120,6 +37120,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-10-02-wal-archive-activation.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -48885,6 +48891,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/lib/wal-archive-activation.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/lint-quarantine-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -49744,6 +49756,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/verified-user-assertion-mounted.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/wal-archive-activation.spec.ts",
       "prettier_managed": true
     },
     {

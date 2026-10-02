@@ -4,10 +4,6 @@
     "findings-registry": {
       "name": "append-only hash-chained finding registry (upstream prefix + branch tail, rechained)",
       "driver": "./node_modules/.bin/ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry-merge-driver.ts %O %A %B %L %P"
-    },
-    "ours": {
-      "name": "keep the local side of a file whose value is derived and regenerated post-merge",
-      "driver": "true"
     }
   }
 }

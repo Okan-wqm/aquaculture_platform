@@ -8,14 +8,12 @@
 # `cargo clippy` invocation resolves.
 export PATH="$HOME/.cargo/bin:$PATH"
 
-# ARIA authority pin — the last gate before CI sees it.
-#
-# post-merge regenerates and stages the pin, but a staged file is not a
-# committed one, and a merge commit never ran pre-commit to catch it. This
-# refuses the push in a second rather than letting three required checks go red
-# thirty minutes later on a single assertion (measured three times on
-# 2026-08-19). It is a check, not a write: the push is already composed, so the
-# only honest move is to stop and name the command that fixes it.
+# ARIA CURRENT_STATE anchors — the local mirror of the docs SSoT gate's claim
+# check (PROC-HIGH-046). CURRENT_STATE records no digest any more; what it can
+# get wrong is a claim about the tree: a normative anchor path or a
+# `file.py::symbol` owner that a rename or deletion left dangling. That is
+# decided by the same verdict the CI invariant consumes, in a second, before
+# the push reaches the aria-merge-authority check. It writes nothing.
 #
 # A guard that cannot run must SAY so. Skipping in silence is the same class of
 # defect this hook exists to close: an unknown read as a green.
@@ -23,7 +21,7 @@ if [ -x ./node_modules/.bin/ts-node ]; then
   ./node_modules/.bin/ts-node --project tools/gates/tsconfig.json \
     tools/gates/aria-authority-hash.ts --check || exit 1
 else
-  echo "pre-push: ts-node missing — the ARIA authority pin was NOT checked." >&2
+  echo "pre-push: ts-node missing — the ARIA CURRENT_STATE anchors were NOT checked." >&2
   echo "  this push goes out unverified on that gate; CI will be its first" >&2
   echo "  reader. Run 'npm ci', or link node_modules into this worktree." >&2
 fi

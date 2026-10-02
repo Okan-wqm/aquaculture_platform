@@ -11,11 +11,21 @@ ARIA-HIGH-270 / ADR-0023 — a write needs `--allow-writes` AND an
 exact arguments, audience, actor class and an expiry inside the registry's
 bound, verified against the allowed-signers anchor committed on main. The
 gate used to accept any six-character string as the operator's approval.
+
+ARIA-MEDIUM-283 — one approval admits one write. Every approval signs a fresh
+``approval_id``, and the gate spends it on ``governance.jsonl`` (the declared,
+hash-chained ``tools_governance`` surface the integrity index covers) in the
+same locked step that checks it, so a second presentation is refused from
+this process or any other. A spent approval is never re-admitted, not even
+for a retry of a write that failed after admission: the operator signs a new
+one, which is what makes each admitted write one operator act.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import re
+import secrets
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -51,7 +61,15 @@ MCP_WRITE_TOOL_EVENT = "mcp_write_tool_used"
 MCP_WRITE_ROW_KIND = "mcp_write"
 MCP_WRITE_SCHEMA_VERSION = 1
 APPROVAL_ARGUMENT = "operator_approval"
-APPROVAL_FIELDS: tuple[str, ...] = ("actor_class", "audience", "expires_at", "signer_principal", "signature")
+APPROVAL_FIELDS: tuple[str, ...] = (
+    "actor_class", "approval_id", "audience", "expires_at", "signer_principal", "signature",
+)
+# ARIA-MEDIUM-283 — the signed identity of one approval: 128 random bits, so
+# two approvals of the same write in the same second stay two acts.
+APPROVAL_ID_PREFIX = "MCPA-"
+_APPROVAL_ID_RE = re.compile(r"^MCPA-[0-9a-f]{32}$")
+MCP_WRITE_APPROVAL_ID_INVALID = "mcp_write_approval_id_invalid"
+MCP_WRITE_APPROVAL_CONSUMED = "mcp_write_approval_consumed"
 
 
 def _schema(props: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
@@ -74,7 +92,9 @@ def mcp_write_subject(tool: str, arguments: dict[str, Any], approval: dict[str, 
 
 
 def judge_mcp_write(subject: dict[str, Any], anchor: AllowedSigners, *, now: datetime) -> str | None:
-    """Why the signed write is refused against ``anchor`` at ``now``, or None: terms, then signature."""
+    """Why the signed write is refused against ``anchor`` at ``now``, or None: id, terms, then signature."""
+    if not isinstance(subject.get("approval_id"), str) or _APPROVAL_ID_RE.fullmatch(subject["approval_id"]) is None:
+        return MCP_WRITE_APPROVAL_ID_INVALID
     reason = operator_act_terms_reason(
         subject, entry=anchor.namespaces.get(SIGNATURE_NAMESPACE), audience=anchor.audience, now=now,
     )
@@ -99,8 +119,8 @@ def sign_mcp_write_approval(
         raise GovernanceError(f"mcp_write_anchor_unavailable: {anchor_reason}")
     entry = anchor.namespaces[SIGNATURE_NAMESPACE]
     now = datetime.now(timezone.utc).replace(microsecond=0)
-    terms = {"actor_class": actor_class, "audience": anchor.audience,
-             "expires_at": utc_iso(now + timedelta(hours=expires_in_hours))}
+    terms = {"actor_class": actor_class, "approval_id": APPROVAL_ID_PREFIX + secrets.token_hex(16),
+             "audience": anchor.audience, "expires_at": utc_iso(now + timedelta(hours=expires_in_hours))}
     signed = sign_operator_subject(
         mcp_write_subject(tool, arguments, terms), namespace=entry.namespace, domain_tag=str(entry.domain_tag),
         signing_key=signing_key, signer_principal=signer_principal,
@@ -252,11 +272,36 @@ class AriaMcpServer:
         reason = judge_mcp_write(subject, anchor, now=datetime.now(timezone.utc))
         if reason is not None:
             raise PermissionError(f"mcp_write_approval_refused: {reason}")
-        approved = {key: subject[key] for key in ("signer_principal", "actor_class", "expires_at")}
-        append_tools_governance(self.root, MCP_WRITE_TOOL_EVENT, {
-            "tool": tool, "args": {k: v for k, v in args.items() if k != APPROVAL_ARGUMENT},
-            "operator_approval": {**approved, "anchor_commit": anchor.commit, "subject_digest": request_subject_digest(subject)},
-        })
+        self._spend_approval(tool, args, subject, anchor)
+
+    def _spend_approval(self, tool: str, args: dict[str, Any], subject: dict[str, Any], anchor: AllowedSigners) -> None:
+        """ARIA-MEDIUM-283 — record the approval as used, or refuse it as already used, in one locked step.
+
+        The check and the append hold the governance ledger's lock together
+        (the pattern of ``operator_approval._consume``), so concurrent
+        processes presenting one approval admit exactly one write. The profile
+        gate is judged before the lock is taken and not again under it.
+        """
+        from .ledger import state_transaction
+        from .runtime_profile import enforce_profile_for_write
+
+        enforce_profile_for_write("tool_governance", base_dir=self.root)
+        governance = self.root / "governance.jsonl"
+        approval_id = subject["approval_id"]
+        with state_transaction([governance]) as txn:
+            rows = txn.load_declared_jsonl(governance, expected_surface="tools_governance") if governance.exists() else []
+            for row in rows:
+                details = row.get("details") if isinstance(row.get("details"), dict) else {}
+                used = details.get("operator_approval") if isinstance(details.get("operator_approval"), dict) else {}
+                if row.get("kind") == MCP_WRITE_TOOL_EVENT and used.get("approval_id") == approval_id:
+                    raise PermissionError(f"{MCP_WRITE_APPROVAL_CONSUMED}: {approval_id} admitted a write at "
+                                          f"{row.get('event_id')}; one approval admits one write, sign a new one")
+            approved = {key: subject[key] for key in ("approval_id", "signer_principal", "actor_class", "expires_at")}
+            append_tools_governance(self.root, MCP_WRITE_TOOL_EVENT, {
+                "tool": tool, "args": {k: v for k, v in args.items() if k != APPROVAL_ARGUMENT},
+                "operator_approval": {**approved, "anchor_commit": anchor.commit,
+                                      "subject_digest": request_subject_digest(subject)},
+            }, bypass_profile_gate=True, transaction=txn)
 
     def _human_required_resolve(self, args: dict[str, Any]) -> Any:
         self._write_gate("human_required_resolve", args)
@@ -345,6 +390,7 @@ class AriaMcpServer:
         return 0
 
 
-__all__ = ["APPROVAL_ARGUMENT", "MCP_WRITE_ROW_KIND", "MCP_WRITE_TOOL_EVENT", "PROTOCOL_VERSION", "READ_TOOLS", "SERVER_NAME",
+__all__ = ["APPROVAL_ARGUMENT", "APPROVAL_FIELDS", "APPROVAL_ID_PREFIX", "MCP_WRITE_APPROVAL_CONSUMED",
+           "MCP_WRITE_APPROVAL_ID_INVALID", "MCP_WRITE_ROW_KIND", "MCP_WRITE_TOOL_EVENT", "PROTOCOL_VERSION", "READ_TOOLS", "SERVER_NAME",
            "SERVER_VERSION", "TOOL_MANIFEST", "WRITE_TOOLS", "AriaMcpServer", "judge_mcp_write", "mcp_write_subject",
            "sign_mcp_write_approval"]

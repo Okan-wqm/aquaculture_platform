@@ -8,6 +8,11 @@ act at all. These pins cover the replacement: the call carries an
 ``aria-operator-request`` namespace over the tool, the digest of the call's
 exact arguments, the audience, the actor class and a bounded expiry, and the
 gate verifies it against the allowed-signers anchor committed on main.
+
+ARIA-MEDIUM-283 — an approval is one operator act and admits one write. The
+signed subject carries a fresh ``approval_id``; the gate spends it on the
+governance ledger under that ledger's lock, so a second use is refused from
+this process or any other, and a fresh approval admits the same write again.
 """
 from __future__ import annotations
 
@@ -15,7 +20,11 @@ import contextlib
 import io
 import json
 import os
+import secrets
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,6 +33,7 @@ from unittest import mock
 from aria_kernel import operator_request_signature as ors
 from aria_kernel.mcp_server import (
     APPROVAL_ARGUMENT,
+    APPROVAL_FIELDS,
     MCP_WRITE_TOOL_EVENT,
     AriaMcpServer,
     mcp_write_subject,
@@ -33,6 +43,7 @@ from aria_kernel.operator_request_terms import utc_iso
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.operator_requests import AUDIENCE, OperatorRequestFixture, mint_ed25519_key
 
+_KERNEL_ROOT = Path(__file__).resolve().parents[1]
 _SIGNAL = {"source": "operator", "service": "hr-service", "summary": "leave drift", "code_refs": ["a.py"]}
 
 
@@ -61,14 +72,16 @@ class McpWriteGateTests(unittest.TestCase):
                      principal: str | None = None, **terms) -> dict:
         """An approval signed past ``sign_mcp_write_approval`` — what a forger could assemble."""
         now = datetime.now(timezone.utc).replace(microsecond=0)
-        approval = {"actor_class": "T0", "audience": AUDIENCE, "expires_at": utc_iso(now + timedelta(hours=1))}
+        approval = {"actor_class": "T0", "audience": AUDIENCE, "expires_at": utc_iso(now + timedelta(hours=1)),
+                    "approval_id": "MCPA-" + secrets.token_hex(16)}
         approval.update(terms)
+        approval = {name: value for name, value in approval.items() if value is not None}
         signed = ors.sign_operator_subject(
             mcp_write_subject("runtime_signal_ingest", _SIGNAL, approval), namespace=namespace,
             domain_tag=ors.REQUEST_DOMAIN_TAG, signing_key=key or self.fx.key,
             signer_principal=principal or self.fx.principal,
         )
-        return {field: signed[field] for field in ("actor_class", "audience", "expires_at", "signer_principal", "signature")}
+        return {field: signed[field] for field in APPROVAL_FIELDS if field in signed}
 
     def _call(self, approval, arguments: dict | None = None, tool: str = "runtime_signal_ingest") -> dict:
         args = dict(_SIGNAL if arguments is None else arguments)
@@ -141,6 +154,75 @@ class McpWriteGateTests(unittest.TestCase):
         # A checkout moved off main is no anchor, so nothing it enrols admits a write.
         self.fx.commit_files({"notes.md": "x\n"}, message="chore(test): off main", on_main=False)
         self._assert_refused(self._call(self._hand_signed()), "mcp_write_anchor_unavailable")
+
+    def _used(self) -> list[dict]:
+        governance = self.fx.tools / "governance.jsonl"
+        rows = [json.loads(line) for line in governance.read_text(encoding="utf-8").splitlines()] if governance.exists() else []
+        return [row for row in rows if row.get("kind") == MCP_WRITE_TOOL_EVENT]
+
+    def test_an_approval_admits_its_write_once(self) -> None:
+        approval = self._approve()
+        self.assertRegex(approval["approval_id"], r"^MCPA-[0-9a-f]{32}$")
+        self.assertFalse(self._call(approval)["isError"])
+        replay = self._call(approval)
+        self.assertTrue(replay["isError"], replay)
+        self.assertIn("mcp_write_approval_consumed", replay["content"][0]["text"])
+        used = self._used()
+        self.assertEqual(len(used), 1, "the replay is never recorded as a second approved write")
+        self.assertEqual(used[0]["details"]["operator_approval"]["approval_id"], approval["approval_id"])
+        # A second operator act admits the same write again: one act, one write.
+        self.assertFalse(self._call(self._approve())["isError"])
+        self.assertEqual(len(self._used()), 2)
+
+    def test_an_approval_without_its_signed_id_is_refused(self) -> None:
+        self._assert_refused(self._call(self._hand_signed(approval_id=None)), "mcp_write_approval_id_invalid")
+        self._assert_refused(self._call(self._hand_signed(approval_id="MCPA-reused")), "mcp_write_approval_id_invalid")
+        # The id is signed: swapping it on a valid approval breaks the signature.
+        approval = dict(self._approve(), approval_id="MCPA-" + "0" * 32)
+        self._assert_refused(self._call(approval), ors.SIGNATURE_INVALID)
+
+    def _race(self, approval: dict, processes: int) -> list[dict]:
+        """``processes`` separate interpreters present ``approval`` at the same instant."""
+        genesis = json.loads((self.fx.repo / ors.ENROLMENTS_PATH).read_text(encoding="utf-8").splitlines()[0])["child"]
+        script = (
+            "import json, sys, time\n"
+            "from tests._helpers import operator_requests as fixture\n"
+            "fixture._FIXTURE_GENESES.append(json.loads(sys.argv[1]))\n"
+            "from aria_kernel.mcp_server import AriaMcpServer\n"
+            "server = AriaMcpServer(base_dir=sys.argv[2], workspace_root=sys.argv[3], allow_writes=True)\n"
+            "start = float(sys.argv[5])\n"
+            "while time.time() < start:\n"
+            "    time.sleep(0.005)\n"
+            "print(json.dumps(server.call_tool('runtime_signal_ingest', json.loads(sys.argv[4]))))\n"
+        )
+        env = {**os.environ, "PYTHONPATH": str(_KERNEL_ROOT), "PYTHONDONTWRITEBYTECODE": "1"}
+        start = str(time.time() + 3.0)
+        argv = [sys.executable, "-c", script, json.dumps(genesis), str(self.fx.tools), str(self.fx.repo),
+                json.dumps({**_SIGNAL, APPROVAL_ARGUMENT: approval}), start]
+        children = [subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+                    for _ in range(processes)]
+        results = []
+        for child in children:
+            out, err = child.communicate(timeout=120)
+            self.assertEqual(child.returncode, 0, err)
+            results.append(json.loads(out.strip().splitlines()[-1]))
+        return results
+
+    def test_one_approval_admits_one_write_across_processes(self) -> None:
+        results = self._race(self._approve(), processes=3)
+        admitted = [r for r in results if not r["isError"]]
+        refused = [r["content"][0]["text"] for r in results if r["isError"]]
+        self.assertEqual(len(admitted), 1, results)
+        self.assertEqual(len(refused), 2, results)
+        for text in refused:
+            self.assertIn("mcp_write_approval_consumed", text)
+        self.assertEqual(len(self._used()), 1)
+        # Spent in this process, refused in another.
+        approval = self._approve()
+        self.assertFalse(self._call(approval)["isError"])
+        (late,) = self._race(approval, processes=1)
+        self.assertTrue(late["isError"], late)
+        self.assertIn("mcp_write_approval_consumed", late["content"][0]["text"])
 
     def test_the_cli_signs_an_approval_the_server_admits(self) -> None:
         from aria_kernel.cli import main as cli_main

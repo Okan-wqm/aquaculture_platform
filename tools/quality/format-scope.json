@@ -37144,6 +37144,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-10-02-prepush-budget.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-10-02-wal-archive-activation.md",
       "prettier_managed": true
     },
@@ -48106,6 +48112,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/aria-single-restore-path.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/aria-suite-selector.spec.ts",
       "prettier_managed": true
     },
     {

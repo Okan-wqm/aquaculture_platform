@@ -10,9 +10,10 @@
 # aria-kernel/pyproject.toml deliberately preserves the former `*test*.py`
 # filename contract for pytest's side of the partition.
 #
-# SCOPED MODE (operator decision 2026-08-28): with test-file arguments
-# (paths under aria-kernel/tests/), only those modules run — the pre-push
-# gate passes its mechanically-selected affected set here. Scoped runs
+# SCOPED MODE (operator decision 2026-08-28): with test-module arguments
+# (repo paths under aria-kernel/, e.g. aria-kernel/tests/invariants/v12/
+# test_x.py), only those modules run — the pre-push gate passes one module
+# per invocation so it can time each and stop at its budget. Scoped runs
 # include the native-pytest partition for the SAME paths, so a scoped run
 # never silently drops the pytest-owned half of a selected module. Without
 # arguments the full suite runs (release pushes, the operational proof).
@@ -58,25 +59,45 @@ elif [ "$#" -gt 0 ]; then
   # from the same argument list, so the two collectors cannot disagree about
   # what was selected. unittest resolves `tests.*` from aria-kernel/ (the
   # repo root's tests/ is the JEST tree — the first cut of this ran from the
-  # root and selected zero tests, silently).
+  # root and selected zero tests, silently). The full repo path, not a bare
+  # file name, so a module under tests/invariants/ keeps its package.
   modules=()
-  for path in "$@"; do
-    modules+=("tests.$(basename "${path%.py}")")
-  done
-  (cd aria-kernel && python3 -m unittest "${modules[@]}")
   pytest_paths=()
   for path in "$@"; do
-    pytest_paths+=("aria-kernel/tests/$(basename "$path")")
+    case "$path" in
+      aria-kernel/*.py) ;;
+      *)
+        echo "usage: $0 [aria-kernel/<test module>.py ...]; got '$path'" >&2
+        exit 2
+        ;;
+    esac
+    relative="${path#aria-kernel/}"
+    relative="${relative%.py}"
+    modules+=("${relative//\//.}")
+    pytest_paths+=("$path")
   done
-  # Exit 5 is pytest's "nothing was collected": a scoped selection whose
-  # modules are all unittest-owned is CORRECT, not a failure — the unittest
-  # half above already ran exactly those tests. Any other exit is real.
+  # Exit 5 is each collector's "nothing to run". Either half may own nothing
+  # in a scoped selection, and that is CORRECT: a TestCase-only module gives
+  # pytest's native half nothing, and a module of plain pytest functions gives
+  # unittest nothing (Python 3.12+ exits 5, "NO TESTS RAN" — the pre-push gate
+  # passes one module per call, so a pytest-only module meets this alone).
+  # Both halves running nothing is not a pass: no selected test ran at all.
+  # Any other non-zero exit is a real failure; both halves always run, so one
+  # push reports every failure of the selection.
   set +e
+  (cd aria-kernel && python3 -m unittest "${modules[@]}")
+  unittest_status=$?
   python3 -m pytest -q -p aria_kernel.pytest_native_only -- "${pytest_paths[@]}"
   pytest_status=$?
   set -e
-  if [ "$pytest_status" -ne 0 ] && [ "$pytest_status" -ne 5 ]; then
-    exit "$pytest_status"
+  for status in "$unittest_status" "$pytest_status"; do
+    if [ "$status" -ne 0 ] && [ "$status" -ne 5 ]; then
+      exit "$status"
+    fi
+  done
+  if [ "$unittest_status" -eq 5 ] && [ "$pytest_status" -eq 5 ]; then
+    echo "$0: neither collector ran a test from: $*" >&2
+    exit 5
   fi
 else
   python3 -m unittest discover aria-kernel -p '*test*.py'

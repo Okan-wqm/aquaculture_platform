@@ -1943,3 +1943,18 @@ OPEN. Each was re-verified on `8083cb15e`.
   (`aria-agent-executor.yml:316`, `aria-auto-cycle.yml:403`), and both publish gates read its
   `restored`/`bootstrap` proof. Pinned by `tests/invariants/aria-single-restore-path.spec.ts` and
   `test_the_publish_gate_is_strictly_stronger_than_the_producers`.
+- **ORPHAN-CRITICAL-516** — RESOLVED by `fd9638615` (#1045), which landed the restorations
+  already re-timestamped above the per-service maxima. `RestoreAuthUsersTenantFk1808300000000` and
+  `RestoreSharedAccessLogs1808100000000` bring back the dropped DDL, and every migration spec
+  reads `tests/invariants/lib/migration-corpus.ts`. `tests/invariants/migration-corpus.spec.ts`
+  now pins the corpus itself to each service's `[0-9]*` glob: with the corpus reading
+  `.archive/` and both restorations absent, `auth-users-tenant-fk.spec.ts` and
+  `access-log-stream-shape.spec.ts` both pass again, and only the new spec fails.
+- **ORPHAN-CRITICAL-517** — RESOLVED by `fd9638615`.
+  `libs/backend-common/src/database/audit-immutability.sql.ts` generates the update and
+  legal-hold-delete pair, applied by `RestoreAuditImmutabilityContract` in admin
+  (`1808200000000`, `shared` and `admin`), auth (`1808400000000`) and farm (`1808500000000`).
+  Pinned by `tests/invariants/audit-immutability-triggers.spec.ts`. The ai-service Baseline
+  still installs the unconditional variant on `ai.tool_execution_audit`; that table has no
+  `legalHold` column and no retention or erasure path deletes from it, so it is a separate
+  retention-policy gap, not this regression.

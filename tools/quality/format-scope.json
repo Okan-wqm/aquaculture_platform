@@ -48927,6 +48927,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/migration-corpus.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/migration-glob-contract.spec.ts",
       "prettier_managed": true
     },

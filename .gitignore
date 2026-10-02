@@ -2,7 +2,8 @@
 
 # Agent-tooling runtime state written into the worktree by local hooks
 # (Mimosa scanner state, ZCode session state). Mutates on every hook run —
-# tracked here it would both dirty the tree and flap the format-scope scan.
+# tracked here it would both dirty the tree and churn the format scope, which
+# is derived from `git ls-files --cached` on every format run.
 .mimosa/
 .zcode/
 

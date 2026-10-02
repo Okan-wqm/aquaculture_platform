@@ -100,4 +100,9 @@ fi
 # Tetikleyici küme aria-kernel/'den geniştir çünkü süitin kendisi öyle:
 # .github/workflows ve .github/actions üzerinde de sözleşme doğruluyor — RC-9
 # tek satır Python'a dokunmadan onu kırmıştı.
+#
+# Bütçeli (PROC-MEDIUM-045): seçim metin eşleşmesinden değil import grafiğinden
+# gelir; koşu ARIA_PREPUSH_BUDGET_S (varsayılan 300 s) içinde, host çapında flock
+# kuyruğunda ve nice 10 ile yapılır. Bütçeye sığmayan modüller adıyla yazılır;
+# tam süit CI'da (aria-kernel.yml) koşar, ARIA_SUITE_FULL=1 onu yerelde koşturur.
 node scripts/ci/aria-suite-changed.mjs || exit 1

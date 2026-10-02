@@ -161,7 +161,7 @@ describe('workflow invariant: the closure-reconcile lane heals the registry by i
     const { steps } = loadSteps();
     const wetNames = [
       'Verify post-reconcile chain integrity',
-      'Repin the debt plan to the new chain tip',
+      'Retire resolved CRITICAL rows from the debt-plan truth table',
       'Mint GitHub App installation token',
       'Open or update reconcile PR',
       'Request auto-merge for the reconcile PR',

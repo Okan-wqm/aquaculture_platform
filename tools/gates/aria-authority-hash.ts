@@ -109,8 +109,8 @@ export function ariaAuthorityFiles(repoRoot: string = ariaRepoRoot()): string[] 
  * trap with teeth: write the hash, `git add` a new kernel test, commit, and CI
  * computes a different digest from the same commit you just validated locally.
  * It cost one red build before this guard existed. `--others
- * --exclude-standard` is the same expression `tools/quality/format-scope.json`
- * uses to answer "what will the commit contain".
+ * --exclude-standard` answers exactly that gap: the files on disk that a
+ * `git add` would bring into the digest, minus what .gitignore keeps out.
  */
 export function unstagedAuthorityFiles(repoRoot: string = ariaRepoRoot()): string[] {
   return gitIn(repoRoot, ['ls-files', '--others', '--exclude-standard', ...AUTHORITY_ROOTS])

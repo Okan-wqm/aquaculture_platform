@@ -184,7 +184,6 @@
     "gates:farm-service": "ts-node --project tools/gates/tsconfig.json tools/gates/farm-service-enterprise-guardrails.ts",
     "gates:enterprise-closure": "ts-node --project tools/gates/tsconfig.runtime.json tools/gates/enterprise-closure.ts",
     "quality:closure-run": "node tools/quality/quality.mjs closure-run --profile gates-all",
-    "quality:format-scope:generate": "node tools/quality/quality.mjs format-scope generate",
     "quality:format-scope:check": "node tools/quality/quality.mjs format-scope check",
     "supervisor:test": "node --experimental-strip-types --test tools/supervisor/runtime-supervisor.spec.ts",
     "supervisor:run": "node --experimental-strip-types tools/supervisor/runtime-supervisor.ts",

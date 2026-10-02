@@ -142,6 +142,16 @@ describe('INVARIANT: finding registry merge driver', () => {
     expect(unregistered).toEqual([]);
   });
 
+  it('registers no driver that no attribute declares', () => {
+    // PROC-HIGH-046 retired `docs/aria/CURRENT_STATE.md merge=ours`: the file
+    // no longer carries a derived value, and a keep-one-side driver on human
+    // prose silently drops the other side's edits. A registered driver with no
+    // attribute is an invitation to put it back on the wrong file.
+    const declared = new Set(gitAttributeMergeDrivers().map((pin) => pin.driver));
+    const orphaned = Object.keys(readDriverManifest()).filter((name) => !declared.has(name));
+    expect(orphaned).toEqual([]);
+  });
+
   it('registers the declared drivers from the prepare script', () => {
     const pkg: unknown = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'));
     const prepare = (pkg as { scripts?: Record<string, string> }).scripts?.prepare ?? '';

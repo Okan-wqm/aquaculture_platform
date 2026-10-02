@@ -74,3 +74,40 @@ from a commit; remove the `merge=ours` pin. Drop the debt-plan mirrors and the r
 the registry snapshot in memory and compare the truth table's active rows with the derived active
 CRITICAL set (missing, retired, duplicate, invalid bucket); leave the reconcile lane, the one
 writer of RESOLVED, as the one writer that retires a resolved CRITICAL's row.
+
+### Fix (same branch)
+
+- `docs/aria/CURRENT_STATE.md` loses its hash line. `tools/gates/aria-authority-hash.ts` keeps the
+  path (the ORPHAN-MEDIUM-792 closure policy names its spec) and now answers two derived questions:
+  `ariaAuthorityHash(repo, rev)` digests path, mode and blob id of every authority path in one
+  commit's tree, and `checkCurrentState(repo)` requires every path in the normative-anchor section
+  to be tracked, every `file.py::symbol` to be a module-level definition, and no SHA-256-shaped
+  literal in the document. The docs SSoT invariant and `--check` consume that one verdict;
+  `--write` exits 2.
+- The pre-commit writer and the post-merge hook are removed; pre-push runs `--check`, which writes
+  nothing. `.gitattributes` drops `merge=ours` for the file and the `ours` driver leaves the
+  manifest; the merge-driver spec now also refuses a registered driver that no attribute declares.
+- `manifest.json`, `README.md` and `finding-truth-table.md` lose the registry tip, counts and the
+  active CRITICAL list; `manifest.json` keeps plan identity, roster, waves and sprints, and the
+  documents keep their prose. `tools/gates/debt-plan-truth.ts` derives the snapshot in memory
+  (`npm run gates:debt-plan` prints it) and checks the truth table against the derived active
+  CRITICAL set: missing row, retired row, duplicate row and unknown bucket each fail by id. The
+  duplicate `ORPHAN-CRITICAL-810` row the Map-based check let through is removed.
+- `repin-debt-plan.ts` and `gates:debt-plan:repin` are deleted. The closure-reconcile lane, the one
+  writer of RESOLVED, runs `gates:debt-plan:retire-resolved`, which moves the row of each CRITICAL
+  it resolved into `Resolved Evidence` and refuses, writing nothing, on anything needing judgement.
+  Its declared write set shrinks to the registry and the truth table.
+- Pinned by `tools/gates/aria-authority-hash.spec.ts`, `tools/gates/debt-plan-truth.spec.ts` and
+  `tests/invariants/derived-merge-pins.spec.ts`, which replays two concurrent registry + ARIA
+  branches on the real files: neither touches a formerly pinned file, both are green as they
+  stand, and their GitHub-shaped merge (no custom driver) conflicts only on the registry's own
+  tail append, which the `findings-registry` driver resolves.
+
+Not changed: `aria-kernel/aria_kernel/workflow_contract_registry.py:808-810` still allows the
+reconcile lane to write `manifest.json` and `README.md` (a ceiling the lane no longer reaches;
+the preflight check is a subset test). `preflight.py:800` still lists `CURRENT_STATE.md` among
+cycle-written paths, and docstrings in `runtime_profiles.py:14` and `git_containment.py:396`
+still mention the authority hash. This change does not edit the kernel; all four are inert.
+`autonomy_evidence.py` reads no CURRENT_STATE value: it names
+`tools/gates/aria-authority-hash.spec.ts` and `tests/invariants/aria-doc-runtime-ssot.spec.ts` as
+ORPHAN-MEDIUM-792 regression refs and checks only that both blobs exist, which they do.

@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 import yaml from 'js-yaml';
 
-import { ariaAuthorityHash, checkAriaAuthorityHash } from '../../tools/gates/aria-authority-hash';
+import { checkCurrentState } from '../../tools/gates/aria-authority-hash';
 
 import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = (() => {
@@ -124,9 +124,9 @@ const ARCHITECTURE_SECTIONS = [
   'Known Limits / Bilinen Sınırlar',
 ];
 
-// The digest is defined once, in the module that also writes it — see the
-// header of tools/gates/aria-authority-hash.ts. A private copy here would let
-// `npm run aria:authority-hash:write` produce a value this spec rejects.
+// What CURRENT_STATE must still say about the tree is decided once, in
+// tools/gates/aria-authority-hash.ts (`checkCurrentState`); the CLI `--check`
+// consumes the same verdict, so the two cannot disagree (ORPHAN-MEDIUM-792).
 function markdownSection(body: string, heading: string): string {
   const marker = `## ${heading}`;
   const start = body.indexOf(marker);
@@ -173,30 +173,25 @@ describe('ARIA live runtime/documentation SSoT', () => {
 
   it('CURRENT_STATE declares the live authority chain and executable anchors', () => {
     const current = read('docs/aria/CURRENT_STATE.md');
-    // ORPHAN-MEDIUM-768 — the writer stamps hash AND date in the same write,
-    // so the Date line must exist and stay ISO-shaped.
-    // ORPHAN-MEDIUM-792 — that is all it must do: the date is descriptive
-    // metadata, not an authorization predicate. A server-side merge runs no
-    // local writer and may land on the next UTC day while the authority
-    // content is byte-identical to what was stamped, and holding the date
-    // accountable to the newest authority-commit day rejected exactly those
-    // valid pins. Validity is the content hash asserted below;
-    // tools/gates/aria-authority-hash.spec.ts pins the merge regression.
+    // ORPHAN-MEDIUM-768 / -792 — the Date line is descriptive metadata the
+    // author keeps, never an authorization predicate: it must exist and stay
+    // ISO-shaped, and nothing compares it with a commit date.
     const declaredDate = current.match(/^Date: (\d{4}-\d{2}-\d{2})$/m)?.[1];
     expect(declaredDate).toBeTruthy();
     const target = current.match(/Target ref: `([^`]+)`/)?.[1];
     expect(target).toBe('origin/main');
-    const verifiedHash = current.match(/Last verified ARIA authority hash: `([a-f0-9]{64})`/)?.[1];
-    expect(verifiedHash).toBeTruthy();
-    // ORPHAN-MEDIUM-792 — one verdict producer: the same pure checker the
-    // CLI `--check` consumes decides validity here, so the invariant and the
-    // gate can never disagree about what a valid pin is.
-    const verdict = checkAriaAuthorityHash(REPO_ROOT);
+    // PROC-HIGH-046 — the document records no digest of the tree (a recorded
+    // one made every ARIA PR rewrite the same line); what it claims about the
+    // tree is its anchors, and every one must resolve. Server-side merges and
+    // next-day squashes need no re-stamp because nothing is stamped;
+    // tools/gates/aria-authority-hash.spec.ts pins the merge behaviour and the
+    // red cases.
+    const verdict = checkCurrentState(REPO_ROOT);
+    expect(verdict.defects).toEqual([]);
     expect(verdict.valid).toBe(true);
-    expect(verdict.reason).toBe('current');
-    expect(verifiedHash).toBe(verdict.computed);
-    expect(verifiedHash).toBe(ariaAuthorityHash());
-    expect(current).not.toContain('Last verified commit');
+    expect(verdict.pathAnchors).toBeGreaterThan(0);
+    expect(verdict.symbolAnchors).toBeGreaterThan(0);
+    expect(current).not.toContain('Last verified');
     expect(current).toContain('## Authority Chain');
     expect(current).toContain('Executable code and machine-checked contracts are normative');
     expect(current).toContain('Claude Code CLI');
@@ -226,36 +221,12 @@ describe('ARIA live runtime/documentation SSoT', () => {
   });
 
   it('CURRENT_STATE file.py::symbol anchors resolve through Python AST', () => {
-    const current = read('docs/aria/CURRENT_STATE.md');
-    const anchors = [...current.matchAll(/([\w./-]+\.py)::([A-Za-z_]\w*)/g)].map((match) => {
-      const [, file, symbol] = match;
-      if (!file || !symbol) {
-        throw new Error(`Malformed ARIA anchor match: ${match[0] ?? '<empty>'}`);
-      }
-      return { file, symbol };
-    });
-    expect(anchors.length).toBeGreaterThan(0);
-    const script = [
-      'import ast, sys',
-      'path, symbol = sys.argv[1], sys.argv[2]',
-      'tree = ast.parse(open(path, encoding="utf-8").read(), filename=path)',
-      'for node in tree.body:',
-      '    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == symbol:',
-      '        raise SystemExit(0)',
-      '    if isinstance(node, ast.Assign):',
-      '        for target in node.targets:',
-      '            if isinstance(target, ast.Name) and target.id == symbol:',
-      '                raise SystemExit(0)',
-      '    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == symbol:',
-      '        raise SystemExit(0)',
-      'raise SystemExit(1)',
-    ].join('\n');
-    for (const anchor of anchors) {
-      execFileSync('python3', ['-c', script, join(REPO_ROOT, anchor.file), anchor.symbol], {
-        cwd: REPO_ROOT,
-        stdio: 'ignore',
-      });
-    }
+    // The AST rule lives in checkCurrentState (one interpreter for every
+    // anchor); this keeps the symbol half visible as its own failure.
+    const symbolDefects = checkCurrentState(REPO_ROOT).defects.filter(
+      (defect) => defect.kind === 'unresolved_symbol',
+    );
+    expect(symbolDefects).toEqual([]);
   });
 
   it('every ARIA plan doc has exactly one authority marker', () => {

@@ -4,9 +4,25 @@
  * The 2026-06-18 debt-closure program is a control-plane artifact, not a
  * narrative-only roadmap. This invariant keeps its README, machine-readable
  * manifest, and CODEOWNERS coverage present and internally consistent.
+ *
+ * PROC-HIGH-046 — the plan records no registry counts, tip hash or active
+ * CRITICAL list. They used to be mirrored into all three plan files, so every
+ * PR that added a finding rewrote the same lines and any two such PRs
+ * conflicted. The registry view is derived here, in memory, by
+ * tools/gates/debt-plan-truth.ts, and what the mirror carried that mattered —
+ * one truth-table row (owner, sprint, bucket) per active CRITICAL, none for
+ * anything else — is compared against the registry itself.
  */
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+
+import {
+  DERIVED_MANIFEST_KEYS,
+  TRUTH_BUCKETS,
+  checkDebtPlanTruth,
+  deriveRegistrySnapshot,
+  truthTableActiveRows,
+} from '../../tools/gates/debt-plan-truth';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const PLAN_ID = '2026-06-18-enterprise-grade-debt-closure';
@@ -24,15 +40,6 @@ const QUALITY_RUNNER_PATH = join(REPO_ROOT, 'tools/quality/quality.mjs');
 const CLOSURE_MANIFEST_PATH = join(REPO_ROOT, 'tools/quality/closure-manifest.json');
 const NX_JSON_PATH = join(REPO_ROOT, 'nx.json');
 const PACKAGE_JSON_PATH = join(REPO_ROOT, 'package.json');
-const TRUTH_BUCKETS = new Set([
-  'real-open',
-  'already-fixed-needs-close',
-  'superseded',
-  'blocked',
-  'stale',
-  'new-finding-required',
-]);
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -47,13 +54,6 @@ function stringArray(value: unknown): string[] {
 function objectArray(value: unknown): Record<string, unknown>[] {
   if (!Array.isArray(value) || !value.every(isRecord)) {
     throw new Error('Expected object array');
-  }
-  return value;
-}
-
-function numberValue(value: unknown, field: string): number {
-  if (typeof value !== 'number') {
-    throw new Error(`Expected numeric manifest field: ${field}`);
   }
   return value;
 }
@@ -73,51 +73,11 @@ function readManifest(): Record<string, unknown> {
   return parsed;
 }
 
-function readRegistryEntries(): Record<string, unknown>[] {
-  return readFileSync(REGISTRY_PATH, 'utf8')
-    .split(/\r?\n/)
-    .filter((line) => line.trim() !== '')
-    .map((line, index) => {
-      const parsed: unknown = JSON.parse(line);
-      if (!isRecord(parsed)) {
-        throw new Error(`Registry line ${index + 1} must be a JSON object`);
-      }
-      return parsed;
-    });
-}
-
-function stateOf(entry: Record<string, unknown>): string {
-  return stringValue(entry.state, `${stringValue(entry.id, 'registry.id')}.state`);
-}
-
-function isActiveCritical(entry: Record<string, unknown>): boolean {
-  if (
-    stringValue(entry.severity, `${stringValue(entry.id, 'registry.id')}.severity`) !== 'CRITICAL'
-  ) {
-    return false;
-  }
-  return stateOf(entry) === 'OPEN' || stateOf(entry) === 'IN-PROGRESS';
-}
-
-function truthTableRows(truthTable: string): Map<string, string> {
-  const rows = new Map<string, string>();
-  for (const line of truthTable.split(/\r?\n/)) {
-    const cells = line
-      .split('|')
-      .map((cell) => cell.trim())
-      .filter(Boolean);
-    if (cells.length !== 5 || !cells[0]?.startsWith('`')) continue;
-    const id = cells[0].replace(/^`|`$/g, '');
-    rows.set(id, cells[4]!);
-  }
-  return rows;
-}
-
 describe('enterprise-grade debt closure plan contract', () => {
   const readme = readFileSync(README_PATH, 'utf8');
   const truthTable = readFileSync(TRUTH_TABLE_PATH, 'utf8');
   const manifest = readManifest();
-  const registryEntries = readRegistryEntries();
+  const snapshot = deriveRegistrySnapshot(readFileSync(REGISTRY_PATH, 'utf8'));
 
   it('keeps the governed plan README present with the wave structure', () => {
     expect(readme).toContain('# Enterprise-Grade Debt Closure Program');
@@ -138,68 +98,29 @@ describe('enterprise-grade debt closure plan contract', () => {
     );
     expect(manifest.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
     expect(manifest.base_commit).toMatch(/^[0-9a-f]{40}$/);
-    expect(manifest.registry_tip_hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(numberValue(manifest.registry_entries, 'registry_entries')).toBeGreaterThan(0);
-    expect(numberValue(manifest.open_findings_count, 'open_findings_count')).toBeGreaterThanOrEqual(
-      0,
-    );
-    expect(
-      numberValue(manifest.in_progress_findings_count, 'in_progress_findings_count'),
-    ).toBeGreaterThanOrEqual(0);
-    expect(numberValue(manifest.active_critical_count, 'active_critical_count')).toBeGreaterThan(0);
+    // PROC-HIGH-046 — a registry mirror is refused, so it cannot come back.
+    for (const key of DERIVED_MANIFEST_KEYS) {
+      expect(Object.keys(manifest)).not.toContain(key);
+    }
   });
 
-  it('keeps manifest counts and active criticals pinned to the finding registry SSoT', () => {
-    const activeCriticalIds = stringArray(manifest.active_critical_ids);
-    const registryActiveCriticalIds = registryEntries
-      .filter(isActiveCritical)
-      .map((entry) => stringValue(entry.id, 'registry.id'));
-    const registryOpenCount = registryEntries.filter((entry) => stateOf(entry) === 'OPEN').length;
-    const registryInProgressCount = registryEntries.filter(
-      (entry) => stateOf(entry) === 'IN-PROGRESS',
-    ).length;
-    const registryTip = stringValue(
-      registryEntries[registryEntries.length - 1]?.content_hash,
-      'registry tip content_hash',
-    );
-
-    expect(manifest.registry_tip_hash).toBe(registryTip);
-    expect(numberValue(manifest.registry_entries, 'registry_entries')).toBe(registryEntries.length);
-    expect(numberValue(manifest.open_findings_count, 'open_findings_count')).toBe(
-      registryOpenCount,
-    );
-    expect(numberValue(manifest.in_progress_findings_count, 'in_progress_findings_count')).toBe(
-      registryInProgressCount,
-    );
-    expect(numberValue(manifest.active_critical_count, 'active_critical_count')).toBe(
-      registryActiveCriticalIds.length,
-    );
-    expect(activeCriticalIds).toEqual(registryActiveCriticalIds);
-
-    const expectedReadmeLines = [
-      `- Registry entries: ${registryEntries.length}`,
-      `- Registry tip hash: \`${registryTip}\``,
-      `- OPEN findings: ${registryOpenCount}`,
-      `- IN-PROGRESS findings: ${registryInProgressCount}`,
-      `- Active CRITICAL findings: ${registryActiveCriticalIds.length}`,
-      `- \`npm run findings:verify\`: passing against registry tip \`${registryTip}\``,
-    ];
-    for (const line of expectedReadmeLines) {
-      expect(readme.split(/\r?\n/).filter((candidate) => candidate === line)).toEqual([line]);
-    }
-    expect(
-      truthTable.split(/\r?\n/).filter((line) => line === `Registry tip: \`${registryTip}\``),
-    ).toEqual([`Registry tip: \`${registryTip}\``]);
+  it('derives the registry view instead of recording it in any plan file', () => {
+    // The derivation itself (determinism, red cases, the reconcile lane's
+    // retirement) is pinned by tools/gates/debt-plan-truth.spec.ts.
+    expect(snapshot.tipHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(snapshot.entries).toBeGreaterThan(0);
+    const mirrored =
+      /^(?:- (?:Registry entries|Registry tip hash|OPEN findings|IN-PROGRESS findings|Active CRITICAL findings):|Registry tip:)|passing against registry tip/m;
+    expect(readme).not.toMatch(mirrored);
+    expect(truthTable).not.toMatch(mirrored);
   });
 
   it('keeps active criticals, core agents, and attacker lanes explicit', () => {
-    const activeCriticalIds = stringArray(manifest.active_critical_ids);
+    const activeCriticalIds = snapshot.activeCriticalIds;
     const agentRoster = stringArray(manifest.agent_roster);
     const attackers = stringArray(manifest.reverse_engineering_attackers);
 
-    expect(activeCriticalIds).toHaveLength(
-      numberValue(manifest.active_critical_count, 'active_critical_count'),
-    );
+    expect(activeCriticalIds.length).toBeGreaterThan(0);
     expect(activeCriticalIds.every((id) => id.includes('-CRITICAL-'))).toBe(true);
     expect(agentRoster.length).toBeGreaterThanOrEqual(12);
     expect(agentRoster).toContain('architectural-arbiter');
@@ -235,21 +156,24 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect([...missingOwners].sort()).toEqual([]);
   });
 
-  it('keeps the truth table aligned with active critical IDs', () => {
-    const activeCriticalIds = stringArray(manifest.active_critical_ids);
-    const rows = truthTableRows(truthTable);
-
+  it('keeps exactly one truth-table row per active CRITICAL in the registry', () => {
     expect(truthTable).toContain('# Finding Truth Table');
     expect(truthTable).toContain('Allowed truth buckets:');
     for (const bucket of TRUTH_BUCKETS) {
       expect(truthTable).toContain(`\`${bucket}\``);
     }
 
-    for (const id of activeCriticalIds) {
-      expect(rows.has(id)).toBe(true);
-      expect(TRUTH_BUCKETS.has(rows.get(id) ?? '')).toBe(true);
-    }
-    expect(rows.size).toBe(activeCriticalIds.length);
+    // Missing row: a new active CRITICAL needs an owner, a sprint and a bucket.
+    // Retired row: a CRITICAL that left the active set must leave the table
+    // (the closure-reconcile lane moves it). Duplicate rows and unknown
+    // buckets fail too — the earlier Map-based check let a duplicate through.
+    expect(checkDebtPlanTruth(snapshot, truthTableActiveRows(truthTable))).toEqual({
+      valid: true,
+      missingRows: [],
+      retiredRows: [],
+      duplicateRows: [],
+      invalidBuckets: [],
+    });
   });
 
   it('keeps waves, sprints, and exit gates linked', () => {

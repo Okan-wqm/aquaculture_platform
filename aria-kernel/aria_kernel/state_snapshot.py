@@ -49,7 +49,7 @@ import subprocess
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping
+from typing import Any, Callable, Iterable, Iterator, Mapping
 
 from .ledger import (
     LEDGER_ROW_MAX_BYTES,
@@ -62,6 +62,7 @@ from .state_manifest import (
     MAX_SURFACE_PATH_COMPONENTS,
     StateSurface,
     iter_surfaces,
+    memory_surfaces,
     normalize_surface_relative_path,
     surface_for_relative_path,
     surface_key_name,
@@ -96,6 +97,10 @@ SNAPSHOT_MAX_DISCOVERY_WORK = 100_000
 # a commit signature by the same cycle key must not verify as a state
 # snapshot, and vice versa.
 SIGNATURE_NAMESPACE = "aria-state-snapshot"
+
+# ARIA-HIGH-263 — the continuity status, and the build refusal's name, for a
+# snapshot that holds less of a memory surface than its predecessor did.
+MEMORY_REWRITE_STATUS = "memory_surface_rewrite"
 
 # Storage policy, derived from the manifest's own vocabulary. Declared as
 # a mapping rather than an if-chain so an unclassified future
@@ -255,6 +260,8 @@ def build_snapshot(
             discovery_budget=discovery_budget,
         )
         by_name = {surface.name: surface for surface in declared}
+        prior_claims = (previous or {}).get("surfaces") or {}
+        prefix_witnesses: dict[str, _PrefixWitness] = {}
         for surface_name, root_kind, relative, expected_identity in (
             first_projection.leaves
         ):
@@ -263,6 +270,9 @@ def build_snapshot(
             root = Path(roots[root_kind])
             wildcard = "*" in surface.path_pattern
             name = f"{surface.name}:{relative}" if wildcard else surface.name
+            witness = _PrefixWitness.for_claim(surface, prior_claims.get(name))
+            if witness is not None:
+                prefix_witnesses[name] = witness
             entry = _surface_entry(
                 surface,
                 relative,
@@ -270,6 +280,7 @@ def build_snapshot(
                 root_fd=root_anchors[root_kind].descriptor,
                 expected_identity=expected_identity,
                 grandfather_prefix=(grandfather_row_counts or {}).get(name, 0),
+                on_stored_row=witness.observe if witness is not None else None,
             )
             entry_count += 1
             if entry_count > SNAPSHOT_MAX_SURFACE_ENTRIES:
@@ -288,6 +299,18 @@ def build_snapshot(
             surfaces[name] = entry
             if policy == "artifact_only":
                 artifact_only.append(name)
+
+        rewritten = sorted(
+            {name for name, witness in prefix_witnesses.items() if not witness.held}
+            | set(memory_surface_rewrites({"surfaces": surfaces}, previous))
+        )
+        if rewritten:
+            raise SnapshotError(
+                f"snapshot_{MEMORY_REWRITE_STATUS}:{','.join(rewritten)}: a memory "
+                "surface holds fewer rows than its predecessor's claim, or rows "
+                "that are not that claim's prefix; memory is append-only, so this "
+                "tree cannot be chained onto its predecessor (ARIA-HIGH-263)"
+            )
 
         _validate_snapshot_root_anchors(root_anchors)
         second_projection = _snapshot_namespace_projection(
@@ -728,6 +751,7 @@ def snapshot_continuity(
             "lost_surfaces": [],
             "new_surfaces": sorted(current.get("surfaces") or {}),
             "changed_surfaces": [],
+            "memory_rewrites": [],
         }
     prev_surfaces = previous.get("surfaces") or {}
     cur_surfaces = current.get("surfaces") or {}
@@ -737,8 +761,14 @@ def snapshot_continuity(
         name for name in set(prev_surfaces) & set(cur_surfaces)
         if prev_surfaces[name].get("sha256") != cur_surfaces[name].get("sha256")
     )
+    # ARIA-HIGH-263 — a shrunk memory surface outranks a loss: a loss can be
+    # vouched for (compaction, the operator's ack), a memory rewrite cannot,
+    # and the publish gate refuses every status but `surfaces_lost` outright.
+    memory_rewrites = memory_surface_rewrites(current, previous)
     if not linked:
         status = "chain_broken"
+    elif memory_rewrites:
+        status = MEMORY_REWRITE_STATUS
     elif lost:
         status = "surfaces_lost"
     else:
@@ -749,7 +779,88 @@ def snapshot_continuity(
         "lost_surfaces": lost,
         "new_surfaces": sorted(set(cur_surfaces) - set(prev_surfaces)),
         "changed_surfaces": changed,
+        "memory_rewrites": memory_rewrites,
     }
+
+
+def memory_surface_rewrites(
+    current: Mapping[str, Any],
+    previous: Mapping[str, Any] | None,
+) -> list[str]:
+    """ARIA-HIGH-263 — the memory surfaces ``current`` holds less of.
+
+    WHAT: every key of a surface the manifest flags ``memory`` whose
+    predecessor claim carried rows and whose successor claim is absent,
+    carries fewer rows, or carries as many rows under another tail hash —
+    every rewrite a pair of manifests can show. A rewrite that also GREW the
+    ledger changed a prefix no manifest records; ``build_snapshot`` refuses
+    that one from the bytes (``_PrefixWitness``), where the prefix is.
+
+    WHY: compaction collapsed beliefs to one row per id and dropped learning
+    events past seven days, and every publish carried the result as an
+    ordinary change — ARIA forgot what it learned each week (8 beliefs and
+    33 learning events live, against 8 MB archived of each, read by nothing).
+    Memory is append-only; a tree that shrank it is not a successor.
+    """
+    if previous is None:
+        return []
+    memory = {surface.name for surface in memory_surfaces()}
+    after_claims = current.get("surfaces") or {}
+    rewrites: list[str] = []
+    for key, before in (previous.get("surfaces") or {}).items():
+        if surface_key_name(key) not in memory or not isinstance(before, dict):
+            continue
+        rows_before = before.get("row_count")
+        if not isinstance(rows_before, int) or rows_before <= 0:
+            continue
+        after = after_claims.get(key)
+        rows_after = after.get("row_count") if isinstance(after, dict) else None
+        if (
+            not isinstance(rows_after, int)
+            or rows_after < rows_before
+            or (
+                rows_after == rows_before
+                and after.get("tail_ledger_hash") != before.get("tail_ledger_hash")
+            )
+        ):
+            rewrites.append(key)
+    return sorted(rewrites)
+
+
+@dataclass
+class _PrefixWitness:
+    """The stored hash of the row at a memory ledger's predecessor tail.
+
+    A ledger extends its predecessor's claim exactly when the row at the
+    claim's last index carries the claim's ``tail_ledger_hash``: every row's
+    hash binds the hash before it, so that one row proves the whole prefix
+    (the rule ``contention_replay.append_only_suffix`` applies). The builder
+    already streams every row through chain verification; the witness only
+    keeps the one hash it needs.
+    """
+
+    rows_before: int
+    tail_before: Any
+    seen: int = 0
+    anchor: Any = None
+
+    @classmethod
+    def for_claim(cls, surface: StateSurface, claim: Any) -> "_PrefixWitness | None":
+        if not surface.memory or surface.state_class != "ledger" or not isinstance(claim, dict):
+            return None
+        rows = claim.get("row_count")
+        if not isinstance(rows, int) or isinstance(rows, bool) or rows <= 0:
+            return None
+        return cls(rows_before=rows, tail_before=claim.get("tail_ledger_hash"))
+
+    def observe(self, row: Mapping[str, Any]) -> None:
+        self.seen += 1
+        if self.seen == self.rows_before:
+            self.anchor = row.get("ledger_hash")
+
+    @property
+    def held(self) -> bool:
+        return self.anchor is not None and self.anchor == self.tail_before
 
 
 def _storage_policy(surface: StateSurface) -> str:
@@ -1434,6 +1545,7 @@ def _surface_entry(
     root_fd: int | None = None,
     grandfather_prefix: int = 0,
     expected_identity: _SnapshotStatIdentity | None = None,
+    on_stored_row: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     relative = _normalize_snapshot_relative_path(relative)
     path = root / relative
@@ -1454,6 +1566,7 @@ def _surface_entry(
                     grandfather_line_prefixes=grandfather_prefix,
                     expected_surface=surface.name,
                     expected_surface_instance=relative,
+                    on_stored_row=on_stored_row,
                 )
             except LedgerReadLimitError as exc:
                 reason = (

@@ -23,6 +23,7 @@ import {
 import { UseGuards, Logger } from '@nestjs/common';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
+import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
 import {
   StandardPaginatedResponse,
   IStandardPaginatedResult,
@@ -323,7 +324,10 @@ export class HarvestPlanResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async completeHarvestPlan(
     @Tenant() tenantId: string,
-    @CurrentUser() user: { sub: string; roles?: string[]; assignedSiteIds?: string[] },
+    // SEC-HIGH-188: the verified caller (roles already validated as canonical
+    // Role values by the JWT guard) goes to the service unchanged — no string
+    // filtering, no defaulting; the service refuses a caller without authority.
+    @CurrentUser() user: SiteScopeCaller,
     @Args('id', { type: () => ID }) id: string,
     @Args('actualQuantity', { type: () => Int }) actualQuantity: number,
     @Args('actualBiomass', { type: () => Float }) actualBiomass: number,
@@ -336,9 +340,7 @@ export class HarvestPlanResolver {
       actualQuantity,
       actualBiomass,
       actualAvgWeight,
-      user.sub,
-      (user.roles ?? []).filter((r): r is Role => Object.values(Role).includes(r as Role)),
-      user.assignedSiteIds ?? [],
+      user,
     );
   }
 

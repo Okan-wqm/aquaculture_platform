@@ -6,7 +6,13 @@
  *
  * @module Harvest
  */
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { CommandBus } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
@@ -26,9 +32,11 @@ import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
 import { TankAllocation } from '../../batch/entities/tank-allocation.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { MUTATION_ROLES } from '../../common/authz/permission-matrix';
 import { CreateHarvestRecordCommand } from '../commands/create-harvest-record.command';
 import { QualityClass } from '../entities/harvest-record.entity';
-import { Role } from '@aquaculture/backend-common/decorators';
+import { hasAnyRole } from '@aquaculture/backend-common/decorators';
+import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
 
 // ============================================================================
 // INTERFACES
@@ -53,6 +61,25 @@ export interface HarvestPlanStats {
 // ============================================================================
 // SERVICE
 // ============================================================================
+
+/**
+ * The completeHarvestPlan role set, read from the farm permission matrix (the
+ * SSoT the mutation's @Roles mirrors). A missing entry yields an empty set, so
+ * every caller is refused rather than any being admitted.
+ */
+const COMPLETE_HARVEST_PLAN_ROLES = [...(MUTATION_ROLES['completeHarvestPlan'] ?? [])];
+
+/**
+ * Refuse a caller whose verified roles do not reach the completeHarvestPlan
+ * floor through the canonical role hierarchy. Generic message: the response
+ * never discloses which role was missing.
+ */
+function assertMayCompleteHarvestPlan(caller: SiteScopeCaller): void {
+  const authorised = caller.roles.some((role) => hasAnyRole(role, COMPLETE_HARVEST_PLAN_ROLES));
+  if (!authorised) {
+    throw new ForbiddenException('Access denied');
+  }
+}
 
 @Injectable()
 export class HarvestPlanService {
@@ -469,10 +496,16 @@ export class HarvestPlanService {
     actualQuantity: number,
     actualBiomass: number,
     actualAvgWeight: number,
-    userId: string,
-    userRoles?: Role[],
-    callerAssignedSiteIds?: string[],
+    caller: SiteScopeCaller,
   ): Promise<HarvestPlan> {
+    // SEC-HIGH-188: completing a plan moves stock out of EVERY tank that holds
+    // the batch, so it is the completeHarvestPlan operation's authority
+    // (permission matrix: MODULE_MANAGER / TENANT_ADMIN) acting on the
+    // verified caller. The caller's roles are carried unchanged into each
+    // stock movement; an identity without that authority — an empty role set
+    // included — is refused before anything moves. There is no default role.
+    assertMayCompleteHarvestPlan(caller);
+
     const plan = await this.findByIdOrFail(tenantId, id);
 
     if (plan.status !== HarvestPlanStatus.IN_PROGRESS) {
@@ -540,9 +573,9 @@ export class HarvestPlanService {
             notes: `Auto: harvest plan ${plan.planCode} completion`,
             harvestPlanId: plan.id,
           },
-          userId,
-          userRoles?.length ? userRoles : [Role.TENANT_ADMIN],
-          callerAssignedSiteIds ?? [],
+          caller.sub,
+          caller.roles,
+          caller.assignedSiteIds ?? [],
         ),
       );
     }

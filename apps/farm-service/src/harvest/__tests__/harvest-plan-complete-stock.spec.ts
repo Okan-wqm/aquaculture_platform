@@ -7,9 +7,15 @@
  * TankBatch location of the plan's batch, split in proportion to the stock in
  * each tank, BEFORE the plan is marked COMPLETED (the command rejects a
  * completed plan).
+ *
+ * SEC-HIGH-188: the movements run with the VERIFIED caller's roles. #1670
+ * defaulted an empty role set to TENANT_ADMIN, so a caller with no roles moved
+ * stock with tenant-admin authority (and bypassed the per-tank site check).
+ * A caller below the completeHarvestPlan floor is now refused before any read.
  */
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Role } from '@aquaculture/backend-common/decorators';
+import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
 import { collaborator, stubMember } from '@aquaculture/testing';
 import type { CommandBus } from '@platform/cqrs';
 import type { Repository } from 'typeorm';
@@ -27,6 +33,10 @@ const BATCH_ID = '33333333-3333-4333-8333-333333333333';
 const OTHER_BATCH_ID = '44444444-4444-4444-8444-444444444444';
 const USER_ID = '55555555-5555-4555-8555-555555555555';
 const SITE_ID = '66666666-6666-4666-8666-666666666666';
+
+function caller(roles: Role[], assignedSiteIds: string[] = []): SiteScopeCaller {
+  return { sub: USER_ID, roles, assignedSiteIds };
+}
 
 function detail(batchId: string, quantity: number): BatchDetail {
   return {
@@ -65,10 +75,11 @@ function harness(status: HarvestPlanStatus, tankBatches: TankBatch[]) {
     events.push(`save:${saved.status}`);
     return Promise.resolve(saved);
   });
+  const findOne = jest.fn(() => Promise.resolve(plan));
   const service = new HarvestPlanService(
     collaborator<Repository<HarvestPlan>>(
       {
-        findOne: stubMember<Repository<HarvestPlan>['findOne']>(() => Promise.resolve(plan)),
+        findOne: stubMember<Repository<HarvestPlan>['findOne']>(findOne),
         save: stubMember<Repository<HarvestPlan>['save']>(save),
       },
       'HarvestPlanRepository',
@@ -81,7 +92,7 @@ function harness(status: HarvestPlanStatus, tankBatches: TankBatch[]) {
     collaborator<BatchHarvestEligibilityService>({}, 'BatchHarvestEligibilityService'),
     collaborator<CommandBus>({ execute: stubMember<CommandBus['execute']>(execute) }, 'CommandBus'),
   );
-  return { service, plan, execute, save, events };
+  return { service, plan, execute, save, findOne, events };
 }
 
 function issuedCommands(execute: jest.Mock): CreateHarvestRecordCommand[] {
@@ -107,9 +118,7 @@ describe('HarvestPlanService.completeHarvest — stock movement', () => {
       400,
       20,
       50,
-      USER_ID,
-      [Role.MODULE_MANAGER],
-      [SITE_ID],
+      caller([Role.MODULE_MANAGER], [SITE_ID]),
     );
 
     const commands = issuedCommands(execute);
@@ -140,16 +149,7 @@ describe('HarvestPlanService.completeHarvest — stock movement', () => {
       tankBatch('tank-a', [detail(BATCH_ID, 150)]),
     ]);
 
-    await service.completeHarvest(
-      TENANT_ID,
-      PLAN_ID,
-      400,
-      20,
-      50,
-      USER_ID,
-      [Role.TENANT_ADMIN],
-      [],
-    );
+    await service.completeHarvest(TENANT_ID, PLAN_ID, 400, 20, 50, caller([Role.TENANT_ADMIN]));
 
     expect(issuedCommands(execute).map((c) => c.input.quantityHarvested)).toEqual([150]);
   });
@@ -159,7 +159,14 @@ describe('HarvestPlanService.completeHarvest — stock movement', () => {
       tankBatch('tank-c', [detail(OTHER_BATCH_ID, 500)]),
     ]);
 
-    const result = await service.completeHarvest(TENANT_ID, PLAN_ID, 400, 20, 50, USER_ID);
+    const result = await service.completeHarvest(
+      TENANT_ID,
+      PLAN_ID,
+      400,
+      20,
+      50,
+      caller([Role.TENANT_ADMIN]),
+    );
 
     expect(execute).not.toHaveBeenCalled();
     expect(save).toHaveBeenCalledTimes(1);
@@ -171,10 +178,55 @@ describe('HarvestPlanService.completeHarvest — stock movement', () => {
       tankBatch('tank-a', [detail(BATCH_ID, 600)]),
     ]);
 
-    await expect(service.completeHarvest(TENANT_ID, PLAN_ID, 400, 20, 50, USER_ID)).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(
+      service.completeHarvest(TENANT_ID, PLAN_ID, 400, 20, 50, caller([Role.TENANT_ADMIN])),
+    ).rejects.toThrow(BadRequestException);
     expect(execute).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
   });
+});
+
+describe('HarvestPlanService.completeHarvest — caller authority (SEC-HIGH-188)', () => {
+  const stocked = (): TankBatch[] => [tankBatch('tank-a', [detail(BATCH_ID, 600)])];
+
+  it('refuses a caller with no roles: nothing is read, moved or saved', async () => {
+    const { service, execute, save, findOne } = harness(HarvestPlanStatus.IN_PROGRESS, stocked());
+
+    await expect(
+      service.completeHarvest(TENANT_ID, PLAN_ID, 400, 20, 50, caller([], [SITE_ID])),
+    ).rejects.toThrow(ForbiddenException);
+    expect(findOne).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('refuses a caller below the completeHarvestPlan floor even when site-assigned', async () => {
+    const { service, execute, save } = harness(HarvestPlanStatus.IN_PROGRESS, stocked());
+
+    await expect(
+      service.completeHarvest(
+        TENANT_ID,
+        PLAN_ID,
+        400,
+        20,
+        50,
+        caller([Role.MODULE_USER], [SITE_ID]),
+      ),
+    ).rejects.toThrow(ForbiddenException);
+    expect(execute).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it.each([[Role.MODULE_MANAGER], [Role.TENANT_ADMIN], [Role.SUPER_ADMIN]])(
+    'carries the verified %s role unchanged into the stock movement',
+    async (role) => {
+      const { service, execute } = harness(HarvestPlanStatus.IN_PROGRESS, stocked());
+
+      await service.completeHarvest(TENANT_ID, PLAN_ID, 400, 20, 50, caller([role]));
+
+      expect(issuedCommands(execute).map((c) => [c.recordedBy, c.userRoles])).toEqual([
+        [USER_ID, [role]],
+      ]);
+    },
+  );
 });

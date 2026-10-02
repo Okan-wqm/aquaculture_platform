@@ -782,6 +782,15 @@ def build_parser() -> argparse.ArgumentParser:
     fb_request.add_argument("--expires-in-hours", type=int, default=None,
                             help="Signed expiry (default and maximum: the operator-act lifetime, 168h)")
     fb_request.add_argument("--request-id", default=None, help="Optional stable id (default OP-<uuid4>)")
+    # ADR-0023 — the only way the allowed-signers file or the namespace
+    # registry changes: the operator signs the edited pair as the child of
+    # the pair committed on main, with a key that parent enrols.
+    fb_enrol = add_subparser(feedback_sub, "enrol")
+    fb_enrol.add_argument("--actor-class", required=True, choices=["T0"])
+    for flag in ("--signing-key", "--signer-principal"):  # the key may be a .pub whose private half is in ssh-agent
+        fb_enrol.add_argument(flag, required=True)
+    fb_enrol.add_argument("--repo-root", default=".")
+    fb_enrol.add_argument("--expires-in-hours", type=int, default=168)
     fb_rotate = add_subparser(feedback_sub, "rotate-signing-key")
     fb_rotate.add_argument("--reason", required=True, type=_validate_reason)
 
@@ -3430,6 +3439,15 @@ def _main(argv: list[str] | None = None) -> int:
             expires_in_hours=args.expires_in_hours,
             base_dir=args.tools_dir,
             repo_root=args.repo_root,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "feedback" and args.feedback_command == "enrol":
+        from aria_kernel.operator_request_signature import record_enrolment
+
+        print(json.dumps(record_enrolment(
+            repo_root=args.repo_root, signing_key=args.signing_key, signer_principal=args.signer_principal,
+            actor_class=args.actor_class, expires_in_hours=args.expires_in_hours, subject_stream=sys.stderr,
         ), indent=2, sort_keys=True))
         return 0
 

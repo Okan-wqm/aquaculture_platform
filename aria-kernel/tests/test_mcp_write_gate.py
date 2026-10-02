@@ -31,7 +31,7 @@ from aria_kernel.mcp_server import (
 )
 from aria_kernel.operator_request_terms import request_audience, utc_iso
 from aria_kernel.tool_registry import GovernanceError
-from tests._helpers.operator_requests import OperatorRequestFixture, allowed_signers_line, mint_ed25519_key
+from tests._helpers.operator_requests import OperatorRequestFixture, mint_ed25519_key
 
 _SIGNAL = {"source": "operator", "service": "hr-service", "summary": "leave drift", "code_refs": ["a.py"]}
 
@@ -93,11 +93,9 @@ class McpWriteGateTests(unittest.TestCase):
         self._assert_refused(self._call(unsigned), ors.SIGNATURE_MISSING)
 
     def test_a_signature_in_another_namespace_is_refused(self) -> None:
-        # The key is enrolled for the label namespace too, and the bytes are
-        # the request subject's: only the -n namespace differs.
-        both = allowed_signers_line(self.fx.principal, self.fx.key,
-                                    namespace=f"{ors.SIGNATURE_NAMESPACE},{ors.LABEL_NAMESPACE}")
-        self.fx.commit_files({ors.ALLOWED_SIGNERS_PATH: both}, message="chore(test): enrol for labels too")
+        # The fixture key is enrolled for the label namespace too, and the
+        # bytes are the request subject's: only the -n namespace differs.
+        self.assertIn(ors.LABEL_NAMESPACE, ors.allowed_signers_for_checkout(self.fx.repo)[0].content.decode())
         self._assert_refused(self._call(self._hand_signed(namespace=ors.LABEL_NAMESPACE)), ors.SIGNATURE_INVALID)
         self.assertFalse(self._call(self._hand_signed())["isError"], "the same act in its own namespace verifies")
 

@@ -7,26 +7,39 @@ its shape (the four operator namespaces admit T0/T1 only, ARIA's own two
 admit T2 alone), its completeness against the namespace constants the
 kernel exports, the verifier taking namespace, domain tag and principal
 classes from the entry, and a request signed before the registry keeping
-its exact bytes.
+its exact bytes; and the enrolment chain: the two files change only through
+a row signed in ``aria-operator-enrol`` by a key the PARENT version enrols,
+walked from the pinned genesis on every anchor read.
 """
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import importlib
+import io
 import json
 import os
 import subprocess
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+from aria_kernel import main_anchor
 from aria_kernel import operator_request_signature as ors
 from aria_kernel import state_snapshot
+from aria_kernel.operator_request_terms import request_audience
+from aria_kernel.tool_registry import GovernanceError
+from tests._helpers import operator_requests as helpers
 from tests._helpers.operator_requests import (
+    ALL_OPERATOR_NAMESPACES,
     REGISTRY_BYTES,
     OperatorRequestFixture,
     allowed_signers_line,
     anchor_from_bytes,
+    genesis_line,
+    git,
     mint_ed25519_key,
 )
 
@@ -182,3 +195,181 @@ class RegistryAnchorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _git_out(*args: str) -> str:
+    return subprocess.run(["git", "-C", str(_REPO_ROOT), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+class CommittedChainTests(unittest.TestCase):
+    """The repository's own chain: it walks from the production pin, and a change only appends live rows."""
+
+    def test_the_committed_chain_walks_from_the_production_pin(self) -> None:
+        head = _git_out("rev-parse", "HEAD")
+        blobs = {path: main_anchor.committed_blob(_REPO_ROOT, commit=head, path=path).content
+                 for path in (ors.ALLOWED_SIGNERS_PATH, ors.NAMESPACE_REGISTRY_PATH, ors.ENROLMENTS_PATH)}
+        genesis = json.loads(blobs[ors.ENROLMENTS_PATH].splitlines()[0])
+        with mock.patch.object(ors, "genesis_pinned", helpers._production_genesis_pinned):
+            self.assertTrue(ors.genesis_pinned(genesis["child"]))
+            self.assertIsNone(ors.verify_enrolment_chain(
+                blobs[ors.ENROLMENTS_PATH], allowed_signers=blobs[ors.ALLOWED_SIGNERS_PATH],
+                registry=blobs[ors.NAMESPACE_REGISTRY_PATH]))
+        for name in ors.OPERATOR_NAMESPACES:
+            self.assertIn(name, genesis["child_allowed_signers"], "the genesis enrols the operator for every act")
+
+    def test_an_enrolment_this_change_appends_has_not_expired(self) -> None:
+        # Runs in the required aria-merge-authority job: on a pull request
+        # the merge base with main is main's tip, so these are the PR's rows.
+        base = _git_out("merge-base", "HEAD", main_anchor.MAIN_TRACKING_REF)
+        read = {commit: main_anchor.committed_blob(_REPO_ROOT, commit=commit, path=ors.ENROLMENTS_PATH)
+                for commit in (base, _git_out("rev-parse", "HEAD"))}
+        before, after = (blob.content if blob else None for blob in read.values())
+        self.assertIsNone(ors.appended_enrolments_reason(before, after, now=datetime.now(timezone.utc)))
+
+    def test_the_pre_merge_check_refuses_rewrites_and_expired_rows(self) -> None:
+        now = datetime.now(timezone.utc)
+        genesis = genesis_line(b"x", pin=False).encode()
+
+        def row(hours: int) -> bytes:
+            return (json.dumps({"kind": "enrolment", "expires_at": (now + timedelta(hours=hours)).isoformat()})
+                    + "\n").encode()
+
+        self.assertIsNone(ors.appended_enrolments_reason(None, genesis, now=now))
+        self.assertIsNone(ors.appended_enrolments_reason(genesis, genesis + row(1), now=now))
+        self.assertEqual(ors.appended_enrolments_reason(genesis, genesis + row(-1), now=now), ors.SUBJECT_EXPIRED)
+        self.assertEqual(ors.appended_enrolments_reason(genesis + row(1), genesis, now=now), ors.ENROL_CHAIN_BROKEN)
+
+
+class EnrolmentChainTests(unittest.TestCase):
+    """ADR-0023 ruling 3 — a key a change adds cannot sign its own enrolment."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(prefix="aria-enrol-")
+        self.addCleanup(self.tmp.cleanup)
+        env = {k: v for k, v in os.environ.items() if k != "ARIA_REPO_STATE_ROOT"}
+        patcher = mock.patch.dict(os.environ, env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.fx = OperatorRequestFixture(Path(self.tmp.name) / "fixture")
+        self.base = git(self.fx.repo, "rev-parse", "HEAD").strip()
+        self.newcomer = mint_ed25519_key(Path(self.tmp.name) / "newcomer", name="k")
+        self.signers = (self.fx.repo / ors.ALLOWED_SIGNERS_PATH).read_text(encoding="utf-8")
+        self.widened = self.signers + allowed_signers_line("newcomer@aria.test", self.newcomer,
+                                                           namespace=ALL_OPERATOR_NAMESPACES)
+
+    def _reason(self) -> str | None:
+        return ors.allowed_signers_for_checkout(self.fx.repo)[1]
+
+    def _reset(self) -> None:
+        git(self.fx.repo, "reset", "-q", "--hard", self.base)
+        git(self.fx.repo, "update-ref", main_anchor.MAIN_TRACKING_REF, self.base)
+
+    def _newcomer_request_verifies(self) -> bool:
+        anchor = ors.allowed_signers_for_checkout(self.fx.repo)[0]
+        row = ors.sign_operator_request(self.fx.request_row(), signing_key=self.newcomer,
+                                        signer_principal="newcomer@aria.test")
+        return anchor is not None and ors.verify_operator_request(row, allowed_signers=anchor).valid
+
+    def _append_row(self, row: dict, **files: str) -> None:
+        ledger = (self.fx.repo / ors.ENROLMENTS_PATH).read_text(encoding="utf-8")
+        self.fx.commit_files({ors.ALLOWED_SIGNERS_PATH: self.widened, **files,
+                              ors.ENROLMENTS_PATH: ledger + json.dumps(row, sort_keys=True) + "\n"})
+
+    def _hand_row(self, *, key: Path, principal: str) -> dict:
+        parent = {"allowed_signers": "sha256:" + hashlib.sha256(self.signers.encode()).hexdigest(),
+                  "registry": "sha256:" + hashlib.sha256(REGISTRY_BYTES).hexdigest()}
+        row = dict(ors.enrolment_genesis_row(self.widened.encode(), REGISTRY_BYTES), kind="enrolment",
+                   parent=parent, actor_class="T0", audience=request_audience(),
+                   expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
+        return ors.sign_operator_subject(row, namespace=ors.ENROL_NAMESPACE, domain_tag="aria-operator-enrol/v1",
+                                         signing_key=key, signer_principal=principal)
+
+    def test_a_properly_enrolled_signer_verifies(self) -> None:
+        self.assertFalse(self._newcomer_request_verifies())
+        row = self.fx.enrol({ors.ALLOWED_SIGNERS_PATH: self.widened})
+        self.assertEqual((row["actor_class"], row["signer_principal"]), ("T0", self.fx.principal))
+        self.assertIn('"kind":"enrolment"', self.fx.subjects.getvalue(), "the operator saw what they signed")
+        self.assertIsNone(self._reason())
+        self.assertTrue(self._newcomer_request_verifies())
+
+    def test_a_signer_added_without_a_parent_key_enrolment_is_refused(self) -> None:
+        self.fx.commit_files({ors.ALLOWED_SIGNERS_PATH: self.widened}, message="chore(test): unsigned enrolment")
+        self.assertEqual(self._reason(), ors.ENROL_TIP_MISMATCH)
+        self.assertFalse(self._newcomer_request_verifies())
+        self._reset()
+        # A self-enrolment: the key the change adds signs its own row.
+        with self.assertRaisesRegex(GovernanceError, ors.SIGNER_NOT_ENROLLED):
+            self.fx.enrol({ors.ALLOWED_SIGNERS_PATH: self.widened}, key=self.newcomer, principal="newcomer@aria.test")
+        self._reset()
+        self._append_row(self._hand_row(key=self.newcomer, principal="newcomer@aria.test"))
+        self.assertEqual(self._reason(), ors.ENROL_SIGNATURE_INVALID)
+        self._reset()
+        signed = self._hand_row(key=self.fx.key, principal=self.fx.principal)
+        self._append_row({k: v for k, v in signed.items() if k != "signature"})
+        self.assertEqual(self._reason(), ors.ENROL_SIGNATURE_INVALID)
+        self._reset()
+        self._append_row(dict(signed, parent={"allowed_signers": "sha256:" + "0" * 64, "registry": "sha256:" + "0" * 64}))
+        self.assertEqual(self._reason(), ors.ENROL_CHAIN_BROKEN)
+        self._reset()
+        self._append_row(signed)
+        self.assertIsNone(self._reason(), "the same row, signed by the parent's key, verifies")
+
+    def test_a_rewritten_local_main_cannot_carry_an_unsigned_enrolment(self) -> None:
+        # ARIA-LOW-269 narrowed: the runner can rewrite refs/remotes/origin/main.
+        forged = self.fx.commit_files({ors.ALLOWED_SIGNERS_PATH: self.widened}, on_main=False)
+        git(self.fx.repo, "update-ref", main_anchor.MAIN_TRACKING_REF, forged)
+        self.assertIsNone(main_anchor.resolve_main_anchor(self.fx.repo).reason, "the forged commit is 'on main'")
+        self.assertEqual(self._reason(), ors.ENROL_TIP_MISMATCH)
+
+    def test_a_genesis_the_kernel_does_not_pin_is_refused(self) -> None:
+        self.fx.commit_files({ors.ENROLMENTS_PATH: genesis_line(self.widened.encode(), pin=False),
+                              ors.ALLOWED_SIGNERS_PATH: self.widened})
+        self.assertEqual(self._reason(), ors.ENROL_GENESIS_MISMATCH)
+        self.fx.commit_files({ors.ENROLMENTS_PATH: None})
+        self.assertEqual(self._reason(), ors.ENROL_GENESIS_MISMATCH)
+        self.fx.commit_files({ors.ENROLMENTS_PATH: "not json\n"})
+        self.assertEqual(self._reason(), ors.ENROL_CHAIN_BROKEN)
+
+    def test_enrolment_is_a_t0_act_by_a_key_enrolled_for_enrolment(self) -> None:
+        with self.assertRaisesRegex(GovernanceError, ors.ACTOR_CLASS_REFUSED):
+            self.fx.enrol({ors.ALLOWED_SIGNERS_PATH: self.widened}, actor_class="T1")
+        self._reset()
+        with self.assertRaisesRegex(GovernanceError, ors.SUBJECT_EXPIRY_INVALID):
+            self.fx.enrol({ors.ALLOWED_SIGNERS_PATH: self.widened}, expires_in_hours=169)
+        self._reset()
+        # The parent narrows the fixture key to requests; it can no longer enrol.
+        narrowed = allowed_signers_line(self.fx.principal, self.fx.key, namespace=ors.SIGNATURE_NAMESPACE)
+        self.fx.enrol({ors.ALLOWED_SIGNERS_PATH: narrowed})
+        self.assertIsNone(self._reason())
+        with self.assertRaisesRegex(GovernanceError, ors.SIGNATURE_INVALID):
+            self.fx.enrol({ors.ALLOWED_SIGNERS_PATH: narrowed + "# widened again\n"})
+
+    def test_a_broken_chain_is_a_runner_fault_and_spends_no_request(self) -> None:
+        from aria_kernel.operator_feedback_ingestion import ingest_operator_feedback
+
+        self.fx.seed_finding("F-007", refs=[f"{helpers.GROUNDED_FILE}:12"])
+        self.fx.record(request_id="OP-chain")
+        self.fx.commit_files({ors.ALLOWED_SIGNERS_PATH: self.widened}, message="chore(test): unsigned enrolment")
+        scan = ingest_operator_feedback(base_dir=self.fx.tools, cycle_id="c1", repo_root=self.fx.repo)
+        self.assertEqual(scan.admitted, ())
+        self.assertEqual([(d["reason"], d["runner_fault"]) for d in scan.dropped],
+                         [(ors.ALLOWED_SIGNERS_UNAVAILABLE, True)])
+        self._reset()
+        self.assertEqual([a["id"] for a in ingest_operator_feedback(
+            base_dir=self.fx.tools, cycle_id="c2", repo_root=self.fx.repo).admitted], ["OP-chain"])
+
+    def test_the_cli_verb_appends_a_row_the_walk_accepts(self) -> None:
+        from aria_kernel.cli import main as cli_main
+
+        (self.fx.repo / ors.ALLOWED_SIGNERS_PATH).write_text(self.widened, encoding="utf-8")
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cli_main(["feedback", "enrol", "--actor-class", "T0", "--signing-key", str(self.fx.key),
+                             "--signer-principal", self.fx.principal, "--repo-root", str(self.fx.repo),
+                             "--tools-dir", str(self.fx.tools)])
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertIn("aria-operator-enrol", err.getvalue())
+        self.fx.commit_files({path: (self.fx.repo / path).read_text(encoding="utf-8")
+                              for path in (ors.ALLOWED_SIGNERS_PATH, ors.ENROLMENTS_PATH)})
+        self.assertIsNone(self._reason())
+        self.assertTrue(self._newcomer_request_verifies())

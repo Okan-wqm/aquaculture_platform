@@ -440,9 +440,10 @@ class PreMergeObservationTests(_Fixture):
 
     def test_a_signer_the_anchor_no_longer_enrols_fails(self) -> None:
         successor = mint_ed25519_key(Path(self.tmp.name) / "successor", name="k")
-        self.fx.commit_files({ors.ALLOWED_SIGNERS_PATH: allowed_signers_line("successor@aria.test", successor)},
-                             message="chore(test): revoke the fixture operator")
+        # ADR-0023 — a rotation is a signed enrolment by a key the parent enrols.
+        self.fx.enrol({ors.ALLOWED_SIGNERS_PATH: allowed_signers_line("successor@aria.test", successor)})
         revoked = ors.allowed_signers_for_checkout(self.fx.repo)[0]
+        self.assertIsNotNone(revoked)
         self.assertEqual(self._observe(allowed_signers=revoked)["operator_feedback_unavailable_reason"],
                          "operator_feedback_consumed_row_unsigned:" + ors.SIGNER_NOT_ENROLLED)
         self.assertEqual(self._observe(allowed_signers=None)["operator_feedback_unavailable_reason"],

@@ -44,7 +44,7 @@ import subprocess
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -64,6 +64,19 @@ OPERATOR_NAMESPACES: tuple[str, ...] = (
 ALLOWED_SIGNERS_PATH = ".github/manifests/aria-operator-signers"
 NAMESPACE_REGISTRY_PATH = ".github/manifests/aria-signature-namespaces.json"
 NAMESPACE_REGISTRY_SCHEMA = "aria/signature-namespaces/v1"
+# ADR-0023 enrolment chain. The two files above change only together with a
+# row appended here, signed in ``aria-operator-enrol`` by a key the PARENT
+# version enrols; each row carries its child files' bytes, so the chain
+# verifies from one commit's tree without walking history or local refs.
+ENROLMENTS_PATH = ".github/manifests/aria-operator-enrolments.jsonl"
+ENROLMENT_SCHEMA = "aria/operator-enrolment/v1"
+# The pair S1 committed — (allowed-signers, registry) digests — that every
+# anchor read walks from. A one-way door: changing it rewrites trust history
+# and is an amendment of ADR-0023. ``aria_kernel/`` is READONLY to ARIA.
+ENROLMENT_GENESIS: tuple[str, str] = (
+    "sha256:7dbcd3cae6f4ecec34299d35e67b73ef31a4b48a6d52d15a93c15e1259f07d4b",
+    "sha256:56bb49bc7014c172b7bdeb6a26988f4018aa24fb33253fa9a7c8d12ad3fb43ee",
+)
 # T0 the operator at a terminal, T1 a root session acting for the operator
 # (indistinguishable from T0 cryptographically: ARIA-MEDIUM-273), T2 ARIA's
 # runner. An operator namespace admits T0/T1 only.
@@ -132,6 +145,11 @@ VERIFICATION_RUNNER_FAULTS: frozenset[str] = frozenset({
 })
 # An anchor reason, so a runner fault: the committed registry is not one.
 NAMESPACE_REGISTRY_INVALID = "signature_namespace_registry_invalid"
+# Anchor reasons of the enrolment walk: never a pass, always a runner fault.
+ENROL_GENESIS_MISMATCH = "enrol_genesis_mismatch"
+ENROL_CHAIN_BROKEN = "enrol_chain_broken"
+ENROL_SIGNATURE_INVALID = "enrol_signature_invalid"
+ENROL_TIP_MISMATCH = "enrol_tip_mismatch"
 # What a registry entry demands of a FRESH act's terms (an MCP write approval).
 NAMESPACE_RETIRED = "signature_namespace_retired"
 SUBJECT_FIELD_MISSING = "signed_subject_field_missing"
@@ -251,6 +269,86 @@ class AllowedSigners:
     namespaces: Mapping[str, NamespaceEntry]
 
 
+def _digest(content: bytes) -> str:
+    return "sha256:" + hashlib.sha256(content).hexdigest()
+
+
+def _pair(allowed_signers: bytes, registry: bytes) -> dict[str, str]:
+    return {"allowed_signers": _digest(allowed_signers), "registry": _digest(registry)}
+
+
+def enrolment_genesis_row(allowed_signers: bytes, registry: bytes) -> dict[str, Any]:
+    """Row 0 of the enrolment file: the genesis pair's bytes, which must hash to the pin."""
+    return {"schema": ENROLMENT_SCHEMA, "kind": "genesis", "child": _pair(allowed_signers, registry),
+            "child_allowed_signers": allowed_signers.decode("utf-8"), "child_registry": registry.decode("utf-8")}
+
+
+def genesis_pinned(child: Any) -> bool:
+    return child == dict(zip(("allowed_signers", "registry"), ENROLMENT_GENESIS))
+
+
+def _child(row: Any) -> tuple[bytes, bytes] | None:
+    """A row's child pair, when its bytes hash to its digests and the registry is one."""
+    texts = (row.get("child_allowed_signers"), row.get("child_registry")) if isinstance(row, dict) else (None,)
+    if not all(isinstance(text, str) for text in texts) or row.get("schema") != ENROLMENT_SCHEMA:
+        return None
+    signers, registry = (text.encode("utf-8") for text in texts)
+    if row.get("child") != _pair(signers, registry) or parse_namespace_registry(registry) is None:
+        return None
+    return signers, registry
+
+
+def verify_enrolment_chain(enrolments: bytes | None, *, allowed_signers: bytes, registry: bytes) -> str | None:
+    """Why the committed pair is not reached from the pinned genesis by enrolments, or None.
+
+    Row 0 is the genesis (its pair must be the pin); every later row names
+    the current pair as its parent and is signed in ``aria-operator-enrol``
+    by a key the CURRENT (parent) allowed-signers file enrols for it, as an
+    actor class the parent registry admits; the last child must be the pair
+    committed beside the file. A merged row is history: its expiry was
+    checked before merge and is not re-checked here.
+    """
+    try:
+        rows = [json.loads(line) for line in (enrolments or b"").decode("utf-8").splitlines() if line.strip()]
+    except (UnicodeDecodeError, ValueError):
+        return ENROL_CHAIN_BROKEN
+    state = _child(rows[0]) if rows and isinstance(rows[0], dict) and rows[0].get("kind") == "genesis" else None
+    if state is None or not genesis_pinned(rows[0]["child"]):
+        return ENROL_GENESIS_MISMATCH
+    for row in rows[1:]:
+        child = _child(row)
+        if child is None or row.get("kind") != "enrolment" or row.get("parent") != _pair(*state):
+            return ENROL_CHAIN_BROKEN
+        namespaces = parse_namespace_registry(state[1])
+        entry = namespaces.get(ENROL_NAMESPACE) if namespaces else None
+        if entry is None or any(field not in row for field in entry.signed_fields):
+            return ENROL_SIGNATURE_INVALID
+        verdict = verify_operator_signature(row, namespace=ENROL_NAMESPACE, allowed_signers=state[0], namespaces=namespaces)
+        if not verdict.valid:
+            return verdict.reason if verdict.reason in VERIFICATION_RUNNER_FAULTS else ENROL_SIGNATURE_INVALID
+        state = child
+    return None if _pair(*state) == _pair(allowed_signers, registry) else ENROL_TIP_MISMATCH
+
+
+def appended_enrolments_reason(base: bytes | None, head: bytes | None, *, now: datetime) -> str | None:
+    """Before merge (ADR-0023): a change only appends enrolment rows, and none it appends has expired."""
+    base, head = base or b"", head or b""
+    if not head.startswith(base):
+        return ENROL_CHAIN_BROKEN
+    for line in filter(str.strip, head[len(base):].decode("utf-8", errors="replace").splitlines()):
+        try:
+            row = json.loads(line)
+        except ValueError:
+            return ENROL_CHAIN_BROKEN
+        if not isinstance(row, dict):
+            return ENROL_CHAIN_BROKEN
+        expires = parse_utc(row.get("expires_at"))
+        # The genesis carries no expiry: the pin in this module is what admits it.
+        if row.get("kind") != "genesis" and (expires is None or now >= expires):
+            return SUBJECT_EXPIRED
+    return None
+
+
 def _anchor_at(repo_root: str | Path, *, commit: str) -> tuple[AllowedSigners | None, str | None]:
     blob = committed_blob(repo_root, commit=commit, path=ALLOWED_SIGNERS_PATH)
     registry = committed_blob(repo_root, commit=commit, path=NAMESPACE_REGISTRY_PATH)
@@ -259,6 +357,11 @@ def _anchor_at(repo_root: str | Path, *, commit: str) -> tuple[AllowedSigners | 
     namespaces = parse_namespace_registry(registry.content)
     if namespaces is None:
         return None, NAMESPACE_REGISTRY_INVALID
+    enrolments = committed_blob(repo_root, commit=commit, path=ENROLMENTS_PATH)
+    chain = verify_enrolment_chain(enrolments.content if enrolments else None, allowed_signers=blob.content,
+                                   registry=registry.content)
+    if chain is not None:
+        return None, chain
     return AllowedSigners(content=blob.content, commit=blob.commit, blob_oid=blob.blob_oid,
                           namespaces=namespaces), None
 
@@ -278,8 +381,8 @@ def allowed_signers_for_checkout(repo_root: str | Path) -> tuple[AllowedSigners 
 
     Returns ``(anchor, None)`` or ``(None, reason)`` with a
     ``main_anchor.ANCHOR_*`` reason, :data:`ALLOWED_SIGNERS_UNAVAILABLE`
-    when the proven commit carries no allowed-signers file or registry, or
-    :data:`NAMESPACE_REGISTRY_INVALID`.
+    when the proven commit carries no allowed-signers file or registry,
+    :data:`NAMESPACE_REGISTRY_INVALID`, or an ``ENROL_*`` reason of the walk.
     """
     anchor = resolve_main_anchor(repo_root)
     if anchor.commit is None:
@@ -473,10 +576,63 @@ def operator_act_terms_reason(
     return None
 
 
+def record_enrolment(
+    *, repo_root: str | Path, signing_key: str | Path, signer_principal: str, actor_class: str,
+    expires_in_hours: int, subject_stream: TextIO | None = None,
+) -> dict[str, Any]:
+    """Sign the checkout's edited allowed-signers file and registry as the child of the anchor's pair.
+
+    The parent is the pair committed at the checkout's commit proven on
+    main; the row is appended to the working tree's enrolment file, which
+    must still be the committed one (one enrolment per change). Refused
+    unless it verifies as the walk will verify it, with fresh terms.
+    """
+    from .operator_request_terms import request_audience, utc_iso
+
+    anchor, reason = allowed_signers_for_checkout(repo_root)
+    if anchor is None:
+        raise GovernanceError(f"operator_enrol_anchor_unavailable: {reason}")
+    root = Path(repo_root)
+    committed = {path: committed_blob(root, commit=anchor.commit, path=path)
+                 for path in (NAMESPACE_REGISTRY_PATH, ENROLMENTS_PATH)}
+    ledger = root / ENROLMENTS_PATH
+    if (any(blob is None for blob in committed.values()) or not ledger.is_file()
+            or ledger.read_bytes() != committed[ENROLMENTS_PATH].content):
+        raise GovernanceError("operator_enrol_ledger_not_at_anchor")
+    parent = (anchor.content, committed[NAMESPACE_REGISTRY_PATH].content)
+    child = ((root / ALLOWED_SIGNERS_PATH).read_bytes(), (root / NAMESPACE_REGISTRY_PATH).read_bytes())
+    if child == parent:
+        raise GovernanceError("operator_enrol_unchanged")
+    row = dict(enrolment_genesis_row(*child), kind="enrolment", parent=_pair(*parent), actor_class=actor_class,
+               audience=request_audience())
+    if _child(row) is None:
+        raise GovernanceError("operator_enrol_child_registry_invalid")
+    entry = anchor.namespaces[ENROL_NAMESPACE]
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    row["expires_at"] = utc_iso(now + timedelta(hours=expires_in_hours))
+    signed = sign_operator_subject(row, namespace=ENROL_NAMESPACE, domain_tag=str(entry.domain_tag),
+                                   signing_key=signing_key, signer_principal=signer_principal,
+                                   subject_stream=subject_stream)
+    refused = operator_act_terms_reason(signed, entry=entry, audience=request_audience(), now=now) or \
+        verify_operator_signature(signed, namespace=ENROL_NAMESPACE, allowed_signers=anchor.content,
+                                  namespaces=anchor.namespaces).reason
+    if refused is not None:
+        raise GovernanceError(f"operator_enrol_refused: {refused}")
+    line = json.dumps(signed, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    ledger.write_bytes(committed[ENROLMENTS_PATH].content + line.encode("ascii") + b"\n")
+    return signed
+
+
 __all__ = [
     "ACTOR_CLASS_REFUSED",
     "ALLOWED_SIGNERS_PATH",
     "ALLOWED_SIGNERS_UNAVAILABLE",
+    "ENROLMENTS_PATH",
+    "ENROLMENT_GENESIS",
+    "ENROL_CHAIN_BROKEN",
+    "ENROL_GENESIS_MISMATCH",
+    "ENROL_SIGNATURE_INVALID",
+    "ENROL_TIP_MISMATCH",
     "ENROL_NAMESPACE",
     "JOURNEY_NAMESPACE",
     "LABEL_NAMESPACE",
@@ -509,8 +665,12 @@ __all__ = [
     "NamespaceEntry",
     "OperatorRequestVerdict",
     "allowed_signers_at",
+    "appended_enrolments_reason",
     "allowed_signers_for_checkout",
     "enrolled_principals",
+    "enrolment_genesis_row",
+    "genesis_pinned",
+    "record_enrolment",
     "operator_act_terms_reason",
     "parse_namespace_registry",
     "request_signing_bytes",
@@ -520,5 +680,6 @@ __all__ = [
     "subject_signing_bytes",
     "valid_principal",
     "verify_operator_request",
+    "verify_enrolment_chain",
     "verify_operator_signature",
 ]

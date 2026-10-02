@@ -68,7 +68,7 @@
       ],
       "signer_classes": ["T0"],
       "expiry_hours": 168,
-      "verifier": "aria_kernel.operator_request_signature.verify_operator_signature",
+      "verifier": "aria_kernel.operator_request_signature.verify_enrolment_chain",
       "status": "active"
     },
     {

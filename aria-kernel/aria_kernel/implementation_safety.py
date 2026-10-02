@@ -2464,6 +2464,8 @@ def classify_declared_surface(raw: Any) -> str | None:
 
 def implementation_allowed_scope(
     affected_surface_paths: list[str],
+    *,
+    admission_scope: Mapping[str, Any] | None,
 ) -> tuple[list[str], list[dict[str, str]]]:
     """``(writable, refused)`` — the subtraction the implementation envelope needs.
 
@@ -2479,7 +2481,18 @@ def implementation_allowed_scope(
     Refusals are RETURNED rather than raised so the mint can name every
     dropped surface in one governance event: a plan that lands three files
     in ``aria-kernel/`` should tell its author all three, not the first.
+
+    ADR-0021 (ARIA-MEDIUM-261) — ``admission_scope`` is REQUIRED, so no
+    caller computes a scope without saying which bound applies: the plan's
+    recorded bound (``plan_origin.admission_scope_for_plan``), or None for a
+    plan with no finding origin. A declared path outside the bound is not
+    subtracted like a readonly one; the whole scope is refused
+    (``plan_origin.AdmissionScopeExceeded``, every offending path named), so
+    what this returns never exceeds the bound.
     """
+    from .plan_origin import require_within_admission_scope
+
+    require_within_admission_scope(admission_scope, list(affected_surface_paths))
     writable: list[str] = []
     refused: list[dict[str, str]] = []
     for raw in affected_surface_paths:

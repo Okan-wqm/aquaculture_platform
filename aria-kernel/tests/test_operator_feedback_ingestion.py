@@ -114,7 +114,7 @@ class _Fixture(unittest.TestCase):
                                       plan_content=envelope.content, candidate=candidate)
         if start:
             start_plan(plan_id=plan_id, plan_content=envelope.content, initial_revision_id=f"{plan_id}-r1",
-                       base_dir=self.tools)
+                       base_dir=self.tools, workspace_root=self.fx.repo)
         return envelope.content
 
 
@@ -461,7 +461,7 @@ class PreMergeObservationTests(_Fixture):
         ingestion.bind_plan_synthesis(base_dir=self.tools, cycle_id="cyc-other",
                                       plan_content=other_content, candidate=candidate)
         start_plan(plan_id="plan-other", plan_content=other_content, initial_revision_id="plan-other-r1",
-                   base_dir=self.tools)
+                   base_dir=self.tools, workspace_root=self.fx.repo)
         events = _plan_events(self.tools) + [{"plan_id": "plan-other", "event_type": "implementation_merged",
                                               "payload": {}}]
         self.assertEqual(self._observe(plan_events=events)["operator_feedback_unavailable_reason"], ALREADY_MERGED)

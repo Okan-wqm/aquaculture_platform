@@ -3555,7 +3555,10 @@ def _implementation_scope_conflict(
             not isinstance(path, str) for path in declared
         ):
             raise GovernanceError("implementation_scope_unavailable")
-        normalized, refused = _allowed_scope(declared)
+        # A stored row's scope was bounded when it was minted
+        # (`issue_implementation_envelope`); here it is only re-normalized
+        # for the overlap comparison, against no further bound.
+        normalized, refused = _allowed_scope(declared, admission_scope=None)
         if refused or not normalized:
             raise GovernanceError("implementation_scope_unavailable")
         return normalized

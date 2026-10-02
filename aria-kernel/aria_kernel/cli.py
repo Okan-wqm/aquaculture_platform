@@ -1668,6 +1668,8 @@ def build_parser() -> argparse.ArgumentParser:
     plan_start.add_argument("--plan-id", required=True)
     plan_start.add_argument("--initial-revision-id", required=True)
     plan_start.add_argument("--plan-file", required=True)
+    # ADR-0021 — the checkout a finding-origin plan's admission bound is computed in.
+    plan_start.add_argument("--workspace-root", default=".")
     plan_challenger = add_subparser(plan_sub, "submit-challenger")
     plan_challenger.add_argument("--plan-id", required=True)
     plan_challenger.add_argument("--challenger-file", required=True)
@@ -4776,7 +4778,7 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "plan":
         if args.plan_command == "start":
             payload = json.loads(Path(args.plan_file).read_text(encoding="utf-8"))
-            result = start_plan(plan_id=args.plan_id, initial_revision_id=args.initial_revision_id, plan_content=payload, base_dir=args.tools_dir)
+            result = start_plan(plan_id=args.plan_id, initial_revision_id=args.initial_revision_id, plan_content=payload, base_dir=args.tools_dir, workspace_root=args.workspace_root)
         elif args.plan_command == "submit-challenger":
             result = submit_challenger_plan(plan_id=args.plan_id, challenger=json.loads(Path(args.challenger_file).read_text(encoding="utf-8")), base_dir=args.tools_dir)
         elif args.plan_command == "request-cross-review":

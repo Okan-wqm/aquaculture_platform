@@ -122,10 +122,17 @@ Evidence:
 Rule: the write scope of an operator- or finding-sourced plan is bounded by what admission grounded
 plus a closure the kernel computes, never by planner prose alone.
 
-Fix: not in this branch. Bounding revisions to the admitted surfaces would refuse the surfaces the
-coverage gate makes a revision add (tests, dependents, migrations); the bound must be the admitted
-surfaces united with their machine-computed impact closure, which needs an arbiter decision on that
-closure. Owner okan, deadline 2026-10-23.
+Fix: `plan_convergence.start_plan` records the bound on `plan_started` as `admission_scope`
+(`plan_origin.compute_admission_scope`): the admitted surfaces plus the roots of their
+`impact_graph.plan_downstream_impact` project closure, computed by the kernel in the plan's
+workspace with no parameter to pass one in, united with the subject pins of
+`plan_origin.SUBJECT_PIN_POLICY` (empty; the CB-5 hook). `_validate_submitted_plan` refuses a
+challenger draft or revision naming a path outside it (`revision_scope_exceeds_admission_closure`,
+paths listed, one governance row); `implementation_allowed_scope` takes the bound as a required
+argument and refuses a scope that exceeds it, so the implementation mint refuses with the plan
+still CONVERGED. A finding-origin plan with no record is refused (`admission_scope_missing`).
+Recorded as ADR-0021 (`2026-10-02-adr-0021-revision-scope-bound.md`). Tests:
+`aria-kernel/tests/test_revision_scope_bound.py`.
 
 Arbiter ruling (2026-10-02, program review of the ARIA memory and repository-knowledge plan): the
 closure is the `impact_graph.plan_downstream_impact` project closure of the admitted surfaces, and

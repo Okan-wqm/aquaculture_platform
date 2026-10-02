@@ -170,6 +170,51 @@ def validate_commit_contract(contract: Any) -> None:
         raise GovernanceError("commit_contract without a trailer admits a commit type the gate requires one for")
 
 
+# ADR-0018 D4 — a plan's origin is fixed when it starts. Every body later
+# submitted for the plan (a challenger draft, a structured revision) names
+# the same finding, or none when the plan started with none; any other body
+# is refused by ``plan_convergence._validate_submitted_plan`` under this
+# name, for every origin kind alike. Before it, a revision that dropped
+# ``finding_id`` turned an operator- or F-sourced plan into a plain plan on
+# the way to CONVERGED, and the commit contract and K-A closure lost the
+# finding they were about.
+PLAN_ORIGIN_CHANGED = "plan_origin_changed"
+
+
+def started_origin_finding_id(state: Any) -> Any:
+    """The ``finding_id`` the plan's ``plan_started`` body carried, or None."""
+    started = state.get("plan_started") if isinstance(state, dict) else None
+    content = started.get("plan_content") if isinstance(started, dict) else None
+    return content.get("finding_id") if isinstance(content, dict) else None
+
+
+def require_origin_unchanged(state: Any, body: Any) -> None:
+    """Refuse a submitted body whose ``finding_id`` differs from, adds to or drops the start's."""
+    started = started_origin_finding_id(state)
+    submitted = body.get("finding_id") if isinstance(body, dict) else None
+    if submitted != started:
+        raise GovernanceError(
+            f"{PLAN_ORIGIN_CHANGED}: the plan started with finding_id {started!r} and this "
+            f"body carries {submitted!r}; a plan's origin is fixed when it starts"
+        )
+
+
+def carry_started_origin(plan_content: Any, state: Any) -> Any:
+    """Stamp the started origin onto a planner body that names none.
+
+    The origin is a kernel fact a planner cannot read — the challenger
+    never sees the primary body, and the first revision's request carries
+    no body at all — exactly like the round and parent hash the bridge
+    already fills from kernel state. A body that names an origin keeps it
+    and is judged by :func:`require_origin_unchanged`; an agent can omit the
+    origin, never replace it.
+    """
+    started = started_origin_finding_id(state)
+    if started is None or not isinstance(plan_content, dict) or "finding_id" in plan_content:
+        return plan_content
+    return {**plan_content, "finding_id": started}
+
+
 @dataclass(frozen=True)
 class CommitContractVerdict:
     honoured: bool
@@ -241,13 +286,17 @@ __all__ = [
     "ORIGIN_PLAN",
     "ORPHAN_FINDINGS_DOCUMENT",
     "ORPHAN_FINDING_ID_RE",
+    "PLAN_ORIGIN_CHANGED",
     "REQUIRE_CLOSES_SUBJECT_RE",
     "TRAILERLESS_COMMIT_TYPES",
     "CommitContractVerdict",
     "PlanOrigin",
+    "carry_started_origin",
     "commit_contract_for_plan",
     "plan_origin",
     "render_commit_contract_section",
+    "require_origin_unchanged",
+    "started_origin_finding_id",
     "validate_commit_contract",
     "verify_commits_honour_contract",
 ]

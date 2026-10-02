@@ -544,6 +544,22 @@ def list_findings(
     return rows
 
 
+def fold_findings(repo_root: str | Path) -> dict[str, dict[str, Any]] | None:
+    """Every finding's current record from the event fold, or None when there is no ledger.
+
+    The fold, not ``F-*.json``, is the authority: the JSON is frozen at mint
+    and never sees a status change. Callers that judge many findings in one
+    pass (the plan-source admission, ADR-0018) fold once through here instead
+    of calling :func:`show_finding` per id. None — the store holds no event
+    ledger at all — is distinct from an empty fold, so a store that failed to
+    restore is never read as "no such finding".
+    """
+    repo_path = Path(repo_root).resolve()
+    if not _events_path(repo_path).exists():
+        return None
+    return _replay_findings(repo_path)
+
+
 def show_finding(repo_root: str | Path, finding_id: str) -> dict[str, Any]:
     repo_path = Path(repo_root).resolve()
     if not FINDING_ID_RE.match(finding_id):

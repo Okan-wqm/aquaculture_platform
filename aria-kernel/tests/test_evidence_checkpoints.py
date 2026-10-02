@@ -9,6 +9,14 @@ commit adding it verifies, and a publish consumes only the rows after it:
 sealed segments cost nothing however many there are, the counters equal a
 full re-read, a rewritten prefix or a forged checkpoint refuses, and the
 budget still refuses what the unconsumed rows alone exceed.
+
+ARIA-HIGH-286 — a fold-version bump, or a store with no checkpoints, used to
+make the next publish fold every carried ledger from row 0 inside the same
+budget. The rebuild now runs one bounded slice per publish: every publish
+folds at most `_evidence_slice_bytes()` of carried rows, a claim the slice
+cannot reach is withheld under a named rebuild blocker, the counters equal a
+full re-read once it is done, and a forged or rewritten rebuild checkpoint
+refuses.
 """
 from __future__ import annotations
 
@@ -336,9 +344,152 @@ class EvidenceCheckpointTests(unittest.TestCase):
         fold = hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
         self.assertEqual(
             (evidence.EVIDENCE_CHECKPOINT_FOLD_VERSION, fold),
-            (1, "b4459dab2c7d7d421a3102f3f9544a2f5b393af1b31af0a8916e8e1d0d89a63c"),
+            (2, "51fee5878da7780f044d470c6a937a870dee763c06823c0a819899d7ee0b33c3"),
             "the carried fold changed: bump EVIDENCE_CHECKPOINT_FOLD_VERSION and re-pin this digest",
         )
+
+    # -- ARIA-HIGH-286: rebuilding checkpoints never needs more than a slice --
+
+    @staticmethod
+    def _carried_bytes(claims: dict[str, dict[str, Any]]) -> int:
+        return sum(
+            claim["size_bytes"] for key, claim in claims.items()
+            if ledger.segment_family(key.split(":", 1)[0]) in evidence._CARRIED_COUNT_SURFACES
+        )
+
+    def _folded_carried_bytes(self, accumulator: Any, claims: dict[str, dict[str, Any]]) -> int:
+        """What the verifier folded of carried ledgers: its input less the
+        checkpoint ledger (absent until a first checkpoint is recorded) and
+        the ledgers that are never carried."""
+        uncarried = self._counted_bytes(claims) - self._carried_bytes(claims)
+        checkpoints = claims.get(evidence.EVIDENCE_CHECKPOINT_SURFACE, {"size_bytes": 0})["size_bytes"]
+        return accumulator.evidence_input_bytes - checkpoints - uncarried
+
+    def _rebuild(self, store: Any, budget: int) -> tuple[list[tuple[int, int]], list[dict[str, tuple[str, ...]]]]:
+        """Publish under ``budget`` until no claim is rebuilding.
+
+        Returns, per publish, (carried bytes folded, carried bytes claimed)
+        and the capability blockers its evidence projects.
+        """
+        rounds: list[tuple[int, int]] = []
+        blockers: list[dict[str, tuple[str, ...]]] = []
+        with mock.patch.object(evidence, "_MAX_EVIDENCE_INPUT_BYTES", budget):
+            while not blockers or any(
+                blocker.startswith(evidence.EVIDENCE_REBUILD_BLOCKER)
+                for named in blockers[-1].values() for blocker in named
+            ):
+                self.assertLess(len(rounds), 40, "the rebuild never converged")
+                self._append_requests(store, 1)
+                self.assertTrue(self._publish(store)["published"])
+                accumulator, claims = self._verify(store), self._claims(store)
+                rounds.append((self._folded_carried_bytes(accumulator, claims), self._carried_bytes(claims)))
+                blockers.append(accumulator.capability_counts(repo_root=self.repo, target_sha=self.target)[1])
+        return rounds, blockers
+
+    def _assert_rebuilt_within_the_slice(self, store: Any, budget: int) -> None:
+        rounds, blockers = self._rebuild(store, budget)
+        slice_bytes = budget * 2 // 5
+        self.assertGreater(rounds[0][1], budget, "the carried ledgers must outgrow the budget")
+        self.assertGreater(len(rounds), 2, "a rebuild larger than the slice spans publishes")
+        for folded, _carried in rounds:
+            self.assertLessEqual(folded, slice_bytes)
+        # While rebuilding, the withheld families are named on each capability counting them.
+        self.assertIn(
+            f"{evidence.EVIDENCE_REBUILD_BLOCKER}:{REQUESTS}", blockers[0]["executor"], blockers[0],
+        )
+        # Once rebuilt, the evidence is a full re-read's, from the slice alone.
+        accumulator = self._verify(store)
+        with mock.patch.object(evidence, "_carried_claim_cursors", lambda **_: ({}, 0)):
+            full = self._projection(self._verify(store))
+        self.assertEqual(self._projection(accumulator), full)
+        self.assertEqual(accumulator.rebuilding, set())
+        self.assertLessEqual(self._folded_carried_bytes(accumulator, self._claims(store)), slice_bytes)
+
+    def _bumped(self) -> Any:
+        return mock.patch.object(
+            evidence, "EVIDENCE_CHECKPOINT_FOLD_VERSION", evidence.EVIDENCE_CHECKPOINT_FOLD_VERSION + 1,
+        )
+
+    def _checkpoint_rows(self, store: Any) -> list[dict[str, Any]]:
+        return load_declared_jsonl(
+            tools_root(store) / "evidence-checkpoints.jsonl", expected_surface=evidence.EVIDENCE_CHECKPOINT_SURFACE,
+        )
+
+    def test_a_fold_version_bump_rebuilds_one_slice_per_publish(self) -> None:
+        store = self._carried_world(8)
+        budget = self._carried_bytes(self._claims(store)) * 3 // 4
+        with self._bumped():
+            self._assert_rebuilt_within_the_slice(store, budget)
+            # The rebuild recorded prefixes of claims, not only their ends.
+            claims = self._claims(store)
+            rebuilt = [
+                row for row in self._checkpoint_rows(store)
+                if row["fold_version"] == evidence.EVIDENCE_CHECKPOINT_FOLD_VERSION
+            ]
+            self.assertTrue(any(row["row_count"] < claims[row["surface_key"]]["row_count"] for row in rebuilt))
+
+    def test_a_store_without_checkpoints_bootstraps_one_slice_per_publish(self) -> None:
+        store = self._store()
+        self._seal(store, 8)
+        self._append_other_evidence(store, 1)
+        self.assertFalse((tools_root(store) / "evidence-checkpoints.jsonl").exists())
+        self._assert_rebuilt_within_the_slice(store, 8 * SEGMENT_BYTES * 3 // 4)
+
+    def _position(self, store: Any, key: str, row_count: int) -> tuple[int, str]:
+        """Where row ``row_count`` of a claim ends, and its ledger hash."""
+        data = (tools_root(store) / self._claims(store)[key]["path"]).read_bytes()
+        lines = data.splitlines(keepends=True)[:row_count]
+        return sum(len(line) for line in lines), json.loads(lines[-1])["ledger_hash"]
+
+    def test_a_forged_or_rewritten_rebuild_checkpoint_refuses_the_publish(self) -> None:
+        for tamper in ("evidence", "position", "history"):
+            with self.subTest(tamper=tamper):
+                self.requests = 0
+                store = self._carried_world(8)
+                budget = self._carried_bytes(self._claims(store)) * 3 // 4
+                with self._bumped(), mock.patch.object(evidence, "_MAX_EVIDENCE_INPUT_BYTES", budget):
+                    self._append_requests(store, 1)
+                    self.assertTrue(self._publish(store)["published"])
+                    claims = self._claims(store)
+                    rows = self._checkpoint_rows(store)
+                    prefix = next(
+                        row for row in rows
+                        if row["fold_version"] == evidence.EVIDENCE_CHECKPOINT_FOLD_VERSION
+                        and row["row_count"] + 1 < claims[row["surface_key"]]["row_count"]
+                    )
+                    key = prefix["surface_key"]
+                    path = tools_root(store) / "evidence-checkpoints.jsonl"
+                    if tamper == "history":
+                        kept = [
+                            {name: value for name, value in row.items() if name not in {"ledger_hash", "previous_ledger_hash"}}
+                            for row in rows if row is not prefix
+                        ]
+                        rewrite_declared_jsonl(
+                            path, kept, expected_surface=evidence.EVIDENCE_CHECKPOINT_SURFACE,
+                            migration_id="drop", bypass_profile_gate=True,
+                        )
+                    else:
+                        forged = {
+                            name: value for name, value in prefix.items()
+                            if name not in {"ledger_hash", "previous_ledger_hash"}
+                        }
+                        forged["row_id"] += ":forged"
+                        forged["row_count"] += 1
+                        if tamper == "evidence":
+                            # Its true position, carrying more rebuilt evidence than the rows fold to.
+                            forged["size_bytes"], forged["tail_ledger_hash"] = self._position(store, key, forged["row_count"])
+                            forged["evidence"]["ordinal"] += 2
+                        append_declared_jsonl(
+                            path, forged, expected_surface=evidence.EVIDENCE_CHECKPOINT_SURFACE, bypass_profile_gate=True,
+                        )
+                    self._append_requests(store, 1)
+                    with self.assertRaises(StateStoreRefusal) as refused:
+                        self._publish(store)
+                expected = (
+                    "state_commit_evidence_checkpoints_rewritten" if tamper == "history"
+                    else f"state_commit_evidence_checkpoint_mismatch:{key}"
+                )
+                self.assertIn(expected, str(refused.exception))
 
     def _projection(self, accumulator: Any) -> str:
         counts, blockers = accumulator.capability_counts(repo_root=self.repo, target_sha=self.target)

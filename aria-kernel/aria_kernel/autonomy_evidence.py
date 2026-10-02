@@ -604,8 +604,11 @@ EVIDENCE_CHECKPOINT_STRIDE_BYTES = 1024 * 1024
 # Bumped whenever how a carried row folds into the projection changes
 # (pinned by test_evidence_checkpoints): a checkpoint of another fold
 # version is not evidence and is never read.
-EVIDENCE_CHECKPOINT_FOLD_VERSION = 1
+EVIDENCE_CHECKPOINT_FOLD_VERSION = 2
 _EVIDENCE_CHECKPOINT_ROW_TYPE = "evidence_checkpoint"
+# ARIA-HIGH-286 — named on every capability that counts a carried claim the
+# publish's slice (`_evidence_slice_bytes`) could not reach.
+EVIDENCE_REBUILD_BLOCKER = "evidence_checkpoint_rebuild_in_progress"
 _MAX_SNAPSHOT_LEDGER_LINE_BYTES = SNAPSHOT_MAX_LEDGER_LINE_BYTES
 _MAX_SNAPSHOT_LEDGER_ROWS = SNAPSHOT_MAX_LEDGER_ROWS
 _MAX_SNAPSHOT_SURFACE_MATCH_CANDIDATES = 100_000
@@ -2477,18 +2480,39 @@ def _valid_evidence_checkpoint(row: Mapping[str, Any]) -> bool:
     )
 
 
+def _evidence_slice_bytes() -> int:
+    """The most carried-ledger bytes one publish folds past its trusted
+    checkpoints, at any ledger age (ARIA-HIGH-286): two fifths of the
+    evidence-input budget, so it stays under the budget by construction and
+    leaves the rest to the uncarried ledgers and the checkpoint ledger.
+
+    A fold-version bump or a store without checkpoints is rebuilt across
+    publishes: each preamble records checkpoints over at most half the slice,
+    and the commit's verifier folds those plus whole claims on past them
+    while the rest lasts. A claim the slice cannot reach is withheld, never
+    estimated, and every capability counting it names EVIDENCE_REBUILD_BLOCKER
+    until the rebuild reaches it.
+    """
+    return _MAX_EVIDENCE_INPUT_BYTES * 2 // 5
+
+
 class _CarriedClaimCursor:
     """One carried claim, streamed from its newest usable trusted checkpoint.
 
-    Rows up to that base are carried by it; later rows fold into a tally the
-    caller absorbs once the claim verifies. Every checkpoint on the claim is
-    checked where it sits: its byte offset and ledger hash bind the prefix
-    (a rewritten or truncated prefix refuses), and from the base on the tally
-    must equal the evidence it records. The base sits at or below every
-    pending checkpoint, so one stream verifies each of them.
+    Rows up to that base are carried by it; later rows whose lines end at or
+    before ``stop_bytes`` fold into a tally the caller absorbs once the claim
+    verifies, so the fold never runs past the bytes it was charged
+    (ARIA-HIGH-286). Every checkpoint on the claim is checked where it sits:
+    its byte offset and ledger hash bind the prefix (a rewritten or truncated
+    prefix refuses), and inside the fold the tally must equal the evidence it
+    records. The base sits at or below every pending checkpoint and the stop
+    at or past each one's claimed end, so one stream verifies all of them: a
+    pending checkpoint whose row does not end where it claims refuses.
     """
 
-    def __init__(self, key: str, family: str, checkpoints: Iterable[tuple[Mapping[str, Any], bool]]) -> None:
+    def __init__(
+        self, key: str, family: str, checkpoints: Iterable[tuple[Mapping[str, Any], bool]], size: int,
+    ) -> None:
         from .state_manifest import surface_key_name
 
         listed = tuple(checkpoints)
@@ -2498,7 +2522,7 @@ class _CarriedClaimCursor:
             key=lambda row: row["row_count"],
             default=None,
         )
-        self.key, self.family, self.surface_name = key, family, surface_key_name(key)
+        self.key, self.family, self.surface_name, self.size = key, family, surface_key_name(key), size
         self.base_rows = base["row_count"] if base is not None else 0
         self.base_bytes = base["size_bytes"] if base is not None else 0
         self.tally = _StreamingEvidenceAccumulator()
@@ -2507,22 +2531,38 @@ class _CarriedClaimCursor:
         self.at: dict[int, list[Mapping[str, Any]]] = defaultdict(list)
         for row, _trusted in listed:
             self.at[row["row_count"]].append(row)
-        self.rows = 0
+        # Through the newest pending checkpoint; widened to `size` when the
+        # publish's slice reaches the claim's end.
+        self.stop_bytes = max((row["size_bytes"] for row, trusted in listed if not trusted), default=self.base_bytes)
+        # (rows, bytes, ledger hash) the tally has folded through.
+        self.frontier: tuple[int, int, str | None] = (
+            self.base_rows, self.base_bytes, base["tail_ledger_hash"] if base is not None else None,
+        )
+        self._row: dict[str, Any] = {}
+
+    @property
+    def complete(self) -> bool:
+        """The fold reaches the claim's end, so its tally is the claim's evidence."""
+        return self.stop_bytes == self.size
 
     def on_row(self, row: dict[str, Any]) -> None:
-        self.rows += 1
-        if self.rows <= self.base_rows:
-            return
-        if self.rows - self.base_rows > _MAX_EVIDENCE_LEDGER_ROWS:
-            raise RuntimeError(f"state_commit_surface_row_limit_exceeded:{self.surface_name}")
-        self.tally.consume(self.family, row)
+        self._row = row
 
     def on_position(self, row_number: int, line_end: int, ledger_hash: str) -> None:
+        folded = self.base_rows < row_number and line_end <= self.stop_bytes
+        if folded:
+            if row_number - self.base_rows > _MAX_EVIDENCE_LEDGER_ROWS:
+                raise RuntimeError(f"state_commit_surface_row_limit_exceeded:{self.surface_name}")
+            self.tally.consume(self.family, self._row)
+            self.frontier = (row_number, line_end, ledger_hash)
         for checkpoint in self.at.get(row_number, ()):
             if (
                 checkpoint["size_bytes"] != line_end
                 or checkpoint["tail_ledger_hash"] != ledger_hash
-                or (row_number >= self.base_rows and checkpoint["evidence"] != self.tally.carried_state(self.key))
+                or (
+                    (folded or row_number == self.base_rows)
+                    and checkpoint["evidence"] != self.tally.carried_state(self.key)
+                )
             ):
                 raise RuntimeError(f"state_commit_evidence_checkpoint_mismatch:{self.key}")
 
@@ -2567,7 +2607,12 @@ def _carried_claim_cursors(
     verified when it was published, and its claim's tail hash binds them, so
     rewriting one refuses here. A row this commit adds is pending and is
     verified by its claim's stream. The input is the checkpoint ledger plus,
-    per carried claim, its bytes after the base its cursor starts from.
+    per carried claim, the bytes its cursor folds past its base.
+
+    ARIA-HIGH-286 — every pending checkpoint is folded to; what is left of
+    the slice (`_evidence_slice_bytes`) then folds whole claims on to their end,
+    in key order, while it lasts. A claim it cannot reach stops at its newest
+    checkpoint and is rebuilding: its evidence is withheld, never estimated.
     """
     listed = {key: (claim, object_id, git_path) for key, claim, object_id, git_path, _size, _ in claims}
     families = {
@@ -2601,8 +2646,16 @@ def _carried_claim_cursors(
             if row["row_count"] > target["row_count"] or row["size_bytes"] > target["size_bytes"]:
                 raise RuntimeError(f"state_commit_evidence_checkpoint_mismatch:{key}")
             found[key].append((row, trusted))
-    cursors = {key: _CarriedClaimCursor(key, family, found[key]) for key, family in families.items()}
-    input_bytes += sum(listed[key][0]["size_bytes"] - cursor.base_bytes for key, cursor in cursors.items())
+    cursors = {
+        key: _CarriedClaimCursor(key, family, found[key], listed[key][0]["size_bytes"])
+        for key, family in sorted(families.items())
+    }
+    left = _evidence_slice_bytes() - sum(cursor.stop_bytes - cursor.base_bytes for cursor in cursors.values())
+    for cursor in cursors.values():
+        if cursor.size - cursor.stop_bytes <= max(left, 0):
+            left -= cursor.size - cursor.stop_bytes
+            cursor.stop_bytes = cursor.size
+    input_bytes += sum(cursor.stop_bytes - cursor.base_bytes for cursor in cursors.values())
     return cursors, input_bytes
 
 
@@ -2615,6 +2668,11 @@ def evidence_checkpoints_due(*, store: Any, repo_identity: str, base_head: str) 
     so a losing lane's checkpoint stays true on the winner's tree. Its
     evidence folds on from the parent's newest checkpoint, and the commit
     that carries it verifies it again.
+
+    ARIA-HIGH-286 — together the rows fold at most half the slice, in key
+    order: a checkpoint lands on the last row a claim's share reaches, which
+    is its end in steady state and a prefix while a fold-version bump or a
+    store without checkpoints is rebuilt, one bounded slice per publish.
     """
     from .state_manifest import surface_key_name
 
@@ -2649,21 +2707,30 @@ def evidence_checkpoints_due(*, store: Any, repo_identity: str, base_head: str) 
             if row["row_count"] > newest.get(row["surface_key"], {}).get("row_count", 0):
                 newest[row["surface_key"]] = row
     due: list[dict[str, Any]] = []
+    left = _evidence_slice_bytes() // 2
     for key, claim in sorted(surfaces.items()):
         family, base = _carried_family(key), newest.get(key)
-        if family is None or claim["size_bytes"] - (base["size_bytes"] if base else 0) < EVIDENCE_CHECKPOINT_STRIDE_BYTES:
+        start = base["size_bytes"] if base else 0
+        if family is None or claim["size_bytes"] - start < EVIDENCE_CHECKPOINT_STRIDE_BYTES or left <= 0:
             continue
-        cursor = _CarriedClaimCursor(key, family, [(base, True)] if base else ())
+        cursor = _CarriedClaimCursor(key, family, [(base, True)] if base else (), claim["size_bytes"])
+        cursor.stop_bytes = min(claim["size_bytes"], start + left)
         stream(key, cursor.on_row, cursor)
+        rows, end, tail = cursor.frontier
+        if rows == cursor.base_rows:
+            continue  # its next row alone is longer than the slice left
+        left -= end - start
         due.append({
             "schema_version": 1,
             "row_type": _EVIDENCE_CHECKPOINT_ROW_TYPE,
-            "row_id": f"{_EVIDENCE_CHECKPOINT_ROW_TYPE}:{key}:{claim['row_count']}",
+            # The fold version is part of the identity: a rebuilt checkpoint
+            # at an old one's row is a new row, never a duplicate of it.
+            "row_id": f"{_EVIDENCE_CHECKPOINT_ROW_TYPE}:v{EVIDENCE_CHECKPOINT_FOLD_VERSION}:{key}:{rows}",
             "fold_version": EVIDENCE_CHECKPOINT_FOLD_VERSION,
             "surface_key": key,
-            "row_count": claim["row_count"],
-            "size_bytes": claim["size_bytes"],
-            "tail_ledger_hash": claim["tail_ledger_hash"],
+            "row_count": rows,
+            "size_bytes": end,
+            "tail_ledger_hash": tail,
             "evidence": cursor.tally.carried_state(key),
         })
     return due
@@ -2974,8 +3041,10 @@ def _verify_snapshot_and_collect_evidence(
                 or summary["last_hash"] != claim.get("tail_ledger_hash")
             ):
                 raise RuntimeError(f"state_snapshot_surface_mismatch:{key}")
-            if cursor is not None:
+            if cursor is not None and cursor.complete:
                 accumulator.merge_carried(cursor.tally.carried_state(key), key)
+            elif cursor is not None:
+                accumulator.rebuilding.add(cursor.family)
         else:
             digest = hashlib.sha256()
             observed = 0
@@ -3241,6 +3310,9 @@ class _StreamingEvidenceAccumulator:
         self.ordinal = 0
         # What the verifier consumed against _MAX_EVIDENCE_INPUT_BYTES.
         self.evidence_input_bytes = 0
+        # ARIA-HIGH-286 — carried families with a claim whose evidence this
+        # publish's slice could not reach, so none of that claim is counted.
+        self.rebuilding: set[str] = set()
 
     def consume(self, surface: str, row: Mapping[str, Any]) -> None:
         # A segment's opening row is chain structure, never evidence.
@@ -3557,6 +3629,11 @@ class _StreamingEvidenceAccumulator:
                 blockers.add(f"count_rejected:{capability}")
             if capability == "autonomy_unlock" and unlock_blocker:
                 blockers.add(unlock_blocker)
+            # ARIA-HIGH-286 — a withheld claim leaves these counts short, so
+            # the capability is named as rebuilding, never shown as proven.
+            blockers.update(
+                f"{EVIDENCE_REBUILD_BLOCKER}:{surface}" for surface in spec.count_surfaces if surface in self.rebuilding
+            )
             counts_by_capability[capability] = counts
             blockers_by_capability[capability] = tuple(sorted(blockers))
         return counts_by_capability, blockers_by_capability

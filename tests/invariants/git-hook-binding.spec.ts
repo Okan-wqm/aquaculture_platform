@@ -155,8 +155,9 @@ describe('git hook binding', () => {
   });
 
   it('mirrors every quality.mjs gate CI runs into a local hook', () => {
-    // WHY: `.husky/pre-commit` ran `format-scope check` — manifest freshness —
-    // and its own comment claimed the intent was to catch CI redness at commit
+    // WHY: `.husky/pre-commit` ran `format-scope check` — then manifest
+    // freshness; since PROC-MEDIUM-040 classification totality and archive
+    // immutability, with no manifest committed — and its own comment claimed the intent was to catch CI redness at commit
     // time. But CI runs TWO format gates, and the one that catches actual
     // Prettier drift (`format check-changed`) had no local counterpart at all.
     // Eight commits shipped drift with a green hook every time before CI

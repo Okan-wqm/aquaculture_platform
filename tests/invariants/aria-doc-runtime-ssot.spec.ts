@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -82,6 +83,10 @@ const LIVE_WORKFLOWS = [
 
 const ARIA_SUITE_RUNNER = 'scripts/ci/aria-suite-run.sh';
 const ARIA_SUITE_SELECTOR = 'scripts/ci/aria-suite-changed.mjs';
+const ARIA_IMPORT_GRAPH = 'scripts/ci/aria-import-graph.py';
+// The selector probes parse the real kernel (~1,200 modules) before their cache is warm.
+const SELECTOR_PROBE_MS = 180_000;
+const REAL_GIT = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
 const ARIA_ADAPTERS_DIR = 'tools/aria-adapters';
 const ARIA_PYTEST_NATIVE_PLUGIN = 'aria_kernel.pytest_native_only';
 // ARIA-HIGH-136 — measured and reasoned next to the values in aria-kernel.yml.
@@ -739,94 +744,112 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(pkg.scripts['aria:test:unit']).toBe(`bash ${ARIA_SUITE_RUNNER}`);
   });
 
-  it('treats the ARIA suite selector and both entrypoints as pre-push surfaces', () => {
+  // Runs the pre-push selector against a faked diff and returns what it asked git for and
+  // what it started. Shims live in `bin/` and write only into `log/`: a shim whose record
+  // lands on PATH can end up executing its own record (the 2026-10-02 fork bomb, see
+  // aria-suite-selector.spec.ts). `git ls-files` is the real one, so the import graph
+  // reads the real kernel.
+  const probeSelector = (
+    changed: string,
+  ): { diffArgs: string[]; bash: string[][]; npx: string[] | null } => {
     const probeDir = mkdtempSync(join(tmpdir(), 'aria-suite-changed-'));
-    const diffLog = join(probeDir, 'git-diff-args');
-    const bashLog = join(probeDir, 'bash-args');
+    const bin = join(probeDir, 'bin');
+    const log = join(probeDir, 'log');
+    const common = join(probeDir, 'common');
     try {
+      for (const dir of [bin, log, common]) mkdirSync(dir);
       writeExecutable(
-        join(probeDir, 'git'),
+        join(bin, 'git'),
         [
-          'if [ "$1" = "rev-parse" ] && [ "$2" = "--abbrev-ref" ]; then',
-          "  printf 'probe-branch\\n'",
-          '  exit 0',
-          'fi',
-          'if [ "$1" = "rev-parse" ] && [ "$2" = "--verify" ]; then',
-          '  exit 0',
-          'fi',
+          'case "$1 $2" in',
+          '  "rev-parse --abbrev-ref") echo probe-branch; exit 0 ;;',
+          '  "rev-parse --verify") exit 0 ;;',
+          `  "rev-parse --git-common-dir") echo "${common}"; exit 0 ;;`,
+          'esac',
           'if [ "$1" = "diff" ]; then',
-          '  printf \'%s\\n\' "$@" > "$ARIA_DIFF_PROBE"',
-          `  printf '${ARIA_SUITE_SELECTOR}\\n'`,
+          `  printf '%s\\n' "$@" > "${join(log, 'git-diff')}"`,
+          `  printf '%s\\n' '${changed}'`,
           '  exit 0',
           'fi',
+          `if [ "$1" = "ls-files" ]; then exec "${REAL_GIT}" "$@"; fi`,
           'exit 2',
         ].join('\n'),
       );
-      writeExecutable(join(probeDir, 'bash'), 'printf \'%s\\n\' "$@" > "$ARIA_BASH_PROBE"');
+      writeExecutable(join(bin, 'bash'), `printf '%s\\n' "$@" -- >> "${join(log, 'bash')}"`);
+      writeExecutable(
+        join(bin, 'npx'),
+        `printf '%s\\n' "ARIA_SUITE_GATE_RUN=$ARIA_SUITE_GATE_RUN" "$@" > "${join(log, 'npx')}"`,
+      );
 
-      execFileSync(process.execPath, ['scripts/ci/aria-suite-changed.mjs'], {
+      execFileSync(process.execPath, [ARIA_SUITE_SELECTOR], {
         cwd: REPO_ROOT,
         env: {
           ...process.env,
-          ARIA_BASH_PROBE: bashLog,
-          ARIA_DIFF_PROBE: diffLog,
-          PATH: `${probeDir}:${process.env.PATH ?? ''}`,
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          ARIA_PREPUSH_LOCK: join(probeDir, 'lock'),
+          ARIA_PREPUSH_BUDGET_S: '',
+          ARIA_SUITE_FULL: '',
+          ARIA_SUITE_GATE_RUN: '',
         },
       });
 
-      const diffArgs = readFileSync(diffLog, 'utf8').trim().split('\n');
+      const lines = (name: string): string[] | null =>
+        existsSync(join(log, name))
+          ? readFileSync(join(log, name), 'utf8').trim().split('\n')
+          : null;
+      const bash = existsSync(join(log, 'bash'))
+        ? readFileSync(join(log, 'bash'), 'utf8')
+            .split('--\n')
+            .filter((block) => block !== '')
+            .map((block) => block.trim().split('\n'))
+        : [];
+      return { diffArgs: lines('git-diff') ?? [], bash, npx: lines('npx') };
+    } finally {
+      removeFixtureTree(probeDir);
+    }
+  };
+
+  it(
+    'treats the ARIA suite selector and both entrypoints as pre-push surfaces',
+    () => {
+      const { diffArgs, bash, npx } = probeSelector(ARIA_SUITE_SELECTOR);
       expect(diffArgs).toContain(ARIA_SUITE_SELECTOR);
       expect(diffArgs).toContain(ARIA_SUITE_RUNNER);
+      expect(diffArgs).toContain(ARIA_IMPORT_GRAPH);
       expect(diffArgs).toContain('package.json');
       expect(diffArgs).toContain(ARIA_ADAPTERS_DIR);
-      expect(readFileSync(bashLog, 'utf8').trim()).toBe(ARIA_SUITE_RUNNER);
-    } finally {
-      removeFixtureTree(probeDir);
-    }
-  });
-
-  it('selects the adapter registry contract when only tools/aria-adapters changes', () => {
-    // ARIA-HIGH-098 — a manifest without a fixture case, or a case rewritten
-    // to expect a non-ok run, touches only tools/aria-adapters/**. The
-    // pre-push selector must reach the kernel module that refuses both.
-    const probeDir = mkdtempSync(join(tmpdir(), 'aria-suite-changed-adapters-'));
-    const bashLog = join(probeDir, 'bash-args');
-    try {
-      writeExecutable(
-        join(probeDir, 'git'),
-        [
-          'if [ "$1" = "rev-parse" ] && [ "$2" = "--abbrev-ref" ]; then',
-          "  printf 'probe-branch\\n'",
-          '  exit 0',
-          'fi',
-          'if [ "$1" = "rev-parse" ] && [ "$2" = "--verify" ]; then',
-          '  exit 0',
-          'fi',
-          'if [ "$1" = "diff" ]; then',
-          `  printf '${ARIA_ADAPTERS_DIR}/probe-adapter.tool.json\\n'`,
-          '  exit 0',
-          'fi',
-          'exit 2',
-        ].join('\n'),
+      // GATE SELF-VALIDATION (PROC-MEDIUM-045): a change to the code deciding what the next
+      // push runs is validated by the specs that drive that code, this one among them — the
+      // kernel suite never executed a line of the selector. The jest run is marked so the
+      // selector those specs start cannot start it again.
+      expect(npx).toEqual(
+        expect.arrayContaining([
+          'ARIA_SUITE_GATE_RUN=1',
+          'jest',
+          'tests/invariants/aria-doc-runtime-ssot.spec.ts',
+          'tests/invariants/aria-suite-selector.spec.ts',
+        ]),
       );
-      writeExecutable(join(probeDir, 'bash'), 'printf \'%s\\n\' "$@" > "$ARIA_BASH_PROBE"');
+      expect(bash).toEqual([]);
+    },
+    SELECTOR_PROBE_MS,
+  );
 
-      execFileSync(process.execPath, ['scripts/ci/aria-suite-changed.mjs'], {
-        cwd: REPO_ROOT,
-        env: {
-          ...process.env,
-          ARIA_BASH_PROBE: bashLog,
-          PATH: `${probeDir}:${process.env.PATH ?? ''}`,
-        },
-      });
-
-      const bashArgs = readFileSync(bashLog, 'utf8').trim().split('\n');
-      expect(bashArgs[0]).toBe(ARIA_SUITE_RUNNER);
-      expect(bashArgs).toContain('test_adapter_fixture_evidence_contract.py');
-    } finally {
-      removeFixtureTree(probeDir);
-    }
-  });
+  it(
+    'selects the adapter registry contract when only tools/aria-adapters changes',
+    () => {
+      // ARIA-HIGH-098 — a manifest without a fixture case, or a case rewritten
+      // to expect a non-ok run, touches only tools/aria-adapters/**. The
+      // pre-push selector must reach the kernel module that refuses both, and
+      // run it before anything that merely reads the directory.
+      const { bash } = probeSelector(`${ARIA_ADAPTERS_DIR}/probe-adapter.tool.json`);
+      expect(bash[0]).toEqual([
+        ARIA_SUITE_RUNNER,
+        'aria-kernel/tests/test_adapter_fixture_evidence_contract.py',
+      ]);
+    },
+    SELECTOR_PROBE_MS,
+  );
 
   it('package scripts expose the clean ARIA validation entrypoints', () => {
     const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };

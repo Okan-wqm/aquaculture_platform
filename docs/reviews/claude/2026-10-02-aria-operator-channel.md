@@ -127,6 +127,11 @@ coverage gate makes a revision add (tests, dependents, migrations); the bound mu
 surfaces united with their machine-computed impact closure, which needs an arbiter decision on that
 closure. Owner okan, deadline 2026-10-23.
 
+Arbiter ruling (2026-10-02, program review of the ARIA memory and repository-knowledge plan): the
+closure is the `impact_graph.plan_downstream_impact` project closure of the admitted surfaces, and
+the fix lands as its own kernel change before the executor is enabled (CP-3), under the freeze's
+security exemption. The ruling is recorded as a new ADR in that change; ADR-0018 stays as accepted.
+
 ## ARIA-LOW-262
 
 Context: security-reviewer GSEC-LOW-009. Every scan emitted one `unsigned_operator_feedback` event
@@ -141,6 +146,137 @@ announcement.
 Fix: each drop carries a `row_key` (the row's ledger hash, or the hash of the raw line); a drop whose
 `(row_key, reason)` the ingestion history already holds is recorded with `reported_before: true` and
 no new event. Test: `test_a_drop_is_reported_once_not_every_cycle`.
+
+## ARIA-HIGH-263
+
+ARIA forgets what it learned every week: state compaction keeps memory/learning-events only inside
+--retain-days (7) and collapses memory/beliefs, archiving the rest where no memory reader looks, so
+the live memory held 8 beliefs and 33 learning events on 2026-10-02 against 8 MB of archived history
+each.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/state_compact.py:20` (beliefs collapse to the latest row per id;
+  learning-events keep only rows newer than --retain-days)
+- `aria-kernel/aria_kernel/state_compact.py:874` (\_archive_stripped writes the removed rows to
+  tools/archives; only state_compact and state_manifest reference archives)
+- Measured on aria/state 05c5d3160: memory/beliefs 8, learning-events 33, observations 16,
+  uncertainties 105, contradictions 0, calibration 0; tools/archives beliefs-collapsed.jsonl.gz 8.3
+  MB, learning-events-stripped.jsonl.gz 8.2 MB. Operator goal 2026-10-02: ARIA solves, records,
+  learns and knows the repository.
+
+Rule: What ARIA has learned stays readable by ARIA: compaction may reduce volume only by folding
+history into durable knowledge the memory readers consume, never by moving it out of their reach.
+
+Owner okan, deadline 2026-10-16.
+
+## ARIA-MEDIUM-264
+
+A rolled-back aria/state can re-admit a spent operator request inside its signed window (up to
+168h): the merge lane's merged-once proof reads the same ledgers a rollback erases.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/operator_feedback_observation.py:51` (\_merged_elsewhere reads the
+  captured plan and ingestion ledgers)
+- `aria-kernel/tests/test_operator_feedback_ingestion.py:357` (pins the re-admission window up to
+  expiry)
+- AISAFETY residual of round 2 (HIGH-001) and GSEC-MEDIUM-001 residual. Fix direction: the
+  GitHub-hosted merge lane refuses when a merged commit or PR on main already carries the request
+  id.
+
+Rule: A signed operator request authorizes one merged change; the single-use proof comes from a
+record a rollback of aria/state cannot erase (main's merged history).
+
+Owner okan, deadline 2026-10-23.
+
+## ARIA-LOW-265
+
+Check 12 confirms an operator request's signed terms and that a grounding digest is present, but
+never compares the signed finding_id and grounding_digest with the plan_started content of the plan
+it merges.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/operator_feedback_observation.py:146` (terms and digest presence checked;
+  no comparison with plan_started.plan_content)
+- GSEC-MEDIUM-002 residual (round 2).
+
+Rule: The merge proves the plan it merges is the plan the operator signed for: same finding, same
+grounding.
+
+Owner okan, deadline 2026-10-23.
+
+## ARIA-LOW-266
+
+The operator signs an opaque digest: the recorder prints the canonical subject, whose grounding is a
+sha256, not the refs and writable surfaces the request will authorize, and nothing refuses to sign
+as root from a checkout or cwd another user can write.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/operator_request_signature.py:211` (stderr subject shows grounding_digest
+  only)
+- `docs/recommendations/architectural-arbiter/2026-10-02-adr-0018-operator-channel-contract.md`
+  (root-owned checkout procedure is documentation only)
+- AISAFETY LOW and GSEC-MEDIUM-005 residual (round 2).
+
+Rule: The operator sees exactly what a signature authorizes, and the signing path refuses an
+environment the runner uid could have prepared.
+
+Owner okan, deadline 2026-10-23.
+
+## ARIA-LOW-267
+
+Docs/aria/policy/ is not in implementation_safety.READONLY_PATHS, yet operators.json there sets the
+operator request lifetime and audience that ingestion reads from the working tree.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/operator_approval.py:56` (OPERATORS_POLICY_PATH under docs/aria/policy)
+- `aria-kernel/aria_kernel/implementation_safety.py:73` (READONLY_PATHS lists docs/adr/ but not
+  docs/aria/policy/)
+- AISAFETY LOW and GSEC-MEDIUM-001 residual (round 2). Adding a READONLY path needs ADR + arbiter
+  approval + invariant amendment (implementation_safety.py header).
+
+Rule: Files that set ARIA's authority bounds are read-only to ARIA's implementer, and ingestion
+reads them from a commit proven on main.
+
+Owner okan, deadline 2026-10-23.
+
+## ARIA-LOW-268
+
+Operator request ingestion verifies every historical request row with ssh-keygen before the spent
+check and re-lists every spent request in each scan row, so plan-source time and the ingestion
+ledger grow with history.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/operator_feedback_ingestion.py:229` (verification precedes the spent
+  check at :237)
+- `aria-kernel/aria_kernel/operator_feedback_ingestion.py:292` (scan row lists all spent requests)
+- GSEC-LOW-009 residual (round 2).
+
+Rule: A cycle's ingestion cost is bounded by the requests still live, not by every request ever
+filed.
+
+Owner okan, deadline 2026-10-31.
+
+## ARIA-LOW-269
+
+The ingestion trust anchor rests on the runner-writable local refs/remotes/origin/main and re-hashes
+only the allowed-signers blob, not the commit or tree that names it.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/main_anchor.py:136` (ancestor check against the local origin/main ref)
+- `aria-kernel/aria_kernel/main_anchor.py:166` (blob re-hash; commit and tree not re-derived)
+- GSEC-MEDIUM-003 residual (round 2); the fresh-clone merge lane re-check is the backstop.
+
+Rule: Ingestion's anchor is proven against main as GitHub serves it, not against refs a runner
+process can rewrite.
+
+Owner okan, deadline 2026-10-31.
 
 ## Review round 2
 

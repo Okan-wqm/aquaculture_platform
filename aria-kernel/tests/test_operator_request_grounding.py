@@ -62,7 +62,8 @@ class _Fixture(unittest.TestCase):
         self.fx = OperatorRequestFixture(Path(self.tmp.name))
 
     def context(self) -> fg.GroundingContext:
-        return fg.load_grounding_context(self.fx.repo)
+        # ARIA-HIGH-260 — the store's loop history, which the aging F source is judged against.
+        return fg.load_grounding_context(self.fx.repo, tools_root=self.fx.tools)
 
     def _candidate(self, finding_id: str, request_id: str, **record) -> dict:
         self.fx.record(finding_id=finding_id, request_id=request_id, **record)

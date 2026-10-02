@@ -388,6 +388,103 @@ class TestV9GhRunListCache(unittest.TestCase):
             self.assertIsNone(_ps._read_gh_run_list_cache(cache))
 
 
+class TestV9FailingCiIsCurrentlyRed(unittest.TestCase):
+    """ARIA-HIGH-250 — a failing_ci candidate is a workflow that is red NOW.
+
+    The source used to be the five newest failed runs on main. A failed run
+    stays failed forever, so a workflow that went green kept supplying
+    candidates, and because failing_ci outranks f_finding every cycle from
+    2026-09-29 on selected a CI run and never reached an F finding.
+    """
+
+    @staticmethod
+    def _run(run_id, workflow_id, workflow, conclusion, created_at):
+        return {
+            "databaseId": run_id,
+            "workflowDatabaseId": workflow_id,
+            "workflowName": workflow,
+            "headSha": f"sha{run_id}",
+            "conclusion": conclusion,
+            "createdAt": created_at,
+            "event": "schedule",
+        }
+
+    def _scan(self, rows):
+        calls = []
+
+        def fake_run(argv, **kwargs):
+            calls.append(argv)
+
+            class _Result:
+                returncode = 0
+                stdout = json.dumps(rows)
+                stderr = ""
+            return _Result()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(_ps.subprocess, "run", side_effect=fake_run):
+                with mock.patch("shutil.which", return_value="/usr/bin/gh"):
+                    with mock.patch.dict(os.environ, {"ARIA_DRY_RUN": ""}):
+                        result = _ps.scan_failing_ci(tmp, cache_dir=tmp)
+        self.assertEqual(len(calls), 1)
+        return result, calls[0]
+
+    def test_workflow_that_went_green_supplies_no_candidate(self):
+        rows = [
+            self._run(3, 11, "Database WAL Archive Freshness", "success", "2026-10-03T02:27:00Z"),
+            self._run(2, 11, "Database WAL Archive Freshness", "failure", "2026-10-02T02:27:00Z"),
+            self._run(1, 11, "Database WAL Archive Freshness", "failure", "2026-10-01T23:27:00Z"),
+        ]
+        result, _ = self._scan(rows)
+        self.assertEqual(result, [])
+
+    def test_red_workflow_supplies_its_newest_failure_once(self):
+        rows = [
+            self._run(5, 22, "Nightly Fuzz", "failure", "2026-10-02T07:25:00Z"),
+            self._run(4, 33, "dataflow-integrity-watchdog", "success", "2026-10-02T06:06:00Z"),
+            self._run(3, 22, "Nightly Fuzz", "failure", "2026-10-01T07:38:00Z"),
+            self._run(2, 22, "Nightly Fuzz", "failure", "2026-09-30T07:14:00Z"),
+        ]
+        result, _ = self._scan(rows)
+        self.assertEqual([c["candidate_id"] for c in result], ["ci-run-5"])
+        self.assertEqual(result[0]["workflow_name"], "Nightly Fuzz")
+
+    def test_runs_that_neither_passed_nor_failed_do_not_decide(self):
+        rows = [
+            self._run(6, 44, "Red then cancelled", "cancelled", "2026-10-02T09:00:00Z"),
+            self._run(5, 44, "Red then cancelled", "failure", "2026-10-02T08:00:00Z"),
+            self._run(4, 55, "Green then skipped", "skipped", "2026-10-02T09:00:00Z"),
+            self._run(3, 55, "Green then skipped", "success", "2026-10-02T08:00:00Z"),
+            self._run(2, 55, "Green then skipped", "failure", "2026-10-02T07:00:00Z"),
+        ]
+        result, _ = self._scan(rows)
+        self.assertEqual([c["candidate_id"] for c in result], ["ci-run-5"])
+
+    def test_newest_run_decides_whatever_order_gh_returns(self):
+        rows = [
+            self._run(1, 66, "Capacity", "failure", "2026-10-02T05:20:00Z"),
+            self._run(2, 66, "Capacity", "success", "2026-10-02T13:20:00Z"),
+            self._run(3, 77, "Watchdog", "success", "2026-10-02T02:16:00Z"),
+            self._run(4, 77, "Watchdog", "failure", "2026-10-02T14:16:00Z"),
+        ]
+        result, _ = self._scan(rows)
+        self.assertEqual([c["candidate_id"] for c in result], ["ci-run-4"])
+
+    def test_workflow_identity_is_the_workflow_id_not_its_name(self):
+        rows = [
+            self._run(2, 88, "CI", "success", "2026-10-02T09:00:00Z"),
+            self._run(1, 99, "CI", "failure", "2026-10-02T08:00:00Z"),
+        ]
+        result, _ = self._scan(rows)
+        self.assertEqual([c["candidate_id"] for c in result], ["ci-run-1"])
+
+    def test_reads_completed_runs_across_the_window_not_the_last_five_failures(self):
+        _, argv = self._scan([])
+        self.assertEqual(argv[argv.index("--status") + 1], "completed")
+        self.assertEqual(argv[argv.index("--limit") + 1], str(_ps._FAILING_CI_RUN_WINDOW))
+        self.assertIn("workflowDatabaseId", argv[argv.index("--json") + 1].split(","))
+
+
 class TestV9PublicApi(unittest.TestCase):
 
     def test_v94_exports_in_all(self):

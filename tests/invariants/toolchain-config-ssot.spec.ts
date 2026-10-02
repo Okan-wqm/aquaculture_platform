@@ -1,5 +1,5 @@
 import { execFileSync } from 'child_process';
-import { mkdtempSync, readFileSync } from 'fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { resolve } from 'path';
 
@@ -49,6 +49,43 @@ function rootScriptDirectNxCommands(scripts: Record<string, string>): Array<[str
 
 function readWorkflow(path: string): Workflow {
   return YAML.parse(readRepoFile(path)) as Workflow;
+}
+
+interface CompositeAction {
+  runs?: {
+    steps?: WorkflowStep[];
+  };
+}
+
+// Every `dtolnay/rust-toolchain` step in a workflow or a local composite
+// action, labelled `<file>:<job or "runs">`. The scan is the whole tree, not
+// a list, so a new workflow is covered the day it lands.
+function rustToolchainSteps(): Array<{ site: string; step: WorkflowStep }> {
+  const found: Array<{ site: string; step: WorkflowStep }> = [];
+  const isInstaller = (step: WorkflowStep): boolean =>
+    step.uses?.startsWith('dtolnay/rust-toolchain@') ?? false;
+
+  for (const name of readdirSync(resolve(REPO_ROOT, '.github/workflows'))) {
+    if (!/\.ya?ml$/.test(name)) continue;
+    const path = `.github/workflows/${name}`;
+    for (const [jobId, job] of Object.entries(readWorkflow(path).jobs ?? {})) {
+      for (const step of (job.steps ?? []).filter(isInstaller)) {
+        found.push({ site: `${path}:${jobId}`, step });
+      }
+    }
+  }
+  for (const entry of readdirSync(resolve(REPO_ROOT, '.github/actions'), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    for (const file of ['action.yml', 'action.yaml']) {
+      const path = `.github/actions/${entry.name}/${file}`;
+      if (!existsSync(resolve(REPO_ROOT, path))) continue;
+      const action = YAML.parse(readRepoFile(path)) as CompositeAction;
+      for (const step of (action.runs?.steps ?? []).filter(isInstaller)) {
+        found.push({ site: `${path}:runs`, step });
+      }
+    }
+  }
+  return found;
 }
 
 function isRootWorkspaceRustFanout(step: WorkflowStep): boolean {
@@ -280,6 +317,28 @@ describe('Toolchain Config SSoT', () => {
     } finally {
       removeFixtureTree(temporaryDirectory);
     }
+  });
+
+  // The action derives its DEFAULT toolchain from the branch its ref names:
+  // `@nightly` installs nightly, `@stable` stable, and `master` declares
+  // `toolchain` required with no default. A SHA pin names no branch, so the
+  // default is whatever the pinned commit's action.yml happens to say — and
+  // Dependabot retargets pins to master commits. That is how #1264 turned
+  // the nightly ST-parser fuzz into "'toolchain' is a required input" every
+  // night from 2026-08-31 (EDGE-MEDIUM-043). Naming the toolchain makes the
+  // installed toolchain independent of which commit the pin points at.
+  it('names the toolchain on every rust-toolchain step instead of inheriting it from the pin', () => {
+    const steps = rustToolchainSteps();
+    const unnamed = steps
+      .filter(
+        ({ step }) => typeof step.with?.toolchain !== 'string' || step.with.toolchain.trim() === '',
+      )
+      .map(({ site }) => site);
+
+    expect(steps.map(({ site }) => site)).toContain(
+      '.github/workflows/fuzz-st-parser-nightly.yml:fuzz',
+    );
+    expect(unnamed).toEqual([]);
   });
 
   it('prepares the complete Rust workspace before every broad root Nx fan-out', () => {

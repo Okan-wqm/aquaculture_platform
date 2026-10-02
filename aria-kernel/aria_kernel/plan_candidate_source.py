@@ -51,8 +51,9 @@ class PlanCandidateSource(str, Enum):
     ``unsigned_operator_feedback`` governance event (V9.5 check 12)."""
 
     FAILING_CI = "failing_ci"
-    """Failing CI runs on ``main`` queried via
-    ``gh run list --branch main --status failure --limit 5``.
+    """Workflows that are red on ``main`` now — each workflow's newest
+    pass/fail verdict among the newest completed runs, kept when it
+    failed (``plan_synthesizer.scan_failing_ci``, ARIA-HIGH-250).
     Cached 10-min TTL at ``aria-tools/cache/gh-run-list.json`` to
     stay below GitHub API 5000/hr rate limit."""
 

@@ -305,7 +305,15 @@ jobs:
               workflow_id="aria-daily-report",
               job_id="commit-report",
               profile="standard",
-              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              # The tree this job writes is its own checkout (this step's
+              # working-directory), and `report` is relative to it. Rooting
+              # the preflight at GITHUB_WORKSPACE judged the runner's shared
+              # ARIA workspace instead, where this checkout and
+              # dataflow-integrity-watchdog's sit as untracked directories,
+              # so every run since 2026-08-20 died on
+              # workspace_worktree_not_clean. Pinned by
+              # aria-kernel/tests/test_z1_store_isolation.py.
+              workspace_root=os.getcwd(),
               allowed_write_roots=[report],
               path_allowlist=[report],
               network_policy=["github_api"],

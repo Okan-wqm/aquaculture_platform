@@ -307,6 +307,15 @@ services:
       # outside the PostgreSQL TLS parent and are installed atomically from
       # their one exact bind directly into tmpfs; there is no PGDATA symlink.
       WALG_ENABLED: 'on'
+      # INFRA-CRITICAL-195: archiving runs exactly when
+      # .github/manifests/dr-activation.json declares production-wal-archive
+      # active. This literal selects the healthcheck's contract and the
+      # `archive_mode` in `command:` below starts PostgreSQL in it; both are
+      # projections of the manifest, pinned to it by
+      # tests/invariants/wal-archive-activation.spec.ts, so a manifest flip
+      # (BR-3) cannot merge without them. A literal, not an interpolated
+      # variable, so no .env value can archive what the manifest did not declare.
+      WALG_ARCHIVE_ACTIVATION: not-activated
       WALG_BACKUP_EPOCH: ${WALG_BACKUP_EPOCH:?WALG_BACKUP_EPOCH required}
       WALG_S3_PREFIX: s3://${WALG_SPACES_BUCKET:?WALG_SPACES_BUCKET required}/postgres/wal-g/${WALG_BACKUP_EPOCH:?WALG_BACKUP_EPOCH required}
       WALG_S3_ENDPOINT: ${SPACES_ENDPOINT:?SPACES_ENDPOINT required}
@@ -334,6 +343,9 @@ services:
       # compose file regardless of which image variant is in use.
       PGDATA: /var/lib/postgresql/data
     entrypoint: ['/usr/local/bin/postgres-ssl-entrypoint.sh']
+    # archive_mode is the projection of WALG_ARCHIVE_ACTIVATION above (off for
+    # not-activated, on for active). archive_command and archive_timeout stay
+    # configured so activation flips archive_mode and nothing else.
     command: >
       postgres
       -c max_connections=300
@@ -342,7 +354,7 @@ services:
       -c ssl_cert_file=/run/aqua-postgres-tls/server.crt
       -c ssl_key_file=/run/aqua-postgres-tls/server.key
       -c ssl_ca_file=/run/aqua-postgres-tls/root.crt
-      -c archive_mode=on
+      -c archive_mode=off
       -c "archive_command=/usr/local/bin/walg-archive-command.sh %p %f"
       -c archive_timeout=${WALG_ARCHIVE_SWITCH_BUDGET_SECONDS:-225}s
     tmpfs:

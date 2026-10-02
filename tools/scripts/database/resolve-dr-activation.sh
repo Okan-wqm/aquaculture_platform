@@ -74,7 +74,13 @@ case "${declared}/${DR_OBSERVED}" in
     summarize "## DR activation drift: \`${DR_CAPABILITY}\`"
     summarize ""
     summarize "The runtime proves this capability is LIVE, but the manifest still declares it \`not-activated\` — so this lane has been skipping the checks that protect it."
-    die "DR activation drift: '${DR_CAPABILITY}' is live in production but ${MANIFEST_PATH} declares it not-activated, so this lane has NOT been enforcing it. Set the declared state to 'active'."
+    summarize ""
+    summarize "Either production started it without its unlock phase (${unlock_phase}) — return the runtime to the declared state — or the phase is complete and the manifest is stale."
+    # Two opposite remedies: a runtime that started a capability nobody
+    # provisioned (INFRA-CRITICAL-195: archiving with no bucket) must be turned
+    # off, while a completed unlock phase needs the declaration flipped. The
+    # lane cannot tell which, so it names both instead of recommending one.
+    die "DR activation drift: '${DR_CAPABILITY}' is live in production but ${MANIFEST_PATH} declares it not-activated, so this lane has NOT been enforcing it. Return production to the declared state, or, once ${unlock_phase} is complete, set the declared state to 'active'."
     ;;
   active/present)
     emit 'active'

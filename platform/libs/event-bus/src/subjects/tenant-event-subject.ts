@@ -7,6 +7,8 @@
  *
  * `tenantId = system` is reserved for platform-level events that do not belong
  * to a tenant. Wildcards are only emitted by the explicit subscription helpers.
+ * Which segment an event routes on is decided once, by
+ * `eventSubjectTenantSegment` (OBS-HIGH-009).
  *
  * The platform segment is spelled once, in the event contract
  * (`PLATFORM_EVENT_TENANT_ID`, SEC-HIGH-159); this module aliases it.
@@ -97,6 +99,44 @@ export function parseTenantEventSubject(subject: string): ParsedTenantEventSubje
   };
 }
 
+/**
+ * The tenant segment an event routes on: the ONE derivation the publisher's
+ * subject builder (`deriveEventSubject`) and {@link assertSubjectMatchesEvent}
+ * share (OBS-HIGH-009).
+ *
+ * WHAT: a tenant event routes on its tenantId; a platform-level event carries
+ * the contract's platform segment (`createBaseEvent(type, PLATFORM_SCOPE)` /
+ * `tenantScopeOf(null)` produce it) and routes on that; an `IEvent` with no
+ * tenantId at all is platform-level too. The empty string is refused.
+ *
+ * WHY one function: the builder used to test `!event.tenantId` (so `''` meant
+ * platform) while the assertion used `event.tenantId ?? 'system'` (so `''` was
+ * a tenant named ''). Every `''` publish was therefore built for
+ * `events.system.*` and then refused by its own assertion with
+ * "subject tenant mismatch: subject=system, payload=" — which is how the
+ * fleet's error capture never wrote a row to admin.error_groups.
+ *
+ * WHY `''` is refused rather than read as platform: no contract surface
+ * accepts it on the wire — `eventTenantScope`, the event JSON schemas and the
+ * outbox all reject it — so aliasing it here would put a second platform
+ * spelling on the wire that every consumer parsing through the contract
+ * throws on. It fails here, at the producer, naming the one sentinel.
+ */
+export function eventSubjectTenantSegment(event: TenantEventLike): string {
+  const { tenantId } = event;
+  if (tenantId === undefined || tenantId === null) {
+    return SYSTEM_EVENT_TENANT_SEGMENT;
+  }
+  if (tenantId === '') {
+    throw new TypeError(
+      `${event.eventType}: tenantId '' is not a tenancy scope; a platform-level ` +
+        `event carries "${SYSTEM_EVENT_TENANT_SEGMENT}" — build it with ` +
+        `createBaseEvent(eventType, PLATFORM_SCOPE) or tenantScopeOf(null)`,
+    );
+  }
+  return tenantId;
+}
+
 export function assertCanonicalTenantEventSubject(subject: string): ParsedTenantEventSubject {
   const parsed = parseTenantEventSubject(subject);
   if (!parsed) {
@@ -119,7 +159,7 @@ export function assertSubjectMatchesEvent(
     );
   }
 
-  const eventTenant = event.tenantId ?? SYSTEM_EVENT_TENANT_SEGMENT;
+  const eventTenant = eventSubjectTenantSegment(event);
   if (parsed.tenantId !== eventTenant) {
     throw new TypeError(
       `Event subject tenant mismatch: subject=${parsed.tenantId}, ` + `payload=${eventTenant}`,

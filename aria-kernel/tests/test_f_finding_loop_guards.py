@@ -157,9 +157,11 @@ class SelfLoopGuardTests(_LoopFixture):
         self.assertEqual(self.skips("cyc-wd"),
                          [("F-030", fg.FINDING_NOT_OPEN), ("F-031", fg.SELF_LOOP_WATCHDOG_RECENT)])
 
-    def test_external_origins_are_a_subset_of_the_allowlist(self) -> None:
+    def test_external_origins_are_exactly_the_operator_and_the_review_registry(self) -> None:
+        # Widening this set lets ARIA's own findings plan ARIA's own paths unattended:
+        # it is an ADR-0003 amendment, never a code edit alone (amendment 2026-10-02).
+        self.assertEqual(EXTERNAL_ORIGINATING_SKILLS, {"manual:operator", "report_ingestion:external_pr"})
         self.assertLessEqual(EXTERNAL_ORIGINATING_SKILLS, ORIGINATING_SKILL_ALLOWLIST)
-        self.assertNotIn("aria-watchdog:stall", EXTERNAL_ORIGINATING_SKILLS)
 
 
 class DailyCapTests(_LoopFixture):
@@ -211,7 +213,7 @@ class DailyCapTests(_LoopFixture):
 class CycleDetectionTests(_LoopFixture):
     """ADR-0003 prerequisite 5 — a subject whose plan went wrong is not re-planned."""
 
-    def test_a_reverted_subject_is_quarantined_until_an_operator_request_names_it(self) -> None:
+    def test_a_reverted_subject_is_quarantined_until_an_operator_plan_for_it_merges(self) -> None:
         self.finding("F-007", GROUNDED_FILE)
         self.plan("plan-r", "F-007", started=_ago(days=12))
         self.merged("plan-r", _ago(days=11), "b" * 40)
@@ -225,10 +227,14 @@ class CycleDetectionTests(_LoopFixture):
         self.fx.record(finding_id="F-007", request_id="OP-lift")
         envelope = self.synthesize("cyc-q2")
         self.assertEqual(self.selected(envelope), ("operator_feedback", "OP-lift"))
-        self.plan_event("plan-op", "plan_started", _ago(minutes=1),
+        self.plan_event("plan-op", "plan_started", _ago(minutes=2),
                         {"plan_content": envelope.content, "content_hash": content_hash(envelope.content)})
-        # The request is spent; the aging source may plan the subject again.
-        self.assertEqual(self.selected(self.synthesize("cyc-q3")), ("f_finding", "F-007"))
+        # A started operator plan can still be abandoned: the subject stays held.
+        self.assertIsNone(self.synthesize("cyc-q3"))
+        self.assertEqual(self.skips("cyc-q3"), [("F-007", fg.SUBJECT_QUARANTINED)])
+        # The operator's resolution is on main; the aging source may plan the subject again.
+        self.merged("plan-op", _ago(minutes=1), "e" * 40)
+        self.assertEqual(self.selected(self.synthesize("cyc-q4")), ("f_finding", "F-007"))
 
     def test_a_failed_plan_cools_its_subject_off_for_seven_days(self) -> None:
         self.finding("F-070", GROUNDED_FILE)

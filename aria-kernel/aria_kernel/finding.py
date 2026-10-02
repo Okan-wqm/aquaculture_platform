@@ -125,7 +125,9 @@ ORIGINATING_SKILL_ALLOWLIST: frozenset[str] = frozenset({
     # "aria-watchdog:phase_asymmetry",
 })
 # ARIA-HIGH-260 — the allowlisted origins whose producer is NOT an ARIA
-# component: the operator's own hand and external PR review agents. Every
+# component: the operator's own hand and the review registry
+# (docs/reviews/_registry/findings.jsonl, which report_ingestion reads and the
+# implementer cannot write — implementation_safety.READONLY_PATHS). Every
 # other origin (the watchdog, the judgment pipeline, the drift seeder, and
 # any detector added to the allowlist later) is ARIA observing itself, and a
 # record with no origin is read as ARIA's. The F_FINDING self-loop guard

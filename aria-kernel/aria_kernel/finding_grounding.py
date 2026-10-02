@@ -515,13 +515,17 @@ def _loop_refusal(
     started = sorted(p.plan_id for p in history.plans if p.f_sourced and now - p.started_at < _CAP_WINDOW)
     if len(started) >= history.max_plans_per_24h:
         return GLOBAL_CAP_EXCEEDED, {"plans_started_24h": started, "limit": history.max_plans_per_24h}
-    # Guard 5 — cycle detection on the subject (the finding id). A revert quarantines it
-    # until an operator-sourced plan for it starts; a failure or a new finding on what
-    # an earlier plan changed cools it off.
+    # Guard 5 — cycle detection on the subject (the finding id). An attributed revert
+    # quarantines it until an operator-sourced plan for it MERGES after the revert: a
+    # started operator plan can still be abandoned or rejected, and the subject must not
+    # fall back to the unattended source until the operator's resolution is on main
+    # (ADR-0003 amendment 2026-10-02). A failure or a new finding on what an earlier
+    # plan changed cools it off.
     own = [plan for plan in history.plans if plan.finding_id == finding_id]
     for plan in own:
         reverted = history.reverted_at.get(plan.merge_sha or "")
-        if reverted is not None and not any(o.operator_sourced and o.started_at > reverted for o in own):
+        if reverted is not None and not any(o.operator_sourced and o.merged_at is not None
+                                            and o.merged_at > reverted for o in own):
             return SUBJECT_QUARANTINED, {"plan_id": plan.plan_id, "merge_sha": plan.merge_sha,
                                          "reverted_at": reverted.isoformat()}
     for plan in own:

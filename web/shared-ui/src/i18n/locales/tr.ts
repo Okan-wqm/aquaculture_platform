@@ -346,6 +346,26 @@ export const tr: Record<MessageKey, string> = {
   'feedingV2.mealBoard.save': 'Kaydet',
   'feedingV2.mealBoard.cancel': 'Vazgeç',
 
+  // ── Site details (farm-module SitesTab read-only drawer, FE-MEDIUM-310) ──
+  'sites.details.subtitle': 'Saha kaydı (salt okunur)',
+  'sites.details.code': 'Kod',
+  'sites.details.type': 'Tür',
+  'sites.details.status': 'Durum',
+  'sites.details.lokalitetsnummer': 'Lokalitetsnummer',
+  'sites.details.timezone': 'Saat dilimi',
+  'sites.details.timezoneInherited': 'Kiracıdan devralınır',
+  'sites.details.region': 'Bölge',
+  'sites.details.address': 'Adres',
+  'sites.details.location': 'Koordinatlar',
+  'sites.details.totalArea': 'Toplam alan',
+  'sites.details.monitoringRadius': 'İzleme yarıçapı',
+  'sites.details.siteManager': 'Saha yöneticisi',
+  'sites.details.contactEmail': 'İletişim e-postası',
+  'sites.details.contactPhone': 'İletişim telefonu',
+  'sites.details.description': 'Açıklama',
+  'sites.details.createdAt': 'Oluşturulma',
+  'sites.details.notSet': 'Belirtilmemiş',
+
   // ── Messaging panel (FAZ 1) ──
   'messaging.overview': 'Genel Bakış',
   'messaging.title': 'Mesajlar',

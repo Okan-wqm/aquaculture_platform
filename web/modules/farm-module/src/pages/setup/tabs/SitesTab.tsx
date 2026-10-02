@@ -3,7 +3,6 @@
  * Displays list of sites with CRUD operations
  */
 import React, { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   DeleteConfirmationDialog,
   DeletePreviewData,
@@ -13,6 +12,7 @@ import {
   Spinner,
   Button,
 } from '@aquaculture/shared-ui';
+import { SiteDetailsDrawer } from '../components/SiteDetailsDrawer';
 import { SiteFormModal, type SiteFormData } from '../components/SiteFormModal';
 import {
   useSiteList,
@@ -157,7 +157,6 @@ export function buildSiteMutationInput(
 }
 
 export const SitesTab: React.FC = () => {
-  const navigate = useNavigate();
   const { toast } = useToast();
   const canCreateSite = useCanMutate('createSite');
   const canUpdateSite = useCanMutate('updateSite');
@@ -172,6 +171,9 @@ export const SitesTab: React.FC = () => {
   // Local state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSite, setEditingSite] = useState<Site | null>(null);
+  // FE-MEDIUM-310: View Details is a read for every viewer; the edit form
+  // stays behind the canUpdateSite button.
+  const [viewingSite, setViewingSite] = useState<Site | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [siteToDelete, setSiteToDelete] = useState<Site | null>(null);
@@ -442,11 +444,7 @@ export const SitesTab: React.FC = () => {
               <div className="px-6 py-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 rounded-b-lg">
                 <div className="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
                   <span>Created: {new Date(site.createdAt).toLocaleDateString()}</span>
-                  {/* 2026-09-21: `/sites/:id` detay rotası modülde hiç tanımlı
-                      değildi — buton sessizce hiçbir yere gitmiyordu. Mevcut,
-                      çalışan düzenleme modalı tüm alanları doldurulmuş gösterdiği
-                      için "detay" ihtiyacını karşılar; rota eklenene kadar köprü. */}
-                  <Button variant="ghost" onClick={() => handleEdit(site)}>
+                  <Button variant="ghost" onClick={() => setViewingSite(site)}>
                     View Details →
                   </Button>
                 </div>
@@ -479,6 +477,9 @@ export const SitesTab: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* Read-only details */}
+      <SiteDetailsDrawer site={viewingSite} onClose={() => setViewingSite(null)} />
 
       {/* Modal */}
       <SiteFormModal

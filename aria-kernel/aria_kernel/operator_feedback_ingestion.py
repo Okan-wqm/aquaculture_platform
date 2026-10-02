@@ -226,7 +226,7 @@ def ingest_operator_feedback(
         rows_scanned += 1
         if not is_operator_request_row(row):
             continue
-        verdict = verify_operator_request(row, allowed_signers=signers.content if signers else None)
+        verdict = verify_operator_request(row, allowed_signers=signers)
         if verdict.reason is not None:
             scan.drop(row, line_no, verdict.reason, signer=verdict.signer)
             continue

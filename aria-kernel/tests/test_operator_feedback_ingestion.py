@@ -413,7 +413,7 @@ class PreMergeObservationTests(_Fixture):
         self.signed = self.fx.record(request_id="OP-obs")
         self.content = self._bind_and_maybe_start("cyc-obs", start=True, plan_id="plan-obs")
         self.state = fold_plan_state(plan_id="plan-obs", base_dir=self.tools)
-        self.anchor = ors.allowed_signers_for_checkout(self.fx.repo)[0].content
+        self.anchor = ors.allowed_signers_for_checkout(self.fx.repo)[0]
 
     def _observe(self, *, plan_started=None, ingestion_rows=None, feedback_rows=None, plan_events=None,
                  allowed_signers=b"default", now=None):
@@ -442,7 +442,7 @@ class PreMergeObservationTests(_Fixture):
         successor = mint_ed25519_key(Path(self.tmp.name) / "successor", name="k")
         self.fx.commit_files({ors.ALLOWED_SIGNERS_PATH: allowed_signers_line("successor@aria.test", successor)},
                              message="chore(test): revoke the fixture operator")
-        revoked = ors.allowed_signers_for_checkout(self.fx.repo)[0].content
+        revoked = ors.allowed_signers_for_checkout(self.fx.repo)[0]
         self.assertEqual(self._observe(allowed_signers=revoked)["operator_feedback_unavailable_reason"],
                          "operator_feedback_consumed_row_unsigned:" + ors.SIGNER_NOT_ENROLLED)
         self.assertEqual(self._observe(allowed_signers=None)["operator_feedback_unavailable_reason"],

@@ -54,7 +54,8 @@ def utc_iso(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).isoformat()
 
 
-def _parse(value: Any) -> datetime | None:
+def parse_utc(value: Any) -> datetime | None:
+    """An ISO-8601 timestamp WITH a zone, or None; a naive time is never guessed."""
     if not isinstance(value, str) or not value:
         return None
     try:
@@ -68,8 +69,8 @@ def request_terms_reason(row: dict[str, Any], *, now: datetime) -> str | None:
     """Why the request's signed terms refuse it at ``now``, or None."""
     if row.get("audience") != request_audience():
         return REQUEST_AUDIENCE_MISMATCH
-    authored = _parse(row.get("authored_at"))
-    expires = _parse(row.get("expires_at"))
+    authored = parse_utc(row.get("authored_at"))
+    expires = parse_utc(row.get("expires_at"))
     if authored is None or expires is None or not authored < expires <= authored + max_request_lifetime():
         return REQUEST_EXPIRY_INVALID
     if now >= expires:
@@ -87,6 +88,7 @@ __all__ = [
     "REQUEST_EXPIRY_INVALID",
     "TERMS_REASONS",
     "max_request_lifetime",
+    "parse_utc",
     "request_audience",
     "request_terms_reason",
     "utc_iso",

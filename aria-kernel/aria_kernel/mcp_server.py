@@ -2,21 +2,38 @@
 
 Newline-delimited JSON-RPC 2.0 on stdin/stdout (the transport Claude Code
 uses for stdio servers). Read-only tools answer from the ledgers; the two
-write tools exist for OPERATORS (`--allow-writes` + an approval ref that is
-recorded on governance) and are excluded from agent profiles by the
+write tools exist for OPERATORS and are excluded from agent profiles by the
 registry. Every call lands on `mcp/tool-calls.jsonl` with side=server.
+
+ARIA-HIGH-270 / ADR-0023 — a write needs `--allow-writes` AND an
+`operator_approval` that `aria-kernel mcp approve` signed in the
+`aria-operator-request` namespace over the tool, the digest of the call's
+exact arguments, audience, actor class and an expiry inside the registry's
+bound, verified against the allowed-signers anchor committed on main. The
+gate used to accept any six-character string as the operator's approval.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, IO
+from typing import Any, Callable, IO, TextIO
 
 from .mcp_client import record_mcp_call
-from .tool_registry import append_tools_governance, ensure_tools_dir
+from .operator_request_signature import (
+    SIGNATURE_NAMESPACE,
+    AllowedSigners,
+    allowed_signers_for_checkout,
+    operator_act_terms_reason,
+    request_subject_digest,
+    sign_operator_subject,
+    verify_operator_signature,
+)
+from .operator_request_terms import request_audience, utc_iso
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "aria"
@@ -27,10 +44,72 @@ READ_TOOLS: tuple[str, ...] = (
 )
 WRITE_TOOLS: tuple[str, ...] = ("human_required_resolve", "runtime_signal_ingest")
 MCP_WRITE_TOOL_EVENT = "mcp_write_tool_used"
+# One write's signed subject: its own row kind inside the request namespace,
+# so a write approval never passes as a plan request (ingestion requires the
+# request row kind) and a request never passes as a write approval (the gate
+# rebuilds the subject from the call itself).
+MCP_WRITE_ROW_KIND = "mcp_write"
+MCP_WRITE_SCHEMA_VERSION = 1
+APPROVAL_ARGUMENT = "operator_approval"
+APPROVAL_FIELDS: tuple[str, ...] = ("actor_class", "audience", "expires_at", "signer_principal", "signature")
 
 
 def _schema(props: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
     return {"type": "object", "properties": props, "required": required or [], "additionalProperties": False}
+
+
+_APPROVAL_SCHEMA = _schema({field: {"type": "string"} for field in APPROVAL_FIELDS}, list(APPROVAL_FIELDS))
+
+
+def mcp_write_subject(tool: str, arguments: dict[str, Any], approval: dict[str, Any]) -> dict[str, Any]:
+    """The subject an operator signs to admit exactly this write: tool, argument digest, terms."""
+    payload = {key: value for key, value in arguments.items() if key != APPROVAL_ARGUMENT}
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    subject: dict[str, Any] = {
+        "schema_version": MCP_WRITE_SCHEMA_VERSION, "row_kind": MCP_WRITE_ROW_KIND, "tool": tool,
+        "args_digest": "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+    }
+    subject.update({field: approval[field] for field in APPROVAL_FIELDS if field in approval})
+    return subject
+
+
+def judge_mcp_write(subject: dict[str, Any], anchor: AllowedSigners, *, now: datetime) -> str | None:
+    """Why the signed write is refused against ``anchor`` at ``now``, or None: terms, then signature."""
+    reason = operator_act_terms_reason(
+        subject, entry=anchor.namespaces.get(SIGNATURE_NAMESPACE), audience=request_audience(), now=now,
+    )
+    if reason is not None:
+        return reason
+    return verify_operator_signature(
+        subject, namespace=SIGNATURE_NAMESPACE, allowed_signers=anchor.content, namespaces=anchor.namespaces,
+    ).reason
+
+
+def sign_mcp_write_approval(
+    tool: str, arguments: dict[str, Any], *, signing_key: str | Path, signer_principal: str,
+    actor_class: str, expires_in_hours: int, workspace_root: str | Path, subject_stream: TextIO | None = None,
+) -> dict[str, Any]:
+    """The operator half of the gate: sign one write, and refuse what the gate would refuse."""
+    if tool not in WRITE_TOOLS:
+        raise GovernanceError(f"mcp_write_tool_unknown: {tool!r}")
+    if not isinstance(arguments, dict) or APPROVAL_ARGUMENT in arguments:
+        raise GovernanceError("mcp_write_arguments_must_be_an_object_without_an_approval")
+    anchor, anchor_reason = allowed_signers_for_checkout(workspace_root)
+    if anchor is None:
+        raise GovernanceError(f"mcp_write_anchor_unavailable: {anchor_reason}")
+    entry = anchor.namespaces[SIGNATURE_NAMESPACE]
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    terms = {"actor_class": actor_class, "audience": request_audience(),
+             "expires_at": utc_iso(now + timedelta(hours=expires_in_hours))}
+    signed = sign_operator_subject(
+        mcp_write_subject(tool, arguments, terms), namespace=entry.namespace, domain_tag=str(entry.domain_tag),
+        signing_key=signing_key, signer_principal=signer_principal,
+        subject_stream=subject_stream if subject_stream is not None else sys.stderr,
+    )
+    reason = judge_mcp_write(signed, anchor, now=now)
+    if reason is not None:
+        raise GovernanceError(f"mcp_write_approval_refused: {reason}")
+    return {field: signed[field] for field in APPROVAL_FIELDS}
 
 
 TOOL_MANIFEST: dict[str, dict[str, Any]] = {
@@ -49,8 +128,8 @@ TOOL_MANIFEST: dict[str, dict[str, Any]] = {
     # sandbox's command policy has no interpreter for a hand recomputation,
     # and two live spawns spent their whole budgets attempting one.
     "plan_verify": {"description": "Verify a CONVERGED plan's authenticity: the kernel recomputes plan_convergence.content_hash from its own hash-verified ledger body and compares it with the hash the envelope names (must_satisfy authenticity item). Returns verdict verified|mismatch, the revision id and the FULL plan body (the envelope's inline copy may be truncated). Call this instead of recomputing by hand.", "inputSchema": _schema({"plan_id": {"type": "string"}, "content_hash": {"type": "string"}}, ["plan_id", "content_hash"])},
-    "human_required_resolve": {"description": "OPERATOR: resolve a HUMAN_REQUIRED request (needs --allow-writes and operator_approval_ref).", "inputSchema": _schema({"request_id": {"type": "string"}, "resolution_note": {"type": "string"}, "verdict": {"type": "string"}, "operator_approval_ref": {"type": "string"}}, ["request_id", "resolution_note", "operator_approval_ref"])},
-    "runtime_signal_ingest": {"description": "OPERATOR: record a runtime signal lead (needs --allow-writes and operator_approval_ref).", "inputSchema": _schema({"source": {"type": "string"}, "service": {"type": "string"}, "summary": {"type": "string"}, "code_refs": {"type": "array", "items": {"type": "string"}}, "severity": {"type": "string"}, "operator_approval_ref": {"type": "string"}}, ["source", "service", "summary", "code_refs", "operator_approval_ref"])},
+    "human_required_resolve": {"description": "OPERATOR: resolve a HUMAN_REQUIRED request (needs --allow-writes and an operator_approval from `aria-kernel mcp approve` over these exact arguments).", "inputSchema": _schema({"request_id": {"type": "string"}, "resolution_note": {"type": "string"}, "verdict": {"type": "string"}, APPROVAL_ARGUMENT: _APPROVAL_SCHEMA}, ["request_id", "resolution_note", APPROVAL_ARGUMENT])},
+    "runtime_signal_ingest": {"description": "OPERATOR: record a runtime signal lead (needs --allow-writes and an operator_approval from `aria-kernel mcp approve` over these exact arguments).", "inputSchema": _schema({"source": {"type": "string"}, "service": {"type": "string"}, "summary": {"type": "string"}, "code_refs": {"type": "array", "items": {"type": "string"}}, "severity": {"type": "string"}, APPROVAL_ARGUMENT: _APPROVAL_SCHEMA}, ["source", "service", "summary", "code_refs", APPROVAL_ARGUMENT])},
 }
 
 
@@ -163,11 +242,21 @@ class AriaMcpServer:
     def _write_gate(self, tool: str, args: dict[str, Any]) -> None:
         if not self.allow_writes:
             raise PermissionError(f"{tool} is an operator tool; start the server with --allow-writes")
-        ref = str(args.get("operator_approval_ref") or "").strip()
-        if len(ref) < 6:
-            raise PermissionError("operator_approval_ref (>= 6 chars) is required for a write tool")
-        append_tools_governance(self.root, MCP_WRITE_TOOL_EVENT, {"tool": tool, "operator_approval_ref": ref,
-                                                                    "args": {k: v for k, v in args.items() if k != "operator_approval_ref"}})
+        approval = args.get(APPROVAL_ARGUMENT)
+        if not isinstance(approval, dict):
+            raise PermissionError(f"{APPROVAL_ARGUMENT} (signed with `aria-kernel mcp approve`) is required for a write tool")
+        anchor, anchor_reason = allowed_signers_for_checkout(self.workspace)
+        if anchor is None:
+            raise PermissionError(f"mcp_write_anchor_unavailable: {anchor_reason}")
+        subject = mcp_write_subject(tool, args, approval)
+        reason = judge_mcp_write(subject, anchor, now=datetime.now(timezone.utc))
+        if reason is not None:
+            raise PermissionError(f"mcp_write_approval_refused: {reason}")
+        approved = {key: subject[key] for key in ("signer_principal", "actor_class", "expires_at")}
+        append_tools_governance(self.root, MCP_WRITE_TOOL_EVENT, {
+            "tool": tool, "args": {k: v for k, v in args.items() if k != APPROVAL_ARGUMENT},
+            "operator_approval": {**approved, "anchor_commit": anchor.commit, "subject_digest": request_subject_digest(subject)},
+        })
 
     def _human_required_resolve(self, args: dict[str, Any]) -> Any:
         self._write_gate("human_required_resolve", args)
@@ -256,4 +345,6 @@ class AriaMcpServer:
         return 0
 
 
-__all__ = ["MCP_WRITE_TOOL_EVENT", "PROTOCOL_VERSION", "READ_TOOLS", "SERVER_NAME", "SERVER_VERSION", "TOOL_MANIFEST", "WRITE_TOOLS", "AriaMcpServer"]
+__all__ = ["APPROVAL_ARGUMENT", "MCP_WRITE_ROW_KIND", "MCP_WRITE_TOOL_EVENT", "PROTOCOL_VERSION", "READ_TOOLS", "SERVER_NAME",
+           "SERVER_VERSION", "TOOL_MANIFEST", "WRITE_TOOLS", "AriaMcpServer", "judge_mcp_write", "mcp_write_subject",
+           "sign_mcp_write_approval"]

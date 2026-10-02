@@ -939,6 +939,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/aria-signature-namespaces.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/aria-state-watchdog.json",
       "prettier_managed": true
     },
@@ -35159,6 +35165,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/recommendations/architectural-arbiter/2026-10-02-adr-0020-operator-request-signature-scheme.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/recommendations/architectural-arbiter/2026-10-02-adr-0023-signature-namespace-registry.md",
       "prettier_managed": true
     },
     {

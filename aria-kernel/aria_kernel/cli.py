@@ -775,6 +775,8 @@ def build_parser() -> argparse.ArgumentParser:
                             help="Operator ed25519 private key (or its .pub with the key in ssh-agent); never stored")
     fb_request.add_argument("--signer-principal", required=True,
                             help="Principal the committed .github/manifests/aria-operator-signers names for that key")
+    fb_request.add_argument("--actor-class", required=True, choices=["T0", "T1"],
+                            help="ADR-0023 signed declaration: T0 the operator at a terminal, T1 a root session for the operator")
     fb_request.add_argument("--repo-root", default=".",
                             help="Checkout on main whose commit holds the allowed-signers file and the tracked evidence")
     fb_request.add_argument("--expires-in-hours", type=int, default=None,
@@ -3174,6 +3176,16 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_serve = add_subparser(mcp_sub, "serve")
     mcp_serve.add_argument("--workspace-root", default=".")
     mcp_serve.add_argument("--allow-writes", action="store_true", help="operator only: expose human_required_resolve / runtime_signal_ingest")
+    # ARIA-HIGH-270 — the operator signs one write's exact arguments; the
+    # printed approval is the call's `operator_approval` argument.
+    mcp_approve = add_subparser(mcp_sub, "approve")
+    mcp_approve.add_argument("--tool", required=True, choices=["human_required_resolve", "runtime_signal_ingest"])
+    mcp_approve.add_argument("--arguments", required=True, help="The write's arguments as JSON, without operator_approval")
+    mcp_approve.add_argument("--actor-class", required=True, choices=["T0", "T1"])
+    for flag in ("--signing-key", "--signer-principal"):  # the key may be a .pub whose private half is in ssh-agent
+        mcp_approve.add_argument(flag, required=True)
+    mcp_approve.add_argument("--expires-in-hours", type=int, default=1)
+    mcp_approve.add_argument("--workspace-root", default=".")
     add_subparser(mcp_sub, "registry")
     mcp_health = add_subparser(mcp_sub, "health")
     mcp_health.add_argument("--server", default=None)
@@ -3413,6 +3425,7 @@ def _main(argv: list[str] | None = None) -> int:
             finding_id=args.finding_id,
             signing_key=args.signing_key,
             signer_principal=args.signer_principal,
+            actor_class=args.actor_class,
             request_id=args.request_id,
             expires_in_hours=args.expires_in_hours,
             base_dir=args.tools_dir,
@@ -6756,6 +6769,14 @@ def _main(argv: list[str] | None = None) -> int:
             from .mcp_server import AriaMcpServer
 
             return AriaMcpServer(base_dir=args.tools_dir, workspace_root=args.workspace_root, allow_writes=args.allow_writes).serve()
+        if args.mcp_command == "approve":
+            from .mcp_server import sign_mcp_write_approval
+
+            print(json.dumps(sign_mcp_write_approval(
+                args.tool, json.loads(args.arguments), signing_key=args.signing_key, signer_principal=args.signer_principal,
+                actor_class=args.actor_class, expires_in_hours=args.expires_in_hours, workspace_root=args.workspace_root,
+            ), indent=2, sort_keys=True))
+            return 0
         if args.mcp_command == "registry":
             registry = mcp_client.load_mcp_registry()
             print(json.dumps({name: spec.__dict__ for name, spec in registry.servers.items()}, indent=2, sort_keys=True, default=list))

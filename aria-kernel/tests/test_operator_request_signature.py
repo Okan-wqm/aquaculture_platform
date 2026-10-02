@@ -34,6 +34,7 @@ from tests._helpers.operator_requests import (
     GROUNDED_FILE,
     OperatorRequestFixture,
     allowed_signers_line,
+    anchor_from_bytes,
     git,
     mint_ed25519_key,
 )
@@ -60,7 +61,7 @@ class OperatorSignatureVerificationTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
         self.key = mint_ed25519_key(root / "keys")
-        self.allowed = allowed_signers_line("op@aria.test", self.key).encode()
+        self.allowed = anchor_from_bytes(allowed_signers_line("op@aria.test", self.key).encode())
 
     def _sign(self, row: dict, principal: str = "op@aria.test", key: Path | None = None) -> dict:
         return ors.sign_operator_request(row, signing_key=key or self.key, signer_principal=principal)
@@ -79,7 +80,7 @@ class OperatorSignatureVerificationTests(unittest.TestCase):
     def test_every_forgery_class_is_named(self) -> None:
         signed = self._sign(_request_row())
         other_key = mint_ed25519_key(Path(self.tmp.name) / "other", name="intruder")
-        wrong_namespace = self.allowed.replace(b'"aria-operator-request"', b'"git"')
+        wrong_namespace = anchor_from_bytes(self.allowed.content.replace(b'"aria-operator-request"', b'"git"'))
         cases = {
             "tampered_request": (dict(signed, request="Delete the audit log"), self.allowed, ors.SIGNATURE_INVALID),
             "tampered_finding": (dict(signed, finding_id="F-999"), self.allowed, ors.SIGNATURE_INVALID),
@@ -237,7 +238,7 @@ class OperatorRequestRecorderTests(unittest.TestCase):
         self.assertEqual(row["grounding_digest"], grounding.grounding_digest)
         self.assertNotIn("signer_kid", row, "no runner-held key signs a request")
         signers, _reason = ors.allowed_signers_for_checkout(self.fixture.repo)
-        self.assertTrue(ors.verify_operator_request(row, allowed_signers=signers.content).valid)
+        self.assertTrue(ors.verify_operator_request(row, allowed_signers=signers).valid)
         self.assertIsNone(ofs.operator_request_schema_reason(row, now=datetime.now(timezone.utc)))
         self.assertFalse(ofs.signing_key_path(self.fixture.tools).exists(),
                          "recording a request mints no runner-side key material")
@@ -260,7 +261,7 @@ class OperatorRequestRecorderTests(unittest.TestCase):
         with self.assertRaisesRegex(GovernanceError, "operator_request_signature_unverified: signer_not_enrolled"):
             ofs.record_operator_request(
                 request="x", priority="high", authored_by="okan", finding_id="F-007",
-                signing_key=self.fixture.key, signer_principal="someone@else",
+                signing_key=self.fixture.key, signer_principal="someone@else", actor_class="T0",
                 base_dir=self.fixture.tools, repo_root=self.fixture.repo, subject_stream=io.StringIO(),
             )
         self.assertEqual([row["id"] for row in self._rows()], ["OP-1"])
@@ -289,7 +290,8 @@ class OperatorRequestRecorderTests(unittest.TestCase):
 
         argv = ["feedback", "request", "--tools-dir", str(self.fixture.tools), "--request", "Fix it",
                 "--priority", "high", "--authored-by", "okan", "--signing-key", str(self.fixture.key),
-                "--signer-principal", self.fixture.principal, "--repo-root", str(self.fixture.repo),
+                "--signer-principal", self.fixture.principal, "--actor-class", "T1",
+                "--repo-root", str(self.fixture.repo),
                 "--request-id", "OP-cli", "--expires-in-hours", "24"]
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):

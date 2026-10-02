@@ -1,0 +1,93 @@
+{
+  "$schema": "aria/signature-namespaces/v1",
+  "schema_version": 1,
+  "namespaces": [
+    {
+      "namespace": "aria-operator-request",
+      "domain_tag": "aria-operator-request/v1",
+      "signed_fields": [
+        "actor_class",
+        "audience",
+        "expires_at",
+        "row_kind",
+        "schema_version",
+        "signer_principal"
+      ],
+      "signer_classes": ["T0", "T1"],
+      "expiry_hours": 168,
+      "verifier": "aria_kernel.operator_request_signature.verify_operator_request",
+      "status": "active"
+    },
+    {
+      "namespace": "aria-operator-label",
+      "domain_tag": "aria-operator-label/v1",
+      "signed_fields": [
+        "actor_class",
+        "audience",
+        "batch_digest",
+        "expires_at",
+        "item_count",
+        "round",
+        "signer_principal"
+      ],
+      "signer_classes": ["T0"],
+      "expiry_hours": 168,
+      "verifier": "aria_kernel.operator_request_signature.verify_operator_signature",
+      "status": "active"
+    },
+    {
+      "namespace": "aria-operator-journey",
+      "domain_tag": "aria-operator-journey/v1",
+      "signed_fields": [
+        "actor_class",
+        "anchors",
+        "audience",
+        "content_digest",
+        "expires_at",
+        "parent_digest",
+        "path",
+        "signer_principal"
+      ],
+      "signer_classes": ["T0", "T1"],
+      "expiry_hours": 168,
+      "verifier": "aria_kernel.operator_request_signature.verify_operator_signature",
+      "status": "active"
+    },
+    {
+      "namespace": "aria-operator-enrol",
+      "domain_tag": "aria-operator-enrol/v1",
+      "signed_fields": [
+        "actor_class",
+        "audience",
+        "child",
+        "child_allowed_signers",
+        "child_registry",
+        "expires_at",
+        "parent",
+        "signer_principal"
+      ],
+      "signer_classes": ["T0"],
+      "expiry_hours": 168,
+      "verifier": "aria_kernel.operator_request_signature.verify_operator_signature",
+      "status": "active"
+    },
+    {
+      "namespace": "aria-state-snapshot",
+      "domain_tag": null,
+      "signed_fields": [],
+      "signer_classes": ["T2"],
+      "expiry_hours": null,
+      "verifier": "aria_kernel.state_snapshot.verify_snapshot_signature",
+      "status": "active"
+    },
+    {
+      "namespace": "git",
+      "domain_tag": null,
+      "signed_fields": [],
+      "signer_classes": ["T2"],
+      "expiry_hours": null,
+      "verifier": "aria_kernel.implementation_safety.verify_commit_signature",
+      "status": "active"
+    }
+  ]
+}

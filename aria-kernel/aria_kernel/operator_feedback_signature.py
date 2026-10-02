@@ -239,6 +239,7 @@ def record_operator_request(
     finding_id: str,
     signing_key: str | Path,
     signer_principal: str,
+    actor_class: str,
     request_id: str | None = None,
     expires_in_hours: int | None = None,
     base_dir: str | Path | None = None,
@@ -259,9 +260,14 @@ def record_operator_request(
     operator-act lifetime away (the default), and the digest of the
     grounding it just admitted. The exact subject is printed to
     ``subject_stream`` (stderr by default) before ssh-keygen runs.
+
+    ADR-0023 — ``actor_class`` (T0 the operator, T1 a root session acting
+    for the operator) is the signer's signed declaration of who signs, so a
+    delegated request is recorded as delegated.
     """
     from .finding_grounding import admit_finding, load_grounding_context
     from .operator_request_signature import (
+        OPERATOR_ACTOR_CLASSES,
         allowed_signers_for_checkout,
         sign_operator_request,
         verify_operator_request,
@@ -286,6 +292,8 @@ def record_operator_request(
     identifier = str(request_id or "").strip() or f"OP-{uuid.uuid4()}"
     if _REQUEST_ID_RE.fullmatch(identifier) is None:
         raise GovernanceError(f"operator_request_id_invalid: {identifier!r}")
+    if actor_class not in OPERATOR_ACTOR_CLASSES:
+        raise GovernanceError(f"operator_request_actor_class_invalid: {actor_class!r}")
     lifetime = max_request_lifetime()
     hours = lifetime.total_seconds() / 3600 if expires_in_hours is None else expires_in_hours
     if isinstance(hours, bool) or not 0 < hours <= lifetime.total_seconds() / 3600:
@@ -314,9 +322,10 @@ def record_operator_request(
         "request": text,
         "priority": priority,
         "status": OPERATOR_REQUEST_STATUS_UNADDRESSED,
+        "actor_class": actor_class,
     }, signing_key=signing_key, signer_principal=signer_principal,
         subject_stream=subject_stream if subject_stream is not None else sys.stderr)
-    verdict = verify_operator_request(row, allowed_signers=signers.content)
+    verdict = verify_operator_request(row, allowed_signers=signers)
     if not verdict.valid:
         raise GovernanceError(f"operator_request_signature_unverified: {verdict.reason}")
     stored = append_declared_jsonl(ledger, row, expected_surface=OPERATOR_FEEDBACK_SURFACE)

@@ -26,7 +26,10 @@ from aria_kernel.finding_grounding import admit_finding, load_grounding_context
 from aria_kernel.operator_feedback_signature import record_operator_request
 from aria_kernel.operator_request_signature import (
     ALLOWED_SIGNERS_PATH,
+    NAMESPACE_REGISTRY_PATH,
     SIGNATURE_NAMESPACE,
+    AllowedSigners,
+    parse_namespace_registry,
     sign_operator_request,
 )
 from aria_kernel.operator_request_terms import request_audience
@@ -35,6 +38,10 @@ from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._helpers.git_fixtures import make_local_git_repo
 
 PRINCIPAL = "operator@aria.test"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+# ADR-0023 — the registry a fixture commits is the repository's own, byte
+# for byte, so the namespaces a test signs in are the ones production reads.
+REGISTRY_BYTES = (_REPO_ROOT / NAMESPACE_REGISTRY_PATH).read_bytes()
 # A code path every grounded finding below may cite: tracked, writable.
 GROUNDED_FILE = "apps/hr-service/src/leave/leave.service.ts"
 _ZERO_DIGEST = "sha256:" + "0" * 64
@@ -53,6 +60,13 @@ def mint_ed25519_key(directory: Path, name: str = "operator-key") -> Path:
 def allowed_signers_line(principal: str, key: Path, namespace: str = SIGNATURE_NAMESPACE) -> str:
     keytype, blob = key.with_suffix(".pub").read_text(encoding="utf-8").split()[:2]
     return f'{principal} namespaces="{namespace}" {keytype} {blob} aria-test\n'
+
+
+def anchor_from_bytes(allowed_signers: bytes, registry: bytes = REGISTRY_BYTES) -> AllowedSigners:
+    """An anchor for verifier unit tests that need no git checkout."""
+    namespaces = parse_namespace_registry(registry)
+    assert namespaces is not None, "the committed namespace registry must parse"
+    return AllowedSigners(content=allowed_signers, commit="0" * 40, blob_oid="0" * 40, namespaces=namespaces)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -75,6 +89,7 @@ class OperatorRequestFixture:
         self.subjects = io.StringIO()
         self.commit_files({
             ALLOWED_SIGNERS_PATH: allowed_signers_line(principal, self.key),
+            NAMESPACE_REGISTRY_PATH: REGISTRY_BYTES.decode("utf-8"),
             GROUNDED_FILE: "export const leave = 1;\n",
             "apps/hr-service/src/leave/leave.entity.ts": "export class Leave {}\n",
             ".github/workflows/ci.yml": "name: ci\n",
@@ -101,10 +116,11 @@ class OperatorRequestFixture:
     def record(
         self, *, finding_id: str = "F-007", request: str = "Fix the leave balance drift",
         priority: str = "high", request_id: str | None = None, expires_in_hours: int | None = None,
+        actor_class: str = "T0",
     ) -> dict[str, Any]:
         return record_operator_request(
             request=request, priority=priority, authored_by="okan", finding_id=finding_id,
-            signing_key=self.key, signer_principal=self.principal, request_id=request_id,
+            signing_key=self.key, signer_principal=self.principal, actor_class=actor_class, request_id=request_id,
             expires_in_hours=expires_in_hours, base_dir=self.tools, repo_root=self.repo,
             subject_stream=self.subjects,
         )
@@ -174,8 +190,10 @@ class OperatorRequestFixture:
 __all__ = [
     "GROUNDED_FILE",
     "PRINCIPAL",
+    "REGISTRY_BYTES",
     "OperatorRequestFixture",
     "allowed_signers_line",
+    "anchor_from_bytes",
     "git",
     "mint_ed25519_key",
 ]

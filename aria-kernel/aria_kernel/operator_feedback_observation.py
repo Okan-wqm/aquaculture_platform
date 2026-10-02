@@ -33,7 +33,7 @@ from typing import Any
 
 from .operator_feedback_ingestion import EVIDENCE_REF_PREFIX
 from .operator_feedback_signature import operator_request_schema_reason
-from .operator_request_signature import request_subject_digest, verify_operator_request
+from .operator_request_signature import AllowedSigners, request_subject_digest, verify_operator_request
 from .operator_request_spend import INGESTION_ROW_TYPE, SYNTHESIS_BOUND_ROW_TYPE
 from .tool_registry import GovernanceError
 
@@ -78,7 +78,7 @@ def observe_operator_feedback_for_plan(
     ingestion_rows: list[dict[str, Any]],
     feedback_rows: list[dict[str, Any]],
     plan_events: list[dict[str, Any]],
-    allowed_signers: bytes | None,
+    allowed_signers: AllowedSigners | None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """The pre-merge observation; see the module docstring for every refusal it names."""

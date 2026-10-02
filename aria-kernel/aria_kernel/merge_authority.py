@@ -1255,7 +1255,7 @@ def _capture_pre_merge_operator_feedback(
         ingestion_rows=rows["operator_feedback_ingestion"],
         feedback_rows=rows["operator_feedback"],
         plan_events=rows["plan_convergence_events"],
-        allowed_signers=signers.content if signers is not None else None,
+        allowed_signers=signers,
     )
 
 

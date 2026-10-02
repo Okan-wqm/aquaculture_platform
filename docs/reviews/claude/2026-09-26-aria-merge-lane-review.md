@@ -23,6 +23,11 @@ show the new name only. Files: `aria-kernel/aria_kernel/risk_policy.py`,
 
 Rule: Every path a change removes or adds is classified, including the source of a rename.
 
+Status (2026-10-02): RESOLVED by bd8d2c6f5 (#1676). `classify_pr_change` (risk_policy.py:211-250)
+classifies the change git holds (`git diff --name-status -z --no-renames`, rename sources kept);
+the platform file list is a cross-check that refuses on disagreement. Pinned by
+`aria-kernel/tests/test_risk_change_paths.py`.
+
 ## ARIA-CRITICAL-215
 
 L1 contains the repository's CI gate suites and contract inputs (e2e/tests/integration,
@@ -36,6 +41,11 @@ e2e/tests classify L1. Files: `docs/aria/policy/risk-policy.json`,
 Rule: The unreviewed lane is an explicit allowlist that excludes every file a required check
 executes or reads as expected values.
 
+Status (2026-10-02): RESOLVED by bd8d2c6f5 (#1676). L1 is `docs/**/*.md` plus newly added unit
+tests (risk-policy.json:24-35); `tools/**`, `e2e/**`, `tests/**` and `**/invariants/**` are L3
+(:63-66), and L3 outranks L1. Pinned by `test_risk_policy_l1_lane.py`,
+`test_risk_policy_ci_gate_paths.py` and `test_risk_policy_change_status.py`.
+
 ## ARIA-CRITICAL-216
 
 Operator approval references prove no operator act: `gov:<id>` accepts any governance event including
@@ -44,6 +54,13 @@ ARIA's own, `review:<path>#<x>` accepts any file containing the text.
 Evidence: operator_approval.py:48-73. Files: `aria-kernel/aria_kernel/operator_approval.py`.
 
 Rule: An authority grant is proven by an act the governed system cannot author.
+
+Status (2026-10-02): RESOLVED by bd8d2c6f5 (#1676). An authority-raising surface takes only a
+`gh:` comment or review posted by a login in `docs/aria/policy/operators.json`, unedited, inside
+the max age, and consumed once; `gov:`, `review:` and `ack-env:` resolve only on record surfaces
+that grant nothing (operator_approval.py:1-33, 66-73). Pinned by `test_operator_approval.py` and
+`test_operator_approval_callers.py`. The modules that still take a free-string ref are
+ARIA-HIGH-238, open.
 
 ## ARIA-HIGH-217
 

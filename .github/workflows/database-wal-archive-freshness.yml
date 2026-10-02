@@ -48,9 +48,10 @@ jobs:
 
       # The remote payload reports what production PROVES, never what this lane
       # hopes. It separates three outcomes the previous single `docker exec`
-      # collapsed into one opaque exit 127: the DR runtime is present, it is
-      # absent, or we could not tell. Only the first two are verdicts; the third
-      # fails closed in resolve-dr-activation.sh rather than guess.
+      # collapsed into one opaque exit 127: PostgreSQL is archiving, it is not,
+      # or we could not tell. Only the first two are verdicts; the third fails
+      # closed in resolve-dr-activation.sh rather than guess.
+      # tests/invariants/wal-archive-activation.spec.ts runs this payload.
       - name: Observe production WAL archive runtime
         id: observe
         env:
@@ -84,20 +85,26 @@ jobs:
             printf 'dr_observed=indeterminate\n'
             exit 0
           fi
-          probe_status=0
-          docker exec aqua-postgres test -x /usr/local/bin/postgres-walg-healthcheck.sh 2>/dev/null || probe_status=$?
-          # 0 = the DR runtime is there, 1 = `test` says it is not. Anything
-          # else is docker refusing to exec (125/126) or the container wedged
-          # mid-restart, which proves nothing either way.
-          if [ "${probe_status}" -gt 1 ]; then
-            printf 'dr_observed=indeterminate\n'
-            exit 0
-          fi
-          if [ "${probe_status}" -eq 1 ]; then
-            printf 'dr_observed=absent\n'
-            exit 0
-          fi
-          printf 'dr_observed=present\n'
+          # Activation is what PostgreSQL does, not which image it runs:
+          # production carries the WAL-G image in both declared states, so only
+          # archive_mode tells them apart (INFRA-CRITICAL-195). The query runs
+          # inside the container under its own POSTGRES_* identity. A failed
+          # read is docker refusing to exec or a server mid-restart, which
+          # proves nothing either way.
+          archive_mode=$(docker exec aqua-postgres sh -c \
+            'PGPASSWORD="${POSTGRES_PASSWORD:-}" psql -X -qAt -U "${POSTGRES_USER:-aquaculture}" -d "${POSTGRES_DB:-aquaculture}" -c "SHOW archive_mode"' \
+            2>/dev/null) || archive_mode=''
+          case "${archive_mode}" in
+            on | always) printf 'dr_observed=present\n' ;;
+            off)
+              printf 'dr_observed=absent\n'
+              exit 0
+              ;;
+            *)
+              printf 'dr_observed=indeterminate\n'
+              exit 0
+              ;;
+          esac
           if docker exec aqua-postgres /usr/local/bin/postgres-walg-healthcheck.sh; then
             printf 'rpo=healthy\n'
           else

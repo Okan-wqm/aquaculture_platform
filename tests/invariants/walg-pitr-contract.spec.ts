@@ -17,6 +17,8 @@ import { join, resolve } from 'node:path';
 
 import yaml from 'js-yaml';
 
+import { archiveModeFor, declaredWalArchiveActivation } from './lib/wal-archive-activation';
+
 import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
@@ -633,7 +635,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     ]);
   });
 
-  it('enables bounded continuous archiving through the fail-closed wrapper', () => {
+  it('configures bounded continuous archiving through the fail-closed wrapper', () => {
     const command = shellCommand(postgresService().command);
     const environment = environmentRecord(postgresService().environment);
     const rpoBudgetSeconds = composeDefaultPositiveSeconds(
@@ -653,7 +655,11 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       'WALG_HEALTH_DETECTION_BUDGET_SECONDS',
     );
 
-    expect(command).toMatch(/(?:^|\s)-c\s+archive_mode=on(?:\s|$)/);
+    // archive_mode itself follows the declared DR activation state
+    // (INFRA-CRITICAL-195); the wrapper and its timing are configured in both
+    // states so activation flips that one setting.
+    const archiveMode = archiveModeFor(declaredWalArchiveActivation());
+    expect(command).toMatch(new RegExp(`(?:^|\\s)-c\\s+archive_mode=${archiveMode}(?:\\s|$)`));
     expect(command).toMatch(/walg-archive-command\.sh/);
     expect(command).toMatch(/%p/);
     expect(command).toMatch(/%f/);
@@ -728,6 +734,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       PGDATA: pgdata,
       POSTGRES_USER: 'aquaculture',
       POSTGRES_DB: 'aquaculture',
+      WALG_ARCHIVE_ACTIVATION: 'active',
       WALG_BACKUP_EPOCH: 'test-epoch',
       WALG_S3_PREFIX: 's3://test/postgres/wal-g/test-epoch',
       WALG_S3_ENDPOINT: 'https://object.invalid',

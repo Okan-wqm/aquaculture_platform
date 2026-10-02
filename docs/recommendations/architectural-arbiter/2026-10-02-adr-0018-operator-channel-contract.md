@@ -1,4 +1,4 @@
-# ADR-0018 — Operator Channel Contract: One-Time Decisions Travel Only Through the Signed Priority-0 Request
+# ADR-0018 — Operator Channel Contract: One-Time Decisions Use Only the Signed Priority-0 Request
 
 **Status:** accepted
 **Date:** 2026-10-02 (amended the same day after review round 2)

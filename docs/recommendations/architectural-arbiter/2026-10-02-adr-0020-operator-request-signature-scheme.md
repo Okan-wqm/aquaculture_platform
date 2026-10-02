@@ -1,4 +1,4 @@
-# ADR-0020 — Operator Request Signatures: ed25519 via ssh-keygen, Verified Against a Committed Allowed-Signers File
+# ADR-0020 — Operator Request Signatures: ssh-keygen ed25519 Against Committed Allowed-Signers
 
 **Status:** accepted
 **Date:** 2026-10-02 (amended the same day after review round 2)

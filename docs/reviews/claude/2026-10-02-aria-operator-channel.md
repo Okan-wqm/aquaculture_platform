@@ -87,8 +87,8 @@ signed operator request (ADR-0018) is how a one-time decision outranks failing C
 
 Context: raised by the architectural-arbiter in review round 2. The operator channel is an operator
 act per request; the aging F_FINDING source (priority 3) is not. When no higher source converts, it
-turns one of ARIA's own findings into a grounded plan unattended, and ADR-0003 named the guards such a
-self-feed needs before it may exist.
+turns one of ARIA's own findings into a grounded plan unattended, and ADR-0003 named the guards such
+a self-feed needs before it may exist.
 
 Evidence:
 

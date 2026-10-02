@@ -282,6 +282,6 @@ stops verifying.
 
 ## Status of this record
 
-Proposed. The operator and the architectural arbiter accept or amend it. Nothing on the branch that
-records it implements it; until it is accepted, S1 does not start, and no label seal, journey
-anchor or enrolment is signed.
+Accepted by the operator on 2026-10-02 after review of the draft, as the header records. Kernel step
+K5 (S1) implements it, and CJ-1 and F-L2 build on it. A change to this decision is an amendment: a
+new record that names this one. The one-way doors above change only that way.

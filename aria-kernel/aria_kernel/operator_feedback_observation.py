@@ -31,7 +31,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from .operator_feedback_ingestion import EVIDENCE_REF_PREFIX
+from .operator_feedback_ingestion import PROVENANCE_REF_PREFIX
 from .operator_feedback_signature import operator_request_schema_reason
 from .operator_request_signature import request_subject_digest, verify_operator_request
 from .operator_request_spend import INGESTION_ROW_TYPE, SYNTHESIS_BOUND_ROW_TYPE
@@ -41,10 +41,11 @@ ALREADY_MERGED = "operator_feedback_request_already_merged"
 
 
 def _consumed_refs(plan_content: Any) -> set[str]:
-    refs = plan_content.get("evidence_refs") if isinstance(plan_content, dict) else None
+    """Request ids the started plan names as its provenance (never its evidence, ORPHAN-HIGH-519)."""
+    refs = plan_content.get("provenance_refs") if isinstance(plan_content, dict) else None
     return {
-        str(ref)[len(EVIDENCE_REF_PREFIX):]
-        for ref in (refs or []) if isinstance(ref, str) and ref.startswith(EVIDENCE_REF_PREFIX)
+        str(ref)[len(PROVENANCE_REF_PREFIX):]
+        for ref in (refs or []) if isinstance(ref, str) and ref.startswith(PROVENANCE_REF_PREFIX)
     }
 
 

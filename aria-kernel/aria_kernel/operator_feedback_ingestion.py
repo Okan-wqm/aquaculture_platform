@@ -80,10 +80,11 @@ REQUEST_DUPLICATE_COPY = "request_duplicate_copy"
 # A row after the first hash-chain break: the merge owner cannot vouch for
 # it, so the synthesizer does not admit it either.
 LEDGER_CHAIN_BROKEN = "ledger_chain_broken"
-# Evidence refs the synthesizer writes for a consumed request row; the
-# pre-merge join reads them back to prove the plan cites exactly what the
-# ingestion admitted.
-EVIDENCE_REF_PREFIX = "aria-tools/operator-feedback.jsonl:"
+# The ``plan_content.provenance_refs`` entry the synthesizer writes for a
+# consumed request row; the pre-merge join reads it back to prove the plan
+# consumed exactly what the ingestion admitted. Provenance, never evidence:
+# the row is ARIA's own ledger, which no challenger may cite (ORPHAN-HIGH-519).
+PROVENANCE_REF_PREFIX = "aria-tools/operator-feedback.jsonl:"
 _INGESTION_SCHEMA_VERSION = 3
 
 
@@ -406,11 +407,11 @@ def record_request_refused(
 
 
 __all__ = [
-    "EVIDENCE_REF_PREFIX",
     "INGESTION_LEDGER_NAME",
     "INGESTION_ROW_TYPE",
     "INGESTION_SURFACE",
     "LEDGER_CHAIN_BROKEN",
+    "PROVENANCE_REF_PREFIX",
     "REQUEST_DUPLICATE_COPY",
     "REQUEST_ID_REUSED",
     "SYNTHESIS_BOUND_ROW_TYPE",

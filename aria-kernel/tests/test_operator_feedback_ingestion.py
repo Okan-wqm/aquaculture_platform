@@ -39,6 +39,7 @@ from aria_kernel.operator_request_terms import (
 )
 from aria_kernel.plan_convergence import content_hash, fold_plan_state, start_plan
 from aria_kernel.plan_synthesizer import (
+    PlanEvidenceGround,
     convert_candidate_to_plan_content,
     rank_candidate_sources,
     scan_operator_feedback,
@@ -109,7 +110,8 @@ class _Fixture(unittest.TestCase):
         ) if c["source_type"] == "operator_feedback")
         envelope = convert_candidate_to_plan_content(
             candidate, admission=admit_candidate(candidate, load_grounding_context(self.fx.repo)),
-        )
+            ground=PlanEvidenceGround.of(self.fx.repo),
+        ).envelope
         ingestion.bind_plan_synthesis(base_dir=self.tools, cycle_id=cycle_id,
                                       plan_content=envelope.content, candidate=candidate)
         if start:
@@ -393,7 +395,8 @@ class SynthesisBindingTests(_Fixture):
     def test_binding_records_an_absent_ingestion_rather_than_inventing_one(self) -> None:
         with mock.patch("aria_kernel.plan_synthesizer.rank_candidate_sources",
                         return_value=[{"candidate_id": "ORPHAN-HIGH-1", "source_type": "orphan_finding",
-                                       "severity": "HIGH", "raw_id": "1", "title_hint": "x"}]):
+                                       "severity": "HIGH", "raw_id": "1", "title_hint": "x",
+                                       "evidence": [f"{GROUNDED_FILE}:12"]}]):
             envelope = V9PressureSourceProvider().synthesize(
                 cycle_id="cyc-nobind", workspace_root=self.fx.repo, base_dir=self.tools, profile="standard",
             )
@@ -476,7 +479,7 @@ class PreMergeObservationTests(_Fixture):
         scan_row = next(r for r in rows if r["row_type"] == ingestion.INGESTION_ROW_TYPE)
         unbound_ingestion = [dict(r, ingestion_ledger_hash=None) if r["row_type"] == ingestion.SYNTHESIS_BOUND_ROW_TYPE else r
                              for r in rows]
-        mismatched_started = {"plan_content": dict(self.content, evidence_refs=[ingestion.EVIDENCE_REF_PREFIX + "OP-other"]),
+        mismatched_started = {"plan_content": dict(self.content, provenance_refs=[ingestion.PROVENANCE_REF_PREFIX + "OP-other"]),
                               "content_hash": self.state["plan_started"]["content_hash"]}
         swapped = [dict(r, request="swapped under the same id and position") if r.get("id") == "OP-obs" else r
                    for r in _feedback_rows(self.tools)]

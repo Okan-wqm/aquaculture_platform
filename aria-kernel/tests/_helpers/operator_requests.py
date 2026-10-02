@@ -73,11 +73,16 @@ class OperatorRequestFixture:
         self.repo = make_local_git_repo(root, name="repo")
         self.tools = ensure_tools_dir(self.repo / "aria-tools")
         self.subjects = io.StringIO()
+        # Every line a fixture finding cites exists: a plan cites a ref only
+        # when the challenger's evidence rule admits it, and that rule reads
+        # the line (ORPHAN-HIGH-519).
         self.commit_files({
             ALLOWED_SIGNERS_PATH: allowed_signers_line(principal, self.key),
-            GROUNDED_FILE: "export const leave = 1;\n",
-            "apps/hr-service/src/leave/leave.entity.ts": "export class Leave {}\n",
-            ".github/workflows/ci.yml": "name: ci\n",
+            GROUNDED_FILE: "".join(f"export const leave{n} = {n};\n" for n in range(1, 401)),
+            "apps/hr-service/src/leave/leave.entity.ts": "".join(
+                f"export class Leave{n} {{}}\n" for n in range(1, 11)
+            ),
+            ".github/workflows/ci.yml": "name: ci\non:\n  push: {}\njobs:\n  test:\n    runs-on: ubuntu-latest\n",
             "aria-kernel/aria_kernel/example.py": "X = 1\n",
         })
 

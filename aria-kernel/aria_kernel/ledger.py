@@ -2184,6 +2184,7 @@ def verify_jsonl_chunks(
     on_row: Callable[[dict[str, Any]], None] | None = None,
     grandfather_line_prefixes: int = 0,
     on_stored_row: Callable[[dict[str, Any]], None] | None = None,
+    on_row_position: Callable[[int, int, str], None] | None = None,
 ) -> dict[str, Any]:
     """Strictly verify one immutable JSONL blob without materialising it.
 
@@ -2191,7 +2192,9 @@ def verify_jsonl_chunks(
     bounds the only carry-over buffer (one line), verifies the canonical
     hash chain before exposing rows, and retains only the chain tip and
     counters. ``on_stored_row`` sees the transport envelope while ``on_row``
-    sees its validated logical producer row.
+    sees its validated logical producer row. ``on_row_position`` then gets
+    the row's 1-based number, the byte offset its line ends at and its
+    ledger hash: what a prefix checkpoint binds (ARIA-HIGH-278).
 
     ``grandfather_line_prefixes`` (ARIA-HIGH-017) exempts the first N
     lines from ``max_line_bytes``: those rows are INHERITED — present in
@@ -2211,10 +2214,12 @@ def verify_jsonl_chunks(
     total = 0
     row_count = 0
     line_no = 0
+    line_end = 0
 
     def consume(raw_line: bytes, *, terminated: bool) -> None:
-        nonlocal previous_hash, row_count, line_no
+        nonlocal previous_hash, row_count, line_no, line_end
         line_no += 1
+        line_end += len(raw_line)
         if len(raw_line) > max_line_bytes and line_no > grandfather_line_prefixes:
             raise LedgerReadLimitError(
                 f"immutable_ledger_line_too_large:{source_path.as_posix()}:"
@@ -2284,6 +2289,8 @@ def verify_jsonl_chunks(
             on_stored_row(dict(row))
         if on_row is not None:
             on_row(logical)
+        if on_row_position is not None:
+            on_row_position(row_count, line_end, str(expected))
 
     for chunk in chunks:
         if not isinstance(chunk, bytes):

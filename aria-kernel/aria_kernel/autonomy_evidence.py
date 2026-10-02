@@ -594,6 +594,18 @@ _MAX_EVIDENCE_LEDGER_BLOB_BYTES = 64 * 1024 * 1024
 _MAX_EVIDENCE_INPUT_BYTES = 80 * 1024 * 1024
 _MAX_EVIDENCE_LEDGER_LINE_BYTES = 1024 * 1024
 _MAX_EVIDENCE_LEDGER_ROWS = 100_000
+# ARIA-HIGH-278 — a carried ledger's verified prefix carries its evidence
+# forward as one checkpoint row, so a publish consumes only the rows after
+# its newest checkpoint. The publish preamble records a checkpoint once a
+# ledger's published prefix runs a stride past its last one: per ledger a
+# publish consumes at most one stride plus two publishes' growth, at any age.
+EVIDENCE_CHECKPOINT_SURFACE = "evidence_checkpoints"
+EVIDENCE_CHECKPOINT_STRIDE_BYTES = 1024 * 1024
+# Bumped whenever how a carried row folds into the projection changes
+# (pinned by test_evidence_checkpoints): a checkpoint of another fold
+# version is not evidence and is never read.
+EVIDENCE_CHECKPOINT_FOLD_VERSION = 1
+_EVIDENCE_CHECKPOINT_ROW_TYPE = "evidence_checkpoint"
 _MAX_SNAPSHOT_LEDGER_LINE_BYTES = SNAPSHOT_MAX_LEDGER_LINE_BYTES
 _MAX_SNAPSHOT_LEDGER_ROWS = SNAPSHOT_MAX_LEDGER_ROWS
 _MAX_SNAPSHOT_SURFACE_MATCH_CANDIDATES = 100_000
@@ -1247,6 +1259,27 @@ CAPABILITY_AUTHORITY_PATHS: Mapping[str, tuple[str, ...]] = MappingProxyType({
     key: spec.authority_paths
     for key, spec in CAPABILITY_SPECS.items()
 })
+# ARIA-HIGH-278 — the counted ledgers whose rows fold into a bounded,
+# order-free summary (counters, blocker sets, the autonomy-state fold), so a
+# verified prefix can be carried forward. Never carried: a contract with an
+# authoritative SHA (its witnesses are chosen across all history under a
+# cross-capability budget) and the three below.
+_UNCARRIED_COUNT_SURFACES: Mapping[str, str] = MappingProxyType({
+    "promotions": "every promoted fingerprint is kept to count unique ones",
+    "enterprise_acceptance_events": "every row is kept for the unlock verdict",
+    "findings": "rewritten in place when a tool's findings need revalidation",
+})
+_CARRIED_COUNT_SURFACES = frozenset(
+    name
+    for spec in CAPABILITY_SPECS.values()
+    for name in spec.count_surfaces
+    if name not in _UNCARRIED_COUNT_SURFACES
+    and not any(
+        contract.surface == name and contract.authoritative_sha_field is not None
+        for owner in CAPABILITY_SPECS.values()
+        for contract in owner.contracts
+    )
+)
 
 
 def _summarize_native_rows(
@@ -2420,6 +2453,222 @@ def _verify_state_commit_tree_contract(
             raise RuntimeError(f"state_snapshot_unclaimed_tree_entry:{path}")
 
 
+def _carried_family(key: str) -> str | None:
+    """The carried ledger family a snapshot claim key feeds, or None."""
+    from .ledger import segment_family
+    from .state_manifest import surface_key_name
+
+    surface_name = surface_key_name(key)
+    family = segment_family(surface_name)
+    counted = key == surface_name or family != surface_name
+    return family if counted and family in _CARRIED_COUNT_SURFACES else None
+
+
+def _valid_evidence_checkpoint(row: Mapping[str, Any]) -> bool:
+    def count(value: Any) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+    tail = row.get("tail_ledger_hash")
+    return (
+        row.get("row_type") == _EVIDENCE_CHECKPOINT_ROW_TYPE and row.get("schema_version") == 1
+        and all(count(row.get(name)) for name in ("schema_version", "fold_version", "row_count", "size_bytes"))
+        and isinstance(row.get("surface_key"), str) and isinstance(row.get("evidence"), dict)
+        and isinstance(tail, str) and _LEDGER_HASH.fullmatch(tail) is not None
+    )
+
+
+class _CarriedClaimCursor:
+    """One carried claim, streamed from its newest usable trusted checkpoint.
+
+    Rows up to that base are carried by it; later rows fold into a tally the
+    caller absorbs once the claim verifies. Every checkpoint on the claim is
+    checked where it sits: its byte offset and ledger hash bind the prefix
+    (a rewritten or truncated prefix refuses), and from the base on the tally
+    must equal the evidence it records. The base sits at or below every
+    pending checkpoint, so one stream verifies each of them.
+    """
+
+    def __init__(self, key: str, family: str, checkpoints: Iterable[tuple[Mapping[str, Any], bool]]) -> None:
+        from .state_manifest import surface_key_name
+
+        listed = tuple(checkpoints)
+        floor = min((row["row_count"] for row, trusted in listed if not trusted), default=None)
+        base = max(
+            (row for row, trusted in listed if trusted and (floor is None or row["row_count"] <= floor)),
+            key=lambda row: row["row_count"],
+            default=None,
+        )
+        self.key, self.family, self.surface_name = key, family, surface_key_name(key)
+        self.base_rows = base["row_count"] if base is not None else 0
+        self.base_bytes = base["size_bytes"] if base is not None else 0
+        self.tally = _StreamingEvidenceAccumulator()
+        if base is not None:
+            self.tally.merge_carried(base["evidence"], key)
+        self.at: dict[int, list[Mapping[str, Any]]] = defaultdict(list)
+        for row, _trusted in listed:
+            self.at[row["row_count"]].append(row)
+        self.rows = 0
+
+    def on_row(self, row: dict[str, Any]) -> None:
+        self.rows += 1
+        if self.rows <= self.base_rows:
+            return
+        if self.rows - self.base_rows > _MAX_EVIDENCE_LEDGER_ROWS:
+            raise RuntimeError(f"state_commit_surface_row_limit_exceeded:{self.surface_name}")
+        self.tally.consume(self.family, row)
+
+    def on_position(self, row_number: int, line_end: int, ledger_hash: str) -> None:
+        for checkpoint in self.at.get(row_number, ()):
+            if (
+                checkpoint["size_bytes"] != line_end
+                or checkpoint["tail_ledger_hash"] != ledger_hash
+                or (row_number >= self.base_rows and checkpoint["evidence"] != self.tally.carried_state(self.key))
+            ):
+                raise RuntimeError(f"state_commit_evidence_checkpoint_mismatch:{self.key}")
+
+
+def _stream_ledger_blob(
+    store_root: Path,
+    object_id: str,
+    claim: Mapping[str, Any],
+    *,
+    source: str,
+    surface_name: str,
+    grandfather: int,
+    on_row: Callable[[dict[str, Any]], None],
+    on_row_position: Callable[[int, int, str], None] | None = None,
+) -> None:
+    """Strictly verify one committed ledger blob, feeding its rows."""
+    from .ledger import verify_jsonl_chunks
+
+    size = claim["size_bytes"]
+    verify_jsonl_chunks(
+        _iter_git_output_bounded(
+            store_root, "cat-file", "blob", object_id, max_bytes=size, expected_size=size,
+            unavailable=f"state_snapshot_surface_unavailable:{surface_name}",
+        ),
+        source=source, expected_size=size, max_line_bytes=_MAX_SNAPSHOT_LEDGER_LINE_BYTES,
+        max_rows=_MAX_SNAPSHOT_LEDGER_ROWS, grandfather_line_prefixes=grandfather,
+        expected_surface=surface_name, expected_surface_instance=claim["path"],
+        on_row=on_row, on_row_position=on_row_position,
+    )
+
+
+def _carried_claim_cursors(
+    *,
+    store_root: Path,
+    state_commit: str,
+    claims: list[tuple[str, Mapping[str, Any], str, str, int, bool]],
+    parent_surfaces: Mapping[str, Mapping[str, Any]],
+) -> tuple[dict[str, _CarriedClaimCursor], int]:
+    """Cursor each carried claim of one commit; return the input they consume.
+
+    The checkpoint rows the parent published are trusted: the parent was
+    verified when it was published, and its claim's tail hash binds them, so
+    rewriting one refuses here. A row this commit adds is pending and is
+    verified by its claim's stream. The input is the checkpoint ledger plus,
+    per carried claim, its bytes after the base its cursor starts from.
+    """
+    listed = {key: (claim, object_id, git_path) for key, claim, object_id, git_path, _size, _ in claims}
+    families = {
+        key: family for key, *_rest, consumed in claims if consumed and (family := _carried_family(key))
+    }
+    found: dict[str, list[tuple[Mapping[str, Any], bool]]] = defaultdict(list)
+    input_bytes = 0
+    if EVIDENCE_CHECKPOINT_SURFACE in listed:
+        claim, object_id, git_path = listed[EVIDENCE_CHECKPOINT_SURFACE]
+        inherited = parent_surfaces.get(EVIDENCE_CHECKPOINT_SURFACE, {})
+        inherited_rows = _integer(inherited.get("row_count"))
+        rows: list[dict[str, Any]] = []
+        tail: list[str] = []
+        _stream_ledger_blob(
+            store_root, object_id, claim, source=f"{state_commit}:{git_path}",
+            surface_name=EVIDENCE_CHECKPOINT_SURFACE, grandfather=inherited_rows, on_row=rows.append,
+            on_row_position=lambda number, _end, ledger_hash: (
+                tail.append(ledger_hash) if number == inherited_rows else None
+            ),
+        )
+        if inherited_rows and tail != [inherited.get("tail_ledger_hash")]:
+            raise RuntimeError("state_commit_evidence_checkpoints_rewritten")
+        input_bytes += claim["size_bytes"]
+        for number, row in enumerate(rows, start=1):
+            key, trusted = row.get("surface_key"), number <= inherited_rows
+            if not _valid_evidence_checkpoint(row) or (key not in families and not trusted):
+                raise RuntimeError(f"state_commit_evidence_checkpoint_invalid:{key}")
+            if row["fold_version"] != EVIDENCE_CHECKPOINT_FOLD_VERSION or key not in families:
+                continue
+            target = listed[key][0]
+            if row["row_count"] > target["row_count"] or row["size_bytes"] > target["size_bytes"]:
+                raise RuntimeError(f"state_commit_evidence_checkpoint_mismatch:{key}")
+            found[key].append((row, trusted))
+    cursors = {key: _CarriedClaimCursor(key, family, found[key]) for key, family in families.items()}
+    input_bytes += sum(listed[key][0]["size_bytes"] - cursor.base_bytes for key, cursor in cursors.items())
+    return cursors, input_bytes
+
+
+def evidence_checkpoints_due(*, store: Any, repo_identity: str, base_head: str) -> list[dict[str, Any]]:
+    """The checkpoint rows a publish on ``base_head`` records (ARIA-HIGH-278).
+
+    A read of the parent commit, never of the working tree: a checkpoint
+    names a prefix of the parent's verified claim, which every descendant
+    keeps (carried ledgers only grow; contention replay appends behind it),
+    so a losing lane's checkpoint stays true on the winner's tree. Its
+    evidence folds on from the parent's newest checkpoint, and the commit
+    that carries it verifies it again.
+    """
+    from .state_manifest import surface_key_name
+
+    try:
+        snapshot, _object = _read_immutable_snapshot_claim(store.root, base_head)
+    except RuntimeError as exc:
+        if str(exc) == "state_store_genesis":
+            return []
+        raise
+    surfaces: Mapping[str, Mapping[str, Any]] = snapshot["surfaces"]
+
+    def stream(key: str, on_row: Callable[[dict[str, Any]], None], cursor: Any = None) -> None:
+        claim = surfaces[key]
+        git_path = _snapshot_surface_git_path(
+            store=store, repo_identity=repo_identity, root_kind=claim["root_kind"], relative=claim["path"],
+        )
+        entry = _git_tree_entry(store.root, base_head, git_path)
+        if entry is None or entry[2] != "blob":
+            raise RuntimeError(f"state_snapshot_surface_unavailable:{key}")
+        _stream_ledger_blob(
+            store.root, entry[3], claim, source=f"{base_head}:{git_path}", surface_name=surface_key_name(key),
+            grandfather=claim["row_count"], on_row=on_row,
+            on_row_position=cursor.on_position if cursor is not None else None,
+        )
+
+    recorded: list[dict[str, Any]] = []
+    if EVIDENCE_CHECKPOINT_SURFACE in surfaces:
+        stream(EVIDENCE_CHECKPOINT_SURFACE, recorded.append)
+    newest: dict[str, Mapping[str, Any]] = {}
+    for row in recorded:
+        if _valid_evidence_checkpoint(row) and row["fold_version"] == EVIDENCE_CHECKPOINT_FOLD_VERSION:
+            if row["row_count"] > newest.get(row["surface_key"], {}).get("row_count", 0):
+                newest[row["surface_key"]] = row
+    due: list[dict[str, Any]] = []
+    for key, claim in sorted(surfaces.items()):
+        family, base = _carried_family(key), newest.get(key)
+        if family is None or claim["size_bytes"] - (base["size_bytes"] if base else 0) < EVIDENCE_CHECKPOINT_STRIDE_BYTES:
+            continue
+        cursor = _CarriedClaimCursor(key, family, [(base, True)] if base else ())
+        stream(key, cursor.on_row, cursor)
+        due.append({
+            "schema_version": 1,
+            "row_type": _EVIDENCE_CHECKPOINT_ROW_TYPE,
+            "row_id": f"{_EVIDENCE_CHECKPOINT_ROW_TYPE}:{key}:{claim['row_count']}",
+            "fold_version": EVIDENCE_CHECKPOINT_FOLD_VERSION,
+            "surface_key": key,
+            "row_count": claim["row_count"],
+            "size_bytes": claim["size_bytes"],
+            "tail_ledger_hash": claim["tail_ledger_hash"],
+            "evidence": cursor.tally.carried_state(key),
+        })
+    return due
+
+
 def _verify_snapshot_and_collect_evidence(
     *,
     store: Any,
@@ -2569,7 +2818,10 @@ def _verify_snapshot_and_collect_evidence(
                 raise RuntimeError(
                     f"state_commit_surface_too_large:{surface_name}",
                 )
-            evidence_total += observed_size
+            # ARIA-HIGH-278 — a carried ledger is charged below, for the
+            # bytes after its newest trusted checkpoint only.
+            if counted_as not in _CARRIED_COUNT_SURFACES:
+                evidence_total += observed_size
             if evidence_total > _MAX_EVIDENCE_INPUT_BYTES:
                 raise RuntimeError("state_commit_evidence_budget_exceeded")
         claims.append((
@@ -2580,6 +2832,35 @@ def _verify_snapshot_and_collect_evidence(
             observed_size,
             consumed,
         ))
+
+    # ARIA-HIGH-017 — rows inherited from the parent tip are exempt from
+    # the per-line cap: the parent is already-published history an
+    # append-only chain cannot shrink. A root commit (no parent) or an
+    # unreadable parent claim keeps the strict cap for every line and
+    # (ARIA-HIGH-278) trusts no checkpoint, so each one is re-verified.
+    try:
+        parent_snapshot, _parent_object = _read_immutable_snapshot_claim(
+            store.root,
+            _state_commit_single_parent(store.root, state_commit),
+        )
+        parent_surfaces = {
+            _key: _claim
+            for _key, _claim in (parent_snapshot.get("surfaces") or {}).items()
+            if isinstance(_claim, dict)
+        }
+    except Exception:  # noqa: BLE001 — no single readable parent: strict
+        parent_surfaces = {}
+    grandfather_row_counts: dict[str, int] = {
+        _key: _claim["row_count"]
+        for _key, _claim in parent_surfaces.items()
+        if isinstance(_claim.get("row_count"), int)
+    }
+    cursors, carried_input = _carried_claim_cursors(
+        store_root=store.root, state_commit=state_commit, claims=claims, parent_surfaces=parent_surfaces,
+    )
+    evidence_total += carried_input
+    if evidence_total > _MAX_EVIDENCE_INPUT_BYTES:
+        raise RuntimeError("state_commit_evidence_budget_exceeded")
 
     root_prefixes = tuple(
         (
@@ -2626,29 +2907,6 @@ def _verify_snapshot_and_collect_evidence(
         claimed_paths=claimed_paths,
     )
 
-    # ARIA-HIGH-017 — rows inherited from the parent tip are exempt from
-    # the per-line cap: the parent is already-published history an
-    # append-only chain cannot shrink. A root commit (no parent) or an
-    # unreadable parent claim keeps the strict cap for every line.
-    grandfather_row_counts: dict[str, int] = {}
-    try:
-        parent_commit = _state_commit_single_parent(store.root, state_commit)
-    except Exception:  # noqa: BLE001 — no single parent means no inheritance
-        parent_commit = None
-    if parent_commit is not None:
-        try:
-            parent_snapshot, _parent_object = _read_immutable_snapshot_claim(
-                store.root,
-                parent_commit,
-            )
-            for _key, _claim in (parent_snapshot.get("surfaces") or {}).items():
-                if isinstance(_claim, dict) and isinstance(
-                    _claim.get("row_count"), int,
-                ):
-                    grandfather_row_counts[_key] = _claim["row_count"]
-        except Exception:  # noqa: BLE001 — unreadable parent claim: strict
-            grandfather_row_counts = {}
-
     for key, claim, object_id, git_path, size, consumed in claims:
         chunks = _iter_git_output_bounded(
             store.root,
@@ -2661,6 +2919,7 @@ def _verify_snapshot_and_collect_evidence(
         )
         surface_name = surface_key_name(key)
         surface = surface_by_name(surface_name)
+        cursor = cursors.get(key)
         if surface.state_class == "ledger":
             try:
                 summary = verify_jsonl_chunks(
@@ -2668,22 +2927,26 @@ def _verify_snapshot_and_collect_evidence(
                     source=f"{state_commit}:{git_path}",
                     expected_size=size,
                     max_line_bytes=_MAX_SNAPSHOT_LEDGER_LINE_BYTES,
+                    # A carried cursor caps the rows it consumes itself.
                     max_rows=(
                         _MAX_EVIDENCE_LEDGER_ROWS
-                        if consumed
+                        if consumed and cursor is None
                         else _MAX_SNAPSHOT_LEDGER_ROWS
                     ),
                     grandfather_line_prefixes=grandfather_row_counts.get(key, 0),
                     expected_surface=surface_name,
                     expected_surface_instance=claim["path"],
                     on_row=(
-                        (lambda row, name=segment_family(surface_name): accumulator.consume(
+                        cursor.on_row
+                        if cursor is not None
+                        else (lambda row, name=segment_family(surface_name): accumulator.consume(
                             name,
                             row,
                         ))
                         if consumed
                         else None
                     ),
+                    on_row_position=cursor.on_position if cursor is not None else None,
                 )
             except LedgerIntegrityError as exc:
                 if (
@@ -2711,6 +2974,8 @@ def _verify_snapshot_and_collect_evidence(
                 or summary["last_hash"] != claim.get("tail_ledger_hash")
             ):
                 raise RuntimeError(f"state_snapshot_surface_mismatch:{key}")
+            if cursor is not None:
+                accumulator.merge_carried(cursor.tally.carried_state(key), key)
         else:
             digest = hashlib.sha256()
             observed = 0
@@ -2722,6 +2987,7 @@ def _verify_snapshot_and_collect_evidence(
                 or digest.hexdigest() != claim["sha256"]
             ):
                 raise RuntimeError(f"state_snapshot_surface_mismatch:{key}")
+    accumulator.evidence_input_bytes = evidence_total
     return accumulator
 
 
@@ -2973,6 +3239,8 @@ class _StreamingEvidenceAccumulator:
         self.global_distinct_targets: set[str] = set()
         self.global_distinct_target_budget_exceeded = False
         self.ordinal = 0
+        # What the verifier consumed against _MAX_EVIDENCE_INPUT_BYTES.
+        self.evidence_input_bytes = 0
 
     def consume(self, surface: str, row: Mapping[str, Any]) -> None:
         # A segment's opening row is chain structure, never evidence.
@@ -2993,6 +3261,61 @@ class _StreamingEvidenceAccumulator:
             for contract, targets in summary.targets_by_contract.items():
                 for observed in targets:
                     self._retain_target(capability, contract, observed)
+
+    def carried_state(self, key: str) -> dict[str, Any]:
+        """This projection as an evidence checkpoint carries it (ARIA-HIGH-278).
+
+        Only order-free state is carried. Rows that reached any other field
+        (a proof witness, a fingerprint set, acceptance rows) refuse by name,
+        so a fold change can never make a summary silently drop evidence.
+        """
+        if (
+            self.promoted_fingerprints or self.acceptance_event_counts or self.acceptance_rows
+            or self.distinct_target_budget_exceeded or self.global_distinct_targets
+            or self.global_distinct_target_budget_exceeded or any(self.distinct_targets.values())
+            or any(by_sha for contracts in self.native_targets.values() for by_sha in contracts.values())
+        ):
+            raise RuntimeError(f"state_commit_evidence_checkpoint_unmergeable:{key}")
+
+        def nonzero(counter: Mapping[str, int]) -> dict[str, int]:
+            return {name: value for name, value in sorted(counter.items()) if value}
+
+        return {
+            "ordinal": self.ordinal,
+            "surface_counts": nonzero(self.surface_counts),
+            "metrics": nonzero(self.metrics),
+            "acceptance_unlock_counts": nonzero(self.acceptance_unlock_counts),
+            "count_rejected": sorted(self.count_rejected),
+            "native_counts": {name: nonzero(c) for name, c in sorted(self.native_counts.items()) if nonzero(c)},
+            "native_blockers": {name: sorted(b) for name, b in sorted(self.native_blockers.items()) if b},
+            "autonomy_state": asdict(self.autonomy_state),
+        }
+
+    def merge_carried(self, state: Mapping[str, Any], key: str) -> None:
+        """Add a claim's carried evidence exactly as consuming its rows would:
+        each field is a sum or a union, and the autonomy-state fold has one
+        claim, so it is set, never combined."""
+        from .autonomy_state import AutonomyStateAccumulator
+
+        try:
+            folded = AutonomyStateAccumulator(**state["autonomy_state"])
+            if folded != AutonomyStateAccumulator():
+                if self.autonomy_state != AutonomyStateAccumulator():
+                    raise ValueError("autonomy_state_folded_twice")
+                self.autonomy_state = folded
+            if not set(state["count_rejected"]) <= set(CAPABILITY_SPECS):
+                raise ValueError("count_rejected_capability_unknown")
+            self.ordinal += state["ordinal"]
+            self.surface_counts.update(state["surface_counts"])
+            self.metrics.update(state["metrics"])
+            self.acceptance_unlock_counts.update(state["acceptance_unlock_counts"])
+            self.count_rejected.update(state["count_rejected"])
+            for capability, counts in state["native_counts"].items():
+                self.native_counts[capability].update(counts)
+            for capability, blockers in state["native_blockers"].items():
+                self.native_blockers[capability].update(blockers)
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError(f"state_commit_evidence_checkpoint_invalid:{key}") from exc
 
     def _retain_target(
         self,

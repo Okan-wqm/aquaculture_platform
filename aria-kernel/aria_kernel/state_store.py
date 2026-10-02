@@ -1979,6 +1979,7 @@ def prepare_publishable_snapshot(
             base_head=base_head,
         )
         compaction = _bound_publish_surfaces(store)
+        _record_evidence_checkpoints(store, repo_hash=repo_hash, base_head=base_head)
 
         def build() -> dict[str, Any]:
             return build_publishable_snapshot(
@@ -2028,6 +2029,35 @@ def _bound_publish_surfaces(store: StateStore) -> dict[str, Any]:
         raise StateStoreRefusal(
             f"state_publish_compaction_failed:{type(exc).__name__}:{str(exc)[:300]}"
         ) from exc
+
+
+def _record_evidence_checkpoints(store: StateStore, *, repo_hash: str, base_head: str) -> int:
+    """Carry each counted ledger's published prefix forward (ARIA-HIGH-278).
+
+    A checkpoint row stands for a prefix the parent already published, so the
+    commit's own evidence verification consumes only the rows after it and
+    stays bounded however old the ledgers grow. Written BEFORE the snapshot,
+    so the commit that carries a row verifies it; a row a refused attempt
+    left in the tree is not written twice. A failure refuses by name, like
+    the compaction bound above.
+    """
+    from .autonomy_evidence import EVIDENCE_CHECKPOINT_SURFACE, evidence_checkpoints_due
+    from .ledger import append_declared_jsonl_rows, load_declared_jsonl
+    from .state_manifest import resolve_surface_path, surface_by_name
+
+    try:
+        due = evidence_checkpoints_due(store=store, repo_identity=repo_hash, base_head=base_head)
+        path = resolve_surface_path(tools_root(store), surface_by_name(EVIDENCE_CHECKPOINT_SURFACE))
+        present = load_declared_jsonl(path, expected_surface=EVIDENCE_CHECKPOINT_SURFACE) if path.exists() else []
+        recorded = {row.get("row_id") for row in present}
+        fresh = [row for row in due if row["row_id"] not in recorded]
+        if fresh:
+            append_declared_jsonl_rows(path, fresh, expected_surface=EVIDENCE_CHECKPOINT_SURFACE)
+    except Exception as exc:  # noqa: BLE001 - re-raised as the publish's named refusal, never swallowed
+        raise StateStoreRefusal(
+            f"state_publish_evidence_checkpoint_failed:{type(exc).__name__}:{str(exc)[:300]}"
+        ) from exc
+    return len(fresh)
 
 
 def _rows_unchanged_since_published(store: StateStore, prepared: PreparedPublish) -> bool:

@@ -397,6 +397,14 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("health", "health.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("cycles", "cycles.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("tools_governance", "governance.jsonl", "ledger", "governance", "tools", True, "append_fsync", True),
+    # ARIA-HIGH-278 — the verified evidence a counted ledger's prefix carries
+    # forward, so a publish consumes only the rows after it. The publish
+    # preamble appends; `autonomy_evidence` verifies each row once, on the
+    # commit that adds it. Same gate as the governance rows beside it.
+    StateSurface(
+        "evidence_checkpoints", "evidence-checkpoints.jsonl", "ledger", "governance", "tools", True,
+        "append_fsync", True, profile_surface="tool_governance",
+    ),
     StateSurface("tool_registry", "registry.json", "index", "registry", "tools", True, "rewrite_fsync", True),
     # `repo_identity.json` is deliberately ABSENT from this list, and the
     # reason is worth stating where someone would next think to add it (PLAN

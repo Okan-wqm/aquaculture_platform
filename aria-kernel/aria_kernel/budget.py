@@ -597,7 +597,7 @@ def _reserve_native_runtime_attempt(
     claims_path = root / "agent-invocations/claims.jsonl"
     results_path = root / "agent-invocations/results.jsonl"
     with state_transaction([requests_path, claims_path, results_path, root / "governance.jsonl"]) as transaction:
-        requests = transaction.load_declared_jsonl(requests_path, expected_surface="agent_invocation_requests")
+        requests = transaction.load_segments(root, "agent_invocation_requests")
         claims = transaction.load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims")
         results = transaction.load_declared_jsonl(results_path, expected_surface="agent_invocation_results")
         invocations._validate_claim_dispatch_authority(

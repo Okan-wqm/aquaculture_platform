@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request
-from .ledger import load_declared_jsonl
+from .ledger import load_segments
 from .tool_registry import ensure_tools_dir
 
 
@@ -99,10 +99,7 @@ def _existing_judge_dispatches(root: Path) -> set[tuple[str, str]]:
     raised mid-loop last cycle — gets its missing judge minted next run instead
     of being skipped forever and starving consensus."""
     try:
-        rows = load_declared_jsonl(
-            root / "agent-invocations" / "requests.jsonl",
-            expected_surface="agent_invocation_requests",
-        )
+        rows = load_segments(root, "agent_invocation_requests")
     except Exception:
         return set()
     return {

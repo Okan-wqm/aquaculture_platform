@@ -8,7 +8,7 @@ from pathlib import Path
 
 from aria_kernel import plan_convergence as plan_convergence_module
 from aria_kernel.agent_priors import reviewer_names
-from aria_kernel.ledger import LedgerIntegrityError, load_jsonl
+from aria_kernel.ledger import LedgerIntegrityError, load_jsonl, load_segments, segment_paths
 from aria_kernel.plan_convergence import (
     abandon_plan,
     content_hash,
@@ -27,7 +27,7 @@ from aria_kernel.plan_convergence import (
     submit_challenger_plan,
 )
 from aria_kernel.tool_registry import GovernanceError
-from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.declared_fixtures import append_declared_fixture, segmented_ledger_bytes
 from tests._helpers.operator_acts import operator_set_profile
 
 
@@ -737,7 +737,6 @@ class PlanConvergenceTests(unittest.TestCase):
         from aria_kernel import agent_invocations as invocation_owner
         from aria_kernel.architecture_spine_gate import take_baseline, take_postcheck
         from aria_kernel.governance_reader import read_governance_rows
-        from aria_kernel.ledger import load_declared_jsonl
         from aria_kernel.plan_round_controller import advance_plan_rounds
         from aria_kernel.tool_registry import ensure_tools_binding
         from tests._helpers.git_fixtures import _git, make_local_git_repo
@@ -804,8 +803,7 @@ class PlanConvergenceTests(unittest.TestCase):
         self.assertEqual(outcome["status"], "primary_revision_requested", outcome)
         self.assertEqual(plan_status(plan_id=plan_id, base_dir=self.tools_dir)["state"], "CRITIQUED")
         self.assertEqual((self.tools_dir / "plans/events.jsonl").read_bytes(), before_plan)
-        native_requests = load_declared_jsonl(self.tools_dir / "agent-invocations/requests.jsonl",
-                                              expected_surface="agent_invocation_requests")
+        native_requests = load_segments(self.tools_dir, "agent_invocation_requests")
         self.assertEqual(len(native_requests), 1)
         request = native_requests[0]
         self.assertEqual((request["role"], request["convergence_id"], request["round_number"]), ("primary_plan", plan_id, 2))
@@ -825,11 +823,11 @@ class PlanConvergenceTests(unittest.TestCase):
         self.assertEqual(obligation["regressions"], [row for row in measured["drifts"] if row["direction"] == "regression"])
         self.assertEqual(proposed["plan_id"], plan_id)
         self.assertEqual(proposed["latest_revision"]["content_hash"], request["plan_revision_hash"])
-        before_requests = (self.tools_dir / "agent-invocations/requests.jsonl").read_bytes()
+        before_requests = segmented_ledger_bytes(self.tools_dir, "agent_invocation_requests")
         again = advance_plan_rounds(plan_id=plan_id, base_dir=self.tools_dir,
                                     workspace_root=self.root, max_rounds=5)
         self.assertEqual(again["status"], "primary_revision_requested")
-        self.assertEqual((self.tools_dir / "agent-invocations/requests.jsonl").read_bytes(), before_requests)
+        self.assertEqual(segmented_ledger_bytes(self.tools_dir, "agent_invocation_requests"), before_requests)
         self.assertEqual((self.tools_dir / "plans/events.jsonl").read_bytes(), before_plan)
 
     def _native_spine_evaluation_fixture(self, *, risks=None):
@@ -857,7 +855,7 @@ class PlanConvergenceTests(unittest.TestCase):
         self.assertEqual(gate["status"], "unavailable")
         self.assertIsNone(gate["postcheck_ledger_hash"])
         self.assertNotIn("regressions", gate)
-        self.assertFalse((self.tools_dir / "agent-invocations/requests.jsonl").exists())
+        self.assertEqual(segment_paths(self.tools_dir, "agent_invocation_requests"), [])
 
     def test_native_replaced_spine_anchor_cannot_be_converged(self):
         from aria_kernel.architecture_spine_gate import take_baseline, take_postcheck
@@ -874,7 +872,7 @@ class PlanConvergenceTests(unittest.TestCase):
         self.assertEqual(result["event"]["payload"]["terminal_state"], "HUMAN_REQUIRED")
         self.assertIn("architecture_spine_unavailable:baseline_anchor_unavailable", result["event"]["payload"]["reason_codes"])
         self.assertEqual((self.tools_dir / "governance.jsonl").read_bytes(), before)
-        self.assertFalse((self.tools_dir / "agent-invocations/requests.jsonl").exists())
+        self.assertEqual(segment_paths(self.tools_dir, "agent_invocation_requests"), [])
 
     def test_native_spine_cap_and_critical_review_keep_human_refusal(self):
         from aria_kernel.architecture_spine_gate import take_postcheck
@@ -896,7 +894,7 @@ class PlanConvergenceTests(unittest.TestCase):
                     self.assertEqual(result["event"]["payload"]["terminal_state"], "HUMAN_REQUIRED")
                     self.assertIn(expected, result["event"]["payload"]["reason_codes"])
                     self.assertIn("architecture_spine_regression", result["event"]["payload"]["reason_codes"])
-                    self.assertFalse((self.tools_dir / "agent-invocations/requests.jsonl").exists())
+                    self.assertEqual(segment_paths(self.tools_dir, "agent_invocation_requests"), [])
         finally:
             self.tools_dir = original_tools
 
@@ -962,7 +960,6 @@ class PlanConvergenceTests(unittest.TestCase):
         from aria_kernel import agent_invocations as invocation_owner
         from aria_kernel.architecture_spine_gate import take_baseline, take_postcheck
         from aria_kernel.governance_reader import read_governance_rows
-        from aria_kernel.ledger import load_declared_jsonl
         from aria_kernel.plan_round_controller import advance_plan_rounds
         from aria_kernel.tool_registry import ensure_tools_binding
         from tests._helpers.git_fixtures import _git, make_local_git_repo
@@ -1030,8 +1027,7 @@ class PlanConvergenceTests(unittest.TestCase):
         outcome = run_convergence_drainer(**arguments)
         self.assertEqual(outcome["arbiter_verdict"], "in_progress", outcome)
         self.assertEqual(plan_status(plan_id=plan_id, base_dir=self.tools_dir)["state"], "CRITIQUED")
-        requests = load_declared_jsonl(self.tools_dir / "agent-invocations/requests.jsonl",
-                                      expected_surface="agent_invocation_requests")
+        requests = load_segments(self.tools_dir, "agent_invocation_requests")
         self.assertEqual(len(requests), 1)
         request = requests[0]
         self.assertEqual((request["role"], request["round_number"], request["target_sha"]), ("primary_plan", 2, current_sha))
@@ -1048,11 +1044,11 @@ class PlanConvergenceTests(unittest.TestCase):
             request_id=request["request_id"], context_hash=request["context_hash"],
             prompt_hash=request["prompt_hash"], base_dir=self.tools_dir)
         self.assertIn(spine_rows[-1]["ledger_hash"], native["prompt"]["prompt_text"])
-        request_bytes = (self.tools_dir / "agent-invocations/requests.jsonl").read_bytes()
+        request_bytes = segmented_ledger_bytes(self.tools_dir, "agent_invocation_requests")
         again = run_convergence_drainer(**{**arguments, "cycle_id": "cyc-native-spine-drain-again"})
         self.assertEqual(again["arbiter_verdict"], "in_progress")
         self.assertTrue(again["resumed_from_persistence"])
-        self.assertEqual((self.tools_dir / "agent-invocations/requests.jsonl").read_bytes(), request_bytes)
+        self.assertEqual(segmented_ledger_bytes(self.tools_dir, "agent_invocation_requests"), request_bytes)
         self.assertEqual((self.tools_dir / "plans/events.jsonl").read_bytes(), before_plan)
 
     # ------------------------------------------------------------------

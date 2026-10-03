@@ -23,6 +23,17 @@ WHAT.
   rewritten loose object is caught rather than trusted.
 * :func:`tracked_files_at` answers "is this a tracked file" from the commit's
   tree (``git ls-tree``), not from the index a process can edit.
+* :func:`_root_held_checkout` lets a reader that is not root read root's
+  checkout. Git refuses a repository another account owns, and
+  ``GIT_CONFIG_NOSYSTEM`` drops any system ``safe.directory``, so the T2 probe
+  (``gharunner``) could not read ``/var/lib/aria/code`` and reported
+  ``allowed_signers_unavailable`` every hour. The exception goes on the command
+  line only when every hop git takes from the checkout (worktree, git
+  directory, common directory, and the pointer files between them) is root's
+  with no other writer and sits under directories whose children nobody else
+  can replace; git then runs in that same resolved path. Root can already act
+  as any reader, so trusting its tree widens nothing; a tree another account
+  owns keeps git's refusal, since its config could run code as the reader.
 
 The merge lane's check 12 runs on a fresh GitHub-hosted clone; that is the
 backstop for a process that could rewrite ``.git`` wholesale, including
@@ -34,6 +45,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -84,13 +96,128 @@ def _git_binary() -> str | None:
     return shutil.which("git")
 
 
+ROOT_UID = 0
+_FOREIGN_WRITE = stat.S_IWGRP | stat.S_IWOTH
+_POINTER_MAX_BYTES = 4096
+
+
+def _held_node(info: os.stat_result, owner_uid: int, *, parent: bool) -> bool:
+    if info.st_uid not in (ROOT_UID, owner_uid):
+        return False
+    if not info.st_mode & _FOREIGN_WRITE:
+        return True
+    # A writable PARENT is safe only with the sticky bit (as /tmp): nobody but
+    # the child's owner can then rename the child the walk checks next. The
+    # checked node itself is never allowed another writer.
+    return parent and stat.S_ISDIR(info.st_mode) and bool(info.st_mode & stat.S_ISVTX)
+
+
+def _held_path(resolved: Path, owner_uid: int) -> bool:
+    """``resolved`` (a real path) is the owner's with no other writer, and no directory above it can have a child replaced."""
+    try:
+        info = os.stat(resolved)
+        if info.st_uid != owner_uid or not _held_node(info, owner_uid, parent=False):
+            return False
+        return all(_held_node(os.stat(node), owner_uid, parent=True) for node in resolved.parents)
+    except OSError:
+        return False
+
+
+def _real(path: Path) -> Path | None:
+    try:
+        return path.resolve(strict=True)
+    except (OSError, RuntimeError):  # RuntimeError: a symlink loop before Python 3.13
+        return None
+
+
+def _read_pointer(path: Path, owner_uid: int) -> str | None:
+    """A gitfile's or ``commondir``'s text, read only once its directory chain is held.
+
+    Non-blocking, regular files only, the owner's with no other writer, at
+    most 4 KiB: a FIFO, a device or a huge file can neither stall nor exhaust
+    the reader, and the 30 s git timeout does not cover this read.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != owner_uid or info.st_mode & _FOREIGN_WRITE:
+            return None
+        data = os.read(fd, _POINTER_MAX_BYTES + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    if len(data) > _POINTER_MAX_BYTES:
+        return None
+    try:
+        return data.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return None
+
+
+def _pointed(base: Path, text: str) -> Path | None:
+    target = Path(text)
+    return _real(target if target.is_absolute() else base / target)
+
+
+def _root_held_checkout(repo_root: str | Path, *, owner_uid: int = ROOT_UID,
+                        reader_uid: int | None = None) -> str | None:
+    """The checkout's real path when ``owner_uid`` holds every hop git takes from it and the reader is someone else.
+
+    Git trusts whatever it finds behind the worktree path ``safe.directory``
+    names, so each hop is checked: the worktree, the git directory (``.git``
+    itself, or the one a gitfile names), and the common directory a
+    ``commondir`` file names, plus the pointer files themselves. The path is
+    resolved once; ``_git`` runs in and names exactly that real path, so a
+    symlink swapped after this check cannot redirect git. Files inside the git
+    directory (config, refs, objects) are not inspected, as git's own
+    ownership check does not inspect them: a held directory chain means only
+    the owner could have put them there.
+    """
+    reader = os.geteuid() if reader_uid is None else reader_uid
+    if reader == owner_uid:
+        return None
+    top = _real(Path(repo_root))
+    if top is None or not _held_path(top, owner_uid):
+        return None
+    dotgit = top / ".git"
+    try:
+        mode = os.lstat(dotgit).st_mode
+    except OSError:
+        return None
+    if stat.S_ISDIR(mode):
+        gitdir: Path | None = dotgit
+    elif stat.S_ISREG(mode):
+        text = _read_pointer(dotgit, owner_uid)
+        if text is None or not text.startswith("gitdir:"):
+            return None
+        gitdir = _pointed(top, text[len("gitdir:"):].strip())
+    else:
+        return None  # a symlinked .git is refused rather than followed
+    if gitdir is None or not _held_path(gitdir, owner_uid):
+        return None
+    commondir = gitdir / "commondir"
+    if os.path.lexists(commondir):
+        text = _read_pointer(commondir, owner_uid)
+        common = _pointed(gitdir, text) if text else None
+        if common is None or not _held_path(common, owner_uid):
+            return None
+    return str(top)
+
+
 def _git(repo_root: str | Path, *args: str) -> subprocess.CompletedProcess[bytes] | None:
     git = _git_binary()
     if git is None:
         return None
+    held = _root_held_checkout(repo_root)
+    where = str(repo_root) if held is None else held
+    trust = [] if held is None else ["-c", f"safe.directory={held}"]
     try:
         return subprocess.run(
-            [git, "--literal-pathspecs", "-C", str(repo_root), *args],
+            [git, "--literal-pathspecs", *trust, "-C", where, *args],
             stdin=subprocess.DEVNULL, capture_output=True, check=False,
             env=scrubbed_git_env(), timeout=_GIT_TIMEOUT_SECONDS,
         )

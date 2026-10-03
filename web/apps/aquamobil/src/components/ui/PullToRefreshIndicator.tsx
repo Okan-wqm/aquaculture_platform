@@ -25,7 +25,7 @@ export function PullToRefreshIndicator({
     <div
       role="status"
       aria-live="polite"
-      className="flex items-end justify-center overflow-hidden text-xs font-medium text-gray-500 dark:text-gray-400 transition-[height] duration-150"
+      className="flex items-end justify-center overflow-hidden text-meta font-medium text-ink-3 transition-[height] duration-150"
       style={{ height }}
     >
       {isRefreshing ? (

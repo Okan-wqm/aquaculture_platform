@@ -40,22 +40,22 @@ export function TypingIndicator({ typingUsers }: TypingIndicatorProps): ReactEle
 
   return (
     <div
-      className={clsx(
-        'flex items-center gap-2 px-4 py-2',
-        'animate-[fadeIn_200ms_ease-in-out]',
-      )}
+      // `animate-am-fade` is the v4 motion layer's 200ms entrance. It replaces
+      // an arbitrary fade whose @keyframes lived in AttachmentPicker's inline
+      // <style> — so the animation only ran when an unrelated component happened
+      // to be mounted. The token animation is always defined and stops under
+      // prefers-reduced-motion.
+      className={clsx('flex items-center gap-2 px-4 py-2', 'animate-am-fade')}
       aria-live="polite"
       aria-label={label}
     >
       {/* Three bouncing dots */}
       <div className="flex items-center gap-0.5">
-        <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:0ms]" />
-        <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:150ms]" />
-        <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500 animate-bounce [animation-delay:300ms]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-ink-3 animate-bounce [animation-delay:0ms]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-ink-3 animate-bounce [animation-delay:150ms]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-ink-3 animate-bounce [animation-delay:300ms]" />
       </div>
-      <span className="text-xs text-gray-400 dark:text-gray-500 font-medium truncate">
-        {label}...
-      </span>
+      <span className="text-meta text-ink-3 font-medium truncate">{label}...</span>
     </div>
   );
 }

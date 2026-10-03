@@ -52,7 +52,8 @@ vi.mock('../useAuth', () => ({
 }));
 
 vi.mock('@tanstack/react-query', async () => {
-  const actual = await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query');
+  const actual =
+    await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query');
   return {
     ...actual,
     useQueryClient: () => ({
@@ -132,17 +133,29 @@ describe('useTaskActions — offline regression coverage', () => {
       // FARM-HIGH-057: the online call carries id + clientCommandId + payloadHash
       // wrapped in `input` (TaskLifecycleInput).
       expect(mockGraphqlRequest).toHaveBeenCalledWith(expect.anything(), {
-        input: { id: 'task-123', clientCommandId: FIXED_COMMAND_ID, payloadHash: 'hash-deterministic' },
+        input: {
+          id: 'task-123',
+          clientCommandId: FIXED_COMMAND_ID,
+          payloadHash: 'hash-deterministic',
+        },
       });
-      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['tenant', 'tenant-1', 'myTasks'] });
-      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['tenant', 'tenant-1', 'taskStats'] });
-      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['tenant', 'tenant-1', 'dailyOpsCounts'] });
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['tenant', 'tenant-1', 'myTasks'],
+      });
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['tenant', 'tenant-1', 'taskStats'],
+      });
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['tenant', 'tenant-1', 'dailyOpsCounts'],
+      });
       expect(mockAddToQueue).not.toHaveBeenCalled();
     });
 
     it('startTask attaches the envelope under input and returns { wasQueued: false }', async () => {
       mockIsOnline = true;
-      mockGraphqlRequest.mockResolvedValue({ startTask: { id: 'task-456', status: 'IN_PROGRESS' } });
+      mockGraphqlRequest.mockResolvedValue({
+        startTask: { id: 'task-456', status: 'IN_PROGRESS' },
+      });
 
       const { result } = renderHook(() => useTaskActions());
 
@@ -150,7 +163,11 @@ describe('useTaskActions — offline regression coverage', () => {
 
       expect(actionResult.wasQueued).toBe(false);
       expect(mockGraphqlRequest).toHaveBeenCalledWith(expect.anything(), {
-        input: { id: 'task-456', clientCommandId: FIXED_COMMAND_ID, payloadHash: 'hash-deterministic' },
+        input: {
+          id: 'task-456',
+          clientCommandId: FIXED_COMMAND_ID,
+          payloadHash: 'hash-deterministic',
+        },
       });
       expect(mockAddToQueue).not.toHaveBeenCalled();
     });
@@ -172,7 +189,11 @@ describe('useTaskActions — offline regression coverage', () => {
       expect(actionResult.operationId).toBe('op-queued-123');
       // FARM-HIGH-057: queue receives the RAW domain payload (no envelope — the
       // queue stamps it) plus the stable clientCommandId as the 3rd argument.
-      expect(mockAddToQueue).toHaveBeenCalledWith('completeTask', { id: 'task-123' }, FIXED_COMMAND_ID);
+      expect(mockAddToQueue).toHaveBeenCalledWith(
+        'completeTask',
+        { id: 'task-123' },
+        FIXED_COMMAND_ID,
+      );
       expect(mockGraphqlRequest).not.toHaveBeenCalled();
     });
 
@@ -185,7 +206,11 @@ describe('useTaskActions — offline regression coverage', () => {
 
       expect(actionResult.wasQueued).toBe(true);
       expect(actionResult.operationId).toBe('op-queued-123');
-      expect(mockAddToQueue).toHaveBeenCalledWith('startTask', { id: 'task-456' }, FIXED_COMMAND_ID);
+      expect(mockAddToQueue).toHaveBeenCalledWith(
+        'startTask',
+        { id: 'task-456' },
+        FIXED_COMMAND_ID,
+      );
     });
   });
 
@@ -241,8 +266,12 @@ describe('useTaskActions — offline regression coverage', () => {
           payloadHash: 'hash-deterministic',
         },
       });
-      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['tenant', 'tenant-1', 'myTasks'] });
-      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['tenant', 'tenant-1', 'task'] });
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['tenant', 'tenant-1', 'myTasks'],
+      });
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['tenant', 'tenant-1', 'task'],
+      });
     });
 
     it('queues the checklist SET offline with the raw absolute payload', async () => {

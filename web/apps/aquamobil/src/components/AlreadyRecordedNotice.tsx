@@ -11,11 +11,11 @@ import type { JSX } from 'react';
 export function AlreadyRecordedNotice(): JSX.Element {
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center">
-        <AlertCircle size={48} className="text-amber-600" />
+      <div className="w-20 h-20 bg-warn-dim rounded-full flex items-center justify-center">
+        <AlertCircle size={48} className="text-warn" />
       </div>
-      <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">Already recorded</h2>
-      <p className="text-sm text-amber-600 dark:text-amber-400">
+      <h2 className="text-head font-bold text-warn">Already recorded</h2>
+      <p className="text-body text-ink-2">
         This entry was already submitted moments ago -- no duplicate was created.
       </p>
     </div>

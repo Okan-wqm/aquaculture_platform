@@ -113,7 +113,7 @@ const TenantMessagesPage: React.FC = () => {
   return (
     // dvh (not vh): mobile browser chrome makes 100vh taller than the visible
     // viewport, which pushed the composer off-screen on phones.
-    <div className="h-[calc(100dvh-180px)] flex flex-col">
+    <div className="sd-page h-[calc(100dvh-180px)] flex flex-col">
       {/* Header */}
       <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 sm:px-6 py-4 rounded-t-xl">
         <PageHeader

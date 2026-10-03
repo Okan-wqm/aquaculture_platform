@@ -15,7 +15,7 @@ describe('EmptyState', () => {
   it('renders the title, description and action', () => {
     render(
       <EmptyState
-        icon={Fish}
+        icon={<Fish size={22} />}
         title="No tanks found"
         description="Offline"
         action={<button type="button">Add</button>}
@@ -29,21 +29,21 @@ describe('EmptyState', () => {
 });
 
 describe('ErrorState', () => {
-  it('is an alert with a Retry button that calls back', () => {
+  it('is an alert with a retry button that calls back', () => {
     const onRetry = vi.fn();
     render(
       <ErrorState title="Tanks could not be loaded" description="Try again" onRetry={onRetry} />,
     );
     expect(screen.getByRole('alert')).toHaveTextContent('Tanks could not be loaded');
-    screen.getByRole('button', { name: 'Retry' }).click();
+    screen.getByRole('button', { name: 'Try again' }).click();
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
-  it('shows no Retry button without a handler and is busy while retrying', () => {
+  it('shows no retry button without a handler and is busy while retrying', () => {
     const { rerender } = render(<ErrorState />);
     expect(screen.getByRole('alert')).toHaveTextContent('Could not load');
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     rerender(<ErrorState onRetry={() => undefined} retrying />);
-    expect(screen.getByRole('button', { name: 'Retry' })).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('button', { name: 'Try again' })).toHaveAttribute('aria-busy', 'true');
   });
 });

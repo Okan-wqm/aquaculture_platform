@@ -48,7 +48,13 @@ const mockAuth: Record<string, unknown> = {
   accessToken: 'test-token',
   isAuthenticated: true,
   isLoading: false,
-  user: { id: 'user-1', email: 'test@test.com', name: 'Test User', role: 'MODULE_USER' as const, tenantId: 'tenant-1' },
+  user: {
+    id: 'user-1',
+    email: 'test@test.com',
+    name: 'Test User',
+    role: 'MODULE_USER' as const,
+    tenantId: 'tenant-1',
+  },
   // WHY: useMobilePermissions destructures tenantId from useAuth() at the top level
   // (not from user.tenantId). Without this, getCacheKey() generates a non-tenant-scoped
   // key (mobile_permissions_user-1 instead of mobile_permissions_tenant-1_user-1).
@@ -89,9 +95,10 @@ function createSuccessResponse(settings: Record<string, unknown>): MockGraphQLRe
   return {
     ok: true,
     status: 200,
-    json: () => Promise.resolve({
-      data: { getMyMobileSettings: settings },
-    }),
+    json: () =>
+      Promise.resolve({
+        data: { getMyMobileSettings: settings },
+      }),
   };
 }
 
@@ -154,8 +161,17 @@ describe('useMobilePermissions', () => {
       await waitFor(() => expect(result.current.isLoaded).toBe(true));
 
       const features: MobileFeature[] = [
-        'mortality', 'cull', 'harvest', 'feeding', 'waterQuality',
-        'tankView', 'schedule', 'attendance', 'leave', 'tasks', 'transfer',
+        'mortality',
+        'cull',
+        'harvest',
+        'feeding',
+        'waterQuality',
+        'tankView',
+        'schedule',
+        'attendance',
+        'leave',
+        'tasks',
+        'transfer',
       ];
 
       for (const feature of features) {
@@ -165,10 +181,24 @@ describe('useMobilePermissions', () => {
 
     it('should reset to defaults when user logs out', async () => {
       // First render with auth
-      mockFetch.mockResolvedValue(createSuccessResponse({
-        isMobileEnabled: true,
-        allowedFeatures: { mortality: true, cull: true, harvest: false, feeding: false, waterQuality: false, tankView: false, schedule: false, attendance: false, leave: false, tasks: false, transfer: false },
-      }));
+      mockFetch.mockResolvedValue(
+        createSuccessResponse({
+          isMobileEnabled: true,
+          allowedFeatures: {
+            mortality: true,
+            cull: true,
+            harvest: false,
+            feeding: false,
+            waterQuality: false,
+            tankView: false,
+            schedule: false,
+            attendance: false,
+            leave: false,
+            tasks: false,
+            transfer: false,
+          },
+        }),
+      );
 
       const { result, rerender } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -195,14 +225,24 @@ describe('useMobilePermissions', () => {
 
   describe('Backend Permission Loading', () => {
     it('should fetch permissions from /graphql on mount', async () => {
-      mockFetch.mockResolvedValue(createSuccessResponse({
-        isMobileEnabled: true,
-        allowedFeatures: {
-          mortality: true, cull: false, harvest: true, feeding: true,
-          waterQuality: false, tankView: true, schedule: false,
-          attendance: false, leave: false, tasks: true, transfer: false,
-        },
-      }));
+      mockFetch.mockResolvedValue(
+        createSuccessResponse({
+          isMobileEnabled: true,
+          allowedFeatures: {
+            mortality: true,
+            cull: false,
+            harvest: true,
+            feeding: true,
+            waterQuality: false,
+            tankView: true,
+            schedule: false,
+            attendance: false,
+            leave: false,
+            tasks: true,
+            transfer: false,
+          },
+        }),
+      );
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -221,14 +261,24 @@ describe('useMobilePermissions', () => {
     });
 
     it('should update settings from backend response', async () => {
-      mockFetch.mockResolvedValue(createSuccessResponse({
-        isMobileEnabled: true,
-        allowedFeatures: {
-          mortality: true, cull: false, harvest: true, feeding: true,
-          waterQuality: false, tankView: true, schedule: false,
-          attendance: false, leave: false, tasks: true, transfer: false,
-        },
-      }));
+      mockFetch.mockResolvedValue(
+        createSuccessResponse({
+          isMobileEnabled: true,
+          allowedFeatures: {
+            mortality: true,
+            cull: false,
+            harvest: true,
+            feeding: true,
+            waterQuality: false,
+            tankView: true,
+            schedule: false,
+            attendance: false,
+            leave: false,
+            tasks: true,
+            transfer: false,
+          },
+        }),
+      );
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -244,14 +294,24 @@ describe('useMobilePermissions', () => {
     });
 
     it('should cache permissions to IndexedDB with per-user key (SEC-04)', async () => {
-      mockFetch.mockResolvedValue(createSuccessResponse({
-        isMobileEnabled: true,
-        allowedFeatures: {
-          mortality: true, cull: false, harvest: false, feeding: false,
-          waterQuality: false, tankView: false, schedule: false,
-          attendance: false, leave: false, tasks: false, transfer: false,
-        },
-      }));
+      mockFetch.mockResolvedValue(
+        createSuccessResponse({
+          isMobileEnabled: true,
+          allowedFeatures: {
+            mortality: true,
+            cull: false,
+            harvest: false,
+            feeding: false,
+            waterQuality: false,
+            tankView: false,
+            schedule: false,
+            attendance: false,
+            leave: false,
+            tasks: false,
+            transfer: false,
+          },
+        }),
+      );
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -301,9 +361,17 @@ describe('useMobilePermissions', () => {
         settings: {
           isMobileEnabled: true,
           allowedFeatures: {
-            mortality: true, cull: true, harvest: false, feeding: false,
-            waterQuality: false, tankView: false, schedule: false,
-            attendance: false, leave: false, tasks: false, transfer: false,
+            mortality: true,
+            cull: true,
+            harvest: false,
+            feeding: false,
+            waterQuality: false,
+            tankView: false,
+            schedule: false,
+            attendance: false,
+            leave: false,
+            tasks: false,
+            transfer: false,
           },
         },
         expiresAt: Date.now() + 4 * 60 * 60 * 1000, // 4 hours from now
@@ -330,9 +398,17 @@ describe('useMobilePermissions', () => {
         settings: {
           isMobileEnabled: true,
           allowedFeatures: {
-            mortality: true, cull: true, harvest: true, feeding: true,
-            waterQuality: true, tankView: true, schedule: true,
-            attendance: true, leave: true, tasks: true, transfer: true,
+            mortality: true,
+            cull: true,
+            harvest: true,
+            feeding: true,
+            waterQuality: true,
+            tankView: true,
+            schedule: true,
+            attendance: true,
+            leave: true,
+            tasks: true,
+            transfer: true,
           },
         },
         expiresAt: Date.now() - 1000, // expired 1 second ago
@@ -340,14 +416,24 @@ describe('useMobilePermissions', () => {
       idbStorage.set('mobile_permissions_tenant-1_user-1', expiredSettings);
 
       // Backend returns restricted permissions
-      mockFetch.mockResolvedValue(createSuccessResponse({
-        isMobileEnabled: false,
-        allowedFeatures: {
-          mortality: false, cull: false, harvest: false, feeding: false,
-          waterQuality: false, tankView: false, schedule: false,
-          attendance: false, leave: false, tasks: false, transfer: false,
-        },
-      }));
+      mockFetch.mockResolvedValue(
+        createSuccessResponse({
+          isMobileEnabled: false,
+          allowedFeatures: {
+            mortality: false,
+            cull: false,
+            harvest: false,
+            feeding: false,
+            waterQuality: false,
+            tankView: false,
+            schedule: false,
+            attendance: false,
+            leave: false,
+            tasks: false,
+            transfer: false,
+          },
+        }),
+      );
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -360,14 +446,24 @@ describe('useMobilePermissions', () => {
     });
 
     it('should cache with 8-hour TTL', async () => {
-      mockFetch.mockResolvedValue(createSuccessResponse({
-        isMobileEnabled: true,
-        allowedFeatures: {
-          mortality: true, cull: false, harvest: false, feeding: false,
-          waterQuality: false, tankView: false, schedule: false,
-          attendance: false, leave: false, tasks: false, transfer: false,
-        },
-      }));
+      mockFetch.mockResolvedValue(
+        createSuccessResponse({
+          isMobileEnabled: true,
+          allowedFeatures: {
+            mortality: true,
+            cull: false,
+            harvest: false,
+            feeding: false,
+            waterQuality: false,
+            tankView: false,
+            schedule: false,
+            attendance: false,
+            leave: false,
+            tasks: false,
+            transfer: false,
+          },
+        }),
+      );
 
       const now = Date.now();
       vi.spyOn(Date, 'now').mockReturnValue(now);
@@ -401,9 +497,17 @@ describe('useMobilePermissions', () => {
         settings: {
           isMobileEnabled: true,
           allowedFeatures: {
-            mortality: true, cull: false, harvest: false, feeding: false,
-            waterQuality: false, tankView: false, schedule: false,
-            attendance: false, leave: false, tasks: false, transfer: false,
+            mortality: true,
+            cull: false,
+            harvest: false,
+            feeding: false,
+            waterQuality: false,
+            tankView: false,
+            schedule: false,
+            attendance: false,
+            leave: false,
+            tasks: false,
+            transfer: false,
           },
         },
         expiresAt: Date.now() + 4 * 60 * 60 * 1000,
@@ -453,14 +557,24 @@ describe('useMobilePermissions', () => {
 
   describe('canAccess (Feature-Based Control)', () => {
     it('should return true for allowed features when mobile is enabled', async () => {
-      mockFetch.mockResolvedValue(createSuccessResponse({
-        isMobileEnabled: true,
-        allowedFeatures: {
-          mortality: true, cull: false, harvest: true, feeding: false,
-          waterQuality: false, tankView: true, schedule: false,
-          attendance: false, leave: false, tasks: false, transfer: false,
-        },
-      }));
+      mockFetch.mockResolvedValue(
+        createSuccessResponse({
+          isMobileEnabled: true,
+          allowedFeatures: {
+            mortality: true,
+            cull: false,
+            harvest: true,
+            feeding: false,
+            waterQuality: false,
+            tankView: true,
+            schedule: false,
+            attendance: false,
+            leave: false,
+            tasks: false,
+            transfer: false,
+          },
+        }),
+      );
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -476,14 +590,24 @@ describe('useMobilePermissions', () => {
     });
 
     it('should return false for all features when mobile is disabled', async () => {
-      mockFetch.mockResolvedValue(createSuccessResponse({
-        isMobileEnabled: false,
-        allowedFeatures: {
-          mortality: true, cull: true, harvest: true, feeding: true,
-          waterQuality: true, tankView: true, schedule: true,
-          attendance: true, leave: true, tasks: true, transfer: true,
-        },
-      }));
+      mockFetch.mockResolvedValue(
+        createSuccessResponse({
+          isMobileEnabled: false,
+          allowedFeatures: {
+            mortality: true,
+            cull: true,
+            harvest: true,
+            feeding: true,
+            waterQuality: true,
+            tankView: true,
+            schedule: true,
+            attendance: true,
+            leave: true,
+            tasks: true,
+            transfer: true,
+          },
+        }),
+      );
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -497,14 +621,24 @@ describe('useMobilePermissions', () => {
     });
 
     it('should return false for unknown feature key', async () => {
-      mockFetch.mockResolvedValue(createSuccessResponse({
-        isMobileEnabled: true,
-        allowedFeatures: {
-          mortality: true, cull: false, harvest: false, feeding: false,
-          waterQuality: false, tankView: false, schedule: false,
-          attendance: false, leave: false, tasks: false, transfer: false,
-        },
-      }));
+      mockFetch.mockResolvedValue(
+        createSuccessResponse({
+          isMobileEnabled: true,
+          allowedFeatures: {
+            mortality: true,
+            cull: false,
+            harvest: false,
+            feeding: false,
+            waterQuality: false,
+            tankView: false,
+            schedule: false,
+            attendance: false,
+            leave: false,
+            tasks: false,
+            transfer: false,
+          },
+        }),
+      );
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),
@@ -555,8 +689,18 @@ describe('useMobilePermissions', () => {
       expect(result.current.permissionsDegraded).toBe(true);
 
       const allFeatures: MobileFeature[] = [
-        'mortality', 'cull', 'harvest', 'feeding', 'waterQuality',
-        'tankView', 'schedule', 'attendance', 'leave', 'tasks', 'transfer', 'storage',
+        'mortality',
+        'cull',
+        'harvest',
+        'feeding',
+        'waterQuality',
+        'tankView',
+        'schedule',
+        'attendance',
+        'leave',
+        'tasks',
+        'transfer',
+        'storage',
       ];
       for (const feature of allFeatures) {
         expect(result.current.canAccess(feature)).toBe(false);
@@ -569,9 +713,17 @@ describe('useMobilePermissions', () => {
         settings: {
           isMobileEnabled: true,
           allowedFeatures: {
-            mortality: true, cull: false, harvest: false, feeding: false,
-            waterQuality: false, tankView: false, schedule: false,
-            attendance: false, leave: true, tasks: true, transfer: false,
+            mortality: true,
+            cull: false,
+            harvest: false,
+            feeding: false,
+            waterQuality: false,
+            tankView: false,
+            schedule: false,
+            attendance: false,
+            leave: true,
+            tasks: true,
+            transfer: false,
             storage: false,
           },
         },
@@ -610,9 +762,17 @@ describe('useMobilePermissions', () => {
         settings: {
           isMobileEnabled: true,
           allowedFeatures: {
-            mortality: true, cull: true, harvest: false, feeding: false,
-            waterQuality: false, tankView: false, schedule: false,
-            attendance: false, leave: false, tasks: false, transfer: false,
+            mortality: true,
+            cull: true,
+            harvest: false,
+            feeding: false,
+            waterQuality: false,
+            tankView: false,
+            schedule: false,
+            attendance: false,
+            leave: false,
+            tasks: false,
+            transfer: false,
             storage: false,
           },
         },
@@ -639,9 +799,17 @@ describe('useMobilePermissions', () => {
         settings: {
           isMobileEnabled: true,
           allowedFeatures: {
-            mortality: true, cull: true, harvest: true, feeding: true,
-            waterQuality: true, tankView: true, schedule: true,
-            attendance: true, leave: true, tasks: true, transfer: true,
+            mortality: true,
+            cull: true,
+            harvest: true,
+            feeding: true,
+            waterQuality: true,
+            tankView: true,
+            schedule: true,
+            attendance: true,
+            leave: true,
+            tasks: true,
+            transfer: true,
             storage: true,
           },
         },
@@ -657,18 +825,28 @@ describe('useMobilePermissions', () => {
         role: 'MODULE_USER' as const,
         tenantId: 'tenant-2',
       };
-      (mockAuth).tenantId = 'tenant-2';
+      mockAuth.tenantId = 'tenant-2';
 
       // Backend returns restricted permissions for tenant-2
-      mockFetch.mockResolvedValue(createSuccessResponse({
-        isMobileEnabled: false,
-        allowedFeatures: {
-          mortality: false, cull: false, harvest: false, feeding: false,
-          waterQuality: false, tankView: false, schedule: false,
-          attendance: false, leave: false, tasks: false, transfer: false,
-          storage: false,
-        },
-      }));
+      mockFetch.mockResolvedValue(
+        createSuccessResponse({
+          isMobileEnabled: false,
+          allowedFeatures: {
+            mortality: false,
+            cull: false,
+            harvest: false,
+            feeding: false,
+            waterQuality: false,
+            tankView: false,
+            schedule: false,
+            attendance: false,
+            leave: false,
+            tasks: false,
+            transfer: false,
+            storage: false,
+          },
+        }),
+      );
 
       const { result } = renderHook(() => useMobilePermissions(), {
         wrapper: createWrapper(),

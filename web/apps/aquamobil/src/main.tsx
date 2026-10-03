@@ -1,3 +1,4 @@
+import { I18nProvider } from '@aquaculture/shared-ui/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -9,7 +10,6 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { IdentityBoundary } from './components/IdentityBoundary';
 import { AuthProvider } from './hooks/useAuth';
 import { OfflineProvider } from './hooks/useOfflineQueue';
-import { I18nProvider } from './i18n';
 import { announceUpdate } from './pwa/update-available';
 import './styles/main.css';
 import { logger } from './utils/logger';
@@ -97,7 +97,7 @@ ReactDOM.createRoot(rootElement).render(
       <ErrorBoundary>
         {/* P-28: mobil i18n — dil tarayıcıdan sezilir (varsayılan tr).
             Router/Auth ÜSTÜNDE: hata kartları dahil her yüzey t() erişir. */}
-        <I18nProvider>
+        <I18nProvider locale="en">
           <BrowserRouter basename="/mobile">
             <AuthProvider>
               <IdentityBoundary>
@@ -110,5 +110,5 @@ ReactDOM.createRoot(rootElement).render(
         </I18nProvider>
       </ErrorBoundary>
     </QueryClientProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );

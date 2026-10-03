@@ -253,7 +253,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
   };
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="sd-page h-full flex flex-col">
       {/* Header */}
       <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
         <PageHeader

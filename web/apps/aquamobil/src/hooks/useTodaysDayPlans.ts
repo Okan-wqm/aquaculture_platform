@@ -53,8 +53,16 @@ export function localPlanDate(now: Date = new Date()): string {
 export interface TodaysDayPlansResult {
   plans: FeedingDayPlanSlice[];
   isLoading: boolean;
+  /**
+   * Sorgu düştü mü. Hata kolu DIŞARI VERİLİR: yutulursa ekran "bugün plan yok"
+   * ile "planı okuyamadım"ı ayırt edemez ve outage otoriter bir iddiaya
+   * dönüşür (src/utils/loadable.ts).
+   */
+  isError: boolean;
   /** Ağ yanıtı yok, ekran çevrimdışı cache'ten besleniyor. */
   isOfflineCached: boolean;
+  /** Düşen sorguyu yeniden dener. */
+  retry: () => void;
   planDate: string;
 }
 
@@ -82,7 +90,7 @@ export function useTodaysDayPlans(): TodaysDayPlansResult {
     };
   }, [tenantId, cacheKey]);
 
-  const { data, isLoading, isSuccess } = useQuery<FeedingDayPlanSlice[]>({
+  const { data, isLoading, isSuccess, isError, refetch } = useQuery<FeedingDayPlanSlice[]>({
     queryKey: createTenantQueryKey(tenantId, 'feedingDayPlans', tenantId, planDate),
     queryFn: async () => {
       if (!accessToken || !tenantId) {
@@ -104,5 +112,14 @@ export function useTodaysDayPlans(): TodaysDayPlansResult {
   const plans = isSuccess ? (data ?? []) : (cachedSeed ?? []);
   const isOfflineCached = !isSuccess && (cachedSeed?.length ?? 0) > 0;
 
-  return { plans, isLoading, isOfflineCached, planDate };
+  return {
+    plans,
+    isLoading,
+    isError,
+    isOfflineCached,
+    retry: () => {
+      void refetch();
+    },
+    planDate,
+  };
 }

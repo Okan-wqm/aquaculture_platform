@@ -15,9 +15,13 @@
  * list translates its rows), and takes its dialog semantics from
  * `useDialogBehavior`, so a screen cannot get them wrong by hand.
  *
- * Sizes: `auto` (content height, capped at 85vh), `tall` (a fixed 70vh for
+ * Sizes: `auto` (content height, capped at 88vh), `tall` (a fixed 70vh for
  * scrolling lists), `full` (the whole viewport, page-header layout with the
  * close control leading).
+ *
+ * v4: the sheet springs from the dock — it rises on a spring curve from the
+ * bottom edge, where the thumb and the dock's scan button already are, over a
+ * blurred scrim, on the ground surface with a grabber. Colour is token-only.
  */
 import { clsx } from 'clsx';
 import { X } from 'lucide-react';
@@ -64,8 +68,8 @@ export interface BottomSheetProps {
 }
 
 const PANEL_SIZE_CLASS: Record<BottomSheetSize, string> = {
-  auto: 'max-h-[85vh] rounded-t-3xl pb-safe',
-  tall: 'h-[70vh] rounded-t-3xl pb-safe',
+  auto: 'max-h-[88vh] rounded-t-[26px] border border-b-0 border-line-strong pb-safe',
+  tall: 'h-[70vh] rounded-t-[26px] border border-b-0 border-line-strong pb-safe',
   full: 'h-[100dvh] rounded-none pt-safe-top pb-safe',
 };
 
@@ -98,9 +102,9 @@ export function BottomSheet({
       aria-label={closeLabel}
       onClick={onClose}
       disabled={isBusy}
-      className="text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+      className="bg-surface-2 rounded-xl"
     >
-      <X size={22} />
+      <X size={16} className="text-ink-2" />
     </IconButton>
   ) : null;
 
@@ -110,7 +114,10 @@ export function BottomSheet({
           accessible dismissal; the sheet is modal, so nothing behind it is
           reachable anyway. */}
       <div
-        className={clsx('absolute inset-0 bg-black/40 animate-fade-in', isFull && 'hidden')}
+        className={clsx(
+          'absolute inset-0 bg-black/60 backdrop-blur-[3px] animate-am-fade',
+          isFull && 'hidden',
+        )}
         onClick={isBusy ? undefined : onClose}
         aria-hidden="true"
       />
@@ -125,37 +132,32 @@ export function BottomSheet({
         tabIndex={-1}
         className={twMerge(
           clsx(
-            'relative flex w-full max-w-lg flex-col bg-white shadow-elevated outline-none dark:bg-gray-900 animate-slide-up',
+            'relative flex w-full max-w-lg flex-col overflow-hidden bg-surface-0 outline-none animate-am-up',
+            'shadow-[0_-20px_50px_rgba(2,8,18,0.5)]',
             PANEL_SIZE_CLASS[size],
           ),
           className,
         )}
       >
         {!isFull && (
-          <div className="flex flex-shrink-0 justify-center pt-3 pb-2" aria-hidden="true">
-            <div className="h-1 w-10 rounded-full bg-gray-300 dark:bg-gray-700" />
+          <div className="flex flex-shrink-0 justify-center pt-3 pb-1" aria-hidden="true">
+            <div className="h-1 w-9 rounded-full bg-line-strong" />
           </div>
         )}
 
         <div
           className={clsx(
             'flex flex-shrink-0 items-center gap-3',
-            isFull ? 'border-b border-gray-100 px-3 py-2 dark:border-gray-800' : 'px-5 pb-3',
+            isFull ? 'border-b border-line px-3 py-2' : 'px-5 pt-2 pb-3',
           )}
         >
           {isFull && closeControl}
           <div className="min-w-0 flex-1">
-            <h2
-              id={titleId}
-              className={clsx(
-                'font-semibold text-gray-900 dark:text-white',
-                isFull ? 'text-lg' : 'text-base font-bold',
-              )}
-            >
+            <h2 id={titleId} className="truncate text-head font-semibold text-ink-1">
               {title}
             </h2>
             {description && (
-              <p id={descriptionId} className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              <p id={descriptionId} className="mt-0.5 text-meta text-ink-3">
                 {description}
               </p>
             )}
@@ -169,7 +171,7 @@ export function BottomSheet({
         </div>
 
         {footer && (
-          <div className="flex-shrink-0 border-t border-gray-100 px-5 pt-3 dark:border-gray-800">
+          <div className="flex-shrink-0 border-t border-line bg-surface-0 px-5 pt-2 pb-4">
             {footer}
           </div>
         )}

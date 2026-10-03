@@ -8,12 +8,10 @@ import type { JSX } from 'react';
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { SectionTitle, Select } from '../../components/ui';
-
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
+import { AppHeader } from '@/components/AppHeader';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { Spinner } from '@/components/ui/Spinner';
+import { Card, DataState, EmptyState, Select } from '@/components/ui';
 import type {
   EquipmentListQuery,
   EquipmentListQueryVariables,
@@ -24,6 +22,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { QueuedPayload } from '@/types';
+import { toLoadable } from '@/utils/loadable';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ============================================================================
@@ -49,19 +48,47 @@ type FieldValue = number | string | boolean;
  * ensuring non-tank equipment (sensors, pumps, filters) with
  * status='operational' are included alongside tank equipment (status='active').
  */
-const EQUIPMENT_LIST_QUERY: TypedDocumentNode<EquipmentListQuery, EquipmentListQueryVariables> = gql`
-  query EquipmentList($filter: EquipmentFilterInput) {
-    equipmentList(filter: $filter) { items { id name code equipmentType { category name } } }
-  }
-`;
+const EQUIPMENT_LIST_QUERY: TypedDocumentNode<EquipmentListQuery, EquipmentListQueryVariables> =
+  gql`
+    query EquipmentList($filter: EquipmentFilterInput) {
+      equipmentList(filter: $filter) {
+        items {
+          id
+          name
+          code
+          equipmentType {
+            category
+            name
+          }
+        }
+      }
+    }
+  `;
 
-const EQUIPMENT_PARAMS_QUERY: TypedDocumentNode<EquipmentParametersQuery, EquipmentParametersQueryVariables> = gql`
+const EQUIPMENT_PARAMS_QUERY: TypedDocumentNode<
+  EquipmentParametersQuery,
+  EquipmentParametersQueryVariables
+> = gql`
   query EquipmentParameters($equipmentId: ID!) {
     equipmentParameters(equipmentId: $equipmentId) {
       parameterConfig {
-        id code name unit dataType precision group
-        optimalMin optimalMax warningMin warningMax criticalMin criticalMax
-        enumValues displayOrder isRequired chartColor
+        id
+        code
+        name
+        unit
+        dataType
+        precision
+        group
+        optimalMin
+        optimalMax
+        warningMin
+        warningMax
+        criticalMin
+        criticalMax
+        enumValues
+        displayOrder
+        isRequired
+        chartColor
       }
     }
   }
@@ -74,8 +101,11 @@ const EQUIPMENT_PARAMS_QUERY: TypedDocumentNode<EquipmentParametersQuery, Equipm
 const MRU_KEY = 'aquamobil-wq-mru';
 
 function getMRU(): string[] {
-  try { return JSON.parse(localStorage.getItem(MRU_KEY) || '[]') as string[]; }
-  catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(MRU_KEY) || '[]') as string[];
+  } catch {
+    return [];
+  }
 }
 
 function addMRU(id: string): void {
@@ -109,12 +139,10 @@ export function WaterQualityRecordPage(): JSX.Element {
   // -- Equipment list --------------------------------------------------------
   // Uses isActive filter to include ALL active equipment (tanks, sensors, pumps)
   // regardless of operational status. This matches the web RecordTab behavior.
-  const { data: equipmentData, isLoading: equipmentLoading } = useQuery<EquipmentItem[]>({
+  const equipmentQuery = useQuery<EquipmentItem[]>({
     queryKey: createTenantQueryKey(tenantId, 'equipment-list', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest(
-        EQUIPMENT_LIST_QUERY, { filter: { isActive: true } },
-      );
+      const result = await graphqlRequest(EQUIPMENT_LIST_QUERY, { filter: { isActive: true } });
       return result.equipmentList?.items ?? [];
     },
     // Offline-capable: React Query serves stale cache when offline (gcTime: 1h).
@@ -124,7 +152,13 @@ export function WaterQualityRecordPage(): JSX.Element {
     staleTime: 1000 * 60 * 10,
     gcTime: 1000 * 60 * 60,
   });
-  const equipment = useMemo(() => equipmentData ?? [], [equipmentData]);
+  const equipment = useMemo(() => equipmentQuery.data ?? [], [equipmentQuery.data]);
+  // The picker is the load-bearing control on this screen: it decides WHICH
+  // equipment the reading is written against. A failed fetch used to leave the
+  // <select> holding nothing but its placeholder, i.e. "this tenant has no
+  // equipment" — a different claim from "we could not read the list", and the
+  // one that makes a worker walk away. Loadable makes the error arm unskippable.
+  const equipmentView = toLoadable(equipmentQuery);
 
   // -- MRU-sorted + grouped equipment for <select> ---------------------------
   const mruIds = useMemo(() => getMRU(), []);
@@ -148,23 +182,33 @@ export function WaterQualityRecordPage(): JSX.Element {
   }, [equipment, mruIds]);
 
   // -- Parameter configs for selected equipment ------------------------------
-  const { data: parameterConfigs, isLoading: paramsLoading } = useQuery<ParameterFieldConfig[]>({
+  const parametersQuery = useQuery<ParameterFieldConfig[]>({
     queryKey: createTenantQueryKey(tenantId, 'equipment-params', selectedEquipmentId, tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest(
-        EQUIPMENT_PARAMS_QUERY, { equipmentId: selectedEquipmentId },
-      );
+      const result = await graphqlRequest(EQUIPMENT_PARAMS_QUERY, {
+        equipmentId: selectedEquipmentId,
+      });
       return (result.equipmentParameters ?? [])
         .map((ep) => {
           const pc = ep.parameterConfig;
           return {
-            code: pc.code, name: pc.name, unit: pc.unit, dataType: pc.dataType,
-            precision: pc.precision, enumValues: pc.enumValues, isRequired: pc.isRequired,
-            group: pc.group, displayOrder: pc.displayOrder, chartColor: pc.chartColor,
+            code: pc.code,
+            name: pc.name,
+            unit: pc.unit,
+            dataType: pc.dataType,
+            precision: pc.precision,
+            enumValues: pc.enumValues,
+            isRequired: pc.isRequired,
+            group: pc.group,
+            displayOrder: pc.displayOrder,
+            chartColor: pc.chartColor,
             limits: {
-              optimalMin: pc.optimalMin, optimalMax: pc.optimalMax,
-              warningMin: pc.warningMin, warningMax: pc.warningMax,
-              criticalMin: pc.criticalMin, criticalMax: pc.criticalMax,
+              optimalMin: pc.optimalMin,
+              optimalMax: pc.optimalMax,
+              warningMin: pc.warningMin,
+              warningMax: pc.warningMax,
+              criticalMin: pc.criticalMin,
+              criticalMax: pc.criticalMax,
             },
           } satisfies ParameterFieldConfig;
         })
@@ -175,16 +219,18 @@ export function WaterQualityRecordPage(): JSX.Element {
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 30,
   });
+  // Same reason as the picker, one step further in: a failed parameter fetch
+  // rendered NOTHING AT ALL under the selector — no form, no message — which
+  // reads as "this equipment has nothing to measure". The three states are now
+  // separately drawn, and only the ready one reaches the form.
+  const parametersView = toLoadable(parametersQuery);
 
   // -- Submit handler --------------------------------------------------------
   const handleSubmit = useCallback(
     async (values: Record<string, FieldValue>, notes: string, weatherConditions?: string) => {
       setSubmitError(null);
       const dynamicParameters = Object.fromEntries(
-        Object.entries(values).map(([parameterCode, value]) => [
-          parameterCode,
-          value,
-        ]),
+        Object.entries(values).map(([parameterCode, value]) => [parameterCode, value]),
       ) as Record<string, number | string | boolean>;
       const input: QueuedPayload<'createWaterQuality'> = {
         equipmentId: selectedEquipmentId,
@@ -216,18 +262,16 @@ export function WaterQualityRecordPage(): JSX.Element {
     [selectedEquipmentId, addToQueue, navigate],
   );
 
-  const handleEquipmentChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      setSelectedEquipmentId(e.target.value);
-      setSubmitError(null);
-    },
-    [],
-  );
+  const handleEquipmentChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedEquipmentId(e.target.value);
+    setSubmitError(null);
+  }, []);
 
   // -- Success screen: honest sync status, never an unconditional green ------
   if (queuedOperationId !== '') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+      // No page tint: the ground belongs to <body>; the receipt carries the colour.
+      <div className="flex flex-col items-center justify-center min-h-screen">
         {wasDuplicate ? (
           <AlreadyRecordedNotice />
         ) : (
@@ -239,87 +283,107 @@ export function WaterQualityRecordPage(): JSX.Element {
 
   // -- Main render -----------------------------------------------------------
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Gradient Header */}
-      <PageHeader
-        tone="cyan"
-        icon={Droplets}
+    <div className="min-h-screen">
+      {/* v4: the cyan→blue gradient bar becomes the app's one header. The water
+          hue survives on the Droplets mark, which is what identified the screen;
+          the gradient only cost contrast in daylight. */}
+      <AppHeader
         title="Water Quality"
         subtitle="Record measurements"
+        onBack={() => navigate(-1)}
+        showAvatar={false}
+        actions={<Droplets size={20} className="text-type-water" aria-hidden />}
       />
 
       {/* Error Banner */}
       {submitError && (
-        <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
-          <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-          <span className="text-red-600 dark:text-red-300 text-sm">{submitError}</span>
-        </div>
+        <Card className="mx-4 mt-3 p-3 flex items-center gap-2 border-crit" role="alert">
+          <AlertCircle size={18} className="text-crit flex-shrink-0" />
+          <span className="text-crit text-body">{submitError}</span>
+        </Card>
       )}
 
-      {/* Equipment Selector */}
+      {/* Equipment Selector — the write path's SSoT (ORPHAN-CRITICAL-581): the
+          reading is stored against whatever is chosen here, so this control is
+          load-bearing, not chrome. */}
       {!routeEquipmentId && (
-        <>
-          <SectionTitle>Select Equipment</SectionTitle>
-          <div className="px-4">
-            <Select label="Equipment" hideLabel value={selectedEquipmentId} onChange={handleEquipmentChange}>
-              <option value="">-- Select Equipment --</option>
-              {Object.entries(groupedEquipment).map(([category, items]) => (
-                <optgroup key={category} label={category}>
-                  {items.map((eq) => (
-                    <option key={eq.id} value={eq.id}>{eq.name} ({eq.code})</option>
-                  ))}
-                </optgroup>
-              ))}
-            </Select>
-          </div>
-        </>
-      )}
-
-      {/* Loading states */}
-      {equipmentLoading && !routeEquipmentId && (
-        <div className="flex items-center justify-center py-12">
-          <Spinner size="lg" />
-          <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading equipment...</span>
-        </div>
-      )}
-      {selectedEquipmentId && paramsLoading && (
-        <div className="flex items-center justify-center py-12">
-          <Spinner size="lg" />
-          <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading parameters...</span>
-        </div>
-      )}
-
-      {/* No parameters warning */}
-      {selectedEquipmentId && !paramsLoading && parameterConfigs && parameterConfigs.length === 0 && (
-        <div className="mx-4 mt-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
-          <p className="text-amber-700 dark:text-amber-300 font-medium">No parameters configured</p>
-          <p className="text-amber-600 dark:text-amber-400 text-sm mt-1">
-            This equipment has no water quality parameters assigned.
-          </p>
+        <div className="px-4 mt-4">
+          <DataState
+            value={equipmentView}
+            label="the equipment list"
+            skeleton="row"
+            skeletonCount={1}
+            empty={
+              <EmptyState
+                icon={<Droplets size={22} />}
+                title="No equipment"
+                description="No active equipment is assigned to this tenant yet."
+              />
+            }
+          >
+            {() => (
+              <Select
+                label="Select Equipment"
+                value={selectedEquipmentId}
+                onChange={handleEquipmentChange}
+              >
+                <option value="">-- Select Equipment --</option>
+                {Object.entries(groupedEquipment).map(([category, items]) => (
+                  <optgroup key={category} label={category}>
+                    {items.map((eq) => (
+                      <option key={eq.id} value={eq.id}>
+                        {eq.name} ({eq.code})
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </Select>
+            )}
+          </DataState>
         </div>
       )}
 
-      {/* Dynamic Measurement Form */}
-      {selectedEquipmentId && parameterConfigs && parameterConfigs.length > 0 && (
+      {/* Dynamic Measurement Form — the parameter set is the equipment's own
+          ParameterFieldConfig, so it can be loading, absent, or unreadable, and
+          those are three different things. */}
+      {selectedEquipmentId && (
         <div className="px-4 mt-4 pb-safe-bottom pb-8">
-          <DynamicMeasurementForm
-            variant="mobile"
-            parameters={parameterConfigs}
-            onSubmit={(values, notes, weatherConditions) => {
-              void handleSubmit(values, notes, weatherConditions);
-            }}
-            isSubmitting={isSubmitting}
-            error={submitError}
-            showWeather
-          />
+          <DataState
+            value={parametersView}
+            label="this equipment's parameters"
+            skeleton="row"
+            skeletonCount={4}
+            empty={
+              <EmptyState
+                icon={<AlertCircle size={22} />}
+                title="No parameters configured"
+                description="This equipment has no water quality parameters assigned."
+              />
+            }
+          >
+            {(parameters) => (
+              <DynamicMeasurementForm
+                variant="mobile"
+                parameters={parameters}
+                onSubmit={(values, notes, weatherConditions) => {
+                  void handleSubmit(values, notes, weatherConditions);
+                }}
+                isSubmitting={isSubmitting}
+                error={submitError}
+                showWeather
+              />
+            )}
+          </DataState>
         </div>
       )}
 
       {/* Offline indicator */}
       {!isOnline && (
-        <div className="fixed bottom-nav-gap left-4 right-4 bg-amber-500 text-white rounded-xl p-3 text-center text-sm font-medium shadow-lg">
-          You are offline. Measurements will be synced when connected.
-        </div>
+        <Card className="fixed bottom-nav-gap left-4 right-4 p-3 text-center border-warn">
+          <span className="text-warn text-body font-medium">
+            You are offline. Measurements will be synced when connected.
+          </span>
+        </Card>
       )}
     </div>
   );

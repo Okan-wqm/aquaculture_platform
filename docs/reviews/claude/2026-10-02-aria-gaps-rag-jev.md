@@ -67,3 +67,26 @@ in the arbiter ruling).
 
 Rule: Signing material that a later job must verify against lives where that job can read it, and
 no runner-readable location holds operator signing authority.
+
+## ARIA-LOW-318
+
+Recorded 2026-10-03, the core half of ARIA-LOW-252 under the rev3.1 design (Jev as System One, a
+reflex layer below the judges rather than a judge provider). Nothing in the kernel can reach the
+vendor: there is no bounded transport whose failures are returned instead of raised, no
+operator-owned registry of the measured questions (J0, R5, J2, R4, J1 tenant-scoping), and no
+ledger that records a call without its input. Until all three exist, no decision point can ask a
+registered question even in shadow.
+
+Rule: A model the protocol may ask is reached through one bounded transport whose failures are
+returned, asks only operator-owned questions, and records every call without its input.
+
+## ARIA-LOW-319
+
+Recorded 2026-10-03, the wiring half of ARIA-LOW-252. The decision points the questions were
+validated for do not ask them: the PR opener records no J0 for the findings a branch claims to
+close and no R5 for its title and body against its diff, the merge authority records no J0 per
+`Closes:` trailer, the judge fan-out records no J1 for tenant-scoping findings, and no planner or
+implementer envelope can carry ranked candidate files (R4).
+
+Rule: A validated reflex is asked, in shadow, at every decision point it was validated for, and
+steers nothing until the operator promotes its question.

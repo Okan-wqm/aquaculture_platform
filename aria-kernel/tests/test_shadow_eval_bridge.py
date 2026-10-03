@@ -4,7 +4,7 @@ Deliberate-break of the whole C4 arc: C4-a minted operator approvals,
 C4-b derived sandbox evidence, C4-c recorded the prefix chain up to
 DRAFT — yet `_target_is_shadow` had never once flipped TRUE through a
 production-shaped path, because nothing joined a completed invocation's
-ledger rows to `run_agent_eval(mock_mode=False)` and the two
+ledger rows to `run_agent_eval` and the two
 REAL_SANDBOX/SHADOW transitions. These tests prove the bridge closes
 that gap end-to-end, and that a tampered transcript hash or a missing
 operator-provenance row still refuses.

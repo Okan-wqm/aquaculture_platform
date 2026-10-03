@@ -4,11 +4,12 @@ What this suite pins (≥12 tests):
 - Fixture schema validation (9 required fields, verdict_class enum, regex
   on fixture_id, list shape on expected_evidence_refs).
 - add_fixture idempotent on identical content; rejects content drift.
-- run_agent_eval mock_mode=True writes runs.jsonl + emits
-  agent_eval_run_mock_only governance event.
-- mock_mode=False without real_response_envelope raises GovernanceError.
-- mock_mode=False with envelope writes runs.jsonl + emits
+- (ARIA-HIGH-285) every persisted run is real: runs.jsonl gets the row and
+  governance gets agent_eval_run_real, never agent_eval_run_mock_only.
+- A run without real_response_envelope raises GovernanceError.
+- A run with a ledger-bound envelope writes runs.jsonl + emits
   agent_eval_run_real governance event.
+- Historical mock rows (aria/state holds 30) stay readable and segregated.
 - Pass criteria: verdict_class match + evidence_refs SUPERSET.
 - aggregate_eval_metrics 6-key shape (pass_rate / mean_rounds /
   mean_tokens / FP / FN / consistency).
@@ -66,6 +67,20 @@ def _sample_fixture(fid: str = "F999_TEST", verdict: str = "ACCEPTED",
         "max_rounds": 3,
         "max_tokens": 8000,
     }
+
+
+def _historical_mock_row(tools: Path, fixture_id: str) -> None:
+    """A mock-mode row as aria/state still holds 30 of them (ARIA-HIGH-285):
+    the kernel can no longer write one, and its readers still segregate it."""
+    append_declared_jsonl(
+        tools / "agent-evals" / "runs.jsonl",
+        {"$schema": EVAL_RUN_SCHEMA, "schema_version": 1, "fixture_id": fixture_id,
+         "target_agent": "aria-evidence-judge", "role": "evidence_judgment", "mock_mode": True,
+         "passed": True, "verdict_match": True, "evidence_match": True, "missing_evidence_refs": [],
+         "rounds_used": 1, "tokens_used": 1024, "provenance_mode": "mock",
+         "recorded_at": datetime.now(timezone.utc).isoformat()},
+        expected_surface="agent_evals",
+    )
 
 
 def _bind_real_invocation(
@@ -313,10 +328,13 @@ class AddFixtureIdempotenceTests(unittest.TestCase):
         )
         self.assertEqual(list_fixtures(base_dir=self.tools), [])
         with self.assertRaisesRegex(GovernanceError, "ledger row not found"):
-            run_agent_eval(fixture_id="F1_A", base_dir=self.tools, mock_mode=True)
+            run_agent_eval(fixture_id="F1_A", base_dir=self.tools)
 
 
-class RunAgentEvalMockModeTests(unittest.TestCase):
+class RunAgentEvalPersistenceTests(unittest.TestCase):
+    """ARIA-HIGH-285 — a persisted run is a real one: the kernel has no
+    synthesized envelope left to persist."""
+
     def setUp(self) -> None:
         self.tools = _seed()
         add_fixture(fixture=_sample_fixture(), base_dir=self.tools)
@@ -324,27 +342,29 @@ class RunAgentEvalMockModeTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tools.parent, ignore_errors=True)
 
-    def test_mock_run_passes_against_matching_fixture(self) -> None:
-        run = run_agent_eval(
-            fixture_id="F999_TEST", base_dir=self.tools, mock_mode=True,
+    def _real_run(self) -> dict:
+        invocation_id, transcript_hash, refs = _bind_real_invocation(self.tools)
+        return run_agent_eval(
+            fixture_id="F999_TEST", base_dir=self.tools,
+            real_response_envelope={"verdict_class": "ACCEPTED", "evidence_refs": ["docs/x.md:1"],
+                                    "rounds_used": 1, "tokens_used": 100},
+            invocation_id=invocation_id, transcript_hash=transcript_hash, **refs,
         )
-        self.assertTrue(run["passed"])
-        self.assertTrue(run["mock_mode"])
-        self.assertEqual(run["$schema"], EVAL_RUN_SCHEMA)
 
-    def test_mock_run_emits_mock_only_governance_event(self) -> None:
-        run_agent_eval(fixture_id="F999_TEST", base_dir=self.tools, mock_mode=True)
+    def test_run_emits_only_the_real_governance_event(self) -> None:
+        self._real_run()
         gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()
         kinds = [json.loads(line)["kind"] for line in gov if line.strip()]
-        self.assertIn("agent_eval_run_mock_only", kinds)
-        self.assertNotIn("agent_eval_run_real", kinds)
+        self.assertIn("agent_eval_run_real", kinds)
+        self.assertNotIn("agent_eval_run_mock_only", kinds)
 
     def test_run_persists_to_runs_jsonl(self) -> None:
-        run_agent_eval(fixture_id="F999_TEST", base_dir=self.tools, mock_mode=True)
+        self._real_run()
         runs_path = self.tools / "agent-evals" / "runs.jsonl"
         self.assertTrue(runs_path.exists())
         rows = [json.loads(line) for line in runs_path.read_text(encoding="utf-8").splitlines() if line.strip()]
         self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]["mock_mode"], rows[0]["$schema"]), (False, EVAL_RUN_SCHEMA))
 
 
 class RunAgentEvalRealModeTests(unittest.TestCase):
@@ -358,7 +378,7 @@ class RunAgentEvalRealModeTests(unittest.TestCase):
     def test_real_mode_without_envelope_raises(self) -> None:
         with self.assertRaises(GovernanceError) as cm:
             run_agent_eval(
-                fixture_id="F999_TEST", base_dir=self.tools, mock_mode=False, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
+                fixture_id="F999_TEST", base_dir=self.tools, allow_legacy_envelope_feed=True, operator_approval_ref="test:plan-023-a8-legacy",
             )
         self.assertIn("real_response_envelope", str(cm.exception))
 
@@ -372,7 +392,6 @@ class RunAgentEvalRealModeTests(unittest.TestCase):
         run = run_agent_eval(
             fixture_id="F999_TEST",
             base_dir=self.tools,
-            mock_mode=False,
             real_response_envelope=envelope,
             invocation_id=invocation_id,
             transcript_hash=transcript_hash,
@@ -391,7 +410,6 @@ class RunAgentEvalRealModeTests(unittest.TestCase):
         run_agent_eval(
             fixture_id="F999_TEST",
             base_dir=self.tools,
-            mock_mode=False,
             real_response_envelope=envelope,
             invocation_id=invocation_id,
             transcript_hash=transcript_hash,
@@ -412,8 +430,7 @@ class RunAgentEvalRealModeTests(unittest.TestCase):
             run_agent_eval(
                 fixture_id="F999_TEST",
                 base_dir=self.tools,
-                mock_mode=False,
-                real_response_envelope=envelope,
+                    real_response_envelope=envelope,
                 invocation_id="claim-real-1",
                 transcript_hash="sha256:" + "a" * 64,
             )
@@ -427,7 +444,6 @@ class RunAgentEvalRealModeTests(unittest.TestCase):
         run = run_agent_eval(
             fixture_id="F999_TEST",
             base_dir=self.tools,
-            mock_mode=False,
             real_response_envelope={
                 "verdict_class": "ACCEPTED",
                 "evidence_refs": ["docs/x.md:1"],
@@ -449,8 +465,7 @@ class RunAgentEvalRealModeTests(unittest.TestCase):
             run_agent_eval(
                 fixture_id="F999_TEST",
                 base_dir=self.tools,
-                mock_mode=False,
-                real_response_envelope={
+                    real_response_envelope={
                     "verdict_class": "ACCEPTED",
                     "evidence_refs": ["docs/x.md:1"],
                     "rounds_used": 1,
@@ -480,7 +495,6 @@ class PassCriteriaTests(unittest.TestCase):
         run = run_agent_eval(
             fixture_id="F999_TEST",
             base_dir=self.tools,
-            mock_mode=False,
             real_response_envelope=envelope,
             invocation_id=invocation_id,
             transcript_hash=transcript_hash,
@@ -499,7 +513,6 @@ class PassCriteriaTests(unittest.TestCase):
         run = run_agent_eval(
             fixture_id="F999_TEST",
             base_dir=self.tools,
-            mock_mode=False,
             real_response_envelope=envelope,
             invocation_id=invocation_id,
             transcript_hash=transcript_hash,
@@ -520,7 +533,7 @@ class AggregateMetricsTests(unittest.TestCase):
 
     def test_aggregate_returns_six_key_shape(self) -> None:
         for _ in range(3):
-            run_agent_eval(fixture_id="F1", base_dir=self.tools, mock_mode=True)
+            _historical_mock_row(self.tools, "F1")
         agg = aggregate_eval_metrics(
             target_agent="aria-evidence-judge",
             base_dir=self.tools, window_days=30, mock_mode=True,
@@ -552,7 +565,7 @@ class ModeSegregationTests(unittest.TestCase):
 
     def test_count_runs_by_mode(self) -> None:
         for _ in range(2):
-            run_agent_eval(fixture_id="F1", base_dir=self.tools, mock_mode=True)
+            _historical_mock_row(self.tools, "F1")
         invocation_id, transcript_hash, refs = _bind_real_invocation(
             self.tools,
             fixture_id="F1",
@@ -563,7 +576,7 @@ class ModeSegregationTests(unittest.TestCase):
             "rounds_used": 1, "tokens_used": 100,
         }
         run_agent_eval(
-            fixture_id="F1", base_dir=self.tools, mock_mode=False,
+            fixture_id="F1", base_dir=self.tools,
             real_response_envelope=envelope,
             invocation_id=invocation_id,
             transcript_hash=transcript_hash,

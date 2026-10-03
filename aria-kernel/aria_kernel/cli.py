@@ -1225,12 +1225,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to JSON fixture file conforming to aria/agent-eval-fixture/v1.")
     eval_run = add_subparser(eval_sub, "run")
     eval_run.add_argument("--fixture-id", required=True)
-    eval_run.add_argument("--mock-mode", action="store_true", default=True,
-        help="Run mock-mode (default; produces deterministic envelope).")
-    eval_run.add_argument("--real-envelope-file", default=None,
-        help="JSON file with real_response_envelope (required when --mock-mode is unset).")
-    eval_run.add_argument("--no-mock-mode", action="store_true",
-        help="Disable mock mode; requires --real-envelope-file.")
+    # ARIA-HIGH-285 — no mock flag: a run checks a recorded real response.
+    eval_run.add_argument("--real-envelope-file", required=True,
+        help="JSON file with the real_response_envelope of a ledger-bound invocation.")
     eval_run.add_argument("--invocation-id", default=None,
         help="Required in real mode: upstream invocation/lease id.")
     eval_run.add_argument("--transcript-hash", default=None,
@@ -1253,6 +1250,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional real mode: SourceLedgerRef JSON or JSON file for context row.")
     eval_run.add_argument("--prompt-ledger-ref", default=None,
         help="Optional real mode: SourceLedgerRef JSON or JSON file for prompt row.")
+    eval_observe = add_subparser(eval_sub, "observe")
+    eval_observe.add_argument("--cycle-id", required=True,
+        help="Lane or cycle the performance_observed rows are recorded under.")
+    add_subparser(eval_sub, "kpis")
     eval_aggregate = add_subparser(eval_sub, "aggregate")
     eval_aggregate.add_argument("--target-agent", required=True)
     eval_aggregate.add_argument("--window-days", type=int, default=30)
@@ -4095,12 +4096,7 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.command == "agent-eval" and args.agent_eval_command == "run":
-        mock_mode = not args.no_mock_mode
-        envelope = None
-        if not mock_mode:
-            if not args.real_envelope_file:
-                parser.error("--no-mock-mode requires --real-envelope-file")
-            envelope = json.loads(Path(args.real_envelope_file).read_text(encoding="utf-8"))
+        envelope = json.loads(Path(args.real_envelope_file).read_text(encoding="utf-8"))
 
         def _source_ref_arg(value: str | None) -> dict[str, Any] | None:
             if value is None:
@@ -4113,7 +4109,6 @@ def _main(argv: list[str] | None = None) -> int:
         run = run_agent_eval(
             fixture_id=args.fixture_id,
             base_dir=args.tools_dir,
-            mock_mode=mock_mode,
             real_response_envelope=envelope,
             invocation_id=args.invocation_id,
             transcript_hash=args.transcript_hash,
@@ -4128,6 +4123,16 @@ def _main(argv: list[str] | None = None) -> int:
             prompt_ledger_ref=_source_ref_arg(args.prompt_ledger_ref),
         )
         print(json.dumps(run, indent=2, sort_keys=True))
+        return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "observe":
+        from .agent_eval import observe_agent_performance
+        result = observe_agent_performance(base_dir=args.tools_dir, cycle_id=args.cycle_id)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        # A refusal is named in governance; it must not read as success either.
+        return 1 if result["verdict"] == "refused" else 0
+    if args.command == "agent-eval" and args.agent_eval_command == "kpis":
+        from .agent_eval import performance_kpis
+        print(json.dumps(performance_kpis(base_dir=args.tools_dir), indent=2, sort_keys=True))
         return 0
     if args.command == "agent-eval" and args.agent_eval_command == "aggregate":
         mock_filter: Any = None

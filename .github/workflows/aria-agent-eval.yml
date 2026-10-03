@@ -2,16 +2,14 @@ name: aria-agent-eval
 
 # Plan 020 Phase 6.D — weekly off-hours agent eval harness.
 #
-# Mock-mode is the only path running in CI today (Plan 020 Phase 5
-# left the OAuth contract closure as DEBT-2026-05-08-001, operator-
-# supervised). The workflow re-runs every committed fixture under
-# aria-tools/agent-evals/fixtures/*.json against the kernel's
-# run_agent_eval() in mock mode + asserts every run passes.
-#
-# Once the operator closes DEBT-006 and the OAuth contract surface is
-# verified, an additional matrix entry (mock_mode=false) will run the
-# real-mode evaluator. Until then the mock-mode counter
-# aria_agent_eval_mock_only_total is the only one that ticks.
+# ARIA-HIGH-285 — real mode only. This lane ran every committed fixture in
+# mock mode (the kernel's default), whose synthesized envelope copies the
+# fixture's expected verdict: all 30 rows it published passed and measured
+# nothing. The kernel has no mock mode now. The lane registers the fixtures
+# (real fixture runs bind to them), observes drafter and implementer
+# performance from the plan and self-revert ledgers it restores — the same
+# observation reflection runs every cycle, idempotent per episode — and
+# reports the learning KPIs and the real fixture-run windows.
 
 on:
   schedule:
@@ -93,8 +91,8 @@ jobs:
               # third-party network — the fixtures remain local.
               network_policy=["github_artifact", "github_git"],
               network_enforcement_evidence=(
-                  "mock-mode eval uses local fixtures only; network reach is the "
-                  "aria/state fetch+push over the repository remote"
+                  "the observation reads the restored ledgers only; network reach "
+                  "is the aria/state fetch+push over the repository remote"
               ),
               # The truthful provenance: the eval job persists its ledger to
               # aria/state with `github.token` (PUBLISH_TOKEN below), and the
@@ -108,7 +106,7 @@ jobs:
               require_github_app=False,
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
-              audit_reason="run mock-mode agent eval fixtures against local ledgers",
+              audit_reason="observe agent performance from the restored aria/state ledgers",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-eval-preflight.json",
               external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
@@ -127,37 +125,28 @@ jobs:
         with:
           bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
 
-      - name: Run all eval fixtures (mock mode)
-        id: run
+      - name: Register eval fixtures
         run: |
           set -euo pipefail
-          mkdir -p /tmp/aria-tests /tmp/aria-workspaces
-          export ARIA_TEST_TMPDIR=/tmp/aria-tests
-          export ARIA_WORKSPACE_BASE=/tmp/aria-workspaces
-          fail_count=0
           for fixture_file in aria-tools/agent-evals/fixtures/*.json; do
-            fid=$(basename "${fixture_file}" .json)
-            echo "::group::eval ${fid}"
             PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval add-fixture \
               --fixture-file "${fixture_file}" \
               --tools-dir "$ARIA_TOOLS_DIR" >/dev/null
-            run_json=$(PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval run \
-              --fixture-id "${fid}" \
-              --tools-dir "$ARIA_TOOLS_DIR")
-            echo "${run_json}" | jq .
-            passed=$(echo "${run_json}" | jq -r '.passed')
-            if [ "${passed}" != "true" ]; then
-              fail_count=$((fail_count + 1))
-            fi
-            echo "::endgroup::"
           done
-          echo "fail_count=${fail_count}" >> "$GITHUB_OUTPUT"
-          if [ "${fail_count}" -gt 0 ]; then
-            echo "::error::${fail_count} fixture(s) failed mock-mode eval"
-            exit 1
-          fi
 
-      - name: Aggregate eval metrics per agent
+      # Real mode: one performance_observed row per finished drafter or
+      # implementer episode on the restored plan ledger. A missing plan
+      # ledger is a named refusal and fails the step; there is no fallback.
+      - name: Observe agent performance (real mode)
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval observe \
+            --cycle-id "agent-eval-${GITHUB_RUN_ID}" \
+            --tools-dir "$ARIA_TOOLS_DIR" | jq .
+          PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval kpis \
+            --tools-dir "$ARIA_TOOLS_DIR" | jq .
+
+      - name: Aggregate real fixture-run metrics per agent
         run: |
           set -euo pipefail
           for agent in aria-evidence-judge aria-adversarial-judge \
@@ -167,7 +156,7 @@ jobs:
             PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval aggregate \
               --target-agent "${agent}" \
               --window-days 30 \
-              --mock-mode true \
+              --mock-mode false \
               --tools-dir "$ARIA_TOOLS_DIR" | jq .
             echo "::endgroup::"
           done
@@ -190,7 +179,7 @@ jobs:
             PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval delta \
               --target-agent "${agent}" \
               --window-days 30 \
-              --mock-mode true \
+              --mock-mode false \
               --tools-dir "$ARIA_TOOLS_DIR" | jq .
             echo "::endgroup::"
           done
@@ -208,8 +197,8 @@ jobs:
           echo "::add-mask::${HEADER}"
           echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
 
-      # `always()` on purpose: a week where a fixture regressed is exactly the
-      # week whose rows the trend needs. Publishing only on success would make
+      # `always()` on purpose: a week whose observation or fixture run went
+      # wrong is exactly the week whose rows the trend needs. Publishing only on success would make
       # the ledger a record of good weeks, which is not a measurement.
       - name: Publish ARIA state to the aria/state branch
         if: always() && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')

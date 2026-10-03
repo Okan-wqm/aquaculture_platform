@@ -1,14 +1,23 @@
+# The live format of infrastructure/nats/services.yaml: unquoted list items,
+# the NATS identity (certificate CN) in `name:` and the nx project in
+# `application:`. One item keeps the quoted spelling the SSoT used until
+# 2026-08-01, so both spellings stay pinned (ARIA-HIGH-306).
 version: 1
 services:
-  - name: farm-service
-    description: farm domain
-    publish:
-      - "AQUACULTURE_EVENTS.>"
-    subscribe:
-      - "AQUACULTURE_EVENTS.SensorReading.>"
-  - name: notification-service
-    description: notifications
-    publish:
-      - "NOTIFICATION_EVENTS.>"
-    subscribe:
-      - "AQUACULTURE_EVENTS.BatchHarvested.>"
+- name: farm_service
+  application: farm-service
+  description: farm domain
+  publish:
+  - events.*.BatchHarvested
+  - $JS.API.INFO
+  subscribe:
+  - events.*.SensorReading
+  - _INBOXFARM_SERVICE.>
+- name: notification_service
+  application: notification-service
+  description: notifications
+  publish:
+  - events.*.NotificationSent
+  subscribe:
+  - "events.*.BatchHarvested"
+  - commands.notification.sendEmail

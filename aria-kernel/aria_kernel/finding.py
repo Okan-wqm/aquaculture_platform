@@ -139,6 +139,15 @@ EXTERNAL_ORIGINATING_SKILLS: frozenset[str] = frozenset({
     "report_ingestion:external_pr",
 })
 
+# ARIA-HIGH-331 — the statuses a finding can still leave (STATUS_TRANSITIONS
+# names a way out): while a finding is in one of them its subject is open,
+# and the kernel refuses a second mint of that subject.
+OPEN_SUBJECT_STATUSES: frozenset[str] = frozenset(
+    status for status, successors in STATUS_TRANSITIONS.items() if successors
+)
+_SYMBOL_MAX_CHARS = 200
+_LINE_SUFFIX_RE = re.compile(r":[0-9]+$")
+
 SEVERITY_RANK = {"INFORMATIONAL": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
 SCHEMA_VERSION = 1
 FINDING_ID_RE = re.compile(r"^F-\d{3,}$")
@@ -256,6 +265,15 @@ def _validate_inputs(
     for idx, ev in enumerate(evidences):
         if "ref" not in ev:
             raise GovernanceError(f"evidence[{idx}] missing 'ref'")
+        symbol = ev.get("symbol")
+        if "symbol" in ev and (
+            not isinstance(symbol, str) or not symbol.strip()
+            or len(symbol) > _SYMBOL_MAX_CHARS or not symbol.isprintable()
+        ):
+            raise GovernanceError(
+                f"evidence[{idx}] symbol must be a printable name of at most "
+                f"{_SYMBOL_MAX_CHARS} characters: {symbol!r}"
+            )
     _check_banned_phrases(claim_summary, field="claim_summary")
     for fact in facts:
         _check_banned_phrases(fact, field="facts[]")
@@ -315,6 +333,87 @@ def _normalize_evidences(
         row["evidence_envelope"] = envelope.to_dict()
         normalized.append(row)
     return normalized
+
+
+class SubjectAlreadyOpen(GovernanceError):
+    """ARIA-HIGH-331 — the mint names a subject an open finding already cites."""
+
+    def __init__(self, finding_id: str) -> None:
+        super().__init__(f"subject_already_open:{finding_id}")
+        self.finding_id = finding_id
+
+
+def _subject_pairs(evidences: Any) -> frozenset[tuple[str, str | None]]:
+    """The line-free (path, declared symbol) pairs an evidence list cites.
+
+    A ref's ``:line`` is stripped: a line is where a subject sits today, not
+    what it is (ADR-0022). A ref that declares no ``symbol`` pairs its path
+    with None, which names the whole file.
+    """
+    pairs: set[tuple[str, str | None]] = set()
+    for ev in evidences if isinstance(evidences, list) else []:
+        ref = ev.get("ref") if isinstance(ev, dict) else None
+        if not isinstance(ref, str) or not ref.strip():
+            continue
+        symbol = ev.get("symbol")
+        pairs.add((
+            _LINE_SUFFIX_RE.sub("", ref.strip()),
+            symbol.strip() if isinstance(symbol, str) and symbol.strip() else None,
+        ))
+    return frozenset(pairs)
+
+
+def _same_subject(
+    recorded: frozenset[tuple[str, str | None]],
+    declared: frozenset[tuple[str, str | None]],
+) -> bool:
+    """True when a recorded subject is the declared one as far as the kernel can tell.
+
+    Same paths, and at every path the recorded symbols equal the declared
+    ones. A recorded ref that declared no symbol names its whole file, so it
+    covers any symbol declared there: the drift records minted before
+    producers declared symbols keep blocking re-mints of their subjects.
+    """
+    paths = {path for path, _symbol in declared}
+    if {path for path, _symbol in recorded} != paths:
+        return False
+    for path in paths:
+        named = {symbol for p, symbol in recorded if p == path and symbol is not None}
+        if named and named != {symbol for p, symbol in declared if p == path}:
+            return False
+    return True
+
+
+def _refuse_open_subject(
+    repo_root: Path, *, claim_type: str, originating_skill: str,
+    evidences: list[dict[str, Any]],
+) -> None:
+    """ARIA-HIGH-331 — ADR-0022's tier-1 dedupe: one open finding per subject.
+
+    A finding's dedupe key used to be a hash of its ``path:line`` refs and
+    summaries, so a cited line that moved minted a new F-NNN and the old one
+    never closed (F-001..F-008 on aria/state: eight OPEN findings, three
+    subjects). The subject is the line-free (path, symbol) set, declared by
+    the producer naming the ``symbol`` each ref points at. A mint that
+    declares a symbol on every ref is refused while a finding of the same
+    detector class (originating_skill + claim_type) in an open status cites
+    the same subject; nothing is allocated and no event is written. A mint
+    that declares none has no line-free subject — the kernel never infers one
+    from a bare path, which would merge distinct defects in one file — and
+    keeps its producer's own dedupe. Runs under the allocation lock, so two
+    racing mints of one subject cannot both pass.
+    """
+    declared = _subject_pairs(evidences)
+    if not declared or any(symbol is None for _path, symbol in declared):
+        return
+    for finding_id, doc in sorted(_replay_findings(repo_root).items()):
+        if (
+            doc.get("status") in OPEN_SUBJECT_STATUSES
+            and doc.get("claim_type") == claim_type
+            and doc.get("originating_skill") == originating_skill
+            and _same_subject(_subject_pairs(doc.get("evidences")), declared)
+        ):
+            raise SubjectAlreadyOpen(finding_id)
 
 
 def _claim_finding_file(path: Path, finding_id: str) -> None:
@@ -476,6 +575,8 @@ def emit_finding(
     alloc_lock_path = findings_dir / ".alloc.lock"
     chain_id = _evidence_chain_id(evidences)
     with with_exclusive_lock(alloc_lock_path, timeout_seconds=5.0):
+        _refuse_open_subject(repo_path, claim_type=claim_type,
+                             originating_skill=originating_skill, evidences=evidences)
         finding_id = _allocate_finding_id(repo_path)
         record = {
             "$schema": "aria/finding/v1",

@@ -1,7 +1,8 @@
 """ORPHAN-702 — the drift seeder mints through the kernel, or not at all.
 
   * a drift becomes a real spine_drift finding with events + lifecycle
-  * the SAME drift next night is chain-deduped (one durable record)
+  * the SAME drift next night is one durable record, and so is the same
+    drift at a moved line (ARIA-HIGH-331: the kernel's subject refusal)
   * a drift the kernel refuses is disclosed, never hand-written
   * the author digest carries experiment_author; watchdog digest carries
     the sweep's REAL field names
@@ -42,7 +43,7 @@ class SeedMintTests(unittest.TestCase):
         for i in (1, 2):
             path = self.repo / "apps" / "farm-service" / "src" / f"module{i}.ts"
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("\n".join(f"line {n}" for n in range(1, 45)) + "\n", encoding="utf-8")
+            path.write_text("\n".join(f"line {n}" for n in range(1, 250)) + "\n", encoding="utf-8")
         subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
         subprocess.run(["git", "config", "user.email", "t@example.invalid"], cwd=self.repo, check=True)
         subprocess.run(["git", "config", "user.name", "T"], cwd=self.repo, check=True)
@@ -71,6 +72,28 @@ class SeedMintTests(unittest.TestCase):
         minted, already, unmintable = seeder.mint_candidates(self.repo, [_drift()], base_dir=self.repo / 'aria-tools')
         self.assertEqual((minted, len(already), unmintable), ([], 1, []))
         self.assertEqual(len(list_findings(self.repo)), 1)
+
+    def test_a_moved_line_re_observes_the_open_finding(self) -> None:
+        # ARIA-HIGH-331 — F-001, F-004 and F-006 on aria/state are ONE drift
+        # cited at CategoriesTab.tsx:106, :107 and :201. The subject is the
+        # line-free (path, declared name) set, so the move mints nothing.
+        first, moved = _drift(), _drift()
+        first["ts"] = dict(first["ts"], ref="apps/farm-service/src/module1.ts:106")
+        moved["ts"] = dict(moved["ts"], ref="apps/farm-service/src/module1.ts:201")
+        seeder.mint_candidates(self.repo, [first], base_dir=self.repo / 'aria-tools')
+        minted, already, unmintable = seeder.mint_candidates(self.repo, [moved], base_dir=self.repo / 'aria-tools')
+        self.assertEqual((minted, already, unmintable), ([], ["farm_status"], []))
+        self.assertEqual([row["status"] for row in list_findings(self.repo)], ["OPEN"])
+
+    def test_a_different_subject_still_mints(self) -> None:
+        # ARIA-HIGH-331 — same two files, another declared name on one side:
+        # another subject, so it mints.
+        seeder.mint_candidates(self.repo, [_drift()], base_dir=self.repo / 'aria-tools')
+        other = _drift(concept="farm_type")
+        other["ts"] = dict(other["ts"], name="FarmType", ref="apps/farm-service/src/module1.ts:40")
+        minted, already, unmintable = seeder.mint_candidates(self.repo, [other], base_dir=self.repo / 'aria-tools')
+        self.assertEqual((len(minted), already, unmintable), (1, [], []))
+        self.assertEqual(len(list_findings(self.repo)), 2)
 
     def test_single_sided_drift_is_disclosed_not_minted(self) -> None:
         drift = _drift()

@@ -235,6 +235,87 @@ class FindingEmissionTests(unittest.TestCase):
         self.assertIn("finding_file_collision:F-002", str(refused.exception))
 
 
+def _drift_evidence(line: int, *, symbols: tuple[str | None, str | None] = ("FarmStatus", "farm_status")) -> list[dict[str, object]]:
+    """Two sides of one drift; ``symbols`` is what each side declares (None: nothing)."""
+    sides = [
+        {"ref": f"apps/farm-service/src/database/migrations/0001-create.ts:{line}", "summary": "ts side"},
+        {"ref": "apps/farm-service/src/database/migrations/0002-create.ts:5", "summary": "sql side"},
+    ]
+    for side, symbol in zip(sides, symbols):
+        if symbol is not None:
+            side["symbol"] = symbol
+    return sides
+
+
+class FindingSubjectDedupeTests(unittest.TestCase):
+    """ARIA-HIGH-331 — ADR-0022's tier-1 step: one open finding per line-free subject."""
+
+    def setUp(self) -> None:
+        self.repo = _seed_repo()
+        self.tools = self.repo / "aria-tools"
+
+    def tearDown(self) -> None:
+        import shutil
+
+        shutil.rmtree(self.repo, ignore_errors=True)
+
+    def _mint(self, evidences: list[dict[str, object]], *, claim_type: str = "spine_drift",
+              originating_skill: str = "seed:drift-scan") -> dict[str, object]:
+        return emit_finding(
+            repo_root=self.repo, base_dir=self.tools, claim_type=claim_type,
+            claim_summary="ui_option_drift: 'farm_status' value sets diverge across 2 surfaces",
+            severity="MEDIUM", evidences=evidences, facts=["missing in sql: ['archived']"],
+            scope_files=["x.ts"], originating_skill=originating_skill,
+        )
+
+    def _events(self) -> bytes:
+        return (self.repo / "aria-findings" / "finding-events.jsonl").read_bytes()
+
+    def test_an_open_subject_refuses_the_mint_at_a_moved_line(self) -> None:
+        first = self._mint(_drift_evidence(10))
+        before = self._events()
+        with self.assertRaises(GovernanceError) as refused:
+            self._mint(_drift_evidence(30))
+        self.assertEqual(str(refused.exception), f"subject_already_open:{first['finding_id']}")
+        self.assertEqual(getattr(refused.exception, "finding_id", None), first["finding_id"])
+        self.assertEqual(self._events(), before, "a refused mint writes no id and no event")
+        self.assertFalse((self.repo / "aria-findings" / "F-002.json").exists())
+
+    def test_a_pre_symbol_record_covers_its_files(self) -> None:
+        # F-001..F-008 on aria/state declare no symbol: a ref without one
+        # names its whole file, so it still blocks a re-mint of its subject.
+        first = self._mint(_drift_evidence(10, symbols=(None, None)))
+        with self.assertRaises(GovernanceError) as refused:
+            self._mint(_drift_evidence(30))
+        self.assertEqual(str(refused.exception), f"subject_already_open:{first['finding_id']}")
+
+    def test_another_subject_or_detector_class_still_mints(self) -> None:
+        self._mint(_drift_evidence(10))
+        self.assertEqual(self._mint(_drift_evidence(30, symbols=("FarmType", "farm_status")))["finding_id"], "F-002")
+        self.assertEqual(self._mint(_drift_evidence(30), claim_type="contradiction")["finding_id"], "F-003")
+        self.assertEqual(
+            self._mint(_drift_evidence(30), originating_skill="manual:operator")["finding_id"], "F-004")
+
+    def test_a_terminal_finding_frees_its_subject(self) -> None:
+        from aria_kernel.finding import record_finding_status_change
+
+        first = self._mint(_drift_evidence(10))
+        record_finding_status_change(self.repo, finding_id=str(first["finding_id"]), to_status="WITHDRAWN",
+                                     reason="operator withdrew it", actor="okan", base_dir=self.tools)
+        self.assertEqual(self._mint(_drift_evidence(30))["finding_id"], "F-002")
+
+    def test_a_mint_that_declares_no_subject_keeps_its_producers_dedupe(self) -> None:
+        # Without a declared symbol on every ref there is no line-free subject;
+        # the kernel never infers one from a bare path.
+        self._mint(_drift_evidence(10, symbols=(None, None)))
+        self.assertEqual(self._mint(_drift_evidence(30, symbols=("FarmStatus", None)))["finding_id"], "F-002")
+
+    def test_a_symbol_must_be_a_name(self) -> None:
+        for bad in ("", "  ", "two\nlines", 7):
+            with self.subTest(symbol=bad), self.assertRaisesRegex(GovernanceError, r"evidence\[0\] symbol"):
+                self._mint(_drift_evidence(10, symbols=(bad, "farm_status")))
+
+
 class DebtEmissionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = _seed_repo()

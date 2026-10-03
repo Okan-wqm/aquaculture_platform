@@ -91,23 +91,29 @@ def _evidence_ref(side: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _declared_symbol(side: dict[str, Any], concept: str) -> str:
+    """The name a drift side declares, else the drift's concept: line-free either way."""
+    name = side.get("declared_name")
+    return name.strip() if isinstance(name, str) and name.strip() else concept
+
+
 def mint_candidates(
     repo_root: Path, candidates: list[dict[str, Any]],
     *, base_dir: Path | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], list[dict[str, str]]]:
     """ORPHAN-702 — every drift goes through the ONE mint path.
 
-    Chain-id dedupe keeps one durable record per drift across nights;
-    claim_type=spine_drift by definition; severity from blast radius;
-    a drift the kernel refuses is DISCLOSED as unmintable, never
-    hand-written around the gate.
+    ARIA-HIGH-331 — each side declares the ``symbol`` it points at (its
+    declared name, else the drift's concept), so the kernel can refuse a
+    drift whose subject is already open, wherever its lines have moved
+    (``subject_already_open``). That refusal replaces the seeder's own
+    dedupe on a hash of ``path:line`` refs, which minted a new finding for
+    every moved line. claim_type=spine_drift by definition; severity from
+    blast radius; a drift the kernel refuses for any other reason is
+    DISCLOSED as unmintable, never hand-written around the gate.
     """
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
-    from aria_kernel.finding import (
-        _evidence_chain_id,
-        emit_finding,
-        find_by_evidence_chain_id,
-    )
+    from aria_kernel.finding import SubjectAlreadyOpen, emit_finding
     from aria_kernel.tool_registry import GovernanceError
 
     minted: list[dict[str, Any]] = []
@@ -117,19 +123,17 @@ def mint_candidates(
         sides = [
             _evidence_ref(drift.get(key)) for key in ("ts", "sql", "ui", "source")
         ]
+        concept = str(drift.get("concept") or "unknown")
         evidences = [
-            {"ref": side["reference"], "summary": f"{side.get('declared_name') or 'side'} values: {str(side.get('declared_values'))[:80]}"}
+            {
+                "ref": side["reference"],
+                "symbol": _declared_symbol(side, concept),
+                "summary": f"{side.get('declared_name') or 'side'} values: {str(side.get('declared_values'))[:80]}",
+            }
             for side in sides if side is not None
         ]
-        concept = str(drift.get("concept") or "unknown")
         if len(evidences) < 2:
             unmintable.append({"concept": concept, "reason": "fewer_than_two_evidence_sides"})
-            continue
-        chain_id = _evidence_chain_id([
-            {"ref": e["ref"], "summary": e.get("summary", "")} for e in evidences
-        ])
-        if find_by_evidence_chain_id(repo_root, chain_id) is not None:
-            already.append(concept)
             continue
         summary = (
             f"{drift['drift_class']}: '{concept}' value sets diverge across "
@@ -151,6 +155,9 @@ def mint_candidates(
                 scope_files=sorted({e["ref"].split(":")[0] for e in evidences}),
                 originating_skill="seed:drift-scan",
             )
+        except SubjectAlreadyOpen:
+            already.append(concept)
+            continue
         except GovernanceError as exc:
             unmintable.append({"concept": concept, "reason": str(exc)[:160]})
             continue
@@ -180,7 +187,8 @@ def main(argv: list[str] | None = None) -> int:
     # write its own F-NNN.json files OVER the same ids every night: no
     # events, no lifecycle, invisible to replay — the second finding
     # format İ1 forbids. Now every drift goes through emit_finding:
-    # chain-id dedupe keeps one durable record per drift across nights,
+    # the kernel's subject refusal keeps one open record per drift across
+    # nights and line moves (ARIA-HIGH-331),
     # claim_type=spine_drift (a DB/TS/UI backbone divergence is that type
     # by definition), severity from blast radius, and the kernel's own
     # index refresh keeps cycle_guard's OPEN count working unchanged.

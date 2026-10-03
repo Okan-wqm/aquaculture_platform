@@ -45,10 +45,26 @@ class TestV9EventTypeWhitelist(unittest.TestCase):
             "plan_started", "challenger_plan_drafted", "critic_tasks_requested",
             "critique_recorded", "cross_review_tasks_requested", "cross_review_recorded",
             "stale_tasks_reaped", "revision_recorded", "plan_evaluated",
-            "plan_abandoned", "lock_reaped",
+            "plan_abandoned",
         }
         missing = v8_types - _pc.EVENT_TYPES
         self.assertEqual(missing, set(), f"V8 event_types regressed: {missing}")
+
+    def test_i_v9_event_01_retired_v8_event_types_stay_out(self):
+        """ORPHAN-MEDIUM-838 — `lock_reaped` was a V8 member with a validator
+        and no emitter: the plan-lock reaper records nothing, and a lock reap
+        belongs to no plan. It was retired before any events.jsonl row used
+        it (none on origin/aria/state @ f82569371), which is the only moment
+        the one-way door allows; a row naming it is now refused as unknown."""
+        self.assertNotIn("lock_reaped", _pc.EVENT_TYPES)
+        with self.assertRaisesRegex(GovernanceError, "unknown event_type: lock_reaped"):
+            _pc._validate_event({
+                "event_id": "evt-retired",
+                "event_type": "lock_reaped",
+                "plan_id": "plan-retired",
+                "idempotency_key": "sha256:" + "0" * 64,
+                "payload": {"stale_lock_pid": 1, "lock_age_seconds": 400, "reaped_by_pid": 2},
+            })
 
 
 class TestV9TerminalStatesExtension(unittest.TestCase):

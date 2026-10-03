@@ -266,7 +266,7 @@ def evaluate_health(
         return decision
 
     calibrate_reason = auto_calibrate_reason(tool, runs, base_dir=base_dir)
-    if calibrate_reason and tool["status"] not in ("CALIBRATE", "QUARANTINED", "ARCHIVED"):
+    if calibrate_reason and tool["status"] not in ("CALIBRATE", "QUARANTINED"):
         # Plan 022 §C-2b — kernel-internal auto-transition. tool_health is
         # the audited health-monitor; it owns the auto-calibrate decision
         # and writes via _update_tool_internal so the public update_tool()

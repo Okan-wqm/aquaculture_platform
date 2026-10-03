@@ -9,12 +9,15 @@ This suite pins the C-2 fix:
 - QUARANTINED on disk + non-QUARANTINED candidate -> reject.
 - SHADOW/CALIBRATE on disk + ACTIVE candidate -> reject (must route
   through transition_tool with precision/evidence/operator approval).
-- ACTIVE/CALIBRATE on disk + SHADOW/SANDBOX/DRAFT candidate -> reject
+- ACTIVE/CALIBRATE on disk + SHADOW candidate -> reject
   (demotion requires explicit transition_tool reason).
 - Same status (manifest hash drift, parser update) -> allow.
-- DRAFT/SANDBOX -> SHADOW forward progression -> allow.
 - unquarantine_tool() routes QUARANTINED -> CALIBRATE with audit
   trail.
+
+A tool registers at SHADOW: DRAFT, SANDBOX and ARCHIVED left the lifecycle
+(ORPHAN-MEDIUM-839 — no production path ever produced any of them), and
+with them the DRAFT -> SANDBOX -> SHADOW re-registration progression.
 """
 from __future__ import annotations
 
@@ -47,7 +50,7 @@ def _seed_tools() -> Path:
     return tools
 
 
-def _manifest(*, tool_id: str = "fake-adapter", status: str = "DRAFT", version: str = "0.1.0") -> dict:
+def _manifest(*, tool_id: str = "fake-adapter", status: str = "SHADOW", version: str = "0.1.0") -> dict:
     """Minimal valid tool manifest covering REQUIRED_TOOL_FIELDS."""
     return {
         "tool_id": tool_id,
@@ -92,7 +95,7 @@ class _LifecycleTestCase(unittest.TestCase):
 class RegisterToolLifecycleGateTests(_LifecycleTestCase):
     def test_quarantined_to_active_re_register_blocked(self) -> None:
         # Arrange: tool exists on disk as QUARANTINED.
-        register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
+        register_tool(_manifest(), base_dir=self.tools)
         # Force QUARANTINED status via direct update_tool (this is what a
         # tool_health quarantine action does on the disk row).
         _update_tool_internal("fake-adapter", {"status": "QUARANTINED"}, base_dir=self.tools)
@@ -103,14 +106,13 @@ class RegisterToolLifecycleGateTests(_LifecycleTestCase):
         self.assertIn("unquarantine_tool", str(cm.exception))
 
     def test_shadow_to_active_re_register_blocked(self) -> None:
-        register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
-        _update_tool_internal("fake-adapter", {"status": "SHADOW"}, base_dir=self.tools)
+        register_tool(_manifest(status="SHADOW"), base_dir=self.tools)
         with self.assertRaises(GovernanceError) as cm:
             register_tool(_manifest(status="ACTIVE"), base_dir=self.tools)
         self.assertIn("transition_tool", str(cm.exception))
 
     def test_active_to_shadow_re_register_blocked(self) -> None:
-        register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
+        register_tool(_manifest(), base_dir=self.tools)
         _update_tool_internal("fake-adapter", {"status": "ACTIVE"}, base_dir=self.tools)
         with self.assertRaises(GovernanceError) as cm:
             register_tool(_manifest(status="SHADOW"), base_dir=self.tools)
@@ -125,12 +127,17 @@ class RegisterToolLifecycleGateTests(_LifecycleTestCase):
         self.assertEqual(on_disk["version"], "0.2.0")
         self.assertEqual(on_disk["status"], "SHADOW")
 
-    def test_draft_to_sandbox_forward_progression_allowed(self) -> None:
-        register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
-        # Forward progression DRAFT -> SANDBOX is permitted via
-        # re-registration (still earlier in the lifecycle than ACTIVE).
-        result = register_tool(_manifest(status="SANDBOX"), base_dir=self.tools)
-        self.assertEqual(result["status"], "SANDBOX")
+    def test_re_register_at_a_removed_status_is_refused(self) -> None:
+        # ORPHAN-MEDIUM-839 — the old DRAFT -> SANDBOX progression has no
+        # statuses left to progress through: a manifest naming one is refused
+        # at validation and the registered row keeps its status.
+        register_tool(_manifest(status="SHADOW"), base_dir=self.tools)
+        for status in ("DRAFT", "SANDBOX", "ARCHIVED"):
+            with self.subTest(status=status), self.assertRaisesRegex(
+                GovernanceError, f"unknown lifecycle state: {status}",
+            ):
+                register_tool(_manifest(status=status), base_dir=self.tools)
+        self.assertEqual(get_tool("fake-adapter", self.tools)["status"], "SHADOW")
 
 
 class UnquarantineToolTests(_LifecycleTestCase):
@@ -141,7 +148,7 @@ class UnquarantineToolTests(_LifecycleTestCase):
         self.addCleanup(acts.__exit__, None, None, None)
 
     def _quarantined(self) -> None:
-        register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
+        register_tool(_manifest(), base_dir=self.tools)
         _update_tool_internal("fake-adapter", {"status": "QUARANTINED"}, base_dir=self.tools)
 
     def test_unquarantine_routes_to_calibrate_with_audit_trail(self) -> None:
@@ -188,17 +195,16 @@ class UnquarantineToolTests(_LifecycleTestCase):
                 "fake-adapter", "CALIBRATE", reason="direct", root_cause_note="rc",
                 fixture_update_ref="ref", base_dir=self.tools,
             )
-        for target in ("SHADOW", "SANDBOX", "DRAFT"):
-            with self.subTest(target=target), self.assertRaisesRegex(
-                GovernanceError, "tool_lifecycle_forbidden_quarantine_exit",
-            ):
-                transition_tool("fake-adapter", target, reason="direct", base_dir=self.tools)
+        with self.assertRaisesRegex(GovernanceError, "tool_lifecycle_forbidden_quarantine_exit"):
+            transition_tool("fake-adapter", "SHADOW", reason="direct", base_dir=self.tools)
+        # ORPHAN-MEDIUM-839 — ARCHIVED, once the narrowing exit no command
+        # ever took, is no longer a status: release is the one way out.
+        with self.assertRaisesRegex(GovernanceError, "unknown lifecycle state: ARCHIVED"):
+            transition_tool("fake-adapter", "ARCHIVED", reason="retire it", base_dir=self.tools)
         self.assertEqual(get_tool("fake-adapter", self.tools)["status"], "QUARANTINED")
-        archived = transition_tool("fake-adapter", "ARCHIVED", reason="retire it", base_dir=self.tools)
-        self.assertEqual(archived["status"], "ARCHIVED")
 
     def test_unquarantine_requires_operator_approval_ref(self) -> None:
-        register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
+        register_tool(_manifest(), base_dir=self.tools)
         _update_tool_internal("fake-adapter", {"status": "QUARANTINED"}, base_dir=self.tools)
         with self.assertRaises(GovernanceError) as cm:
             unquarantine_tool(
@@ -210,7 +216,7 @@ class UnquarantineToolTests(_LifecycleTestCase):
         self.assertIn("operator_approval_ref", str(cm.exception))
 
     def test_unquarantine_rejects_non_quarantined_tool(self) -> None:
-        register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
+        register_tool(_manifest(), base_dir=self.tools)
         with self.assertRaises(GovernanceError) as cm:
             unquarantine_tool(
                 "fake-adapter",
@@ -226,13 +232,13 @@ class ParseWindowSignatureLifecycleTests(_LifecycleTestCase):
     the audited mutation paths (register + update_tool)."""
 
     def test_register_derives_signature_and_default_freshness(self) -> None:
-        register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
+        register_tool(_manifest(), base_dir=self.tools)
         row = get_tool("fake-adapter", self.tools)
         self.assertEqual(row["parse_window_signature"], parse_window_signature(row))
         self.assertEqual(row["freshness_window_hours"], DEFAULT_FRESHNESS_WINDOW_HOURS)
 
     def test_update_tool_scope_change_recomputes_signature(self) -> None:
-        register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
+        register_tool(_manifest(), base_dir=self.tools)
         before = get_tool("fake-adapter", self.tools)["parse_window_signature"]
         update_tool(
             "fake-adapter",
@@ -246,7 +252,7 @@ class ParseWindowSignatureLifecycleTests(_LifecycleTestCase):
         self.assertEqual(after["parse_window_signature"], parse_window_signature(after))
 
     def test_update_tool_with_explicitly_stale_signature_rejected(self) -> None:
-        register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
+        register_tool(_manifest(), base_dir=self.tools)
         with self.assertRaisesRegex(GovernanceError, "parse_window_signature_mismatch"):
             update_tool(
                 "fake-adapter",

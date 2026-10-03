@@ -45,7 +45,7 @@ def _manifest(*, tool_id: str = "fake-adapter") -> dict:
         "tool_id": tool_id,
         "kind": "adapter",
         "version": "0.1.0",
-        "status": "DRAFT",
+        "status": "SHADOW",
         "declared_scope": ["**/*.ts"],
         "output_schema": {"type": "object", "required": ["observations", "findings", "read_paths", "evidence_sources"]},
         "fixture_set": "tools/aria-poc/fixtures/fake",

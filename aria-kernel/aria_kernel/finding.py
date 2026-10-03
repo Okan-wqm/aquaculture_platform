@@ -120,6 +120,11 @@ ORIGINATING_SKILL_ALLOWLIST: frozenset[str] = frozenset({
     # Sabah treni (ORPHAN-702) — the drift seeder graduates from its own
     # file format to the ONE mint path; this is its registered origin.
     "seed:drift-scan",
+    # ARIA-HIGH-279 (program plan rev2, HIGH ruling 6) — the deterministic
+    # class builder (CB-3): one finding per (class_key = tool:rule, Nx
+    # project) slice, so the operator's single signed CP-1 request names
+    # exactly one F finding. An exact origin, never a prefix.
+    "class_builder:tool_rule",
     # V10.6 detectors registered here when F-AUTO-V10.6-EXTRA-DETECTORS lands:
     # "aria-watchdog:rejection_repeat",
     # "aria-watchdog:phase_asymmetry",

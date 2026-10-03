@@ -2,11 +2,15 @@
 
 Created: 2026-06-18
 
-Registry tip: `ab63861eaa30c51b9fc1ce7f078ab0c06a77d8609d7989e388e302066147838f`
-
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
 `real-open` until code, tests, and registry evidence prove a different bucket.
+
+This file records no registry tip or count (PROC-HIGH-046). The plan contract
+derives the active CRITICAL set from `docs/reviews/_registry/findings.jsonl` and
+requires exactly one row below per active CRITICAL. A new active CRITICAL gets
+its row by hand (owner, first sprint, bucket); the closure-reconcile lane moves
+the row to `Resolved Evidence` when it records the closure.
 
 Updated 2026-07-02: the 2026-06-18 snapshot listed 13 active CRITICALs. The
 2026-07-02 registry-closeout reconciliation (216 stale-registry state flips
@@ -278,7 +282,6 @@ Score 100%**, zero messages under legal hold, and a green tick over "No legal ho
 litigation-hold surface. It is `already-fixed-needs-close`: the branch fixes it at Tier 1 (the
 client methods now require a tenant id, so the call the page made cannot be written) and deletes
 the placeholder, and the post-merge close ceremony records the main-reachable commit.
-| `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
 | `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
 | `ARIA-CRITICAL-214` | OPEN | 2026-09-26 | claude | real-open |
 | `ARIA-CRITICAL-215` | OPEN | 2026-09-26 | claude | real-open |

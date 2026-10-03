@@ -171,16 +171,21 @@ jobs:
             exit 1
           fi
 
-      # ORPHAN-MEDIUM-117: the committed tools/quality/format-scope.json must
-      # match what `format-scope generate` derives from the current tree (the
-      # manifest assigns every formattable file a class + owner). Left unenforced
-      # it drifted ~2000 lines until the gate was red on main and silently
-      # ignored. Enforced here it stays synchronized: a PR that adds or removes an
-      # in-scope file must run `npm run quality:format-scope:generate` and commit
-      # the regenerated manifest. Same committed-artifact↔source contract as the
-      # ESLint-rules dist drift check above.
-      - name: Run format-scope drift gate
+      # PROC-MEDIUM-040: the format scope (every formattable file's class and
+      # owner) is derived in memory from `git ls-files --cached` and
+      # classifyFormatFile on every run. It used to be committed as
+      # tools/quality/format-scope.json — a pure function of the tree, so every
+      # PR that added or removed a file had to regenerate it, concurrent PRs
+      # conflicted on it, and one-file automation PRs went red as "stale".
+      # With no copy left to drift, this step checks the two properties that
+      # remain: every tracked formattable file has exactly one declared class,
+      # and no archive_immutable file is modified, deleted or renamed in the
+      # range (archives only grow). ORPHAN-MEDIUM-117 still holds: an unchecked
+      # scope rots, so the step runs on every PR, against the PR base.
+      - name: Run format-scope classification and archive-immutability gate
         if: always()
+        env:
+          FORMAT_BASE_SHA: ${{ steps.range.outputs.base }}
         run: npm run quality:format-scope:check
 
   # =============================================================================

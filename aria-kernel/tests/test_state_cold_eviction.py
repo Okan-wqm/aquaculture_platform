@@ -47,7 +47,7 @@ from aria_kernel.runtime_artifacts import (
     verify_runtime_artifacts,
 )
 from aria_kernel.state_continuity_gate import vouched_continuity
-from aria_kernel.state_snapshot import snapshot_continuity
+from aria_kernel.state_snapshot import SnapshotError, snapshot_continuity
 from aria_kernel.state_store import (
     BOOTSTRAP_ACK_ENV,
     StateStoreRefusal,
@@ -414,6 +414,14 @@ class TheGateAcceptsOnlyAVerifiedArtifactEviction(ColdEvictionTestCase):
                 pointers = self.tools / "cold" / "pointers" / "2026-08.jsonl"
                 saved = pointers.read_bytes() if pointers.exists() else None
                 try:
+                    if uri.startswith("memory/"):
+                        # A memory surface never reaches the continuity gate: the snapshot build refuses
+                        # it first, because memory is append-only and a pointer never vouches for it
+                        # (ARIA-HIGH-263). Either refusal stops the publish; this one names the surface.
+                        with self.assertRaises(SnapshotError) as memory_refusal:
+                            self._lost(lambda: (write_pointer(), (self.tools / uri).unlink()))
+                        self.assertIn("snapshot_memory_surface_rewrite:memory_beliefs", str(memory_refusal.exception))
+                        continue
                     with self.assertRaises(StateStoreRefusal) as caught:
                         self._lost(lambda: (write_pointer(), (self.tools / uri).unlink()))
                     self.assertIn("state_publish_continuity_surfaces_lost", str(caught.exception))

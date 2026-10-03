@@ -228,7 +228,7 @@ class ThePublishBoundsTheCompactableLedgers(MaintenanceLaneTestCase):
         self._seed_raw_findings(store, findings=20, copies=30)
         head = _git(store.root, "rev-parse", "HEAD").strip()
         with self._bounds(), mock.patch.object(
-            state_compact, "compact_state", side_effect=OSError("archive write failed"),
+            state_compact, "compact_surfaces", side_effect=OSError("archive write failed"),
         ), self.assertRaises(StateStoreRefusal) as caught:
             self._publish(store, "snap-1", "cycle-1")
         self.assertIn("state_publish_compaction_failed:OSError:archive write failed", str(caught.exception))

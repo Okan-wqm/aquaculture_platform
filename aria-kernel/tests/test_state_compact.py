@@ -1,8 +1,9 @@
 """ORPHAN-HIGH-798 (compact half) — the compact command shrinks ledgers.
 
 Tests: runs evidence envelopes stripped, raw-findings inline findings
-stripped, beliefs collapsed to latest, learning-events pruned by age,
-archives written, hash chain re-established, dry-run writes nothing.
+stripped, archives written, hash chain re-established, dry-run writes
+nothing. Memory (beliefs, learning events) is never compacted — ARIA-HIGH-263,
+pinned in tests/test_memory_not_compactable.py.
 """
 from __future__ import annotations
 
@@ -249,18 +250,6 @@ class StateCompactTests(unittest.TestCase):
         wet = compact_state(base_dir=self.tools, retain_days=7)
         self.assertEqual(wet["surfaces"]["raw_findings"]["after_rows"], before - 2)
 
-    def test_beliefs_collapse_to_latest(self) -> None:
-        compact_state(base_dir=self.tools, retain_days=7)
-        rows = load_declared_jsonl(self.tools / "memory" / "beliefs.jsonl", expected_surface="memory_beliefs")
-        self.assertEqual(len(rows), 20)  # 20 unique belief_ids
-        b0 = next(r for r in rows if r["belief_id"] == "b-0")
-        self.assertEqual(b0["status"], "stale")  # latest wins
-
-    def test_learning_events_pruned(self) -> None:
-        compact_state(base_dir=self.tools, retain_days=7)
-        rows = load_declared_jsonl(self.tools / "memory" / "learning-events.jsonl", expected_surface="memory_learning_events")
-        self.assertEqual(len(rows), 1)  # only the new one
-
     def test_archives_written(self) -> None:
         compact_state(base_dir=self.tools, retain_days=7)
         archive_dir = self.tools / "archives"
@@ -296,35 +285,6 @@ class StateCompactTests(unittest.TestCase):
         self.assertTrue(all("finding" in r for r in archived),
                         "every archived raw-finding row must still carry its inline finding")
         self.assertTrue(all("finding_summary" not in r for r in archived))
-
-    def test_beliefs_and_learning_archives_carry_dropped_rows_only(self) -> None:
-        compact_state(base_dir=self.tools, retain_days=7)
-        beliefs_archive = next((self.tools / "archives").glob("beliefs-compact-*.jsonl.gz"))
-        with gzip.open(beliefs_archive, "rt", encoding="utf-8") as fh:
-            archived_beliefs = [json.loads(line) for line in fh]
-        # Collapse-to-latest drops the SUPERSEDED rows; their belief_ids
-        # legitimately still live in the ledger via their newer rows. What
-        # the archive must carry is exactly the superseded versions: the
-        # ten b-0..b-9 "supported" rows, and nothing for b-10..b-19.
-        self.assertEqual(len(archived_beliefs), 10)
-        archived_by_id = {r["belief_id"]: r for r in archived_beliefs}
-        for i in range(10):
-            self.assertEqual(archived_by_id[f"b-{i}"]["status"], "supported")
-        for i in range(10, 20):
-            self.assertNotIn(f"b-{i}", archived_by_id)
-
-        learning_archive = next((self.tools / "archives").glob("learning_events-compact-*.jsonl.gz"))
-        with gzip.open(learning_archive, "rt", encoding="utf-8") as fh:
-            archived_learning = [json.loads(line) for line in fh]
-        kept_learning = load_declared_jsonl(
-            self.tools / "memory" / "learning-events.jsonl", expected_surface="memory_learning_events"
-        )
-        # Fixture: one old row dropped, one new row kept — the archive
-        # carries the dropped one, the ledger the kept one.
-        self.assertEqual(len(archived_learning), 1)
-        self.assertEqual(len(kept_learning), 1)
-        self.assertEqual(archived_learning[0]["belief_id"], "b-0")
-        self.assertEqual(kept_learning[0]["belief_id"], "b-1")
 
     def test_hash_chain_rechained(self) -> None:
         compact_state(base_dir=self.tools, retain_days=7)
@@ -547,7 +507,7 @@ class PublishBoundRelationTests(unittest.TestCase):
         self.assertLessEqual(autonomy_evidence._MAX_EVIDENCE_LEDGER_BLOB_BYTES, cap)
         self.assertEqual(
             set(state_compact.COMPACTABLE_SURFACES),
-            {"runs", "raw_findings", "beliefs", "learning_events"},
+            {"runs", "raw_findings"},
         )
 
     def test_the_cycle_no_longer_compacts_behind_a_swallowed_error(self) -> None:

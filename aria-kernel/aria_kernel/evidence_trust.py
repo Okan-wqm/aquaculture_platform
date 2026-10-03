@@ -24,6 +24,37 @@ SELF_OUTPUT_PREFIXES: tuple[str, ...] = (
     "tmp/",
 )
 
+# ARIA-HIGH-324/325 — ARIA's detector source: the adapters, the PoC tools and
+# the kernel that judge the product. A file here describes how a finding was
+# DETECTED, never whether the product is wrong, so it is not evidence that a
+# finding of a product-scoped tool is a product defect. A tool whose declared
+# scope is ARIA itself (kernel-dead-wire-adapter, agent-harness-security-
+# adapter) is the exception, and the exception is read off its scope.
+ARIA_DETECTOR_SOURCE_PREFIXES: tuple[str, ...] = (
+    "tools/aria-adapters/",
+    "tools/aria-poc/",
+    "aria-kernel/",
+)
+
+
+def _glob_literal_prefix(glob: str) -> str:
+    """The literal leading part of a repo glob, up to its first wildcard."""
+    cut = min((glob.find(ch) for ch in "*?[{" if ch in glob), default=len(glob))
+    return glob[:cut]
+
+
+def forbidden_detector_scope(declared_scope: Any) -> list[str]:
+    """The detector-source globs a judge of a tool with this declared scope
+    may not cite as evidence of a product defect: every ARIA detector prefix
+    the scope does not reach into."""
+    reach = [_glob_literal_prefix(str(glob)) for glob in declared_scope or ()]
+    return [
+        f"{prefix}**"
+        for prefix in ARIA_DETECTOR_SOURCE_PREFIXES
+        if not any(lit.startswith(prefix) or prefix.startswith(lit) for lit in reach)
+    ]
+
+
 def is_self_output_ref(ref: str) -> bool:
     """True when ``ref`` names ARIA's own output (gitignored, unresolvable at
     any workspace SHA) — the same prefix rule the classifier uses.
@@ -435,6 +466,7 @@ def _git_tree_exists(
 
 
 __all__ = [
+    "ARIA_DETECTOR_SOURCE_PREFIXES",
     "EvidenceEnvelope",
     "EvidencePolicy",
     "GitProbeSession",
@@ -443,4 +475,5 @@ __all__ = [
     "is_self_output_ref",
     "parse_evidence_ref",
     "classify_evidence_ref",
+    "forbidden_detector_scope",
 ]

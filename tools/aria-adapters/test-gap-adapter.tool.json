@@ -49,6 +49,35 @@
     "tmp/**"
   ],
   "claim_types": ["test_gap"],
+  "rules": {
+    "high_risk_source_without_adjacent_test": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A write boundary with behaviour of its own has no test that exercises it.",
+      "premises": [
+        "The cited source performs writes and has behaviour beyond returning constants (it takes dependencies or computes results).",
+        "No unit, integration or e2e test imports it, sits beside it, or calls its route or GraphQL field."
+      ]
+    },
+    "migration_without_test": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "HIGH",
+      "defect_claim": "A migration that destroys or reshapes data has no test that runs it.",
+      "premises": [
+        "The cited migration drops, deletes, truncates, alters a type of, or forces row-level security on live data.",
+        "No test or migration-check job runs this migration against a database and asserts its effect."
+      ]
+    },
+    "security_source_without_security_test": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "HIGH",
+      "defect_claim": "A guard implementation or a public write has no test that exercises its security behaviour.",
+      "premises": [
+        "The cited source implements a guard (or authentication strategy) or exposes a write to unauthenticated callers.",
+        "No unit, integration or e2e test imports it, sits beside it, or calls its route or GraphQL field."
+      ]
+    }
+  },
   "owner": "platform",
   "runner": {
     "type": "subprocess",

@@ -29,6 +29,26 @@
     "tmp/**"
   ],
   "claim_types": ["performance_budget"],
+  "rules": {
+    "bundle_budget_not_enforced": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "LOW",
+      "defect_claim": "The module ships without a size budget that fails CI when its bundle grows past it.",
+      "premises": [
+        "The module has a production Vite build (a vite config beside its package.json).",
+        "No bundle-budget.json beside the module and no CI workflow or build step fails when the module's bundle exceeds a declared size."
+      ]
+    },
+    "heavy_dependency_statically_imported": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A heavyweight library is welded into the module's initial chunk by a static import.",
+      "premises": [
+        "The cited line statically imports the named library in module source that ships in the production bundle.",
+        "The importing file is reachable from the module's entry without a dynamic import() or React.lazy boundary in between."
+      ]
+    }
+  },
   "owner": "platform",
   "runner": {
     "type": "subprocess",

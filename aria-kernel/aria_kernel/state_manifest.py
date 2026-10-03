@@ -296,6 +296,32 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
         durability="append_fsync",
         write_driving=True,
     ),
+    # ARIA-HIGH-275 — the monthly segments of the two ledgers above, which
+    # stay as frozen segment 0. Same lock group, so every segment append
+    # serialises with the family; `ledger.SEGMENTED_LEDGERS` binds them and
+    # `ledger.load_segments` is their one reader.
+    StateSurface(
+        name="agent_invocation_request_segments",
+        path_pattern="agent-invocations/requests/*.jsonl",
+        state_class="ledger",
+        lock_group="agent_invocations",
+        index_group="agent_invocations",
+        strict_read=True,
+        durability="append_fsync",
+        write_driving=True,
+        profile_surface="agent_claim",
+    ),
+    StateSurface(
+        name="agent_invocation_prompt_segments",
+        path_pattern="agent-invocations/prompts/*.jsonl",
+        state_class="ledger",
+        lock_group="agent_invocations",
+        index_group="agent_invocations",
+        strict_read=True,
+        durability="append_fsync",
+        write_driving=True,
+        profile_surface="agent_claim",
+    ),
     StateSurface(
         name="agent_result_bridge_status",
         path_pattern="agent-invocations/agent-result-bridge-status.jsonl",
@@ -377,6 +403,14 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("health", "health.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("cycles", "cycles.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("tools_governance", "governance.jsonl", "ledger", "governance", "tools", True, "append_fsync", True),
+    # ARIA-HIGH-278 — the verified evidence a counted ledger's prefix carries
+    # forward, so a publish consumes only the rows after it. The publish
+    # preamble appends; `autonomy_evidence` verifies each row once, on the
+    # commit that adds it. Same gate as the governance rows beside it.
+    StateSurface(
+        "evidence_checkpoints", "evidence-checkpoints.jsonl", "ledger", "governance", "tools", True,
+        "append_fsync", True, profile_surface="tool_governance",
+    ),
     StateSurface("tool_registry", "registry.json", "index", "registry", "tools", True, "rewrite_fsync", True),
     # `repo_identity.json` is deliberately ABSENT from this list, and the
     # reason is worth stating where someone would next think to add it (PLAN

@@ -82,3 +82,33 @@ The audit logs that drove this deferral are listed in `aria-findings/F-AUTO-V10.
 - Implementer: operator (Okan)
 - Reviewers: ai-safety-auditor (mandatory pre-merge), architectural-arbiter (PROMPT_ONLY READONLY_PATHS decision), security-reviewer (sanitizer coverage on 5th source type)
 - Validation: 12-fixture adversarial sanitizer test + originating_skill self-loop guard invariant + per-24h global cap invariant + 5-source-byte-identical regression snapshot
+
+## Amendment — 2026-10-02 (ARIA-HIGH-260; operator delegated the decisions to the integrator)
+
+The self-feed source landed as the aging `F_FINDING` path (`finding_grounding.judge_loop_guards`),
+not as `scan_aria_findings_open`. Prerequisites 3–5 map to it as follows; each point below is a
+decision, pinned by `aria-kernel/tests/test_f_finding_loop_guards.py`.
+
+1. **Cap (prerequisite 4).** The bound is on what the source *does*: at most `max_plans_per_24h`
+   F-sourced plans START in any rolling 24h, default **1** (policy block `f_finding_loop_guards`,
+   bounds 0–24). It is stricter than "5 ARIA-emitted findings per 24h reaching the planner", which
+   it implies. Raising it is a policy change justified by the source's measured record (reverts,
+   rejections, cool-offs), not a default edit. The refusal is recorded as the candidate's
+   `plan_candidate_conversion_skipped` event with reason `f_finding_global_cap_exceeded`; a second
+   governance kind for the same fact is not added.
+2. **Attributed but unreverted merges quarantine.** Any self-revert decision other than
+   `not_attributable` holds the subject. A merge the producer attributed but could not revert
+   (failed, conflict, not permitted) is the strongest case: the harmful change may still be on main.
+3. **Quarantine lifts on an operator plan's MERGE, not its start.** A started plan can be abandoned
+   or rejected; lifting on start would hand a subject ARIA broke back to the unattended source after
+   a 7-day cool-off with no human resolution on main.
+4. **ARIA's own findings never plan ARIA's own paths unattended.** An ARIA-originated finding whose
+   plan touches `SELF_CHANGE_ALLOWED_PREFIXES` is refused. Kernel and agent changes stay
+   operator-gated (operator decision 2026-08-12: product code may self-merge, the kernel never);
+   they reach ARIA only through a signed operator request or the `self_improvement` HUMAN_REQUIRED
+   path.
+5. **External origins are exactly `manual:operator` and `report_ingestion:external_pr`.** The second
+   is external only because the implementer cannot write `docs/reviews/_registry/` (added to
+   `implementation_safety.READONLY_PATHS` with the S1 write-gate change); otherwise an ARIA plan
+   could mint a registry row and launder its own finding as external. Widening the set is an
+   amendment to this ADR.

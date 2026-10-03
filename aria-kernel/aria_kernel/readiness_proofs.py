@@ -1374,6 +1374,46 @@ def _recorded_claim(root: Path, readiness_claim_id: str) -> dict[str, Any] | Non
     )
 
 
+def build_readiness_claim(
+    *,
+    readiness_claim_id: str,
+    binding: dict[str, Any],
+    workflow_run_ids: set[str],
+    artifact_ref: dict[str, Any],
+    rollback_proof: Any,
+    retention_proof: Any,
+    open_expired_waivers: list[str],
+    waiver_ref: Any,
+    branch_protection_proof: Any,
+    dlp_proof: Any,
+    token_proof: Any,
+) -> dict[str, Any]:
+    """The one constructor of a readiness claim: the enterprise_readiness
+    proof row, whose meaning its schema_version declares (pinned by producer
+    fixture in test_capability_semantic_equivalence)."""
+    from .enterprise_readiness import READINESS_SCHEMA
+
+    return {
+        "$schema": READINESS_SCHEMA,
+        "schema_version": 2,
+        "claim_row_id": f"claim-row:{readiness_claim_id}",
+        "readiness_claim_id": readiness_claim_id,
+        **binding,
+        "evidence_bundle": {"path": f"enterprise/claims/{readiness_claim_id}.json"},
+        "workflow_run_ids": sorted(workflow_run_ids),
+        "artifact_refs": [dict(artifact_ref)],
+        "rollback_proof": rollback_proof,
+        "retention_proof": retention_proof,
+        "waiver_ledger": {
+            "open_expired_waivers": open_expired_waivers,
+            "source_ledger_ref": waiver_ref,
+        },
+        "branch_protection_proof": branch_protection_proof,
+        "dlp_proof": dlp_proof,
+        "token_proof": token_proof,
+    }
+
+
 def produce_readiness_claim(
     *,
     pr_number: int,
@@ -1554,30 +1594,21 @@ def produce_readiness_claim(
         row=sweep_row,
     )
 
-    from .enterprise_readiness import (
-        READINESS_SCHEMA,
-        record_enterprise_readiness_claim,
-    )
+    from .enterprise_readiness import record_enterprise_readiness_claim
 
-    claim = {
-        "$schema": READINESS_SCHEMA,
-        "schema_version": 2,
-        "claim_row_id": f"claim-row:{readiness_claim_id}",
-        "readiness_claim_id": readiness_claim_id,
-        **binding,
-        "evidence_bundle": {"path": f"enterprise/claims/{readiness_claim_id}.json"},
-        "workflow_run_ids": sorted(run_ids),
-        "artifact_refs": [dict(artifact_ref_row)],
-        "rollback_proof": rollback_report["rollback_proof"],
-        "retention_proof": rollback_report["retention_proof"],
-        "waiver_ledger": {
-            "open_expired_waivers": open_expired,
-            "source_ledger_ref": waiver_ref,
-        },
-        "branch_protection_proof": bp_report["proof"],
-        "dlp_proof": dlp_report["proof"],
-        "token_proof": token_proof,
-    }
+    claim = build_readiness_claim(
+        readiness_claim_id=readiness_claim_id,
+        binding=binding,
+        workflow_run_ids=run_ids,
+        artifact_ref=artifact_ref_row,
+        rollback_proof=rollback_report["rollback_proof"],
+        retention_proof=rollback_report["retention_proof"],
+        open_expired_waivers=open_expired,
+        waiver_ref=waiver_ref,
+        branch_protection_proof=bp_report["proof"],
+        dlp_proof=dlp_report["proof"],
+        token_proof=token_proof,
+    )
     recorded = record_enterprise_readiness_claim(claim, base_dir=root)
     return {
         "readiness_claim_id": readiness_claim_id,

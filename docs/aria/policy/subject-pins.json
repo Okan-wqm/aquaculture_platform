@@ -1,0 +1,6 @@
+{
+  "$schema": "aria/subject-pins/v1",
+  "schema_version": 1,
+  "policy_id": "aria-subject-pins",
+  "subject_pins": []
+}

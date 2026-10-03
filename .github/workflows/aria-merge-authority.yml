@@ -78,13 +78,19 @@ jobs:
               raise SystemExit(";".join(verdict.reasons))
           PY
 
+      # ADR-0023 — test_operator_signature_namespaces.py is here because this
+      # job is a required check on every pull request: a change to the
+      # operator allowed-signers file or the namespace registry is refused
+      # before merge unless the committed enrolment chain walks from the
+      # pinned genesis and every row it appends is still unexpired.
       - name: Assert ARIA merge authority
         run: |
           npm run aria:compile
           PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest \
             aria-kernel/tests/test_merge_authority_invariants.py \
             aria-kernel/tests/test_enterprise_readiness_and_genesis_lifecycle.py \
-            aria-kernel/tests/test_auto_merge.py
+            aria-kernel/tests/test_auto_merge.py \
+            aria-kernel/tests/test_operator_signature_namespaces.py
           npm run gates:required-status-checks
           npm run aria:docs:ssot
 

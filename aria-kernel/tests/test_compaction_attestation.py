@@ -95,6 +95,23 @@ def _git(cwd: Path, *args: str) -> str:
     ).stdout.strip()
 
 
+def _strip_past_the_window(tools: Path, *, retain_days: int = 7) -> int:
+    """What the retired hot-artifact strip did to a store: every cycle
+    directory stamped older than the window removed outright. Compaction no
+    longer deletes files — eviction to the cold store replaced the strip
+    (ARIA-HIGH-274) — but the stores it stripped are real, and the
+    compaction ledger is what heals them. Returns the directories removed."""
+    hot = tools / "run-artifacts" / "hot"
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retain_days)
+    removed = 0
+    for cycle in sorted(hot.iterdir()) if hot.is_dir() else []:
+        stamp = datetime.strptime(cycle.name[4:19], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
+        if stamp < cutoff:
+            shutil.rmtree(cycle)
+            removed += 1
+    return removed
+
+
 def _issue_codes(verdict: dict) -> dict[str, int]:
     codes: dict[str, int] = {}
     for issue in verdict["issues"]:
@@ -217,8 +234,8 @@ class CompactionStoreTestCase(unittest.TestCase):
         """Reproduce the live store's shape: compacted before the ledger
         existed. The compaction is real; only its attestation is removed,
         which is exactly what every compaction before 2026-09-13 left."""
-        result = compact_state(base_dir=self.tools, retain_days=7)
-        self.assertGreater(result["hot_artifacts_removed"], 0)
+        self.assertGreater(_strip_past_the_window(self.tools), 0)
+        compact_state(base_dir=self.tools, retain_days=7)
         (self.tools / COMPACTED_LEDGER).unlink()
 
 
@@ -229,10 +246,10 @@ class CompactionAttestsWhatItStrips(CompactionStoreTestCase):
         stripped artifacts counted as compacted and each named on the ledger."""
         runs = self._seed_two_old_cycles()
         self.assertEqual(self._verify()["status"], "ok")
+        self.assertEqual(_strip_past_the_window(self.tools), 2)
 
         result = compact_state(base_dir=self.tools, retain_days=7)
 
-        self.assertEqual(result["hot_artifacts_removed"], 2)
         # 6 runs × (tool_run + stored output).
         self.assertEqual(result["artifact_index_rows_dropped"], 12)
         self.assertEqual(result[ATTESTED_ARTIFACTS_KEY], 12)
@@ -274,8 +291,7 @@ class CompactionAttestsWhatItStrips(CompactionStoreTestCase):
         with gzip.open(archives[0], "rt", encoding="utf-8") as fh:
             archived = {json.loads(line)["artifact_id"] for line in fh if line.strip()}
         self.assertEqual(archived, {row["artifact_id"] for row in ledger_rows})
-        # The governance row carries the count beside the pruned paths, and
-        # names the archive it wrote: the binding a later run follows to
+        # The governance row carries the count, and names the archive it wrote: the binding a later run follows to
         # the window that was in force.
         governance = self._compaction_rows()
         self.assertEqual(governance[-1]["details"][ATTESTED_ARTIFACTS_KEY], 12)
@@ -290,6 +306,7 @@ class CompactionAttestsWhatItStrips(CompactionStoreTestCase):
         it, and the verifier keeps refusing it by name."""
         self._seed_two_old_cycles()
         live = self._record(_fresh_cycle(), "run-live")
+        _strip_past_the_window(self.tools)
         compact_state(base_dir=self.tools, retain_days=7)
         self.assertEqual(self._verify()["status"], "ok")
 
@@ -327,6 +344,7 @@ class CompactionAttestsWhatItStrips(CompactionStoreTestCase):
         stripped names a different artifact; the ledger row does not vouch
         for it."""
         self._seed_two_old_cycles()
+        _strip_past_the_window(self.tools)
         compact_state(base_dir=self.tools, retain_days=7)
         row = self._ledger_rows()[0]
         ref = {
@@ -344,6 +362,7 @@ class CompactionAttestsWhatItStrips(CompactionStoreTestCase):
         from aria_kernel.ledger import rewrite_declared_jsonl
 
         self._seed_two_old_cycles()
+        _strip_past_the_window(self.tools)
         compact_state(base_dir=self.tools, retain_days=7)
         path = self.tools / "raw-findings.jsonl"
         rows = load_declared_jsonl(path, expected_surface="raw_findings")
@@ -382,6 +401,7 @@ class CompactionAttestsWhatItStrips(CompactionStoreTestCase):
 
     def test_a_ledger_whose_chain_fails_attests_nothing(self) -> None:
         self._seed_two_old_cycles()
+        _strip_past_the_window(self.tools)
         compact_state(base_dir=self.tools, retain_days=7)
         ledger = self.tools / COMPACTED_LEDGER
         lines = ledger.read_text(encoding="utf-8").splitlines()
@@ -400,13 +420,15 @@ class CompactionAttestsWhatItStrips(CompactionStoreTestCase):
 
     def test_compaction_is_idempotent_and_dry_run_writes_no_attestation(self) -> None:
         self._seed_two_old_cycles()
+        _strip_past_the_window(self.tools)
+        index = self.tools / "run-artifacts" / "artifact-index.jsonl"
+        index_before = index.read_bytes()
         dry = compact_state(base_dir=self.tools, retain_days=7, dry_run=True)
-        # A dry run projects the real run: the rows the sweep would strip.
-        self.assertEqual(dry["hot_artifacts_removed"], 2)
+        # A dry run projects the real run and writes nothing.
         self.assertEqual(dry["artifact_index_rows_dropped"], 12)
         self.assertEqual(dry[ATTESTED_ARTIFACTS_KEY], 12)
         self.assertFalse((self.tools / COMPACTED_LEDGER).exists())
-        self.assertEqual(self._verify()["status"], "ok")
+        self.assertEqual(index.read_bytes(), index_before)
 
         compact_state(base_dir=self.tools, retain_days=7)
         first = (self.tools / COMPACTED_LEDGER).read_bytes()
@@ -456,8 +478,7 @@ class TheLiveStoreHealsOnItsNextCompaction(CompactionStoreTestCase):
 
         result = compact_state(base_dir=self.tools, retain_days=7)
 
-        # Nothing left to strip; everything already stripped is attested.
-        self.assertEqual(result["hot_artifacts_removed"], 0)
+        # Nothing left to drop; everything already stripped is attested.
         self.assertEqual(result["artifact_index_rows_dropped"], 0)
         self.assertEqual(result[ATTESTED_ARTIFACTS_KEY], 12)
         rows = self._ledger_rows()
@@ -529,18 +550,17 @@ class TheLiveStoreHealsOnItsNextCompaction(CompactionStoreTestCase):
         self._strip_without_the_ledger()
 
         self.assertEqual(compact_state(base_dir=self.tools, retain_days=7)[ATTESTED_ARTIFACTS_KEY], 12)
+        # The lost run's stored output document is still on disk, so its index row stays.
         self._lost_inside_the_window_verdict(lost, index_empty=False)
 
         shorter = compact_state(base_dir=self.tools, retain_days=1)
 
-        # This run's own 1-day prune removes the lost run's 3-day-old cycle,
-        # and with it the run's stored output document — lawfully, by this
-        # run's window — and attests that alone; the loss stays unattested.
-        self.assertEqual(shorter[ATTESTED_ARTIFACTS_KEY], 1)
-        self.assertEqual([row["kind"] for row in self._ledger_rows() if row["retain_days"] == 1], ["tool_output"])
+        # Compaction deletes no file (ARIA-HIGH-274): the 1-day window strips
+        # nothing and attests nothing, and the loss stays unattested.
+        self.assertEqual(shorter[ATTESTED_ARTIFACTS_KEY], 0)
         self.assertIsNone(self._attestation(lost["artifact_ref"]))
-        self.assertEqual({row["retain_days"] for row in self._ledger_rows() if row["kind"] == "tool_run"}, {7})
-        self._lost_inside_the_window_verdict(lost, index_empty=True)
+        self.assertEqual({row["retain_days"] for row in self._ledger_rows()}, {7})
+        self._lost_inside_the_window_verdict(lost, index_empty=False)
 
     def test_a_row_that_predates_the_archive_name_is_paired_by_clock_and_still_rules(self) -> None:
         """The nine ``state_compacted`` rows on the live store carry no
@@ -609,6 +629,7 @@ class TheLiveStoreHealsOnItsNextCompaction(CompactionStoreTestCase):
         import time
 
         self._seed_two_old_cycles()
+        _strip_past_the_window(self.tools)
         with mock.patch(
             "aria_kernel.state_compact.append_tools_governance", side_effect=RuntimeError("died"),
         ), self.assertRaises(RuntimeError):
@@ -619,6 +640,7 @@ class TheLiveStoreHealsOnItsNextCompaction(CompactionStoreTestCase):
         # archives' stamps distinct and ordered, as two real runs' are.
         time.sleep(2)
         later = [self._record("cyc-20200103T000000Z-auto", f"run-c{index}") for index in range(3)]
+        _strip_past_the_window(self.tools)
         compact_state(base_dir=self.tools, retain_days=7)
         (self.tools / COMPACTED_LEDGER).unlink()
         self._make_the_compaction_rows_predate_the_archive_name()
@@ -682,12 +704,12 @@ class TheCollapseKeepsEveryRunReachable(CompactionStoreTestCase):
         self._record(OLD_CYCLE_A, "run-a0", recurring=True)
         self._record(OLD_CYCLE_B, "run-b0", recurring=True)
         self.assertEqual(self._verify()["issues"], [])
+        self.assertEqual(_strip_past_the_window(self.tools), 2)
 
         result = compact_state(base_dir=self.tools, retain_days=7)
 
-        # Both old cycles are pruned and attested, and the collapse acted:
+        # Both stripped cycles are attested, and the collapse acted:
         # run-a0's copy of one recurring identity went to the archive.
-        self.assertEqual(result["hot_artifacts_removed"], 2)
         self.assertEqual(result["surfaces"]["raw_findings"]["stripped_rows"], 1)
         verdict = self._verify()
         self.assertEqual(verdict["issues"], [], verdict["issues"][:5])
@@ -704,6 +726,7 @@ class TheCollapseKeepsEveryRunReachable(CompactionStoreTestCase):
 
         self._record(OLD_CYCLE_A, "run-a0", recurring=True)
         self._record(OLD_CYCLE_B, "run-b0", recurring=True)
+        _strip_past_the_window(self.tools)
         compact_state(base_dir=self.tools, retain_days=7)
         path = self.tools / "raw-findings.jsonl"
         rows = load_declared_jsonl(path, expected_surface="raw_findings")
@@ -725,6 +748,7 @@ class AFullyCompactedIndexIsValid(CompactionStoreTestCase):
         for `integrity_failed` (ARIA-HIGH-098). Zero index rows with every
         ref attested is valid, and the count says why."""
         self._seed_two_old_cycles()
+        _strip_past_the_window(self.tools)
         compact_state(base_dir=self.tools, retain_days=7)
 
         verdict = verify_artifacts(base_dir=self.tools)
@@ -794,8 +818,10 @@ class NoLanePublishesAnUnverifiedStore(unittest.TestCase):
         self.assertTrue(first["published"])
         self.assertEqual(first["runtime_artifacts"], {
             "status": "ok", "verified_artifact_count": 3, "compacted_artifact_count": 0,
+            "evicted_artifact_count": 0,
         })
 
+        _strip_past_the_window(self.tools)
         compacted = compact_state(base_dir=self.tools, retain_days=7)
         self.assertEqual(compacted[ATTESTED_ARTIFACTS_KEY], 2)  # tool_run + stored output
         second = self.lane._publish(self.store, "snap-2", "cycle-2")
@@ -820,6 +846,7 @@ class NoLanePublishesAnUnverifiedStore(unittest.TestCase):
         first = self.lane._publish(self.store, "snap-1", "cycle-1")
         self.assertTrue(first["published"])
 
+        _strip_past_the_window(self.tools)
         compacted = compact_state(base_dir=self.tools, retain_days=7)
         # Each run recorded one finding with the same identity; the older
         # run's row is its only one, so the per-run floor keeps it (before

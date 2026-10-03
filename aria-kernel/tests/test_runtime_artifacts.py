@@ -247,8 +247,11 @@ def _cold_runtime_fixture(case: unittest.TestCase, root: Path, *, legacy: bool):
             archives = load_declared_jsonl(tools / "retention/events.jsonl", expected_surface="retention_events")
             case.assertEqual(len(archives), 2)
             archived = next(row for row in archives if row["artifact_id"] == ref["artifact_id"])
+            # The cycle directory — the run's record and its stored output —
+            # goes as the retired hot-artifact strip took it (compaction deletes
+            # no file since ARIA-HIGH-274); the compaction then drops both index rows.
+            shutil.rmtree(tools / "run-artifacts" / "hot" / "cyc-20200101T000000Z-current")
             compacted = compact_state(base_dir=tools, retain_days=7, dry_run=False)
-            case.assertEqual(compacted["hot_artifacts_removed"], 1)  # Removed cycle directory.
             case.assertEqual(compacted["artifact_index_rows_dropped"], 2)
 
         case.assertEqual(ref["sha256"], "sha256:" + hashlib.sha256(original).hexdigest())
@@ -469,6 +472,7 @@ class RuntimeArtifactTests(unittest.TestCase):
                             "schema_version": 1, "event": "artifact_restored",
                             "artifact_id": ref["artifact_id"], "path": ref["uri"],
                             "sha256": ref["sha256"], "restored_from_archive": True,
+                            "restored_from_cold": False,
                             "reason": "restore ordinary cold fixture",
                             "operator_approval_ref": _APPROVAL_REF,
                         })

@@ -2267,8 +2267,9 @@ executor publish landed after 09-04. The contract that ends that contradiction:
   `artifact_index_archive` (`null` when it dropped no index row).
 - **The ledger attests policy, not absence.** A dropped index row is attested only when the
   retention policy removed its artifact: its cycle stamp (or `created_at`) is older than the
-  cutoff in force when its archive was written, or this very run pruned its hot directory
-  (`pruned_paths`). A row whose artifact is absent inside the window is archived but NOT
+  cutoff in force when its archive was written. Compaction deletes no file; an artifact a publish
+  evicted to `aria/state-cold` keeps its index row, present by its `cold/pointers` row
+  (ARIA-HIGH-274). A row whose artifact is absent inside the window is archived but NOT
   attested — the verifier keeps reporting it, and a later compaction never re-judges it: that is
   the lost artifact the verifier exists to catch.
 - **The window in force is the archive's own.** The cutoff an archive is judged by is

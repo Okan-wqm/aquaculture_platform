@@ -33,7 +33,7 @@ from unittest import mock
 from aria_kernel import state_store
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel import state_compact
-from aria_kernel.state_compact import COMPACTED_EVENT, PRUNED_PATHS_KEY, compact_state
+from aria_kernel.state_compact import COMPACTED_EVENT, compact_state
 from aria_kernel.state_store import (
     BOOTSTRAP_ACK_ENV,
     StateStoreRefusal,
@@ -228,7 +228,7 @@ class ThePublishBoundsTheCompactableLedgers(MaintenanceLaneTestCase):
         self._seed_raw_findings(store, findings=20, copies=30)
         head = _git(store.root, "rev-parse", "HEAD").strip()
         with self._bounds(), mock.patch.object(
-            state_compact, "compact_state", side_effect=OSError("archive write failed"),
+            state_compact, "compact_surfaces", side_effect=OSError("archive write failed"),
         ), self.assertRaises(StateStoreRefusal) as caught:
             self._publish(store, "snap-1", "cycle-1")
         self.assertIn("state_publish_compaction_failed:OSError:archive write failed", str(caught.exception))
@@ -248,40 +248,31 @@ class ThePublishBoundsTheCompactableLedgers(MaintenanceLaneTestCase):
         self.assertEqual(_git(store.root, "rev-parse", "HEAD").strip(), head)
 
 
-class CompactionAttestsWhatItPrunes(MaintenanceLaneTestCase):
-    def test_a_compaction_attested_loss_publishes_without_the_operator_ack(self) -> None:
+class CompactionDeletesNoSurface(MaintenanceLaneTestCase):
+    """ARIA-HIGH-274 — compaction slims ledgers and deletes no file: the hot
+    cycles it used to strip on a wall-clock window now leave the tree only by
+    eviction to the cold store, so a compaction's own publish loses nothing
+    and needs nobody to vouch for a loss."""
+
+    def test_the_publish_after_a_compaction_loses_no_surface(self) -> None:
         store = self._bound_store()
         keys = self._seed_prunable_and_slimmable_state(store)
         first = self._publish(store, "snap-1", "cycle-1")
         self.assertTrue(first["published"])
-        self.assertIn(keys["old_artifact_key"], first["prepared"].snapshot["surfaces"])
         self.assertNotIn(BOOTSTRAP_ACK_ENV, os.environ)
 
         compacted = compact_state(base_dir=tools_root(store), retain_days=7)
-        self.assertEqual(compacted[PRUNED_PATHS_KEY], [keys["old_cycle_prefix"]])
-        self.assertEqual(compacted["hot_artifacts_removed"], 1)
+        self.assertGreater(compacted["surfaces"]["runs"]["stripped_rows"], 0)
 
         second = self._publish(store, "snap-2", "cycle-2")
 
         self.assertTrue(second["published"])
-        continuity = second["continuity"]
-        self.assertEqual(continuity["status"], "surfaces_lost")
-        self.assertEqual(continuity["lost_surfaces"], [keys["old_artifact_key"]])
-        self.assertEqual(
-            continuity["compaction_attested_surfaces"],
-            [keys["old_artifact_key"]],
-        )
-        # The fresh cycle survived the sweep and is still attested.
-        self.assertIn(
-            keys["fresh_artifact_key"],
-            json.loads(_git(store.root, "show", "HEAD:snapshot.json"))["surfaces"],
-        )
-        # The attestation the gate consumed is inside the published commit.
-        rows = [
-            row for row in self._committed_governance_rows(store)
-            if row.get("kind") == COMPACTED_EVENT
-        ]
-        self.assertEqual(rows[-1]["details"][PRUNED_PATHS_KEY], [keys["old_cycle_prefix"]])
+        self.assertEqual(second["continuity"]["status"], "ok")
+        committed = json.loads(_git(store.root, "show", "HEAD:snapshot.json"))["surfaces"]
+        self.assertIn(keys["old_artifact_key"], committed)
+        self.assertIn(keys["fresh_artifact_key"], committed)
+        rows = [row for row in self._committed_governance_rows(store) if row.get("kind") == COMPACTED_EVENT]
+        self.assertNotIn("pruned_paths", rows[-1]["details"])
 
     def test_an_unattested_loss_is_still_refused_and_named_alone(self) -> None:
         store = self._bound_store()
@@ -305,20 +296,20 @@ class CompactionAttestsWhatItPrunes(MaintenanceLaneTestCase):
         self.assertNotIn(keys["old_artifact_key"], message)
 
     def test_a_write_driving_ledger_is_never_accepted_on_a_compaction_row(self) -> None:
-        """Compaction slims ledgers, it never deletes them. A row that claims
-        to have pruned one is not evidence of policy; it is the amnesia the
-        gate exists to refuse, whatever wrote the row."""
-        from aria_kernel.tool_registry import append_tools_governance
-
+        """Compaction slims ledgers, it never deletes them. A compaction
+        ledger row that claims to have stripped one is not evidence of
+        policy; it is the amnesia the gate exists to refuse, whatever wrote
+        the row."""
         store = self._bound_store()
         self._seed_prunable_and_slimmable_state(store)
         self._publish(store, "snap-1", "cycle-1")
 
         tools = tools_root(store)
-        append_tools_governance(
-            tools,
-            COMPACTED_EVENT,
-            {"retain_days": 7, "surfaces": {}, PRUNED_PATHS_KEY: ["runs.jsonl"]},
+        append_declared_jsonl(
+            tools / "run-artifacts" / "compacted.jsonl",
+            {"schema_version": 1, "artifact_id": "forged", "uri": "runs.jsonl", "sha256": "",
+             "archive": "governance.jsonl", "attested_by": "compaction"},
+            expected_surface="runtime_artifact_compactions",
         )
         (tools / "runs.jsonl").unlink()
 
@@ -526,22 +517,17 @@ class ALossAttestedOnlyByTheCompactionLedgerPublishes(MaintenanceLaneTestCase):
         return f"runtime_artifact_hot:{hot[0].relative_to(tools).as_posix()}"
 
     def _strip_before_the_ledger_existed(self, store) -> None:
-        """A real compaction, its attestation removed and its governance row
-        reduced to the pre-ledger shape (no ``pruned_paths``)."""
-        from aria_kernel.ledger import load_jsonl, rewrite_declared_jsonl
+        """The cycle directory removed as the retired hot-artifact strip did,
+        a real compaction dropping its index row to the archive, and that
+        compaction's attestation removed — the pre-ledger shape."""
+        import shutil
 
         tools = tools_root(store)
+        shutil.rmtree(tools / "run-artifacts" / "hot" / "cyc-20200101T000000Z-auto")
         stripped = compact_state(base_dir=tools, retain_days=7)
-        self.assertEqual(stripped["hot_artifacts_removed"], 1)
+        # The run's record and its stored output document (ARIA-HIGH-292).
+        self.assertEqual(stripped["artifact_index_rows_dropped"], 2)
         (tools / "run-artifacts" / "compacted.jsonl").unlink()
-        path = tools / "governance.jsonl"
-        rows = load_jsonl(path)
-        for row in rows:
-            if row.get("kind") == COMPACTED_EVENT:
-                row["details"].pop(PRUNED_PATHS_KEY, None)
-        rewrite_declared_jsonl(
-            path, rows, expected_surface="tools_governance", migration_id="test_pre_ledger_compaction_rows",
-        )
 
     def test_a_backfilled_attestation_vouches_for_a_loss_no_governance_row_prunes(self) -> None:
         from aria_kernel.state_compact import ATTESTED_ARTIFACTS_KEY
@@ -562,8 +548,7 @@ class ALossAttestedOnlyByTheCompactionLedgerPublishes(MaintenanceLaneTestCase):
 
         self._strip_before_the_ledger_existed(store)
         healed = compact_state(base_dir=tools, retain_days=7)
-        self.assertEqual(healed["hot_artifacts_removed"], 0)
-        self.assertEqual(healed[PRUNED_PATHS_KEY], [])
+        self.assertEqual(healed["artifact_index_rows_dropped"], 0)
         self.assertEqual(healed[ATTESTED_ARTIFACTS_KEY], 2)
         self.assertNotIn(BOOTSTRAP_ACK_ENV, os.environ)
 

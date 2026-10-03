@@ -23,19 +23,10 @@ What it does (per surface, all lossless via archives):
 Stripped data is written to archives/<surface>-compact-<timestamp>.jsonl.gz
 so nothing is lost. Ledgers are re-chained via rewrite_declared_jsonl.
 
-THE PRUNE IS ATTESTED, NOT ACKNOWLEDGED. Hot-artifact directories and
-discovery FATES are removed outright (retention, not slimming), and every
-file under them is a declared surface the published snapshot claims. The
-next publish therefore sees ``surfaces_lost`` — the continuity gate that
-exists to catch amnesia. Until this module recorded what it pruned, the
-only way past that gate was ``ARIA_STATE_BOOTSTRAP_ACK``, an operator
-acknowledgement that names a one-off fresh start and that the bootstrap
-runbook says must never live in a workflow. So the ``state_compacted``
-governance row now carries ``pruned_paths`` — the exact tools-relative
-paths and directory prefixes this run removed — and ``publish_state``
-accepts a loss iff a compaction row appended since the published tip
-names it. Policy-driven forgetting is then proven by the process that
-did it, and the ack keeps its one meaning.
+COMPACTION DELETES NO FILE (ARIA-HIGH-274). Its wall-clock hot-cycle strip
+and mtime-aged FATES strip let ``aria/state`` grow ~45-70 MiB a day; every
+publish now evicts old cycles to the ``<branch>-cold`` store
+(``evict_to_cold``), so evidence leaves the hot tree and is never deleted.
 
 THE STRIPPED ARTIFACTS ARE ATTESTED TOO (ARIA-HIGH-117). Pruning a hot
 cycle and dropping its index rows leaves ``runs.jsonl`` refs and
@@ -66,23 +57,24 @@ from __future__ import annotations
 
 import copy
 import gzip
+import hashlib
 import json
-import os
 import re
 import shutil
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import StateTransaction, load_declared_jsonl, rewrite_declared_jsonl, state_transaction
-from .state_manifest import resolve_surface_path, surface_by_name
+from .ledger import (StateTransaction, append_declared_jsonl_rows, load_declared_jsonl,
+                     rewrite_declared_jsonl, state_transaction)
+from .runtime_artifacts import COLD_POINTERS_SURFACE, cold_pointers
+from .state_manifest import resolve_surface_path, surface_by_name, surface_for_relative_path
 from .state_snapshot import SNAPSHOT_MAX_SURFACE_BLOB_BYTES
 from .tool_registry import append_tools_governance, ensure_tools_dir, utc_now
 
-# The governance event compaction records, and the field inside it that a
-# later publish reads as the attestation for the surfaces it prunes.
+# The governance event compaction records.
 COMPACTED_EVENT = "state_compacted"
-PRUNED_PATHS_KEY = "pruned_paths"
 # The count of artifacts the compaction ledger attested this run carries
 # on the same governance row.
 ATTESTED_ARTIFACTS_KEY = "compacted_artifacts_attested"
@@ -166,14 +158,6 @@ def compact_state(
             "stripped_rows": stripped_rows,
         }
 
-    # Non-ledger surfaces the maintenance lane historically stripped in a
-    # workflow-inline copy of this compactor. That copy diverged (silent
-    # skip of malformed lines, rewrites without re-chaining) and was
-    # retired; the cleanup moved HERE so one implementation serves both
-    # the CLI and the lane (ARIA-AUDIT-001).
-    now = datetime.now(timezone.utc)
-    pruned_hot_dirs = _strip_hot_artifacts(root, cutoff, dry_run)
-    results["hot_artifacts_removed"] = len(pruned_hot_dirs)
     # ORPHAN-CRITICAL-805 — the index has to follow the files it describes.
     # Deleting a cycle's artifacts and leaving its index rows behind makes
     # verify_artifacts report `run_artifact_missing` forever, which turns
@@ -181,19 +165,13 @@ def compact_state(
     # how the night actually went. ARIA-HIGH-117 — and the run refs and
     # raw pointers that still name the dropped artifacts are attested on
     # the compaction ledger in the same transaction.
+    now = datetime.now(timezone.utc)
     dropped_rows, attested, fresh_archive = _compact_artifact_index(
-        root, now=now, retain_days=retain_days, pruned_hot_dirs=pruned_hot_dirs, dry_run=dry_run,
+        root, now=now, retain_days=retain_days, dry_run=dry_run,
     )
     results["artifact_index_rows_dropped"] = dropped_rows
     results[ATTESTED_ARTIFACTS_KEY] = attested
     results[ARCHIVE_KEY] = fresh_archive
-    pruned_fates = _strip_discovery_fates(root, now, dry_run)
-    results["fates_removed"] = len(pruned_fates)
-    # Directory prefixes end with "/" so a reader can tell "everything
-    # under this cycle" from "exactly this file" without a second field.
-    results[PRUNED_PATHS_KEY] = sorted(
-        [f"{path}/" for path in pruned_hot_dirs] + list(pruned_fates)
-    )
 
     if not dry_run:
         append_tools_governance(
@@ -205,7 +183,6 @@ def compact_state(
                     name: {"before": s["before_bytes"], "after": s["after_bytes"]}
                     for name, s in results["surfaces"].items()
                 },
-                PRUNED_PATHS_KEY: results[PRUNED_PATHS_KEY],
                 ATTESTED_ARTIFACTS_KEY: results[ATTESTED_ARTIFACTS_KEY],
                 ARCHIVE_KEY: results[ARCHIVE_KEY],
             },
@@ -268,46 +245,6 @@ def _surface_size(root: Path, surface: str) -> int:
     return path.stat().st_size if path.exists() else 0
 
 
-def attested_pruned_paths(
-    root: str | Path,
-    *,
-    governance_rows_since: int,
-) -> tuple[str, ...]:
-    """Every tools-relative path or ``dir/`` prefix a compaction attested.
-
-    Read from the governance rows appended at index ``governance_rows_since``
-    and later — the published snapshot's ``row_count`` for the governance
-    ledger, i.e. exactly the rows this run added on top of the tip. Older
-    rows attest prunes the tip already reflects, so reading them would add
-    nothing; a stale tip whose claimed row_count lags (a non-kernel commit)
-    yields a superset, which only re-attests paths that are already gone.
-    """
-    path = Path(root) / "governance.jsonl"
-    if not path.exists() or governance_rows_since < 0:
-        return ()
-    rows = load_declared_jsonl(path, expected_surface="tools_governance")
-    attested: set[str] = set()
-    for row in rows[governance_rows_since:]:
-        if row.get("kind") != COMPACTED_EVENT:
-            continue
-        details = row.get("details")
-        pruned = details.get(PRUNED_PATHS_KEY) if isinstance(details, dict) else None
-        if isinstance(pruned, list):
-            attested.update(item for item in pruned if isinstance(item, str) and item)
-    return tuple(sorted(attested))
-
-
-def prune_attested(relative_path: str, attested: tuple[str, ...] | list[str]) -> bool:
-    """Whether one tools-relative surface path is covered by an attestation."""
-    for entry in attested:
-        if entry.endswith("/"):
-            if relative_path.startswith(entry):
-                return True
-        elif relative_path == entry:
-            return True
-    return False
-
-
 def _surface_path(root: Path, surface: str) -> Path:
     mapping = {
         "runs": root / "runs.jsonl",
@@ -318,14 +255,8 @@ def _surface_path(root: Path, surface: str) -> Path:
     return mapping[surface]
 
 
-# Discovery FATES age out on a fixed 30-day clock, independent of
-# --retain-days: they are per-run scratch, and the maintenance contract
-# this kernelized never tied them to the ledger retention window.
-DISCOVERY_FATES_RETAIN_DAYS = 30
-
-
 def _cycle_timestamp(name: str) -> datetime | None:
-    """Parse the UTC stamp out of a hot-artifact cycle directory name.
+    """Parse the UTC stamp out of a cycle directory name.
 
     Cycle IDs carry their own clock: ``cyc-20260822T153253Z-auto``.
     """
@@ -337,33 +268,90 @@ def _cycle_timestamp(name: str) -> datetime | None:
         return None
 
 
-def _strip_hot_artifacts(root: Path, cutoff: datetime, dry_run: bool) -> list[str]:
-    """Remove hot-artifact cycle directories older than the cutoff.
+# ---- ARIA-HIGH-274 — eviction to the cold store --------------------------
+# How many of the newest cycles of each family stay hot, ordered by the
+# stamp inside the cycle id — never by mtime (checkout time on a fresh
+# worktree) or by the wall clock (a lane that does not run ages nothing).
+COLD_EVICTION_KEEP_CYCLES = 3
+COLD_EVICTION_FAMILIES: tuple[str, ...] = ("run-artifacts/hot", "discovery")
+COLD_EVICTED_EVENT = "state_cold_evicted"
 
-    The single biggest state-branch contributor (old cycles'
-    tool_run.json files). A name that does not carry a parseable cycle
-    stamp falls back to mtime, matching the retired workflow contract.
-    Returns the tools-relative directories removed — the attestation the
-    publish gate matches lost surfaces against by prefix.
-    """
-    hot = root / "run-artifacts" / "hot"
-    if not hot.is_dir():
-        return []
-    removed: list[str] = []
-    for item in sorted(hot.iterdir()):
-        if not item.is_dir():
-            continue
-        stamp = _cycle_timestamp(item.name)
-        if stamp is None:
-            try:
-                stamp = datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc)
-            except OSError:
-                continue
-        if stamp < cutoff:
-            if not dry_run:
-                shutil.rmtree(item, ignore_errors=True)
-            removed.append(item.relative_to(root).as_posix())
-    return removed
+
+@dataclass(frozen=True)
+class ColdStaging:
+    """What a publish's pre-lock half put in the cold store: the cold commit
+    holding every blob, and the pointer rows by tools-relative cycle dir."""
+
+    commit: str
+    cycles: dict[str, tuple[dict[str, Any], ...]]
+
+
+def cold_eviction_candidates(root: Path) -> dict[str, list[tuple[str, Path]]]:
+    """``{cycle dir: [(surface name, file), ...]}`` for every cycle outside the
+    newest ``COLD_EVICTION_KEEP_CYCLES`` of its family whose every file is an
+    ARTIFACT-class surface (a ledger never leaves the hot tree). Whole cycles
+    only: ``runtime_artifacts._verify_cycle_files`` needs every file of one."""
+    evictable: dict[str, list[tuple[str, Path]]] = {}
+    for family in COLD_EVICTION_FAMILIES:
+        base = root / family
+        stamped = sorted(
+            (stamp, item.name) for item in (base.iterdir() if base.is_dir() else ())
+            if item.is_dir() and not item.is_symlink() and (stamp := _cycle_timestamp(item.name)) is not None
+        )
+        for _stamp, cycle_id in stamped[:-COLD_EVICTION_KEEP_CYCLES]:
+            files = sorted(path for path in (base / cycle_id).rglob("*") if not path.is_dir())
+            surfaces = [surface_for_relative_path(path.relative_to(root).as_posix()) for path in files]
+            if files and all(
+                path.is_file() and not path.is_symlink() and surface is not None and surface.state_class == "artifact"
+                for path, surface in zip(files, surfaces)
+            ):
+                evictable[f"{family}/{cycle_id}"] = [
+                    (surface.name, path) for path, surface in zip(files, surfaces) if surface is not None
+                ]
+    return evictable
+
+
+def evict_to_cold(root: Path, staging: ColdStaging) -> dict[str, Any]:
+    """The in-lock half of a publish's eviction: record, then unlink.
+
+    A cycle is evicted only while it holds exactly the staged files and bytes
+    (a replay onto a winner that evicted it finds it gone). Every pointer row
+    is appended and fsynced BEFORE any unlink and never appended twice, so a
+    crash between the two heals on the next publish."""
+    known = cold_pointers(root)
+    evicting: list[tuple[Path, tuple[dict[str, Any], ...]]] = []
+    for cycle_dir, rows in sorted(staging.cycles.items()):
+        directory = root / cycle_dir
+        staged = {row["uri"]: row["sha256"] for row in rows}
+        on_disk = sorted(
+            path.relative_to(root).as_posix() for path in directory.rglob("*") if not path.is_dir()
+        ) if directory.is_dir() else []
+        if on_disk and on_disk == sorted(staged) and all(
+            "sha256:" + hashlib.sha256((root / uri).read_bytes()).hexdigest() == staged[uri] for uri in on_disk
+        ):
+            evicting.append((directory, rows))
+    by_month: dict[str, list[dict[str, Any]]] = {}
+    for _directory, rows in evicting:
+        for row in rows:
+            if known.evicted(row["uri"], row["sha256"]) is None:
+                # `cyc-YYYYMMDDT...`: the month is the cycle's own, never the clock's.
+                by_month.setdefault(f"{row['cycle_id'][4:8]}-{row['cycle_id'][8:10]}", []).append(row)
+    for month, rows in sorted(by_month.items()):
+        ledger = root / "cold" / "pointers" / f"{month}.jsonl"
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        append_declared_jsonl_rows(ledger, rows, expected_surface=COLD_POINTERS_SURFACE)
+    for directory, _rows in evicting:
+        shutil.rmtree(directory)
+    count = sum(len(rows) for _directory, rows in evicting)
+    freed = sum(int(row["size"]) for _directory, rows in evicting for row in rows)
+    if count:
+        append_tools_governance(root, COLD_EVICTED_EVENT, {"cold_commit": staging.commit, "count": count, "bytes": freed})
+    return {
+        "cold_commit": staging.commit,
+        "evicted_files": count,
+        "evicted_bytes": freed,
+        "pointers_appended": sum(len(rows) for rows in by_month.values()),
+    }
 
 
 def _compact_artifact_index(
@@ -371,7 +359,6 @@ def _compact_artifact_index(
     *,
     now: datetime,
     retain_days: int,
-    pruned_hot_dirs: list[str],
     dry_run: bool,
 ) -> tuple[int, int, str | None]:
     """Drop index rows whose artifact file is no longer on disk, and attest
@@ -381,8 +368,8 @@ def _compact_artifact_index(
     — the archive is the tools-relative path of this run's compact archive
     of dropped rows, or None when it dropped none.
 
-    WHY this exists (ORPHAN-CRITICAL-805). `_strip_hot_artifacts` rmtree's
-    whole cycle directories, and nothing updated
+    WHY this exists (ORPHAN-CRITICAL-805). The retired hot-artifact strip
+    rmtree'd whole cycle directories, and nothing updated
     `run-artifacts/artifact-index.jsonl`. The index therefore grew without
     bound while the files were kept to a window, and `verify_artifacts`
     walks the INDEX: 158 rows across 19 pruned cycles against 18 files
@@ -399,10 +386,12 @@ def _compact_artifact_index(
     only preventing the next one. Dropped rows go to the archive like every
     other surface: compaction's contract is that nothing is lost.
 
+    ARIA-HIGH-274 — an artifact evicted to the cold store is present: its
+    pointer names its bytes, so an eviction never rewrites the index.
+
     ARIA-HIGH-117 — presence decides what leaves the INDEX; the retention
     policy decides what the LEDGER attests. A dropped row whose cycle is
-    older than the window this compaction applied (or whose hot directory
-    this very run removed) is attested as compacted; a dropped row inside
+    older than the window this compaction applied is attested as compacted; a dropped row inside
     the window names an artifact that is absent for some other reason, and
     the verifier keeps reporting it — that is the lost artifact it exists
     to catch. The ledger row and the index rewrite share one transaction,
@@ -415,17 +404,14 @@ def _compact_artifact_index(
     path = root / "run-artifacts" / "artifact-index.jsonl"
     ledger = _compaction_ledger_path(root)
     rows = load_declared_jsonl(path, expected_surface="runtime_artifact_index") if path.exists() else []
-    # In a real run the hot sweep has already removed these directories; a
-    # dry run leaves them in place, so "would be absent" is the same
-    # question asked of the sweep's answer rather than of the disk.
-    pruned_prefixes = tuple(f"{prefix}/" for prefix in pruned_hot_dirs)
+    cold = cold_pointers(root)
     kept: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
     for row in rows:
         uri = str(row.get("current_uri") or "")
         # A row with no uri cannot name a file and cannot be verified; it is
         # already an issue in verify_artifacts, so it goes with the rest.
-        if uri and (root / uri).is_file() and not uri.startswith(pruned_prefixes):
+        if uri and ((root / uri).is_file() or cold.evicted(uri, row.get("sha256")) is not None):
             kept.append(row)
         else:
             dropped.append(row)
@@ -434,7 +420,7 @@ def _compact_artifact_index(
     if dry_run:
         attestable = _compaction_attestations(
             root, existing_ids=_attested_artifact_ids(root), now=now, retain_days=retain_days,
-            pruned_hot_dirs=pruned_hot_dirs, windows=windows, pending=dropped,
+            windows=windows, pending=dropped,
         )
         return len(dropped), len(attestable), None
     if not dropped and not earlier_archives:
@@ -453,7 +439,7 @@ def _compact_artifact_index(
             )
         attested = _attest_compacted_artifacts(
             transaction, root, now=now, retain_days=retain_days,
-            pruned_hot_dirs=pruned_hot_dirs, windows=windows, fresh_archive=fresh_archive,
+            windows=windows, fresh_archive=fresh_archive,
         )
     return len(dropped), attested, fresh_archive
 
@@ -482,7 +468,6 @@ def _attest_compacted_artifacts(
     *,
     now: datetime,
     retain_days: int,
-    pruned_hot_dirs: list[str],
     windows: dict[str, int],
     fresh_archive: str | None,
 ) -> int:
@@ -506,7 +491,7 @@ def _attest_compacted_artifacts(
         }
     attestations = _compaction_attestations(
         root, existing_ids=existing, now=now, retain_days=retain_days,
-        pruned_hot_dirs=pruned_hot_dirs, windows=windows, fresh_archive=fresh_archive,
+        windows=windows, fresh_archive=fresh_archive,
     )
     for row in attestations:
         transaction.append_declared_jsonl(ledger, row, expected_surface=COMPACTIONS_SURFACE)
@@ -519,7 +504,6 @@ def _compaction_attestations(
     existing_ids: set[str],
     now: datetime,
     retain_days: int,
-    pruned_hot_dirs: list[str],
     windows: dict[str, int],
     fresh_archive: str | None = None,
     pending: list[dict[str, Any]] | None = None,
@@ -533,7 +517,6 @@ def _compaction_attestations(
     the compaction that wrote it, read from governance — and an archive
     absent from ``windows`` is attested from not at all.
     """
-    prefixes = tuple(f"{prefix}/" for prefix in pruned_hot_dirs)
     sources: list[tuple[str, datetime, list[dict[str, Any]], str]] = []
     for archive in _compact_archives(root):
         stamp = _archive_stamp(archive.name)
@@ -560,19 +543,16 @@ def _compaction_attestations(
         else:
             continue
         cutoff = stamp - timedelta(days=window)
-        # This run's own prune is authoritative for the directories it
-        # removed; the stamp rule covers rows stranded by earlier prunes.
-        pruned = prefixes if origin == ATTESTED_BY_COMPACTION else ()
         for row in archived:
             artifact_id = str(row.get("artifact_id") or "")
             uri = str(row.get("current_uri") or "")
             if not artifact_id or not uri or artifact_id in attested:
                 continue
             # Present again (a restore rehydrated it) is verified by its
-            # bytes, not attested; a dry run's pending prune counts as gone.
-            if (root / uri).is_file() and not uri.startswith(prefixes):
+            # bytes, not attested.
+            if (root / uri).is_file():
                 continue
-            if not _retention_removed(row, uri, cutoff=cutoff, pruned_prefixes=pruned):
+            if not _retention_removed(row, cutoff=cutoff):
                 continue
             attested.add(artifact_id)
             rows.append({
@@ -592,12 +572,8 @@ def _compaction_attestations(
     return rows
 
 
-def _retention_removed(
-    row: dict[str, Any], uri: str, *, cutoff: datetime, pruned_prefixes: tuple[str, ...],
-) -> bool:
-    """Was this artifact retention's to remove — by prune, or by age?"""
-    if any(uri.startswith(prefix) for prefix in pruned_prefixes):
-        return True
+def _retention_removed(row: dict[str, Any], *, cutoff: datetime) -> bool:
+    """Was this artifact retention's to remove — is it older than the window?"""
     stamp = _cycle_timestamp(str(row.get("cycle_uid") or row.get("cycle_id") or ""))
     if stamp is None:
         stamp = _parse_ts(row.get("created_at"))
@@ -689,27 +665,6 @@ def _read_archive_rows(archive: Path) -> list[dict[str, Any]]:
             if isinstance(row, dict):
                 rows.append(row)
     return rows
-
-
-def _strip_discovery_fates(root: Path, now: datetime, dry_run: bool) -> list[str]:
-    """Remove discovery FATES.json files older than the fixed 30-day clock.
-
-    Returns the tools-relative paths removed, for the same attestation.
-    """
-    cutoff = now - timedelta(days=DISCOVERY_FATES_RETAIN_DAYS)
-    disc = root / "discovery"
-    if not disc.is_dir():
-        return []
-    removed: list[str] = []
-    for fates in sorted(disc.rglob("FATES.json")):
-        try:
-            if datetime.fromtimestamp(fates.stat().st_mtime, tz=timezone.utc) < cutoff:
-                if not dry_run:
-                    fates.unlink()
-                removed.append(fates.relative_to(root).as_posix())
-        except OSError:
-            continue
-    return removed
 
 
 def _compact_runs(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tuple[int, int]:
@@ -911,10 +866,12 @@ __all__ = (
     "COMPACTABLE_SURFACES",
     "COMPACTED_EVENT",
     "COMPACTION_TRIGGER_BYTES",
-    "PRUNED_PATHS_KEY",
+    "COLD_EVICTED_EVENT",
+    "COLD_EVICTION_KEEP_CYCLES",
+    "ColdStaging",
     "SurfaceBoundError",
-    "attested_pruned_paths",
     "bound_compactable_surfaces",
+    "cold_eviction_candidates",
     "compact_state",
-    "prune_attested",
+    "evict_to_cold",
 )

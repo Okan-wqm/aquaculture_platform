@@ -59,7 +59,6 @@ import {
   redeliveryBackoffMs,
 } from '../interfaces/handler-outcome';
 import {
-  buildSystemEventSubject,
   buildTenantEventSubject,
   buildWildcardEventSubject,
   assertSubjectMatchesEvent,
@@ -70,9 +69,9 @@ import { DEFAULT_NATS_URL, DEFAULT_NATS_STREAM_NAME } from './event-bus-config.f
 import { EventBusDeliveryMetrics } from './event-bus-delivery-metrics';
 import {
   DEFAULT_TELEMETRY_STREAM_NAME,
-  buildRoutedSubject,
   buildRoutedTenantWildcardSubject,
   buildRoutedWildcardSubject,
+  deriveEventSubject,
   streamNameForSubject,
   subjectRootForEventType,
 } from './event-route-registry';
@@ -884,8 +883,9 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
    * Derive the tenant-scoped NATS subject for an event.
    *
    * Subject format:
-   *   With tenantId:    events.{tenantId}.{eventType}   (tenant-isolated routing)
-   *   Without tenantId: events.system.{eventType}       (platform-level events)
+   *   Tenant event:   events.{tenantId}.{eventType}   (tenant-isolated routing)
+   *   Platform event: events.system.{eventType}       (tenantId = the contract's
+   *                   PLATFORM_EVENT_TENANT_ID, or absent; '' is refused)
    *
    * Consumers that handle all tenants subscribe with wildcard:
    *   events.*.{eventType}   — receives events from every tenant
@@ -897,12 +897,12 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
    * are captured without stream reconfiguration.
    */
   private deriveSubject(event: IEvent): string {
-    if (!event.tenantId) {
-      return buildSystemEventSubject(event.eventType);
-    }
-    // Task 2 (SENSOR-HIGH-092): high-rate telemetry types publish onto the
-    // telemetry root → AQUACULTURE_TELEMETRY; domain events keep events.
-    return buildRoutedSubject(event.tenantId, event.eventType);
+    // OBS-HIGH-009: the tenant segment is decided by the same function the
+    // publish-time assertion in publishTo() applies, so a subject this method
+    // builds can never be refused by that assertion. Task 2 (SENSOR-HIGH-092):
+    // high-rate telemetry types publish onto the telemetry root →
+    // AQUACULTURE_TELEMETRY; domain events keep events.
+    return deriveEventSubject(event);
   }
 
   async publish<TEvent extends IEvent>(event: TEvent, options?: PublishOptions): Promise<void> {

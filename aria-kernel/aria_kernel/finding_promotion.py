@@ -23,12 +23,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .adapter_findings import adapter_findings_by_fingerprint
+from .evidence_trust import tool_evidence_refusal
 from .feedback_store import (
     append_jsonl,
     load_feedback,
     load_jsonl,
     promotions_path,
 )
+from .rule_contract import resolve_rule_contract
 from .tool_registry import ensure_tools_dir, utc_now
 
 _SEVERITY_MAP = {
@@ -98,6 +101,15 @@ def _repo_file_refs(row: dict[str, Any], repo_root: Path) -> list[str]:
     return refs
 
 
+def _subject_ref(finding: dict[str, Any]) -> str:
+    """The adapter finding's own location as an evidence ref (path[:line])."""
+    path, _, suffix = str(finding.get("path") or "").partition(":")
+    line = finding.get("line")
+    if not isinstance(line, int) or isinstance(line, bool):
+        line = int(suffix) if suffix.isdigit() else None
+    return f"{path}:{line}" if line else path
+
+
 def promote_consensus_findings(
     *,
     repo_root: str | Path,
@@ -140,11 +152,17 @@ def promote_consensus_findings(
     promoted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
 
-    for row in load_feedback(base_dir=root):
-        if row.get("source_type") != "ai_consensus":
-            continue
-        if row.get("verdict") != "true_positive":
-            continue
+    pending = [
+        row for row in load_feedback(base_dir=root)
+        if row.get("source_type") == "ai_consensus" and row.get("verdict") == "true_positive"
+    ]
+    wanted = {str(row.get("finding_fingerprint") or "") for row in pending} - already - {""}
+    # ARIA-HIGH-325 — the subject is the finding the judges were asked
+    # about, not whichever cited file sorts first: F-011 read "at
+    # tools/aria-adapters/bundle-budget-adapter.ts", F-009 named a
+    # platform-admin spec while its subject was hr-service's gql-auth.guard.ts.
+    subjects = adapter_findings_by_fingerprint(wanted, base_dir=root) if wanted else {}
+    for row in pending:
         fingerprint = str(row.get("finding_fingerprint") or "")
         if not fingerprint:
             # ORPHAN-HIGH-765 — visible, not silent. A consensus row whose
@@ -162,8 +180,33 @@ def promote_consensus_findings(
             continue
         if fingerprint in already:
             continue
-        refs = _repo_file_refs(row, repo_path)
-        if not refs:
+        subject = subjects.get(fingerprint)
+        if subject is None:
+            skipped.append({"finding_fingerprint": fingerprint, "reason": "adapter_finding_unresolved"})
+            continue
+        tool_id = str(row.get("tool_id") or "")
+        rule = str(subject.get("rule") or "")
+        contract = resolve_rule_contract(tool_id=tool_id, rule=rule, base_dir=root)
+        if contract is None:
+            skipped.append({
+                "finding_fingerprint": fingerprint, "reason": "rule_contract_undeclared",
+                "tool_id": tool_id, "rule": rule,
+            })
+            continue
+        subject_ref = _subject_ref(subject)
+        cited = [ref for ref in row.get("evidence_refs") or [] if isinstance(ref, str) and ref.strip()]
+        # ARIA-HIGH-325 — evidence for a promotion lies in the producing
+        # tool's declared scope; one inadmissible ref means the consensus
+        # argued the rule, so the whole row is refused, visibly.
+        refused = {
+            ref: refusal for ref in [subject_ref, *cited]
+            if (refusal := tool_evidence_refusal(ref, declared_scope=contract.declared_scope)) is not None
+        }
+        if refused:
+            skipped.append({"finding_fingerprint": fingerprint, "reason": "inadmissible_evidence", "refused": refused})
+            continue
+        refs = _repo_file_refs({"evidence_refs": list(dict.fromkeys([subject_ref, *cited]))}, repo_path)
+        if not refs or refs[0] != subject_ref:
             skipped.append({
                 "finding_fingerprint": fingerprint,
                 "reason": "no_repo_verified_evidence",
@@ -172,8 +215,8 @@ def promote_consensus_findings(
         scope_files = sorted({ref.split(":", 1)[0] for ref in refs})
         confidence = row.get("confidence")
         summary = (
-            f"AI consensus confirmed true positive at {scope_files[0]} "
-            f"(tool {row.get('tool_id')}, finding {row.get('finding_id')}"
+            f"AI consensus confirmed {rule} at {subject_ref} "
+            f"(tool {tool_id}, finding {row.get('finding_id')}"
             + (f", confidence {confidence}" if confidence is not None else "")
             + ")"
         )
@@ -186,6 +229,7 @@ def promote_consensus_findings(
             evidences=[{"ref": ref} for ref in refs],
             facts=[
                 f"finding_fingerprint={fingerprint}",
+                f"rule={rule}",
                 f"judgment_group_id={row.get('judgment_group_id')}",
                 f"consensus_run_id={row.get('run_id')}",
             ],

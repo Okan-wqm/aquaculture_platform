@@ -19,6 +19,7 @@ from typing import Any
 from .agent_invocations import create_agent_invocation_request
 from .plan_contract import render_plan_contract, require_plan_contract
 from .plan_convergence import start_plan
+from .planner_lessons import planner_lesson_obligations
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 
@@ -103,7 +104,8 @@ def issue_challenger_envelope(
         target_agent=target_agent,
         role=role,
         suggested_prompt=suggested_prompt,
-        must_satisfy=must_satisfy,
+        # ARIA-HIGH-309 — the lessons recorded plans in this plan's scope teach.
+        must_satisfy=[*must_satisfy, *planner_lesson_obligations(base_dir=base_dir, plan_id=plan_id)],
         allowed_scope=allowed_scope,
         evidence_refs=evidence_refs,
         convergence_id=plan_id,

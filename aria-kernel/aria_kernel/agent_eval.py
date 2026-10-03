@@ -46,7 +46,7 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Collection
 
 from .artifact_safety import assert_real_mode_env_safe
 from .ledger import LedgerIntegrityError, append_declared_jsonl, load_declared_jsonl
@@ -1005,14 +1005,19 @@ def list_performance_observations(*, base_dir: str | Path | None = None) -> list
 
 
 def recurring_failure_modes(
-    *, base_dir: str | Path | None = None, role: str, subject: str,
-    threshold: int = LESSON_EPISODE_THRESHOLD,
+    *, base_dir: str | Path | None = None, role: str, subject: str | None,
+    plan_ids: Collection[str] | None = None, threshold: int = LESSON_EPISODE_THRESHOLD,
 ) -> list[dict[str, Any]]:
     """The attributable failure modes ``subject`` hit in ``threshold`` or more
-    current episodes of ``role`` — the input of the next actor's must-check."""
+    current episodes of ``role`` — the input of the next actor's must-check.
+
+    ``subject=None`` counts every subject of the role (a plan's outcome is the
+    plan's, whoever drafted it); ``plan_ids`` limits the count to the episodes
+    of those plans (ARIA-HIGH-309, the planner's scope)."""
     plans: dict[str, list[str]] = {}
     for row in list_performance_observations(base_dir=base_dir):
-        if row["role"] == role and row["subject"] == subject and row["attributable"] and not row["success"]:
+        if (row["role"] == role and (subject is None or row["subject"] == subject) and row["attributable"]
+                and not row["success"] and (plan_ids is None or row["plan_id"] in plan_ids)):
             plans.setdefault(str(row["failure_mode"]), []).append(str(row["plan_id"]))
     return [{"failure_mode": mode, "episodes": len(ids), "plan_ids": sorted(ids)}
             for mode, ids in sorted(plans.items()) if len(ids) >= threshold]

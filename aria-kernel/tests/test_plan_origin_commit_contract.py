@@ -292,7 +292,8 @@ class TheSynthesizerRecordsTheOriginTests(unittest.TestCase):
                 "mtime": 1.0, "title_hint": "Process F-099",
             }
             f_finding = convert_candidate_to_plan_content(
-                candidate, admission=admit_candidate(candidate, load_grounding_context(fixture.repo)),
+                candidate, admission=admit_candidate(
+                    candidate, load_grounding_context(fixture.repo, tools_root=fixture.tools)),
             )
         self.assertEqual(f_finding.content["finding_id"], "F-099")
         ci = convert_candidate_to_plan_content({

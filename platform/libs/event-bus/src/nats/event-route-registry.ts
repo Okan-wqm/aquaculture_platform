@@ -18,7 +18,12 @@
  * the plan names. Adding a type here is a ONE-LINE change every producer,
  * consumer and ACL generator consumes through this module.
  */
-import { assertSafeEventType, assertSafeSubjectSegment } from '../subjects/tenant-event-subject';
+import {
+  assertSafeEventType,
+  assertSafeSubjectSegment,
+  eventSubjectTenantSegment,
+  type TenantEventLike,
+} from '../subjects/tenant-event-subject';
 
 export type SubjectRoot = 'events' | 'telemetry';
 
@@ -65,6 +70,20 @@ export function buildRoutedSubject(tenantId: string, eventType: string): string 
   const safeType = assertSafeEventType(eventType);
   const root = subjectRootForEventType(eventType);
   return `${root}.${safeTenant}.${safeType}`;
+}
+
+/**
+ * The subject `IEventBus.publish` sends an event to (OBS-HIGH-009).
+ *
+ * The tenant segment comes from `eventSubjectTenantSegment` — the same
+ * function the publish-time `assertSubjectMatchesEvent` applies — so the
+ * builder and the assertion cannot disagree about which tenant an event
+ * belongs to. The root comes from this registry for platform events too: a
+ * tenant-less event and one carrying the platform segment are the same fact
+ * and route identically.
+ */
+export function deriveEventSubject(event: TenantEventLike): string {
+  return buildRoutedSubject(eventSubjectTenantSegment(event), event.eventType);
 }
 
 /** Routed wildcard subject for subscriptions: `telemetry.*.SensorReading`. */

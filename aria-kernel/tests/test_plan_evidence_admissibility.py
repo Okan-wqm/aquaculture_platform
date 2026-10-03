@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -44,6 +45,7 @@ from aria_kernel.plan_convergence import affected_surface_paths, start_plan
 from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture, git
 
 _REAL_RUN = subprocess.run
+_REAL_WHICH = shutil.which
 _WAL_WORKFLOW_PATH = ".github/workflows/database-wal-archive-freshness.yml"
 # The head of that workflow as committed at d3adb0f89 (job `verify`, the step
 # that failed in run 36785618591), trimmed to the lines a plan cites.
@@ -153,13 +155,20 @@ def _fake_gh(*, runs: list[dict[str, Any]], workflows: list[dict[str, Any]],
     return run, calls
 
 
-def _scan(workspace: Path, **answers: Any) -> tuple[list[dict[str, Any]], list[list[str]]]:
+def _scan(workspace: Path, *, cache: Path | None = None,
+          **answers: Any) -> tuple[list[dict[str, Any]], list[list[str]]]:
+    """One scan over a faked `gh`; ``cache`` keeps the run-list cache across scans."""
     fake, calls = _fake_gh(**answers)
-    with tempfile.TemporaryDirectory() as cache, \
+    # ADR-0019 — the role filter reads the manifest through git at the main
+    # anchor, so only `gh` is faked: git resolves to itself and runs for real.
+    def which(cmd: str, *args: Any, **kwargs: Any) -> str | None:
+        return "/usr/bin/gh" if cmd == "gh" else _REAL_WHICH(cmd, *args, **kwargs)
+
+    with tempfile.TemporaryDirectory() as scratch, \
             mock.patch.object(ps.subprocess, "run", side_effect=fake), \
-            mock.patch("shutil.which", return_value="/usr/bin/gh"), \
+            mock.patch("shutil.which", side_effect=which), \
             mock.patch.dict(os.environ, {"ARIA_DRY_RUN": ""}):
-        return ps.scan_failing_ci(workspace, cache_dir=cache), calls
+        return ps.scan_failing_ci(workspace, cache_dir=cache or scratch), calls
 
 
 def challenger_verdict(plan_content: dict[str, Any], repo: Path) -> dict[str, Any]:
@@ -225,6 +234,35 @@ class FailingCiPlansAreGroundedInTheirWorkflowTests(_Checkout):
         self.assertEqual(candidate["failing_jobs"],
                          [{"name": "verify", "failed_steps": ["Observe production WAL archive runtime"]}])
         self.assertEqual([argv[1:3] for argv in calls], [["run", "list"], ["workflow", "list"], ["run", "view"]])
+
+    def test_only_a_kept_run_is_asked_for_its_jobs_and_a_cached_scan_asks_nothing(self) -> None:
+        # ADR-0019 + ORPHAN-HIGH-519 — the jobs of a red workflow the role
+        # filter excludes are never asked for; the cached fetch carries the
+        # kept run's grounding, so a scan inside the TTL asks GitHub nothing.
+        self.fx.commit_files({ps.WORKFLOW_ROLES_MANIFEST_PATH: json.dumps({"schemaVersion": 1, "workflows": [
+            {"workflow": "aria-readiness-claim.yml", "name": "aria-readiness-claim", "role": "pr_verdict",
+             "reason": "test"},
+        ]})}, message="chore(test): workflow roles")
+        pr_run = dict(EPISODE_16_RUN_ROW, databaseId=36785618600, workflowDatabaseId=271,
+                      workflowName="aria-readiness-claim", createdAt="2026-09-30T23:00:00Z")
+        answers: dict[str, Any] = {
+            "runs": [pr_run, EPISODE_16_RUN_ROW], "jobs": EPISODE_16_JOBS,
+            "workflows": [*EPISODE_16_WORKFLOWS, {"id": 271, "path": ".github/workflows/aria-readiness-claim.yml"}],
+        }
+        cache = Path(tempfile.mkdtemp(prefix="aria-gh-cache-"))
+        self.addCleanup(shutil.rmtree, cache, True)
+        first, calls = _scan(self.repo, cache=cache, **answers)
+        self.assertEqual([c["candidate_id"] for c in first], ["ci-run-36785618591"])
+        self.assertEqual([argv[1:4] for argv in calls if argv[1:3] == ["run", "view"]],
+                         [["run", "view", "36785618591"]])
+        excluded = self.governance(ps.FAILING_CI_WORKFLOW_EXCLUDED_EVENT)
+        self.assertEqual([(e["workflow_name"], e["run_id"]) for e in excluded],
+                         [("aria-readiness-claim", 36785618600)])
+        again, calls = _scan(self.repo, cache=cache, **answers)
+        self.assertEqual(calls, [])
+        self.assertEqual(again, first)
+        self.assertEqual(again[0]["failing_jobs"],
+                         [{"name": "verify", "failed_steps": ["Observe production WAL archive runtime"]}])
 
     def test_the_plan_cites_the_failing_step_and_job_lines_and_the_challenger_can_ground_it(self) -> None:
         candidates, _ = _scan(self.repo, runs=[EPISODE_16_RUN_ROW], workflows=EPISODE_16_WORKFLOWS,
@@ -333,8 +371,11 @@ class EveryPlanStartedRefValidatesTests(_Checkout):
         self.assertIsNotNone(git_diff)
         contents["git_diff"] = git_diff
         for source, content in contents.items():
+            # ADR-0021 — a finding-sourced plan is bounded by its admitted
+            # surfaces' closure, computed in the workspace.
             start_plan(plan_id=f"plan-{source.replace('_', '-')}", plan_content=content,
-                       initial_revision_id=f"plan-{source.replace('_', '-')}-r1", base_dir=self.tools)
+                       initial_revision_id=f"plan-{source.replace('_', '-')}-r1", base_dir=self.tools,
+                       workspace_root=self.repo)
         started = [row for row in load_declared_jsonl(self.tools / "plans" / "events.jsonl",
                                                       expected_surface="plan_convergence_events")
                    if row["event_type"] == "plan_started"]

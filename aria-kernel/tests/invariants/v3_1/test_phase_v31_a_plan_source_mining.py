@@ -89,7 +89,8 @@ class ConvertCandidateToPlanContentTests(unittest.TestCase):
         from aria_kernel.finding_grounding import admit_candidate, admit_finding, load_grounding_context
         from aria_kernel.plan_synthesizer import PlanEvidenceGround, convert_candidate_to_plan_content
 
-        context = load_grounding_context(self.checkout.repo)
+        # ARIA-HIGH-260 — the aging F source is judged against the store's loop history.
+        context = load_grounding_context(self.checkout.repo, tools_root=self.checkout.tools)
         if candidate["source_type"] == "operator_feedback":
             # The digest the operator signed over the grounding (ADR-0018 B2).
             candidate = dict(candidate, grounding_digest=admit_finding(context, "F-099").grounding_digest)

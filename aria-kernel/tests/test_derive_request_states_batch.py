@@ -64,13 +64,20 @@ class BatchDerivationTests(unittest.TestCase):
 
     def test_batch_is_one_load_per_ledger_not_one_per_request(self) -> None:
         calls = {"n": 0}
-        original = invocations.load_declared_jsonl
+        # The request ledger is segmented (ARIA-HIGH-275): one load of it is
+        # one `load_segments`, the other two ledgers one `load_declared_jsonl`.
+        loaders = {name: getattr(invocations, name) for name in ("load_declared_jsonl", "load_segments")}
 
-        def counting(path, *args, **kwargs):
-            calls["n"] += 1
-            return original(path, *args, **kwargs)
+        def counting(name):
+            def load(*args, **kwargs):
+                calls["n"] += 1
+                return loaders[name](*args, **kwargs)
+            return load
 
-        with patch.object(invocations, "load_declared_jsonl", side_effect=counting):
+        def counted():
+            return patch.multiple(invocations, **{name: counting(name) for name in loaders})
+
+        with counted():
             batch = derive_request_states(base_dir=self.tools)
         self.assertEqual(len(batch), 2)
         self.assertEqual(
@@ -81,7 +88,7 @@ class BatchDerivationTests(unittest.TestCase):
         # And the shape it replaces: single derivation per request = 3 loads
         # per request — the churn the OOM window measured.
         calls["n"] = 0
-        with patch.object(invocations, "load_declared_jsonl", side_effect=counting):
+        with counted():
             for request_id in self.ids:
                 derive_request_state(request_id=request_id, base_dir=self.tools)
         self.assertEqual(calls["n"], 3 * len(self.ids))

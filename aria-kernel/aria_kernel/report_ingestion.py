@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,98 @@ from .workspace import WorkspacePaths, record_workspace_governance
 
 DEFAULT_BACKFILL_LIMIT = 100
 LARGE_BACKFILL_THRESHOLD = 500
+
+# The review registry (docs/reviews/_registry/README.md): the hash-chained
+# findings.jsonl, and the delta rows a branch records under deltas/ until a
+# fold writes them into the chain (program plan rev2 F-P2). Every kernel read
+# of the registry goes through read_registry_view (ARIA-HIGH-279): three sites
+# each parsed findings.jsonl themselves and none could see a delta row.
+REGISTRY_FINDINGS_RELPATH: tuple[str, ...] = ("docs", "reviews", "_registry", "findings.jsonl")
+REGISTRY_DELTAS_RELPATH: tuple[str, ...] = ("docs", "reviews", "_registry", "deltas")
+_REGISTRY_FINDINGS_REF = "/".join(REGISTRY_FINDINGS_RELPATH)
+# findings.jsonl.schema.json `state` enum; pinned against the schema by
+# tests/test_report_ingestion_registry_view.py.
+REGISTRY_STATES: frozenset[str] = frozenset({"OPEN", "IN-PROGRESS", "RESOLVED", "STALE", "BLOCKED"})
+
+
+@dataclass(frozen=True)
+class RegistryEntry:
+    """One finding's effective row and the repo-relative file that holds it."""
+
+    row: dict[str, Any]
+    source: str
+
+
+@dataclass(frozen=True)
+class RegistryView:
+    """The registry as every kernel reader sees it: one row per finding."""
+
+    entries: tuple[RegistryEntry, ...]
+    malformed: tuple[dict[str, Any], ...]
+
+    @property
+    def rows(self) -> list[dict[str, Any]]:
+        return [entry.row for entry in self.entries]
+
+
+def read_registry_view(repo_root: str | Path, *, strict: bool = True) -> RegistryView:
+    """The chain with every delta row folded over it.
+
+    WHY: a transition a merged PR recorded as a delta row is the finding's
+    state from that merge on, not from the fold that later rewrites the chain;
+    a reader of the chain alone reports the state before the PR.
+
+    WHAT (the delta contract, F-P2 writes to it): each
+    ``deltas/*.jsonl`` line is a registry row in the chain's own shape, chain
+    hashes not required. Files fold in name order. A row whose ``id`` the
+    chain holds replaces that row in place — the transition ``close`` and
+    ``reopen`` make by rewriting it — and a new ``id`` is appended; within one
+    file the later row wins. An ``override_of`` successor is its own finding
+    and leaves the row it overrides untouched (the README's successor
+    pattern). A row without an ``id``, with a state outside REGISTRY_STATES,
+    or claiming an ``id`` another delta file claims is refused under
+    ``strict`` and recorded in ``malformed`` otherwise, never folded. Corrupt
+    lines follow ``_read_registry``. An absent chain raises: this checkout is
+    not the repository the kernel serves.
+    """
+    root = Path(repo_root)
+    chain = root.joinpath(*REGISTRY_FINDINGS_RELPATH)
+    if not chain.is_file():
+        raise FileNotFoundError(f"finding_registry_missing:{chain.as_posix()}")
+    rows, malformed = _read_registry(chain, strict=strict)
+    folded: dict[str, RegistryEntry] = {}
+    for index, row in enumerate(rows):
+        finding_id = row.get("id")
+        key = finding_id if isinstance(finding_id, str) and finding_id else f"{_REGISTRY_FINDINGS_REF}#{index}"
+        folded[key] = RegistryEntry(row, _REGISTRY_FINDINGS_REF)
+    deltas = root.joinpath(*REGISTRY_DELTAS_RELPATH)
+    claimed: dict[str, str] = {}
+    for path in sorted(deltas.glob("*.jsonl")):
+        ref = path.relative_to(root).as_posix()
+        delta_rows, delta_malformed = _read_registry(path, strict=strict)
+        malformed.extend({**item, "file": ref} for item in delta_malformed)
+        for ordinal, row in enumerate(delta_rows, start=1):
+            defect = _delta_row_defect(row, ref, claimed)
+            if defect is not None:
+                if strict:
+                    raise GovernanceError(f"finding_registry_delta_{defect}:{ref}:{ordinal}")
+                malformed.append({"file": ref, "line": ordinal, "reason": defect.split(":", 1)[0]})
+                continue
+            claimed[row["id"]] = ref
+            folded[row["id"]] = RegistryEntry(row, ref)
+    return RegistryView(entries=tuple(folded.values()), malformed=tuple(malformed))
+
+
+def _delta_row_defect(row: dict[str, Any], ref: str, claimed: dict[str, str]) -> str | None:
+    finding_id = row.get("id")
+    if not isinstance(finding_id, str) or not finding_id.strip():
+        return "row_without_id"
+    if row.get("state") not in REGISTRY_STATES:
+        return "row_state_unknown"
+    owner = claimed.get(finding_id)
+    if owner is not None and owner != ref:
+        return f"conflict:{finding_id}:{owner}"
+    return None
 
 
 def positive_backfill_limit(value: object) -> int:
@@ -52,7 +145,7 @@ def report_ingestion_scan(
     rows still emit ``ledger_row_corrupt`` to the diagnostic sink
     (Plan 024 §H-7) so the audit trail records them either way.
     """
-    registry = paths.repo_root / "docs" / "reviews" / "_registry" / "findings.jsonl"
+    registry = paths.repo_root.joinpath(*REGISTRY_FINDINGS_RELPATH)
     cache_path = paths.state_dir / "ingested_findings.json"
     tools_base = Path(tools_root) if tools_root is not None else None
     if not registry.exists():
@@ -75,7 +168,8 @@ def report_ingestion_scan(
     backfill_limit = positive_backfill_limit(backfill_limit)
     if backfill_limit > LARGE_BACKFILL_THRESHOLD and not (confirm_large_backfill and acknowledge):
         raise ValueError("large_backfill_requires_confirm_large_backfill_and_acknowledge")
-    rows, malformed = _read_registry(registry, strict=strict_registry)
+    view = read_registry_view(paths.repo_root, strict=strict_registry)
+    rows, malformed = view.rows, view.malformed
 
     cache_missing = not cache_path.exists()
     previously_baselined = _has_report_baseline(paths)
@@ -115,14 +209,15 @@ def report_ingestion_scan(
 
     cache = _read_cache(cache_path)
     known = set(cache.get("finding_keys", []))
-    candidates = [row for row in rows if _finding_key(row) and _finding_key(row) not in known]
+    candidates = [entry for entry in view.entries if _finding_key(entry.row) and _finding_key(entry.row) not in known]
     if len(candidates) > backfill_limit:
         candidates = candidates[:backfill_limit]
 
     ingested: list[dict[str, Any]] = []
     item_failures: list[dict[str, Any]] = []
     skipped = 0
-    for row in candidates:
+    for entry in candidates:
+        row = entry.row
         if str(row.get("status") or row.get("state") or "").upper() != "OPEN":
             known.add(_finding_key(row))
             skipped += 1
@@ -131,8 +226,8 @@ def report_ingestion_scan(
             item_failures,
             item_kind="finding",
             item_id=str(_finding_key(row)),
-            work=lambda row=row: _ingest_one_finding(
-                paths, row, cycle_id=cycle_id, tools_base=tools_base,
+            work=lambda entry=entry: _ingest_one_finding(
+                paths, entry.row, source_ref=entry.source, cycle_id=cycle_id, tools_base=tools_base,
             ),
         )
         if not ok or finding_event is None:
@@ -160,11 +255,12 @@ def _ingest_one_finding(
     paths: WorkspacePaths,
     row: dict[str, Any],
     *,
+    source_ref: str,
     cycle_id: str,
     tools_base: Path | None,
 ) -> dict[str, Any]:
     """Turn one registry finding into feedback, an ingestion row, and governance."""
-    event = _feedback_event_from_finding(paths, row, cycle_id=cycle_id)
+    event = _feedback_event_from_finding(paths, row, source_ref=source_ref, cycle_id=cycle_id)
     add_feedback(paths, event)
     finding_event = {"finding_key": _finding_key(row), "feedback_event_id": event["event_id"], "owner_agent": _owner_agent(row), "severity": _severity(row), "source_refs": _refs(row)}
     _record_ingestion_event(tools_base, {"cycle_id": cycle_id, **finding_event})
@@ -258,10 +354,14 @@ def _read_registry(
     return rows, malformed
 
 
-def _feedback_event_from_finding(paths: WorkspacePaths, row: dict[str, Any], *, cycle_id: str) -> dict[str, Any]:
+def _feedback_event_from_finding(
+    paths: WorkspacePaths, row: dict[str, Any], *, source_ref: str, cycle_id: str,
+) -> dict[str, Any]:
+    # `source_ref` is the file holding the row: a delta row cites its delta
+    # file, which the chain does not yet contain.
     refs = _refs(row)
-    ref = refs[0] if refs else "docs/reviews/_registry/findings.jsonl"
-    evidence_refs = sorted(dict.fromkeys([*refs, "docs/reviews/_registry/findings.jsonl"]))
+    ref = refs[0] if refs else source_ref
+    evidence_refs = sorted(dict.fromkeys([*refs, source_ref]))
     args = argparse.Namespace(
         kind="missed_signal",
         summary=str(row.get("summary") or row.get("title") or row.get("message") or "agent report finding"),
@@ -426,7 +526,9 @@ def import_finding_file(
         if str(row.get("status") or row.get("state") or "").upper() not in {"OPEN", ""}:
             skipped.append({"reason": "non_open_state", "finding_key": key, "state": row.get("status") or row.get("state")})
             continue
-        event = _feedback_event_from_finding(paths, row, cycle_id=effective_cycle_id)
+        event = _feedback_event_from_finding(
+            paths, row, source_ref=_REGISTRY_FINDINGS_REF, cycle_id=effective_cycle_id,
+        )
         add_feedback(paths, event)
         known.add(key)
         ingested.append(

@@ -195,8 +195,10 @@ class V9PressureSourceProvider:
         attempted = 0
         # ADR-0018 D5 — the anchor commit and the finding fold are read ONCE
         # per synthesis (arbiter ruling iv), then every finding-naming
-        # candidate is judged against the same view.
-        grounding_context = load_grounding_context(workspace_root)
+        # candidate is judged against the same view. ARIA-HIGH-260 — the
+        # store's plan, binding and self-revert ledgers are folded into that
+        # view too: the aging F_FINDING source carries ADR-0003's loop guards.
+        grounding_context = load_grounding_context(workspace_root, tools_root=base_dir)
         # ORPHAN-HIGH-519 — and every candidate's refs are judged at the one
         # commit the challenger request will name.
         ground = PlanEvidenceGround.of(workspace_root)
@@ -223,6 +225,10 @@ class V9PressureSourceProvider:
                     "refused_surfaces": admission.refused_surface_records(),
                     "refused_refs": admission.refused_ref_records(),
                 })
+                if admission.loop_guard is not None:
+                    # The loop guard's evidence rides on the one skip event
+                    # the candidate gets this cycle (ARIA-HIGH-260).
+                    grounding["loop_guard"] = dict(admission.loop_guard)
             if envelope is not None:
                 # Bind BEFORE announcing the selection: the synthesized content
                 # hash is what plan_started will record, and the pre-merge

@@ -1,0 +1,16 @@
+{
+  "$schema": "aria/capability-semantic-authority/v1",
+  "_doc": "ARIA-HIGH-288 — the semantic authority a capability's autonomy evidence is proven under (autonomy_evidence._capability_semantic_authority). A proof carries forward while the authority at its commit equals the authority at the evaluated target, so a change that keeps every version here keeps earned evidence and a change that bumps one resets it. Bump capability_contract_versions[<capability>] when what that capability's proof rows mean changes (its contract, terminal predicate, producer row semantics or count projection); evidence_fold_version when how rows fold into counts and checkpoints changes (EVIDENCE_CHECKPOINT_FOLD_VERSION is this value); upcaster_set_version when a read-time upcaster changes. aria-kernel/tests/invariants/test_capability_semantic_equivalence.py folds a frozen corpus and fails when the output moves without a bump, or when a bump has no pinned output; both this file and those pins are READONLY to ARIA's implementer. ARIA-HIGH-295 — from fold 3 on, evidence_witness_window is how many of its most recently witnessed distinct target SHAs each evidence contract keeps (1 to 256): a capability is judged on those, and an older SHA ages out instead of exhausting a budget. It is part of the fold, so changing it is a fold bump.",
+  "evidence_fold_version": 3,
+  "evidence_witness_window": 128,
+  "upcaster_set_version": 1,
+  "capability_contract_versions": {
+    "autonomy_unlock": 1,
+    "cycle_runtime": 1,
+    "enterprise_readiness": 1,
+    "executor": 1,
+    "finding_funnel": 1,
+    "fixture_calibration": 1,
+    "pre_merge_perimeter": 1
+  }
+}

@@ -44,11 +44,11 @@ def register_active_for_test(tool, base_dir):
 
     register_tool now rejects first-time registrations at ACTIVE / CALIBRATE
     / QUARANTINED. Route ACTIVE through SHADOW + transition_tool, route
-    QUARANTINED through SHADOW + quarantine_tool, and let initial-lifecycle
-    states pass through register_tool unchanged.
+    QUARANTINED through SHADOW + quarantine_tool, and let the initial-lifecycle
+    state (SHADOW) pass through register_tool unchanged.
     """
     target = tool.get("status", "ACTIVE")
-    if target in ("DRAFT", "SANDBOX", "SHADOW"):
+    if target == "SHADOW":
         return register_tool(tool, base_dir=base_dir)
     if target not in ("ACTIVE", "CALIBRATE", "QUARANTINED"):
         return register_tool(tool, base_dir=base_dir)

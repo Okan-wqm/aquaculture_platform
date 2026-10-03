@@ -66,7 +66,8 @@ class _Fixture(unittest.TestCase):
         self.fx = OperatorRequestFixture(Path(self.tmp.name))
 
     def context(self) -> fg.GroundingContext:
-        return fg.load_grounding_context(self.fx.repo)
+        # ARIA-HIGH-260 — the store's loop history, which the aging F source is judged against.
+        return fg.load_grounding_context(self.fx.repo, tools_root=self.fx.tools)
 
     def convert(self, candidate: dict, admission: fg.FindingAdmission | None = None):
         """The converter at this checkout's HEAD; the plan, or None."""
@@ -259,7 +260,7 @@ class FindingBodyNeverReachesThePlanTests(_Fixture):
 
 
 class ProviderTests(_Fixture):
-    def _failing_ci(self, _workspace) -> list[dict]:
+    def _failing_ci(self, _workspace, *, base_dir=None, cycle_id=None) -> list[dict]:
         # ORPHAN-HIGH-519 — a red run the scanner resolved to its workflow file.
         return [{"source_type": "failing_ci", "candidate_id": "ci-run-1", "workflow_name": "CI",
                  "workflow_path": ".github/workflows/ci.yml",

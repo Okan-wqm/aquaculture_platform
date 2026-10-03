@@ -92,7 +92,14 @@ const UNREACHABLE_ALLOWLIST: Readonly<Record<string, string>> = {
  * accepted. Same contract as UNREACHABLE_ALLOWLIST: absent from this map, a
  * script must be invoked by some workflow.
  */
-const UNREACHABLE_ROOT_SCRIPTS: Readonly<Record<string, string>> = {};
+const UNREACHABLE_ROOT_SCRIPTS: Readonly<Record<string, string>> = {
+  'test:e2e:mobile':
+    'INFRA-CRITICAL-097 containment: the AquaMobil Playwright suite logs in for real and seeds ' +
+    'rows across the ai/alert/messaging/farm schemas, and its only runner was e2e-tests.yml on ' +
+    'the production droplet. That lane is removed and production-e2e-containment.spec.ts keeps ' +
+    'it out; the suite has no non-production target until staging owns destructive E2E ' +
+    '(INFRA-CRITICAL-097 closure, which also restores MOB-HIGH-013 coverage).',
+};
 
 interface ProjectTarget {
   readonly project: string;
@@ -231,9 +238,9 @@ function workflowCorpus(): string {
 
 /**
  * A root script counts as run when a workflow invokes it by name, when its body
- * delegates to something a workflow invokes (`test:e2e:mobile` →
- * `npm --prefix e2e run test:mobile`, which e2e-tests.yml runs), or when it is
- * a thin wrapper over an Nx target CI already drives by name.
+ * delegates to something a workflow invokes (`test:e2e:<suite>` →
+ * `npm --prefix e2e run <inner>`, where a workflow runs `npm run <inner>`), or
+ * when it is a thin wrapper over an Nx target CI already drives by name.
  *
  * The delegation legs are mechanical rather than allowlisted so a script that
  * stops delegating loses its exemption automatically.

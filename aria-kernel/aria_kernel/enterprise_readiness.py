@@ -452,14 +452,20 @@ def record_enterprise_readiness_claim(
     readiness_claim_id = str(claim.get("readiness_claim_id") or "")
     if any(str(row.get("readiness_claim_id") or "") == readiness_claim_id for row in existing):
         raise GovernanceError(f"duplicate_readiness_claim_id:{readiness_claim_id}")
-    row = {"recorded_at": utc_now(), **dict(claim)}
-    row.setdefault("row_id", str(claim.get("claim_row_id") or readiness_claim_id))
-    row.setdefault("row_type", "readiness_claim")
     return append_declared_jsonl(
         root / "enterprise" / "readiness-claims.jsonl",
-        row,
+        readiness_claim_row(claim),
         expected_surface="enterprise_readiness_claims",
     )
+
+
+def readiness_claim_row(claim: dict[str, Any]) -> dict[str, Any]:
+    """The ledger row a recorded claim becomes (its producer fixture is
+    pinned in test_capability_semantic_equivalence)."""
+    row = {"recorded_at": utc_now(), **dict(claim)}
+    row.setdefault("row_id", str(claim.get("claim_row_id") or claim.get("readiness_claim_id") or ""))
+    row.setdefault("row_type", "readiness_claim")
+    return row
 
 
 def verify_enterprise_readiness(

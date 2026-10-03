@@ -20,9 +20,10 @@
  * resolution twenty times, by hand, in the one file where a hand slip is
  * indistinguishable from tampering.
  *
- * `.gitattributes` already answers this shape twice — `merge=union` for
- * `docs/reviews/orphan-findings.md`, `merge=ours` for the derived ARIA
- * authority hash. Neither built-in fits here: `union` would keep BOTH the
+ * `.gitattributes` answers a neighbouring shape with `merge=union` for
+ * `docs/reviews/orphan-findings.md`, and a keep-one-side `ours` driver once
+ * covered the ARIA authority hash (gone since PROC-HIGH-046: the hash is no
+ * longer committed). Neither fits here: `union` would keep BOTH the
  * pre-closure and post-closure copies of 895 rows, and `ours` would discard
  * upstream's closures. The ledger needs a driver that knows the invariant.
  *

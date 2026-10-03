@@ -22,10 +22,6 @@ export interface EmailSendOptions {
   retryDelayMs?: number;
 }
 
-interface SmtpSendResult {
-  messageId?: unknown;
-}
-
 /** SMTP circuit breaker state */
 enum SmtpCircuitState {
   CLOSED = 'closed',
@@ -251,7 +247,7 @@ export class EmailSenderService implements OnModuleDestroy {
           EmailSenderService.SEND_TIMEOUT_MS,
         );
 
-        const messageId = this.readMessageId(result.messageId);
+        const messageId = result.messageId;
         this.recordSuccess();
         this.logger.log(`Email sent to ${to}: ${messageId} (attempt ${attempt}/${effectiveMaxRetries})`);
         return {
@@ -300,11 +296,16 @@ export class EmailSenderService implements OnModuleDestroy {
 
   /**
    * Send mail with a timeout to prevent hanging on unresponsive SMTP servers
+   *
+   * WHY: nodemailer 10 ships its own declarations, which type the send result
+   * as `SentMessageInfo` (`messageId: string`). `@types/nodemailer` typed it
+   * `any`, which is the only reason this used to re-narrow an `unknown` by hand.
+   * WHAT: the typed result passes straight through to the caller.
    */
   private sendMailWithTimeout(
     mailOptions: nodemailer.SendMailOptions,
     timeoutMs: number,
-  ): Promise<SmtpSendResult> {
+  ): Promise<nodemailer.SentMessageInfo> {
     return new Promise((resolve, reject) => {
       const transporter = this.transporter;
       if (!transporter) {
@@ -317,26 +318,15 @@ export class EmailSenderService implements OnModuleDestroy {
       }, timeoutMs);
 
       transporter.sendMail(mailOptions)
-        .then((result: unknown) => {
+        .then((result) => {
           clearTimeout(timer);
-          resolve(this.toSmtpSendResult(result));
+          resolve(result);
         })
         .catch((error: Error) => {
           clearTimeout(timer);
           reject(error);
         });
     });
-  }
-
-  private toSmtpSendResult(value: unknown): SmtpSendResult {
-    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      return value;
-    }
-    return {};
-  }
-
-  private readMessageId(value: unknown): string {
-    return typeof value === 'string' ? value : '';
   }
 
   /**

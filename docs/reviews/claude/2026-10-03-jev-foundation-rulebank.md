@@ -210,3 +210,73 @@ Invariant: A location that declares add_header re-declares (or includes) the sec
 SEC-MEDIUM-052 fixed the same shape for /mobile/. JavaScript served without nosniff is the practical gap.
 
 Fix direction: Include the security-headers snippet in each /remotes/\* location (or move CORS/cache headers to a map so the locations declare none).
+
+## Second batch — database and NATS leads (verified 2026-10-03)
+
+The DB/infra bank's 20-flag sample at `81f39a912`: DB-R02 6 of 8 real, DB-R03 0 of 4 (an INSERT's action
+value read as an UPDATE, an upsert keyed on tenantId, and helpers whose caller binds the tenant), INFRA-R06
+8 letter-true but 7 in nginx files nothing deploys (`nginx/nginx.conf`, `infrastructure/docker/nginx/nginx.prod.conf`).
+The live `droplet.conf` also serves `scada-viewer-canvas.html` under `/remotes/sensor-module/` (:510) without the
+server's CSP or HSTS — a stronger case of INFRA-LOW-201 than `:494`, fixed by the same change.
+
+### PLAT-HIGH-921 — The global TenantExecutionContextInterceptor never wraps @MessagePattern handlers in the four hybrid services that register it, because connectMicroservice is called without inheritAppConfig; ORPHAN-CRITICAL-574's NATS arm is dead code
+
+Source: runtime probe. Evidence at `405f2ecac`:
+
+- `libs/backend-common/src/bootstrap/create-service-app.ts:761-766` — connectMicroservice with no inheritAppConfig
+- `libs/backend-common/src/context/tenant-execution-context.module.ts:36-40` — registered as APP_INTERCEPTOR on the HTTP application config
+- `libs/backend-common/src/context/tenant-execution-context.interceptor.ts:64-93` — the rpc arm that reads tenantId from the payload
+- `apps/auth-service/src/main.ts:23` — hybrid; likewise ai-service, messaging-service, sensor-service
+- `docs/reviews/orphan-findings.md:8373` — ORPHAN-CRITICAL-574 marked RESOLVED on the claim that a new message handler cannot forget to bind context
+
+Invariant: A protection claimed for a transport is proven on that transport, not on the component in isolation.
+
+Runtime proof on the repository's NestJS 11.1.27: a hybrid app with an APP_INTERCEPTOR and a @MessagePattern handler, invoked through the microservice server's handler map, ran the interceptor 0 times without inheritAppConfig and 1 time with it (probe kept in the session scratchpad; it uses only @nestjs/core, @nestjs/microservices and an in-memory Server). The interceptor's own spec drives it directly, so it passed. Any NATS handler in auth, ai, messaging or sensor that relies on the interceptor runs with no AsyncLocalStorage tenant and an empty RLS GUC. No RLS refusal appears in the four services' logs over the last 7 days, so no live failure is shown; the protection is simply absent.
+
+Fix direction: Register the interceptor on the microservice itself (the INestMicroservice returned by connectMicroservice, useGlobalInterceptors) rather than inheritAppConfig, which would also apply HTTP guards and the global ValidationPipe to NATS payloads; add a test that drives a @MessagePattern handler through the transport and asserts the tenant context.
+
+### SENSOR-MEDIUM-134 — Three MQTT listener paths read per-tenant tables with no tenant context, so bundle acks are never applied, unknown-device lookups return null and LoRa device status is never updated
+
+Source: DB-R02. Evidence at `81f39a912`:
+
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1009` — release bundle ack; release-bundle.service.ts:91-93 and :140-147 use the injected repo on release_bundles; NotFound swallowed at :1047-1052
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1689` — edge-device.service.ts:528-531 findByCode on edge_devices
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1750` — edge-device.service.ts:2567-2583 findOne by devEui on lora_devices
+- `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1538-1555` — getCachedDevice documents this failure and wraps its own call
+- `libs/backend-common/src/database/schema-manager.service.ts:383` — release_bundles, edge_devices and lora_devices are per-tenant
+
+Invariant: Code that runs outside a request establishes tenant context before it reads or writes a per-tenant table.
+
+Outside a request the pool routes to the source schema, whose per-tenant tables are empty templates, so these lookups find nothing and the handlers log and move on. The same file fixed one sibling (getCachedDevice) and left these. The verifier also saw two likely further cases not in the sample: nats-ingestion-consumer.service.ts:207 (getSensor) and mqtt-listener.service.ts:1122 (raw SQL on deployment_logs).
+
+Fix direction: Resolve the device's tenant first (edge_device_directory) and run each lookup inside withTenantContext, as getCachedDevice does; make the injected per-tenant repositories unreachable from MQTT/NATS entry points without a context (tier 1), not only these call sites.
+
+### SENSOR-MEDIUM-135 — The sensor lookup responder for the Rust ingestion sidecar reads per-tenant sensors and channels from a raw NATS loop with no tenant context, so every lookup replies null
+
+Source: DB-R02. Evidence at `81f39a912`:
+
+- `apps/sensor-service/src/ingestion/sensor-lookup-responder.service.ts:151` — handleLookupRequest
+- `apps/sensor-service/src/ingestion/sensor-lookup-responder.service.ts:296-310` — loop started from onModuleInit
+- `apps/sensor-service/src/ingestion/sensor-meta-cache.service.ts:80-106` — injected repositories on sensors and sensor_data_channels
+- `docker-compose.droplet.yml:1125` — sidecar defined; pilot-gated, zero tenants routed, container not running on 2026-10-03
+
+Invariant: Code that runs outside a request establishes tenant context before it reads or writes a per-tenant table.
+
+Latent today because no tenant routes ingestion to the sidecar; the first tenant flipped to the Rust backend would get null for every sensor lookup.
+
+Fix direction: Carry the tenant in the lookup request (or resolve it from the device directory) and read inside withTenantContext; add a responder test that runs outside any request frame.
+
+### MSG-MEDIUM-083 — Admin messaging monitoring aggregates messages and channels from the source schema under withBypass, while those tables are per-tenant, so the admin monitoring stats read zero or stale counts
+
+Source: DB-R02. Evidence at `81f39a912`:
+
+- `apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts:119-129`
+- `apps/messaging-service/src/monitoring/services/monitoring-stats.service.ts:180-219` — aggregatePerTenant reads messaging.messages and messaging.channels
+- `libs/backend-common/src/database/schema-manager.service.ts:782-801` — messages and channels are per-tenant clones
+- `docs/reviews/admin-expert/2026-07-12-admin-panels-enterprise.md:147-152` — arbiter ruling assumed the per-tenant copies were vestigial
+
+Invariant: A cross-tenant aggregate reads each tenant's schema (or a maintained projection), never the source template of a per-tenant table.
+
+Writes go to tenant\_<hex> (message.resolver.ts:272, tenant-transaction.ts:106-122) and the source copies are write-guarded (ORPHAN-HIGH-415), so the aggregate reads empty templates. The arbiter ruling it rests on predates the current routing and needs reopening.
+
+Fix direction: Aggregate per tenant schema (forEachTenantSchema with a bounded query) or from a projection the write path maintains; reopen the 2026-07-12 ruling.

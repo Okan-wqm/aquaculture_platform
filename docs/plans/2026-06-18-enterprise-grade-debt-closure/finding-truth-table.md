@@ -2,11 +2,15 @@
 
 Created: 2026-06-18
 
-Registry tip: `8864fec3fec20ba896749ebe63e44f6345d5726e097e03560c5b0f0f130684f9`
-
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
 `real-open` until code, tests, and registry evidence prove a different bucket.
+
+This file records no registry tip or count (PROC-HIGH-046). The plan contract
+derives the active CRITICAL set from `docs/reviews/_registry/findings.jsonl` and
+requires exactly one row below per active CRITICAL. A new active CRITICAL gets
+its row by hand (owner, first sprint, bucket); the closure-reconcile lane moves
+the row to `Resolved Evidence` when it records the closure.
 
 Updated 2026-07-02: the 2026-06-18 snapshot listed 13 active CRITICALs. The
 2026-07-02 registry-closeout reconciliation (216 stale-registry state flips
@@ -279,13 +283,11 @@ litigation-hold surface. It is `already-fixed-needs-close`: the branch fixes it 
 client methods now require a tenant id, so the call the page made cannot be written) and deletes
 the placeholder, and the post-merge close ceremony records the main-reachable commit.
 | `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
-| `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
 | `ARIA-CRITICAL-214` | OPEN | 2026-09-26 | claude | real-open |
 | `ARIA-CRITICAL-215` | OPEN | 2026-09-26 | claude | real-open |
 | `ARIA-CRITICAL-216` | OPEN | 2026-09-26 | claude | real-open |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
-| `ARIA-CRITICAL-255` | OPEN | 2026-10-02 | claude | real-open |
 
 ## Mutation Rules
 
@@ -982,4 +984,7 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `real-open`.
 - `INFRA-CRITICAL-195`: registry state is `RESOLVED` with closing commit
   `476116553`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `ARIA-CRITICAL-255`: registry state is `RESOLVED` with closing commit
+  `3f056f052`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.

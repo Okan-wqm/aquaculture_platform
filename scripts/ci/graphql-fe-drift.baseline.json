@@ -1,7 +1,68 @@
 {
   "$schema": "GraphQL FE↔supergraph drift baseline — burn-down ratchet, MUST only shrink",
   "generatedAgainst": "dist/graphql/supergraph.graphql",
-  "report": "docs/reviews/2026-06-24-graphql-fe-be-contract-drift-audit.md",
-  "count": 0,
-  "operations": []
+  "report": "docs/reviews/claude/2026-10-03-graphql-call-site-variables.md",
+  "count": 10,
+  "operations": [
+    {
+      "key": "mcp/farm-management/src/graphql/queries/tanks.ts::ListTanks",
+      "file": "mcp/farm-management/src/graphql/queries/tanks.ts",
+      "op": "ListTanks",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "mcp/farm-management/src/graphql/queries/tanks.ts::ListTanksLight",
+      "file": "mcp/farm-management/src/graphql/queries/tanks.ts",
+      "op": "ListTanksLight",
+      "category": "MISSING-FIELD"
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useMaintenance.ts::RecordStockMovement",
+      "file": "web/modules/farm-module/src/hooks/useMaintenance.ts",
+      "op": "RecordStockMovement",
+      "category": "VAR-TYPE-MISMATCH"
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useRecurringTemplates.ts::DeleteRecurringTemplate",
+      "file": "web/modules/farm-module/src/hooks/useRecurringTemplates.ts",
+      "op": "DeleteRecurringTemplate",
+      "category": "VAR-TYPE-MISMATCH"
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useRecurringTemplates.ts::ToggleRecurringTemplateActive",
+      "file": "web/modules/farm-module/src/hooks/useRecurringTemplates.ts",
+      "op": "ToggleRecurringTemplateActive",
+      "category": "VAR-TYPE-MISMATCH"
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useTasks.ts::AddTaskNote",
+      "file": "web/modules/farm-module/src/hooks/useTasks.ts",
+      "op": "AddTaskNote",
+      "category": "VAR-TYPE-MISMATCH"
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useTasks.ts::CompleteTask",
+      "file": "web/modules/farm-module/src/hooks/useTasks.ts",
+      "op": "CompleteTask",
+      "category": "BAD-ARGUMENT"
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useTasks.ts::DeleteTask",
+      "file": "web/modules/farm-module/src/hooks/useTasks.ts",
+      "op": "DeleteTask",
+      "category": "VAR-TYPE-MISMATCH"
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useTasks.ts::StartTask",
+      "file": "web/modules/farm-module/src/hooks/useTasks.ts",
+      "op": "StartTask",
+      "category": "BAD-ARGUMENT"
+    },
+    {
+      "key": "web/modules/sensor-module/src/hooks/useScadaTrend.ts::GetTrendData",
+      "file": "web/modules/sensor-module/src/hooks/useScadaTrend.ts",
+      "op": "GetTrendData",
+      "category": "MISSING-ROOT-OP"
+    }
+  ]
 }

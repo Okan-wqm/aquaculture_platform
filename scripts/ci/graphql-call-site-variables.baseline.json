@@ -1,0 +1,121 @@
+{
+  "$schema": "GraphQL call-site variables baseline — burn-down ratchet, every list and count MUST only shrink",
+  "report": "docs/reviews/claude/2026-10-03-graphql-call-site-variables.md",
+  "callSites": 1063,
+  "unresolved": 53,
+  "mismatches": [
+    {
+      "key": "web/modules/farm-module/src/hooks/useParamEquipmentMapping.ts::ParameterEquipmentMappings::undeclared=enabled;missing=",
+      "file": "web/modules/farm-module/src/hooks/useParamEquipmentMapping.ts",
+      "line": 161,
+      "op": "ParameterEquipmentMappings",
+      "undeclared": ["enabled"],
+      "missingRequired": []
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useWaterQuality.ts::WaterQualityChart::undeclared=enabled;missing=",
+      "file": "web/modules/farm-module/src/hooks/useWaterQuality.ts",
+      "line": 427,
+      "op": "WaterQualityChart",
+      "undeclared": ["enabled"],
+      "missingRequired": []
+    },
+    {
+      "key": "web/modules/farm-module/src/hooks/useWaterQuality.ts::WaterQualityChartBySystem::undeclared=enabled;missing=",
+      "file": "web/modules/farm-module/src/hooks/useWaterQuality.ts",
+      "line": 523,
+      "op": "WaterQualityChartBySystem",
+      "undeclared": ["enabled"],
+      "missingRequired": []
+    },
+    {
+      "key": "web/modules/hr-module/src/hooks/useAquaculture.ts::GetWorkAreas::undeclared=siteId;missing=",
+      "file": "web/modules/hr-module/src/hooks/useAquaculture.ts",
+      "line": 106,
+      "op": "GetWorkAreas",
+      "undeclared": ["siteId"],
+      "missingRequired": []
+    },
+    {
+      "key": "web/modules/hr-module/src/hooks/useAquaculture.ts::GetWorkRotations::undeclared=rotationType;missing=",
+      "file": "web/modules/hr-module/src/hooks/useAquaculture.ts",
+      "line": 196,
+      "op": "GetWorkRotations",
+      "undeclared": ["rotationType"],
+      "missingRequired": []
+    },
+    {
+      "key": "web/modules/hr-module/src/hooks/useCertifications.ts::GetCertificationTypes::undeclared=filter;missing=",
+      "file": "web/modules/hr-module/src/hooks/useCertifications.ts",
+      "line": 100,
+      "op": "GetCertificationTypes",
+      "undeclared": ["filter"],
+      "missingRequired": []
+    },
+    {
+      "key": "web/modules/hr-module/src/hooks/useCertifications.ts::GetEmployeeCertifications::undeclared=filter;missing=",
+      "file": "web/modules/hr-module/src/hooks/useCertifications.ts",
+      "line": 122,
+      "op": "GetEmployeeCertifications",
+      "undeclared": ["filter"],
+      "missingRequired": []
+    },
+    {
+      "key": "web/modules/hr-module/src/hooks/useCertifications.ts::GetTrainingCourses::undeclared=filter;missing=",
+      "file": "web/modules/hr-module/src/hooks/useCertifications.ts",
+      "line": 258,
+      "op": "GetTrainingCourses",
+      "undeclared": ["filter"],
+      "missingRequired": []
+    },
+    {
+      "key": "web/modules/hr-module/src/hooks/useCertifications.ts::GetTrainingEnrollments::undeclared=filter,pagination;missing=",
+      "file": "web/modules/hr-module/src/hooks/useCertifications.ts",
+      "line": 280,
+      "op": "GetTrainingEnrollments",
+      "undeclared": ["filter", "pagination"],
+      "missingRequired": []
+    },
+    {
+      "key": "web/modules/hr-module/src/hooks/useCertifications.ts::GetMyTrainingEnrollments::undeclared=filter;missing=",
+      "file": "web/modules/hr-module/src/hooks/useCertifications.ts",
+      "line": 295,
+      "op": "GetMyTrainingEnrollments",
+      "undeclared": ["filter"],
+      "missingRequired": []
+    },
+    {
+      "key": "web/modules/hr-module/src/hooks/useLeaves.ts::GetLeaveTypes::undeclared=filter;missing=",
+      "file": "web/modules/hr-module/src/hooks/useLeaves.ts",
+      "line": 70,
+      "op": "GetLeaveTypes",
+      "undeclared": ["filter"],
+      "missingRequired": []
+    },
+    {
+      "key": "web/modules/hr-module/src/hooks/useLeaves.ts::GetLeaveRequests::undeclared=filter,pagination;missing=",
+      "file": "web/modules/hr-module/src/hooks/useLeaves.ts",
+      "line": 145,
+      "op": "GetLeaveRequests",
+      "undeclared": ["filter", "pagination"],
+      "missingRequired": []
+    },
+    {
+      "key": "web/modules/hr-module/src/hooks/useLeaves.ts::GetMyLeaveRequests::undeclared=filter,pagination;missing=",
+      "file": "web/modules/hr-module/src/hooks/useLeaves.ts",
+      "line": 180,
+      "op": "GetMyLeaveRequests",
+      "undeclared": ["filter", "pagination"],
+      "missingRequired": []
+    },
+    {
+      "key": "web/modules/hr-module/src/hooks/useLeaves.ts::GetPendingLeaveApprovals::undeclared=approverId;missing=",
+      "file": "web/modules/hr-module/src/hooks/useLeaves.ts",
+      "line": 194,
+      "op": "GetPendingLeaveApprovals",
+      "undeclared": ["approverId"],
+      "missingRequired": []
+    }
+  ],
+  "unparseableDocuments": []
+}

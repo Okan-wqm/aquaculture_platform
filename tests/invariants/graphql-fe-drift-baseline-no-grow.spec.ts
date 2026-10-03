@@ -19,20 +19,23 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const BASELINE_PATH = resolve(
-  REPO_ROOT,
-  'scripts/ci/graphql-fe-drift.baseline.json',
-);
+const BASELINE_PATH = resolve(REPO_ROOT, 'scripts/ci/graphql-fe-drift.baseline.json');
 
 /**
  * High-water mark of allowed baselined FE↔supergraph drifts. RATCHET: this may
  * only ever DECREASE, in lockstep with regenerating the baseline after a fix.
- * The burn-down is COMPLETE (139→0): #650/#654/#655/#663/#665/#688 + the final
- * burndown PR implemented every FE-ahead-of-backend op. Locked at 0 — any new
- * FE↔supergraph drift now fails CI (the strongest ratchet). Raising it = silencing
- * a new drift = CI red.
+ * The first burn-down went 139→0 (#650/#654/#655/#663/#665/#688 + the final
+ * burndown PR). It was 0 only over the documents the gate could read: the
+ * regex extraction paired comment backticks with literals and skipped every
+ * document whose `${...}` left an empty selection set (223 of 1039). Reading
+ * the TypeScript AST (FE-MEDIUM-315) validated those documents for the first
+ * time and found 10 drifts that were live all along — none new, so the
+ * ceiling records them instead of hiding them: farm-module useTasks (4),
+ * useRecurringTemplates (2), useMaintenance (1), sensor-module useScadaTrend
+ * (1), mcp farm-management tanks (2). Raising it for any other reason =
+ * silencing a new drift = CI red.
  */
-const BASELINE_CEILING = 0;
+const BASELINE_CEILING = 10;
 
 interface DriftBaseline {
   count: number;

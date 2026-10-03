@@ -34,6 +34,14 @@ on:
       - 'mcp/**/*.ts'
       - 'scripts/ci/validate-graphql-operations.mjs'
       - 'scripts/ci/graphql-fe-drift.baseline.json'
+      # Call-site variables half of the same gate (FE-MEDIUM-315): its AST
+      # readers, its ratchet baseline, and the tsconfig paths it resolves
+      # document imports through.
+      - 'scripts/ci/lib/graphql-documents.mjs'
+      - 'scripts/ci/lib/graphql-call-sites.mjs'
+      - 'scripts/ci/graphql-call-site-variables.baseline.json'
+      - 'tsconfig.base.json'
+      - 'web/**/tsconfig.json'
   pull_request:
     branches: [main, develop]
     paths:
@@ -58,6 +66,14 @@ on:
       - 'mcp/**/*.ts'
       - 'scripts/ci/validate-graphql-operations.mjs'
       - 'scripts/ci/graphql-fe-drift.baseline.json'
+      # Call-site variables half of the same gate (FE-MEDIUM-315): its AST
+      # readers, its ratchet baseline, and the tsconfig paths it resolves
+      # document imports through.
+      - 'scripts/ci/lib/graphql-documents.mjs'
+      - 'scripts/ci/lib/graphql-call-sites.mjs'
+      - 'scripts/ci/graphql-call-site-variables.baseline.json'
+      - 'tsconfig.base.json'
+      - 'web/**/tsconfig.json'
 
 permissions:
   contents: read
@@ -88,13 +104,17 @@ jobs:
         # cannot federate. Writes dist/graphql/supergraph.graphql on success.
         run: node scripts/apollo-router/build-supergraph.mjs
 
-      - name: Validate every frontend GraphQL operation against the composed supergraph
+      - name: Validate every frontend GraphQL operation and call site against the composed supergraph
         # SSoT enforcement (zero-new-drift ratchet): mirrors the gateway's
         # runtime graphql.validate() at build time over EVERY FE operation, so a
         # drifted field/argument/type fails CI instead of producing a runtime
         # 400. The pre-existing drifts are a visible, monotonic-shrink baseline
         # (scripts/ci/graphql-fe-drift.baseline.json); any NEW drift fails the
-        # wall. Reads the supergraph just composed above.
+        # wall. Reads the supergraph just composed above. The same run checks
+        # every call site's variables against its operation's declarations
+        # (FE-MEDIUM-315): an undeclared key or a missing required variable is
+        # a mismatch, an unreadable call site is counted, and both ratchet
+        # against scripts/ci/graphql-call-site-variables.baseline.json.
         run: node scripts/ci/validate-graphql-operations.mjs
 
       - name: Upload composed supergraph artifact

@@ -34,13 +34,17 @@ from .diagnostics import emit_ledger_corruption_diagnostic
 from .evidence_probe import GitProbeSession
 from .evidence_trust import classify_evidence_ref
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, parse_utc_stamp
 
 
 # Plan 033 Faz 033a — CRITICAL is the top severity for security findings; added
 # at the front (rank 4) so every existing rank and every recorded row is preserved.
 SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFORMATIONAL")
 STATUSES = ("OPEN", "IN_PROGRESS", "RESOLVED", "SUPPRESSED", "WITHDRAWN")
+# Wall #7 — the statuses that ARE backlog: work opened and not finished. The
+# backlog counter (cycle_guard), the closable census (closure_blocker) and the
+# closure flow (backlog_flow) read this one set.
+BACKLOG_STATUSES: frozenset[str] = frozenset({"OPEN", "IN_PROGRESS"})
 # E21-c (ORPHAN-693) — İ2 decision, measured 2026-08-16: SUSPECTED /
 # UNCERTAIN / UNKNOWN had ZERO producers (every emitter passes OBSERVED or
 # nothing; no CLI flag exposes certainty), so three of five members were a
@@ -558,6 +562,41 @@ def fold_findings(repo_root: str | Path) -> dict[str, dict[str, Any]] | None:
     if not _events_path(repo_path).exists():
         return None
     return _replay_findings(repo_path)
+
+
+def backlog_flow(repo_root: str | Path, *, since: datetime) -> dict[str, list[str]] | None:
+    """Wall #7 — the findings that entered and left the backlog at or after ``since``.
+
+    From the event ledger, the only record of WHEN a status moved: a mint at
+    ``record.created_at``; a status change or verified fix at ``recorded_at``
+    when it crosses BACKLOG_STATUSES. None without a ledger (as fold_findings),
+    so a missing history never reads as "nothing was closed".
+    """
+    path = _events_path(Path(repo_root).resolve())
+    if not path.exists():
+        return None
+    status: dict[str, str] = {}
+    flow: dict[str, list[str]] = {"opened": [], "closed": []}
+    for event in load_declared_jsonl(path, expected_surface="repo_finding_events"):
+        kind = str(event.get("event") or "")
+        if kind not in FINDING_EVENT_TYPES:
+            raise GovernanceError(f"finding event type unknown: {kind!r} (allowed: {FINDING_EVENT_TYPES})")
+        finding_id = str(event.get("finding_id") or "")
+        if kind == "finding_emitted":
+            record = event.get("record") if isinstance(event.get("record"), dict) else {}
+            after, stamp = str(record.get("status") or "OPEN"), record.get("created_at")
+        elif kind == "finding_fix_verified":
+            after, stamp = "RESOLVED", event.get("recorded_at")
+        elif kind == "finding_status_changed":
+            after, stamp = str(event.get("to_status") or ""), event.get("recorded_at")
+        else:  # finding_reproduced moves certainty, never status
+            continue
+        before, status[finding_id] = status.get(finding_id), after
+        moment = parse_utc_stamp(stamp)
+        if moment is None or moment < since or (before in BACKLOG_STATUSES) == (after in BACKLOG_STATUSES):
+            continue
+        flow["opened" if after in BACKLOG_STATUSES else "closed"].append(finding_id)
+    return flow
 
 
 def show_finding(repo_root: str | Path, finding_id: str) -> dict[str, Any]:

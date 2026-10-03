@@ -185,6 +185,7 @@ def mint_candidates(
     hand-written around the gate.
     """
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
+    from aria_kernel.cycle_guard import OpenerAdmission, admit_finding_opener, backlog_census
     from aria_kernel.finding import (
         _evidence_chain_id,
         emit_finding,
@@ -195,6 +196,7 @@ def mint_candidates(
     minted: list[dict[str, Any]] = []
     already: list[str] = []
     unmintable: list[dict[str, str]] = []
+    admission: OpenerAdmission | None = None
     for drift in candidates:
         sides = [
             _evidence_ref(drift.get(key)) for key in ("ts", "sql", "ui", "source")
@@ -212,6 +214,14 @@ def mint_candidates(
         ])
         if find_by_evidence_chain_id(repo_root, chain_id) is not None:
             already.append(concept)
+            continue
+        # Wall #7 — the seeder opens findings, so under backlog pressure it
+        # runs at the openers' rate: asked once, at the first NEW drift. A
+        # held run mints nothing; the scan finds the same drift next run.
+        if admission is None:
+            admission = admit_finding_opener(base_dir, "seed_drift_findings", backlog_census(repo_root))
+        if not admission.admitted:
+            unmintable.append({"concept": concept, "reason": "opener_throttled:" + ",".join(admission.reasons)})
             continue
         summary = (
             f"{drift['drift_class']}: '{concept}' value sets diverge across "

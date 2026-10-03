@@ -207,6 +207,29 @@ def admit_finding(
     context: GroundingContext, finding_id: Any, *, expected_digest: str | None = None,
 ) -> FindingAdmission:
     """Judge one F finding as a plan ground at the context's anchor commit."""
+    return _judge_finding(context, finding_id, frozenset({"OPEN"}), expected_digest)
+
+
+def closure_blocker(context: GroundingContext, finding_id: str) -> str | None:
+    """Wall #7 — why ARIA's own plan lane could not close this backlog finding; None when it could.
+
+    The ONE closability rule, and it is this module's admission: the same
+    refs, trust filter, anchor tree and writable-surface test
+    (``implementation_safety.classify_declared_surface``) a plan candidate
+    must pass, with the status gate widened from OPEN to the whole backlog
+    (``finding.BACKLOG_STATUSES``) — an IN_PROGRESS finding is unfinished
+    work too, and whether ARIA can finish it is a property of its evidence
+    and surfaces, not of who started it. A reason in RUNNER_FAULT_REASONS
+    means the runner could not judge: undecided, never operator-only.
+    """
+    from .finding import BACKLOG_STATUSES
+
+    return _judge_finding(context, finding_id, BACKLOG_STATUSES, None).reason
+
+
+def _judge_finding(
+    context: GroundingContext, finding_id: Any, statuses: frozenset[str], expected_digest: str | None,
+) -> FindingAdmission:
     from .evidence_trust import is_self_output_ref
     from .implementation_safety import classify_declared_surface
     from .main_anchor import tracked_files_at
@@ -220,7 +243,7 @@ def admit_finding(
     record = context.findings.get(finding_id)
     if record is None:
         return FindingAdmission(finding_id, FINDING_UNKNOWN)
-    if record.get("status") != "OPEN":
+    if record.get("status") not in statuses:
         return FindingAdmission(finding_id, FINDING_NOT_OPEN)
     refs = refs_from_finding_record(record)
     if not refs:
@@ -315,6 +338,7 @@ __all__ = [
     "GroundingContext",
     "admit_candidate",
     "admit_finding",
+    "closure_blocker",
     "grounding_digest",
     "load_grounding_context",
     "refs_from_finding_record",

@@ -44,3 +44,12 @@ Today's 14, judged by the admission rule: 13 cite at least one writable surface 
 - Operator-only findings older than `rhythm.operator_escalation_age_days` are escalated once each
   (`finding_operator_escalated`) and listed with their age by `aria doctor` (`finding_backlog`).
 - Every rhythm value is bounded (`genesis_policy.RHYTHM_BOUNDS`); the chain reads the census.
+
+### Interaction with ARIA-HIGH-260
+
+The F_FINDING loop guards (quarantine, cool-off, the 1/24h plan cap) exist only on the unmerged
+branch `fix/aria-self-feed-loop-guards`. On main, `closure_blocker` judges grounding alone, so a
+finding in cool-off counts as closable, which keeps the brake conservative. When that branch lands,
+`closure_blocker` takes its subject-scoped refusals (quarantine, cool-off, self-loop) and not the
+global plan cap, which is a rate rather than a reason a finding cannot be closed; ARIA-HIGH-260
+(OPEN, owner okan, deadline 2026-10-16) carries that step.

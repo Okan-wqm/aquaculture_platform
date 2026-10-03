@@ -5419,39 +5419,24 @@ def _prepare_claim_submission(
         base_dir=root,
     )
     output_hash = output_content_hash
-    from .bridge_status_ledger import bridge_status_for_role
-
-    envelope_role = envelope.get("role")
-    row = {
-        "$schema": "aria/agent-claim-result/v1",
-        "schema_version": 1,
-        "row_id": f"result:{claim_id}",
-        "row_type": "result",
-        "claim_id": claim_id,
-        "request_id": request_id,
-        "agent_id": agent_id,
-        "role": envelope_role,
-        "status": "accepted",
-        "output_path": store_relative_artifact_path(root, sealed_output),
-        "output_hash": output_hash,
-        "content_hash": output_hash,
-        "envelope_evidence_hash": submitted_hash,
-        "invocation_id": claim_id,
-        "context_hash": context_hash,
-        "prompt_hash": prompt_hash,
-        "transcript_hash": transcript_hash,
-        "transcript_artifact_ref": store_relative_artifact_path(
+    row = _build_accepted_row(
+        claim_id=claim_id,
+        request_id=request_id,
+        agent_id=agent_id,
+        role=envelope.get("role"),
+        output_path=store_relative_artifact_path(root, sealed_output),
+        output_hash=output_hash,
+        envelope_evidence_hash=submitted_hash,
+        context_hash=context_hash,
+        prompt_hash=prompt_hash,
+        transcript_hash=transcript_hash,
+        transcript_artifact_ref=store_relative_artifact_path(
             root,
             verified_transcript_artifact,
         ),
-        # Bind accepted evidence to the trusted request tree before the row is
-        # journaled and hashed. The submitted envelope is never an authority
-        # for this SHA.
-        "target_sha": str(request.get("target_sha") or ""),
-        "bridge_status": bridge_status_for_role(envelope_role),
-        "checked_evidence_count": len(revalidation["checked_refs"]),
-        "submitted_at": utc_now(),
-    }
+        target_sha=str(request.get("target_sha") or ""),
+        checked_evidence_count=len(revalidation["checked_refs"]),
+    )
     return {
         "status": "accepted",
         "reasons": [],
@@ -6128,6 +6113,56 @@ def submit_claim_result(
         )
 
     return {"status": "accepted", "reasons": [], "row": persisted, "bridged": bridged}
+
+
+def _build_accepted_row(
+    *,
+    claim_id: str,
+    request_id: str,
+    agent_id: str,
+    role: Any,
+    output_path: str,
+    output_hash: str,
+    envelope_evidence_hash: str,
+    context_hash: str | None,
+    prompt_hash: str | None,
+    transcript_hash: str | None,
+    transcript_artifact_ref: str,
+    target_sha: str,
+    checked_evidence_count: int,
+) -> dict[str, Any]:
+    """The one constructor of an accepted result row: the executor's proof
+    row, whose meaning its schema_version declares (pinned by producer
+    fixture in test_capability_semantic_equivalence)."""
+    from .bridge_status_ledger import bridge_status_for_role
+
+    return {
+        "$schema": "aria/agent-claim-result/v1",
+        "schema_version": 1,
+        "row_id": f"result:{claim_id}",
+        "row_type": "result",
+        "claim_id": claim_id,
+        "request_id": request_id,
+        "agent_id": agent_id,
+        "role": role,
+        "status": "accepted",
+        "output_path": output_path,
+        "output_hash": output_hash,
+        "content_hash": output_hash,
+        "envelope_evidence_hash": envelope_evidence_hash,
+        "invocation_id": claim_id,
+        "context_hash": context_hash,
+        "prompt_hash": prompt_hash,
+        "transcript_hash": transcript_hash,
+        "transcript_artifact_ref": transcript_artifact_ref,
+        # Bind accepted evidence to the trusted request tree before the row is
+        # journaled and hashed. The submitted envelope is never an authority
+        # for this SHA.
+        "target_sha": target_sha,
+        "bridge_status": bridge_status_for_role(role),
+        "checked_evidence_count": checked_evidence_count,
+        "submitted_at": utc_now(),
+    }
 
 
 def _build_rejection_row(

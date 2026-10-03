@@ -17,11 +17,15 @@ folds at most `_evidence_slice_bytes()` of carried rows, a claim the slice
 cannot reach is withheld under a named rebuild blocker, the counters equal a
 full re-read once it is done, and a forged or rewritten rebuild checkpoint
 refuses.
+
+The fold version a checkpoint is recorded under is pinned by what the fold
+makes of a frozen corpus, never by the source of the fold functions
+(tests/invariants/test_capability_semantic_equivalence.py, pins.json
+``folds``): a refactor that keeps the output keeps the version, so it no
+longer resets every capability's evidence.
 """
 from __future__ import annotations
 
-import hashlib
-import inspect
 import json
 import tempfile
 import unittest
@@ -33,7 +37,6 @@ from unittest import mock
 
 from aria_kernel import autonomy_evidence as evidence
 from aria_kernel import ledger, state_store
-from aria_kernel.autonomy_state import AutonomyStateAccumulator
 from aria_kernel.ledger import append_declared_jsonl, load_declared_jsonl, rewrite_declared_jsonl
 from aria_kernel.state_store import (
     BOOTSTRAP_ACK_ENV,
@@ -319,34 +322,6 @@ class EvidenceCheckpointTests(unittest.TestCase):
         with self.assertRaises(StateStoreRefusal) as refused:
             self._publish(store)
         self.assertIn("state_commit_evidence_checkpoints_rewritten", str(refused.exception))
-
-    def test_the_fold_version_is_pinned_to_the_fold(self) -> None:
-        """A change to how a carried row folds must bump the fold version, or
-        checkpoints recorded under the old fold would be merged as if current."""
-        accumulator = evidence._StreamingEvidenceAccumulator
-        parts = [
-            inspect.getsource(function)
-            for function in (
-                accumulator.consume, accumulator._consume_counts, accumulator.carried_state,
-                accumulator.merge_carried, evidence._summarize_native_rows, AutonomyStateAccumulator.consume,
-                evidence._CarriedClaimCursor,
-            )
-        ]
-        parts.append(repr(sorted(evidence._CARRIED_COUNT_SURFACES)))
-        for spec in evidence.CAPABILITY_SPECS.values():
-            for contract in spec.contracts:
-                if contract.surface in evidence._CARRIED_COUNT_SURFACES:
-                    parts.append(repr((
-                        contract.surface, contract.schema_id, sorted(contract.schema_versions),
-                        contract.identity_field, contract.integrity_hash_field, contract.authoritative_sha_field,
-                        inspect.getsource(contract.terminal_predicate), inspect.getsource(contract.upcaster),
-                    )))
-        fold = hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
-        self.assertEqual(
-            (evidence.EVIDENCE_CHECKPOINT_FOLD_VERSION, fold),
-            (2, "51fee5878da7780f044d470c6a937a870dee763c06823c0a819899d7ee0b33c3"),
-            "the carried fold changed: bump EVIDENCE_CHECKPOINT_FOLD_VERSION and re-pin this digest",
-        )
 
     # -- ARIA-HIGH-286: rebuilding checkpoints never needs more than a slice --
 

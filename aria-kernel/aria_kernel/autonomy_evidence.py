@@ -662,10 +662,12 @@ _DECLARED_SEMANTICS: dict[str, Any] = _parse_semantic_authority(
     (Path(__file__).resolve().parent / "data" / Path(SEMANTIC_AUTHORITY_PATH).name)
     .read_bytes(),
 )
-# Bumped whenever how a carried row folds into the projection changes
-# (pinned by test_evidence_checkpoints): a checkpoint of another fold
-# version is not evidence and is never read. It IS the declared fold version,
-# so a fold bump moves every capability's semantic authority by construction.
+# Bumped whenever how a carried row folds into the projection changes (its
+# output on a frozen corpus is pinned per version by
+# test_capability_semantic_equivalence, never its source): a checkpoint of
+# another fold version is not evidence and is never read. It IS the declared
+# fold version, so a fold bump moves every capability's semantic authority by
+# construction.
 EVIDENCE_CHECKPOINT_FOLD_VERSION: int = _DECLARED_SEMANTICS["evidence_fold_version"]
 _EVIDENCE_CHECKPOINT_ROW_TYPE = "evidence_checkpoint"
 # ARIA-HIGH-286 — named on every capability that counts a carried claim the

@@ -280,3 +280,51 @@ Invariant: A cross-tenant aggregate reads each tenant's schema (or a maintained 
 Writes go to tenant\_<hex> (message.resolver.ts:272, tenant-transaction.ts:106-122) and the source copies are write-guarded (ORPHAN-HIGH-415), so the aggregate reads empty templates. The arbiter ruling it rests on predates the current routing and needs reopening.
 
 Fix direction: Aggregate per tenant schema (forEachTenantSchema with a bounded query) or from a projection the write path maintains; reopen the 2026-07-12 ruling.
+
+## Third batch — fresh-sample pass over the revised auth bank (2026-10-03)
+
+A fresh 44-flag sample of the revised auth bank (v2.1) at `405f2ecac`, none judged before: 9 real, 3 minor, 32 false
+(27%). The revision that cut false flags on the tuning sample did not raise precision on fresh flags, so only the
+rules with measured yield stay active (R05 missing gate, R06 role/permission writes, R16 client IP, R09 token mint);
+the rest are off until redesigned. New defects from this pass:
+
+### RBAC-HIGH-019 — createTenantUser assigns input.roleId after only an existence check, so a delegate holding users:invite can create an account, with a password it chooses, at a role above its own level
+
+Evidence at `405f2ecac`:
+
+- `apps/auth-service/src/modules/tenant/resolvers/tenant-role.resolver.ts:280-281` — @RequireTenantPermission('users:invite'
+- `apps/auth-service/src/modules/tenant/services/user-lifecycle.service.ts:221-224` — getRoleById existence check only
+- `apps/auth-service/src/modules/tenant/services/user-lifecycle.service.ts:230-233` — overrides are authority-checked; the role is not
+- `apps/auth-service/src/modules/tenant/services/user-lifecycle.service.ts:252` — password taken from the input
+- `apps/auth-service/src/modules/tenant/services/tenant-user-management.service.ts:460-488` — assertRoleGrantAuthority, which assignUserRole calls and createUser does not
+
+Invariant: Every path that gives a user a role passes the actor's grant ceiling, including account creation.
+
+With RBAC-HIGH-017 (role level unbounded on update) and the createRole sibling below, a non-admin delegate has a complete in-tenant escalation chain: raise a role's level, then mint an account holding it.
+
+Fix direction: Route createUser's role through assertRoleGrantAuthority (the same branded grant the assign path uses), so a role id can only reach a user row through the ceiling check (tier 1).
+
+### SEC-MEDIUM-195 — A TENANT_ADMIN can cancel any PLATFORM announcement, and delete a draft one, because cancelAnnouncement and deleteAnnouncement reuse the read check and never re-check scope as publishAnnouncement does
+
+Evidence at `405f2ecac`:
+
+- `apps/auth-service/src/modules/announcement/services/announcement.service.ts:306-335` — cancelAnnouncement and deleteAnnouncement
+- `apps/auth-service/src/modules/announcement/services/announcement.service.ts:159-175` — getAnnouncement lets a TENANT_ADMIN read PLATFORM rows
+- `apps/auth-service/src/modules/announcement/services/announcement.service.ts:278-286` — publishAnnouncement re-checks scope: PLATFORM requires SUPER_ADMIN
+- `apps/auth-service/src/modules/announcement/resolvers/announcement.resolver.ts:119-135` — @TenantAdminOrHigher on both mutations
+
+Invariant: Read access is not write access: a mutation of a platform-scoped record requires the platform role.
+
+One tenant's admin can withdraw an announcement every tenant sees.
+
+Fix direction: Extract the scope-for-write check publishAnnouncement uses into one method and call it from every mutating path (cancel, delete, update).
+
+### Scope added to earlier findings
+
+- RBAC-HIGH-017 also covers `createRole`: `tenant-role.service.ts:518-530` inserts `input.level` (1..100) with no
+  ceiling while its capabilities are validated (:475-483). The fix bounds `level` on both create and update.
+- HR-MEDIUM-021 covers the whole goal/review mutation surface of `performance.resolver.ts`, not only `completeGoal`:
+  `submitSelfAssessment` (:365), `acknowledgeReview` (:429), `cancelGoal` (:539) and `addMilestone` (:593) have no
+  gate, and their handlers (`submit-self-assessment.handler.ts:24-41`, `acknowledge-review.handler.ts:24-47`,
+  `cancel-goal.handler.ts:24-46`, `add-milestone.handler.ts:25-47`) load by id and tenant with no ownership or manager
+  check. Fix at the resolver (class-level gate plus per-mutation ownership), not mutation by mutation.

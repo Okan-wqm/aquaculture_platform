@@ -643,6 +643,13 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
     except StateStoreRefusal as exc:
         print(json.dumps({"published": False, "refusal": str(exc)}, indent=2, sort_keys=True))
         return 3
+    # ARIA-HIGH-274 — the size alarm is a warning on the lane, never a refusal.
+    alarm = result.get("size_alarm")
+    if alarm:
+        print(
+            f"::warning::aria/state attests {alarm['total']} bytes, over the "
+            f"{alarm['threshold']}-byte alarm; largest: {json.dumps(alarm['top5'])}"
+        )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
@@ -760,14 +767,25 @@ def build_parser() -> argparse.ArgumentParser:
     fb_queue.add_argument("--limit", type=int, default=15)
     fb_queue.add_argument("--cycle-id", default=None)
     fb_queue.add_argument("--out", required=True, help="Where the pre-filled verdict file is written")
-    # V9.5 check 12 — the operator's channel for a plan-request row. The
-    # kernel signs what it records; a row appended any other way is dropped
-    # at ingestion with an unsigned_operator_feedback governance event, so
-    # this verb is the ONLY way a request reaches the synthesizer.
+    # V9.5 check 12 / ADR-0018 / ADR-0020 — the operator's channel for a
+    # plan-request row. The operator signs it with a key the runner never
+    # holds and names the F finding it is about; ingestion verifies it
+    # against the allowed-signers file committed on main and drops anything
+    # else with an unsigned_operator_feedback governance event, so this verb
+    # is the ONLY way a request reaches the synthesizer.
     fb_request = add_subparser(feedback_sub, "request")
+    fb_request.add_argument("--finding-id", required=True, help="The OPEN F finding to plan (F-NNN)")
     fb_request.add_argument("--request", required=True, help="What the operator wants planned")
     fb_request.add_argument("--priority", default="medium", choices=["low", "medium", "high"])
     fb_request.add_argument("--authored-by", required=True, help="Operator identity recorded on the row")
+    fb_request.add_argument("--signing-key", required=True,
+                            help="Operator ed25519 private key (or its .pub with the key in ssh-agent); never stored")
+    fb_request.add_argument("--signer-principal", required=True,
+                            help="Principal the committed .github/manifests/aria-operator-signers names for that key")
+    fb_request.add_argument("--repo-root", default=".",
+                            help="Checkout on main whose commit holds the allowed-signers file and the tracked evidence")
+    fb_request.add_argument("--expires-in-hours", type=int, default=None,
+                            help="Signed expiry (default and maximum: the operator-act lifetime, 168h)")
     fb_request.add_argument("--request-id", default=None, help="Optional stable id (default OP-<uuid4>)")
     fb_rotate = add_subparser(feedback_sub, "rotate-signing-key")
     fb_rotate.add_argument("--reason", required=True, type=_validate_reason)
@@ -3399,8 +3417,13 @@ def _main(argv: list[str] | None = None) -> int:
             request=args.request,
             priority=args.priority,
             authored_by=args.authored_by,
+            finding_id=args.finding_id,
+            signing_key=args.signing_key,
+            signer_principal=args.signer_principal,
             request_id=args.request_id,
+            expires_in_hours=args.expires_in_hours,
             base_dir=args.tools_dir,
+            repo_root=args.repo_root,
         ), indent=2, sort_keys=True))
         return 0
 
@@ -6537,11 +6560,10 @@ def _main(argv: list[str] | None = None) -> int:
 
         request: dict[str, Any] = {"request_id": args.request_id, "suggested_prompt": args.query or ""}
         if args.request_id:
-            from .ledger import load_declared_jsonl
+            from .ledger import load_segments
             from .tool_registry import ensure_tools_dir
 
-            requests_path = ensure_tools_dir(args.tools_dir) / "agent-invocations" / "requests.jsonl"
-            rows = load_declared_jsonl(requests_path, expected_surface="agent_invocation_requests") if requests_path.exists() else []
+            rows = load_segments(ensure_tools_dir(args.tools_dir), "agent_invocation_requests")
             request = next((r for r in rows if r.get("request_id") == args.request_id), request)
         kwargs = {"budget_tokens": args.budget_tokens} if args.budget_tokens else {}
         print(json.dumps(compile_context(request=request, base_dir=args.tools_dir, record=False, **kwargs).to_dict(), indent=2, sort_keys=True))

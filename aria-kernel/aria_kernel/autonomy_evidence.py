@@ -6,7 +6,7 @@ repairs, publishes, or otherwise changes the external ``aria/state`` store.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 import hashlib
 import json
 import os
@@ -19,6 +19,7 @@ from types import MappingProxyType
 from typing import Any, Callable, Iterable, Iterator, Literal, Mapping
 
 from .autonomy_state import fold_autonomy_state_rows as _fold_autonomy_state_rows
+from .ledger import SEGMENT_OPENED_ROW_TYPE
 from .state_snapshot import (
     MAX_SNAPSHOT_JSON_BYTES,
     SNAPSHOT_MAX_INPUT_BYTES,
@@ -582,8 +583,27 @@ _EXPECTED_CLOSURE_POLICY_REFERENCES: Mapping[
 })
 _EXPECTED_CLOSURE_SCOPE = frozenset(_EXPECTED_CLOSURE_POLICY_SEMANTICS)
 _MAX_EVALUATOR_BLOB_BYTES = 2 * 1024 * 1024
-_MAX_AUTHORITY_BLOB_BYTES = 2 * 1024 * 1024
-_MAX_AUTHORITY_CAPABILITY_BYTES = 16 * 1024 * 1024
+# ARIA-HIGH-288 — a proof is bound to the semantic authority its commit
+# DECLARES, never to source bytes: a hash over a roster of kernel files reset
+# every capability on each storage refactor. The declaration is read from Git
+# at the proof's commit and at the target; test_capability_semantic_equivalence
+# pins each declared authority to what the fold makes of a frozen corpus, so
+# semantics cannot move without a bump and a bump cannot pin itself.
+SEMANTIC_AUTHORITY_PATH = "aria-kernel/aria_kernel/data/capability_semantic_authority.json"
+_SEMANTIC_AUTHORITY_SCHEMA = "aria/capability-semantic-authority/v1"
+_SEMANTIC_AUTHORITY_KEYS = frozenset({
+    "$schema",
+    "evidence_fold_version",
+    "upcaster_set_version",
+    "capability_contract_versions",
+})
+_MAX_SEMANTIC_AUTHORITY_BYTES = 64 * 1024
+# ARIA-HIGH-295 — the fold that introduced the witness window, and the most
+# witnesses a contract may keep: the old global budget, so a contract's
+# history search is never wider than every capability's once was.
+_WINDOWED_FOLD_VERSION = 3
+_WITNESS_WINDOW_KEY = "evidence_witness_window"
+_MAX_WITNESS_WINDOW = 256
 _MAX_POLICY_BLOB_BYTES = 2 * 1024 * 1024
 _MAX_SNAPSHOT_TREE_BYTES = 16 * 1024 * 1024
 _MAX_SNAPSHOT_TREE_ENTRIES = 10_000
@@ -593,11 +613,94 @@ _MAX_EVIDENCE_LEDGER_BLOB_BYTES = 64 * 1024 * 1024
 _MAX_EVIDENCE_INPUT_BYTES = 80 * 1024 * 1024
 _MAX_EVIDENCE_LEDGER_LINE_BYTES = 1024 * 1024
 _MAX_EVIDENCE_LEDGER_ROWS = 100_000
+# ARIA-HIGH-278 — a carried ledger's verified prefix carries its evidence
+# forward as one checkpoint row, so a publish consumes only the rows after
+# its newest checkpoint. The publish preamble records a checkpoint once a
+# ledger's published prefix runs a stride past its last one: per ledger a
+# publish consumes at most one stride plus two publishes' growth, at any age.
+EVIDENCE_CHECKPOINT_SURFACE = "evidence_checkpoints"
+EVIDENCE_CHECKPOINT_STRIDE_BYTES = 1024 * 1024
+
+
+def _declared_version(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+def _parse_semantic_authority(payload: bytes) -> dict[str, Any]:
+    """One commit's declared semantic versions, strictly shaped.
+
+    From fold _WINDOWED_FOLD_VERSION on, a declaration also names its
+    evidence_witness_window (1 to _MAX_WITNESS_WINDOW); a declaration of an
+    older fold has none, so a proof from before the window still reads as
+    proven under another authority, never as an invalid declaration.
+    """
+    try:
+        declared = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        raise RuntimeError("git_authority_declaration_invalid") from exc
+    versions = (
+        declared.get("capability_contract_versions")
+        if isinstance(declared, dict) else None
+    )
+    windowed = (
+        isinstance(declared, dict)
+        and _declared_version(declared.get("evidence_fold_version"))
+        and declared["evidence_fold_version"] >= _WINDOWED_FOLD_VERSION
+    )
+    window = declared.get(_WITNESS_WINDOW_KEY) if windowed else None
+    if (
+        not isinstance(declared, dict)
+        or set(declared) - {"_doc"} != _SEMANTIC_AUTHORITY_KEYS | ({_WITNESS_WINDOW_KEY} if windowed else set())
+        or (windowed and not (_declared_version(window) and window <= _MAX_WITNESS_WINDOW))
+        or declared["$schema"] != _SEMANTIC_AUTHORITY_SCHEMA
+        or not _declared_version(declared["evidence_fold_version"])
+        or not _declared_version(declared["upcaster_set_version"])
+        or not isinstance(versions, dict)
+        or not versions
+        or not all(_declared_version(version) for version in versions.values())
+    ):
+        raise RuntimeError("git_authority_declaration_invalid")
+    return declared
+
+
+def _semantic_authority(declared: Mapping[str, Any], capability: str) -> str:
+    """What a proof of ``capability`` is proven under: every declared version
+    its meaning depends on, spelled so the provenance reads without a lookup."""
+    version = declared["capability_contract_versions"].get(capability)
+    if not _declared_version(version):
+        raise RuntimeError("git_authority_declaration_invalid")
+    return (
+        f"{_SEMANTIC_AUTHORITY_SCHEMA}:{capability}@{version}"
+        f":fold@{declared['evidence_fold_version']}"
+        f":upcasters@{declared['upcaster_set_version']}"
+    )
+
+
+# The executing kernel's own declaration (SEMANTIC_AUTHORITY_PATH).
+_DECLARED_SEMANTICS: dict[str, Any] = _parse_semantic_authority(
+    (Path(__file__).resolve().parent / "data" / Path(SEMANTIC_AUTHORITY_PATH).name)
+    .read_bytes(),
+)
+# Bumped whenever how a carried row folds into the projection changes (its
+# output on a frozen corpus is pinned per version by
+# test_capability_semantic_equivalence, never its source): a checkpoint of
+# another fold version is not evidence and is never read. It IS the declared
+# fold version, so a fold bump moves every capability's semantic authority by
+# construction.
+EVIDENCE_CHECKPOINT_FOLD_VERSION: int = _DECLARED_SEMANTICS["evidence_fold_version"]
+# ARIA-HIGH-295 — each evidence contract keeps its _WITNESS_WINDOW most
+# recently witnessed distinct target SHAs (`_retain_witness`). A capability
+# is judged on those: an older SHA ages out, so no history can exhaust a
+# budget and latch a capability declared, and the window is a bounded
+# summary an evidence checkpoint carries.
+_WITNESS_WINDOW: int = _DECLARED_SEMANTICS[_WITNESS_WINDOW_KEY]
+_EVIDENCE_CHECKPOINT_ROW_TYPE = "evidence_checkpoint"
+# ARIA-HIGH-286 — named on every capability that counts a carried claim the
+# publish's slice (`_evidence_slice_bytes`) could not reach.
+EVIDENCE_REBUILD_BLOCKER = "evidence_checkpoint_rebuild_in_progress"
 _MAX_SNAPSHOT_LEDGER_LINE_BYTES = SNAPSHOT_MAX_LEDGER_LINE_BYTES
 _MAX_SNAPSHOT_LEDGER_ROWS = SNAPSHOT_MAX_LEDGER_ROWS
 _MAX_SNAPSHOT_SURFACE_MATCH_CANDIDATES = 100_000
-_MAX_DISTINCT_PROOF_TARGETS_PER_CAPABILITY = 128
-_MAX_DISTINCT_PROOF_TARGETS_GLOBAL = 256
 _GIT_STREAM_TIMEOUT_SECONDS = 30
 # Declared once in state_tree_contract: the publish-time healer judges a
 # parent tree by the same marker set this verifier admits, so the two can
@@ -665,7 +768,12 @@ class EvidenceContract:
 
 @dataclass(frozen=True, slots=True)
 class CapabilitySpec:
-    """Immutable authority and proof ownership for one capability."""
+    """Immutable proof ownership for one capability.
+
+    ``authority_paths`` is the code a capability's proofs are produced and
+    judged by; the evaluator runs only from a clean checkout of it. Its bytes
+    are not the proof's authority (ARIA-HIGH-288): SEMANTIC_AUTHORITY_PATH is.
+    """
 
     authority_paths: tuple[str, ...]
     producer_paths: tuple[str, ...]
@@ -708,8 +816,6 @@ class _NativeSummary:
     targets_by_contract: Mapping[EvidenceContract, tuple[_TargetCandidate, ...]]
     counts: Mapping[str, int]
     blockers: tuple[str, ...]
-    distinct_target_budget_exceeded: bool = False
-    global_target_budget_exceeded: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -737,7 +843,9 @@ class EvidenceRef:
     row_hash: str
     evidence_target_sha: str | None
     evaluated_target_sha: str
-    capability_authority_hash: str
+    # Provenance (ARIA-HIGH-288): the semantic authority the proof was
+    # proven under — equal at the evidence commit and the evaluated target.
+    semantic_authority: str
     state_commit: str
 
 
@@ -1094,6 +1202,14 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}plan_convergence.py",
             f"{_KERNEL}file_claims.py",
             f"{_KERNEL}operator_feedback_signature.py",
+            # ADR-0020 — check 12 re-verifies consumed operator requests
+            # here, against the allowed-signers file committed on main and
+            # read through the hardened anchor reader, and re-checks their
+            # signed terms and merged-once proof (review round 2).
+            f"{_KERNEL}operator_request_signature.py",
+            f"{_KERNEL}operator_feedback_observation.py",
+            f"{_KERNEL}operator_request_terms.py",
+            f"{_KERNEL}main_anchor.py",
             f"{_KERNEL}expert_review_gate.py",
             f"{_KERNEL}plan_coverage.py",
             f"{_KERNEL}budget.py",
@@ -1115,6 +1231,14 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}plan_convergence.py",
             f"{_KERNEL}file_claims.py",
             f"{_KERNEL}operator_feedback_signature.py",
+            # ADR-0020 — check 12 re-verifies consumed operator requests
+            # here, against the allowed-signers file committed on main and
+            # read through the hardened anchor reader, and re-checks their
+            # signed terms and merged-once proof (review round 2).
+            f"{_KERNEL}operator_request_signature.py",
+            f"{_KERNEL}operator_feedback_observation.py",
+            f"{_KERNEL}operator_request_terms.py",
+            f"{_KERNEL}main_anchor.py",
             f"{_KERNEL}expert_review_gate.py",
             f"{_KERNEL}plan_coverage.py",
             f"{_KERNEL}budget.py",
@@ -1230,6 +1354,44 @@ CAPABILITY_AUTHORITY_PATHS: Mapping[str, tuple[str, ...]] = MappingProxyType({
     key: spec.authority_paths
     for key, spec in CAPABILITY_SPECS.items()
 })
+# ARIA-HIGH-278 — the counted ledgers whose rows fold into a bounded summary
+# (counters, blocker sets, the autonomy-state fold and, ARIA-HIGH-295, each
+# contract's witness window), so a verified prefix can be carried forward.
+# Never carried: the three below.
+_UNCARRIED_COUNT_SURFACES: Mapping[str, str] = MappingProxyType({
+    "promotions": "every promoted fingerprint is kept to count unique ones",
+    "enterprise_acceptance_events": "every row is kept for the unlock verdict",
+    "findings": "rewritten in place when a tool's findings need revalidation",
+})
+_CARRIED_COUNT_SURFACES = frozenset(
+    name
+    for spec in CAPABILITY_SPECS.values()
+    for name in spec.count_surfaces
+    if name not in _UNCARRIED_COUNT_SURFACES
+)
+
+
+def _retain_witness(window: dict[str, _TargetCandidate], observed: _TargetCandidate) -> None:
+    """Fold one witness into its contract's window (ARIA-HIGH-295).
+
+    The window is ordered least recently witnessed first. A SHA witnessed
+    again moves to the end with its counts added; a new SHA, once the window
+    holds _WITNESS_WINDOW, evicts the least recently witnessed, which starts
+    over if it is ever witnessed again.
+    """
+    sha = observed.candidate.evidence_target_sha
+    existing = window.pop(sha, None)
+    if existing is None and len(window) >= _WITNESS_WINDOW:
+        del window[next(iter(window))]
+    if existing is not None:
+        by_schema = Counter(existing.admissible_by_schema)
+        by_schema.update(observed.admissible_by_schema)
+        observed = replace(
+            observed,
+            admissible_count=existing.admissible_count + observed.admissible_count,
+            admissible_by_schema=MappingProxyType(dict(by_schema)),
+        )
+    window[sha] = observed
 
 
 def _summarize_native_rows(
@@ -1242,8 +1404,6 @@ def _summarize_native_rows(
         EvidenceContract,
         dict[str, _TargetCandidate],
     ] = {contract: {} for contract in spec.contracts}
-    distinct_targets: set[str] = set()
-    budget_exceeded = False
     blockers: set[str] = set()
     row_count = 0
     terminal_count = 0
@@ -1313,31 +1473,12 @@ def _summarize_native_rows(
                 row_hash=row_hash,
                 evidence_target_sha=evidence_target_sha,
             )
-            existing = targets_by_contract[contract].get(evidence_target_sha)
-            if existing is not None:
-                by_schema = Counter(existing.admissible_by_schema)
-                by_schema[schema_version] += 1
-                targets_by_contract[contract][evidence_target_sha] = _TargetCandidate(
-                    candidate=candidate,
-                    admissible_count=existing.admissible_count + 1,
-                    admissible_by_schema=MappingProxyType(dict(by_schema)),
-                    ordinal=ordinal,
-                )
-                continue
-            if evidence_target_sha not in distinct_targets:
-                if (
-                    len(distinct_targets)
-                    >= _MAX_DISTINCT_PROOF_TARGETS_PER_CAPABILITY
-                ):
-                    budget_exceeded = True
-                    continue
-                distinct_targets.add(evidence_target_sha)
-            targets_by_contract[contract][evidence_target_sha] = _TargetCandidate(
+            _retain_witness(targets_by_contract[contract], _TargetCandidate(
                 candidate=candidate,
                 admissible_count=1,
                 admissible_by_schema=MappingProxyType({schema_version: 1}),
                 ordinal=ordinal,
-            )
+            ))
     return _NativeSummary(
         targets_by_contract=MappingProxyType({
             contract: tuple(targets.values())
@@ -1349,7 +1490,6 @@ def _summarize_native_rows(
             "admissible": admissible_count,
         }),
         blockers=tuple(sorted(blockers)),
-        distinct_target_budget_exceeded=budget_exceeded,
     )
 
 
@@ -1364,12 +1504,7 @@ def _evaluate_native_rows(
         for targets in summary.targets_by_contract.values()
         if targets
     )
-    blockers = set(summary.blockers)
-    if summary.distinct_target_budget_exceeded:
-        blockers.add(f"proof_distinct_sha_budget_exceeded:{capability}")
-    if summary.global_target_budget_exceeded:
-        blockers.add("proof_distinct_sha_budget_exceeded:global")
-    return candidates, dict(summary.counts), tuple(sorted(blockers))
+    return candidates, dict(summary.counts), tuple(sorted(summary.blockers))
 
 
 def _run_git(
@@ -1691,49 +1826,38 @@ def _git_tree_entries(
     return entries
 
 
-def _capability_authority_hash(
+def _capability_semantic_authority(
     repo_root: str | Path,
     capability: str,
     commit_sha: str,
-) -> str:
-    """Hash exact authority path names and blobs from one Git tree."""
+) -> str | None:
+    """The semantic authority one commit declares for ``capability``.
+
+    None when the commit declares none: a proof from before ARIA-HIGH-288
+    (the byte-hash era) is never mapped onto a semantic authority.
+    """
     root = Path(repo_root).resolve()
     if not _commit_exists(root, commit_sha):
         raise RuntimeError(f"git_commit_unavailable:{commit_sha}")
-    digest = hashlib.sha256()
-    aggregate_size = 0
-    for path in sorted(CAPABILITY_SPECS[capability].authority_paths):
-        digest.update(path.encode("utf-8"))
-        digest.update(b"\0")
-        entry = _git_tree_entry(root, commit_sha, path)
-        if entry is None:
-            digest.update(b"MISSING")
-        else:
-            record, mode, object_type, object_id = entry
-            if object_type != "blob" or mode not in {"100644", "100755"}:
-                raise RuntimeError("git_authority_tree_invalid")
-            digest.update(b"ENTRY\0")
-            digest.update(record)
-            try:
-                size, chunks = _iter_git_blob_bounded(
-                    root,
-                    object_id,
-                    max_bytes=_MAX_AUTHORITY_BLOB_BYTES,
-                    too_large="git_authority_blob_too_large",
-                    unavailable="git_authority_blob_unavailable",
-                )
-            except RuntimeError as exc:
-                if str(exc) == "git_authority_blob_too_large":
-                    raise
-                raise RuntimeError("git_authority_blob_unavailable") from exc
-            aggregate_size += size
-            if aggregate_size > _MAX_AUTHORITY_CAPABILITY_BYTES:
-                raise RuntimeError("git_authority_capability_budget_exceeded")
-            digest.update(b"BLOB\0")
-            for chunk in chunks:
-                digest.update(chunk)
-        digest.update(b"\0")
-    return "sha256:" + digest.hexdigest()
+    entry = _git_tree_entry(root, commit_sha, SEMANTIC_AUTHORITY_PATH)
+    if entry is None:
+        return None
+    _record, mode, object_type, object_id = entry
+    if object_type != "blob" or mode not in {"100644", "100755"}:
+        raise RuntimeError("git_authority_tree_invalid")
+    try:
+        payload = _read_git_blob_bounded(
+            root,
+            object_id,
+            max_bytes=_MAX_SEMANTIC_AUTHORITY_BYTES,
+            too_large="git_authority_blob_too_large",
+            unavailable="git_authority_blob_unavailable",
+        )
+    except RuntimeError as exc:
+        if str(exc) == "git_authority_blob_too_large":
+            raise
+        raise RuntimeError("git_authority_blob_unavailable") from exc
+    return _semantic_authority(_parse_semantic_authority(payload), capability)
 
 
 def _executing_repository_root() -> Path | None:
@@ -1806,52 +1930,31 @@ def _evaluator_capability_blocker(
     )
     if definition_blocker is not None:
         return definition_blocker
+    # The semantics this process applies are the ones it loaded; the target
+    # must declare the same, or the evaluator would judge it by other rules.
     try:
-        returncode, current_head = _git_text(
-            repo_root,
-            "rev-parse",
-            "--verify",
-            "HEAD^{commit}",
-        )
+        executing = _semantic_authority(_DECLARED_SEMANTICS, capability)
+        target = _capability_semantic_authority(repo_root, capability, target_sha)
     except RuntimeError as exc:
         named = str(exc)
-        if named in {
-            "git_authority_blob_too_large",
-            "git_authority_capability_budget_exceeded",
-        }:
+        if named.startswith("git_authority_"):
             return named
         return f"evaluator_authority_unavailable:{capability}"
-    if returncode != 0 or not _FULL_SHA.fullmatch(current_head):
-        return f"evaluator_authority_unavailable:{capability}"
-    try:
-        current_hash = _capability_authority_hash(
-            repo_root,
-            capability,
-            current_head,
-        )
-        target_hash = _capability_authority_hash(
-            repo_root,
-            capability,
-            target_sha,
-        )
-    except RuntimeError as exc:
-        named = str(exc)
-        if named in {
-            "git_authority_blob_too_large",
-            "git_authority_capability_budget_exceeded",
-        }:
-            return named
-        return f"evaluator_authority_unavailable:{capability}"
-    if current_hash != target_hash:
+    if target is None:
+        return f"evaluator_authority_undeclared:{capability}"
+    if target != executing:
         return f"evaluator_authority_changed:{capability}"
     return None
 
 
 def _evaluator_worktree_blocker(repo_root: Path) -> str | None:
     authority_paths = tuple(sorted({
-        path
-        for spec in CAPABILITY_SPECS.values()
-        for path in spec.authority_paths
+        SEMANTIC_AUTHORITY_PATH,
+        *(
+            path
+            for spec in CAPABILITY_SPECS.values()
+            for path in spec.authority_paths
+        ),
     }))
     try:
         result = _run_git(
@@ -1928,18 +2031,6 @@ def _derive_capability_evidence(
     )
     counts = dict(summary.counts)
     native_blockers = summary.blockers
-    budget_blockers: set[str] = set()
-    if summary.distinct_target_budget_exceeded:
-        budget_blockers.add(f"proof_distinct_sha_budget_exceeded:{capability}")
-    if summary.global_target_budget_exceeded:
-        budget_blockers.add("proof_distinct_sha_budget_exceeded:global")
-    if budget_blockers:
-        return CapabilityEvidence(
-            state="declared",
-            counts=counts,
-            blockers=tuple(sorted({*native_blockers, *budget_blockers})),
-            evidence_refs=(),
-        )
     evaluator_blocker = _evaluator_capability_blocker(
         root,
         capability,
@@ -1962,11 +2053,11 @@ def _derive_capability_evidence(
     proof_kinds: set[ProofKind] = set()
     proof_cardinality: dict[str, int] = {}
     ancestry_cache: dict[str, str | None] = {}
-    authority_cache: dict[str, str] = {}
+    authority_cache: dict[str, str | None] = {}
 
-    def authority_hash(sha: str) -> str:
+    def authority(sha: str) -> str | None:
         if sha not in authority_cache:
-            authority_cache[sha] = _capability_authority_hash(
+            authority_cache[sha] = _capability_semantic_authority(
                 root,
                 capability,
                 sha,
@@ -1983,7 +2074,7 @@ def _derive_capability_evidence(
             reverse=True,
         )
         witness: _TargetCandidate | None = None
-        witness_hash: str | None = None
+        witness_authority: str | None = None
         for retained in ordered:
             candidate = retained.candidate
             evidence_sha = candidate.evidence_target_sha
@@ -1998,8 +2089,8 @@ def _derive_capability_evidence(
                 blockers.add(blocker)
                 continue
             try:
-                evidence_hash = authority_hash(evidence_sha)
-                target_hash = authority_hash(target_sha)
+                evidence_authority = authority(evidence_sha)
+                target_authority = authority(target_sha)
             except RuntimeError as exc:
                 named = str(exc)
                 blockers.add(
@@ -2007,12 +2098,18 @@ def _derive_capability_evidence(
                     else "git_authority_unavailable"
                 )
                 continue
-            if evidence_hash != target_hash:
+            if evidence_authority is None:
+                # Proven before ARIA-HIGH-288 declared any semantics.
+                blockers.add(f"proof_authority_undeclared:{capability}")
+                continue
+            if evidence_authority != target_authority:
                 blockers.add(f"proof_authority_changed:{capability}")
                 continue
-            if witness is None:
-                witness = retained
-                witness_hash = target_hash
+            # The newest admissible witness proves the contract; older ones
+            # are never read (blockers are reported only when none proves).
+            witness = retained
+            witness_authority = evidence_authority
+            break
         for version in contract.schema_versions:
             proof_cardinality[_proof_cardinality_key(
                 contract.surface,
@@ -2024,7 +2121,7 @@ def _derive_capability_evidence(
                 if witness is not None
                 else 0
             )
-        if witness is not None and witness_hash is not None:
+        if witness is not None and witness_authority is not None:
             candidate = witness.candidate
             refs.append(EvidenceRef(
                 surface=contract.surface,
@@ -2035,7 +2132,7 @@ def _derive_capability_evidence(
                 row_hash=candidate.row_hash,
                 evidence_target_sha=candidate.evidence_target_sha,
                 evaluated_target_sha=target_sha,
-                capability_authority_hash=witness_hash,
+                semantic_authority=witness_authority,
                 state_commit=state_commit,
             ))
             proof_kinds.add(contract.proof_kind)
@@ -2403,6 +2500,286 @@ def _verify_state_commit_tree_contract(
             raise RuntimeError(f"state_snapshot_unclaimed_tree_entry:{path}")
 
 
+def _carried_family(key: str) -> str | None:
+    """The carried ledger family a snapshot claim key feeds, or None."""
+    from .ledger import segment_family
+    from .state_manifest import surface_key_name
+
+    surface_name = surface_key_name(key)
+    family = segment_family(surface_name)
+    counted = key == surface_name or family != surface_name
+    return family if counted and family in _CARRIED_COUNT_SURFACES else None
+
+
+def _valid_evidence_checkpoint(row: Mapping[str, Any]) -> bool:
+    def count(value: Any) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+    tail = row.get("tail_ledger_hash")
+    return (
+        row.get("row_type") == _EVIDENCE_CHECKPOINT_ROW_TYPE and row.get("schema_version") == 1
+        and all(count(row.get(name)) for name in ("schema_version", "fold_version", "row_count", "size_bytes"))
+        and isinstance(row.get("surface_key"), str) and isinstance(row.get("evidence"), dict)
+        and isinstance(tail, str) and _LEDGER_HASH.fullmatch(tail) is not None
+    )
+
+
+def _evidence_slice_bytes() -> int:
+    """The most carried-ledger bytes one publish folds past its trusted
+    checkpoints, at any ledger age (ARIA-HIGH-286): two fifths of the
+    evidence-input budget, so it stays under the budget by construction and
+    leaves the rest to the uncarried ledgers and the checkpoint ledger.
+
+    A fold-version bump or a store without checkpoints is rebuilt across
+    publishes: each preamble records checkpoints over at most half the slice,
+    and the commit's verifier folds those plus whole claims on past them
+    while the rest lasts. A claim the slice cannot reach is withheld, never
+    estimated, and every capability counting it names EVIDENCE_REBUILD_BLOCKER
+    until the rebuild reaches it.
+    """
+    return _MAX_EVIDENCE_INPUT_BYTES * 2 // 5
+
+
+class _CarriedClaimCursor:
+    """One carried claim, streamed from its newest usable trusted checkpoint.
+
+    Rows up to that base are carried by it; later rows whose lines end at or
+    before ``stop_bytes`` fold into a tally the caller absorbs once the claim
+    verifies, so the fold never runs past the bytes it was charged
+    (ARIA-HIGH-286). Every checkpoint on the claim is checked where it sits:
+    its byte offset and ledger hash bind the prefix (a rewritten or truncated
+    prefix refuses), and inside the fold the tally must equal the evidence it
+    records. The base sits at or below every pending checkpoint and the stop
+    at or past each one's claimed end, so one stream verifies all of them: a
+    pending checkpoint whose row does not end where it claims refuses.
+    """
+
+    def __init__(
+        self, key: str, family: str, checkpoints: Iterable[tuple[Mapping[str, Any], bool]], size: int,
+    ) -> None:
+        from .state_manifest import surface_key_name
+
+        listed = tuple(checkpoints)
+        floor = min((row["row_count"] for row, trusted in listed if not trusted), default=None)
+        base = max(
+            (row for row, trusted in listed if trusted and (floor is None or row["row_count"] <= floor)),
+            key=lambda row: row["row_count"],
+            default=None,
+        )
+        self.key, self.family, self.surface_name, self.size = key, family, surface_key_name(key), size
+        self.base_rows = base["row_count"] if base is not None else 0
+        self.base_bytes = base["size_bytes"] if base is not None else 0
+        self.tally = _StreamingEvidenceAccumulator()
+        if base is not None:
+            self.tally.merge_carried(base["evidence"], key)
+        self.at: dict[int, list[Mapping[str, Any]]] = defaultdict(list)
+        for row, _trusted in listed:
+            self.at[row["row_count"]].append(row)
+        # Through the newest pending checkpoint; widened to `size` when the
+        # publish's slice reaches the claim's end.
+        self.stop_bytes = max((row["size_bytes"] for row, trusted in listed if not trusted), default=self.base_bytes)
+        # (rows, bytes, ledger hash) the tally has folded through.
+        self.frontier: tuple[int, int, str | None] = (
+            self.base_rows, self.base_bytes, base["tail_ledger_hash"] if base is not None else None,
+        )
+        self._row: dict[str, Any] = {}
+
+    @property
+    def complete(self) -> bool:
+        """The fold reaches the claim's end, so its tally is the claim's evidence."""
+        return self.stop_bytes == self.size
+
+    def on_row(self, row: dict[str, Any]) -> None:
+        self._row = row
+
+    def on_position(self, row_number: int, line_end: int, ledger_hash: str) -> None:
+        folded = self.base_rows < row_number and line_end <= self.stop_bytes
+        if folded:
+            if row_number - self.base_rows > _MAX_EVIDENCE_LEDGER_ROWS:
+                raise RuntimeError(f"state_commit_surface_row_limit_exceeded:{self.surface_name}")
+            self.tally.consume(self.family, self._row)
+            self.frontier = (row_number, line_end, ledger_hash)
+        for checkpoint in self.at.get(row_number, ()):
+            if (
+                checkpoint["size_bytes"] != line_end
+                or checkpoint["tail_ledger_hash"] != ledger_hash
+                or (
+                    (folded or row_number == self.base_rows)
+                    and checkpoint["evidence"] != self.tally.carried_state(self.key)
+                )
+            ):
+                raise RuntimeError(f"state_commit_evidence_checkpoint_mismatch:{self.key}")
+
+
+def _stream_ledger_blob(
+    store_root: Path,
+    object_id: str,
+    claim: Mapping[str, Any],
+    *,
+    source: str,
+    surface_name: str,
+    grandfather: int,
+    on_row: Callable[[dict[str, Any]], None],
+    on_row_position: Callable[[int, int, str], None] | None = None,
+) -> None:
+    """Strictly verify one committed ledger blob, feeding its rows."""
+    from .ledger import verify_jsonl_chunks
+
+    size = claim["size_bytes"]
+    verify_jsonl_chunks(
+        _iter_git_output_bounded(
+            store_root, "cat-file", "blob", object_id, max_bytes=size, expected_size=size,
+            unavailable=f"state_snapshot_surface_unavailable:{surface_name}",
+        ),
+        source=source, expected_size=size, max_line_bytes=_MAX_SNAPSHOT_LEDGER_LINE_BYTES,
+        max_rows=_MAX_SNAPSHOT_LEDGER_ROWS, grandfather_line_prefixes=grandfather,
+        expected_surface=surface_name, expected_surface_instance=claim["path"],
+        on_row=on_row, on_row_position=on_row_position,
+    )
+
+
+def _carried_claim_cursors(
+    *,
+    store_root: Path,
+    state_commit: str,
+    claims: list[tuple[str, Mapping[str, Any], str, str, int, bool]],
+    parent_surfaces: Mapping[str, Mapping[str, Any]],
+) -> tuple[dict[str, _CarriedClaimCursor], int]:
+    """Cursor each carried claim of one commit; return the input they consume.
+
+    The checkpoint rows the parent published are trusted: the parent was
+    verified when it was published, and its claim's tail hash binds them, so
+    rewriting one refuses here. A row this commit adds is pending and is
+    verified by its claim's stream. The input is the checkpoint ledger plus,
+    per carried claim, the bytes its cursor folds past its base.
+
+    ARIA-HIGH-286 — every pending checkpoint is folded to; what is left of
+    the slice (`_evidence_slice_bytes`) then folds whole claims on to their end,
+    in key order, while it lasts. A claim it cannot reach stops at its newest
+    checkpoint and is rebuilding: its evidence is withheld, never estimated.
+    """
+    listed = {key: (claim, object_id, git_path) for key, claim, object_id, git_path, _size, _ in claims}
+    families = {
+        key: family for key, *_rest, consumed in claims if consumed and (family := _carried_family(key))
+    }
+    found: dict[str, list[tuple[Mapping[str, Any], bool]]] = defaultdict(list)
+    input_bytes = 0
+    if EVIDENCE_CHECKPOINT_SURFACE in listed:
+        claim, object_id, git_path = listed[EVIDENCE_CHECKPOINT_SURFACE]
+        inherited = parent_surfaces.get(EVIDENCE_CHECKPOINT_SURFACE, {})
+        inherited_rows = _integer(inherited.get("row_count"))
+        rows: list[dict[str, Any]] = []
+        tail: list[str] = []
+        _stream_ledger_blob(
+            store_root, object_id, claim, source=f"{state_commit}:{git_path}",
+            surface_name=EVIDENCE_CHECKPOINT_SURFACE, grandfather=inherited_rows, on_row=rows.append,
+            on_row_position=lambda number, _end, ledger_hash: (
+                tail.append(ledger_hash) if number == inherited_rows else None
+            ),
+        )
+        if inherited_rows and tail != [inherited.get("tail_ledger_hash")]:
+            raise RuntimeError("state_commit_evidence_checkpoints_rewritten")
+        input_bytes += claim["size_bytes"]
+        for number, row in enumerate(rows, start=1):
+            key, trusted = row.get("surface_key"), number <= inherited_rows
+            if not _valid_evidence_checkpoint(row) or (key not in families and not trusted):
+                raise RuntimeError(f"state_commit_evidence_checkpoint_invalid:{key}")
+            if row["fold_version"] != EVIDENCE_CHECKPOINT_FOLD_VERSION or key not in families:
+                continue
+            target = listed[key][0]
+            if row["row_count"] > target["row_count"] or row["size_bytes"] > target["size_bytes"]:
+                raise RuntimeError(f"state_commit_evidence_checkpoint_mismatch:{key}")
+            found[key].append((row, trusted))
+    cursors = {
+        key: _CarriedClaimCursor(key, family, found[key], listed[key][0]["size_bytes"])
+        for key, family in sorted(families.items())
+    }
+    left = _evidence_slice_bytes() - sum(cursor.stop_bytes - cursor.base_bytes for cursor in cursors.values())
+    for cursor in cursors.values():
+        if cursor.size - cursor.stop_bytes <= max(left, 0):
+            left -= cursor.size - cursor.stop_bytes
+            cursor.stop_bytes = cursor.size
+    input_bytes += sum(cursor.stop_bytes - cursor.base_bytes for cursor in cursors.values())
+    return cursors, input_bytes
+
+
+def evidence_checkpoints_due(*, store: Any, repo_identity: str, base_head: str) -> list[dict[str, Any]]:
+    """The checkpoint rows a publish on ``base_head`` records (ARIA-HIGH-278).
+
+    A read of the parent commit, never of the working tree: a checkpoint
+    names a prefix of the parent's verified claim, which every descendant
+    keeps (carried ledgers only grow; contention replay appends behind it),
+    so a losing lane's checkpoint stays true on the winner's tree. Its
+    evidence folds on from the parent's newest checkpoint, and the commit
+    that carries it verifies it again.
+
+    ARIA-HIGH-286 — together the rows fold at most half the slice, in key
+    order: a checkpoint lands on the last row a claim's share reaches, which
+    is its end in steady state and a prefix while a fold-version bump or a
+    store without checkpoints is rebuilt, one bounded slice per publish.
+    """
+    from .state_manifest import surface_key_name
+
+    try:
+        snapshot, _object = _read_immutable_snapshot_claim(store.root, base_head)
+    except RuntimeError as exc:
+        if str(exc) == "state_store_genesis":
+            return []
+        raise
+    surfaces: Mapping[str, Mapping[str, Any]] = snapshot["surfaces"]
+
+    def stream(key: str, on_row: Callable[[dict[str, Any]], None], cursor: Any = None) -> None:
+        claim = surfaces[key]
+        git_path = _snapshot_surface_git_path(
+            store=store, repo_identity=repo_identity, root_kind=claim["root_kind"], relative=claim["path"],
+        )
+        entry = _git_tree_entry(store.root, base_head, git_path)
+        if entry is None or entry[2] != "blob":
+            raise RuntimeError(f"state_snapshot_surface_unavailable:{key}")
+        _stream_ledger_blob(
+            store.root, entry[3], claim, source=f"{base_head}:{git_path}", surface_name=surface_key_name(key),
+            grandfather=claim["row_count"], on_row=on_row,
+            on_row_position=cursor.on_position if cursor is not None else None,
+        )
+
+    recorded: list[dict[str, Any]] = []
+    if EVIDENCE_CHECKPOINT_SURFACE in surfaces:
+        stream(EVIDENCE_CHECKPOINT_SURFACE, recorded.append)
+    newest: dict[str, Mapping[str, Any]] = {}
+    for row in recorded:
+        if _valid_evidence_checkpoint(row) and row["fold_version"] == EVIDENCE_CHECKPOINT_FOLD_VERSION:
+            if row["row_count"] > newest.get(row["surface_key"], {}).get("row_count", 0):
+                newest[row["surface_key"]] = row
+    due: list[dict[str, Any]] = []
+    left = _evidence_slice_bytes() // 2
+    for key, claim in sorted(surfaces.items()):
+        family, base = _carried_family(key), newest.get(key)
+        start = base["size_bytes"] if base else 0
+        if family is None or claim["size_bytes"] - start < EVIDENCE_CHECKPOINT_STRIDE_BYTES or left <= 0:
+            continue
+        cursor = _CarriedClaimCursor(key, family, [(base, True)] if base else (), claim["size_bytes"])
+        cursor.stop_bytes = min(claim["size_bytes"], start + left)
+        stream(key, cursor.on_row, cursor)
+        rows, end, tail = cursor.frontier
+        if rows == cursor.base_rows:
+            continue  # its next row alone is longer than the slice left
+        left -= end - start
+        due.append({
+            "schema_version": 1,
+            "row_type": _EVIDENCE_CHECKPOINT_ROW_TYPE,
+            # The fold version is part of the identity: a rebuilt checkpoint
+            # at an old one's row is a new row, never a duplicate of it.
+            "row_id": f"{_EVIDENCE_CHECKPOINT_ROW_TYPE}:v{EVIDENCE_CHECKPOINT_FOLD_VERSION}:{key}:{rows}",
+            "fold_version": EVIDENCE_CHECKPOINT_FOLD_VERSION,
+            "surface_key": key,
+            "row_count": rows,
+            "size_bytes": end,
+            "tail_ledger_hash": tail,
+            "evidence": cursor.tally.carried_state(key),
+        })
+    return due
+
+
 def _verify_snapshot_and_collect_evidence(
     *,
     store: Any,
@@ -2414,6 +2791,7 @@ def _verify_snapshot_and_collect_evidence(
     from .ledger import (
         LedgerIntegrityError,
         LedgerReadLimitError,
+        segment_family,
         verify_jsonl_chunks,
     )
     from .state_manifest import (
@@ -2542,13 +2920,19 @@ def _verify_snapshot_and_collect_evidence(
         snapshot_total += observed_size
         if snapshot_total > _MAX_SNAPSHOT_INPUT_BYTES:
             raise RuntimeError("state_snapshot_budget_exceeded")
-        consumed = key == surface_name and surface_name in counted_names
+        # ARIA-HIGH-275 — every segment of a counted family is consumed and
+        # counted under the family, so rollover never shrinks the evidence.
+        counted_as = segment_family(surface_name)
+        consumed = (key == surface_name or counted_as != surface_name) and counted_as in counted_names
         if consumed:
             if observed_size > _MAX_EVIDENCE_LEDGER_BLOB_BYTES:
                 raise RuntimeError(
                     f"state_commit_surface_too_large:{surface_name}",
                 )
-            evidence_total += observed_size
+            # ARIA-HIGH-278 — a carried ledger is charged below, for the
+            # bytes after its newest trusted checkpoint only.
+            if counted_as not in _CARRIED_COUNT_SURFACES:
+                evidence_total += observed_size
             if evidence_total > _MAX_EVIDENCE_INPUT_BYTES:
                 raise RuntimeError("state_commit_evidence_budget_exceeded")
         claims.append((
@@ -2559,6 +2943,35 @@ def _verify_snapshot_and_collect_evidence(
             observed_size,
             consumed,
         ))
+
+    # ARIA-HIGH-017 — rows inherited from the parent tip are exempt from
+    # the per-line cap: the parent is already-published history an
+    # append-only chain cannot shrink. A root commit (no parent) or an
+    # unreadable parent claim keeps the strict cap for every line and
+    # (ARIA-HIGH-278) trusts no checkpoint, so each one is re-verified.
+    try:
+        parent_snapshot, _parent_object = _read_immutable_snapshot_claim(
+            store.root,
+            _state_commit_single_parent(store.root, state_commit),
+        )
+        parent_surfaces = {
+            _key: _claim
+            for _key, _claim in (parent_snapshot.get("surfaces") or {}).items()
+            if isinstance(_claim, dict)
+        }
+    except Exception:  # noqa: BLE001 — no single readable parent: strict
+        parent_surfaces = {}
+    grandfather_row_counts: dict[str, int] = {
+        _key: _claim["row_count"]
+        for _key, _claim in parent_surfaces.items()
+        if isinstance(_claim.get("row_count"), int)
+    }
+    cursors, carried_input = _carried_claim_cursors(
+        store_root=store.root, state_commit=state_commit, claims=claims, parent_surfaces=parent_surfaces,
+    )
+    evidence_total += carried_input
+    if evidence_total > _MAX_EVIDENCE_INPUT_BYTES:
+        raise RuntimeError("state_commit_evidence_budget_exceeded")
 
     root_prefixes = tuple(
         (
@@ -2605,29 +3018,6 @@ def _verify_snapshot_and_collect_evidence(
         claimed_paths=claimed_paths,
     )
 
-    # ARIA-HIGH-017 — rows inherited from the parent tip are exempt from
-    # the per-line cap: the parent is already-published history an
-    # append-only chain cannot shrink. A root commit (no parent) or an
-    # unreadable parent claim keeps the strict cap for every line.
-    grandfather_row_counts: dict[str, int] = {}
-    try:
-        parent_commit = _state_commit_single_parent(store.root, state_commit)
-    except Exception:  # noqa: BLE001 — no single parent means no inheritance
-        parent_commit = None
-    if parent_commit is not None:
-        try:
-            parent_snapshot, _parent_object = _read_immutable_snapshot_claim(
-                store.root,
-                parent_commit,
-            )
-            for _key, _claim in (parent_snapshot.get("surfaces") or {}).items():
-                if isinstance(_claim, dict) and isinstance(
-                    _claim.get("row_count"), int,
-                ):
-                    grandfather_row_counts[_key] = _claim["row_count"]
-        except Exception:  # noqa: BLE001 — unreadable parent claim: strict
-            grandfather_row_counts = {}
-
     for key, claim, object_id, git_path, size, consumed in claims:
         chunks = _iter_git_output_bounded(
             store.root,
@@ -2640,6 +3030,7 @@ def _verify_snapshot_and_collect_evidence(
         )
         surface_name = surface_key_name(key)
         surface = surface_by_name(surface_name)
+        cursor = cursors.get(key)
         if surface.state_class == "ledger":
             try:
                 summary = verify_jsonl_chunks(
@@ -2647,22 +3038,26 @@ def _verify_snapshot_and_collect_evidence(
                     source=f"{state_commit}:{git_path}",
                     expected_size=size,
                     max_line_bytes=_MAX_SNAPSHOT_LEDGER_LINE_BYTES,
+                    # A carried cursor caps the rows it consumes itself.
                     max_rows=(
                         _MAX_EVIDENCE_LEDGER_ROWS
-                        if consumed
+                        if consumed and cursor is None
                         else _MAX_SNAPSHOT_LEDGER_ROWS
                     ),
                     grandfather_line_prefixes=grandfather_row_counts.get(key, 0),
                     expected_surface=surface_name,
                     expected_surface_instance=claim["path"],
                     on_row=(
-                        (lambda row, name=surface_name: accumulator.consume(
+                        cursor.on_row
+                        if cursor is not None
+                        else (lambda row, name=segment_family(surface_name): accumulator.consume(
                             name,
                             row,
                         ))
                         if consumed
                         else None
                     ),
+                    on_row_position=cursor.on_position if cursor is not None else None,
                 )
             except LedgerIntegrityError as exc:
                 if (
@@ -2690,6 +3085,10 @@ def _verify_snapshot_and_collect_evidence(
                 or summary["last_hash"] != claim.get("tail_ledger_hash")
             ):
                 raise RuntimeError(f"state_snapshot_surface_mismatch:{key}")
+            if cursor is not None and cursor.complete:
+                accumulator.merge_carried(cursor.tally.carried_state(key), key)
+            elif cursor is not None:
+                accumulator.rebuilding.add(cursor.family)
         else:
             digest = hashlib.sha256()
             observed = 0
@@ -2701,6 +3100,7 @@ def _verify_snapshot_and_collect_evidence(
                 or digest.hexdigest() != claim["sha256"]
             ):
                 raise RuntimeError(f"state_snapshot_surface_mismatch:{key}")
+    accumulator.evidence_input_bytes = evidence_total
     return accumulator
 
 
@@ -2945,15 +3345,17 @@ class _StreamingEvidenceAccumulator:
             }
             for capability, spec in CAPABILITY_SPECS.items()
         }
-        self.distinct_targets: dict[str, set[str]] = {
-            capability: set() for capability in CAPABILITY_SPECS
-        }
-        self.distinct_target_budget_exceeded: set[str] = set()
-        self.global_distinct_targets: set[str] = set()
-        self.global_distinct_target_budget_exceeded = False
         self.ordinal = 0
+        # What the verifier consumed against _MAX_EVIDENCE_INPUT_BYTES.
+        self.evidence_input_bytes = 0
+        # ARIA-HIGH-286 — carried families with a claim whose evidence this
+        # publish's slice could not reach, so none of that claim is counted.
+        self.rebuilding: set[str] = set()
 
     def consume(self, surface: str, row: Mapping[str, Any]) -> None:
+        # A segment's opening row is chain structure, never evidence.
+        if row.get("row_type") == SEGMENT_OPENED_ROW_TYPE:
+            return
         self.surface_counts[surface] += 1
         self.ordinal += 1
         self._consume_counts(surface, row)
@@ -2970,49 +3372,98 @@ class _StreamingEvidenceAccumulator:
                 for observed in targets:
                     self._retain_target(capability, contract, observed)
 
+    def carried_state(self, key: str) -> dict[str, Any]:
+        """This projection as an evidence checkpoint carries it (ARIA-HIGH-278).
+
+        Only bounded state is carried: counters, sets, the autonomy-state fold
+        and each contract's witness window (ARIA-HIGH-295). Rows that reached
+        any other field (a fingerprint set, acceptance rows) refuse by name,
+        so a fold change can never make a summary silently drop evidence.
+        """
+        if self.promoted_fingerprints or self.acceptance_event_counts or self.acceptance_rows:
+            raise RuntimeError(f"state_commit_evidence_checkpoint_unmergeable:{key}")
+
+        def nonzero(counter: Mapping[str, int]) -> dict[str, int]:
+            return {name: value for name, value in sorted(counter.items()) if value}
+
+        return {
+            "ordinal": self.ordinal,
+            "surface_counts": nonzero(self.surface_counts),
+            "metrics": nonzero(self.metrics),
+            "acceptance_unlock_counts": nonzero(self.acceptance_unlock_counts),
+            "count_rejected": sorted(self.count_rejected),
+            "native_counts": {name: nonzero(c) for name, c in sorted(self.native_counts.items()) if nonzero(c)},
+            "native_blockers": {name: sorted(b) for name, b in sorted(self.native_blockers.items()) if b},
+            "autonomy_state": asdict(self.autonomy_state),
+            # Least recently witnessed first, as `_retain_witness` keeps them.
+            "witnesses": {
+                capability: {
+                    contract.surface: [
+                        [
+                            target.candidate.evidence_target_sha, target.candidate.row_id, target.candidate.row_hash,
+                            target.candidate.schema_id, target.candidate.schema_version, target.admissible_count,
+                            sorted([version, count] for version, count in target.admissible_by_schema.items()),
+                            target.ordinal,
+                        ]
+                        for target in window.values()
+                    ]
+                    for contract, window in contracts.items() if window
+                }
+                for capability, contracts in sorted(self.native_targets.items()) if any(contracts.values())
+            },
+        }
+
+    def merge_carried(self, state: Mapping[str, Any], key: str) -> None:
+        """Add a claim's carried evidence exactly as consuming its rows would:
+        each counter is a sum and each set a union. The autonomy-state fold
+        and a contract's witness window have one claim each (a witness
+        ledger is never segmented), so they are set, never combined; a
+        window's ordinals move past the rows folded before the claim."""
+        from .autonomy_state import AutonomyStateAccumulator
+
+        try:
+            folded = AutonomyStateAccumulator(**state["autonomy_state"])
+            if folded != AutonomyStateAccumulator():
+                if self.autonomy_state != AutonomyStateAccumulator():
+                    raise ValueError("autonomy_state_folded_twice")
+                self.autonomy_state = folded
+            if not set(state["count_rejected"]) <= set(CAPABILITY_SPECS):
+                raise ValueError("count_rejected_capability_unknown")
+            for capability, carried in state["witnesses"].items():
+                contracts = {contract.surface: contract for contract in CAPABILITY_SPECS[capability].contracts}
+                for surface, entries in carried.items():
+                    window = self.native_targets[capability][contracts[surface]]
+                    if window or len(entries) > _WITNESS_WINDOW:
+                        raise ValueError("witness_window_folded_twice")
+                    for sha, row_id, row_hash, schema_id, version, count, by_schema, ordinal in entries:
+                        window[sha] = _TargetCandidate(
+                            candidate=_NativeCandidate(
+                                contract=contracts[surface], schema_id=schema_id, schema_version=version,
+                                row_id=row_id, row_hash=row_hash, evidence_target_sha=sha,
+                            ),
+                            admissible_count=count,
+                            admissible_by_schema=MappingProxyType(dict(by_schema)),
+                            ordinal=self.ordinal + ordinal,
+                        )
+            self.ordinal += state["ordinal"]
+            self.surface_counts.update(state["surface_counts"])
+            self.metrics.update(state["metrics"])
+            self.acceptance_unlock_counts.update(state["acceptance_unlock_counts"])
+            self.count_rejected.update(state["count_rejected"])
+            for capability, counts in state["native_counts"].items():
+                self.native_counts[capability].update(counts)
+            for capability, blockers in state["native_blockers"].items():
+                self.native_blockers[capability].update(blockers)
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError(f"state_commit_evidence_checkpoint_invalid:{key}") from exc
+
     def _retain_target(
         self,
         capability: str,
         contract: EvidenceContract,
         observed: _TargetCandidate,
     ) -> None:
-        sha = observed.candidate.evidence_target_sha
-        existing = self.native_targets[capability][contract].get(sha)
-        if existing is not None:
-            by_schema = Counter(existing.admissible_by_schema)
-            by_schema.update(observed.admissible_by_schema)
-            self.native_targets[capability][contract][sha] = _TargetCandidate(
-                candidate=observed.candidate,
-                admissible_count=(
-                    existing.admissible_count + observed.admissible_count
-                ),
-                admissible_by_schema=MappingProxyType(dict(by_schema)),
-                ordinal=self.ordinal,
-            )
-            return
-        capability_targets = self.distinct_targets[capability]
-        if sha not in capability_targets and (
-            len(capability_targets)
-            >= _MAX_DISTINCT_PROOF_TARGETS_PER_CAPABILITY
-        ):
-            self.distinct_target_budget_exceeded.add(capability)
-            return
-        capability_targets.add(sha)
-        if sha not in self.global_distinct_targets and (
-            len(self.global_distinct_targets)
-            >= _MAX_DISTINCT_PROOF_TARGETS_GLOBAL
-        ):
-            self.global_distinct_target_budget_exceeded = True
-            return
-        self.global_distinct_targets.add(sha)
-        self.native_targets[capability][contract][sha] = _TargetCandidate(
-            candidate=observed.candidate,
-            admissible_count=observed.admissible_count,
-            admissible_by_schema=MappingProxyType(
-                dict(observed.admissible_by_schema),
-            ),
-            ordinal=self.ordinal,
-        )
+        _retain_witness(self.native_targets[capability][contract], replace(observed, ordinal=self.ordinal))
 
     def _consume_counts(self, surface: str, row: Mapping[str, Any]) -> None:
         try:
@@ -3092,12 +3543,6 @@ class _StreamingEvidenceAccumulator:
                 }),
                 counts=MappingProxyType(dict(self.native_counts[capability])),
                 blockers=tuple(sorted(self.native_blockers[capability])),
-                distinct_target_budget_exceeded=(
-                    capability in self.distinct_target_budget_exceeded
-                ),
-                global_target_budget_exceeded=(
-                    self.global_distinct_target_budget_exceeded
-                ),
             )
             for capability, contracts in self.native_targets.items()
         }
@@ -3210,6 +3655,11 @@ class _StreamingEvidenceAccumulator:
                 blockers.add(f"count_rejected:{capability}")
             if capability == "autonomy_unlock" and unlock_blocker:
                 blockers.add(unlock_blocker)
+            # ARIA-HIGH-286 — a withheld claim leaves these counts short, so
+            # the capability is named as rebuilding, never shown as proven.
+            blockers.update(
+                f"{EVIDENCE_REBUILD_BLOCKER}:{surface}" for surface in spec.count_surfaces if surface in self.rebuilding
+            )
             counts_by_capability[capability] = counts
             blockers_by_capability[capability] = tuple(sorted(blockers))
         return counts_by_capability, blockers_by_capability
@@ -4114,5 +4564,6 @@ __all__ = [
     "EvidenceContract",
     "EvidenceRef",
     "EvidenceState",
+    "SEMANTIC_AUTHORITY_PATH",
     "derive_autonomy_evidence_status",
 ]

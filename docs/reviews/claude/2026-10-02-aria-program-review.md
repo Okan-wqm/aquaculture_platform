@@ -1,0 +1,627 @@
+# ARIA program review — findings from five adversarial reviews (2026-10-02)
+
+Context: the operator asked for a plan that makes ARIA's memory permanent, immutable and
+repo-shaped, and makes ARIA know the repository at field level across layers, so that ARIA itself
+solves, records and learns. Six expert designs were merged into one program plan and then attacked
+by five independent adversarial reviewers (security, accounting completeness, architecture and
+sequencing, operations and cost, goal fit and learning validity). The plan was revised on the result
+(`/root/.claude/plans/crystalline-purring-hare.md`, rev2, approved by the operator the same day).
+
+This file records the real defects the reviewers measured outside the plan itself. Each one was
+re-checked against `origin/main` 8083cb15e before it was registered. Gate-parity candidates (admin
+panel platform capabilities, frontend module gates without a backend twin, an ungrantable
+`edge:manage-io-config` capability) go to ARIA's label queue instead, because they are not yet
+established as defects.
+
+Owner: claude (records), okan (decisions and operator settings).
+
+## ARIA-HIGH-270
+
+The MCP front door admits any write once an operator_approval_ref of six or more characters is
+supplied: \_write_gate checks only the length, so a runtime signal or feedback write needs no
+operator act at all.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/mcp_server.py:163` (\_write_gate: allow_writes flag, then len(ref) < 6 is
+  the only check)
+- `aria-kernel/aria_kernel/mcp_server.py:169` (the unverified ref is recorded as the governance
+  approval)
+
+Rule: A write through ARIA's front door is admitted only on a verified operator act (an ssh
+signature checked against the allowed-signers anchor on main), never on an unverified string.
+
+Program plan rev2 step K5 (S1) makes the gate signature-verified before the executor is enabled.
+Owner okan, deadline 2026-10-23.
+
+## ARIA-HIGH-272
+
+The public aria/state branch publishes ARIA's raw LLM prompts and responses (tools/agent-invocations
+prompts 16 MiB, outputs 33 MiB), and a public Actions artifact carries the whole tools tree.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/state_manifest.py:284` (agent_invocation_prompts is a published state
+  surface)
+- `.github/workflows/aria-auto-cycle.yml:1057` (aria-state-cache artifact upload)
+- `origin/aria/state` 05c5d3160:tools/agent-invocations/prompts.jsonl (16.2 MiB)
+- `origin/aria/state` 05c5d3160:tools/agent-invocations/outputs/ (33.3 MiB)
+- `Actions` artifact aria-state-cache-36930983093 (121 MB, not expired) on a public repository
+
+Rule: What ARIA records stays readable only by those the operator chooses; free-text model input and
+output is not published to a public branch or artifact.
+
+Operator decision 2026-10-02: everything stays on the branch and the repository becomes private; the
+operator sets the date. Until then no runtime, tenant or PII body and no open security-finding
+detail is added to public surfaces (program plan rev2 K-1). Owner okan, deadline 2026-12-31.
+
+## ARIA-MEDIUM-273
+
+Operator signatures cannot distinguish the operator from a root agent session on the host: the
+ed25519 operator key is root 0600 without an interactive passphrase and is also the commit-signing
+key.
+
+Evidence:
+
+- `.github/CODEOWNERS:52` (the operator signers manifest directory)
+- `/root/.ssh/aria-operator-signing` (root:root 0600; fingerprint equals
+  .github/manifests/aria-operator-signers)
+- `local` git config of /var/aqua-saas and /root/aria-8b sets commit.gpgsign=true with
+  user.signingkey pointing at the same key
+- `ARIA's` runner runs as gharunner (uid 1000, no sudo, not in the docker group, /root mode 700, App
+  identity, no PAT in the runner .env), so ARIA itself cannot sign or approve
+
+Rule: An act that calibration treats as human ground truth is provably the operator's, or it is
+recorded as delegated.
+
+Accepted risk by operator decision 2026-10-02 (the key stays on the server). Label seals stay
+operator-run and interactive by procedure; revisit when the repository goes private. Owner okan,
+deadline 2026-12-31.
+
+## INFRA-MEDIUM-197
+
+main requires no pull-request review at all, so on GitHub the trust anchors ARIA verifies against
+(`.github/manifests/aria-operator-signers`, `docs/aria/policy/operators.json`) are guarded only by
+the four required status checks. A review rule cannot separate the operator from agents that act
+under the operator's identity, and readiness forbids the bypass actor such a rule would need.
+
+Evidence:
+
+- `.github/CODEOWNERS:52`: the manifests directory is code-owned by the operator, but no review rule
+  enforces it.
+- `aria-kernel/aria_kernel/enterprise_readiness.py:625`: any ruleset bypass actor on main fails
+  readiness (ARIA-HIGH-207).
+- `aria-kernel/aria_kernel/implementation_safety.py:73`: READONLY_PATHS covers `.github/` but not
+  `docs/aria/policy/` (ARIA-LOW-267).
+- Measured 2026-10-02: `branches/main/protection` returns `required_pull_request_reviews: null`,
+  `enforce_admins: true`, strict status checks on sens-enterprise-summary, merge-gate,
+  aria-merge-authority and build-status.
+
+The adversarial reviewer proposed code-owner review, last-push approval and stale dismissal. That
+would either lock every operator-authored pull request (`enforce_admins` on, one human code owner
+who cannot approve their own pull request) or need an admin bypass actor that readiness forbids. The
+actor to keep out is ARIA's runner (`gharunner`, App identity), so the guard belongs in the kernel
+(program plan rev2 K5/S1) and in `aria-merge-authority`. The `aria/state-cold` branch was added to
+the `aria-state-protection` ruleset on 2026-10-02 (no deletion, no non-fast-forward, no bypass).
+
+Rule: An operator trust anchor changes only through a path ARIA's own identity cannot complete: the
+kernel refuses to write it, and the merge-authority check refuses an ARIA-authored pull request that
+touches it.
+
+Owner okan, deadline 2026-10-23.
+
+## ARIA-HIGH-274
+
+Aria/state will exceed the 1,280 MiB snapshot input budget around 2026-10-15: per-cycle
+run-artifacts/hot (196 MiB) and discovery (176 MiB) are never evicted, and retention apply only
+copies into .archive.
+
+Evidence:
+
+- `origin/aria/state` 05c5d3160: 554.8 MiB total, +55-69 MiB/day (358.7 MiB on 09-29)
+- `aria-kernel/aria_kernel/runtime_artifacts.py:1098` (retention_apply copies candidates under
+  .archive and records an event; eviction is left to an unimplemented R3)
+- `aria-kernel/aria_kernel/state_snapshot.py:84` (snapshot budgets)
+
+Rule: ARIA's state stays inside its own budgets by construction: old cycle evidence moves to an
+append-only, verifiable cold store automatically, never by deletion and never by raising a cap.
+
+Program plan rev2 Faz 0a-2; design in progress (cold content-addressed store, pointer rows in the
+hot tree). Owner okan, deadline 2026-10-12.
+
+## ARIA-HIGH-275
+
+Tools/agent-invocations/requests.jsonl grows about 2.2 MiB a day, is not compactable, and reaches
+the 64 MiB per-surface cap in three to seven weeks, before the planned memory segments exist.
+
+Evidence:
+
+- `origin/aria/state:` requests.jsonl 4.3 MiB (09-15), 10.9 MiB (09-25), 17.64 MiB (10-02)
+- `aria-kernel/aria_kernel/state_compact.py:1` (only runs, raw-findings, beliefs and learning-events
+  are compactable)
+- `aria-kernel/aria_kernel/state_snapshot.py:84` (64 MiB per-surface cap)
+
+Rule: A ledger ARIA must keep whole rolls over into sealed segments before any cap can refuse a
+publish.
+
+Program plan rev2 K3 (IR) lands monthly rollover before the executor is enabled. Owner okan,
+deadline 2026-10-23.
+
+## OBS-HIGH-009
+
+Error capture never reaches admin.error_groups in production: every ServiceErrorCaptured publish
+fails with 'subject tenant mismatch: subject=system, payload='.
+
+Evidence:
+
+- `libs/backend-common/src/observability/error-capture.interceptor.ts:253` (tenantOf returns '' for
+  a tenant-less failure)
+- `platform/libs/event-bus/src/subjects/tenant-event-subject.ts:111` (subject assertion compares the
+  derived 'system' subject with the empty payload tenant)
+- `production` 2026-10-02: admin.error_groups has 0 rows; 39 'Failed to publish event
+  ServiceErrorCaptured' lines in the admin-api and farm logs
+
+Rule: A platform-level fact has one tenant sentinel that the envelope, the subject builder and the
+subject assertion all agree on.
+
+The fix is a BaseEvent envelope decision (data-expert) across every tenant-less event type, not a
+change to one interceptor. Owner okan, deadline 2026-10-23.
+
+## OBS-MEDIUM-010
+
+Event-bus delivery metrics are never scraped: event_bus_handler_outcome_total and
+event_bus_dead_letter_total live on prom-client's global registry, which /metrics does not serve.
+
+Evidence:
+
+- `platform/libs/event-bus/src/nats/event-bus-delivery-metrics.ts:28` (counters registered on
+  prom-client's global registry)
+- `libs/backend-common/src/metrics/metrics.service.ts:136` (only registries passed to
+  registerContributor are served; the global registry never is)
+- `Prometheus` 2026-10-02: 0 series for event*bus*\*, while nats_consumer_num_redelivered sums to
+  8,879
+
+Rule: Every metric a library defines is reachable from the scrape endpoint of the service that loads
+it.
+
+Owner okan, deadline 2026-11-13.
+
+## DEPLOY-MEDIUM-026
+
+No deploy sets RELEASE_VERSION, so error groups never record the release they appeared in, and the
+farm service runs an image tagged farmsetup-fix-13 instead of a commit SHA.
+
+Evidence:
+
+- `libs/backend-common/src/bootstrap/create-service-app.ts:874` (RELEASE_VERSION is read)
+- `apps/admin-api-service/src/system-management/services/error-tracking.service.ts:227`
+  (affectedReleases depends on it)
+- `docker` ps on the droplet 2026-10-02: farm-service image tag farmsetup-fix-13
+
+Rule: Every running container is traceable to the commit it was built from, and every runtime fact
+names that release.
+
+Owner okan, deadline 2026-11-13.
+
+## OBS-MEDIUM-011
+
+GraphQL errors and request-validation rejections are invisible per operation: the gateway has no
+error plugin, production masks errors, and whitelist rejections are logged without route or DTO.
+
+Evidence:
+
+- `apps/gateway-api/src/app.module.ts:323` (production formatError masks; only operation-limit and
+  complexity plugins at :333)
+- `libs/backend-common/src/bootstrap/create-service-app.ts:423` (flattenValidationErrors: field
+  paths and constraints only)
+- `libs/backend-common/src/logging/structured-logger.service.ts:221` (log line carries correlationId
+  and tenantId, not method or route)
+- `production` logs 2026-10-02: farm 45 'property status should not exist' style rejections, hr 12,
+  auth 1
+
+Rule: A rejected client request is countable by operation or route and by DTO field, without
+recording any value.
+
+Owner okan, deadline 2026-11-13.
+
+## SEC-MEDIUM-172
+
+Shared.access_logs keeps full request paths with query strings and, outside the hash-gated regions,
+raw client IPs (2.48M rows since 2026-07-12); nginx writes the combined format with IPs and query
+strings.
+
+Evidence:
+
+- `libs/backend-common/src/middleware/access-log.middleware.ts:120` (IP hashed only when
+  shouldHashIp is true for the user's region)
+- `libs/backend-common/src/middleware/access-log.middleware.ts:126` (path from req.originalUrl,
+  query string included)
+- `infrastructure/nginx/droplet.conf:56` (default combined log format)
+
+Rule: Access records store what operations need (route template, status, duration) and mask personal
+data and query values by default.
+
+Owner okan, deadline 2026-11-13.
+
+## INFRA-LOW-196
+
+Prometheus runs with 15-day retention and without the 127.0.0.1:9090 binding its compose file
+declares.
+
+Evidence:
+
+- `docker-compose.monitoring.yml:55` (--storage.tsdb.retention.time=15d)
+- `docker-compose.monitoring.yml:65` (127.0.0.1:9090 declared; the running container has no port
+  binding)
+
+Rule: The running monitoring stack matches its declared configuration, and retention covers the
+longest comparison window any consumer needs.
+
+Owner okan, deadline 2026-11-13.
+
+## FE-MEDIUM-308
+
+The GraphQL codegen workflow never sees operations outside src/graphql and diffs only aquamobil and
+shared-ui output, so drift in module hooks (farm hooks/use\*.ts) is never regenerated or checked.
+
+Evidence:
+
+- `.github/workflows/graphql-codegen-validate.yml:36` (path triggers)
+- `.github/workflows/graphql-codegen-validate.yml:124` (diff step covers aquamobil and shared-ui
+  only)
+- `codegen.ts:54` (operation documents generated for aquamobil only)
+
+Rule: Every GraphQL operation in the web tree is typed from the supergraph, and a change to any of
+them re-runs codegen.
+
+Owner okan, deadline 2026-11-13.
+
+## HR-MEDIUM-011
+
+The leave list's status filter sends lowercase literals cast to LeaveRequestStatus, while the
+GraphQL enum's wire keys are uppercase, and it omits draft and withdrawn, so filtering by status
+fails.
+
+Evidence:
+
+- `web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:390` (options
+  'pending','approved','rejected','cancelled')
+- `web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:398` (e.target.value as LeaveRequestStatus)
+- `web/modules/hr-module/src/graphql/leave.operations.ts:58` ($status: LeaveRequestStatus)
+- `apps/hr-service/src/leave/entities/leave-request.entity.ts:18` (enum values) and :32
+  (registerEnumType wire keys)
+
+Rule: A value sent to an enum-typed GraphQL variable comes from the generated enum, never from a
+string literal behind a cast.
+
+Kept as ARIA's development case for the enum-literal detector (program plan rev2 Faz 1): ARIA's
+second signed request fixes the class and leaves a pin. Owner okan, deadline 2026-11-13.
+
+## ARIA-MEDIUM-276
+
+The label queue is not blind and records no sampling design: each item shows the AI judges'
+verdicts, quotas split evenly across strata, no inclusion probability is kept, and verdicts are
+binary.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/label_queue.py:110` (judge_verdicts embedded in each queued item)
+- `aria-kernel/aria_kernel/label_queue.py:91` (even split across strata)
+- `aria-kernel/aria_kernel/feedback_store.py:20` (binary verdict vocabulary)
+- `origin/aria/state:` operator-feedback 175 rows, 0 from a human
+
+Rule: An operator label used as ground truth is collected blind, with its inclusion probability
+recorded, so precision estimates are unbiased.
+
+Owner okan, deadline 2026-11-13.
+
+## ARIA-MEDIUM-271
+
+Runtime signals are lost or merged: the bridge overwrites one JSON file per signal on resolve, every
+runtime pressure gets the same id pressure:runtime_signal:unknown, and the hourly watchdog ingests
+into a throwaway checkout.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/runtime_signal_bridge.py:43` (id from source, service, summary and code
+  refs only)
+- `aria-kernel/aria_kernel/runtime_signal_bridge.py:150` (resolve rewrites the signal file)
+- `aria-kernel/aria_kernel/pressure.py:1002` (pressure id from source plus discriminator, which
+  runtime signals never set)
+- `.github/workflows/dataflow-integrity-watchdog.yml:121` (runtime signal ingest into the job's own
+  aria-tools checkout, never the state store)
+
+Rule: A runtime observation is an append-only event bound to the node it concerns; resolving it adds
+a closing event and never rewrites the observation.
+
+Owner okan, deadline 2026-11-13.
+
+## PROC-LOW-038
+
+The registry single-writer runbook's Flip 2 cannot be applied: merge queue rulesets are not
+available on a user-owned repository, and the runbook's merge_method 'merge' contradicts the
+kernel's squash requirement.
+
+Evidence:
+
+- `docs/runbooks/registry-single-writer.md:54` (Flip 2: merge queue ruleset)
+- `docs/runbooks/registry-single-writer.md:80` (merge_method merge)
+- `aria-kernel/aria_kernel/preflight.py:156` (SQUASH required)
+- `gh` api repos/Okan-wqm/aquaculture_platform: owner.type=User
+
+Rule: A runbook step is executable on the repository as it is, and agrees with the kernel's own
+merge contract.
+
+Owner okan, deadline 2026-11-13.
+
+## PROC-HIGH-039
+
+Every merged fix PR turns main's test job red until a separate reconcile PR lands: the closure-drift
+spec checks origin/main, and since 2026-08-31 a deploy needs the same run's test to be green, so
+only reconcile merges are deployable.
+
+Evidence:
+
+- `tests/invariants/finding-registry-closure-drift.spec.ts:58` (resolveBaseRef reads origin/main)
+- `tests/invariants/finding-registry-closure-drift.spec.ts:98` (OPEN finding with a Closes: trailer
+  on main fails)
+- `.github/workflows/finding-closure-reconcile.yml` (header: the moment a PR merges, main violates
+  the assertion)
+- `.github/workflows/ci-affected.yml:1222` (deploy requires the run's test job)
+- `12` of the 13 test-failing push runs on main since 2026-09-21 fail only this spec
+
+Rule: Every commit on main satisfies the registry closure rule by construction: the fix PR carries
+its own closure, so no merge leaves main red.
+
+Program plan rev2 F-P2 (delta registry: the PR carries its transition row, folded at read) is the
+structural fix. Owner okan, deadline 2026-10-30.
+
+## SUPPLY-MEDIUM-015
+
+The npm security audit runs on a PR only when package files change and stops at the first failing
+scope, so new advisories turn main red with no code change and three of six scopes go unchecked.
+
+Evidence:
+
+- `.github/workflows/ci-affected.yml:1446` (if: dependency_audit_required)
+- `scripts/ci/select-deployment-scope.ts:343` (true only when the range touches package or lock
+  files)
+- `.github/workflows/ci-affected.yml:1552` (bash -e loop exits on the first failing scope)
+
+Rule: Advisory exposure is checked on a schedule and on every PR across all scopes, and the gate
+reports every failing scope before it exits.
+
+Owner okan, deadline 2026-11-13.
+
+## INFRA-MEDIUM-198
+
+The self-hosted runner works at its memory ceiling: the runner cgroup peaked at 2.41 GB against
+MemoryHigh 2.3G with 11,383 memory.high events.
+
+Evidence:
+
+- `scripts/aria/runner-habitat/systemd/actions-runner.limits.conf:41` (MemoryHigh=2300M)
+- `systemd` actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service:
+  MemoryHigh=2.3G, MemoryMax=3G
+- `runner` cgroup memory.peak 2,413,465,600 bytes; memory.events high 11383 (2026-10-02)
+
+Rule: Each lane on the shared runner has a measured memory budget below the cgroup ceiling; heavy
+builds run on hosted runners.
+
+Owner okan, deadline 2026-11-13.
+
+## CONTRACT-MEDIUM-006
+
+The dead-contract scan sees only `export const UPPER = ...` operation definitions and keys them by
+constant name, so 81 operation names defined in more than one file collapse into one.
+
+Evidence:
+
+- `tests/invariants/lib/dead-contract-scan.ts:32` (DEF_RE matches export const UPPER_SNAKE only)
+- `tests/invariants/lib/dead-contract-scan.ts:76` (map keyed by constant name)
+- `measured` 2026-10-02: 583 definitions found against 1,051 lexical named operations
+
+Rule: A contract scan counts every operation in its population and keys each one by its module and
+document, not by name alone.
+
+Owner okan, deadline 2026-11-13.
+
+## ARIA-MEDIUM-277
+
+Self-hosted lanes starve each other: the hourly watchdog fired only 3-7 times a day, and the shared
+concurrency group keeps one pending slot, so a new job cancels a pending cycle.
+
+Evidence:
+
+- `.github/workflows/dataflow-integrity-watchdog.yml:13` (hourly cron 40 \* \* \* \*)
+- `gh` run history 2026-09-19..10-02: dataflow-integrity-watchdog runs per day
+  7,6,5,6,6,5,5,6,6,3,5,4,4,3; one job waited 11,853 s behind a cycle (09-29)
+- `.github/workflows/aria-auto-cycle.yml:136` (the concurrency group's single pending slot cancels
+  queued runs; documented)
+
+Rule: A scheduled lane either runs at its declared cadence or reports the gap; no lane can silently
+cancel another lane's pending run.
+
+Owner okan, deadline 2026-11-13.
+
+## ARIA-HIGH-278
+
+Every aria/state publish re-verifies its own commit and refuses it once the counted evidence ledgers
+pass the 80 MiB evidence-input budget. They hold 32.9 MiB and grow about 1.5 MiB a day, so
+publishing stops around 2026-11-02. Rollover into segments (ARIA-HIGH-275) does not lower the sum:
+every segment of a counted family is still counted.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/autonomy_evidence.py:594` (`_MAX_EVIDENCE_INPUT_BYTES`, 80 MiB)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2467-2471` (counted set: every capability's
+  `count_surfaces`, 15 ledgers, 11 present on aria/state)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2563-2574` (each counted blob and segment adds to
+  `evidence_total`; over budget raises `state_commit_evidence_budget_exceeded`)
+- `aria-kernel/aria_kernel/state_store.py:1140` (`_publish_state_locked` runs that verifier on the
+  just-created commit; any exception refuses the publish)
+- `origin/aria/state` 05c5d3160: 34,504,740 bytes counted; agent-invocations/requests.jsonl
+  17.64 MiB and governance.jsonl 11.00 MiB are 87% of it
+- growth from 23.34 MiB (e6f462fb8, 09-25): 1.32 MiB/day end to end, 1.50 MiB/day least squares;
+  14 days 1.43-1.76; last 3 days 2.05-2.80 (requests.jsonl +6.72 MiB while results.jsonl stayed
+  flat, so an enabled executor adds its results on top)
+- 47.09 MiB of headroom: exceeded around 2026-11-02 (2026-10-19 at the 3-day rate, 2026-11-07 at
+  the 7-day end-to-end rate)
+
+Rule: History ARIA must keep can never make a publish-time budget refuse a publish: the verifier's
+cost is bounded by construction, and no cap is raised to make room.
+
+Re-checked on fix/aria-invocation-ledger-rollover 5cf8e0f61. Program plan rev2 does not cover this
+budget (K3 segments the ledger; the sum stays counted). Owner okan, deadline 2026-10-23.
+
+## ARIA-HIGH-286
+
+ARIA-HIGH-278 (e25d5ea8a) bounds what a publish folds by carrying each carried ledger's verified
+prefix in an `evidence_checkpoints` row. A checkpoint of another fold version is never read, and a
+store that has never recorded one has none, so after any change to how evidence is counted
+(`EVIDENCE_CHECKPOINT_FOLD_VERSION` bump) and on a store's first publish, the next publish folds
+every carried ledger from row 0 inside the same 80 MiB budget. Those ledgers hold 32.3 MiB and grow
+1.5-2.8 MiB a day: from between 2026-10-19 and 2026-11-02 on, a fold bump or a bootstrap refuses
+every publish, so the evidence-counting code can no longer change.
+
+Evidence (e25d5ea8a):
+
+- `aria-kernel/aria_kernel/autonomy_evidence.py:607` (`EVIDENCE_CHECKPOINT_FOLD_VERSION`; a
+  checkpoint of another version is not evidence)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2598` (`_carried_claim_cursors` skips every
+  other-version row, so after a bump each cursor starts at row 0)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2605` (a carried claim is charged its size less its
+  base: the whole ledger when no current checkpoint exists)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2654-2664` (`evidence_checkpoints_due` records a
+  checkpoint only at the parent claim's end, so a rebuild has no step smaller than a whole ledger)
+- `aria-kernel/aria_kernel/state_store.py:2052-2053` (checkpoint rows are deduplicated by `row_id`,
+  which omits the fold version at `autonomy_evidence.py:2661`: a rebuilt checkpoint at an old one's
+  row is never written)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2858-2863` (over budget raises
+  `state_commit_evidence_budget_exceeded`; `state_store.py:1140` verifies every just-created commit)
+- `origin/aria/state` 05c5d3160: carried ledgers 33,898,497 bytes (requests 18,492,881, governance
+  11,539,576, fixture runs 1,766,557, operator feedback 1,061,280, autonomy_state 761,494,
+  calibration 256,518, auto-merge 20,191), plus 606,243 never carried: 47.1 MiB of headroom, gone
+  around 2026-10-19 at 2.8 MiB/day and 2026-11-02 at 1.5 MiB/day
+
+The second residual e25d5ea8a named, recorded here with its numbers and no code: the counted ledgers
+that are never carried (cycles, agent_invocation_results, enterprise_readiness_claims, promotions,
+enterprise_acceptance_events, findings) are folded in full on every publish. On 05c5d3160 they hold
+606,243 bytes (results 566,985, cycles 36,209, promotions 3,049; the other three are absent), up
+from 360,726 on 09-18 (c48caea28): 0.017 MiB a day, nearly all of it results.jsonl before 09-26,
+flat since. With a rebuild bounded to two fifths of the budget, they share the remaining 48 MiB
+with the checkpoint ledger (about 1 KiB per carried MiB): about seven and a half years at that
+rate. A result row averages 1,745 bytes; an executor recording one per request (140 requests a day
+over the last three days) would add about 0.23 MiB a day, about 200 days of headroom.
+
+Rule: A change to how evidence is counted, and a store's first publish, rebuild their checkpoints in
+bounded steps: no publish folds more than a fixed slice of the carried ledgers, at any ledger age,
+and evidence the slice cannot reach is withheld by name, never estimated.
+
+Fix on fix/aria-evidence-checkpoint-rebuild (stacked on e25d5ea8a). Owner okan, deadline 2026-10-16.
+
+## ARIA-HIGH-288
+
+A capability's autonomy evidence is bound to a hash over the source bytes of a roster of kernel
+files. `_capability_authority_hash` hashes the path, tree record and blob of every file in a
+capability's `authority_paths`, and `_paths()` adds the common set to all seven capabilities
+(`autonomy_evidence`, `contention_replay`, `file_lock`, `ledger`, `state_manifest`,
+`state_snapshot`, `state_store`, `tool_registry`, `tools_binding`, `workspace`, the closure
+policy). A proof counts only while the hash at its commit equals the hash at the evaluated target,
+so any byte change to the roster (a storage refactor, a comment, a mode bit) drops every affected
+capability to `declared` (`proof_authority_changed`) until new live proof exists at the new hash.
+The common set is where the storage lanes work (CE, K2, K3, the evidence-budget lanes), so kernel
+evolution erases the autonomy evidence ARIA has earned.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/autonomy_evidence.py:846-864` (`_COMMON_AUTHORITY_PATHS`, joined into
+  every capability's roster by `_paths`)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:1747-1789` (`_capability_authority_hash`: path
+  names, tree records and blob bytes)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2020-2064` (a proof whose commit hashes differently
+  from the target is `proof_authority_changed`)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:1848-1899` (the evaluator refuses a target whose
+  hash differs from HEAD's: `evaluator_authority_changed`)
+- `origin/main` 2026-09-03..10-02, 220 first-parent commits: 15 touched the common set, 29 touched
+  at least one capability's roster, 17 reset all seven capabilities
+
+Rule: A proof is bound to the semantics it was proven under. A change that keeps every declared
+semantic version keeps earned evidence; a change of semantics moves a declared version, enforced
+against a frozen corpus whose fold output is pinned on a path ARIA's implementer cannot write; and
+each proof records the authority it was proven under.
+
+Re-checked on fix/aria-evidence-checkpoint-rebuild 19d1cc687 (wall #4 of the 2026-10-02
+inventory). Owner okan, deadline 2026-10-09.
+
+## ARIA-HIGH-295
+
+A capability's proof witnesses are folded oldest first under a budget of 128 distinct target SHAs
+per capability and 256 across all of them. `_retain_target` admits a new SHA only while the budget
+has room; once it is full, every newer SHA is dropped and the capability, or with the global budget
+every capability, carries `proof_distinct_sha_budget_exceeded` and is `declared` before any history
+is searched. History only grows, so the latch never clears: the budget turns into a permanent loss
+of the autonomy evidence ARIA has earned, and the newest proofs, the ones a current target can use,
+are exactly the ones dropped. Because witnesses are chosen across all history under that budget,
+the three ledgers with an authoritative SHA (cycles, agent_invocation_results,
+enterprise_readiness_claims) are also never carried by an evidence checkpoint.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/autonomy_evidence.py:677-678` (128 distinct targets per capability, 256
+  across all)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:3433-3475` (`_retain_target`: a SHA past the budget
+  is dropped and the budget flag set; rows stream oldest first)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:1448-1458` (the same budget in
+  `_summarize_native_rows`)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2019-2032` (a set budget flag returns `declared`
+  with no witness search; the global flag is set on every capability's summary)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:1344-1355` (`_CARRIED_COUNT_SURFACES` excludes every
+  contract with an authoritative SHA)
+- `origin/aria/state` f82569371 (2026-10-03), folded by the kernel's own accumulator: cycle_runtime
+  33 distinct targets, executor 9, global 33; 092f93f5c (09-02): 20
+
+At the measured 0.43 new cycle targets a day (09-02..10-03) cycle_runtime latches around
+2027-05-12; at one a day (wall #12 of the 2026-10-02 inventory) around 2027-01-06. The executor is
+disabled (wall #1); its accepted results carry the request's target SHA, a main head, so once it
+runs at the merge rate (94 merges in 14 days, 6.7 a day) its 128 are gone in about 18 days and the
+global 256 in about 33, which latches all seven capabilities.
+
+Rule: A capability is judged on its most recent witnesses. Each evidence contract keeps a bounded
+window of its newest distinct target SHAs, declared as policy data the implementer cannot write;
+an older SHA ages out of the window, and no history can latch a capability declared. The window is
+a bounded summary, so the ledgers that carry witnesses are carried by evidence checkpoints like
+every other counted ledger.
+
+Re-checked on fix/aria-semantic-capability-authority cdf7cbcd7 (wall #12 of the 2026-10-02
+inventory). Owner okan, deadline 2026-10-20.
+
+## ARIA-MEDIUM-296
+
+Two residuals of ARIA-HIGH-288 (wall #4), named by its implementer. First, the evidence fold version
+is pinned to the SOURCE of the fold functions: `test_the_fold_version_is_pinned_to_the_fold` hashes
+`inspect.getsource` of seven functions and the carried contracts' predicates, so renaming a local
+variable in `carried_state` fails it (measured: the digest moves from `51fee587…` to `2f4c7041…`
+while the semantic equivalence suite stays green) and demands a fold-version bump, which by
+ARIA-HIGH-288's design resets all seven capabilities. Second, a producer that changes what its proof
+rows mean without bumping their schema_version is not caught: the equivalence corpus holds
+hand-written rows, so a producer that stopped writing `git_head_sha_at_cycle` on every terminal
+cycle row, which leaves cycle_runtime unprovable for good, passes every pin (measured on
+cdf7cbcd7).
+
+Evidence:
+
+- `aria-kernel/tests/test_evidence_checkpoints.py:323-349` (the source byte pin on the fold)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:665-669` (the fold version is the declared one, so
+  a bump moves every capability's semantic authority)
+- `aria-kernel/tests/invariants/test_capability_semantic_equivalence.py:107-141` (the corpus pins
+  fold output over fixture rows; no producer constructs them)
+- `aria-kernel/aria_kernel/cycle.py:117-143`, `aria-kernel/aria_kernel/agent_invocations.py:5425-5454`
+  (proof row constructors the corpus never runs)
+
+Rule: A declared version is pinned by what the code does, never by its bytes: the carried fold's
+output on a frozen corpus is pinned per fold version, and every evidence contract producer's row,
+built from frozen inputs, is pinned by what the fold makes of it per the schema version it declares,
+so a refactor keeps every version and a change of meaning without a bump fails.
+
+Re-checked on fix/aria-semantic-capability-authority cdf7cbcd7. Owner okan, deadline 2026-10-23.

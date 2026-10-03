@@ -66,7 +66,7 @@ from .independence_check import (
     RoundDispatch,
     verify_independence,
 )
-from .ledger import load_declared_jsonl
+from .ledger import load_declared_jsonl, load_segments
 from .must_satisfy import architecture_spine_obligation, coverage_gap_obligation, plan_contract_obligation
 from .plan_convergence import (
     TERMINAL_STATES,
@@ -481,11 +481,7 @@ def _requests_for_step(
 ) -> list[dict[str, Any]]:
     """Every minted request for one (plan, role, round) — the remint budget's
     denominator and the idempotent-mint guard's haystack."""
-    root = ensure_tools_dir(base_dir)
-    path = root / "agent-invocations" / "requests.jsonl"
-    if not path.exists():
-        return []
-    rows = load_declared_jsonl(path, expected_surface="agent_invocation_requests")
+    rows = load_segments(ensure_tools_dir(base_dir), "agent_invocation_requests")
     return [
         row
         for row in rows

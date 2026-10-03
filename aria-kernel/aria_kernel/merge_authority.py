@@ -23,7 +23,7 @@ from .incident_ledger import (
     finalize_merge_incident,
     record_merge_failed_incident,
 )
-from .ledger import load_declared_jsonl
+from .ledger import SEGMENTED_LEDGERS, load_declared_jsonl, load_segments, segment_paths
 from .policy_approval import verify_policy_approval
 from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import record_risk_decision_for_pr
@@ -936,7 +936,13 @@ def _capture_pre_merge_context(
         }
         sources.update(optional_sources)
 
-        def read_prefix(surface: str, path: Path) -> bytes | None:
+        def read_prefix(surface: str, path: Path) -> bytes | tuple[bytes, ...] | None:
+            if surface in SEGMENTED_LEDGERS:
+                # ARIA-HIGH-275 — a segment that grew or opened between reads changes the context.
+                return tuple(
+                    _read_bounded_regular_file(segment)[0]
+                    for segment in segment_paths(tools, surface)
+                ) or None
             if surface in optional_sources and not path.exists():
                 return None
             return _read_bounded_regular_file(path)[0]
@@ -953,8 +959,9 @@ def _capture_pre_merge_context(
                 surface: read_prefix(surface, path)
                 for surface, path in sources.items()
             }
+            segmented = {surface: load_segments(tools, surface) for surface in SEGMENTED_LEDGERS}
         rows = {
-            surface: _load_verified_text(
+            surface: segmented[surface] if surface in segmented else _load_verified_text(
                 prefixes[surface].decode("utf-8"), source=path,
                 expected_surface=surface,
             ) if prefixes[surface] is not None else []
@@ -1029,7 +1036,6 @@ def _capture_pre_merge_context(
         expert_observation: dict[str, Any] = {}
         expert_files: dict[Path, bytes | None] = {}
         feedback_observation: dict[str, Any] = {}
-        feedback_files: dict[Path, bytes | None] = {}
         budget_observation: dict[str, Any] = {}
         if implementation.get("request_id"):
             coverage_observation, coverage_files = _capture_pre_merge_coverage(
@@ -1040,8 +1046,8 @@ def _capture_pre_merge_context(
                 tools=tools, workspace=workspace, rows=rows, implementation=implementation,
                 plan_id=plan_id, body=body, head_sha=head_sha,
             )
-            feedback_observation, feedback_files = _capture_pre_merge_operator_feedback(
-                tools=tools, state=state, rows=rows,
+            feedback_observation = _capture_pre_merge_operator_feedback(
+                plan_id=plan_id, state=state, rows=rows, workspace=workspace, trust_sha=live_base_sha,
             )
             budget_observation = _capture_pre_merge_turn_budget(
                 tools=tools, rows=rows, implementation=implementation,
@@ -1059,8 +1065,6 @@ def _capture_pre_merge_context(
                        for path, data in coverage_files.items())
                 or any(_read_pre_merge_coverage_file(path) != data
                        for path, data in expert_files.items())
-                or any(_read_pre_merge_coverage_file(path) != data
-                       for path, data in feedback_files.items())
             ):
                 raise GovernanceError(reason)
             if implementation.get("request_id"):
@@ -1232,23 +1236,33 @@ def _capture_pre_merge_coverage(
 
 
 def _capture_pre_merge_operator_feedback(
-    *, tools: Path, state: dict[str, Any], rows: dict[str, list[dict[str, Any]]],
-) -> tuple[dict[str, Any], dict[Path, bytes | None]]:
+    *, plan_id: str, state: dict[str, Any], rows: dict[str, list[dict[str, Any]]],
+    workspace: Path, trust_sha: str,
+) -> dict[str, Any]:
     """Observe the synthesizer's operator-feedback ingestion for THIS plan.
 
     The join is by ``plan_started.content_hash``: the provider bound the
     synthesized content to its ingestion under exactly that hash, so the
     walk starts from a value the plan ledger already carries. The reader
-    lives with the ingestion owner (``operator_feedback_ingestion``); this
-    wrapper only hands it the verified prefixes captured above and returns
-    the key-file bytes it read so the final recheck covers them too.
+    lives with the ingestion owner (``operator_feedback_observation``); this
+    wrapper hands it the verified prefixes captured above — the plan ledger
+    included, for the merged-once proof — and the allowed-signers file as
+    committed at ``trust_sha`` (the PR's live base on ``main``), read through
+    the hardened git reader of ``main_anchor``: a principal revoked on
+    ``main`` after the cycle cannot merge what it asked for (ADR-0020). A git
+    object needs no recheck and the lane holds no key.
     """
-    from .operator_feedback_ingestion import observe_operator_feedback_for_plan
+    from .operator_feedback_observation import observe_operator_feedback_for_plan
+    from .operator_request_signature import allowed_signers_at
 
+    signers = allowed_signers_at(workspace, commit=trust_sha)
     return observe_operator_feedback_for_plan(
-        tools=tools, plan_started=state.get("plan_started"),
+        plan_id=plan_id,
+        plan_started=state.get("plan_started"),
         ingestion_rows=rows["operator_feedback_ingestion"],
         feedback_rows=rows["operator_feedback"],
+        plan_events=rows["plan_convergence_events"],
+        allowed_signers=signers.content if signers is not None else None,
     )
 
 

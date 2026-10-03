@@ -43,6 +43,7 @@ from typing import Any, Literal
 
 from .agent_surface import PLANNER_BRIDGE_ROLES
 from .independence_check import response_principal
+from .plan_origin import carry_started_origin
 from .tool_registry import GovernanceError
 
 # Plan ARIA-V9.0-B — assert_never is the canonical exhaustiveness
@@ -623,6 +624,9 @@ def _canonicalize_challenger_payload(
     latest = (state.get("latest_revision") or {}) if isinstance(state, dict) else {}
     source_revision_id = latest.get("revision_id")
     source_hash = latest.get("content_hash")
+    # ADR-0018 D4 — the plan's origin is a kernel fact the challenger never
+    # sees (it does not read the primary body); carried, never invented.
+    plan_content = carry_started_origin(plan_content, state)
 
     # If the agent already supplied a canonical wrapper, prefer its
     # fields where present; fall back to kernel-derived metadata for
@@ -712,6 +716,10 @@ def _canonicalize_revision_payload(
     latest = (state.get("latest_revision") or {}) if isinstance(state, dict) else {}
     current_round = state.get("current_round") if isinstance(state, dict) else None
     parent_content_hash = latest.get("content_hash") or ""
+    # ADR-0018 D4 — the origin, like the round and parent hash above, is
+    # kernel state the agent cannot read; a body naming none carries the
+    # started plan's, a body naming another is refused at submission.
+    plan_content = carry_started_origin(plan_content, state)
 
     # Canonical content string. JSON-dump the plan_content dict with
     # ``_canonical_json`` so the content_hash is deterministic across

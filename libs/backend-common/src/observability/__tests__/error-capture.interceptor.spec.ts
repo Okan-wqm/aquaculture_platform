@@ -20,7 +20,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
-import type { ServiceErrorCapturedEvent } from '@platform/event-contracts';
+import {
+  PLATFORM_EVENT_TENANT_ID,
+  PLATFORM_SCOPE,
+  eventTenantScope,
+  type ServiceErrorCapturedEvent,
+} from '@platform/event-contracts';
 import { firstValueFrom, of, throwError } from 'rxjs';
 
 import { ErrorCaptureInterceptor } from '../error-capture.interceptor';
@@ -273,5 +278,71 @@ describe('ErrorCaptureInterceptor', () => {
     expect(event.transport).toBe('rpc');
     expect(event.rpcPattern).toBe('handleInvoiceCreated');
     expect(event.httpRoute).toBeUndefined();
+  });
+
+  /**
+   * OBS-HIGH-009: a tenant-less failure used to travel with tenantId '', which
+   * the bus routed to events.system.* and then refused as a tenant mismatch —
+   * admin.error_groups had 0 rows in production. A captured event must carry
+   * the contract's one platform segment, which the bus's subject builder and
+   * publish-time assertion route on (proven against the real NatsEventBus in
+   * event-bus's nats-event-bus.telemetry.spec, on this same envelope).
+   *
+   * The scope is read back through `eventTenantScope` — the parse every
+   * consumer applies — so a second platform spelling cannot pass here.
+   */
+  describe("tenancy scope is the contract's (OBS-HIGH-009)", () => {
+    const TENANT = '550e8400-e29b-41d4-a716-446655440000';
+
+    async function capturedScope(
+      context: ExecutionContext,
+    ): Promise<{ tenantId: string; scope: ReturnType<typeof eventTenantScope> }> {
+      const { events, publish } = publisher();
+      const interceptor = new ErrorCaptureInterceptor('farm-service', { publish });
+      await expect(run(interceptor, context, new Error('boom'))).rejects.toBeDefined();
+      expect(events).toHaveLength(1);
+      const event = events[0] as ServiceErrorCapturedEvent;
+      return { tenantId: event.tenantId, scope: eventTenantScope(event) };
+    }
+
+    it('stamps a tenant-less HTTP failure with the platform segment', async () => {
+      await expect(
+        capturedScope(httpContext({ method: 'GET', originalUrl: '/api/system/x' })),
+      ).resolves.toEqual({ tenantId: PLATFORM_EVENT_TENANT_ID, scope: PLATFORM_SCOPE });
+    });
+
+    it('stamps a failing message handler (no request at all) as platform', async () => {
+      const rpcContext = new ExecutionContextHost([{}], TestController, handler);
+      rpcContext.setType('rpc');
+
+      await expect(capturedScope(rpcContext)).resolves.toEqual({
+        tenantId: PLATFORM_EVENT_TENANT_ID,
+        scope: PLATFORM_SCOPE,
+      });
+    });
+
+    it("attributes a platform principal's failure (JWT tenantId null) to the platform", async () => {
+      await expect(
+        capturedScope(
+          httpContext({ method: 'POST', originalUrl: '/api/x', user: { id: 'u', tenantId: null } }),
+        ),
+      ).resolves.toEqual({ tenantId: PLATFORM_EVENT_TENANT_ID, scope: PLATFORM_SCOPE });
+    });
+
+    it('keeps a tenant failure on its tenant', async () => {
+      await expect(
+        capturedScope(httpContext({ method: 'GET', originalUrl: '/api/farms', tenantId: TENANT })),
+      ).resolves.toEqual({ tenantId: TENANT, scope: { kind: 'tenant', tenantId: TENANT } });
+    });
+
+    it('still records a defect whose request claimed a malformed tenant, as the platform', async () => {
+      // On a pre-auth path the tenant is the unvalidated x-tenant-id header; what
+      // the client sent must not decide whether a real defect is recorded.
+      await expect(
+        capturedScope(
+          httpContext({ method: 'POST', originalUrl: '/api/auth/login', tenantId: 'not-a-tenant' }),
+        ),
+      ).resolves.toEqual({ tenantId: PLATFORM_EVENT_TENANT_ID, scope: PLATFORM_SCOPE });
+    });
   });
 });

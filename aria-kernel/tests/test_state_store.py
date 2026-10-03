@@ -3224,14 +3224,13 @@ class ForceIsNotReachable(unittest.TestCase):
             # lifecycle steps (state_store_lifecycle_arcs); the push is one.
             if node.func.id not in {"_git", "_git_succeeds", "_run_git", "_run_git_step", "_git_step"}:
                 continue
-            literals = [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
             # `_run_git` takes its argv as a tuple; unpack that shape too.
-            for arg in node.args:
-                if isinstance(arg, (ast.Tuple, ast.List)):
-                    literals += [
-                        e.value for e in arg.elts
-                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
-                    ]
+            argv = [
+                element
+                for arg in node.args
+                for element in (arg.elts if isinstance(arg, (ast.Tuple, ast.List)) else [arg])
+            ]
+            literals = [a.value for a in argv if isinstance(a, ast.Constant) and isinstance(a.value, str)]
             if "push" not in literals:
                 continue
             pushes += 1
@@ -3243,7 +3242,19 @@ class ForceIsNotReachable(unittest.TestCase):
                 "compare-and-swap IS the server's fast-forward rule, and forcing "
                 "discards another lane's publish with no trace",
             )
-        self.assertEqual(pushes, 1, "expected exactly one push callsite in state_store")
+            # ARIA-HIGH-274 — and each pushes an EXACT object id: the refspec
+            # is `{<sha variable>}:refs/heads/...`, never a moving ref such as
+            # HEAD and never a `+` force prefix.
+            refspecs = [a for a in argv if isinstance(a, ast.JoinedStr)]
+            self.assertEqual(len(refspecs), 1, ast.dump(node))
+            source, separator = refspecs[0].values[:2]
+            self.assertIsInstance(source, ast.FormattedValue)
+            self.assertIsInstance(source.value, ast.Name)
+            self.assertIsInstance(separator, ast.Constant)
+            self.assertTrue(str(separator.value).startswith(":refs/heads/"), separator.value)
+        # The aria/state publish and its content-addressed cold store
+        # (`<branch>-cold`, ARIA-HIGH-274) — no third way onto a branch.
+        self.assertEqual(pushes, 2, "expected exactly two push callsites in state_store")
 
 
 class _EnvPatch:

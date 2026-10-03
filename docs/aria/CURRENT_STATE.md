@@ -1,8 +1,7 @@
 # ARIA Current State
 
-Date: 2026-10-03
+Date: 2026-10-02
 Target ref: `origin/main`
-Last verified ARIA authority hash: `e95aa614c4620debb3b26d7217f80cd44e6d4cc2f94e2a57391d2749a7c7463d`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain
@@ -18,6 +17,11 @@ ARIA authority is ordered and fail-closed:
 
 When two sources disagree, the lower-priority source must be updated, generated from code, or
 explicitly marked historical. Runtime behavior must not be inferred from stale prose.
+
+This file records no digest of the tree it describes. Its falsifiable claims are the anchors below:
+`tests/invariants/aria-doc-runtime-ssot.spec.ts` fails when an anchored path or Python symbol no
+longer resolves. The authority-surface digest of any commit is derived on demand with
+`npm run aria:authority-hash -- <rev>` (PROC-HIGH-046).
 
 ## Current Normative Anchors
 

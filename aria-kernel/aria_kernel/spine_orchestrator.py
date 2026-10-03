@@ -270,6 +270,8 @@ def refresh_spine_adapters(
         "fail", "failed", "crash", "schema_error", "tool_unhealthy",
         "output_unparseable", "budget_exceeded", "error",
         "environment_unavailable",
+        # ARIA-HIGH-292 — a truncated run's findings are a prefix, not the scan.
+        "truncated",
     })
 
     for adapter_id, latest, fresh in decisions:

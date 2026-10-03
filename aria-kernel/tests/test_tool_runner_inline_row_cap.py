@@ -99,9 +99,11 @@ class InlineRowCapTests(unittest.TestCase):
         self.assertTrue(marker["spilled_sample"])
         self.assertEqual(marker["total"], 2500)
         self.assertIn("sha256:", marker["sha256"])
-        # The artifact keeps the full parsed output — the spill never loses it.
-        payload = result["envelope"]["_runtime_artifact_payload"]
-        self.assertEqual(len(payload["parsed_output"]["evidence_sources"]), 2500)
+        # The stored output document keeps every source — the spill never loses it.
+        from aria_kernel.runtime_artifacts import resolve_artifact_payload
+
+        document = resolve_artifact_payload(row["output_ref"], base_dir=self.tools_dir)
+        self.assertEqual(len(document["evidence_sources"]), 2500)
         self.assertIsInstance(row["read_paths"], list)
 
     def test_spill_helper_is_identity_under_the_cap(self) -> None:

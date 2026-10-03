@@ -8,6 +8,7 @@ import stat as _stat
 import subprocess
 from contextlib import contextmanager as _contextmanager
 from collections import OrderedDict
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -174,17 +175,100 @@ def write_run_artifact(
         actual = _sha256_bytes(artifact_path.read_bytes())
         if actual != digest:
             raise GovernanceError("run_artifact_hash_mismatch_after_write")
-        status = "present"
-        reason = None
     except Exception as exc:
-        return {
-            "artifact_id": artifact_id,
-            "artifact_ref": None,
-            "artifact_hash": None,
-            "artifact_status": "write_failed",
-            "artifact_error": str(exc),
-        }
+        return _artifact_write_failed(artifact_id, exc)
+    return _index_artifact(
+        base_dir, artifact_path, artifact_id=artifact_id, digest=digest, size=len(encoded), run_id=run_id,
+        cycle_uid=cycle_uid, tool_id=tool_id, kind=kind, run_status=run_status, repo_state_id=repo_state_id, owner=owner,
+    )
 
+
+def cas_relative_path(digest: str) -> str:
+    """``sha256/<aa>/<hex>`` — the one content-address layout (ARIA-HIGH-292): a stored
+    tool output and a cold-evicted file are both named by it, so a digest locates its bytes."""
+    hexdigest = digest.removeprefix("sha256:")
+    if len(hexdigest) != 64 or any(ch not in "0123456789abcdef" for ch in hexdigest):
+        raise GovernanceError(f"cas_digest_invalid:{digest[:80]}")
+    return f"sha256/{hexdigest[:2]}/{hexdigest}"
+
+
+def write_tool_output(*, base_dir: str | Path | None, run_id: str, cycle_uid: str, tool_id: str,
+                      output: dict[str, Any], run_status: str, repo_state_id: str | None = None) -> dict[str, Any]:
+    """Store a run's retained output once, content-addressed (ARIA-HIGH-292).
+
+    The document is the adapter protocol, canonical and scrubbed one record per
+    line, streamed to ``hot/<cycle>/<run>/<cas_relative_path(digest)>.json`` and
+    indexed like every runtime artifact. Returns what ``write_run_artifact`` does.
+    """
+    kind = "tool_output"
+    artifact_id = f"{_safe_segment(cycle_uid)}.{_safe_segment(run_id)}.{kind}"
+    root = run_artifacts_root(base_dir)
+    directory = root / "hot" / _safe_segment(cycle_uid) / _safe_segment(run_id)
+    _assert_under_root(directory, root)
+    try:
+        path, digest, size = _write_content_addressed(directory, _output_document_chunks(output), suffix=".json")
+    except Exception as exc:
+        return _artifact_write_failed(artifact_id, exc)
+    return _index_artifact(
+        base_dir, path, artifact_id=artifact_id, digest=digest, size=size, run_id=run_id, cycle_uid=cycle_uid,
+        tool_id=tool_id, kind=kind, run_status=run_status, repo_state_id=repo_state_id, owner="tool_runner",
+    )
+
+
+def _output_document_chunks(output: dict[str, Any]) -> Iterator[bytes]:
+    def canonical(value: Any) -> bytes:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+
+    yield b"{"
+    for index, field in enumerate(sorted(output)):
+        value = output[field]
+        yield (b"," if index else b"") + b"\n" + canonical(field) + b":"
+        if isinstance(value, list):
+            yield b"["
+            for position, record in enumerate(value):
+                yield (b"," if position else b"") + b"\n" + canonical(scrub_json(record))
+            yield b"]"
+        else:
+            yield canonical(scrub_json({field: value})[field])
+    yield b"\n}\n"
+
+
+def _write_content_addressed(directory: Path, chunks: Iterable[bytes], *, suffix: str) -> tuple[Path, str, int]:
+    """Stream ``chunks`` to a file named by their sha256; ``(path, digest, size)``."""
+    directory.mkdir(parents=True, exist_ok=True)
+    tmp = directory / f".cas.{os.getpid()}.{datetime.now(timezone.utc).timestamp()}.tmp"
+    hasher, size = hashlib.sha256(), 0
+    try:
+        with open(tmp, "xb") as handle:
+            for chunk in chunks:
+                hasher.update(chunk)
+                size += len(chunk)
+                handle.write(chunk)
+            handle.flush()
+            os.fsync(handle.fileno())
+        path = directory / f"{cas_relative_path(hasher.hexdigest())}{suffix}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    with open(path, "rb") as handle:
+        if hashlib.file_digest(handle, "sha256").hexdigest() != hasher.hexdigest():
+            raise GovernanceError("run_artifact_hash_mismatch_after_write")
+    return path, "sha256:" + hasher.hexdigest(), size
+
+
+def _artifact_write_failed(artifact_id: str, exc: Exception) -> dict[str, Any]:
+    return {"artifact_id": artifact_id, "artifact_ref": None, "artifact_hash": None,
+            "artifact_status": "write_failed", "artifact_error": str(exc)}
+
+
+def _index_artifact(base_dir: str | Path | None, artifact_path: Path, *, artifact_id: str, digest: str, size: int,
+                    run_id: str, cycle_uid: str, tool_id: str, kind: str, run_status: str,
+                    repo_state_id: str | None, owner: str) -> dict[str, Any]:
+    """Index a written artifact (index, manifest, inventory); its ledger-ready ref."""
+    status = "present"
+    reason = None
     uri = _relative_uri(ensure_tools_dir(base_dir), artifact_path)
     ref = {
         "schema_version": ARTIFACT_REF_V2_SCHEMA_VERSION,
@@ -204,7 +288,7 @@ def write_run_artifact(
         "tool_id": tool_id,
         "kind": kind,
         "sha256": digest,
-        "size_bytes": len(encoded),
+        "size_bytes": size,
         "created_at": utc_now(),
         "storage_tier": "hot",
         "current_uri": uri,
@@ -223,7 +307,7 @@ def write_run_artifact(
         "artifact_id": artifact_id,
         "artifact_class": kind,
         "path": uri,
-        "bytes": len(encoded),
+        "bytes": size,
         "sha256": digest,
         "storage_tier": "hot",
         "retention_action": None,
@@ -852,9 +936,8 @@ def resolve_finding_from_artifact(
     artifact = resolve_artifact_payload(row.get("artifact_ref"), base_dir=base_dir)
     if artifact is None:
         return None
-    payload = artifact.get("payload") if isinstance(artifact.get("payload"), dict) else {}
-    findings = payload.get("raw_findings")
-    if not isinstance(findings, list):
+    findings = _artifact_findings(artifact.get("payload"), base_dir=base_dir)
+    if findings is None:
         return None
     try:
         index = int(pointer.rsplit("/", 1)[-1])
@@ -863,6 +946,18 @@ def resolve_finding_from_artifact(
     if index < 0 or index >= len(findings) or not isinstance(findings[index], dict):
         return None
     return findings[index]
+
+
+def _artifact_findings(payload: Any, *, base_dir: str | Path | None) -> list[Any] | None:
+    """A tool_run payload's raw findings: inline (written before ARIA-HIGH-292) or
+    those of the stored output document its ``output_ref`` names, resolved by digest."""
+    if not isinstance(payload, dict):
+        return None
+    findings = payload.get("raw_findings")
+    if not isinstance(findings, list):
+        document = resolve_artifact_payload(payload.get("output_ref"), base_dir=base_dir)
+        findings = document.get("findings") if document is not None else None
+    return findings if isinstance(findings, list) else None
 
 
 def verify_artifacts(*, base_dir: str | Path | None = None) -> dict[str, Any]:
@@ -2066,8 +2161,7 @@ def _resolve_artifact_path(raw_path: str, *, root: Path, workspace_root: Path | 
 def _artifact_ref_has_raw_findings(run: dict[str, Any], *, base_dir: Path) -> bool:
     for ref in _artifact_refs_from_run(run):
         payload = resolve_artifact_payload(ref, base_dir=base_dir)
-        inner = payload.get("payload") if isinstance(payload, dict) else None
-        if isinstance(inner, dict) and isinstance(inner.get("raw_findings"), list):
+        if isinstance(payload, dict) and _artifact_findings(payload.get("payload"), base_dir=base_dir) is not None:
             return True
     return False
 
@@ -2764,6 +2858,7 @@ __all__ = [
     "ARTIFACT_BEARING", "LIFECYCLE_ONLY", "INTEGRITY_FAILED", "INCOMPLETE",
     "RUN_LEDGER_FORMAT_ENV", "RUN_LEDGER_FORMATS", "DEFAULT_RUN_LEDGER_FORMAT",
     "SUMMARY_STDOUT_MAX_BYTES", "append_run_by_cycle", "approve_runtime_v2_promotion",
+    "cas_relative_path", "write_tool_output",
     "artifact_index_path", "artifact_inventory_path", "artifact_manifest_path",
     "budget_projection",
     "autonomy_exit_code", "autonomy_output_summary", "by_cycle_runs_path",

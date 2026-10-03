@@ -26,6 +26,7 @@ from .runtime_artifacts import (
     append_run_by_cycle,
     run_ledger_format,
     write_run_artifact,
+    write_tool_output,
 )
 from .canonical_path import lexical_repo_path, matches_repo_glob
 from .evidence_trust import SELF_OUTPUT_PREFIXES
@@ -47,7 +48,13 @@ RUN_STATUSES = (
     # failure, and repetition escalates through the uncertainty ledger
     # instead (uncertainty_repeat).
     "environment_unavailable",
+    # ARIA-HIGH-292 — the output passed its per-run bound: every record
+    # parsed before it is kept and checked like an ok run's, the runner
+    # names what was dropped, and the cycle reads it as degraded.
+    "truncated",
 )
+# The statuses whose output was parsed, evidence-checked and ingested.
+PARSED_RUN_STATUSES = ("ok", "truncated")
 REQUIRED_RUN_FIELDS = (
     "run_id",
     "tool_id",
@@ -123,16 +130,28 @@ def record_run(
         )
 
     scope_violations = find_scope_violations(tool, envelope["read_paths"])
-    if scope_violations and envelope["status"] == "ok":
+    if scope_violations and envelope["status"] in PARSED_RUN_STATUSES:
         envelope["status"] = "scope_violation"
         envelope["scope_violations"] = scope_violations
-    if envelope["status"] == "ok" and envelope["evidence_validation"].get("valid") is False:
+    if envelope["status"] in PARSED_RUN_STATUSES and envelope["evidence_validation"].get("valid") is False:
         envelope["status"] = "evidence_error"
 
     raw_findings = envelope.pop("raw_findings", None)
     artifact_payload = envelope.pop("_runtime_artifact_payload", None)
     ledger_format = run_ledger_format(base_dir)
+    output_ref: dict[str, Any] | None = None
     if ledger_format in ("v2-shadow", "v2"):
+        repo_state_id = (envelope.get("repo_snapshot") or {}).get("repo_state_id") if isinstance(envelope.get("repo_snapshot"), dict) else None
+        # ARIA-HIGH-292 — the retained output is stored ONCE, content-
+        # addressed; the run artifact and this row keep its digest and the
+        # counts. A run that retained nothing (crash, timeout) stores nothing.
+        output = artifact_payload.get("output") if isinstance(artifact_payload, dict) else None
+        stored = write_tool_output(
+            base_dir=base_dir, run_id=envelope["run_id"], cycle_uid=envelope["cycle_id"],
+            tool_id=envelope["tool_id"], output=output, run_status=envelope["status"],
+            repo_state_id=repo_state_id,
+        ) if isinstance(output, dict) and output else None
+        output_ref = stored.get("artifact_ref") if stored is not None else None
         artifact = write_run_artifact(
             base_dir=base_dir,
             run_id=envelope["run_id"],
@@ -140,23 +159,26 @@ def record_run(
             tool_id=envelope["tool_id"],
             kind="tool_run",
             run_status=envelope["status"],
-            repo_state_id=(envelope.get("repo_snapshot") or {}).get("repo_state_id") if isinstance(envelope.get("repo_snapshot"), dict) else None,
-            payload=_runtime_artifact_payload(envelope, raw_findings, artifact_payload),
+            repo_state_id=repo_state_id,
+            payload=_runtime_artifact_payload(envelope, artifact_payload, output_ref),
         )
         envelope["schema_version"] = 2
         envelope["run_ledger_format"] = ledger_format
         envelope["artifact_ref"] = artifact.get("artifact_ref")
         envelope["artifact_refs"] = [artifact["artifact_ref"]] if isinstance(artifact.get("artifact_ref"), dict) else []
+        envelope["output_ref"] = output_ref
         envelope["artifact_hash"] = artifact.get("artifact_hash")
         envelope["artifact_status"] = artifact.get("artifact_status")
         envelope["artifact_error"] = artifact.get("artifact_error")
-        if artifact.get("artifact_status") != "present":
+        for written in (artifact, stored):
+            if written is None or written.get("artifact_status") == "present":
+                continue
             envelope["status"] = "integrity_failed"
             envelope.setdefault("evidence_validation", {}).setdefault("errors", []).append(
                 {
                     "code": "run_artifact_write_failed",
-                    "artifact_id": artifact.get("artifact_id"),
-                    "error": artifact.get("artifact_error"),
+                    "artifact_id": written.get("artifact_id"),
+                    "error": written.get("artifact_error"),
                 },
             )
             envelope["evidence_validation"]["valid"] = False
@@ -190,6 +212,14 @@ def record_run(
     record_findings_for_run(envelope, emitted_findings=_saved_emitted_findings, base_dir=base_dir)
     decision = evaluate_health(envelope["tool_id"], base_dir=base_dir, latest_run=envelope)
     append_jsonl(health_path(base_dir), decision)
+    output_stream = (envelope.get("runner") or {}).get("output_stream")
+    if isinstance(output_stream, dict) and output_stream.get("truncated"):
+        # ARIA-HIGH-292 — a bound that drops records says so, by name.
+        append_tools_governance(ensure_tools_dir(base_dir), "tool_output_truncated", {
+            **{key: envelope[key] for key in ("cycle_id", "tool_id", "run_id", "status")},
+            **{key: output_stream.get(key) for key in ("kept", "dropped", "dropped_bytes", "consumed_bytes", "retain_bytes")},
+            "stored": {"uri": output_ref["uri"], "sha256": output_ref["sha256"]} if output_ref else None,
+        })
     if envelope["status"] == "tool_unhealthy":
         append_tools_governance(
             ensure_tools_dir(base_dir),
@@ -317,10 +347,12 @@ def can_emit_operator_facing(
 
 def _runtime_artifact_payload(
     envelope: dict[str, Any],
-    raw_findings: Any,
     artifact_payload: Any,
+    output_ref: dict[str, Any] | None,
 ) -> dict[str, Any]:
     payload = artifact_payload if isinstance(artifact_payload, dict) else {}
+    runner = envelope.get("runner") if isinstance(envelope.get("runner"), dict) else {}
+    stream = runner.get("output_stream") if isinstance(runner.get("output_stream"), dict) else {}
     return {
         "run_id": envelope.get("run_id"),
         "cycle_id": envelope.get("cycle_id"),
@@ -328,18 +360,17 @@ def _runtime_artifact_payload(
         "status": envelope.get("status"),
         "input_hash": envelope.get("input_hash"),
         "output_hash": envelope.get("output_hash"),
-        "stdout": payload.get("stdout"),
         "stderr": payload.get("stderr"),
-        "parsed_output": payload.get("parsed_output"),
-        "raw_observations": payload.get("raw_observations"),
-        "raw_findings": raw_findings if isinstance(raw_findings, list) else [],
+        # ARIA-HIGH-292 — every retained record lives once, in the
+        # content-addressed document this names; the counts are in runner.
+        "output_ref": output_ref,
         "read_paths": envelope.get("read_paths", []),
         "evidence_validation": envelope.get("evidence_validation"),
         "runner": envelope.get("runner"),
         "repo_snapshot": envelope.get("repo_snapshot"),
         "no_silent_loss": {
-            "reason_code": "artifact_backed_runtime_output",
-            "truncated": False,
+            "reason_code": "content_addressed_tool_output",
+            "truncated": bool(stream.get("truncated")),
             "summarized": True,
         },
     }
@@ -574,7 +605,7 @@ def compute_metrics(
         for run in runs
         if _within_days(run, now, 7)
         and (
-            run.get("status") == "budget_exceeded"
+            run.get("status") in ("budget_exceeded", "truncated")
             or (cap is not None and float(run.get("cost_units", 0)) > float(cap))
         )
     )

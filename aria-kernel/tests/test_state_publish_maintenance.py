@@ -525,7 +525,8 @@ class ALossAttestedOnlyByTheCompactionLedgerPublishes(MaintenanceLaneTestCase):
         tools = tools_root(store)
         shutil.rmtree(tools / "run-artifacts" / "hot" / "cyc-20200101T000000Z-auto")
         stripped = compact_state(base_dir=tools, retain_days=7)
-        self.assertEqual(stripped["artifact_index_rows_dropped"], 1)
+        # The run's record and its stored output document (ARIA-HIGH-292).
+        self.assertEqual(stripped["artifact_index_rows_dropped"], 2)
         (tools / "run-artifacts" / "compacted.jsonl").unlink()
 
     def test_a_backfilled_attestation_vouches_for_a_loss_no_governance_row_prunes(self) -> None:
@@ -533,14 +534,22 @@ class ALossAttestedOnlyByTheCompactionLedgerPublishes(MaintenanceLaneTestCase):
 
         store = self._bound_store()
         old_key = self._record_old_run(store)
+        # The run's stored output document (ARIA-HIGH-292) is its second artifact.
+        tools = tools_root(store)
+        old_keys = sorted([old_key, *(
+            f"runtime_artifact_hot:{path.relative_to(tools).as_posix()}"
+            for path in (tools / "run-artifacts" / "hot").rglob("sha256/*/*.json")
+        )])
+        self.assertEqual(len(old_keys), 2)
         first = self._publish(store, "snap-1", "cycle-1")
         self.assertTrue(first["published"])
-        self.assertIn(old_key, first["prepared"].snapshot["surfaces"])
+        for key in old_keys:
+            self.assertIn(key, first["prepared"].snapshot["surfaces"])
 
         self._strip_before_the_ledger_existed(store)
-        healed = compact_state(base_dir=tools_root(store), retain_days=7)
+        healed = compact_state(base_dir=tools, retain_days=7)
         self.assertEqual(healed["artifact_index_rows_dropped"], 0)
-        self.assertEqual(healed[ATTESTED_ARTIFACTS_KEY], 1)
+        self.assertEqual(healed[ATTESTED_ARTIFACTS_KEY], 2)
         self.assertNotIn(BOOTSTRAP_ACK_ENV, os.environ)
 
         second = self._publish(store, "snap-2", "cycle-2")
@@ -548,8 +557,8 @@ class ALossAttestedOnlyByTheCompactionLedgerPublishes(MaintenanceLaneTestCase):
         self.assertTrue(second["published"])
         continuity = second["continuity"]
         self.assertEqual(continuity["status"], "surfaces_lost")
-        self.assertEqual(continuity["lost_surfaces"], [old_key])
-        self.assertEqual(continuity["compaction_attested_surfaces"], [old_key])
+        self.assertEqual(sorted(continuity["lost_surfaces"]), old_keys)
+        self.assertEqual(sorted(continuity["compaction_attested_surfaces"]), old_keys)
         self.assertEqual(continuity["ack_accepted_surfaces"], [])
 
     def test_an_absent_artifact_the_ledger_does_not_name_is_still_refused(self) -> None:

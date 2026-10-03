@@ -121,8 +121,9 @@ def _issue_codes(verdict: dict) -> dict[str, int]:
 
 class CompactionStoreTestCase(unittest.TestCase):
     """A bound tools root fed by the real run writer, under the default
-    (v2-shadow) format: every run writes a hot artifact, an index row, a
-    manifest row, an inventory row and thin raw-finding pointers."""
+    (v2-shadow) format: every run writes two hot artifacts — its tool_run
+    record and its content-addressed output document (ARIA-HIGH-292) — each
+    with an index, manifest and inventory row, and thin raw-finding pointers."""
 
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-compaction-attest-"))
@@ -174,7 +175,7 @@ class CompactionStoreTestCase(unittest.TestCase):
         ]
         base["raw_findings"] = raw
         base["runner"] = {"raw_findings_count": findings, "raw_findings_sample": raw[:1]}
-        base["_runtime_artifact_payload"]["raw_findings"] = raw
+        base["_runtime_artifact_payload"]["output"]["findings"] = raw
         record_run(base, base_dir=self.tools)
         runs = load_declared_jsonl(self.tools / "runs.jsonl", expected_surface="runs")
         return next(row for row in runs if row["run_id"] == run_id)
@@ -249,17 +250,23 @@ class CompactionAttestsWhatItStrips(CompactionStoreTestCase):
 
         result = compact_state(base_dir=self.tools, retain_days=7)
 
-        self.assertEqual(result["artifact_index_rows_dropped"], 6)
-        self.assertEqual(result[ATTESTED_ARTIFACTS_KEY], 6)
+        # 6 runs × (tool_run + stored output).
+        self.assertEqual(result["artifact_index_rows_dropped"], 12)
+        self.assertEqual(result[ATTESTED_ARTIFACTS_KEY], 12)
         verdict = self._verify()
         self.assertEqual(verdict["status"], "ok", verdict["issues"][:5])
         self.assertEqual(verdict["issues"], [])
         # 6 runs × (artifact_ref + artifact_refs[0]) + 6 runs × 2 raw pointers.
         self.assertEqual(verdict["compacted_artifact_count"], 12 + 12)
-        rows = self._ledger_rows()
+        ledger_rows = self._ledger_rows()
+        rows = [row for row in ledger_rows if row["kind"] == "tool_run"]
         self.assertEqual(
             sorted(row["artifact_id"] for row in rows),
             sorted(run["artifact_ref"]["artifact_id"] for run in runs),
+        )
+        self.assertEqual(
+            sorted((row["kind"], row["uri"], row["sha256"]) for row in ledger_rows if row["kind"] != "tool_run"),
+            sorted(("tool_output", run["output_ref"]["uri"], run["output_ref"]["sha256"]) for run in runs),
         )
         archives = sorted((self.tools / "archives").glob("artifact_index-compact-*.jsonl.gz"))
         self.assertEqual(len(archives), 1)
@@ -278,16 +285,16 @@ class CompactionAttestsWhatItStrips(CompactionStoreTestCase):
         self.assertTrue(verify_jsonl(self.tools / COMPACTED_LEDGER)["valid"])
         self.assertEqual(
             len(load_declared_jsonl(self.tools / COMPACTED_LEDGER, expected_surface="runtime_artifact_compactions")),
-            6,
+            12,
         )
         # The archive the ledger names holds exactly the dropped index rows.
         with gzip.open(archives[0], "rt", encoding="utf-8") as fh:
             archived = {json.loads(line)["artifact_id"] for line in fh if line.strip()}
-        self.assertEqual(archived, {row["artifact_id"] for row in rows})
+        self.assertEqual(archived, {row["artifact_id"] for row in ledger_rows})
         # The governance row carries the count, and names the archive it wrote: the binding a later run follows to
         # the window that was in force.
         governance = self._compaction_rows()
-        self.assertEqual(governance[-1]["details"][ATTESTED_ARTIFACTS_KEY], 6)
+        self.assertEqual(governance[-1]["details"][ATTESTED_ARTIFACTS_KEY], 12)
         self.assertEqual(governance[-1]["details"][ARCHIVE_KEY], rows[0]["archive"])
         self.assertEqual(result[ARCHIVE_KEY], rows[0]["archive"])
 
@@ -313,12 +320,12 @@ class CompactionAttestsWhatItStrips(CompactionStoreTestCase):
         self.assertEqual(verdict["status"], "failed")
         # Every way the verifier can name a lost artifact, it names this one
         # and only this one: the run's two refs, its two raw pointers, and
-        # the index row the ledger does not stand in for.
+        # the index row the ledger does not stand in for. (The index is not
+        # empty: the run's stored output document is still in it.)
         self.assertEqual(_issue_codes(verdict), {
             "artifact_ref_missing": 2,
             "raw_pointer_corrupt": 2,
             "artifact_index_ref_missing": 2,
-            "artifact_index_empty_with_run_refs": 1,
         })
         for issue in verdict["issues"]:
             if issue["code"] == "artifact_index_empty_with_run_refs":
@@ -418,8 +425,8 @@ class CompactionAttestsWhatItStrips(CompactionStoreTestCase):
         index_before = index.read_bytes()
         dry = compact_state(base_dir=self.tools, retain_days=7, dry_run=True)
         # A dry run projects the real run and writes nothing.
-        self.assertEqual(dry["artifact_index_rows_dropped"], 6)
-        self.assertEqual(dry[ATTESTED_ARTIFACTS_KEY], 6)
+        self.assertEqual(dry["artifact_index_rows_dropped"], 12)
+        self.assertEqual(dry[ATTESTED_ARTIFACTS_KEY], 12)
         self.assertFalse((self.tools / COMPACTED_LEDGER).exists())
         self.assertEqual(index.read_bytes(), index_before)
 
@@ -473,9 +480,9 @@ class TheLiveStoreHealsOnItsNextCompaction(CompactionStoreTestCase):
 
         # Nothing left to drop; everything already stripped is attested.
         self.assertEqual(result["artifact_index_rows_dropped"], 0)
-        self.assertEqual(result[ATTESTED_ARTIFACTS_KEY], 6)
+        self.assertEqual(result[ATTESTED_ARTIFACTS_KEY], 12)
         rows = self._ledger_rows()
-        self.assertEqual(len(rows), 6)
+        self.assertEqual(len(rows), 12)
         self.assertEqual({row["attested_by"] for row in rows}, {ATTESTED_BY_BACKFILL})
         archive = next((self.tools / "archives").glob("artifact_index-compact-*.jsonl.gz"))
         self.assertEqual({row["archive"] for row in rows}, {archive.relative_to(self.tools).as_posix()})
@@ -494,35 +501,36 @@ class TheLiveStoreHealsOnItsNextCompaction(CompactionStoreTestCase):
         live = self._record(_fresh_cycle(), "run-live")
         (self.tools / live["artifact_ref"]["uri"]).unlink()
         self._strip_without_the_ledger()
-        # The one archive now carries six policy rows and one loss.
+        # The one archive now carries twelve policy rows and one loss.
         archive = next((self.tools / "archives").glob("artifact_index-compact-*.jsonl.gz"))
         with gzip.open(archive, "rt", encoding="utf-8") as fh:
-            self.assertEqual(sum(1 for line in fh if line.strip()), 7)
+            self.assertEqual(sum(1 for line in fh if line.strip()), 13)
 
         result = compact_state(base_dir=self.tools, retain_days=7)
 
-        self.assertEqual(result[ATTESTED_ARTIFACTS_KEY], 6)
+        self.assertEqual(result[ATTESTED_ARTIFACTS_KEY], 12)
         self.assertIsNone(self._attestation(live["artifact_ref"]))
         verdict = self._verify()
         self.assertEqual(verdict["status"], "failed")
+        # The live run's output document is still indexed: the index is not empty.
         self.assertEqual(_issue_codes(verdict), {
             "artifact_ref_missing": 2,
             "raw_pointer_corrupt": 2,
             "artifact_index_ref_missing": 2,
-            "artifact_index_empty_with_run_refs": 1,
         })
         self.assertEqual(verdict["compacted_artifact_count"], 24)
 
-    def _lost_inside_the_window_verdict(self, lost: dict) -> None:
+    def _lost_inside_the_window_verdict(self, lost: dict, *, index_empty: bool) -> None:
         """The verifier names exactly the one lost run, and counts the six
-        lawfully compacted ones."""
+        lawfully compacted ones. The index is empty unless the lost run's
+        stored output document is still in it."""
         verdict = self._verify()
         self.assertEqual(verdict["status"], "failed")
         self.assertEqual(_issue_codes(verdict), {
             "artifact_ref_missing": 2,
             "raw_pointer_corrupt": 2,
             "artifact_index_ref_missing": 2,
-            "artifact_index_empty_with_run_refs": 1,
+            **({"artifact_index_empty_with_run_refs": 1} if index_empty else {}),
         })
         for issue in verdict["issues"]:
             if issue["code"] != "artifact_index_empty_with_run_refs":
@@ -541,15 +549,18 @@ class TheLiveStoreHealsOnItsNextCompaction(CompactionStoreTestCase):
         (self.tools / lost["artifact_ref"]["uri"]).unlink()
         self._strip_without_the_ledger()
 
-        self.assertEqual(compact_state(base_dir=self.tools, retain_days=7)[ATTESTED_ARTIFACTS_KEY], 6)
-        self._lost_inside_the_window_verdict(lost)
+        self.assertEqual(compact_state(base_dir=self.tools, retain_days=7)[ATTESTED_ARTIFACTS_KEY], 12)
+        # The lost run's stored output document is still on disk, so its index row stays.
+        self._lost_inside_the_window_verdict(lost, index_empty=False)
 
         shorter = compact_state(base_dir=self.tools, retain_days=1)
 
+        # Compaction deletes no file (ARIA-HIGH-274): the 1-day window strips
+        # nothing and attests nothing, and the loss stays unattested.
         self.assertEqual(shorter[ATTESTED_ARTIFACTS_KEY], 0)
         self.assertIsNone(self._attestation(lost["artifact_ref"]))
         self.assertEqual({row["retain_days"] for row in self._ledger_rows()}, {7})
-        self._lost_inside_the_window_verdict(lost)
+        self._lost_inside_the_window_verdict(lost, index_empty=False)
 
     def test_a_row_that_predates_the_archive_name_is_paired_by_clock_and_still_rules(self) -> None:
         """The nine ``state_compacted`` rows on the live store carry no
@@ -570,13 +581,13 @@ class TheLiveStoreHealsOnItsNextCompaction(CompactionStoreTestCase):
 
         result = compact_state(base_dir=self.tools, retain_days=1)
 
-        self.assertEqual(result[ATTESTED_ARTIFACTS_KEY], 6)
+        self.assertEqual(result[ATTESTED_ARTIFACTS_KEY], 12)
         rows = self._ledger_rows()
         self.assertEqual({row["retain_days"] for row in rows}, {7})
         self.assertEqual({row["retention_cutoff"] for row in rows}, {"2020-01-03T00:00:00+00:00"})
         self.assertEqual({row["attested_by"] for row in rows}, {ATTESTED_BY_BACKFILL})
         self.assertIsNone(self._attestation(lost["artifact_ref"]))
-        self._lost_inside_the_window_verdict(lost)
+        self._lost_inside_the_window_verdict(lost, index_empty=True)
 
     def test_an_archive_no_governance_row_vouches_for_is_attested_from_not_at_all(self) -> None:
         """A run that died between writing its archive and appending its
@@ -637,9 +648,9 @@ class TheLiveStoreHealsOnItsNextCompaction(CompactionStoreTestCase):
 
         result = compact_state(base_dir=self.tools, retain_days=7)
 
-        self.assertEqual(result[ATTESTED_ARTIFACTS_KEY], 3)
+        self.assertEqual(result[ATTESTED_ARTIFACTS_KEY], 6)
         rows = self._ledger_rows()
-        self.assertEqual(sorted(row["run_id"] for row in rows), sorted(run["run_id"] for run in later))
+        self.assertEqual(sorted(row["run_id"] for row in rows), sorted(run["run_id"] for run in later for _ in range(2)))
         self.assertNotIn(orphan.relative_to(self.tools).as_posix(), {row["archive"] for row in rows})
         verdict = self._verify()
         self.assertEqual(verdict["status"], "failed")
@@ -745,7 +756,7 @@ class AFullyCompactedIndexIsValid(CompactionStoreTestCase):
         self.assertTrue(verdict["valid"])
         self.assertEqual(verdict["artifact_count"], 0)
         self.assertEqual(verdict["verified_count"], 0)
-        self.assertEqual(verdict["compacted_artifact_count"], 6)
+        self.assertEqual(verdict["compacted_artifact_count"], 12)
         self.assertEqual(
             runtime_status(phase_failed=False, integrity_valid=verdict["valid"], non_ok=[]),
             RUNTIME_OK,
@@ -812,7 +823,7 @@ class NoLanePublishesAnUnverifiedStore(unittest.TestCase):
 
         _strip_past_the_window(self.tools)
         compacted = compact_state(base_dir=self.tools, retain_days=7)
-        self.assertEqual(compacted[ATTESTED_ARTIFACTS_KEY], 1)
+        self.assertEqual(compacted[ATTESTED_ARTIFACTS_KEY], 2)  # tool_run + stored output
         second = self.lane._publish(self.store, "snap-2", "cycle-2")
 
         self.assertTrue(second["published"])

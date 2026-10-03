@@ -99,13 +99,15 @@ class ColdEvictionTestCase(StateStoreTestCase):
             self.addCleanup(no_ack.stop)
         return store
 
-    def _seed(self, cycle_id: str, *, tools: Path | None = None, stdout: str = "{}",
+    def _seed(self, cycle_id: str, *, tools: Path | None = None, observations: list[dict] | None = None,
               discovery: bool = True) -> dict:
-        """One cycle as the night writes it: a run with its hot artifact and
-        raw-finding pointer, and the cycle's five discovery artifacts."""
+        """One cycle as the night writes it: a run with its hot artifacts (the
+        tool_run record and its stored output document) and raw-finding
+        pointer, and the cycle's five discovery artifacts."""
         tools = tools or self.tools
         run = _run(run_id=f"run-{cycle_id}", cycle_id=cycle_id)
-        run["_runtime_artifact_payload"]["stdout"] = stdout
+        if observations is not None:
+            run["_runtime_artifact_payload"]["output"]["observations"] = observations
         record_run(run, base_dir=tools)
         if discovery:
             directory = tools / "discovery" / cycle_id
@@ -195,10 +197,12 @@ class APublishKeepsTheNewestThreeAndMovesTheRestToCold(ColdEvictionTestCase):
 
 class AnElevenMebibyteArtifactStillResolves(ColdEvictionTestCase):
     def test_resolve_artifact_payload_reads_an_evicted_artifact_from_cold(self) -> None:
-        big = self._seed(_cycle(1), stdout="x" * (11 * 1024 * 1024))
+        # An adapter's output is the large artifact a run writes (ARIA-HIGH-292):
+        # 11 Ki observations of ~1 KiB each, stored as one content-addressed document.
+        big = self._seed(_cycle(1), observations=[{"note": "x" * 1024}] * (11 * 1024))
         for day in (2, 3, 4):
             self._seed(_cycle(day))
-        ref = big["artifact_ref"]
+        ref = big["output_ref"]
         hot = self.tools / ref["uri"]
         expected = json.loads(hot.read_bytes())
         self.assertGreater(hot.stat().st_size, 11 * 1024 * 1024)

@@ -880,9 +880,12 @@ class EnterpriseCycleTests(unittest.TestCase):
 
         artifact = resolve_artifact_payload(run.get("artifact_ref"), base_dir=self.tools_dir) or {}
         payload = artifact.get("payload") or {}
-        raw_obs = payload.get("raw_observations") or []
-        self.assertTrue(len(raw_obs) >= 1, f"artifact should carry observations, payload keys: {sorted(payload.keys())}")
-        self.assertTrue(len(raw_obs) >= 1, f"artifact should carry observations, payload keys: {sorted(payload.keys())}")
+        # ARIA-HIGH-292 — the observations live in the run's stored output
+        # document, which the artifact names by digest.
+        self.assertEqual(payload.get("output_ref"), run["output_ref"])
+        document = resolve_artifact_payload(payload.get("output_ref"), base_dir=self.tools_dir) or {}
+        raw_obs = document.get("observations") or []
+        self.assertTrue(len(raw_obs) >= 1, f"output document should carry observations, keys: {sorted(document.keys())}")
         details = raw_obs[0].get("details", raw_obs[0]) if isinstance(raw_obs[0], dict) else {}
         self.assertEqual(run["runner"]["raw_observations_count"], 1)
         self.assertEqual(details["roots"], ["src"])

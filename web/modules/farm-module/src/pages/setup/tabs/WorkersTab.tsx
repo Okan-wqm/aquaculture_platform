@@ -14,7 +14,6 @@ import {
 import {
   FormField,
   Modal,
-  useConfirm,
   useToast,
   DataTable,
   type DataTableColumn,
@@ -22,6 +21,7 @@ import {
   Button,
   Input,
 } from '@aquaculture/shared-ui';
+import { useLocalConfirm } from '../../../hooks/useLocalConfirm';
 import { Plus, Search as SearchIcon, Users } from 'lucide-react';
 
 const statusColors: Record<string, string> = {
@@ -105,7 +105,7 @@ export const WorkersTab: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const confirm = useConfirm();
+  const { confirm, dialog: confirmDialog } = useLocalConfirm();
   const { toast } = useToast();
   const handleDelete = async (id: string) => {
     if (
@@ -439,6 +439,7 @@ export const WorkersTab: React.FC = () => {
           </div>
         </form>
       </Modal>
+      {confirmDialog}
     </div>
   );
 };

@@ -6,7 +6,14 @@
  *
  * @module Harvest
  */
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
+import { CommandBus } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import {
@@ -23,6 +30,12 @@ import { CreateHarvestPlanInput } from '../dto/create-harvest-plan.input';
 import { UpdateHarvestPlanInput } from '../dto/update-harvest-plan.input';
 import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
+import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { MUTATION_ROLES } from '../../common/authz/permission-matrix';
+import { CreateHarvestRecordCommand } from '../commands/create-harvest-record.command';
+import { QualityClass } from '../entities/harvest-record.entity';
+import { hasAnyRole } from '@aquaculture/backend-common/decorators';
+import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
 
 // ============================================================================
 // INTERFACES
@@ -48,6 +61,25 @@ export interface HarvestPlanStats {
 // SERVICE
 // ============================================================================
 
+/**
+ * The completeHarvestPlan role set, read from the farm permission matrix (the
+ * SSoT the mutation's @Roles mirrors). A missing entry yields an empty set, so
+ * every caller is refused rather than any being admitted.
+ */
+const COMPLETE_HARVEST_PLAN_ROLES = [...(MUTATION_ROLES['completeHarvestPlan'] ?? [])];
+
+/**
+ * Refuse a caller whose verified roles do not reach the completeHarvestPlan
+ * floor through the canonical role hierarchy. Generic message: the response
+ * never discloses which role was missing.
+ */
+function assertMayCompleteHarvestPlan(caller: SiteScopeCaller): void {
+  const authorised = caller.roles.some((role) => hasAnyRole(role, COMPLETE_HARVEST_PLAN_ROLES));
+  if (!authorised) {
+    throw new ForbiddenException('Access denied');
+  }
+}
+
 @Injectable()
 export class HarvestPlanService {
   private readonly logger = new Logger(HarvestPlanService.name);
@@ -55,7 +87,10 @@ export class HarvestPlanService {
   constructor(
     @InjectRepository(HarvestPlan)
     private readonly harvestPlanRepository: Repository<HarvestPlan>,
+    @InjectRepository(TankBatch)
+    private readonly tankBatchRepository: Repository<TankBatch>,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
+    private readonly commandBus: CommandBus,
   ) {}
 
   // =========================================================================
@@ -153,7 +188,11 @@ export class HarvestPlanService {
           requiredPersonnel: input.logistics.requiredPersonnel,
           transportType: input.logistics.transportType as 'truck' | 'boat' | 'container',
           transportCapacity: input.logistics.transportCapacity,
-          destinationType: input.logistics.destinationType as 'processing' | 'market' | 'direct_sale' | 'export',
+          destinationType: input.logistics.destinationType as
+            | 'processing'
+            | 'market'
+            | 'direct_sale'
+            | 'export',
           destinationAddress: input.logistics.destinationAddress,
           coldChainRequired: input.logistics.coldChainRequired,
         }
@@ -226,9 +265,7 @@ export class HarvestPlanService {
       plan.status === HarvestPlanStatus.COMPLETED ||
       plan.status === HarvestPlanStatus.CANCELLED
     ) {
-      throw new BadRequestException(
-        `Cannot update harvest plan with status ${plan.status}`,
-      );
+      throw new BadRequestException(`Cannot update harvest plan with status ${plan.status}`);
     }
 
     // Update simple fields
@@ -244,8 +281,10 @@ export class HarvestPlanService {
     if (input.productForm !== undefined) plan.productForm = input.productForm;
     if (input.notes !== undefined) plan.notes = input.notes;
     if (input.attachments !== undefined) plan.attachments = input.attachments;
-    if (input.actualQuantityHarvested !== undefined) plan.actualQuantityHarvested = input.actualQuantityHarvested;
-    if (input.actualBiomassHarvested !== undefined) plan.actualBiomassHarvested = input.actualBiomassHarvested;
+    if (input.actualQuantityHarvested !== undefined)
+      plan.actualQuantityHarvested = input.actualQuantityHarvested;
+    if (input.actualBiomassHarvested !== undefined)
+      plan.actualBiomassHarvested = input.actualBiomassHarvested;
     if (input.actualAvgWeight !== undefined) plan.actualAvgWeight = input.actualAvgWeight;
 
     // Update criteria if provided
@@ -301,7 +340,11 @@ export class HarvestPlanService {
         requiredPersonnel: input.logistics.requiredPersonnel,
         transportType: input.logistics.transportType as 'truck' | 'boat' | 'container',
         transportCapacity: input.logistics.transportCapacity,
-        destinationType: input.logistics.destinationType as 'processing' | 'market' | 'direct_sale' | 'export',
+        destinationType: input.logistics.destinationType as
+          | 'processing'
+          | 'market'
+          | 'direct_sale'
+          | 'export',
         destinationAddress: input.logistics.destinationAddress,
         coldChainRequired: input.logistics.coldChainRequired,
       };
@@ -450,8 +493,16 @@ export class HarvestPlanService {
     actualQuantity: number,
     actualBiomass: number,
     actualAvgWeight: number,
-    _userId: string,
+    caller: SiteScopeCaller,
   ): Promise<HarvestPlan> {
+    // SEC-HIGH-188: completing a plan moves stock out of EVERY tank that holds
+    // the batch, so it is the completeHarvestPlan operation's authority
+    // (permission matrix: MODULE_MANAGER / TENANT_ADMIN) acting on the
+    // verified caller. The caller's roles are carried unchanged into each
+    // stock movement; an identity without that authority — an empty role set
+    // included — is refused before anything moves. There is no default role.
+    assertMayCompleteHarvestPlan(caller);
+
     const plan = await this.findByIdOrFail(tenantId, id);
 
     if (plan.status !== HarvestPlanStatus.IN_PROGRESS) {
@@ -460,9 +511,74 @@ export class HarvestPlanService {
       );
     }
 
+    // STOK BAĞLANTISI (2026-09-21 mimari düzeltme): plan tamamlama artık
+    // SSoT stok hareket komutunu (CreateHarvestRecordCommand — kilitler,
+    // projeksiyonlar, olaylar, uygunluk) tetikler. Bundan önce plan yalnızca
+    // kendi gerçekleşen alanlarını yazıyor, batch/tank stoğu hiç düşmüyordu.
+    // DİKKAT — sıra: hareketler plan IN_PROGRESS'ken koşar (komutun plan
+    // doğrulaması COMPLETED planı reddediyor); plan.complete en sonda.
+    // Canlı konum SSoT'u: TankBatch.batchDetails (tank başına batch ayrıntı
+    // JSON'u — applyBatchDelta'nın okuduğu/yazdığı ve komutun kendi
+    // doğrulamasının baktığı aynı veri); ayrıntısı olmayan tankta primary
+    // batch toplamı kullanılır.
+    const tankBatches = await this.tankBatchRepository.find({ where: { tenantId } });
+    const stocked: { tankId: string; quantity: number }[] = [];
+    for (const tb of tankBatches) {
+      const details = Array.isArray(tb.batchDetails)
+        ? (tb.batchDetails as { batchId?: string; quantity?: number }[])
+        : [];
+      const entry = details.find((d) => d.batchId === plan.batchId);
+      if (entry && (entry.quantity ?? 0) > 0) {
+        stocked.push({ tankId: tb.tankId, quantity: entry.quantity ?? 0 });
+      } else if (tb.primaryBatchId === plan.batchId && tb.totalQuantity > 0) {
+        stocked.push({ tankId: tb.tankId, quantity: tb.totalQuantity });
+      }
+    }
+    if (stocked.length === 0) {
+      this.logger.warn(
+        `Harvest plan ${id} completed for batch ${plan.batchId} with no current stock location — stock not deducted.`,
+      );
+      plan.complete(actualQuantity, actualBiomass, actualAvgWeight);
+      const updatedAlone = await this.harvestPlanRepository.save(plan);
+      return updatedAlone;
+    }
+    const totalQty = stocked.reduce((sum, l) => sum + l.quantity, 0);
+    let remaining = Math.max(0, Math.min(actualQuantity, totalQty));
+    for (const [index, loc] of stocked.entries()) {
+      if (remaining <= 0) break;
+      const share =
+        index === stocked.length - 1
+          ? remaining
+          : Math.min(remaining, Math.floor((loc.quantity / totalQty) * actualQuantity));
+      if (share <= 0) continue;
+      remaining -= share;
+      await this.commandBus.execute(
+        new CreateHarvestRecordCommand(
+          tenantId,
+          {
+            batchId: plan.batchId,
+            tankId: loc.tankId,
+            quantityHarvested: share,
+            averageWeight: actualAvgWeight,
+            totalBiomass: Number(((share * actualAvgWeight) / 1000).toFixed(3)),
+            qualityClass: QualityClass.SUPERIOR,
+            harvestDate: new Date(),
+            buyerName: `Plan ${plan.planCode}`,
+            notes: `Auto: harvest plan ${plan.planCode} completion`,
+            harvestPlanId: plan.id,
+          },
+          caller.sub,
+          caller.roles,
+          caller.assignedSiteIds ?? [],
+        ),
+      );
+    }
+
     plan.complete(actualQuantity, actualBiomass, actualAvgWeight);
     const updated = await this.harvestPlanRepository.save(plan);
-    this.logger.log(`Completed harvest for plan ${id}`);
+    this.logger.log(
+      `Completed harvest for plan ${id}; stock deducted via harvest records across ${stocked.length} location(s).`,
+    );
     return updated;
   }
 
@@ -476,9 +592,7 @@ export class HarvestPlanService {
       plan.status === HarvestPlanStatus.COMPLETED ||
       plan.status === HarvestPlanStatus.CANCELLED
     ) {
-      throw new BadRequestException(
-        `Cannot cancel harvest plan with status ${plan.status}.`,
-      );
+      throw new BadRequestException(`Cannot cancel harvest plan with status ${plan.status}.`);
     }
 
     plan.cancel();
@@ -503,9 +617,7 @@ export class HarvestPlanService {
       plan.status === HarvestPlanStatus.CANCELLED ||
       plan.status === HarvestPlanStatus.IN_PROGRESS
     ) {
-      throw new BadRequestException(
-        `Cannot postpone harvest plan with status ${plan.status}.`,
-      );
+      throw new BadRequestException(`Cannot postpone harvest plan with status ${plan.status}.`);
     }
 
     plan.postpone(newDate);
@@ -585,16 +697,22 @@ export class HarvestPlanService {
 
     // Date filters
     if (filter.plannedDateFrom) {
-      query.andWhere('hp.plannedDate >= :plannedDateFrom', { plannedDateFrom: filter.plannedDateFrom });
+      query.andWhere('hp.plannedDate >= :plannedDateFrom', {
+        plannedDateFrom: filter.plannedDateFrom,
+      });
     }
     if (filter.plannedDateTo) {
       query.andWhere('hp.plannedDate <= :plannedDateTo', { plannedDateTo: filter.plannedDateTo });
     }
     if (filter.confirmedDateFrom) {
-      query.andWhere('hp.confirmedDate >= :confirmedDateFrom', { confirmedDateFrom: filter.confirmedDateFrom });
+      query.andWhere('hp.confirmedDate >= :confirmedDateFrom', {
+        confirmedDateFrom: filter.confirmedDateFrom,
+      });
     }
     if (filter.confirmedDateTo) {
-      query.andWhere('hp.confirmedDate <= :confirmedDateTo', { confirmedDateTo: filter.confirmedDateTo });
+      query.andWhere('hp.confirmedDate <= :confirmedDateTo', {
+        confirmedDateTo: filter.confirmedDateTo,
+      });
     }
     if (filter.createdFrom) {
       query.andWhere('hp.createdAt >= :createdFrom', { createdFrom: filter.createdFrom });
@@ -613,7 +731,9 @@ export class HarvestPlanService {
 
     // Customer filters
     if (filter.customerId) {
-      query.andWhere("hp.customerOrder->>'customerId' = :customerId", { customerId: filter.customerId });
+      query.andWhere("hp.customerOrder->>'customerId' = :customerId", {
+        customerId: filter.customerId,
+      });
     }
     if (filter.orderId) {
       query.andWhere("hp.customerOrder->>'orderId' = :orderId", { orderId: filter.orderId });

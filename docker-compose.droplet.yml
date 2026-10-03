@@ -985,6 +985,12 @@ services:
       MET_NORWAY_FROST_CLIENT_ID: ${MET_NORWAY_FROST_CLIENT_ID:-}
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
+      # Worker PII at rest (worker.entity.ts): AES-256-GCM column key + the HMAC
+      # key of the email blind index. Both resolve fail-closed under
+      # NODE_ENV=production, so without them every createWorker / worker read
+      # dies with "[EncryptedColumn]/[BlindIndex] ... is required".
+      EMPLOYEE_PII_ENCRYPTION_KEY: ${EMPLOYEE_PII_ENCRYPTION_KEY:?EMPLOYEE_PII_ENCRYPTION_KEY required}
+      EMPLOYEE_PII_BLIND_INDEX_KEY: ${EMPLOYEE_PII_BLIND_INDEX_KEY:?EMPLOYEE_PII_BLIND_INDEX_KEY required}
     depends_on:
       postgres:
         condition: service_healthy

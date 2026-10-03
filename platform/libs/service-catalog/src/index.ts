@@ -503,7 +503,15 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // (entity metadata + migrations check) and the current SLA-defining max.
     startupBudgetSeconds: 120,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
-    requiredEnv: ['FARM_SERVICE_DB_PASS', 'ENCRYPTION_KEY', 'SENTINEL_HUB_ENCRYPTION_KEY'],
+    requiredEnv: [
+      'FARM_SERVICE_DB_PASS',
+      'ENCRYPTION_KEY',
+      'SENTINEL_HUB_ENCRYPTION_KEY',
+      // Worker PII at rest (worker.entity.ts): GCM column key + email blind-index
+      // HMAC key; both fail closed under NODE_ENV=production.
+      'EMPLOYEE_PII_ENCRYPTION_KEY',
+      'EMPLOYEE_PII_BLIND_INDEX_KEY',
+    ],
     gatewaySubgraph: subgraph(
       'farm',
       'farm-service',

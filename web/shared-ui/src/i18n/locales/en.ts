@@ -349,6 +349,26 @@ export const en = {
   'feedingV2.mealBoard.save': 'Save',
   'feedingV2.mealBoard.cancel': 'Cancel',
 
+  // ── Site details (farm-module SitesTab read-only drawer, FE-MEDIUM-310) ──
+  'sites.details.subtitle': 'Site record (read-only)',
+  'sites.details.code': 'Code',
+  'sites.details.type': 'Type',
+  'sites.details.status': 'Status',
+  'sites.details.lokalitetsnummer': 'Lokalitetsnummer',
+  'sites.details.timezone': 'Timezone',
+  'sites.details.timezoneInherited': 'Inherited from the tenant',
+  'sites.details.region': 'Region',
+  'sites.details.address': 'Address',
+  'sites.details.location': 'Coordinates',
+  'sites.details.totalArea': 'Total area',
+  'sites.details.monitoringRadius': 'Monitoring radius',
+  'sites.details.siteManager': 'Site manager',
+  'sites.details.contactEmail': 'Contact e-mail',
+  'sites.details.contactPhone': 'Contact phone',
+  'sites.details.description': 'Description',
+  'sites.details.createdAt': 'Created',
+  'sites.details.notSet': 'Not set',
+
   // ── Messaging panel (FAZ 1) ──
   'messaging.overview': 'Overview',
   'messaging.title': 'Messages',

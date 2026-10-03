@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { removeFixtureTree } from '../../tools/gates/fixture-tree';
+
+import { runCapacityAutoGcScenario } from './helpers/capacity-gc-harness';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 function read(path: string): string {
@@ -38,149 +41,6 @@ function validatorVerdictFor(line: string): ValidatorResult {
     return runDeploySsotValidator(root);
   } finally {
     removeFixtureTree(root);
-  }
-}
-
-interface CapacityAutoGcScenario {
-  initialFreeBytes: string;
-  reclaimedPerImageBytes: string;
-  projectedPullBytes: string;
-  projectedReserveGib: string;
-}
-
-interface CapacityAutoGcResult {
-  status: number | null;
-  stdout: string;
-  stderr: string;
-  removals: string[];
-  dockerInvocations: string[];
-}
-
-function runCapacityAutoGcScenario(scenario: CapacityAutoGcScenario): CapacityAutoGcResult {
-  const fakeBin = mkdtempSync(join(tmpdir(), 'aqua-capacity-auto-gc-'));
-  const dockerPath = join(fakeBin, 'docker');
-  const dfPath = join(fakeBin, 'df');
-  const removalState = join(fakeBin, 'removal-count');
-  const removalLog = join(fakeBin, 'removals.log');
-  const dockerInvocationLog = join(fakeBin, 'docker-invocations.log');
-  writeFileSync(removalState, '0\n');
-  writeFileSync(removalLog, '');
-  writeFileSync(dockerInvocationLog, '');
-  writeFileSync(
-    dockerPath,
-    [
-      '#!/usr/bin/env bash',
-      'set -euo pipefail',
-      'printf "%s\\0" "$*" >> "${DOCKER_INVOCATION_LOG}"',
-      'case "${1:-}" in',
-      '  info)',
-      '    printf "%s\\n" "${DOCKER_ROOT_DIR}"',
-      '    ;;',
-      '  system)',
-      '    printf "TYPE TOTAL ACTIVE SIZE RECLAIMABLE\\nImages 3 0 6GB 6GB\\n"',
-      '    ;;',
-      '  ps)',
-      '    printf "running-a\\nrunning-b\\n"',
-      '    ;;',
-      '  inspect)',
-      '    printf "sha256:running-image-a\\nsha256:running-image-b\\n"',
-      '    ;;',
-      '  image)',
-      '    case "${2:-}" in',
-      '      prune) printf "Total reclaimed space: 0B\\n" ;;',
-      '      ls)',
-      '        printf "%s\\n" \\',
-      '          "${IMAGE_PREFIX}/svc-a 1111111111111111111111111111111111111111 image-a" \\',
-      '          "${IMAGE_PREFIX}/svc-b 2222222222222222222222222222222222222222 image-b" \\',
-      '          "${IMAGE_PREFIX}/svc-c 3333333333333333333333333333333333333333 image-c"',
-      '        ;;',
-      '    esac',
-      '    ;;',
-      '  rmi)',
-      '    count="$(< "${RMI_STATE_FILE}")"',
-      '    count=$((count + 1))',
-      '    printf "%s\\n" "${count}" > "${RMI_STATE_FILE}"',
-      '    printf "%s\\n" "${2}" >> "${RMI_LOG}"',
-      '    printf "Deleted: %s\\n" "${2}"',
-      '    ;;',
-      'esac',
-      '',
-    ].join('\n'),
-  );
-  writeFileSync(
-    dfPath,
-    [
-      '#!/usr/bin/env bash',
-      'set -euo pipefail',
-      'count="$(< "${RMI_STATE_FILE}")"',
-      'avail=$((INITIAL_FREE_BYTES + count * RECLAIMED_PER_IMAGE_BYTES))',
-      'mode=bytes',
-      'for arg in "$@"; do',
-      '  case "${arg}" in',
-      '    -Pi) mode=inodes ;;',
-      '    -k) mode=kilobytes ;;',
-      '  esac',
-      'done',
-      'case "${mode}" in',
-      '  inodes)',
-      '    printf "Filesystem Inodes IUsed IFree IUse%% Mounted-on\\n/dev/fake 1000 100 900 10%% /\\n"',
-      '    ;;',
-      '  kilobytes)',
-      '    printf "Avail\\n%s\\n" "$((avail / 1024))"',
-      '    ;;',
-      '  bytes)',
-      '    printf "Filesystem 1-blocks Used Available Capacity Mounted-on\\n"',
-      '    printf "/dev/fake %s %s %s 1%% /\\n" "${FS_SIZE_BYTES}" "$((FS_SIZE_BYTES - avail))" "${avail}"',
-      '    ;;',
-      'esac',
-      '',
-    ].join('\n'),
-  );
-  chmodSync(dockerPath, 0o755);
-  chmodSync(dfPath, 0o755);
-
-  try {
-    const result = spawnSync(
-      'bash',
-      [join(REPO_ROOT, 'scripts/deploy/droplet-capacity.sh'), 'gate'],
-      {
-        env: {
-          ...process.env,
-          PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
-          TMPDIR: fakeBin,
-          DOCKER_ROOT_DIR: fakeBin,
-          DOCKER_INVOCATION_LOG: dockerInvocationLog,
-          RMI_STATE_FILE: removalState,
-          RMI_LOG: removalLog,
-          INITIAL_FREE_BYTES: scenario.initialFreeBytes,
-          RECLAIMED_PER_IMAGE_BYTES: scenario.reclaimedPerImageBytes,
-          FS_SIZE_BYTES: '10737418240',
-          IMAGE_PREFIX: 'ghcr.io/example/aqua',
-          DEPLOY_SHA: 'ffffffffffffffffffffffffffffffffffffffff',
-          FULL_DEPLOY: 'false',
-          DEPLOY_SERVICES: 'svc-a svc-b svc-c',
-          DEPLOY_PROJECTED_PULL_BYTES: scenario.projectedPullBytes,
-          SELECTIVE_HARD_FREE_GIB: '0',
-          SELECTIVE_WARN_FREE_GIB: '3',
-          SELECTIVE_HARD_FREE_PERCENT: '0',
-          SELECTIVE_PROJECTED_RESERVE_GIB: scenario.projectedReserveGib,
-          HARD_INODE_FREE_PERCENT: '0',
-          WARN_INODE_FREE_PERCENT: '0',
-          CAPACITY_GC_MODE: 'auto',
-          CAPACITY_DISK_USAGE_MODE: 'off',
-        },
-        encoding: 'utf8',
-      },
-    );
-    return {
-      status: result.status,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      removals: readFileSync(removalLog, 'utf8').trim().split('\n').filter(Boolean),
-      dockerInvocations: readFileSync(dockerInvocationLog, 'utf8').split('\0').filter(Boolean),
-    };
-  } finally {
-    removeFixtureTree(fakeBin);
   }
 }
 

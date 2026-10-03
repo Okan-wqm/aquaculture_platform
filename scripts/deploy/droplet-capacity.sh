@@ -3,11 +3,14 @@
 #
 # This script is intentionally conservative. It never removes volumes,
 # containers, networks, or build cache. Deploy-time cleanup is limited to
-# dangling images and, under IMAGE_PREFIX only, app tags outside the closed
-# keep-allowlist (latest/staging/buildcache-*/current DEPLOY_SHA) whose image
-# IDs no container, rollback manifest, or deploy target references — old SHA
-# tags, superseded rollback retags, and unclassified ad-hoc tags alike
-# (default-deny: an unlisted tag class cannot become immortal).
+# dangling images and, in the repositories the generated service catalog
+# names under IMAGE_PREFIX only, app tags outside the closed keep-allowlist
+# (latest/staging/buildcache-*/current DEPLOY_SHA) whose image IDs no
+# container, rollback manifest, or deploy target references — old SHA tags,
+# superseded rollback retags, and unclassified ad-hoc tags alike (default-deny:
+# an unlisted tag class cannot become immortal). A repository that merely
+# shares the prefix is not in scope, and image GC refuses to run when the
+# catalog cannot be read (INFRA-CRITICAL-085).
 
 set -euo pipefail
 
@@ -17,6 +20,11 @@ FULL_DEPLOY="${FULL_DEPLOY:-false}"
 DEPLOY_SERVICES="${DEPLOY_SERVICES:-}"
 ROLLBACK_MANIFEST="${ROLLBACK_MANIFEST:-}"
 DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-}"
+# The generated service catalog of the checkout this script runs from — the
+# same artifact droplet-up.sh and post-deploy-verify.sh read. Its
+# CATALOG_APPLICATION_IMAGE_SERVICES is the closed set of repositories image GC
+# may touch (INFRA-CRITICAL-085).
+CATALOG_DEPLOY_ENV="${CATALOG_DEPLOY_ENV:-infrastructure/deploy/service-catalog.deploy.vars}"
 CAPACITY_GC_MODE="${CAPACITY_GC_MODE:-auto}" # auto | off
 CAPACITY_DISK_USAGE_MODE="${CAPACITY_DISK_USAGE_MODE:-summary}" # summary | deep | off
 # One wall-clock budget owns each diagnostic snapshot. Disjoint frontier
@@ -97,6 +105,8 @@ Environment:
   DEPLOY_SERVICES="svc-a svc-b"
   DEPLOY_SHA=<40-char sha>
   IMAGE_PREFIX=ghcr.io/owner/repo
+  CATALOG_DEPLOY_ENV=<path>  (default infrastructure/deploy/service-catalog.deploy.vars;
+                              image GC touches only its application image repositories)
   CAPACITY_GC_MODE=auto|off
   CAPACITY_DISK_USAGE_MODE=summary|deep|off
   CAPACITY_DU_TIMEOUT_SECONDS=1..120
@@ -1124,6 +1134,54 @@ capacity_gc_target_met() {
   return 0
 }
 
+# catalog_image_repositories_file FILE — write one `${IMAGE_PREFIX}/<service>`
+# line per application image the generated service catalog names. These are
+# the only repositories image GC may touch (INFRA-CRITICAL-085): GC used to
+# take everything under `${IMAGE_PREFIX}/*`, so a retired service, an ad-hoc
+# push or a sibling namespace under the same prefix was deletable, and a
+# widened prefix widened the deletion. The catalog is read in a subshell so
+# none of its other assignments reach this script. An unreadable or empty
+# catalog, or a service name that is not a plain repository component, is a
+# refusal: without the catalog there is no authority to delete anything.
+catalog_image_repositories_file() {
+  local out="$1"
+  local listing service
+  local -a services=()
+  # Every step checks its own status: callers test this function in an `if`,
+  # where errexit does not reach inside it.
+  : > "${out}" || return 1
+
+  if [ ! -r "${CATALOG_DEPLOY_ENV}" ]; then
+    echo "::error::Generated service catalog ${CATALOG_DEPLOY_ENV} is not readable; refusing image GC."
+    return 1
+  fi
+  if ! listing="$(
+    # shellcheck source=infrastructure/deploy/service-catalog.deploy.vars
+    . "${CATALOG_DEPLOY_ENV}" && printf '%s' "${CATALOG_APPLICATION_IMAGE_SERVICES:-}"
+  )"; then
+    echo "::error::Generated service catalog ${CATALOG_DEPLOY_ENV} failed to load; refusing image GC."
+    return 1
+  fi
+  case "${listing}" in
+    *$'\n'*)
+      echo "::error::Generated service catalog ${CATALOG_DEPLOY_ENV} spreads CATALOG_APPLICATION_IMAGE_SERVICES over several lines; refusing image GC."
+      return 1
+      ;;
+  esac
+  read -r -a services <<< "${listing}" || return 1
+  if [ "${#services[@]}" -eq 0 ]; then
+    echo "::error::Generated service catalog ${CATALOG_DEPLOY_ENV} names no application image services; refusing image GC."
+    return 1
+  fi
+  for service in "${services[@]}"; do
+    if ! [[ "${service}" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; then
+      echo "::error::Generated service catalog ${CATALOG_DEPLOY_ENV} names an invalid image service '${service}'; refusing image GC."
+      return 1
+    fi
+    printf '%s/%s\n' "${IMAGE_PREFIX}" "${service}" >> "${out}" || return 1
+  done
+}
+
 gc_remove_ref() {
   # GC_DRY_RUN=true lists what WOULD be removed without touching the
   # daemon — operator-auditable enumeration before any destructive run.
@@ -1137,7 +1195,23 @@ gc_remove_ref() {
 
 safe_image_gc() {
   echo "=== Safe image-only GC ==="
-  echo "Policy: dangling images + unused old app SHA tags + superseded rollback retags + unclassified app tags (default-deny); volumes/containers/networks/build-cache untouched."
+  echo "Policy: dangling images + unused old app SHA tags + superseded rollback retags + unclassified app tags (default-deny), in generated-catalog repositories only; volumes/containers/networks/build-cache untouched."
+
+  # Scope authority first: nothing is pruned or untagged before the catalog
+  # has said which repositories are in scope.
+  local catalog_listing_file catalog_repo
+  local -A catalog_repository=()
+  catalog_listing_file="$(mktemp)"
+  if ! catalog_image_repositories_file "${catalog_listing_file}"; then
+    rm -f "${catalog_listing_file}"
+    return 1
+  fi
+  while IFS= read -r catalog_repo; do
+    catalog_repository["${catalog_repo}"]=1
+  done < "${catalog_listing_file}"
+  rm -f "${catalog_listing_file}"
+  echo "Image GC scope: ${#catalog_repository[@]} catalog repositories under ${IMAGE_PREFIX} (${CATALOG_DEPLOY_ENV})."
+
   local docker_root_path before_fs before_size before_free before_mount
   local after_fs after_size after_free after_mount reclaimed_bytes
   docker_root_path="$(docker_root)"
@@ -1174,10 +1248,7 @@ safe_image_gc() {
   if [ "${CAPACITY_GC_TARGET_MET}" != "true" ]; then
     while read -r repo tag id; do
       [ -n "${repo:-}" ] || continue
-      case "${repo}" in
-        "${IMAGE_PREFIX}"/*) ;;
-        *) continue ;;
-      esac
+      [ -n "${catalog_repository[${repo}]:-}" ] || continue
       case "${tag}" in
         rollback-*) ;;
         *) continue ;;
@@ -1200,10 +1271,7 @@ safe_image_gc() {
   if [ "${CAPACITY_GC_TARGET_MET}" != "true" ]; then
     while read -r repo tag id; do
       [ -n "${repo:-}" ] || continue
-      case "${repo}" in
-        "${IMAGE_PREFIX}"/*) ;;
-        *) continue ;;
-      esac
+      [ -n "${catalog_repository[${repo}]:-}" ] || continue
 
       if [ "${tag}" = "<none>" ]; then
         if is_protected_id "${id}" "${protected}"; then

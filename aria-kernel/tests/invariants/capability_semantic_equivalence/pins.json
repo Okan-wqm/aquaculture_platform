@@ -3,27 +3,46 @@
   "_doc": "ARIA-HIGH-288 — for each declared semantic authority (aria_kernel/data/capability_semantic_authority.json), the digest of what the executing fold makes of corpus.jsonl for that capability (test_capability_semantic_equivalence.digest). folds: per declared evidence_fold_version, the digest of what the carried checkpoint fold makes of the corpus (fold_projection), so a refactor that keeps the fold's output keeps its version. producers: per evidence contract producer, keyed by the row schema version the producer declares and the authority its rows are read under, the digest of what the fold makes of the row it constructs from frozen inputs (producer_digest), so a producer cannot change what its rows mean without bumping their schema_version. An entry is recorded by the operator when a version is bumped, never by ARIA's implementer (READONLY path). An entry is never edited: a changed fold or producer row under an existing key is a semantic change that needs a version bump.",
   "pins": {
     "aria/capability-semantic-authority/v1:autonomy_unlock@1:fold@2:upcasters@1": "sha256:17062dc19cb35ccab642a5a4c5619eaed08fd878fa6cc158405e3a21d0960299",
+    "aria/capability-semantic-authority/v1:autonomy_unlock@1:fold@3:upcasters@1": "sha256:68c03efc494925ecbbfb715b47759870b92b913c9706d87ad4f8be5cbd48aa7d",
     "aria/capability-semantic-authority/v1:cycle_runtime@1:fold@2:upcasters@1": "sha256:9012f49b1f3751f91dc1e7b886bdbf72fe5eef5f366ea256cd8ead78991d5411",
+    "aria/capability-semantic-authority/v1:cycle_runtime@1:fold@3:upcasters@1": "sha256:72e1df8bcb8e255e0e363f117e63469d0d8d396e31b61a27ea1bd2e903ec2d98",
     "aria/capability-semantic-authority/v1:enterprise_readiness@1:fold@2:upcasters@1": "sha256:289256b46f655ed4f113917ab5633b51a9be67a461f9e1b52c81dab4ea073747",
+    "aria/capability-semantic-authority/v1:enterprise_readiness@1:fold@3:upcasters@1": "sha256:f156fe2b3ffb745951c9217ec6c45397e494d5dd22292256d06246a6a358146f",
     "aria/capability-semantic-authority/v1:executor@1:fold@2:upcasters@1": "sha256:cda070d7e36cbbf414ad878f9dcbfce598e8454813fcfd4bda85779b40fdfe62",
+    "aria/capability-semantic-authority/v1:executor@1:fold@3:upcasters@1": "sha256:bc0f208c67710d721010899a16ac7a8ceb2221d7a304a3259d0d511ab045ff2d",
     "aria/capability-semantic-authority/v1:finding_funnel@1:fold@2:upcasters@1": "sha256:acb97b25bf10062a4fa6c3bca76a80fd7900a69e71a615297c6455367ad966b0",
+    "aria/capability-semantic-authority/v1:finding_funnel@1:fold@3:upcasters@1": "sha256:78fb8c9a500808b6aad7a939d8524ed7a7bdf83b5f2c90de35dbbda8bfcd2e63",
     "aria/capability-semantic-authority/v1:fixture_calibration@1:fold@2:upcasters@1": "sha256:b48d51fb3a41cb488bb84165e3391da0bd5c95bca9e83628c701d2ea493dbfb8",
-    "aria/capability-semantic-authority/v1:pre_merge_perimeter@1:fold@2:upcasters@1": "sha256:ada32852bf7300a0fce6dd7f7adf30d9b9455caaa368bc920617f35f3390e26c"
+    "aria/capability-semantic-authority/v1:fixture_calibration@1:fold@3:upcasters@1": "sha256:60bf11d31f9e6231be44bd8dff074582ece3222899fe2a0c8b35d6d04f4dd208",
+    "aria/capability-semantic-authority/v1:pre_merge_perimeter@1:fold@2:upcasters@1": "sha256:ada32852bf7300a0fce6dd7f7adf30d9b9455caaa368bc920617f35f3390e26c",
+    "aria/capability-semantic-authority/v1:pre_merge_perimeter@1:fold@3:upcasters@1": "sha256:b86e69292805c02d8527113841a9d0f3d9bcd0ef6230bfecd6de59258d44526f"
   },
   "folds": {
-    "fold@2": "sha256:0fa10b7039554fe4164b7985a00f46765410c282bcd09db825a4133923d7ad08"
+    "fold@2": "sha256:0fa10b7039554fe4164b7985a00f46765410c282bcd09db825a4133923d7ad08",
+    "fold@3": "sha256:ca4c94dcaca4fac366ab6c48deecf0a365cd0b0ca135e1e167717b744879c904"
   },
   "producers": {
     "agent_invocations.accepted|aria/agent-claim-result/v1@1|aria/capability-semantic-authority/v1:executor@1:fold@2:upcasters@1": "sha256:2563d562c1dff5c8db0b5283e501fdcbf504d0dd112114663576bad978b446c7",
+    "agent_invocations.accepted|aria/agent-claim-result/v1@1|aria/capability-semantic-authority/v1:executor@1:fold@3:upcasters@1": "sha256:e8a9aa373a938fe547c97c6bb323680952bfca2313190b3901df7faf09da5c87",
     "agent_invocations.rejected|aria/agent-claim-result/v1@1|aria/capability-semantic-authority/v1:executor@1:fold@2:upcasters@1": "sha256:76d9eb2bd2598c23d75738e76f431f444f863592b59243107d89fe8cb3f6f7d3",
+    "agent_invocations.rejected|aria/agent-claim-result/v1@1|aria/capability-semantic-authority/v1:executor@1:fold@3:upcasters@1": "sha256:b09c8aefb1048afc8bae032a3f0694b6b70a32fa40f0fd7bf01097dd52b24902",
     "autonomy_unlock.verdict|none@1|aria/capability-semantic-authority/v1:autonomy_unlock@1:fold@2:upcasters@1": "sha256:18642561cf2b19781c2d9d5122f61c8eba15dc8732de7ed66981e39295f4eae5",
+    "autonomy_unlock.verdict|none@1|aria/capability-semantic-authority/v1:autonomy_unlock@1:fold@3:upcasters@1": "sha256:200413d93c0de80602b3cdcf301957e6b2b0a18fb71bcdcec96a6d2071a2ded2",
     "cycle.aborted|none@3|aria/capability-semantic-authority/v1:cycle_runtime@1:fold@2:upcasters@1": "sha256:fb5b5ccfc534f17d96454c34f0638071afa4db2280daeeda69fe3ec823ab6382",
+    "cycle.aborted|none@3|aria/capability-semantic-authority/v1:cycle_runtime@1:fold@3:upcasters@1": "sha256:3424271eb25c2b12aa406100285d6ab1ea4c815bb7bea1a0420799ce5f1a667f",
     "cycle.completed|none@3|aria/capability-semantic-authority/v1:cycle_runtime@1:fold@2:upcasters@1": "sha256:f08da1699a6414999bfe9df0269409be0b4b272f1e504e4f743eac73156fe09c",
+    "cycle.completed|none@3|aria/capability-semantic-authority/v1:cycle_runtime@1:fold@3:upcasters@1": "sha256:94887648998cda0e9b32c1ee1d17ac9d92f0e7c98aa1c7b9a6ef505fa3ba4c84",
     "cycle.failed|none@3|aria/capability-semantic-authority/v1:cycle_runtime@1:fold@2:upcasters@1": "sha256:8ab1ab8d4b10820b9633a0e570447856acc5229bfe6f3240c41a01fa191a1a4b",
+    "cycle.failed|none@3|aria/capability-semantic-authority/v1:cycle_runtime@1:fold@3:upcasters@1": "sha256:1b1360c6a2d34851fc2c442202a0d16b5283e67ae5a0e1be02d0914f62f5f165",
     "cycle.started|none@3|aria/capability-semantic-authority/v1:cycle_runtime@1:fold@2:upcasters@1": "sha256:5b213aa789c812da8aad958c725c151a4697f7811fc8edc431459bfe3372cacd",
+    "cycle.started|none@3|aria/capability-semantic-authority/v1:cycle_runtime@1:fold@3:upcasters@1": "sha256:5a0977dfe662305c7ecfc13c384a131515770e8cb487c36563a9265d7e001507",
     "cycle.stopped|none@3|aria/capability-semantic-authority/v1:cycle_runtime@1:fold@2:upcasters@1": "sha256:a8357d42a990a70c0bf1acd818fa9f7d6d5206079dffcc18bb11f041d75d124c",
+    "cycle.stopped|none@3|aria/capability-semantic-authority/v1:cycle_runtime@1:fold@3:upcasters@1": "sha256:93540eeb02e2afd1ce5dd47ac41d41ebd2fcc9c03435c152f7a2046e766f1788",
     "finding_promotion.promotion|none@1|aria/capability-semantic-authority/v1:finding_funnel@1:fold@2:upcasters@1": "sha256:43411f6be9369f44b40c300d9db58219f5c2ccd75c9a340c666134ef5fb98775",
+    "finding_promotion.promotion|none@1|aria/capability-semantic-authority/v1:finding_funnel@1:fold@3:upcasters@1": "sha256:ac01d55f0c892a1c597df2ae3f59291521c444003bc05ecfa470faa43b04431d",
     "fixture_runner.suite|aria/agent-eval-fixture-run/v1@1|aria/capability-semantic-authority/v1:fixture_calibration@1:fold@2:upcasters@1": "sha256:52a6cf98d3f59ecf41404f3373bd3a07dd27a25597127ba2a7acb4373f7242cb",
-    "readiness_proofs.claim|aria/enterprise-readiness-claim/v2@2|aria/capability-semantic-authority/v1:enterprise_readiness@1:fold@2:upcasters@1": "sha256:f1f6b6a7e10b9e40c255a6a5215aef09dfe0e84fb8310c4ebbe62ff050bda747"
+    "fixture_runner.suite|aria/agent-eval-fixture-run/v1@1|aria/capability-semantic-authority/v1:fixture_calibration@1:fold@3:upcasters@1": "sha256:9b1594e072c17c131efb4b41b3034be627ff3c560b18167e0241ba02e28663b9",
+    "readiness_proofs.claim|aria/enterprise-readiness-claim/v2@2|aria/capability-semantic-authority/v1:enterprise_readiness@1:fold@2:upcasters@1": "sha256:f1f6b6a7e10b9e40c255a6a5215aef09dfe0e84fb8310c4ebbe62ff050bda747",
+    "readiness_proofs.claim|aria/enterprise-readiness-claim/v2@2|aria/capability-semantic-authority/v1:enterprise_readiness@1:fold@3:upcasters@1": "sha256:4c85e7f4284d539027ea45eac940adb3cf88ef943b27a849b697c3773e717148"
   }
 }

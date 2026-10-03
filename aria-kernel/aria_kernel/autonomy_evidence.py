@@ -6,7 +6,7 @@ repairs, publishes, or otherwise changes the external ``aria/state`` store.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 import hashlib
 import json
 import os
@@ -598,6 +598,12 @@ _SEMANTIC_AUTHORITY_KEYS = frozenset({
     "capability_contract_versions",
 })
 _MAX_SEMANTIC_AUTHORITY_BYTES = 64 * 1024
+# ARIA-HIGH-295 — the fold that introduced the witness window, and the most
+# witnesses a contract may keep: the old global budget, so a contract's
+# history search is never wider than every capability's once was.
+_WINDOWED_FOLD_VERSION = 3
+_WITNESS_WINDOW_KEY = "evidence_witness_window"
+_MAX_WITNESS_WINDOW = 256
 _MAX_POLICY_BLOB_BYTES = 2 * 1024 * 1024
 _MAX_SNAPSHOT_TREE_BYTES = 16 * 1024 * 1024
 _MAX_SNAPSHOT_TREE_ENTRIES = 10_000
@@ -621,7 +627,13 @@ def _declared_version(value: Any) -> bool:
 
 
 def _parse_semantic_authority(payload: bytes) -> dict[str, Any]:
-    """One commit's declared semantic versions, strictly shaped."""
+    """One commit's declared semantic versions, strictly shaped.
+
+    From fold _WINDOWED_FOLD_VERSION on, a declaration also names its
+    evidence_witness_window (1 to _MAX_WITNESS_WINDOW); a declaration of an
+    older fold has none, so a proof from before the window still reads as
+    proven under another authority, never as an invalid declaration.
+    """
     try:
         declared = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
@@ -630,9 +642,16 @@ def _parse_semantic_authority(payload: bytes) -> dict[str, Any]:
         declared.get("capability_contract_versions")
         if isinstance(declared, dict) else None
     )
+    windowed = (
+        isinstance(declared, dict)
+        and _declared_version(declared.get("evidence_fold_version"))
+        and declared["evidence_fold_version"] >= _WINDOWED_FOLD_VERSION
+    )
+    window = declared.get(_WITNESS_WINDOW_KEY) if windowed else None
     if (
         not isinstance(declared, dict)
-        or set(declared) - {"_doc"} != _SEMANTIC_AUTHORITY_KEYS
+        or set(declared) - {"_doc"} != _SEMANTIC_AUTHORITY_KEYS | ({_WITNESS_WINDOW_KEY} if windowed else set())
+        or (windowed and not (_declared_version(window) and window <= _MAX_WITNESS_WINDOW))
         or declared["$schema"] != _SEMANTIC_AUTHORITY_SCHEMA
         or not _declared_version(declared["evidence_fold_version"])
         or not _declared_version(declared["upcaster_set_version"])
@@ -669,6 +688,12 @@ _DECLARED_SEMANTICS: dict[str, Any] = _parse_semantic_authority(
 # fold version, so a fold bump moves every capability's semantic authority by
 # construction.
 EVIDENCE_CHECKPOINT_FOLD_VERSION: int = _DECLARED_SEMANTICS["evidence_fold_version"]
+# ARIA-HIGH-295 — each evidence contract keeps its _WITNESS_WINDOW most
+# recently witnessed distinct target SHAs (`_retain_witness`). A capability
+# is judged on those: an older SHA ages out, so no history can exhaust a
+# budget and latch a capability declared, and the window is a bounded
+# summary an evidence checkpoint carries.
+_WITNESS_WINDOW: int = _DECLARED_SEMANTICS[_WITNESS_WINDOW_KEY]
 _EVIDENCE_CHECKPOINT_ROW_TYPE = "evidence_checkpoint"
 # ARIA-HIGH-286 — named on every capability that counts a carried claim the
 # publish's slice (`_evidence_slice_bytes`) could not reach.
@@ -676,8 +701,6 @@ EVIDENCE_REBUILD_BLOCKER = "evidence_checkpoint_rebuild_in_progress"
 _MAX_SNAPSHOT_LEDGER_LINE_BYTES = SNAPSHOT_MAX_LEDGER_LINE_BYTES
 _MAX_SNAPSHOT_LEDGER_ROWS = SNAPSHOT_MAX_LEDGER_ROWS
 _MAX_SNAPSHOT_SURFACE_MATCH_CANDIDATES = 100_000
-_MAX_DISTINCT_PROOF_TARGETS_PER_CAPABILITY = 128
-_MAX_DISTINCT_PROOF_TARGETS_GLOBAL = 256
 _GIT_STREAM_TIMEOUT_SECONDS = 30
 # Declared once in state_tree_contract: the publish-time healer judges a
 # parent tree by the same marker set this verifier admits, so the two can
@@ -793,8 +816,6 @@ class _NativeSummary:
     targets_by_contract: Mapping[EvidenceContract, tuple[_TargetCandidate, ...]]
     counts: Mapping[str, int]
     blockers: tuple[str, ...]
-    distinct_target_budget_exceeded: bool = False
-    global_target_budget_exceeded: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1333,11 +1354,10 @@ CAPABILITY_AUTHORITY_PATHS: Mapping[str, tuple[str, ...]] = MappingProxyType({
     key: spec.authority_paths
     for key, spec in CAPABILITY_SPECS.items()
 })
-# ARIA-HIGH-278 — the counted ledgers whose rows fold into a bounded,
-# order-free summary (counters, blocker sets, the autonomy-state fold), so a
-# verified prefix can be carried forward. Never carried: a contract with an
-# authoritative SHA (its witnesses are chosen across all history under a
-# cross-capability budget) and the three below.
+# ARIA-HIGH-278 — the counted ledgers whose rows fold into a bounded summary
+# (counters, blocker sets, the autonomy-state fold and, ARIA-HIGH-295, each
+# contract's witness window), so a verified prefix can be carried forward.
+# Never carried: the three below.
 _UNCARRIED_COUNT_SURFACES: Mapping[str, str] = MappingProxyType({
     "promotions": "every promoted fingerprint is kept to count unique ones",
     "enterprise_acceptance_events": "every row is kept for the unlock verdict",
@@ -1348,12 +1368,30 @@ _CARRIED_COUNT_SURFACES = frozenset(
     for spec in CAPABILITY_SPECS.values()
     for name in spec.count_surfaces
     if name not in _UNCARRIED_COUNT_SURFACES
-    and not any(
-        contract.surface == name and contract.authoritative_sha_field is not None
-        for owner in CAPABILITY_SPECS.values()
-        for contract in owner.contracts
-    )
 )
+
+
+def _retain_witness(window: dict[str, _TargetCandidate], observed: _TargetCandidate) -> None:
+    """Fold one witness into its contract's window (ARIA-HIGH-295).
+
+    The window is ordered least recently witnessed first. A SHA witnessed
+    again moves to the end with its counts added; a new SHA, once the window
+    holds _WITNESS_WINDOW, evicts the least recently witnessed, which starts
+    over if it is ever witnessed again.
+    """
+    sha = observed.candidate.evidence_target_sha
+    existing = window.pop(sha, None)
+    if existing is None and len(window) >= _WITNESS_WINDOW:
+        del window[next(iter(window))]
+    if existing is not None:
+        by_schema = Counter(existing.admissible_by_schema)
+        by_schema.update(observed.admissible_by_schema)
+        observed = replace(
+            observed,
+            admissible_count=existing.admissible_count + observed.admissible_count,
+            admissible_by_schema=MappingProxyType(dict(by_schema)),
+        )
+    window[sha] = observed
 
 
 def _summarize_native_rows(
@@ -1366,8 +1404,6 @@ def _summarize_native_rows(
         EvidenceContract,
         dict[str, _TargetCandidate],
     ] = {contract: {} for contract in spec.contracts}
-    distinct_targets: set[str] = set()
-    budget_exceeded = False
     blockers: set[str] = set()
     row_count = 0
     terminal_count = 0
@@ -1437,31 +1473,12 @@ def _summarize_native_rows(
                 row_hash=row_hash,
                 evidence_target_sha=evidence_target_sha,
             )
-            existing = targets_by_contract[contract].get(evidence_target_sha)
-            if existing is not None:
-                by_schema = Counter(existing.admissible_by_schema)
-                by_schema[schema_version] += 1
-                targets_by_contract[contract][evidence_target_sha] = _TargetCandidate(
-                    candidate=candidate,
-                    admissible_count=existing.admissible_count + 1,
-                    admissible_by_schema=MappingProxyType(dict(by_schema)),
-                    ordinal=ordinal,
-                )
-                continue
-            if evidence_target_sha not in distinct_targets:
-                if (
-                    len(distinct_targets)
-                    >= _MAX_DISTINCT_PROOF_TARGETS_PER_CAPABILITY
-                ):
-                    budget_exceeded = True
-                    continue
-                distinct_targets.add(evidence_target_sha)
-            targets_by_contract[contract][evidence_target_sha] = _TargetCandidate(
+            _retain_witness(targets_by_contract[contract], _TargetCandidate(
                 candidate=candidate,
                 admissible_count=1,
                 admissible_by_schema=MappingProxyType({schema_version: 1}),
                 ordinal=ordinal,
-            )
+            ))
     return _NativeSummary(
         targets_by_contract=MappingProxyType({
             contract: tuple(targets.values())
@@ -1473,7 +1490,6 @@ def _summarize_native_rows(
             "admissible": admissible_count,
         }),
         blockers=tuple(sorted(blockers)),
-        distinct_target_budget_exceeded=budget_exceeded,
     )
 
 
@@ -1488,12 +1504,7 @@ def _evaluate_native_rows(
         for targets in summary.targets_by_contract.values()
         if targets
     )
-    blockers = set(summary.blockers)
-    if summary.distinct_target_budget_exceeded:
-        blockers.add(f"proof_distinct_sha_budget_exceeded:{capability}")
-    if summary.global_target_budget_exceeded:
-        blockers.add("proof_distinct_sha_budget_exceeded:global")
-    return candidates, dict(summary.counts), tuple(sorted(blockers))
+    return candidates, dict(summary.counts), tuple(sorted(summary.blockers))
 
 
 def _run_git(
@@ -2020,18 +2031,6 @@ def _derive_capability_evidence(
     )
     counts = dict(summary.counts)
     native_blockers = summary.blockers
-    budget_blockers: set[str] = set()
-    if summary.distinct_target_budget_exceeded:
-        budget_blockers.add(f"proof_distinct_sha_budget_exceeded:{capability}")
-    if summary.global_target_budget_exceeded:
-        budget_blockers.add("proof_distinct_sha_budget_exceeded:global")
-    if budget_blockers:
-        return CapabilityEvidence(
-            state="declared",
-            counts=counts,
-            blockers=tuple(sorted({*native_blockers, *budget_blockers})),
-            evidence_refs=(),
-        )
     evaluator_blocker = _evaluator_capability_blocker(
         root,
         capability,
@@ -2106,9 +2105,11 @@ def _derive_capability_evidence(
             if evidence_authority != target_authority:
                 blockers.add(f"proof_authority_changed:{capability}")
                 continue
-            if witness is None:
-                witness = retained
-                witness_authority = evidence_authority
+            # The newest admissible witness proves the contract; older ones
+            # are never read (blockers are reported only when none proves).
+            witness = retained
+            witness_authority = evidence_authority
+            break
         for version in contract.schema_versions:
             proof_cardinality[_proof_cardinality_key(
                 contract.surface,
@@ -3344,12 +3345,6 @@ class _StreamingEvidenceAccumulator:
             }
             for capability, spec in CAPABILITY_SPECS.items()
         }
-        self.distinct_targets: dict[str, set[str]] = {
-            capability: set() for capability in CAPABILITY_SPECS
-        }
-        self.distinct_target_budget_exceeded: set[str] = set()
-        self.global_distinct_targets: set[str] = set()
-        self.global_distinct_target_budget_exceeded = False
         self.ordinal = 0
         # What the verifier consumed against _MAX_EVIDENCE_INPUT_BYTES.
         self.evidence_input_bytes = 0
@@ -3380,16 +3375,12 @@ class _StreamingEvidenceAccumulator:
     def carried_state(self, key: str) -> dict[str, Any]:
         """This projection as an evidence checkpoint carries it (ARIA-HIGH-278).
 
-        Only order-free state is carried. Rows that reached any other field
-        (a proof witness, a fingerprint set, acceptance rows) refuse by name,
+        Only bounded state is carried: counters, sets, the autonomy-state fold
+        and each contract's witness window (ARIA-HIGH-295). Rows that reached
+        any other field (a fingerprint set, acceptance rows) refuse by name,
         so a fold change can never make a summary silently drop evidence.
         """
-        if (
-            self.promoted_fingerprints or self.acceptance_event_counts or self.acceptance_rows
-            or self.distinct_target_budget_exceeded or self.global_distinct_targets
-            or self.global_distinct_target_budget_exceeded or any(self.distinct_targets.values())
-            or any(by_sha for contracts in self.native_targets.values() for by_sha in contracts.values())
-        ):
+        if self.promoted_fingerprints or self.acceptance_event_counts or self.acceptance_rows:
             raise RuntimeError(f"state_commit_evidence_checkpoint_unmergeable:{key}")
 
         def nonzero(counter: Mapping[str, int]) -> dict[str, int]:
@@ -3404,12 +3395,30 @@ class _StreamingEvidenceAccumulator:
             "native_counts": {name: nonzero(c) for name, c in sorted(self.native_counts.items()) if nonzero(c)},
             "native_blockers": {name: sorted(b) for name, b in sorted(self.native_blockers.items()) if b},
             "autonomy_state": asdict(self.autonomy_state),
+            # Least recently witnessed first, as `_retain_witness` keeps them.
+            "witnesses": {
+                capability: {
+                    contract.surface: [
+                        [
+                            target.candidate.evidence_target_sha, target.candidate.row_id, target.candidate.row_hash,
+                            target.candidate.schema_id, target.candidate.schema_version, target.admissible_count,
+                            sorted([version, count] for version, count in target.admissible_by_schema.items()),
+                            target.ordinal,
+                        ]
+                        for target in window.values()
+                    ]
+                    for contract, window in contracts.items() if window
+                }
+                for capability, contracts in sorted(self.native_targets.items()) if any(contracts.values())
+            },
         }
 
     def merge_carried(self, state: Mapping[str, Any], key: str) -> None:
         """Add a claim's carried evidence exactly as consuming its rows would:
-        each field is a sum or a union, and the autonomy-state fold has one
-        claim, so it is set, never combined."""
+        each counter is a sum and each set a union. The autonomy-state fold
+        and a contract's witness window have one claim each (a witness
+        ledger is never segmented), so they are set, never combined; a
+        window's ordinals move past the rows folded before the claim."""
         from .autonomy_state import AutonomyStateAccumulator
 
         try:
@@ -3420,6 +3429,22 @@ class _StreamingEvidenceAccumulator:
                 self.autonomy_state = folded
             if not set(state["count_rejected"]) <= set(CAPABILITY_SPECS):
                 raise ValueError("count_rejected_capability_unknown")
+            for capability, carried in state["witnesses"].items():
+                contracts = {contract.surface: contract for contract in CAPABILITY_SPECS[capability].contracts}
+                for surface, entries in carried.items():
+                    window = self.native_targets[capability][contracts[surface]]
+                    if window or len(entries) > _WITNESS_WINDOW:
+                        raise ValueError("witness_window_folded_twice")
+                    for sha, row_id, row_hash, schema_id, version, count, by_schema, ordinal in entries:
+                        window[sha] = _TargetCandidate(
+                            candidate=_NativeCandidate(
+                                contract=contracts[surface], schema_id=schema_id, schema_version=version,
+                                row_id=row_id, row_hash=row_hash, evidence_target_sha=sha,
+                            ),
+                            admissible_count=count,
+                            admissible_by_schema=MappingProxyType(dict(by_schema)),
+                            ordinal=self.ordinal + ordinal,
+                        )
             self.ordinal += state["ordinal"]
             self.surface_counts.update(state["surface_counts"])
             self.metrics.update(state["metrics"])
@@ -3438,43 +3463,7 @@ class _StreamingEvidenceAccumulator:
         contract: EvidenceContract,
         observed: _TargetCandidate,
     ) -> None:
-        sha = observed.candidate.evidence_target_sha
-        existing = self.native_targets[capability][contract].get(sha)
-        if existing is not None:
-            by_schema = Counter(existing.admissible_by_schema)
-            by_schema.update(observed.admissible_by_schema)
-            self.native_targets[capability][contract][sha] = _TargetCandidate(
-                candidate=observed.candidate,
-                admissible_count=(
-                    existing.admissible_count + observed.admissible_count
-                ),
-                admissible_by_schema=MappingProxyType(dict(by_schema)),
-                ordinal=self.ordinal,
-            )
-            return
-        capability_targets = self.distinct_targets[capability]
-        if sha not in capability_targets and (
-            len(capability_targets)
-            >= _MAX_DISTINCT_PROOF_TARGETS_PER_CAPABILITY
-        ):
-            self.distinct_target_budget_exceeded.add(capability)
-            return
-        capability_targets.add(sha)
-        if sha not in self.global_distinct_targets and (
-            len(self.global_distinct_targets)
-            >= _MAX_DISTINCT_PROOF_TARGETS_GLOBAL
-        ):
-            self.global_distinct_target_budget_exceeded = True
-            return
-        self.global_distinct_targets.add(sha)
-        self.native_targets[capability][contract][sha] = _TargetCandidate(
-            candidate=observed.candidate,
-            admissible_count=observed.admissible_count,
-            admissible_by_schema=MappingProxyType(
-                dict(observed.admissible_by_schema),
-            ),
-            ordinal=self.ordinal,
-        )
+        _retain_witness(self.native_targets[capability][contract], replace(observed, ordinal=self.ordinal))
 
     def _consume_counts(self, surface: str, row: Mapping[str, Any]) -> None:
         try:
@@ -3554,12 +3543,6 @@ class _StreamingEvidenceAccumulator:
                 }),
                 counts=MappingProxyType(dict(self.native_counts[capability])),
                 blockers=tuple(sorted(self.native_blockers[capability])),
-                distinct_target_budget_exceeded=(
-                    capability in self.distinct_target_budget_exceeded
-                ),
-                global_target_budget_exceeded=(
-                    self.global_distinct_target_budget_exceeded
-                ),
             )
             for capability, contracts in self.native_targets.items()
         }

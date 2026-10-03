@@ -3570,6 +3570,12 @@ class TargetBoundGitProofTests(unittest.TestCase):
                 **declared,
                 "capability_contract_versions": {"executor": 1},
             })),
+            # ARIA-HIGH-295 — a windowed fold names its witness window, 1 to 256.
+            ("window missing", json.dumps({
+                name: value for name, value in declared.items() if name != "evidence_witness_window"
+            })),
+            ("window too wide", json.dumps({**declared, "evidence_witness_window": 257})),
+            ("window zero", json.dumps({**declared, "evidence_witness_window": 0})),
         ):
             with self.subTest(name=name):
                 target = self._commit(SEMANTIC_AUTHORITY_PATH, malformed, name)
@@ -3581,6 +3587,20 @@ class TargetBoundGitProofTests(unittest.TestCase):
                     "git_authority_declaration_invalid",
                     self._derive(target, target).blockers,
                 )
+
+        # A declaration from before the window (fold 2) names none and still
+        # reads: its proofs were proven under another authority, not an invalid one.
+        before_window = {
+            name: value for name, value in declared.items() if name != "evidence_witness_window"
+        }
+        before_window["evidence_fold_version"] = 2
+        proof = self._commit(SEMANTIC_AUTHORITY_PATH, json.dumps(before_window), "fold 2 declaration")
+        self.assertRegex(
+            _capability_semantic_authority(self.repo, "cycle_runtime", proof),
+            r":cycle_runtime@1:fold@2:upcasters@1$",
+        )
+        target = self._commit(SEMANTIC_AUTHORITY_PATH, json.dumps(declared), "current declaration")
+        self.assertIn("proof_authority_changed:cycle_runtime", self._derive(target, proof).blockers)
 
         with mock.patch.object(
             autonomy_evidence_module,
@@ -3673,38 +3693,62 @@ class TargetBoundGitProofTests(unittest.TestCase):
         self.assertEqual(evidence.evidence_refs[0].evidence_target_sha, target_sha)
         self.assertEqual(sum(evidence.proof_cardinality.values()), 2)
 
-    def test_distinct_sha_budget_fails_before_history_search(self) -> None:
-        rows = {
-            "cycles": tuple(
-                {
-                    **self._cycle_rows()["cycles"][0],
-                    "row_id": f"cycle-{index}",
-                    "git_head_sha_at_cycle": str(index) * 40,
-                }
-                for index in range(1, 4)
-            ),
-        }
-        with mock.patch.object(
-            autonomy_evidence_module,
-            "_MAX_DISTINCT_PROOF_TARGETS_PER_CAPABILITY",
-            2,
-        ), mock.patch.object(
-            autonomy_evidence_module,
-            "_ancestry_blocker",
-            side_effect=AssertionError("history search must not start"),
-        ):
+    # -- ARIA-HIGH-295: a capability is judged on its newest witnesses --
+
+    def _many_targets(self, count: int, *, real_first: bool) -> dict[str, tuple[dict, ...]]:
+        """``count`` cycle proofs at distinct synthetic SHAs, and one at the
+        real ``event_sha`` before or after them."""
+        template = self._cycle_rows()["cycles"][0]
+        synthetic = [
+            {**template, "cycle_id": f"cycle-{index}", "git_head_sha_at_cycle": f"{index:040x}"}
+            for index in range(1, count + 1)
+        ]
+        real = {**template, "cycle_id": "cycle-real"}
+        return {"cycles": tuple([real, *synthetic] if real_first else [*synthetic, real])}
+
+    def _derive_counting_history(self, rows: dict[str, tuple[dict, ...]], target_sha: str) -> tuple[Any, list[str]]:
+        searched: list[str] = []
+
+        def ancestry(repo_root: Path, *, evidence_target_sha: str, evaluated_target_sha: str) -> str | None:
+            searched.append(evidence_target_sha)
+            return _ancestry_blocker(
+                repo_root, evidence_target_sha=evidence_target_sha, evaluated_target_sha=evaluated_target_sha,
+            )
+
+        with mock.patch.object(autonomy_evidence_module, "_ancestry_blocker", side_effect=ancestry):
             evidence = _derive_capability_evidence(
                 capability="cycle_runtime",
                 rows_by_surface=rows,
                 repo_root=self.repo,
-                target_sha=self.event_sha,
+                target_sha=target_sha,
                 state_commit="b" * 40,
                 _test_evaluator_repo_root=self.repo,
             )
-        self.assertIn(
-            "proof_distinct_sha_budget_exceeded:cycle_runtime",
-            evidence.blockers,
-        )
+        return evidence, searched
+
+    def test_a_capability_stays_live_past_any_number_of_proof_targets(self) -> None:
+        """300 distinct proof targets used to exceed the 128 budget and latch
+        cycle_runtime declared for good; the newest witness now proves it."""
+        target_sha = self._commit("README.md", "descendant\n", "descendant")
+        evidence, searched = self._derive_counting_history(self._many_targets(299, real_first=False), target_sha)
+        self.assertEqual(evidence.state, "live_proven", evidence.blockers)
+        self.assertEqual([ref.evidence_target_sha for ref in evidence.evidence_refs], [self.event_sha])
+        self.assertEqual(evidence.counts["admissible"], 300)
+        self.assertEqual(sum(evidence.proof_cardinality.values()), 1)
+        # The newest witness proves it; nothing older is searched.
+        self.assertEqual(searched, [self.event_sha])
+        self.assertFalse(any("budget" in blocker for blocker in evidence.blockers))
+
+    def test_old_proof_targets_age_out_of_the_witness_window(self) -> None:
+        target_sha = self._commit("README.md", "descendant\n", "descendant")
+        evidence, searched = self._derive_counting_history(self._many_targets(300, real_first=True), target_sha)
+        self.assertEqual(evidence.state, "declared")
+        self.assertFalse(any("budget" in blocker for blocker in evidence.blockers), evidence.blockers)
+        self.assertIn("git_evidence_commit_unavailable", evidence.blockers)
+        # The real proof is older than the window: it aged out, and only the
+        # newest ``window`` targets are searched, newest first.
+        window = autonomy_evidence_module._WITNESS_WINDOW
+        self.assertEqual(searched, [f"{index:040x}" for index in range(300, 300 - window, -1)])
 
     def test_complete_history_non_ancestor_is_rejected(self) -> None:
         target_sha = self._commit("target.txt", "target\n", "target")
@@ -3837,6 +3881,65 @@ class TargetBoundGitProofTests(unittest.TestCase):
         self.assertEqual(evidence.state, "declared")
         self.assertIn("git_history_unavailable_shallow", evidence.blockers)
         self.assertNotIn("proof_non_ancestor", evidence.blockers)
+
+
+class WitnessWindowFoldTests(unittest.TestCase):
+    """ARIA-HIGH-295 — the streamed fold keeps each contract's newest witnesses."""
+
+    @staticmethod
+    def _cycle(sha: str, number: int) -> dict[str, Any]:
+        return {
+            "schema_version": 3, "cycle_id": f"cycle-{number}", "event": "completed", "status": "completed",
+            "git_head_sha_at_cycle": sha, "ledger_hash": f"sha256:{number:064x}",
+        }
+
+    @staticmethod
+    def _result(sha: str, number: int) -> dict[str, Any]:
+        return {
+            "$schema": "aria/agent-claim-result/v1", "schema_version": 1, "row_id": f"result:{number}",
+            "status": "accepted", "target_sha": sha, "ledger_hash": f"sha256:{number:064x}",
+        }
+
+    @staticmethod
+    def _targets(summary: Any) -> dict[str, list[tuple[str, int]]]:
+        return {
+            contract.surface: [(target.candidate.evidence_target_sha, target.admissible_count) for target in targets]
+            for contract, targets in summary.targets_by_contract.items()
+        }
+
+    def test_no_history_exhausts_a_budget(self) -> None:
+        """600 distinct targets across two capabilities used to fill the
+        per-capability (128) and global (256) budgets with the OLDEST SHAs."""
+        accumulator = autonomy_evidence_module._StreamingEvidenceAccumulator()
+        for number in range(1, 301):
+            accumulator.consume("cycles", self._cycle(f"{number:040x}", number))
+            accumulator.consume("agent_invocation_results", self._result(f"{number + 1000:040x}", number))
+        summaries = accumulator.native_summaries()
+        # The newest witness of each is kept; the budget kept the oldest.
+        for capability, newest_sha in (("cycle_runtime", f"{300:040x}"), ("executor", f"{1300:040x}")):
+            retained = [sha for targets in self._targets(summaries[capability]).values() for sha, _count in targets]
+            self.assertIn(newest_sha, retained, capability)
+        window = autonomy_evidence_module._WITNESS_WINDOW
+        newest = list(range(301 - window, 301))
+        self.assertEqual(
+            self._targets(summaries["cycle_runtime"]),
+            {"cycles": [(f"{number:040x}", 1) for number in newest]},
+        )
+        self.assertEqual(
+            self._targets(summaries["executor"]),
+            {"agent_invocation_results": [(f"{number + 1000:040x}", 1) for number in newest]},
+        )
+
+    def test_a_witness_seen_again_is_newest_and_an_evicted_one_starts_over(self) -> None:
+        accumulator = autonomy_evidence_module._StreamingEvidenceAccumulator()
+        with mock.patch.object(autonomy_evidence_module, "_WITNESS_WINDOW", 3):
+            for number, sha in enumerate(("a", "b", "a", "c", "d", "e", "a"), start=1):
+                accumulator.consume("cycles", self._cycle(sha * 40, number))
+        # a (twice) and b leave once c, d, e are newer; a re-enters with one.
+        self.assertEqual(
+            self._targets(accumulator.native_summaries()["cycle_runtime"]),
+            {"cycles": [("d" * 40, 1), ("e" * 40, 1), ("a" * 40, 1)]},
+        )
 
 
 class ReadOnlyStateAdmissionTests(unittest.TestCase):

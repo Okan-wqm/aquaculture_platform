@@ -102,7 +102,6 @@ def _native(summary: Any) -> dict[str, Any]:
     return {
         "counts": dict(summary.counts),
         "blockers": list(summary.blockers),
-        "budget_exceeded": [summary.distinct_target_budget_exceeded, summary.global_target_budget_exceeded],
         "targets": {
             contract.surface: sorted(
                 [
@@ -147,6 +146,11 @@ def projection(capability: str) -> dict[str, Any]:
     folded: dict[str, Any] = {
         "contracts": [_contract(contract) for contract in spec.contracts],
         "count_surfaces": list(spec.count_surfaces),
+        # ARIA-HIGH-295 — a capability with target-bound proofs is judged on this many newest witnesses.
+        "witness_window": (
+            evidence._WITNESS_WINDOW
+            if any(contract.authoritative_sha_field for contract in spec.contracts) else None
+        ),
     }
     for name, rows in sorted(streams.items()):
         folded[name] = _view(capability, _fold(rows))
@@ -177,7 +181,7 @@ def fold_projection() -> dict[str, Any]:
     checkpoint recorded under that version is merged as if folded now.
     """
     carried = sorted(evidence._CARRIED_COUNT_SURFACES)
-    folded: dict[str, Any] = {"carried_surfaces": carried}
+    folded: dict[str, Any] = {"carried_surfaces": carried, "witness_window": evidence._WITNESS_WINDOW}
     for name, rows in sorted(_streams().items()):
         checkpoints = {
             surface: _fold([row for row in rows if row[0] == surface]).carried_state(surface)
@@ -399,6 +403,19 @@ class CapabilitySemanticEquivalenceTests(unittest.TestCase):
         self.assertEqual(carried, set(evidence._CARRIED_COUNT_SURFACES))
         # The K3 segment-opening row is chain structure, never a counted row.
         self.assertEqual(folded["executor"]["main"]["surface_counts"]["agent_invocation_requests"], 3)
+        # ARIA-HIGH-295 — the window stream overfills cycle_runtime's witness
+        # window: the two oldest targets age out, one of them is witnessed
+        # again and starts over, and one in the window is witnessed again.
+        window = evidence._WITNESS_WINDOW
+        kept = {row[0]: row[5] for row in folded["cycle_runtime"]["window"]["native"]["targets"]["cycles"]}
+        self.assertEqual(len(kept), window)
+        self.assertNotIn(f"f{2:039x}", kept)
+        self.assertEqual((kept[f"f{1:039x}"], kept[f"f{window + 2:039x}"]), (1, 2))
+        # A witness ledger's checkpoint carries its window.
+        self.assertEqual(
+            len(folded["cycle_runtime"]["carried"]["cycles"]["witnesses"]["cycle_runtime"]["cycles"]),
+            len(folded["cycle_runtime"]["main"]["native"]["targets"]["cycles"]),
+        )
 
     def test_every_capability_folds_the_corpus_as_pinned_for_its_declared_authority(self) -> None:
         self.assertEqual(mismatches(), {})
@@ -473,6 +490,27 @@ class CapabilitySemanticEquivalenceTests(unittest.TestCase):
         bumped = json.loads(json.dumps(evidence._DECLARED_SEMANTICS))
         bumped["evidence_fold_version"] += 1
         self.assertIn("no pin for fold@", fold_mismatch(bumped) or "")
+
+    def test_a_witness_ledger_is_one_claim(self) -> None:
+        """A contract's witness window is carried whole by its ledger's one
+        claim (ARIA-HIGH-295): windows of two segments cannot be combined
+        into the window of their concatenation, so merge_carried refuses a
+        second one by name. Segmenting a witness ledger fails here first."""
+        from aria_kernel.ledger import SEGMENTED_LEDGERS
+
+        witnessed = {
+            contract.surface
+            for spec in evidence.CAPABILITY_SPECS.values()
+            for contract in spec.contracts
+            if contract.authoritative_sha_field is not None
+        }
+        self.assertEqual(witnessed & set(SEGMENTED_LEDGERS), set())
+        rows = [row for row in _streams()["main"] if row[0] == "cycles"]
+        state = _fold(rows).carried_state("cycles")
+        twice = evidence._StreamingEvidenceAccumulator()
+        twice.merge_carried(state, "cycles")
+        with self.assertRaisesRegex(RuntimeError, "^state_commit_evidence_checkpoint_invalid:cycles$"):
+            twice.merge_carried(state, "cycles")
 
     # -- producers, pinned by what their rows mean per declared schema version --
 

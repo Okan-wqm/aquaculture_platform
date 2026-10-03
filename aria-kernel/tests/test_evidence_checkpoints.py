@@ -323,6 +323,65 @@ class EvidenceCheckpointTests(unittest.TestCase):
             self._publish(store)
         self.assertIn("state_commit_evidence_checkpoints_rewritten", str(refused.exception))
 
+    # -- ARIA-HIGH-295: the witness ledgers are carried, windows included --
+
+    def _append_witnesses(self, store: Any, round_number: int) -> None:
+        """Two new proof targets per round on cycles and on results; round 4
+        re-witnesses a cycle target long evicted and a result target still in
+        the window."""
+        tools = tools_root(store)
+        shas = [f"{round_number * 10 + offset:040x}" for offset in (1, 2)]
+        cycle_shas = shas + ([f"{11:040x}"] if round_number == 4 else [])
+        result_shas = shas + ([f"{32:040x}"] if round_number == 4 else [])
+        for index, sha in enumerate(cycle_shas):
+            append_declared_jsonl(tools / "cycles.jsonl", {
+                "schema_version": 3, "cycle_id": f"witness-{round_number}-{index}", "event": "completed",
+                "status": "completed", "git_head_sha_at_cycle": sha,
+            }, expected_surface="cycles", bypass_profile_gate=True)
+        for index, sha in enumerate(result_shas):
+            append_declared_jsonl(tools / "agent-invocations" / "results.jsonl", {
+                "$schema": "aria/agent-claim-result/v1", "schema_version": 1, "row_type": "result",
+                "row_id": f"result:witness-{round_number}-{index}", "status": "accepted", "target_sha": sha,
+            }, expected_surface="agent_invocation_results", bypass_profile_gate=True)
+
+    def test_witness_windows_carried_by_checkpoints_equal_a_full_re_read(self) -> None:
+        with mock.patch.object(evidence, "_WITNESS_WINDOW", 3):
+            store = self._store()
+            commits: list[str] = []
+            for round_number in range(1, 6):
+                self._append_witnesses(store, round_number)
+                self._append_requests(store, 1)
+                self.assertTrue(self._publish(store)["published"])
+                commits.append(_git(store.root, "rev-parse", "HEAD"))
+            carried = {row["surface_key"] for row in self._checkpoint_rows(store)}
+            self.assertLessEqual({"cycles", "agent_invocation_results"}, carried)
+            for commit in commits:
+                accumulator = self._verify(store, commit)
+                with mock.patch.object(evidence, "_carried_claim_cursors", lambda **_: ({}, 0)):
+                    full = self._projection(self._verify(store, commit))
+                self.assertEqual(self._projection(accumulator), full, commit)
+            # The last commit folded its witness ledgers from checkpoints, and
+            # its windows hold the three most recently witnessed targets of each.
+            claims = self._claims(store)
+            self.assertLess(
+                accumulator.evidence_input_bytes,
+                self._counted_bytes(claims) + claims[evidence.EVIDENCE_CHECKPOINT_SURFACE]["size_bytes"],
+            )
+            windows = {
+                capability: [
+                    (target.candidate.evidence_target_sha, target.admissible_count)
+                    for targets in summary.targets_by_contract.values() for target in targets
+                ]
+                for capability, summary in accumulator.native_summaries().items()
+                if capability in {"cycle_runtime", "executor"}
+            }
+            self.assertEqual(windows, {
+                # 11 was evicted in round 2 and witnessed again in round 4.
+                "cycle_runtime": [(f"{11:040x}", 1), (f"{51:040x}", 1), (f"{52:040x}", 1)],
+                # 32 was witnessed again in round 4 while still in the window.
+                "executor": [(f"{32:040x}", 2), (f"{51:040x}", 1), (f"{52:040x}", 1)],
+            })
+
     # -- ARIA-HIGH-286: rebuilding checkpoints never needs more than a slice --
 
     @staticmethod
@@ -472,7 +531,6 @@ class EvidenceCheckpointTests(unittest.TestCase):
             capability: {
                 "counts": dict(summary.counts),
                 "blockers": list(summary.blockers),
-                "budgets": [summary.distinct_target_budget_exceeded, summary.global_target_budget_exceeded],
                 "targets": {
                     contract.surface: [
                         [

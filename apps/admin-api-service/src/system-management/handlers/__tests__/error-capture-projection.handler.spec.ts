@@ -6,10 +6,23 @@
  * row: the only entry point was a `security-ops`-gated POST that a crashing
  * service cannot authenticate to.
  */
+import {
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { Test } from '@nestjs/testing';
-import type { ServiceErrorCapturedEvent } from '@platform/event-contracts';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import {
+  PLATFORM_EVENT_TENANT_ID,
+  type ServiceErrorCapturedEvent,
+} from '@platform/event-contracts';
 
-import { ErrorSeverity } from '../../entities/error-tracking.entity';
+import {
+  ErrorAlertRule,
+  ErrorGroup,
+  ErrorOccurrence,
+  ErrorSeverity,
+} from '../../entities/error-tracking.entity';
 import { ErrorTrackingService } from '../../services/error-tracking.service';
 import { ErrorCaptureProjectionHandler } from '../error-capture-projection.handler';
 
@@ -82,14 +95,27 @@ describe('ErrorCaptureProjectionHandler', () => {
     expect(errorTracking.reportError.mock.calls[0][0].severity).toBe(ErrorSeverity.CRITICAL);
   });
 
-  it("treats the wire's empty tenant as absent — the column is uuid, not text", async () => {
-    // A platform-level failure belongs to no tenant and travels with '' so the
-    // bus derives the events.system.* subject. '' is not a uuid.
+  it('stores a platform-level failure with no tenant — the column is uuid, not text', async () => {
+    // OBS-HIGH-009: a tenant-less failure carries the contract's one platform
+    // segment, the same one the bus routes events.system.* on.
     const { handler, errorTracking } = await build();
 
-    await handler.onServiceErrorCaptured(captured({ tenantId: '' }));
+    await handler.onServiceErrorCaptured(captured({ tenantId: PLATFORM_EVENT_TENANT_ID }));
 
+    expect(errorTracking.reportError).toHaveBeenCalledTimes(1);
     expect(errorTracking.reportError.mock.calls[0][0].tenantId).toBeUndefined();
+  });
+
+  it("refuses '' rather than reading a second platform spelling as no tenant", async () => {
+    // '' was the interceptor's private sentinel; the bus refused every one of
+    // them. Parsing through the contract keeps it from ever becoming a row.
+    const { handler, errorTracking } = await build();
+
+    await expect(handler.onServiceErrorCaptured(captured({ tenantId: '' }))).resolves.toEqual({
+      kind: 'ack',
+      reason: expect.stringMatching(/tenantId must be a UUID or the platform segment "system"/),
+    });
+    expect(errorTracking.reportError).not.toHaveBeenCalled();
   });
 
   it('drops a userId that is not a uuid rather than failing the insert', async () => {
@@ -126,5 +152,60 @@ describe('ErrorCaptureProjectionHandler', () => {
       kind: 'ack',
       reason: 'projection failed: db down',
     });
+  });
+});
+
+/**
+ * OBS-HIGH-009, end to end inside admin-api: a platform-level capture folds
+ * into an `admin.error_groups` row through the REAL ErrorTrackingService; only
+ * the repositories are doubles. Production had 0 rows.
+ */
+describe('ErrorCaptureProjectionHandler → admin.error_groups (OBS-HIGH-009)', () => {
+  const GROUP_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+
+  const passThroughScheduledJobs: ScheduledJobExecutor = {
+    run: async (_job, body) => {
+      await body();
+      return 'ran';
+    },
+  };
+
+  it('writes a platform-level failure as a group with no affected tenant', async () => {
+    const groupRepo = {
+      query: jest.fn().mockResolvedValue([{ id: GROUP_ID, inserted: true }]),
+      findOneBy: jest.fn().mockResolvedValue({ id: GROUP_ID, occurrenceCount: 1 }),
+    };
+    const occurrenceRepo = {
+      create: jest.fn((entity: Partial<ErrorOccurrence>) => entity),
+      save: jest.fn((entity: Partial<ErrorOccurrence>) => Promise.resolve(entity)),
+    };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ErrorCaptureProjectionHandler,
+        ErrorTrackingService,
+        { provide: ScheduledJobRunner, useValue: passThroughScheduledJobs },
+        { provide: getRepositoryToken(ErrorGroup), useValue: groupRepo },
+        { provide: getRepositoryToken(ErrorOccurrence), useValue: occurrenceRepo },
+        {
+          provide: getRepositoryToken(ErrorAlertRule),
+          useValue: { find: jest.fn().mockResolvedValue([]) },
+        },
+      ],
+    }).compile();
+    const handler = moduleRef.get(ErrorCaptureProjectionHandler);
+
+    await expect(
+      handler.onServiceErrorCaptured(captured({ tenantId: PLATFORM_EVENT_TENANT_ID })),
+    ).resolves.toEqual({ kind: 'ack' });
+
+    expect(groupRepo.query).toHaveBeenCalledTimes(1);
+    const [sql, params] = groupRepo.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('INSERT INTO "admin"."error_groups"');
+    // $8 is the affected tenant: NULL keeps affectedTenants '[]'.
+    expect(params[7]).toBeNull();
+    expect(occurrenceRepo.save).toHaveBeenCalledTimes(1);
+    expect(occurrenceRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ groupId: GROUP_ID, service: 'farm-service', tenantId: undefined }),
+    );
   });
 });

@@ -42,8 +42,9 @@ transport could not express.
 FF-only is not enforced by a flag this module sets. It is what a plain
 ``git push`` already is: the server rejects a non-fast-forward update.
 This module's contribution is to never reach for the escape hatch, and
-``tests/test_state_store.py::ForceIsNotReachable`` holds the single push
-callsite to that over the AST. A server-side ruleset on ``aria/state``
+``tests/test_state_store.py::ForceIsNotReachable`` holds both push
+callsites (``aria/state`` and its cold store) to that over the AST. A
+server-side ruleset on ``aria/state`` (and ``aria/state-cold``)
 closes the same door against writers that are not this module; that is
 operator setup, not a precondition for this path being correct.
 """
@@ -58,13 +59,14 @@ import selectors
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .ledger import (
     StateTransaction,
@@ -89,6 +91,7 @@ from .state_snapshot import (
     MAX_SNAPSHOT_JSON_BYTES,
     SNAPSHOT_MAX_LEDGER_LINE_BYTES,
     SNAPSHOT_MAX_LEDGER_ROWS,
+    STATE_SIZE_ALARM_BYTES,
     SnapshotError,
     _bounded_regular_file_chunks,
     build_snapshot,
@@ -97,6 +100,9 @@ from .state_snapshot import (
     validate_snapshot_manifest,
     verify_manifest_root,
 )
+
+if TYPE_CHECKING:
+    from .state_compact import ColdStaging
 
 STATE_BRANCH = "aria/state"
 STORE_DIRNAME = ".aria-state-store"
@@ -1847,6 +1853,7 @@ def _runtime_artifacts_verdict_summary(verdict: dict[str, Any]) -> dict[str, Any
         "status": verdict.get("status"),
         "verified_artifact_count": int(verdict.get("verified_artifact_count") or 0),
         "compacted_artifact_count": int(verdict.get("compacted_artifact_count") or 0),
+        "evicted_artifact_count": int(verdict.get("evicted_artifact_count") or 0),
     }
 
 
@@ -1917,6 +1924,8 @@ class PreparedPublish:
     # ARIA-MEDIUM-230 — what bounding the compactable ledgers did before the
     # snapshot was built (`state_compact.bound_compactable_surfaces`).
     compaction: dict[str, Any]
+    # ARIA-HIGH-274 — what evicting the staged cycles to the cold store did.
+    cold_eviction: dict[str, Any]
 
 
 def prepare_publishable_snapshot(
@@ -1927,6 +1936,7 @@ def prepare_publishable_snapshot(
     lane: str,
     repo_hash: str,
     parent_commit: str | None = None,
+    cold: ColdStaging | None = None,
 ) -> PreparedPublish:
     """The one publish preamble: bind the base, heal, record, build.
 
@@ -1946,6 +1956,9 @@ def prepare_publishable_snapshot(
        still over the per-surface cap refuses the publish BY NAME — the
        bound lives here because this is the one step every publisher runs,
        whether or not the cycle that grew the ledger reached its end;
+    3a. the cycles the pre-lock half put in the cold store (``cold``, a
+       ``state_compact.ColdStaging``) are evicted: pointer rows first, then
+       the files (ARIA-HIGH-274) — on a replay attempt, onto the winner's tree;
     3b. the snapshot is built from the healed, bounded store;
     4. if that snapshot loses surfaces nothing attested and the operator's
        acknowledgment names this repository, the acceptance is recorded on
@@ -1979,6 +1992,7 @@ def prepare_publishable_snapshot(
             base_head=base_head,
         )
         compaction = _bound_publish_surfaces(store)
+        cold_eviction = _evict_staged_to_cold(store, cold) if cold is not None else {}
 
         def build() -> dict[str, Any]:
             return build_publishable_snapshot(
@@ -2006,6 +2020,7 @@ def prepare_publishable_snapshot(
             dropped_inherited_entries=tuple(dropped),
             accepted_losses_recorded=accepted,
             compaction=compaction,
+            cold_eviction=cold_eviction,
         )
 
 
@@ -2028,6 +2043,150 @@ def _bound_publish_surfaces(store: StateStore) -> dict[str, Any]:
         raise StateStoreRefusal(
             f"state_publish_compaction_failed:{type(exc).__name__}:{str(exc)[:300]}"
         ) from exc
+
+
+# ---- ARIA-HIGH-274 — the cold store ------------------------------------------
+COLD_PUSH_ATTEMPTS = 3
+
+
+def cold_branch(branch: str) -> str:
+    """The content-addressed cold store of a state branch (``aria/state-cold``)."""
+    return f"{branch}-cold"
+
+
+def _evict_staged_to_cold(store: StateStore, cold: ColdStaging) -> dict[str, Any]:
+    """`state_compact.evict_to_cold`; a profile refusal or a pointer conflict
+    evicts nothing and blocks nothing."""
+    from .ledger import LedgerIntegrityError
+    from .state_compact import evict_to_cold
+    from .tool_registry import GovernanceError
+
+    try:
+        return evict_to_cold(tools_root(store), cold)
+    except GovernanceError as exc:
+        return {"status": "skipped", "reason": str(exc)[:300]}
+    except LedgerIntegrityError as exc:
+        raise StateStoreRefusal(f"state_publish_cold_pointers_unreadable:{str(exc)[:300]}") from exc
+
+
+def _stage_cold_eviction(store: StateStore) -> tuple[ColdStaging | None, dict[str, Any]]:
+    """The pre-lock half: put every evictable cycle in the cold store. Outside
+    the lifecycle lock (its fetch and push are no lifecycle step) and never
+    blocking: a cold failure leaves every file hot for this publish."""
+    from .state_compact import ColdStaging, cold_eviction_candidates
+
+    if _lifecycle_lock_held_by_this_thread():
+        return None, {"status": "skipped", "reason": "lifecycle_lock_held"}
+    root = tools_root(store)
+    try:
+        candidates = cold_eviction_candidates(root)
+        if not candidates:
+            return None, {"status": "nothing_to_evict"}
+        cycles = _write_cold_blobs(store, root, candidates)
+        commit = _push_cold_union(store, [row for rows in cycles.values() for row in rows])
+    except (StateStoreError, OSError) as exc:
+        return None, {"status": "cold_failed", "reason": str(exc)[:300]}
+    return ColdStaging(commit=commit, cycles=cycles), {"status": "staged", "cold_commit": commit}
+
+
+def _write_cold_blobs(
+    store: StateStore, root: Path, candidates: dict[str, list[tuple[str, Path]]],
+) -> dict[str, tuple[dict[str, Any], ...]]:
+    """``hash-object -w`` every candidate; its pointer rows by cycle dir. Each
+    blob id is recomputed from the bytes the sha256 covers: a file that changed
+    under git refuses the staging rather than point a sha256 at other bytes."""
+    fmt = _git(store.root, "rev-parse", "--show-object-format").strip()
+    flat = [(cycle_dir, surface, path) for cycle_dir, files in candidates.items() for surface, path in files]
+    blobs = _git(store.root, "hash-object", "-w", "--no-filters", "--", *(str(path) for _d, _s, path in flat)).split()
+    if len(blobs) != len(flat):
+        raise StateStoreError("state_cold_hash_object_incomplete")
+    cycles: dict[str, list[dict[str, Any]]] = {}
+    for (cycle_dir, surface, path), blob in zip(flat, blobs):
+        data = path.read_bytes()
+        if hashlib.new(fmt, b"blob %d\0" % len(data) + data).hexdigest() != blob:
+            raise StateStoreError(f"state_cold_source_changed: {path.relative_to(root).as_posix()}")
+        digest = hashlib.sha256(data).hexdigest()
+        cycles.setdefault(cycle_dir, []).append({
+            "uri": path.relative_to(root).as_posix(), "surface": surface,
+            "cycle_id": cycle_dir.rsplit("/", 1)[1], "sha256": f"sha256:{digest}",
+            "size": len(data), "git_blob": blob, "cold_path": f"sha256/{digest[:2]}/{digest}",
+        })
+    return {cycle_dir: tuple(rows) for cycle_dir, rows in cycles.items()}
+
+
+def _push_cold_union(store: StateStore, rows: list[dict[str, Any]]) -> str:
+    """The cold commit holding every row's blob: the union of the remote tip's
+    tree and the rows' ``cold_path``, committed ON the tip and pushed by exact
+    sha, never forced; a rejection refetches and rebuilds the union."""
+    branch = cold_branch(store.branch)
+    detail = ""
+    for _attempt in range(COLD_PUSH_ATTEMPTS):
+        probe = _probe_remote_tip_at(store.root, remote=store.remote, branch=branch)
+        if probe.status not in {"present", "absent"}:
+            raise StateStoreError(f"state_cold_tip_unavailable: {probe.status} {probe.detail}")
+        tip = _fetch_remote_branch_tip_at(
+            store.root, remote=store.remote, branch=branch, error_prefix="state_cold_fetch_failed",
+        ) if probe.status == "present" else None
+        commit = _cold_union_commit(store, tip, rows)
+        if commit == tip:
+            return commit
+        proc = _run_git(store.root, ("push", store.remote, f"{commit}:refs/heads/{branch}"))
+        if proc.returncode == 0:
+            return commit
+        detail = proc.stderr.strip()[:300]
+    raise StateStoreError(f"state_cold_push_rejected: {COLD_PUSH_ATTEMPTS} attempts ({detail})")
+
+
+def _cold_union_commit(store: StateStore, tip: str | None, rows: list[dict[str, Any]]) -> str:
+    """The tip's tree plus every ``cold_path``, built in a scratch index — or
+    the tip itself when it already holds them all (a replay, a crash retry)."""
+    with tempfile.TemporaryDirectory(prefix="aria-cold-index-") as scratch:
+        index = Path(scratch) / "index"
+        _git_in_index(store.root, index, "read-tree", tip or "--empty")
+        _git_in_index(store.root, index, "update-index", "--add", *(
+            arg for row in rows for arg in ("--cacheinfo", f"100644,{row['git_blob']},{row['cold_path']}")
+        ))
+        tree = _git_in_index(store.root, index, "write-tree").strip()
+    if tip is not None and tree == _git(store.root, "rev-parse", f"{tip}^{{tree}}").strip():
+        return tip
+    return _git(
+        store.root, "-c", f"user.name={COMMITTER_NAME}", "-c", f"user.email={COMMITTER_EMAIL}",
+        "-c", "commit.gpgsign=false", "commit-tree", tree, *(("-p", tip) if tip else ()),
+        "-m", f"chore(aria-state-cold): {len(rows)} evicted blob(s)",
+    ).strip()
+
+
+def _git_in_index(cwd: Path, index_file: Path, *args: str) -> str:
+    """``_git`` against a scratch index, never the store's own."""
+    raw = _run_git_bytes_bounded(cwd, args, stdout_limit=_MAX_GIT_OUTPUT_BYTES, stderr_limit=_MAX_GIT_STDERR_BYTES,
+                                 budget_error="state_store_git_output_budget_exceeded", index_file=index_file)
+    if raw.returncode != 0:
+        raise StateStoreError(f"state_store_git_failed: git {args[0]} -> {raw.stderr.decode('utf-8', 'replace')[:300]}")
+    return raw.stdout.decode("utf-8")
+
+
+def fetch_cold_store(root: Path, *, remote: str = "origin") -> str:
+    """Fetch the cold store of ``root``'s lineage branch; its tip. For the
+    operator verb `runtime_artifacts.restore_artifact`, never under a lock."""
+    lineage = store_lineage_branch(root)
+    if lineage is None:
+        raise StateStoreError("state_cold_branch_unresolvable: the store's lineage names no branch")
+    return _fetch_remote_branch_tip_at(
+        root, remote=remote, branch=cold_branch(lineage), error_prefix="state_cold_fetch_failed",
+    )
+
+
+def state_size_alarm(snapshot: dict[str, Any]) -> dict[str, Any] | None:
+    """``{total, top5}`` when the snapshot attests more than
+    ``STATE_SIZE_ALARM_BYTES``; None below it. Reported, never refused."""
+    sizes = sorted(
+        ((int(entry.get("size_bytes") or 0), key) for key, entry in (snapshot.get("surfaces") or {}).items()),
+        reverse=True,
+    )
+    total = sum(size for size, _key in sizes)
+    if total <= STATE_SIZE_ALARM_BYTES:
+        return None
+    return {"total": total, "threshold": STATE_SIZE_ALARM_BYTES, "top5": [[key, size] for size, key in sizes[:5]]}
 
 
 def _rows_unchanged_since_published(store: StateStore, prepared: PreparedPublish) -> bool:
@@ -2071,7 +2230,11 @@ def publish_with_contention_replay(
     rebuilds the loser's rows onto the winner's tree and pushes again, up
     to ``max_attempts``; and a store whose rows equal the published tip's
     commits nothing (``no_row_changes``).
+
+    ARIA-HIGH-274 — old cycles go to the cold store BEFORE the lock
+    (`_stage_cold_eviction`); every attempt's preamble evicts them under it.
     """
+    cold, cold_report = _stage_cold_eviction(store)
     with _state_store_lifecycle_lock(store.repo_root):
         return _publish_with_contention_replay_locked(
             store,
@@ -2081,6 +2244,8 @@ def publish_with_contention_replay(
             repo_hash=repo_hash,
             max_attempts=max_attempts,
             parent_commit=parent_commit,
+            cold=cold,
+            cold_report=cold_report,
         )
 
 
@@ -2093,6 +2258,8 @@ def _publish_with_contention_replay_locked(
     repo_hash: str,
     max_attempts: int = PUBLISH_MAX_ATTEMPTS,
     parent_commit: str | None = None,
+    cold: ColdStaging | None = None,
+    cold_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Publish, and on a lost race rebuild onto the winner and try again.
 
@@ -2127,6 +2294,8 @@ def _publish_with_contention_replay_locked(
     # ARIA-MEDIUM-230 — what bounding the compactable ledgers did, per
     # attempt (a replayed attempt re-prepares, so it re-bounds).
     compactions: list[dict[str, Any]] = []
+    # ARIA-HIGH-274 — the staging report, then what each attempt evicted.
+    cold_eviction: dict[str, Any] = {**(cold_report or {}), "evictions": []}
     for attempt in range(1, max_attempts + 1):
         if _read_commit_ref(store.root, "HEAD") is None:
             raise StatePublishOutcomeUnknown(
@@ -2141,7 +2310,9 @@ def _publish_with_contention_replay_locked(
             lane=lane,
             repo_hash=repo_hash,
             parent_commit=parent_commit,
+            cold=cold,
         )
+        cold_eviction["evictions"].append(prepared.cold_eviction)
         dropped.extend(prepared.dropped_inherited_entries)
         compactions.append({key: value for key, value in prepared.compaction.items() if key != "result"})
         accepted.extend(prepared.accepted_losses_recorded)
@@ -2161,6 +2332,8 @@ def _publish_with_contention_replay_locked(
                 "dropped_inherited_entries": dropped,
                 "accepted_losses_recorded": accepted,
                 "state_compaction": compactions,
+                "cold_eviction": cold_eviction,
+                "size_alarm": state_size_alarm(snapshot),
             }
         try:
             result = publish_state(
@@ -2204,6 +2377,8 @@ def _publish_with_contention_replay_locked(
                     "dropped_inherited_entries": dropped,
                     "accepted_losses_recorded": accepted,
                     "state_compaction": compactions,
+                    "cold_eviction": cold_eviction,
+                    "size_alarm": state_size_alarm(snapshot),
                 }
             if attempt == max_attempts:
                 break
@@ -2247,6 +2422,8 @@ def _publish_with_contention_replay_locked(
             "dropped_inherited_entries": dropped,
             "accepted_losses_recorded": accepted,
             "state_compaction": compactions,
+            "cold_eviction": cold_eviction,
+            "size_alarm": state_size_alarm(snapshot),
         }
 
     raise StateStoreRefusal(
@@ -5883,6 +6060,7 @@ def _run_git_bytes_bounded(
     deadline_monotonic: float | None = None,
     strict_read_limits: bool = False,
     stdout_records_limit: int | None = None,
+    index_file: Path | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
     """Run Git while bounding both output pipes and reaping on every exit.
 
@@ -5925,7 +6103,9 @@ def _run_git_bytes_bounded(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+            # `index_file`: a scratch index (the cold union tree), never the store's.
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0",
+                 **({"GIT_INDEX_FILE": str(index_file)} if index_file is not None else {})},
             bufsize=0,
         )
     except OSError as exc:
@@ -6167,6 +6347,8 @@ __all__ = [
     "PreparedPublish",
     "build_publishable_snapshot",
     "checkout_state_store",
+    "cold_branch",
+    "fetch_cold_store",
     "findings_root",
     "prepare_publishable_snapshot",
     "publish_state",
@@ -6174,6 +6356,7 @@ __all__ = [
     "read_snapshot_at_worktree_head",
     "rebase_store_onto_remote",
     "snapshot_path",
+    "state_size_alarm",
     "store_environment",
     "store_roots",
     "tools_root",

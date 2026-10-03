@@ -195,10 +195,11 @@ class RepositoryManifestTests(unittest.TestCase):
         self.assertIsNotNone(roles)
         self.assertEqual(roles[_OBSERVER], "observer")
         self.assertEqual(roles[_PR_VERDICT], "pr_verdict")
-        # ADR-0019: the trigger does not decide the role — the drain lane runs on
-        # workflow_run and still judges main. (The post-deploy "E2E Tests" lane
-        # this pinned first was removed with e2e-tests.yml in 68f120105.)
+        # ADR-0019: a workflow_run-triggered lane still judges main. The post-deploy
+        # "E2E Tests" lane this pinned was deleted with the E2E move off the
+        # production host (68f120105); the executor is the live lane of that kind.
         self.assertEqual(roles["aria-agent-executor"], "main_verdict")
+        self.assertNotIn("E2E Tests", roles)
         self.assertEqual(roles[_MAIN_VERDICT], "main_verdict")
 
 

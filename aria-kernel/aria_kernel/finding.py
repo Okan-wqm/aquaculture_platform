@@ -124,6 +124,19 @@ ORIGINATING_SKILL_ALLOWLIST: frozenset[str] = frozenset({
     # "aria-watchdog:rejection_repeat",
     # "aria-watchdog:phase_asymmetry",
 })
+# ARIA-HIGH-260 — the allowlisted origins whose producer is NOT an ARIA
+# component: the operator's own hand and the review registry
+# (docs/reviews/_registry/findings.jsonl, which report_ingestion reads and the
+# implementer cannot write — implementation_safety.READONLY_PATHS). Every
+# other origin (the watchdog, the judgment pipeline, the drift seeder, and
+# any detector added to the allowlist later) is ARIA observing itself, and a
+# record with no origin is read as ARIA's. The F_FINDING self-loop guard
+# (``finding_grounding``) reads this set; it must stay a subset of the
+# allowlist (pinned by tests/test_f_finding_loop_guards.py).
+EXTERNAL_ORIGINATING_SKILLS: frozenset[str] = frozenset({
+    "manual:operator",
+    "report_ingestion:external_pr",
+})
 
 SEVERITY_RANK = {"INFORMATIONAL": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
 SCHEMA_VERSION = 1

@@ -124,12 +124,22 @@
       "id": "e2e_reality",
       "operator_words": "gerçek akışların uçtan uca çalışması — çiftlik su kimyası ve mesajlaşma",
       "measured_by": "workflow_conclusions",
-      "workflows": ["E2E Tests", "E2E - Messaging Service"],
+      "workflows": ["E2E - Messaging Service"],
       "budget": {
         "e2e_red_count": 0
       },
-      "instrument_gap": "farm-water-chemistry-e2e işi dağıtım-bağımlı olduğundan bu boyuta yalnızca koştuğu geceler veri verir; ürün E2E'si ortam bekliyor.",
+      "instrument_gap": "farm-water-chemistry-e2e işi CI - Affected içinde, GraphQL mock'lu ve yalnız farm değişikliklerinde koşar; bu boyuta oy vermez. Gerçek ortamdaki ürün E2E'si e2e_real_environment boyutunda izlenir.",
       "rationale": "Birim testleri geçen ama gerçek akışta kırılan sistem, sözleşmesi olan hayaldir."
+    },
+    {
+      "id": "e2e_real_environment",
+      "operator_words": "E2E akışlar gerçek ortamda geçerli olacak",
+      "measured_by": "staging_e2e_workflow_conclusions",
+      "budget": {
+        "e2e_red_count": 0
+      },
+      "instrument_gap": "Gerçek ortamda koşan ürün E2E hattı yok: prod sunucusunda canlı satır yazan 'E2E Tests' hattı INFRA-CRITICAL-097 ile kaldırıldı; staging'in E2E sahipliği INFRA-CRITICAL-098'e bağlı. O hat oy verene dek bu boyut ölçüm aracı olmadığı için adıyla unknown raporlar.",
+      "rationale": "Gerçek ortamı ölçen hat yokken boyutu başka bir hatla yeşile çevirmek, A aşamasının 'hiçbir boyut unknown değil' ölçütünü kanıtsız geçirmek olur."
     },
     {
       "id": "performance",

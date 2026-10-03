@@ -1,0 +1,32 @@
+# ARIA T2 boundary (ADR-0023, K-2′; ARIA-HIGH-281).
+#
+# aria-t2-probe.timer (scripts/aria/runner-habitat/systemd/) runs
+# `aria-kernel habitat t2-probe` as gharunner every hour and publishes
+# aria_t2_boundary_* through node-exporter's textfile collector. A breach means
+# ARIA's runner can reach what makes an operator act (the operator key, sudo,
+# docker, a personal token, or a key the operator allowed-signers file enrols),
+# so every operator signature is suspect: it pages. A probe that stops
+# reporting is the watchdog going blind: it warns.
+groups:
+  - name: aria.t2.boundary
+    rules:
+      - alert: AriaT2BoundaryBreached
+        expr: aria_t2_boundary_held == 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "ARIA's runner (T2) can reach an operator capability"
+          description: 'The hourly T2 probe found the boundary breached; the aria_t2_boundary_violation series name each reason. Treat every operator signature since the last held probe as suspect.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/aria-t2-boundary.md'
+
+      - alert: AriaT2BoundaryProbeSilent
+        expr: |
+          absent(aria_t2_boundary_probe_timestamp_seconds)
+            or (time() - aria_t2_boundary_probe_timestamp_seconds) > 7200
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'The hourly T2 boundary probe has not reported for two hours'
+          description: 'aria-t2-probe.timer is not installed, not running, or failing before it writes its verdict; the T2 boundary is unmeasured.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/aria-t2-boundary.md'

@@ -47,7 +47,7 @@ Use standard severity levels: CRITICAL (tests hiding bugs/security gaps — bloc
 | Frontend tests | `web/*/src/**/*.spec.{ts,tsx}`, `*.test.{ts,tsx}` | Vitest 1.1.0, @testing-library/react |
 | E2E (Playwright) | `e2e/tests/**/*.spec.ts` | Playwright |
 | E2E (Jest) | `tests/e2e/**/*.spec.ts` | Jest |
-| CI pipelines | `.github/workflows/ci-*.yml`, `e2e-tests.yml` | GitHub Actions |
+| CI pipelines | `.github/workflows/ci-*.yml`, `e2e-messaging.yml` | GitHub Actions |
 | Coverage | `coverage/`, `apps/*/coverage/` | Istanbul/V8 |
 
 ## Domain Rules

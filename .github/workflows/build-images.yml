@@ -117,16 +117,26 @@ jobs:
             --requested-services "$REQUESTED_SERVICES" \
             --channel "$CHANNEL"
 
+      # Caller inputs and step outputs reach the script as env data, never as
+      # script text (INFRA-CRITICAL-080): a backquote or `$(` in a baseline ref
+      # or selection reason would otherwise execute inside this echo.
       - name: Publish selection summary
+        env:
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          SELECTION_REASON: ${{ steps.scope.outputs.selection_reason }}
+          DEPLOY_SERVICES: ${{ steps.scope.outputs.deploy_services || 'none' }}
+          FULL_DEPLOY: ${{ steps.scope.outputs.full_deploy }}
+          MIGRATION_REQUIRED: ${{ steps.scope.outputs.migration_required }}
         run: |
           {
             echo '### Image selection'
             echo ''
-            echo "- Range: \`${{ inputs.baseline_ref }}..${{ inputs.head_sha }}\`"
-            echo "- Reason: \`${{ steps.scope.outputs.selection_reason }}\`"
-            echo "- Services: \`${{ steps.scope.outputs.deploy_services || 'none' }}\`"
-            echo "- Full deploy: \`${{ steps.scope.outputs.full_deploy }}\`"
-            echo "- Migration required: \`${{ steps.scope.outputs.migration_required }}\`"
+            printf -- "- Range: \`%s..%s\`\n" "${BASELINE_REF}" "${HEAD_SHA}"
+            printf -- "- Reason: \`%s\`\n" "${SELECTION_REASON}"
+            printf -- "- Services: \`%s\`\n" "${DEPLOY_SERVICES}"
+            printf -- "- Full deploy: \`%s\`\n" "${FULL_DEPLOY}"
+            printf -- "- Migration required: \`%s\`\n" "${MIGRATION_REQUIRED}"
           } >> "$GITHUB_STEP_SUMMARY"
 
   build-backend-artifacts:
@@ -193,6 +203,8 @@ jobs:
       - name: Build selected Nx frontend artifacts
         env:
           FRONTEND_PROJECTS: ${{ needs.prepare.outputs.nx_frontend_projects }}
+          # Written into the artifact marker below as data (INFRA-CRITICAL-080).
+          HEAD_SHA: ${{ inputs.head_sha }}
           NODE_OPTIONS: --max-old-space-size=4096
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
@@ -206,7 +218,7 @@ jobs:
               --parallel=3
           fi
           mkdir -p web/.artifact-marker
-          printf '%s\n' "${{ inputs.head_sha }}" > web/.artifact-marker/source-sha
+          printf '%s\n' "${HEAD_SHA}" > web/.artifact-marker/source-sha
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -23,11 +23,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from .agent_eval import run_agent_eval
 from .genesis_lifecycle import record_transition
-from .ledger import load_declared_jsonl
+from .ledger import load_declared_jsonl, segment_rows
 from .ledger_refs import ledger_ref_for_row
 from .tool_registry import GovernanceError, ensure_tools_dir
 
@@ -36,13 +36,16 @@ def _rows(root: Path, ledger_path: str, surface: str) -> list[dict[str, Any]]:
     return load_declared_jsonl(root / ledger_path, expected_surface=surface)
 
 
+_Row = TypeVar("_Row")
+
+
 def _unique_row(
-    rows: list[dict[str, Any]],
-    predicate: Any,
+    rows: list[_Row],
+    predicate: Callable[[_Row], bool],
     *,
     what: str,
     key: str,
-) -> dict[str, Any]:
+) -> _Row:
     matches = [row for row in rows if predicate(row)]
     if not matches:
         raise GovernanceError(f"shadow_bridge_{what}_not_found:{key}")
@@ -143,9 +146,11 @@ def bridge_shadow_eval_from_invocation(
         key=invocation_id,
     )
     request_id = str(claim.get("request_id") or "")
-    request = _unique_row(
-        _rows(root, "agent-invocations/requests.jsonl", "agent_invocation_requests"),
-        lambda row: str(row.get("request_id") or "") == request_id,
+    # Segmented ledgers (ARIA-HIGH-275): the ref names the segment file the
+    # row lives in, which is the file its verifier re-reads.
+    request_ledger, request = _unique_row(
+        segment_rows(root, "agent_invocation_requests"),
+        lambda item: str(item[1].get("request_id") or "") == request_id,
         what="request",
         key=request_id,
     )
@@ -155,9 +160,9 @@ def bridge_shadow_eval_from_invocation(
         what="context",
         key=request_id,
     )
-    prompt = _unique_row(
-        _rows(root, "agent-invocations/prompts.jsonl", "agent_invocation_prompts"),
-        lambda row: str(row.get("request_id") or "") == request_id,
+    prompt_ledger, prompt = _unique_row(
+        segment_rows(root, "agent_invocation_prompts"),
+        lambda item: str(item[1].get("request_id") or "") == request_id,
         what="prompt",
         key=request_id,
     )
@@ -245,7 +250,7 @@ def bridge_shadow_eval_from_invocation(
         invocation_id=invocation_id,
         transcript_hash=transcript_hash,
         request_ledger_ref=_source_ref(
-            "agent_invocation_requests", "agent-invocations/requests.jsonl", request
+            "agent_invocation_requests", request_ledger, request
         ),
         claim_ledger_ref=_source_ref(
             "agent_invocation_claims", "agent-invocations/claims.jsonl", claim
@@ -254,7 +259,7 @@ def bridge_shadow_eval_from_invocation(
             "agent_invocation_contexts", "agent-invocations/contexts.jsonl", context
         ),
         prompt_ledger_ref=_source_ref(
-            "agent_invocation_prompts", "agent-invocations/prompts.jsonl", prompt
+            "agent_invocation_prompts", prompt_ledger, prompt
         ),
         result_ledger_ref=_source_ref(
             "agent_invocation_results", "agent-invocations/results.jsonl", result

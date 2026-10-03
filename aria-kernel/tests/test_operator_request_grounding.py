@@ -62,7 +62,8 @@ class _Fixture(unittest.TestCase):
         self.fx = OperatorRequestFixture(Path(self.tmp.name))
 
     def context(self) -> fg.GroundingContext:
-        return fg.load_grounding_context(self.fx.repo)
+        # ARIA-HIGH-260 — the store's loop history, which the aging F source is judged against.
+        return fg.load_grounding_context(self.fx.repo, tools_root=self.fx.tools)
 
     def _candidate(self, finding_id: str, request_id: str, **record) -> dict:
         self.fx.record(finding_id=finding_id, request_id=request_id, **record)
@@ -250,7 +251,7 @@ class FindingBodyNeverReachesThePlanTests(_Fixture):
 
 
 class ProviderTests(_Fixture):
-    def _failing_ci(self, _workspace) -> list[dict]:
+    def _failing_ci(self, _workspace, *, base_dir=None, cycle_id=None) -> list[dict]:
         return [{"source_type": "failing_ci", "candidate_id": "ci-run-1", "workflow_name": "CI",
                  "head_sha": "a" * 40, "created_at": "2026-10-02T00:00:00Z", "title_hint": "Fix CI"}]
 

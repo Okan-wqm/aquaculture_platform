@@ -68,6 +68,10 @@ REMOVED_ROLES = (
     # kernel). Program rev3.1 deletes it; blind enumeration (K42) re-adds a
     # role only when its evidence trigger fires.
     "gap_finding",
+    # Its executor twin, same shape (ORPHAN-MEDIUM-836): `gap_closure` was
+    # budgeted beside `implementation` and never minted; the acceptance-lane
+    # gap closer is an operator-driven dispatch outside the kernel.
+    "gap_closure",
 )
 
 

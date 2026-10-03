@@ -38,7 +38,12 @@ EVENT_TYPES = {
     "revision_recorded",
     "plan_evaluated",
     "plan_abandoned",
-    "lock_reaped",
+    # `lock_reaped` — RETIRED (ORPHAN-MEDIUM-838): it had a payload validator
+    # and no emitter. `_reap_stale_lock` records nothing, and a lock reap
+    # belongs to no plan; the sibling reapers (tools root, migration) record
+    # one as a governance row. Retired before any events.jsonl row used it —
+    # the one moment this door allows. Pinned by
+    # tests/invariants/v9/test_phase_v9_0_b_event_state_machine.py.
     # Plan ARIA-V9.0-B — implementation-phase event types. Adding a
     # new event type beyond this set is a one-way door (every row in
     # events.jsonl is now signed by content_hash; renaming a kind
@@ -2650,10 +2655,6 @@ def _validate_event(event: dict[str, Any]) -> None:
     elif event_type == "plan_abandoned":
         _require_non_empty(payload.get("reason"), "reason")
         _require_non_empty(payload.get("abandoned_from_state"), "abandoned_from_state")
-    elif event_type == "lock_reaped":
-        for field in ("stale_lock_pid", "lock_age_seconds", "reaped_by_pid"):
-            if not isinstance(payload.get(field), int):
-                raise GovernanceError(f"lock_reaped {field} must be an integer")
     # Plan ARIA-V9.0-B — implementation-phase event payload validators.
     # State preconditions live in _apply_event (the reducer), not here
     # — _validate_event is shape-only because validation runs once per

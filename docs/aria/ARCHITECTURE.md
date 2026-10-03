@@ -655,14 +655,12 @@ flowchart LR
 
 ```mermaid
 stateDiagram-v2
-  [*] --> DRAFT
-  DRAFT --> SANDBOX
-  SANDBOX --> SHADOW
+  [*] --> SHADOW
   SHADOW --> ACTIVE
   SHADOW --> CALIBRATE
   ACTIVE --> QUARANTINED
   CALIBRATE --> SHADOW
-  QUARANTINED --> ARCHIVED
+  QUARANTINED --> CALIBRATE
 ```
 
 ## Agent Writing / Agent Yazımı

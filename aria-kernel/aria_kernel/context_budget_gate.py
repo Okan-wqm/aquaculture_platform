@@ -32,7 +32,7 @@ let planners breathe.
 cap categories (Plan v3.3 §Phase 2.A; E14 role hygiene):
 - judges                (evidence/adversarial/consensus)        0.35
 - planners              (primary/challenger/cross_review)       0.55
-- executors             (implementation/gap_closure)            0.45
+- executors             (implementation)                        0.45
 - emergency             (HUMAN_REQUIRED packet)                 0.65
 - domain review         (specialist_domain_review)              0.45
 - change_intelligence/goldset_curation/maintenance_utility      0.40
@@ -87,9 +87,9 @@ ROLE_CAP_MAP: dict[str, float] = {
     "primary_plan": 0.55,
     "challenger_plan": 0.55,
     "cross_review": 0.55,
-    # Executors
+    # Executors. `gap_closure` left with the role (ORPHAN-MEDIUM-836): a cap
+    # keyed by a role nothing mints is a policy nobody is measured against.
     "implementation": 0.45,
-    "gap_closure": 0.45,
     # Emergency (operator-driven escalations)
     "human_required_packet": 0.65,
     # Specialist domain review (specialist_review_runner's touch-map) —

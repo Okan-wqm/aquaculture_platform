@@ -728,13 +728,21 @@ class SnapshotBuildTests(unittest.TestCase):
         self.assertFalse(verify_manifest_root(forged))
 
     def test_a_lost_surface_is_reported_as_lost(self) -> None:
-        """The property no per-file verification can produce."""
+        """The property no per-file verification can produce. (A memory
+        surface is not the example: losing one is a refused rewrite, not a
+        loss — tests/test_memory_not_compactable.py.)"""
+        append_declared_fixture(
+            self.tools / "cycles.jsonl",
+            {"schema_version": 1, "cycle_id": "cyc-snap"},
+            expected_surface="cycles",
+        )
         first = self._build()
-        (self.tools / "memory" / "beliefs.jsonl").unlink()
+        (self.tools / "cycles.jsonl").unlink()
         second = self._build(snapshot_id="snap-002", previous=first)
         verdict = snapshot_continuity(second, first)
         self.assertEqual(verdict["status"], "surfaces_lost")
-        self.assertIn("memory_beliefs", verdict["lost_surfaces"])
+        self.assertIn("cycles", verdict["lost_surfaces"])
+        self.assertEqual(verdict["memory_rewrites"], [])
 
     def test_an_amnesic_tree_cannot_reproduce_its_predecessor_root(self) -> None:
         """Fresh-bootstrap-vs-amnesia, the failure the snapshot exists for."""

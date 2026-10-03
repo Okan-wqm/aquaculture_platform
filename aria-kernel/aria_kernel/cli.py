@@ -643,6 +643,13 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
     except StateStoreRefusal as exc:
         print(json.dumps({"published": False, "refusal": str(exc)}, indent=2, sort_keys=True))
         return 3
+    # ARIA-HIGH-274 — the size alarm is a warning on the lane, never a refusal.
+    alarm = result.get("size_alarm")
+    if alarm:
+        print(
+            f"::warning::aria/state attests {alarm['total']} bytes, over the "
+            f"{alarm['threshold']}-byte alarm; largest: {json.dumps(alarm['top5'])}"
+        )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

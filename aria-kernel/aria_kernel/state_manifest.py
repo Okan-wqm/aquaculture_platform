@@ -216,6 +216,12 @@ class StateSurface:
     profile_surface: str | None = None
     observe_class: ObserveClass | None = None
     enterprise_required: bool = True
+    # ARIA-HIGH-263 — the surface holds what ARIA LEARNED (beliefs, learning
+    # events, reflections, the knowledge graph). Compaction never rewrites it
+    # and a publish never carries it with fewer rows or a changed prefix:
+    # `state_compact` refuses it by this flag and `state_snapshot` refuses the
+    # snapshot that shrank it. Declared here, once, so neither keeps a list.
+    memory: bool = False
 
     def __post_init__(self) -> None:
         profile_surface = self.profile_surface or _infer_profile_surface(
@@ -512,6 +518,11 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # names. Written and read only by `state_compact` / `runtime_artifacts`.
     StateSurface("runtime_artifact_compactions", "run-artifacts/compacted.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_artifact_hot", "run-artifacts/hot/**/*.json", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
+    # ARIA-HIGH-274 — the address of every artifact a publish moved out of
+    # the hot tree into the content-addressed `<branch>-cold` store, one row
+    # per file, monthly by the cycle's own stamp. Write-driving: the rows are
+    # the only address of that evidence, so losing them is never accepted.
+    StateSurface("cold_pointers", "cold/pointers/*.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True, profile_surface="tool_governance"),
     StateSurface("runtime_artifact_archives", ".archive/runtime/**/*.json", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
     StateSurface("runtime_validation_log_archives", ".archive/runtime/**/*.log", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
     StateSurface("state_archives", "archives/*.jsonl.gz", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
@@ -528,15 +539,15 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("autonomy_state", "autonomy_state.jsonl", "ledger", "autonomy", "runtime", True, "append_fsync", True),
     StateSurface("discovery_artifacts", "discovery/**/*.json", "artifact", "discovery", "runtime", True, "rewrite_fsync", True),
     StateSurface("cycle_diffs", "cycle-diffs.jsonl", "ledger", "discovery", "runtime", True, "append_fsync", True),
-    StateSurface("memory_observations", "memory/observations.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True),
-    StateSurface("memory_beliefs", "memory/beliefs.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True),
-    StateSurface("memory_uncertainties", "memory/uncertainties.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True),
-    StateSurface("memory_contradictions", "memory/contradictions.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True),
-    StateSurface("memory_calibration", "memory/calibration.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True),
-    StateSurface("memory_learning_events", "memory/learning-events.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True),
+    StateSurface("memory_observations", "memory/observations.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("memory_beliefs", "memory/beliefs.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("memory_uncertainties", "memory/uncertainties.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("memory_contradictions", "memory/contradictions.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("memory_calibration", "memory/calibration.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
+    StateSurface("memory_learning_events", "memory/learning-events.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
     # ARIA-HIGH-285 — procedural memory (agent_eval `performance_observed`), declared exactly
     # like the ledgers above; tests/test_agent_eval_real_mode.py pins the equality (K2 `memory`).
-    StateSurface("memory_procedural", "memory/procedural.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True),
+    StateSurface("memory_procedural", "memory/procedural.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
     StateSurface("goldset_proposals", "goldsets/proposals.jsonl", "ledger", "goldset", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("pressure_artifacts", "pressure/*.json", "artifact", "pressure", "runtime", True, "rewrite_fsync", True),
     StateSurface("pressure_log", "pressure/pressure-log.jsonl", "ledger", "pressure", "runtime", True, "append_fsync", True),
@@ -559,11 +570,11 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # rows appended before this change have no ledger_hash envelope, and
     # an append-only ledger does not rewrite its history to fit a new
     # wrapper. New rows carry BOTH chains.
-    StateSurface("kg_conventions", "knowledge-graph/conventions.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("kg_anti_patterns", "knowledge-graph/anti-patterns.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("kg_pressure_source_effectiveness", "knowledge-graph/pressure-source-effectiveness.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("kg_duel_ratings", "knowledge-graph/duel-ratings.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("kg_embeddings", "knowledge-graph/embeddings.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("kg_conventions", "knowledge-graph/conventions.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
+    StateSurface("kg_anti_patterns", "knowledge-graph/anti-patterns.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
+    StateSurface("kg_pressure_source_effectiveness", "knowledge-graph/pressure-source-effectiveness.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
+    StateSurface("kg_duel_ratings", "knowledge-graph/duel-ratings.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
+    StateSurface("kg_embeddings", "knowledge-graph/embeddings.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
     # E17-d — per-spawn context usage joins the knowledge-graph family as a
     # late joiner: whether the server prompt-cache actually spans judge
     # spawns was an UNTESTED assumption because extract_usage forwarded the
@@ -572,7 +583,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # block above: an observation ledger informs calibration, it never
     # authorises an action, and it must not turn a single historical defect
     # into a write-block on spawn accounting.
-    StateSurface("context_usage", "knowledge-graph/context-usage.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("context_usage", "knowledge-graph/context-usage.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
     # B7 — the knowledge signer registry: the PUBLIC half of every
     # per-cycle key that signed a knowledge-graph row, keyed by the
     # fingerprint the row carries. The private key is revoked when the
@@ -582,7 +593,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # fingerprint from the registered key. strict_read=True: a new ledger
     # with no pre-envelope history has no late-joiner excuse.
     # write_driving=False: it informs verification, it authorises nothing.
-    StateSurface("kg_signers", "knowledge-graph/signers.jsonl", "ledger", "knowledge", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("kg_signers", "knowledge-graph/signers.jsonl", "ledger", "knowledge", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
     # ORPHAN-668 — the learning wheel's VERDICT and CALIBRATION ledgers
     # join the declared surface system. Same defect class as M11/E12-b,
     # one ring further out: operator/AI verdicts (operator-feedback),
@@ -618,7 +629,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("capability_gaps", "capability-gaps/gaps.jsonl", "ledger", "capability_gaps", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("proactive_priorities", "proactive/priorities.jsonl", "ledger", "proactive", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("problem_clusters", "problem_clusters.jsonl", "ledger", "clustering", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
-    StateSurface("reflections", "reflections.jsonl", "ledger", "reflection", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("reflections", "reflections.jsonl", "ledger", "reflection", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation", memory=True),
     StateSurface("skill_genesis_request_status", "skill-genesis/request-status.jsonl", "ledger", "genesis", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("task_candidates", "tasks/task-candidates.jsonl", "ledger", "tasks", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     # ORPHAN-670 — the roster gap was SYSTEMIC, not incidental: after two
@@ -786,6 +797,16 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
 
 def iter_surfaces() -> tuple[StateSurface, ...]:
     return STATE_SURFACES
+
+
+def memory_surfaces() -> tuple[StateSurface, ...]:
+    """ARIA-HIGH-263 — every declared surface flagged ``memory``.
+
+    The one derivation of "which ledgers are ARIA's memory": compaction's
+    refusal and the snapshot's shrink check both read it, so a surface that
+    gains the flag is protected everywhere at once and none keeps a copy.
+    """
+    return tuple(surface for surface in STATE_SURFACES if surface.memory)
 
 
 def surface_key_name(key: str) -> str:
@@ -1144,6 +1165,7 @@ __all__ = [
     "MAX_SURFACE_PATH_BYTES",
     "MAX_SURFACE_PATH_COMPONENTS",
     "iter_surfaces",
+    "memory_surfaces",
     "observe_disallowed_tool_surfaces",
     "observe_permitted_profile_surfaces",
     "profile_surfaces",

@@ -30,7 +30,9 @@ only while nothing can force-push. Add a ruleset before there is
 anything to lose:
 
 - Repository → Settings → Rules → Rulesets → New branch ruleset
-- Target: `aria/state`
+- Target: `aria/state` and `aria/state-cold` (the content-addressed store
+  every publish evicts old cycles into, ARIA-HIGH-274; the first eviction
+  creates it, so it must be covered before that publish)
 - Enable: **Restrict deletions**, **Block force pushes**
 - Do NOT require a pull request — ARIA's lanes push directly, and the
   branch carries no code.

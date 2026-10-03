@@ -4,7 +4,7 @@ ARIA-V-003 reproduction: M re-exported TS enums with the same
 normalized concept name and the same value set caused ``find_drifts``
 to emit M copies of every drift entry. The architectural fix is a
 pre-Cartesian dedup pass keyed on
-``(normalize_concept_name(name), tuple(sorted(lower_values(values))))``.
+``(normalize_concept_name(name), tuple(sorted(exact_values(values))))``.
 
 This test feeds 4 identical TS rows + 1 mismatched SQL row and asserts
 the surviving TS representative carries exactly ``M - 1 == 3``

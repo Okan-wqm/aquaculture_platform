@@ -4,7 +4,17 @@ Context: `aria-readiness-claim` (`.github/workflows/aria-readiness-claim.yml`) a
 enterprise readiness claim the merge runner consumes before any ARIA autonomous merge. On `main`, 58
 of its last 60 runs are red; the two green ones skipped every step (no PR resolved for the completed
 run). Every red run fails the same way:
-`enterprise_readiness_claim_rejected: branch_protection_proof_invalid; …signed_commits_required_required; …reviews_required_required; …conversation_resolution_required_required; …code_owner_reviews_required; …required_approving_review_count_unmeasured; …ruleset_ids_required; …merge_queue_required`
+`enterprise_readiness_claim_rejected` with these reasons:
+
+- `branch_protection_proof_invalid`
+- `branch_protection_signed_commits_required_required`
+- `branch_protection_reviews_required_required`
+- `branch_protection_conversation_resolution_required_required`
+- `branch_protection_code_owner_reviews_required`
+- `branch_protection_required_approving_review_count_unmeasured`
+- `branch_protection_ruleset_ids_required`
+- `branch_protection_merge_queue_required`
+
 (run 37143765894, head 405f2ecac).
 
 IDs: ARIA-HIGH-321 (unsatisfiable policy), ARIA-MEDIUM-322 (lane semantics).

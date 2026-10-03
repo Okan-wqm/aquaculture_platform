@@ -23,6 +23,9 @@ fork:
 * every ref must match a closed safe path charset — a bad ref is a per-ref
   refusal named in the verdict (by hash, never echoed), not a crash;
 * a ref must name a file in the anchor commit's TREE (``git ls-tree``);
+* a ``path:line`` ref's line must be the same at the anchor as at the commit
+  the finding verified it against (ARIA-HIGH-332), read through
+  :func:`main_anchor.committed_blob`;
 * at least one surface must be writable
   (``implementation_safety.classify_declared_surface`` is None);
 * :func:`grounding_digest` hashes the admitted ref list; an operator request
@@ -73,11 +76,13 @@ CHECKOUT_UNAVAILABLE = "checkout_unavailable"
 FINDING_EVIDENCE_UNTRACKED = "finding_evidence_untracked"
 FINDING_SURFACES_READONLY = "finding_surfaces_readonly"
 GROUNDING_DIGEST_MISMATCH = "grounding_digest_mismatch"
+# ARIA-HIGH-332 — a cited line is not shown to hold what the finding saw.
+FINDING_EVIDENCE_STALE = "finding_evidence_stale"
 ADMISSION_REASONS: tuple[str, ...] = (
     FINDING_ID_MISSING, FINDING_ID_INVALID, FINDING_STORE_UNAVAILABLE, FINDING_STORE_UNREADABLE,
     FINDING_UNKNOWN, FINDING_NOT_OPEN, FINDING_EVIDENCE_UNAVAILABLE, FINDING_EVIDENCE_UNSAFE,
     FINDING_EVIDENCE_SELF_OUTPUT_ONLY, CHECKOUT_UNAVAILABLE, FINDING_EVIDENCE_UNTRACKED,
-    FINDING_SURFACES_READONLY, GROUNDING_DIGEST_MISMATCH,
+    FINDING_SURFACES_READONLY, GROUNDING_DIGEST_MISMATCH, FINDING_EVIDENCE_STALE,
 )
 # The runner, not the request, failed: never spends an operator request.
 RUNNER_FAULT_REASONS: frozenset[str] = frozenset({
@@ -90,6 +95,12 @@ INTRINSIC_ADMISSION_REASONS: tuple[str, ...] = tuple(
 REF_UNSAFE = "ref_unsafe"
 REF_SELF_OUTPUT = "ref_self_output"
 REF_UNTRACKED = "ref_untracked"
+# ARIA-HIGH-332 — the cited line differs between the commit the finding
+# verified it against and the anchor; or no such commit is recorded.
+REF_STALE = "ref_stale"
+REF_ORIGIN_UNRECORDED = "ref_origin_unrecorded"
+_COMMIT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+_LINE_RE = re.compile(r":([0-9]+)$")
 _MAX_REF_CHARS = 512
 _FINDING_REF_CAP = 50
 # A closed path charset: no NUL, no whitespace, no control or bidi code
@@ -228,19 +239,19 @@ def _trusted_entry(entry: Mapping[str, Any]) -> bool:
     return envelope.get("trust_grade") in (None, "repo_verified") and not envelope.get("self_output_class")
 
 
-def refs_from_finding_record(record: Mapping[str, Any]) -> list[str]:
-    """The code references a finding record cites, both shapes through one trust filter.
+def _cited_refs(record: Mapping[str, Any]) -> list[tuple[str, Any]]:
+    """(ref, the commit the finding verified it against) per cited ref, first wins.
 
-    ``evidence_chain[].reference`` (the adapter-era shape) and
-    ``evidences[].evidence_envelope`` (``aria/finding/v1``, ARIA-HIGH-183)
-    both carry ``path[:line]`` refs; an entry graded other than
-    ``repo_verified`` or classed as self-output is skipped in either shape.
+    The commit is the entry's ``target_sha`` (an ``evidence_envelope``'s for
+    ``aria/finding/v1``), else the mint event's (``source_target_sha`` on the
+    fold record): ``emit_finding`` grades every ref against that one commit.
     """
-    refs: list[str] = []
+    mint_commit = record.get("source_target_sha")
+    cited: list[tuple[str, Any]] = []
     chain = record.get("evidence_chain")
     for entry in chain if isinstance(chain, list) else []:
         if isinstance(entry, dict) and isinstance(entry.get("reference"), str) and _trusted_entry(entry):
-            refs.append(entry["reference"].strip())
+            cited.append((entry["reference"].strip(), entry.get("target_sha") or mint_commit))
     evidences = record.get("evidences")
     for entry in evidences if isinstance(evidences, list) else []:
         if not isinstance(entry, dict) or not _trusted_entry(entry):
@@ -253,8 +264,82 @@ def refs_from_finding_record(record: Mapping[str, Any]) -> list[str]:
         line = envelope.get("line")
         if isinstance(line, int) and not isinstance(line, bool) and line > 0 and not re.search(r":[0-9]+$", canonical):
             canonical = f"{canonical}:{line}"
-        refs.append(canonical)
-    return list(dict.fromkeys(ref for ref in refs if ref))[:_FINDING_REF_CAP]
+        cited.append((canonical, envelope.get("target_sha") or mint_commit))
+    first: dict[str, Any] = {}
+    for ref, commit in cited:
+        if ref and ref not in first:
+            first[ref] = commit
+    return list(first.items())[:_FINDING_REF_CAP]
+
+
+def refs_from_finding_record(record: Mapping[str, Any]) -> list[str]:
+    """The code references a finding record cites, both shapes through one trust filter.
+
+    ``evidence_chain[].reference`` (the adapter-era shape) and
+    ``evidences[].evidence_envelope`` (``aria/finding/v1``, ARIA-HIGH-183)
+    both carry ``path[:line]`` refs; an entry graded other than
+    ``repo_verified`` or classed as self-output is skipped in either shape.
+    """
+    return [ref for ref, _commit in _cited_refs(record)]
+
+
+def _lines_at(
+    repo_root: Path, commit: str, cited: list[tuple[str, int]],
+) -> dict[tuple[str, int], bytes | None] | None:
+    """Each cited (path, line) as committed at ``commit``, or None when the commit cannot be read.
+
+    A path the commit does not have, or a line past its end, reads as None.
+    """
+    from .main_anchor import committed_blob, tracked_files_at
+
+    paths = sorted({path for path, _line in cited})
+    present = tracked_files_at(repo_root, commit=commit, paths=paths)
+    if present is None:
+        return None
+    lines: dict[str, list[bytes]] = {}
+    for path in sorted(present):
+        blob = committed_blob(repo_root, commit=commit, path=path)
+        if blob is None:
+            return None
+        # Numbered the way a ``path:line`` ref counts: by newline only.
+        content = blob.content[:-1] if blob.content.endswith(b"\n") else blob.content
+        lines[path] = content.split(b"\n") if content else []
+    return {
+        (path, line): (lines[path][line - 1] if path in lines and 0 < line <= len(lines[path]) else None)
+        for path, line in cited
+    }
+
+
+def _stale_refs(
+    repo_root: Path, anchor: str, refs: list[str], origins: Mapping[str, Any],
+) -> list[tuple[str, str]] | None:
+    """ARIA-HIGH-332 — the ``path:line`` refs whose line changed since the finding saw it.
+
+    Each line is read at the commit the finding verified it against and at
+    the anchor, through the hardened reader. A ref with no line names a
+    file, which ``tracked_files_at`` already judged. A line ref with no
+    recorded commit cannot be shown current and is refused
+    (:data:`REF_ORIGIN_UNRECORDED`), never waved through. None: a commit
+    the checkout cannot read, which is the runner's fault.
+    """
+    by_origin: dict[str, dict[str, tuple[str, int]]] = {}
+    refused: list[tuple[str, str]] = []
+    for ref in refs:
+        match = _LINE_RE.search(ref)
+        if match is None:
+            continue
+        origin = origins.get(ref)
+        if not isinstance(origin, str) or _COMMIT_RE.fullmatch(origin) is None:
+            refused.append((ref, REF_ORIGIN_UNRECORDED))
+        elif origin != anchor:
+            by_origin.setdefault(origin, {})[ref] = (_ref_path(ref), int(match.group(1)))
+    for origin, cited in sorted(by_origin.items()):
+        then = _lines_at(repo_root, origin, list(cited.values()))
+        now = _lines_at(repo_root, anchor, list(cited.values()))
+        if then is None or now is None:
+            return None
+        refused.extend((ref, REF_STALE) for ref, key in cited.items() if then[key] != now[key])
+    return refused
 
 
 def grounding_digest(evidence_refs: tuple[str, ...] | list[str]) -> str:
@@ -453,6 +538,15 @@ def admit_finding(
     if not grounded:
         return FindingAdmission(finding_id, FINDING_EVIDENCE_UNTRACKED,
                                 refused_refs=tuple(refused_refs), anchor_commit=commit)
+    # ARIA-HIGH-332 — any stale cited line refuses the whole finding: its
+    # claim relates what its refs said, and one of them no longer says it.
+    stale = _stale_refs(context.repo_root, commit, grounded, dict(_cited_refs(record)))
+    if stale is None:
+        return FindingAdmission(finding_id, CHECKOUT_UNAVAILABLE,
+                                refused_refs=tuple(refused_refs), anchor_commit=commit)
+    if stale:
+        return FindingAdmission(finding_id, FINDING_EVIDENCE_STALE,
+                                refused_refs=tuple(refused_refs + stale), anchor_commit=commit)
     writable: list[str] = []
     refused_surfaces: list[tuple[str, str]] = []
     for surface in dict.fromkeys(_ref_path(ref) for ref in grounded):
@@ -591,6 +685,7 @@ __all__ = [
     "ADMISSION_REASONS",
     "CHECKOUT_UNAVAILABLE",
     "FINDING_EVIDENCE_SELF_OUTPUT_ONLY",
+    "FINDING_EVIDENCE_STALE",
     "FINDING_EVIDENCE_UNAVAILABLE",
     "FINDING_EVIDENCE_UNSAFE",
     "FINDING_EVIDENCE_UNTRACKED",
@@ -607,7 +702,9 @@ __all__ = [
     "LOOP_GUARD_REASONS",
     "LOOP_HISTORY_UNAVAILABLE",
     "LOOP_POLICY_BLOCK",
+    "REF_ORIGIN_UNRECORDED",
     "REF_SELF_OUTPUT",
+    "REF_STALE",
     "REF_UNSAFE",
     "REF_UNTRACKED",
     "RUNNER_FAULT_REASONS",

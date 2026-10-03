@@ -1062,6 +1062,9 @@ def _replay_findings(repo_root: Path) -> dict[str, dict[str, Any]]:
             doc = dict(record)
             doc["source_event_id"] = event.get("event_id")
             doc["source_ledger_hash"] = source_ledger_hash
+            # ARIA-HIGH-332 — the commit the mint verified its evidence
+            # against; admission re-reads each cited line there.
+            doc["source_target_sha"] = event.get("target_sha")
             findings[finding_id] = doc
             continue
         # Every non-mint event references a finding the ledger has already

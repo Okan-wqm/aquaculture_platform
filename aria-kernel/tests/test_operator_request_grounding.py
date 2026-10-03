@@ -250,6 +250,89 @@ class FindingBodyNeverReachesThePlanTests(_Fixture):
                 self.assertEqual(envelope.content["evidence_refs"][0], f"{GROUNDED_FILE}:{number}")
 
 
+class StaleEvidenceTests(_Fixture):
+    """ARIA-HIGH-332 — a cited line grounds a plan only while it holds what the finding saw.
+
+    F-007 cites ``LeavesPage.tsx:355``: a ``<select`` at its mint commit, a
+    ``placeholder=`` attribute on main. Admission used to ask only whether
+    the file is tracked at the anchor.
+    """
+
+    _MINTED = "export const leave = 1;\nexport const kinds = ['annual'];\n"
+
+    def _seed_verified_at(self, mint: str, line: int = 2) -> None:
+        # The shape emit_finding writes: the envelope names the commit the
+        # ref was verified against.
+        self.fx.seed_finding("F-007", refs=[], body={"evidences": [{
+            "ref": f"{GROUNDED_FILE}:{line}",
+            "evidence_envelope": {"canonical_ref": GROUNDED_FILE, "line": line,
+                                  "trust_grade": "repo_verified", "target_sha": mint},
+        }]})
+
+    def test_a_cited_line_that_changed_since_mint_is_refused_by_name(self) -> None:
+        mint = self.fx.commit_files({GROUNDED_FILE: self._MINTED})
+        self._seed_verified_at(mint)
+        self.fx.commit_files({GROUNDED_FILE: "export const leave = 1;\nexport const kinds = ['annual', 'sick'];\n"})
+        admission = fg.admit_finding(self.context(), "F-007")
+        self.assertEqual(admission.reason, "finding_evidence_stale")
+        self.assertEqual(admission.refused_refs, ((f"{GROUNDED_FILE}:2", "ref_stale"),))
+        self.assertEqual(admission.evidence_refs, ())
+        self.assertIsNone(fg.admit_candidate({"source_type": "f_finding", "candidate_id": "F-007"},
+                                             self.context()).grounding_digest)
+
+    def test_an_unchanged_cited_line_is_admitted(self) -> None:
+        mint = self.fx.commit_files({GROUNDED_FILE: self._MINTED})
+        self._seed_verified_at(mint)
+        # Another line of the same file changes; the cited one does not.
+        self.fx.commit_files({GROUNDED_FILE: "export const leave = 2;\nexport const kinds = ['annual'];\n"})
+        admission = fg.admit_finding(self.context(), "F-007")
+        self.assertTrue(admission.admitted, admission.reason)
+        self.assertEqual(admission.evidence_refs, (f"{GROUNDED_FILE}:2",))
+
+    def test_a_line_pushed_down_by_an_insertion_is_stale(self) -> None:
+        # The line-move case of ARIA-HIGH-331: the ref no longer points at
+        # what the finding saw, so it cannot ground a plan until re-observed.
+        mint = self.fx.commit_files({GROUNDED_FILE: self._MINTED})
+        self._seed_verified_at(mint)
+        self.fx.commit_files({GROUNDED_FILE: "// header\n" + self._MINTED})
+        self.assertEqual(fg.admit_finding(self.context(), "F-007").reason, fg.FINDING_EVIDENCE_STALE)
+
+    def test_a_line_ref_with_no_recorded_commit_is_refused(self) -> None:
+        from aria_kernel.finding import findings_dir
+        from tests._helpers.declared_fixtures import append_declared_fixture
+
+        # Fail closed: a ref whose mint content cannot be established is not
+        # shown current. Neither the envelope nor the event names a commit.
+        append_declared_fixture(findings_dir(self.fx.repo) / "finding-events.jsonl", {
+            "schema_version": 1, "event": "finding_emitted", "event_id": "finding:F-007:emitted",
+            "finding_id": "F-007", "record": {"finding_id": "F-007", "status": "OPEN",
+                                               "evidence_chain": [{"reference": f"{GROUNDED_FILE}:1"}]},
+        }, expected_surface="repo_finding_events")
+        admission = fg.admit_finding(self.context(), "F-007")
+        self.assertEqual(admission.reason, fg.FINDING_EVIDENCE_STALE)
+        self.assertEqual(admission.refused_refs, ((f"{GROUNDED_FILE}:1", fg.REF_ORIGIN_UNRECORDED),))
+
+    def test_a_mint_commit_the_checkout_cannot_read_is_a_runner_fault(self) -> None:
+        self._seed_verified_at("0" * 40)
+        admission = fg.admit_finding(self.context(), "F-007")
+        self.assertEqual(admission.reason, fg.CHECKOUT_UNAVAILABLE)
+        self.assertTrue(admission.runner_fault)
+
+    def test_a_file_level_ref_is_judged_tracked_only(self) -> None:
+        mint = self.fx.commit_files({GROUNDED_FILE: self._MINTED})
+        self.fx.seed_finding("F-007", refs=[], body={"evidences": [{
+            "ref": GROUNDED_FILE,
+            "evidence_envelope": {"canonical_ref": GROUNDED_FILE, "trust_grade": "repo_verified",
+                                  "target_sha": mint},
+        }]})
+        self.fx.commit_files({GROUNDED_FILE: "// rewritten\n"})
+        self.assertTrue(fg.admit_finding(self.context(), "F-007").admitted)
+
+    def test_stale_evidence_is_request_intrinsic(self) -> None:
+        self.assertIn(fg.FINDING_EVIDENCE_STALE, fg.INTRINSIC_ADMISSION_REASONS)
+        self.assertNotIn(fg.FINDING_EVIDENCE_STALE, fg.RUNNER_FAULT_REASONS)
+
+
 class ProviderTests(_Fixture):
     def _failing_ci(self, _workspace) -> list[dict]:
         return [{"source_type": "failing_ci", "candidate_id": "ci-run-1", "workflow_name": "CI",

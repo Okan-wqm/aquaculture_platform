@@ -1,0 +1,19 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "claim_id": "claim_7090df1fde8497ad",
+    "code": "agent_refused:evidence",
+    "kind": "executor_escalation",
+    "reason_class": "evidence",
+    "reason_summary": "agent refused without summary",
+    "request_id": "AIR-aria-challenger-planner-83a038b1b7ac",
+    "stage": "agent_refusal"
+  },
+  "reason": "agent_refused:evidence: the agent refused the request; its summary is on the record",
+  "recorded_at": "2026-10-02T23:19:25Z",
+  "request_id": "AIR-aria-challenger-planner-83a038b1b7ac",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-09T23:19:25Z",
+  "status": "open"
+}

@@ -582,37 +582,34 @@ def _attach_orphan_registry_evidence(
 
 
 def scan_f_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
-    """Plan ARIA-V9.4 source — F-* findings from ``aria-findings/*.json``.
+    """Plan ARIA-V9.4 source — the F findings the finding-event fold holds.
 
-    Aging scan uses ``Path.stat().st_mtime`` ONLY — JSON body parse
-    is invoked at candidate-selection time, not at scan time
-    (perf HIGH-006 lazy-parse contract). Returns candidates oldest-first
-    (older = higher priority).
+    ARIA-MEDIUM-330 — candidates come from the fold
+    (``finding.fold_findings``), the one authority for which findings
+    exist. This scan used to glob ``F-*.json`` and age each file by its
+    mtime, so F-101/F-102, which the pre-ORPHAN-702 seeder wrote beside the
+    ledger, became candidates that admission then refused as
+    ``finding_unknown``. Age is the record's ``created_at``; an undateable
+    record is as young as now. Status stays admission's question
+    (``finding_grounding.admit_finding``). Returns candidates oldest-first.
     """
-    # D3 — resolve through the writer's own accessor: under a redirected
-    # state root the hand-built `workspace_root / "aria-findings"` pointed
-    # at a directory the emitter never writes, so aging F-findings could
-    # never become plan candidates on the runner.
-    from .finding import findings_dir as _findings_dir_accessor
+    from .finding import fold_findings
+    from .tool_registry import parse_utc_stamp
 
-    findings_dir = _findings_dir_accessor(workspace_root)
-    if not findings_dir.is_dir():
-        return []
+    now = time.time()
     candidates: list[dict[str, Any]] = []
-    for p in findings_dir.glob("F-*.json"):
-        try:
-            mtime = p.stat().st_mtime
-        except OSError:
-            continue
+    for finding_id, record in sorted((fold_findings(workspace_root) or {}).items()):
+        stamp = record.get("created_at")
+        created = parse_utc_stamp(stamp) if isinstance(stamp, str) else None
+        created_epoch = created.timestamp() if created is not None else now
         candidates.append({
             "source_type": PlanCandidateSource.F_FINDING.value,
-            "candidate_id": p.stem,
-            "mtime": mtime,
-            "path": str(p),
-            "age_seconds": time.time() - mtime,
-            "title_hint": f"Process aging F-finding {p.stem}",
+            "candidate_id": finding_id,
+            "created_at": stamp,
+            "age_seconds": now - created_epoch,
+            "title_hint": f"Process aging F-finding {finding_id}",
         })
-    candidates.sort(key=lambda c: c["mtime"])  # oldest first
+    candidates.sort(key=lambda c: -c["age_seconds"])  # oldest first
     return candidates[:_MAX_CANDIDATES_PER_SOURCE]
 
 
@@ -1019,7 +1016,7 @@ def convert_candidate_to_plan_content(
       conclusion, created_at, title_hint }
     * `orphan_finding` — { candidate_id, severity, raw_id,
       title_hint }
-    * `f_finding` — { candidate_id, mtime, path, age_seconds,
+    * `f_finding` — { candidate_id, created_at, age_seconds,
       title_hint }
     * `git_diff` — synthesized by V7GitDiffProvider, not by this
       function.

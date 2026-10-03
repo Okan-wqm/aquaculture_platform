@@ -22,7 +22,7 @@ from unittest import mock
 
 from aria_kernel import finding_grounding as fg
 from aria_kernel.cycle_phases.plan_source import V9PressureSourceProvider
-from aria_kernel.finding import EXTERNAL_ORIGINATING_SKILLS, ORIGINATING_SKILL_ALLOWLIST, findings_dir
+from aria_kernel.finding import EXTERNAL_ORIGINATING_SKILLS, ORIGINATING_SKILL_ALLOWLIST
 from aria_kernel.genesis_policy import OVERRIDE_RELPATH
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.operator_feedback_ingestion import bind_plan_synthesis
@@ -68,13 +68,13 @@ class _LoopFixture(unittest.TestCase):
     def finding(self, finding_id: str, path: str, *, origin: str = "manual:operator",
                 created: str | None = None) -> None:
         """Seed an OPEN finding. ``rank_candidate_sources`` orders F candidates by
-        ascending age, so each seed is stamped older than the one before it and the
-        provider meets them in seeding order."""
-        body: dict[str, Any] = {"originating_skill": origin, "created_at": created or _ago(days=30)}
-        self.fx.seed_finding(finding_id, refs=[f"{path}:3"], body=body)
+        ascending age — the folded record's ``created_at`` (ARIA-MEDIUM-330), not
+        a file mtime — so each seed without an explicit stamp is a second older
+        than the one before it and the provider meets them in seeding order."""
         self._age += 1
-        stamp = 2_000_000 - self._age
-        os.utime(findings_dir(self.fx.repo) / f"{finding_id}.json", (stamp, stamp))
+        body: dict[str, Any] = {"originating_skill": origin,
+                                "created_at": created or _ago(days=30, seconds=self._age)}
+        self.fx.seed_finding(finding_id, refs=[f"{path}:3"], body=body)
 
     def plan(self, plan_id: str, finding_id: str, *, started: str, source: str = "f_finding",
              surfaces: tuple[str, ...] = (GROUNDED_FILE,)) -> None:
@@ -255,8 +255,9 @@ class CycleDetectionTests(_LoopFixture):
         self.merged("plan-m", _ago(days=3), "c" * 40)
         self.finding("F-081", GROUNDED_FILE, created=_ago(days=1))
         self.assertIsNone(self.synthesize("cyc-new"))
+        # F-081 is a day old and F-080 a month: the provider meets the younger first.
         self.assertEqual(self.skips("cyc-new"),
-                         [("F-080", fg.SUBJECT_COOL_OFF), ("F-081", fg.SELF_LOOP_OWN_CHANGE)])
+                         [("F-081", fg.SELF_LOOP_OWN_CHANGE), ("F-080", fg.SUBJECT_COOL_OFF)])
         detail = self.skip_detail("F-080")["loop_guard"]
         self.assertEqual((detail["cause"], detail["finding"]), ("new_finding_on_subject", "F-081"))
 

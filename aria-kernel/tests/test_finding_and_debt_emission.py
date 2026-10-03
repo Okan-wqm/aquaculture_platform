@@ -204,6 +204,36 @@ class FindingEmissionTests(unittest.TestCase):
         replayed = show_finding(self.repo, record["finding_id"])
         self.assertEqual(replayed["claim_summary"], "committed evidence backs this finding")
 
+    def test_colliding_mint_leaves_the_event_ledger_unchanged(self) -> None:
+        # ARIA-MEDIUM-330 — a file already sits at the next id (the legacy
+        # seeder wrote F-101/F-102 beside the ledger). The mint is refused
+        # BEFORE its event is appended: no event names a finding whose file
+        # this mint did not create, and the stray file is left as it was.
+        def mint() -> dict[str, object]:
+            return emit_finding(
+                repo_root=self.repo,
+                base_dir=self.tools,
+                claim_type="wrong_code",
+                claim_summary="committed evidence backs this finding",
+                severity="MEDIUM",
+                evidences=_good_evidence(1),
+                facts=["a committed source line is cited"],
+                scope_files=["x.ts"],
+            )
+
+        mint()
+        events = self.repo / "aria-findings" / "finding-events.jsonl"
+        before = events.read_bytes()
+        stray = self.repo / "aria-findings" / "F-002.json"
+        stray_text = json.dumps({"id": "F-002", "source": "seed_drift_findings"}) + "\n"
+        stray.write_text(stray_text, encoding="utf-8")
+        with self.assertRaises(GovernanceError) as refused:
+            mint()
+        self.assertEqual(events.read_bytes(), before)
+        self.assertEqual([r["finding_id"] for r in list_findings(self.repo)], ["F-001"])
+        self.assertEqual(stray.read_text(encoding="utf-8"), stray_text)
+        self.assertIn("finding_file_collision:F-002", str(refused.exception))
+
 
 class DebtEmissionTests(unittest.TestCase):
     def setUp(self) -> None:

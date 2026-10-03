@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -316,6 +317,27 @@ def _normalize_evidences(
     return normalized
 
 
+def _claim_finding_file(path: Path, finding_id: str) -> None:
+    """ARIA-MEDIUM-330 — create the finding's file exclusively, or refuse the mint.
+
+    Runs BEFORE the ``finding_emitted`` event is appended. The ledger is the
+    authority for which findings exist; a file already at this id was not
+    written by this mint (the pre-ORPHAN-702 seeder wrote F-101/F-102 beside
+    the ledger), and checking for it only after the append left an event
+    naming a finding whose file belonged to someone else. ``O_EXCL`` makes
+    the check and the claim one step, so a collision leaves the ledger and
+    the stray file exactly as they were.
+    """
+    try:
+        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644))
+    except FileExistsError as exc:
+        raise GovernanceError(
+            f"finding_file_collision:{finding_id}: {path.name} exists but the "
+            f"event ledger never emitted {finding_id}; the mint is refused "
+            f"before its event is appended"
+        ) from exc
+
+
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp")
@@ -479,23 +501,26 @@ def emit_finding(
             "closes_in_commit": None,
             "schema_version": SCHEMA_VERSION,
         }
-        event = append_declared_jsonl(
-            _events_path(repo_path),
-            {
-                "schema_version": 1,
-                "event": "finding_emitted",
-                "event_id": f"finding:{finding_id}:emitted",
-                "finding_id": finding_id,
-                "target_sha": target_sha,
-                "record": record,
-            },
-            expected_surface="repo_finding_events",
-        )
+        output_path = _findings_dir(repo_path) / f"{finding_id}.json"
+        _claim_finding_file(output_path, finding_id)
+        try:
+            event = append_declared_jsonl(
+                _events_path(repo_path),
+                {
+                    "schema_version": 1,
+                    "event": "finding_emitted",
+                    "event_id": f"finding:{finding_id}:emitted",
+                    "finding_id": finding_id,
+                    "target_sha": target_sha,
+                    "record": record,
+                },
+                expected_surface="repo_finding_events",
+            )
+        except BaseException:
+            output_path.unlink(missing_ok=True)
+            raise
         record["source_event_id"] = event.get("event_id")
         record["source_ledger_hash"] = event.get("ledger_hash")
-        output_path = _findings_dir(repo_path) / f"{finding_id}.json"
-        if output_path.exists():
-            raise GovernanceError(f"finding {finding_id} already exists at {output_path}")
         _atomic_write_json(output_path, record)
         _refresh_index(repo_path)
 

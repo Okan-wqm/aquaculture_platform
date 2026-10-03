@@ -28,12 +28,12 @@ from aria_kernel import operator_feedback_signature as ofs
 from aria_kernel import operator_request_signature as ors
 from aria_kernel.finding_grounding import admit_finding, load_grounding_context
 from aria_kernel.ledger import load_declared_jsonl
-from aria_kernel.operator_request_terms import request_audience
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.operator_requests import (
     GROUNDED_FILE,
     OperatorRequestFixture,
     allowed_signers_line,
+    anchor_from_bytes,
     git,
     mint_ed25519_key,
 )
@@ -60,7 +60,7 @@ class OperatorSignatureVerificationTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
         self.key = mint_ed25519_key(root / "keys")
-        self.allowed = allowed_signers_line("op@aria.test", self.key).encode()
+        self.allowed = anchor_from_bytes(allowed_signers_line("op@aria.test", self.key).encode())
 
     def _sign(self, row: dict, principal: str = "op@aria.test", key: Path | None = None) -> dict:
         return ors.sign_operator_request(row, signing_key=key or self.key, signer_principal=principal)
@@ -79,7 +79,7 @@ class OperatorSignatureVerificationTests(unittest.TestCase):
     def test_every_forgery_class_is_named(self) -> None:
         signed = self._sign(_request_row())
         other_key = mint_ed25519_key(Path(self.tmp.name) / "other", name="intruder")
-        wrong_namespace = self.allowed.replace(b'"aria-operator-request"', b'"git"')
+        wrong_namespace = anchor_from_bytes(self.allowed.content.replace(b'"aria-operator-request"', b'"git"'))
         cases = {
             "tampered_request": (dict(signed, request="Delete the audit log"), self.allowed, ors.SIGNATURE_INVALID),
             "tampered_finding": (dict(signed, finding_id="F-999"), self.allowed, ors.SIGNATURE_INVALID),
@@ -158,7 +158,7 @@ class TrustAnchorTests(unittest.TestCase):
         self.intruder = mint_ed25519_key(Path(self.tmp.name) / "intruder", name="k")
 
     def test_the_anchor_is_the_committed_file_on_main_not_the_working_tree(self) -> None:
-        signers, reason = ors.allowed_signers_for_checkout(self.fx.repo)
+        signers, reason = ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)
         self.assertIsNone(reason)
         self.assertIn(self.fx.principal.encode(), signers.content)
         self.assertEqual(signers.commit, git(self.fx.repo, "rev-parse", "HEAD").strip())
@@ -166,36 +166,36 @@ class TrustAnchorTests(unittest.TestCase):
         (self.fx.repo / ors.ALLOWED_SIGNERS_PATH).write_text(
             allowed_signers_line("intruder@aria.test", self.intruder), encoding="utf-8",
         )
-        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo)[0].content, signers.content)
-        self.assertIsNone(ors.allowed_signers_at(self.fx.repo, commit="--output=/tmp/x"))
+        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[0].content, signers.content)
+        self.assertIsNone(ors.allowed_signers_at(self.fx.repo, commit="--output=/tmp/x", base_dir=self.fx.tools))
 
     def test_a_checkout_moved_off_main_is_no_anchor(self) -> None:
         # A branch commit that enrols another key is not trust until it is on main.
         self.fx.commit_files({ors.ALLOWED_SIGNERS_PATH: allowed_signers_line("intruder@aria.test", self.intruder)},
                              message="chore(test): self-enrolment", on_main=False)
-        signers, reason = ors.allowed_signers_for_checkout(self.fx.repo)
+        signers, reason = ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)
         self.assertIsNone(signers)
         self.assertEqual(reason, main_anchor.ANCHOR_NOT_ON_MAIN)
         git(self.fx.repo, "update-ref", "-d", main_anchor.MAIN_TRACKING_REF)
-        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo)[1], main_anchor.ANCHOR_MAIN_UNRESOLVED)
+        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[1], main_anchor.ANCHOR_MAIN_UNRESOLVED)
 
     def test_a_replace_ref_cannot_substitute_the_anchor(self) -> None:
-        original = ors.allowed_signers_for_checkout(self.fx.repo)[0]
+        original = ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[0]
         evil = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=self.fx.repo, check=True,
                               capture_output=True, input=allowed_signers_line("intruder@aria.test", self.intruder).encode(),
                               ).stdout.decode().strip()
         git(self.fx.repo, "replace", original.blob_oid, evil)
         # Git honours the replacement by default: an unhardened read is steered.
         self.assertIn("intruder", git(self.fx.repo, "show", f"HEAD:{ors.ALLOWED_SIGNERS_PATH}"))
-        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo)[0].content, original.content)
+        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[0].content, original.content)
 
     def test_the_git_environment_cannot_steer_the_read(self) -> None:
         other = OperatorRequestFixture(Path(self.tmp.name) / "other", principal="intruder@aria.test")
-        original = ors.allowed_signers_for_checkout(self.fx.repo)[0]
+        original = ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[0]
         with mock.patch.dict(os.environ, {"GIT_DIR": str(other.repo / ".git"),
                                           "GIT_REPLACE_REF_BASE": "refs/evil/",
                                           "GIT_OBJECT_DIRECTORY": str(other.repo / ".git" / "objects")}):
-            self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo)[0].content, original.content)
+            self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[0].content, original.content)
         self.assertNotIn("GIT_DIR", main_anchor.scrubbed_git_env())
         self.assertEqual(main_anchor.scrubbed_git_env()["GIT_NO_REPLACE_OBJECTS"], "1")
 
@@ -203,7 +203,7 @@ class TrustAnchorTests(unittest.TestCase):
         alternates = self.fx.repo / ".git" / "objects" / "info" / "alternates"
         alternates.parent.mkdir(parents=True, exist_ok=True)
         alternates.write_text("/nonexistent/objects\n", encoding="utf-8")
-        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo)[1], main_anchor.ANCHOR_ALTERNATES_PRESENT)
+        self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[1], main_anchor.ANCHOR_ALTERNATES_PRESENT)
 
 
 class OperatorRequestRecorderTests(unittest.TestCase):
@@ -228,17 +228,18 @@ class OperatorRequestRecorderTests(unittest.TestCase):
         self.assertEqual(row["ledger_hash"], stored["ledger_hash"])
         self.assertEqual((row["finding_id"], row["signer_principal"]), ("F-007", self.fixture.principal))
         self.assertEqual(row["schema_version"], ofs.OPERATOR_REQUEST_SCHEMA_VERSION)
-        self.assertEqual(row["audience"], request_audience())
-        self.assertEqual(request_audience(), "Okan-wqm/aquaculture_platform")
+        signers, _reason = ors.allowed_signers_for_checkout(self.fixture.repo, base_dir=self.fixture.tools)
+        # ARIA-LOW-267 — the audience is the operators policy committed at the anchor.
+        self.assertEqual(row["audience"], signers.audience)
+        self.assertEqual(signers.audience, "Okan-wqm/aquaculture_platform")
         expires = datetime.fromisoformat(row["expires_at"])
         self.assertLessEqual(expires - before, timedelta(hours=168, seconds=2))
         self.assertGreaterEqual(expires - before, timedelta(hours=167, minutes=59))
         grounding = admit_finding(load_grounding_context(self.fixture.repo), "F-007")
         self.assertEqual(row["grounding_digest"], grounding.grounding_digest)
         self.assertNotIn("signer_kid", row, "no runner-held key signs a request")
-        signers, _reason = ors.allowed_signers_for_checkout(self.fixture.repo)
-        self.assertTrue(ors.verify_operator_request(row, allowed_signers=signers.content).valid)
-        self.assertIsNone(ofs.operator_request_schema_reason(row, now=datetime.now(timezone.utc)))
+        self.assertTrue(ors.verify_operator_request(row, allowed_signers=signers).valid)
+        self.assertIsNone(ofs.operator_request_schema_reason(row, now=datetime.now(timezone.utc), anchor=signers))
         self.assertFalse(ofs.signing_key_path(self.fixture.tools).exists(),
                          "recording a request mints no runner-side key material")
         # GSEC-MEDIUM-005 — the exact subject was shown before ssh-keygen ran.
@@ -260,7 +261,7 @@ class OperatorRequestRecorderTests(unittest.TestCase):
         with self.assertRaisesRegex(GovernanceError, "operator_request_signature_unverified: signer_not_enrolled"):
             ofs.record_operator_request(
                 request="x", priority="high", authored_by="okan", finding_id="F-007",
-                signing_key=self.fixture.key, signer_principal="someone@else",
+                signing_key=self.fixture.key, signer_principal="someone@else", actor_class="T0",
                 base_dir=self.fixture.tools, repo_root=self.fixture.repo, subject_stream=io.StringIO(),
             )
         self.assertEqual([row["id"] for row in self._rows()], ["OP-1"])
@@ -289,7 +290,8 @@ class OperatorRequestRecorderTests(unittest.TestCase):
 
         argv = ["feedback", "request", "--tools-dir", str(self.fixture.tools), "--request", "Fix it",
                 "--priority", "high", "--authored-by", "okan", "--signing-key", str(self.fixture.key),
-                "--signer-principal", self.fixture.principal, "--repo-root", str(self.fixture.repo),
+                "--signer-principal", self.fixture.principal, "--actor-class", "T1",
+                "--repo-root", str(self.fixture.repo),
                 "--request-id", "OP-cli", "--expires-in-hours", "24"]
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):

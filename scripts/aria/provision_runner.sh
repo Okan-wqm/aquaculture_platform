@@ -182,7 +182,7 @@ if [ "$DRY_RUN" -eq 0 ]; then
   systemctl daemon-reload && systemctl enable --now aria-telemetry.timer aria-gateway.service && ok "gateway + telemetry timer enabled"
 fi
 
-section "Memory discipline (systemd drop-ins — repo copy is the SSoT)"
+section "Memory discipline and T2 identity (systemd drop-ins — repo copy is the SSoT)"
 HABITAT_SYSTEMD="${REPO_ROOT}/scripts/aria/runner-habitat/systemd"
 reload_needed=0
 while IFS='|' read -r src dst; do
@@ -197,8 +197,11 @@ while IFS='|' read -r src dst; do
   fi
 done <<EOF
 ${HABITAT_SYSTEMD}/actions-runner.limits.conf|/etc/systemd/system/${SERVICE_NAME}.d/limits.conf
+${HABITAT_SYSTEMD}/actions-runner.identity.conf|/etc/systemd/system/${SERVICE_NAME}.d/identity.conf
 ${HABITAT_SYSTEMD}/user-.slice.d/50-aria-memory-discipline.conf|/etc/systemd/system/user-.slice.d/50-aria-memory-discipline.conf
 ${HABITAT_SYSTEMD}/user.slice.d/50-aria-cpu-discipline.conf|/etc/systemd/system/user.slice.d/50-aria-cpu-discipline.conf
+${HABITAT_SYSTEMD}/aria-t2-probe.service|/etc/systemd/system/aria-t2-probe.service
+${HABITAT_SYSTEMD}/aria-t2-probe.timer|/etc/systemd/system/aria-t2-probe.timer
 EOF
 if [ "$reload_needed" -eq 1 ]; then
   # daemon-reload re-applies resource-control properties to RUNNING units
@@ -206,8 +209,19 @@ if [ "$reload_needed" -eq 1 ]; then
   # an in-flight job is never cancelled to pick the new budget up.
   systemctl daemon-reload && ok "systemd reloaded (limits applied to running units)"
 fi
+# ADR-0023 / ARIA-HIGH-281 — the T2 boundary is measured every hour as
+# gharunner (aria-t2-probe.timer); a boundary nobody measures is a claim.
+if systemctl is-active --quiet aria-t2-probe.timer; then
+  ok "aria-t2-probe.timer active"
+elif [ "$DRY_RUN" -eq 1 ]; then
+  bad "aria-t2-probe.timer not active (apply mode enables it)"
+else
+  systemctl enable --now aria-t2-probe.timer && ok "aria-t2-probe.timer enabled"
+fi
 # Effective values, not file contents: what the kernel enforces right now.
-for probe in "${SERVICE_NAME}|OOMPolicy|continue" "${SERVICE_NAME}|MemoryMax|3221225472" "${SERVICE_NAME}|CPUWeight|400" "user-.slice|MemoryMax|3221225472" "user.slice|CPUWeight|50"; do
+# identity.conf's User/NoNewPrivileges take effect at the next service start
+# (ADR-0023): a ✗ on them after an install means "restart between jobs".
+for probe in "${SERVICE_NAME}|User|gharunner" "${SERVICE_NAME}|NoNewPrivileges|yes" "${SERVICE_NAME}|OOMPolicy|continue" "${SERVICE_NAME}|MemoryMax|3221225472" "${SERVICE_NAME}|CPUWeight|400" "user-.slice|MemoryMax|3221225472" "user.slice|CPUWeight|50"; do
   unit="${probe%%|*}"; rest="${probe#*|}"; prop="${rest%%|*}"; want="${rest##*|}"
   have="$(systemctl show "$unit" -p "$prop" --value 2>/dev/null || echo unreadable)"
   if [ "$have" = "$want" ]; then ok "${unit} ${prop}=${have}"; else bad "${unit} ${prop}=${have} (want ${want})"; fi

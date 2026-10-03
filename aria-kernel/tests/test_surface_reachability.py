@@ -197,18 +197,19 @@ class SurfaceReachabilityTests(unittest.TestCase):
         # `aria-kernel agent request --role X` mints whatever the operator
         # typed (cli.py, role=args.role). If that callsite counted, every role
         # in REQUEST_ROLES would be certified live by one argparse attribute
-        # and this entire file would be theatre. `gap_finding` is the canary:
+        # and this entire file would be theatre. `gap_closure` is the canary:
         # the CLI can mint it, and it must still read as unwritten.
         #
         # The canary used to be `verification` — until the same change that
         # added this file gave that role a real minter (decision_questioning),
         # at which point the assertion started failing for the RIGHT reason.
         # A canary must be a member nothing writes; when one gets wired, the
-        # canary moves rather than the gate loosening.
+        # canary moves rather than the gate loosening. It moved again from
+        # `gap_finding` when that unwritten role was deleted from the surface.
         surface = next(s for s in self.surfaces if s.surface_id == "agent_surface_request_role")
-        self.assertIn("gap_finding", surface.members)
+        self.assertIn("gap_closure", surface.members)
         self.assertIn(
-            "gap_finding",
+            "gap_closure",
             self.unwritten["agent_surface_request_role"],
             "an opaque argument started counting as a writer — the walk has "
             "lost the distinction between minting a role and forwarding one",

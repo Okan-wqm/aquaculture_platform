@@ -5,12 +5,6 @@
       "finding_id": "ORPHAN-MEDIUM-688",
       "owner": "okan",
       "reason": "Budgeted at 0.45 in the executors tier (context_budget_gate.py:88) alongside `implementation`, which IS minted (cross_review_bridge.py:468). The pair is the tell: the tier was designed for two executors and only one was ever wired. — renewed 2026-09-16: writers still unwritten on main (survey confirmed); re-pinned pending ORPHAN tracking rows."
-    },
-    "gap_finding": {
-      "expires_on": "2026-10-16",
-      "finding_id": "ORPHAN-MEDIUM-688",
-      "owner": "okan",
-      "reason": "Budgeted at 0.40 (context_budget_gate.py:102) and minted by nothing. The acceptance-lane gap hunt runs as an operator-driven Agent dispatch outside the kernel, so the role exists to describe work the kernel does not schedule. Either the kernel schedules it or the role and its budget entry go. — renewed 2026-09-16: writers still unwritten on main (survey confirmed); re-pinned pending ORPHAN tracking rows."
     }
   },
   "genesis_lifecycle_forward_transition": {

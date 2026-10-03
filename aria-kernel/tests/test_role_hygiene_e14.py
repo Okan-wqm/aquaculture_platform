@@ -63,6 +63,11 @@ REMOVED_ROLES = (
     "auth_security_review",
     "access_boundary_review",
     "tenant_isolation_review",
+    # Removed after E14, same shape: no kernel path ever minted `gap_finding`
+    # (the acceptance-lane gap hunt is an operator-driven dispatch outside the
+    # kernel). Program rev3.1 deletes it; blind enumeration (K42) re-adds a
+    # role only when its evidence trigger fires.
+    "gap_finding",
 )
 
 

@@ -102,7 +102,6 @@ ROLE_CAP_MAP: dict[str, float] = {
     "goldset_curation": 0.40,
     "maintenance_utility": 0.40,
     "verification": 0.40,
-    "gap_finding": 0.40,
 }
 DEFAULT_ROLE_CAP: float = 0.40
 

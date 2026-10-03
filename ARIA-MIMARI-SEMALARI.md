@@ -816,7 +816,7 @@ flowchart TD
     subgraph GATES[tools/gates — ~40 TS kapısı]
         G1[banned-phrase.ts: yasak sözlük<br/>pre-commit + kalite kapısı]
         G2[plan-coverage-witness.ts: deterministik<br/>etki kapanışı — CONVERGED'ı engelleyebilir]
-        G3[aria-authority-hash.ts: docs/aria + çekirdek<br/>+ workflow'ların imza hash'i]
+        G3[aria-authority-hash.ts: CURRENT_STATE dayanakları ağaçta çözülür mü<br/>+ yetki yüzeyi özeti commit'ten türetilir, saklanmaz]
         G4[agent-dispatch-gate.ts: PreToolUse kancası —<br/>ajan rozeti + oturum başına ≤12 fışkırma]
         G5[finding-registry.ts: hash zincirli bulgu kaydı<br/>verify/add/close/sweep]
         G6[gha-sha-pin.ts: her uses: 40-hex SHA zorunlu]

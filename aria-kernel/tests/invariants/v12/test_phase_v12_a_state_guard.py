@@ -65,13 +65,16 @@ class CompactKeepsWriteDrivingLedgers(unittest.TestCase):
     def test_I_V12_STATE_01_the_compactor_only_names_ledger_surfaces_it_rewrites(self) -> None:
         from aria_kernel import state_compact
 
-        owned = {"runs", "raw_findings", "beliefs", "learning_events"}
+        owned = set(state_compact.COMPACTABLE_SURFACES)
+        self.assertEqual(owned, {"runs", "raw_findings"})
         for name in owned:
             path = state_compact._surface_path(self.tools, name)
             self.assertTrue(path.as_posix().endswith(".jsonl"), name)
-        # The mapping is closed: a fifth surface cannot be compacted by name.
-        with self.assertRaises(KeyError):
-            state_compact._surface_path(self.tools, "plan_convergence_events")
+        # The mapping is closed: no other surface can be compacted by name,
+        # memory least of all (ARIA-HIGH-263).
+        for name in ("plan_convergence_events", "beliefs", "memory_beliefs"):
+            with self.assertRaises(KeyError):
+                state_compact._surface_path(self.tools, name)
 
 
 class WriteDrivingLossIsNamed(unittest.TestCase):

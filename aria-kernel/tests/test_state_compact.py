@@ -330,112 +330,52 @@ class StateCompactTests(unittest.TestCase):
         self.assertEqual(ledger.read_bytes(), before_bytes)
         self.assertEqual(doctor._check_funnel(self.tools), before_check)
 
-    def _seed_hot_artifacts(self) -> None:
+    def _seed_hot_artifacts_and_fates(self) -> list[Path]:
+        """Hot cycles past and inside the old 7-day window, a directory with no
+        cycle stamp, and a discovery FATES whose mtime is 31 days old — every
+        shape the retired strips removed."""
         hot = self.tools / "run-artifacts" / "hot"
         old_stamp = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y%m%dT%H%M%SZ")
         new_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        files: list[Path] = []
         for name in (f"cyc-{old_stamp}-auto", f"cyc-{new_stamp}-auto", "not-a-cycle-dir"):
-            cycle = hot / name
-            cycle.mkdir(parents=True, exist_ok=True)
-            (cycle / "tool_run.json").write_text("{}", encoding="utf-8")
-        # The non-cycle directory has no name stamp: its mtime decides.
-        stale = hot / "not-a-cycle-dir"
-        old_ts = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
-        os.utime(stale, (old_ts, old_ts))
-
-    def test_hot_artifacts_older_than_retain_removed_newer_kept(self) -> None:
-        self._seed_hot_artifacts()
-        result = compact_state(base_dir=self.tools, retain_days=7)
-        hot = self.tools / "run-artifacts" / "hot"
-        self.assertEqual(result["hot_artifacts_removed"], 2)
-        remaining = sorted(p.name for p in hot.iterdir())
-        self.assertTrue(any(n.startswith("cyc-") and n != "not-a-cycle-dir" for n in remaining))
-        self.assertNotIn("not-a-cycle-dir", remaining)
-
-    def test_discovery_fates_older_than_thirty_days_removed(self) -> None:
-        fates = self.tools / "discovery" / "cyc-x"
-        fates.mkdir(parents=True, exist_ok=True)
-        target = fates / "FATES.json"
-        target.write_text("{}", encoding="utf-8")
-        old_ts = (datetime.now(timezone.utc) - timedelta(days=31)).timestamp()
-        os.utime(target, (old_ts, old_ts))
-        fresh = self.tools / "discovery" / "cyc-y" / "FATES.json"
-        fresh.parent.mkdir(parents=True, exist_ok=True)
-        fresh.write_text("{}", encoding="utf-8")
-
-        result = compact_state(base_dir=self.tools, retain_days=7)
-
-        self.assertEqual(result["fates_removed"], 1)
-        self.assertFalse(target.exists())
-        self.assertTrue(fresh.exists())
-
-    def test_dry_run_removes_no_hot_artifacts_or_fates(self) -> None:
-        self._seed_hot_artifacts()
-        result = compact_state(base_dir=self.tools, retain_days=7, dry_run=True)
-        self.assertEqual(result["hot_artifacts_removed"], 2)
-        hot = self.tools / "run-artifacts" / "hot"
-        self.assertEqual(len(list(hot.iterdir())), 3)
-
-    # ------------------------------------------------------------------
-    # The prune is attested: what compaction removes, it names — and the
-    # publish gate reads those names back. Before this, the only way past
-    # `surfaces_lost` after a compaction was the operator bootstrap ack.
-    # ------------------------------------------------------------------
-
-    def test_compaction_names_every_pruned_path_on_its_governance_row(self) -> None:
-        from aria_kernel.state_compact import COMPACTED_EVENT, PRUNED_PATHS_KEY
-
-        self._seed_hot_artifacts()
+            target = hot / name / "tool_run.json"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("{}", encoding="utf-8")
+            files.append(target)
         fates = self.tools / "discovery" / "cyc-x" / "FATES.json"
         fates.parent.mkdir(parents=True, exist_ok=True)
         fates.write_text("{}", encoding="utf-8")
         old_ts = (datetime.now(timezone.utc) - timedelta(days=31)).timestamp()
-        os.utime(fates, (old_ts, old_ts))
-        hot = self.tools / "run-artifacts" / "hot"
-        before = {p.name for p in hot.iterdir()}
+        for path in (fates, hot / "not-a-cycle-dir"):
+            os.utime(path, (old_ts, old_ts))
+        return [*files, fates]
 
-        result = compact_state(base_dir=self.tools, retain_days=7)
+    # ------------------------------------------------------------------
+    # ARIA-HIGH-274 — compaction deletes no file. It used to strip hot
+    # cycles on a 7-day wall-clock window and FATES by mtime (checkout time
+    # on a fresh worktree); every publish now evicts old cycles to the cold
+    # store instead, so the only thing compaction may remove is ledger ROWS,
+    # each one archived.
+    # ------------------------------------------------------------------
 
-        after = {p.name for p in hot.iterdir()}
-        old_cycles = sorted(f"run-artifacts/hot/{name}/" for name in before - after)
-        self.assertEqual(len(old_cycles), 2)
-        expected = sorted([*old_cycles, "discovery/cyc-x/FATES.json"])
-        self.assertEqual(result[PRUNED_PATHS_KEY], expected)
-        rows = load_jsonl(self.tools / "governance.jsonl")
-        row = [r for r in rows if r.get("kind") == COMPACTED_EVENT][-1]
-        self.assertEqual(row["details"][PRUNED_PATHS_KEY], expected)
-        # Directory prunes end with "/" so a reader can match by prefix;
-        # single files are exact.
-        self.assertTrue(all(p.endswith("/") for p in old_cycles))
+    def test_compaction_removes_no_hot_artifact_and_no_fates(self) -> None:
+        files = self._seed_hot_artifacts_and_fates()
+        for dry_run in (True, False):
+            with self.subTest(dry_run=dry_run):
+                result = compact_state(base_dir=self.tools, retain_days=7, dry_run=dry_run)
+                self.assertTrue(all(path.exists() for path in files))
+                self.assertNotIn("hot_artifacts_removed", result)
+                self.assertNotIn("fates_removed", result)
+                self.assertNotIn("pruned_paths", result)
 
-    def test_attested_pruned_paths_reads_only_rows_since_the_published_tip(self) -> None:
-        from aria_kernel.state_compact import attested_pruned_paths, prune_attested
+    def test_the_compaction_row_names_no_pruned_path(self) -> None:
+        from aria_kernel.state_compact import COMPACTED_EVENT
 
-        rows_before = len(load_jsonl(self.tools / "governance.jsonl"))
-        self._seed_hot_artifacts()
+        self._seed_hot_artifacts_and_fates()
         compact_state(base_dir=self.tools, retain_days=7)
-        rows_after = len(load_jsonl(self.tools / "governance.jsonl"))
-
-        attested = attested_pruned_paths(self.tools, governance_rows_since=rows_before)
-        self.assertTrue(any(p.startswith("run-artifacts/hot/cyc-") for p in attested))
-        self.assertIn("run-artifacts/hot/not-a-cycle-dir/", attested)
-        # Rows the published tip already claims are not this run's evidence.
-        self.assertEqual(attested_pruned_paths(self.tools, governance_rows_since=rows_after), ())
-        self.assertEqual(attested_pruned_paths(self._tmp / "nowhere", governance_rows_since=0), ())
-
-        cycle = next(p for p in attested if p.startswith("run-artifacts/hot/cyc-"))
-        self.assertTrue(prune_attested(f"{cycle}abc/tool_run.json", attested))
-        self.assertTrue(prune_attested(f"{cycle}progress.jsonl", attested))
-        self.assertFalse(prune_attested("run-artifacts/hot/cyc-other/tool_run.json", attested))
-        self.assertFalse(prune_attested("runs.jsonl", attested))
-
-    def test_a_compaction_that_prunes_nothing_attests_nothing(self) -> None:
-        from aria_kernel.state_compact import COMPACTED_EVENT, PRUNED_PATHS_KEY
-
-        result = compact_state(base_dir=self.tools, retain_days=7)
-        self.assertEqual(result[PRUNED_PATHS_KEY], [])
         row = [r for r in load_jsonl(self.tools / "governance.jsonl") if r.get("kind") == COMPACTED_EVENT][-1]
-        self.assertEqual(row["details"][PRUNED_PATHS_KEY], [])
+        self.assertNotIn("pruned_paths", row["details"])
 
     # ------------------------------------------------------------------
     # ORPHAN-CRITICAL-805 — the index must follow the files it describes.
@@ -485,8 +425,8 @@ class StateCompactTests(unittest.TestCase):
         return live_cycle
 
     def test_index_rows_for_swept_artifacts_are_dropped_and_archived(self) -> None:
-        """A row whose file `_strip_hot_artifacts` removed used to survive
-        forever, and `verify_artifacts` walks the INDEX — so one swept cycle
+        """A row whose file the retired hot-artifact strip removed used to
+        survive forever, and `verify_artifacts` walks the INDEX — so one swept cycle
         made every later cycle report integrity_failed regardless of its
         work. Measured on the production runner 2026-09-04: 158 stale rows
         against 18 live files."""

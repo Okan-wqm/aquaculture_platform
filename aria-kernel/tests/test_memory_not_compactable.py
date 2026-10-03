@@ -40,7 +40,6 @@ from aria_kernel.state_compact import (
     ARCHIVE_KEY,
     COMPACTABLE_SURFACES,
     COMPACTED_EVENT,
-    PRUNED_PATHS_KEY,
     bound_compactable_surfaces,
     compact_state,
     compact_surfaces,
@@ -232,7 +231,8 @@ class MemoryIsNotCompactable(unittest.TestCase):
         self.assertEqual([row["kind"] for row in added], [COMPACTED_EVENT])
         details = added[0]["details"]
         self.assertEqual(set(details["surfaces"]), {"runs"})
-        self.assertEqual(details[PRUNED_PATHS_KEY], [])
+        # The cold-eviction change retired pruned-path attestation: nothing is pruned, so no row claims to vouch for it.
+        self.assertNotIn("pruned_paths", details)
         self.assertIn(ARCHIVE_KEY, details)
         self.assertIsNone(details[ARCHIVE_KEY])
 

@@ -84,6 +84,11 @@ MAX_SNAPSHOT_JSON_BYTES = 4 * 1024 * 1024
 GITHUB_PUSH_FILE_LIMIT_BYTES = 100 * 1024 * 1024
 SNAPSHOT_MAX_SURFACE_BLOB_BYTES = 64 * 1024 * 1024
 SNAPSHOT_MAX_INPUT_BYTES = 1280 * 1024 * 1024
+# ARIA-HIGH-274 — the warning line below the input budget: a publish whose
+# snapshot attests more than this reports `size_alarm` (the CLI prints a
+# `::warning::`) and is NOT refused. The budget above refuses every publish
+# once crossed; this is what makes the approach visible days before that.
+STATE_SIZE_ALARM_BYTES = 900 * 1024 * 1024
 # ARIA-HIGH-034 — not a number of its own: the read-side line cap IS the
 # append primitive's row cap, so a writer can never seal a row the
 # publisher would later refuse.

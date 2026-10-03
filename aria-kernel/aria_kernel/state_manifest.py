@@ -517,6 +517,11 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # names. Written and read only by `state_compact` / `runtime_artifacts`.
     StateSurface("runtime_artifact_compactions", "run-artifacts/compacted.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_artifact_hot", "run-artifacts/hot/**/*.json", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
+    # ARIA-HIGH-274 — the address of every artifact a publish moved out of
+    # the hot tree into the content-addressed `<branch>-cold` store, one row
+    # per file, monthly by the cycle's own stamp. Write-driving: the rows are
+    # the only address of that evidence, so losing them is never accepted.
+    StateSurface("cold_pointers", "cold/pointers/*.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True, profile_surface="tool_governance"),
     StateSurface("runtime_artifact_archives", ".archive/runtime/**/*.json", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
     StateSurface("runtime_validation_log_archives", ".archive/runtime/**/*.log", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
     StateSurface("state_archives", "archives/*.jsonl.gz", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),

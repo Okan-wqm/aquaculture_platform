@@ -59,11 +59,36 @@ class UnknownIsNeverGreen(unittest.TestCase):
             [d.as_dict() for d in verdict.dimensions],
         )
 
-    def test_all_lanes_passing_is_green(self) -> None:
+    def test_all_lanes_passing_greens_every_instrumented_dimension(self) -> None:
+        # Every lane voting green turns every dimension that HAS an
+        # instrument green; a dimension declared before its instrument
+        # exists stays unknown by name, so the night cannot be green.
         verdict = evaluate_fitness(
             workspace_root=_REPO, head_sha="x", reader=_Reader(_all_lanes()),
         )
-        self.assertEqual(verdict.status, "green", [d.as_dict() for d in verdict.dimensions])
+        declared = {d["id"]: d for d in load_charter(_REPO)["dimensions"]}
+        for dimension in verdict.dimensions:
+            instrumented = declared[dimension.dimension_id]["measured_by"] == "workflow_conclusions"
+            self.assertEqual(
+                dimension.status, "green" if instrumented else "unknown", dimension.as_dict(),
+            )
+
+    def test_real_environment_e2e_stays_unknown_until_its_lane_votes(self) -> None:
+        # INFRA-CRITICAL-097 took the product E2E lane off the production
+        # host and no staging lane votes yet (INFRA-CRITICAL-098). Every
+        # other lane passing must not turn "E2E flows hold in a real
+        # environment" green, and with it stage A's "zero dimensions
+        # unknown" — a messaging-only green would claim an instrument
+        # that does not exist.
+        verdict = evaluate_fitness(
+            workspace_root=_REPO, head_sha="x", reader=_Reader(_all_lanes()),
+        )
+        real = next(
+            d for d in verdict.dimensions if d.dimension_id == "e2e_real_environment"
+        )
+        self.assertEqual(real.status, "unknown", real.as_dict())
+        self.assertIn("no instrument", real.detail)
+        self.assertEqual(verdict.status, "unknown")
 
     def test_one_failing_lane_reds_the_whole_verdict(self) -> None:
         runs = _all_lanes()

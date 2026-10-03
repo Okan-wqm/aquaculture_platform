@@ -31,6 +31,7 @@ from unittest.mock import patch
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
 from aria_kernel.merge_authority import merge_pr_if_ready
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.declared_fixtures import segmented_ledger_bytes
 from tests._helpers.node_modules import installed_node_modules
 from tests._helpers.operator_acts import operator_set_profile
 
@@ -813,7 +814,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             self.assertIsNone(accepted_result_for_request(
                 request_id=expert_request["request_id"], base_dir=tools,
             ))
-        expert_request_bytes = (tools / "agent-invocations/requests.jsonl").read_bytes()
+        expert_request_bytes = segmented_ledger_bytes(tools, "agent_invocation_requests")
 
         def invoke_current_runner(*, selected_root, pr_observation=pr, expected_expert=False,
                                   expected_budget=True):
@@ -861,7 +862,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(repeated_context.pre_merge_evidence.result_row_hash,
             submitted["row"]["ledger_hash"])
         self.assertFalse(repeated_checks["expert_consensus_evidence_verified"].passed)
-        self.assertEqual((tools / "agent-invocations/requests.jsonl").read_bytes(), expert_request_bytes)
+        self.assertEqual(segmented_ledger_bytes(tools, "agent_invocation_requests"), expert_request_bytes)
 
         with self.subTest(ordinary_case="missing_workspace_input"):
             missing_context, missing_checks = invoke_current_runner(selected_root=None, expected_budget=False)
@@ -998,7 +999,7 @@ class NativeImplementationContextTests(unittest.TestCase):
                     submitted["row"]["ledger_hash"])
         self.assertEqual(len({row["claim_id"] for row in expert_results}), 2)
         self.assertEqual(len({row["transcript_hash"] for row in expert_results}), 2)
-        self.assertEqual((tools / "agent-invocations/requests.jsonl").read_bytes()[:len(expert_request_bytes)],
+        self.assertEqual(segmented_ledger_bytes(tools, "agent_invocation_requests")[:len(expert_request_bytes)],
             expert_request_bytes)
         reviewed_context, reviewed_checks = invoke_current_runner(
             selected_root=repo, expected_expert=True,

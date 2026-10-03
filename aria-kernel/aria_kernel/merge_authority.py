@@ -23,7 +23,7 @@ from .incident_ledger import (
     finalize_merge_incident,
     record_merge_failed_incident,
 )
-from .ledger import load_declared_jsonl
+from .ledger import SEGMENTED_LEDGERS, load_declared_jsonl, load_segments, segment_paths
 from .policy_approval import verify_policy_approval
 from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import record_risk_decision_for_pr
@@ -936,7 +936,13 @@ def _capture_pre_merge_context(
         }
         sources.update(optional_sources)
 
-        def read_prefix(surface: str, path: Path) -> bytes | None:
+        def read_prefix(surface: str, path: Path) -> bytes | tuple[bytes, ...] | None:
+            if surface in SEGMENTED_LEDGERS:
+                # ARIA-HIGH-275 — a segment that grew or opened between reads changes the context.
+                return tuple(
+                    _read_bounded_regular_file(segment)[0]
+                    for segment in segment_paths(tools, surface)
+                ) or None
             if surface in optional_sources and not path.exists():
                 return None
             return _read_bounded_regular_file(path)[0]
@@ -953,8 +959,9 @@ def _capture_pre_merge_context(
                 surface: read_prefix(surface, path)
                 for surface, path in sources.items()
             }
+            segmented = {surface: load_segments(tools, surface) for surface in SEGMENTED_LEDGERS}
         rows = {
-            surface: _load_verified_text(
+            surface: segmented[surface] if surface in segmented else _load_verified_text(
                 prefixes[surface].decode("utf-8"), source=path,
                 expected_surface=surface,
             ) if prefixes[surface] is not None else []

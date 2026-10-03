@@ -22,7 +22,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .ledger import load_declared_jsonl
+from .ledger import load_declared_jsonl, load_segments
 from .recovery import (
     EXTERNAL_EFFECTS_RELPATH,
     EXTERNAL_EFFECTS_SURFACE,
@@ -53,7 +53,6 @@ DELIVERY_STATES: tuple[str, ...] = (
 DELIVERED_STATES: tuple[str, ...] = ("ci_green", "merged")
 SLO_VERIFIED_PRS_MIN = 3
 
-_REQUESTS = ("agent-invocations", "requests.jsonl", "agent_invocation_requests")
 _CLAIMS = ("agent-invocations", "claims.jsonl", "agent_invocation_claims")
 _RESULTS = ("agent-invocations", "results.jsonl", "agent_invocation_results")
 _PR_LIFECYCLE = ("pr-lifecycle.jsonl", "pr_lifecycle")
@@ -156,7 +155,7 @@ def compute_delivery_closure(*, base_dir: str | Path | None = None) -> DeliveryC
     if root is None:
         raise ValueError("tools_root_unbound")
     records: dict[str, DeliveryRecord] = {}
-    for row in _rows(root, *_REQUESTS):
+    for row in load_segments(root, "agent_invocation_requests"):
         if str(row.get("role") or "") != IMPLEMENTATION_ROLE:
             continue
         rid = str(row.get("request_id") or "")

@@ -6604,11 +6604,10 @@ def _main(argv: list[str] | None = None) -> int:
 
         request: dict[str, Any] = {"request_id": args.request_id, "suggested_prompt": args.query or ""}
         if args.request_id:
-            from .ledger import load_declared_jsonl
+            from .ledger import load_segments
             from .tool_registry import ensure_tools_dir
 
-            requests_path = ensure_tools_dir(args.tools_dir) / "agent-invocations" / "requests.jsonl"
-            rows = load_declared_jsonl(requests_path, expected_surface="agent_invocation_requests") if requests_path.exists() else []
+            rows = load_segments(ensure_tools_dir(args.tools_dir), "agent_invocation_requests")
             request = next((r for r in rows if r.get("request_id") == args.request_id), request)
         kwargs = {"budget_tokens": args.budget_tokens} if args.budget_tokens else {}
         print(json.dumps(compile_context(request=request, base_dir=args.tools_dir, record=False, **kwargs).to_dict(), indent=2, sort_keys=True))

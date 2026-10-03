@@ -41,6 +41,22 @@ class RuleContract:
     # this tool is a product defect may live (evidence_trust).
     declared_scope: tuple[str, ...]
 
+    def promotion_severity(self, raw: str) -> str:
+        """ARIA-MEDIUM-326 — the severity a true positive of this rule is
+        promoted at: the consensus severity in the canonical vocabulary
+        (``critical`` is CRITICAL), no higher than ``severity_cap`` and no
+        lower than the claim type's floor (validated <= cap at the gate)."""
+        from .finding import CLAIM_TYPES, SEVERITY_RANK
+
+        canonical = str(raw or "").strip().upper()
+        severity = canonical if canonical in SEVERITY_RANK else "MEDIUM"
+        if SEVERITY_RANK[severity] > SEVERITY_RANK[self.severity_cap]:
+            severity = self.severity_cap
+        floor = str(CLAIM_TYPES[self.claim_type]["min_severity"])
+        if SEVERITY_RANK[severity] < SEVERITY_RANK[floor]:
+            severity = floor
+        return severity
+
 
 def validate_rule_contracts(rules: Any, *, tool_id: str) -> dict[str, dict[str, Any]]:
     """The manifest ``rules`` block, refused when any contract could not stand."""

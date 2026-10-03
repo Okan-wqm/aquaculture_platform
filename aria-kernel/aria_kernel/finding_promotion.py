@@ -13,7 +13,9 @@ Contract discipline (verified against finding.emit_finding):
   never reaches the banned-phrase gate;
 * evidence refs are repo-file paths only, pre-checked for existence so a
   ledger/self-output ref can never poison the emission;
-* severity maps lowercase→canonical and respects the claim-type floor;
+* claim type and severity come from the rule's manifest contract
+  (ARIA-MEDIUM-326): the contract's claim_type, and the consensus severity
+  bounded by the contract's severity_cap and the claim type's floor;
 * the promotion ledger (`promotions.jsonl`, hash-chain-free append like the
   sibling feedback ledgers) is the once-only memory — read by the sampler
   to stop re-judging what is already committed.
@@ -33,18 +35,6 @@ from .feedback_store import (
 )
 from .rule_contract import resolve_rule_contract
 from .tool_registry import ensure_tools_dir, utc_now
-
-_SEVERITY_MAP = {
-    "low": "LOW",
-    "medium": "MEDIUM",
-    "high": "HIGH",
-    "critical": "HIGH",
-    "informational": "INFORMATIONAL",
-}
-_SEVERITY_RANK = {"INFORMATIONAL": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
-_CLAIM_TYPE = "wrong_code"  # min_evidence 1, floor MEDIUM (finding.CLAIM_TYPES)
-_CLAIM_FLOOR = "MEDIUM"
-
 
 def promoted_fingerprints(base_dir: str | Path | None = None) -> set[str]:
     """Fingerprints that already have a committed finding."""
@@ -74,13 +64,6 @@ def promotion_row(
         "tool_id": tool_id,
         "judgment_group_id": judgment_group_id,
     }
-
-
-def _severity_for(raw: str) -> str:
-    mapped = _SEVERITY_MAP.get(str(raw).lower(), "MEDIUM")
-    if _SEVERITY_RANK[mapped] < _SEVERITY_RANK[_CLAIM_FLOOR]:
-        return _CLAIM_FLOOR
-    return mapped
 
 
 def _repo_file_refs(row: dict[str, Any], repo_root: Path) -> list[str]:
@@ -132,7 +115,7 @@ def promote_consensus_findings(
     """
     import os
 
-    from .finding import emit_finding
+    from .finding import CLAIM_TYPES, emit_finding
     from .operator_approval import OperatorApprovalUnrecorded, verify_recorded_reference
 
     repo_path = Path(repo_root).resolve()
@@ -212,20 +195,28 @@ def promote_consensus_findings(
                 "reason": "no_repo_verified_evidence",
             })
             continue
+        min_evidence = int(CLAIM_TYPES[contract.claim_type]["min_evidence"])
+        if len(refs) < min_evidence:
+            # emit_finding would refuse it and abort every later promotion.
+            skipped.append({
+                "finding_fingerprint": fingerprint, "reason": "insufficient_admissible_evidence",
+                "claim_type": contract.claim_type, "min_evidence": min_evidence,
+            })
+            continue
         scope_files = sorted({ref.split(":", 1)[0] for ref in refs})
         confidence = row.get("confidence")
         summary = (
-            f"AI consensus confirmed {rule} at {subject_ref} "
-            f"(tool {tool_id}, finding {row.get('finding_id')}"
-            + (f", confidence {confidence}" if confidence is not None else "")
-            + ")"
+            f"{rule} at {subject_ref} "
+            f"(tool {tool_id}, finding {row.get('finding_id')}, AI consensus"
+            + (f" confidence {confidence}" if confidence is not None else "")
+            + f"): {contract.defect_claim}"
         )
         finding = emit_finding(
             repo_root=repo_path,
             base_dir=root,
-            claim_type=_CLAIM_TYPE,
+            claim_type=contract.claim_type,
             claim_summary=summary,
-            severity=_severity_for(str(row.get("severity") or "medium")),
+            severity=contract.promotion_severity(str(row.get("severity") or "medium")),
             evidences=[{"ref": ref} for ref in refs],
             facts=[
                 f"finding_fingerprint={fingerprint}",

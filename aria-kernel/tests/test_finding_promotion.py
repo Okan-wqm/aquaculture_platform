@@ -247,5 +247,51 @@ class PromotionStandsOnTheSubjectAndAdmissibleEvidence(_PromotionCase):
         self.assertEqual([row["reason"] for row in result["skipped"]], ["rule_contract_undeclared"])
 
 
+class PromotionTakesClaimTypeAndSeverityFromTheContract(_PromotionCase):
+    """ARIA-MEDIUM-326 — promotion stamped every finding wrong_code and folded
+    critical into HIGH. The rule's manifest contract decides both."""
+
+    def _promote_one(self, *, tool_id: str, rule: str, contract: dict, severity: str) -> dict:
+        register_contracted_tool(self.tools, tool_id, rules={rule: contract}, declared_scope=["apps/**"])
+        fingerprint = self._seed(tool_id=tool_id, rule=rule)
+        self._consensus_row(fingerprint, tool_id=tool_id, refs=["apps/target.ts:1"], severity=severity)
+        result = promote_consensus_findings(repo_root=self.repo, base_dir=self.tools)
+        self.assertEqual(result["promoted_count"], 1, result["skipped"])
+        (doc,) = self._promoted_docs()
+        return doc
+
+    def test_a_test_gap_promotion_is_an_absence_in_scope(self) -> None:
+        doc = self._promote_one(
+            tool_id="test-gap-adapter", rule="security_source_without_security_test",
+            contract=dict(DEFAULT_RULE_CONTRACT, claim_type="absence_in_scope", severity_cap="HIGH"),
+            severity="high",
+        )
+        self.assertEqual((doc["claim_type"], doc["severity"]), ("absence_in_scope", "HIGH"))
+
+    def test_a_critical_consensus_stays_critical(self) -> None:
+        doc = self._promote_one(
+            tool_id="tenant-scoping-adapter", rule="tenant_repository_unscoped_read",
+            contract=dict(DEFAULT_RULE_CONTRACT, severity_cap="CRITICAL"),
+            severity="critical",
+        )
+        self.assertEqual((doc["claim_type"], doc["severity"]), ("wrong_code", "CRITICAL"))
+
+    def test_the_cap_bounds_the_severity(self) -> None:
+        doc = self._promote_one(
+            tool_id="bundle-budget-adapter", rule="bundle_budget_not_enforced",
+            contract=dict(DEFAULT_RULE_CONTRACT, claim_type="absence_in_scope", severity_cap="LOW"),
+            severity="high",
+        )
+        self.assertEqual((doc["claim_type"], doc["severity"]), ("absence_in_scope", "LOW"))
+
+    def test_doc_staleness_is_a_currency_gap_stating_its_defect(self) -> None:
+        contract = dict(DEFAULT_RULE_CONTRACT, claim_type="currency_gap", severity_cap="MEDIUM",
+                        defect_claim="A document describes a path that no longer exists.")
+        doc = self._promote_one(tool_id="doc-staleness-adapter", rule="doc_references_missing_path",
+                                contract=contract, severity="medium")
+        self.assertEqual((doc["claim_type"], doc["severity"]), ("currency_gap", "MEDIUM"))
+        self.assertIn("A document describes a path that no longer exists.", doc["claim_summary"])
+
+
 if __name__ == "__main__":
     unittest.main()

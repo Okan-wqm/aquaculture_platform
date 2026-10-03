@@ -89,6 +89,39 @@ def run_fixture_suite(
             raise GovernanceError(f"fixture case must be a JSON object: {case_path}")
         case_results.append(run_fixture_case(tool, case, case_path, fixture_dir, workspace_root))
 
+    # Plan 023 v3 §A-1 — suite-level provenance fields. execution_run_id
+    # is a UUIDv7 issued at this exact run; downstream genesis-sandbox
+    # provenance check joins on this ID against fixture-runs.jsonl so
+    # a fabricated dict can no longer claim a fictional run.
+    import uuid as _uuid
+    summary = fixture_suite_row(
+        tool_id=tool_id,
+        tool=tool,
+        fixture_set_digest=fixture_set_hash(fixture_dir),
+        cycle_id=cycle_id,
+        case_results=case_results,
+        execution_run_id=f"exec-{_uuid.uuid4().hex[:24]}",
+    )
+    append_declared_jsonl(
+        fixture_runs_path(base_dir),
+        summary,
+        expected_surface="agent_eval_fixture_runs",
+    )
+    return summary
+
+
+def fixture_suite_row(
+    *,
+    tool_id: str,
+    tool: dict[str, Any],
+    fixture_set_digest: str,
+    cycle_id: str,
+    case_results: list[dict[str, Any]],
+    execution_run_id: str,
+) -> dict[str, Any]:
+    """The one constructor of a fixture-run suite row: the
+    fixture_calibration proof row, whose meaning its schema_version declares
+    (pinned by producer fixture in test_capability_semantic_equivalence)."""
     # Plan 023 v3 §A-7 — empty case_results is NOT a pass. Pre-fix
     # `all([]) is True` so an empty fixture suite was reported as
     # passed. Post-fix: explicit bool(case_results) gates the pass
@@ -96,13 +129,6 @@ def run_fixture_suite(
     has_cases = bool(case_results)
     passed = has_cases and all(case["passed"] for case in case_results)
     lane_counts = _fixture_lane_counts(case_results)
-
-    # Plan 023 v3 §A-1 — suite-level provenance fields. execution_run_id
-    # is a UUIDv7 issued at this exact run; downstream genesis-sandbox
-    # provenance check joins on this ID against fixture-runs.jsonl so
-    # a fabricated dict can no longer claim a fictional run.
-    import uuid as _uuid
-    execution_run_id = f"exec-{_uuid.uuid4().hex[:24]}"
 
     # Plan 023 v3 §A-1 — actual_status enum derivation:
     #   error_no_cases : empty suite (caught above).
@@ -131,7 +157,7 @@ def run_fixture_suite(
         "tool_id": tool_id,
         "tool_version": tool.get("version"),
         "tool_manifest_hash": tool_manifest_hash(tool),
-        "fixture_set_hash": fixture_set_hash(fixture_dir),
+        "fixture_set_hash": fixture_set_digest,
         "cycle_id": cycle_id,
         "fixture_set": tool["fixture_set"],
         "passed": passed,
@@ -152,11 +178,6 @@ def run_fixture_suite(
     # concern, not content).
     summary = dict(base_summary)
     summary["evidence_hash"] = _compute_suite_evidence_hash(base_summary)
-    append_declared_jsonl(
-        fixture_runs_path(base_dir),
-        summary,
-        expected_surface="agent_eval_fixture_runs",
-    )
     return summary
 
 

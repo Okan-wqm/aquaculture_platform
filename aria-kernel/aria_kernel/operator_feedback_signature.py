@@ -66,6 +66,11 @@ OPERATOR_REQUEST_SCHEMA_VERSION = REQUEST_ROW_SCHEMA_VERSION
 OPERATOR_REQUEST_PRIORITIES: tuple[str, ...] = ("low", "medium", "high")
 OPERATOR_REQUEST_STATUS_UNADDRESSED = "unaddressed"
 MAX_OPERATOR_REQUEST_CHARS = 4096
+# ARIA's agents work in English (operator rule 2026-10-03). The request text is
+# the one operator prose that lands verbatim in an agent envelope, so a Turkish
+# sentence is refused here, before anything is signed, rather than translated
+# or passed through for an agent to answer in kind.
+NON_ENGLISH_LETTERS = re.compile(r"[ğĞüÜşŞıİöÖçÇ]")
 _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 # The request names one of ARIA's own F findings (ADR-0018): the kernel's
 # allocator form, so `F-1000` after `F-999` is a valid target.
@@ -280,6 +285,10 @@ def record_operator_request(
     if len(text) > MAX_OPERATOR_REQUEST_CHARS:
         raise GovernanceError(
             f"operator_request_text_too_long: {len(text)} > {MAX_OPERATOR_REQUEST_CHARS}"
+        )
+    if NON_ENGLISH_LETTERS.search(text):
+        raise GovernanceError(
+            "operator_request_text_not_english: ARIA's agents work in English; write the request in English"
         )
     if priority not in OPERATOR_REQUEST_PRIORITIES:
         raise GovernanceError(f"operator_request_priority_unknown: {priority!r}")

@@ -563,15 +563,16 @@ def _attach_orphan_registry_evidence(
 ) -> None:
     if not candidates:
         return
-    # Route the registry JSONL through the blessed strict reader (tolerant
-    # mode: a corrupt row is skipped WITH a ledger_row_corrupt diagnostic, not
-    # silently swallowed — the jsonl-silent-skip invariant bans a bare
-    # except:continue on a JSONL read). Non-existent path → empty iterator.
-    from .strict_jsonl_reader import read_strict_jsonl
-    registry = (Path(workspace_root) / "docs" / "reviews" / "_registry" / "findings.jsonl").resolve()
+    # The one registry view (ARIA-HIGH-279): evidence a merged delta row
+    # recorded is the finding's evidence. Tolerant mode: a corrupt or refused
+    # row is skipped WITH a ledger_row_corrupt diagnostic / malformed record,
+    # not silently swallowed. No registry in this checkout → nothing attached.
+    from .report_ingestion import REGISTRY_FINDINGS_RELPATH, read_registry_view
+    if not Path(workspace_root).joinpath(*REGISTRY_FINDINGS_RELPATH).is_file():
+        return
     wanted = {c["candidate_id"] for c in candidates}
     evidence_by_id: dict[str, list[str]] = {}
-    for row in read_strict_jsonl(registry, on_corruption="tolerant"):
+    for row in read_registry_view(workspace_root, strict=False).rows:
         rid = row.get("id")
         if rid in wanted and isinstance(row.get("evidence"), list):
             evidence_by_id[rid] = [e for e in row["evidence"] if isinstance(e, str)]

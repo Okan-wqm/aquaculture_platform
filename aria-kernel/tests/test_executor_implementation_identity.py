@@ -94,6 +94,7 @@ import ci_executor  # noqa: E402
 import ci_executor_drain as drain  # noqa: E402
 
 from aria_kernel.recovery import unresolved_intents as recovery_unresolved_intents  # noqa: E402
+from tests._helpers.declared_fixtures import segmented_ledger_bytes  # noqa: E402
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit  # noqa: E402
 from tests._helpers.installation_credential import INSTALLATION_TOKEN  # noqa: E402
 from tests._helpers.production_shaped import production_staged_implementation_request  # noqa: E402
@@ -1026,7 +1027,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         # the request ledger it could not reach is as the kernel wrote it.
         journal = [row for row in journal_rows_for(self.request_id, base_dir=self.tools) if row["tool_use_id"] == "toolu_e2e"]
         self.assertEqual([row["command_family"] for row in journal], ["git_read"])
-        self.assertNotIn("forged", (self.tools / "agent-invocations" / "requests.jsonl").read_text(encoding="utf-8"))
+        self.assertNotIn(b"forged", segmented_ledger_bytes(self.tools, "agent_invocation_requests"))
         # The planted locks stayed in the sandbox: the shared `main` is not
         # wedged and the worktree was removable (the fixture removed it).
         self.assertFalse((self.repo / ".git" / "refs" / "heads" / "main.lock").exists())

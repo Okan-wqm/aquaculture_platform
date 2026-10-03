@@ -204,11 +204,11 @@ jobs:
       # "Nothing to publish" is the kernel's own `no_changes` verdict (exit
       # 0) — no porcelain check here can know what the snapshot will attest.
       #
-      # The surfaces compaction prunes (old hot-artifact cycles, discovery
-      # FATES) are losses the continuity gate would refuse; compaction
-      # records exactly what it pruned on its `state_compacted` row and the
-      # publish accepts those losses on that attestation — `pruned_paths` on
-      # the governance row IS the audit trail. No standing bootstrap ack is
+      # Compaction deletes no file (ARIA-HIGH-274). The publish itself moves
+      # the cycles outside the newest three to `aria/state-cold` and records
+      # each file on `cold/pointers`; the continuity gate accepts those
+      # losses only on a pointer whose blob holds the claimed bytes — the
+      # pointer row IS the audit trail. No standing bootstrap ack is
       # exported here (the runbook forbids one in a workflow); the
       # acknowledgement below is empty on every scheduled run and carries
       # the operator's one-run input only on a manual dispatch.

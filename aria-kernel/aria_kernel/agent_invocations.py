@@ -24,10 +24,14 @@ from .genesis_lifecycle import verify_shadow_eval_proof
 from .must_satisfy import MUST_SATISFY_ID_FIELD, MUST_SATISFY_TEXT_FIELD, must_satisfy_text, validate_must_satisfy
 from .git_probe import refuse_shallow_checkout
 from .ledger import (
+    SEGMENTED_LEDGERS,
     StateTransaction,
     append_declared_jsonl,
     append_jsonl,
+    append_segment_rows,
     load_declared_jsonl,
+    load_segments,
+    segment_paths,
     state_transaction,
 )
 from .runtime_profile import enforce_profile_for_action
@@ -344,10 +348,13 @@ def _past_failed_attempts_for_paths(
         with state_transaction(list(surfaces.values())) as transaction:
             rows_by_surface = {}
             for surface, path in surfaces.items():
-                rows = transaction.load_declared_jsonl(path, expected_surface=surface)
+                segmented = surface in SEGMENTED_LEDGERS
+                rows = (transaction.load_segments(base_dir, surface) if segmented
+                        else transaction.load_declared_jsonl(path, expected_surface=surface))
                 rows_by_surface[surface] = rows
                 state["source_snapshot"][surface] = {
-                    "present": path.exists(), "row_count": len(rows),
+                    "present": bool(segment_paths(base_dir, surface)) if segmented else path.exists(),
+                    "row_count": len(rows),
                     "tail_ledger_hash": rows[-1].get("ledger_hash") if rows else None,
                 }
     except TimeoutError:
@@ -1081,11 +1088,7 @@ def record_invocation_prompt(
         "prompt_hash": _sha256_text(prompt_text),
         "prompt_text": prompt_text,
     }
-    return append_declared_jsonl(
-        _prompts_ledger_path(root),
-        row,
-        expected_surface="agent_invocation_prompts",
-    )
+    return append_segment_rows(root, [row], expected_surface="agent_invocation_prompts")[0]
 
 
 def load_invocation_context(
@@ -1144,10 +1147,7 @@ def verify_invocation_context_binding(
             request_id=request_id, context_hash=context_hash, prompt_hash=prompt_hash,
             context=context, prompts=[],
         )
-    prompts = load_declared_jsonl(
-        _prompts_ledger_path(root),
-        expected_surface="agent_invocation_prompts",
-    )
+    prompts = load_segments(root, "agent_invocation_prompts")
     return _verify_invocation_context_binding_rows(
         request_id=request_id, context_hash=context_hash, prompt_hash=prompt_hash,
         context=context, prompts=prompts,
@@ -1589,12 +1589,13 @@ def create_agent_invocation_request(
     # Include every final writer up front. The winning request is checked
     # before audit persistence/enforcement; a competing candidate cannot
     # replace its sealed context or reject its already authorized publication.
+    # The request and prompt paths are segment-0 anchors (ARIA-HIGH-275):
+    # holding them holds the group lock the segment appends choose under.
     with state_transaction([contexts_path, prompts_path, requests_path,
                             root / CONTEXT_AUDITS_FILENAME, root / "governance.jsonl"]) as txn:
         existing_locked = next(
-            (item for item in reversed(txn.load_declared_jsonl(
-                requests_path, expected_surface="agent_invocation_requests",
-            )) if item.get("request_id") == request_id), None,
+            (item for item in reversed(txn.load_segments(root, "agent_invocation_requests"))
+             if item.get("request_id") == request_id), None,
         )
         if existing_locked is not None:
             return existing_locked
@@ -1632,19 +1633,15 @@ def create_agent_invocation_request(
             context,
             expected_surface="agent_invocation_contexts",
         )
-        stored_prompt = txn.append_declared_jsonl(
-            prompts_path,
-            prompt_row,
-            expected_surface="agent_invocation_prompts",
-        )
+        stored_prompt = txn.append_segment_rows(
+            root, [prompt_row], expected_surface="agent_invocation_prompts",
+        )[0]
         row["context_ledger_hash"] = stored_context.get("ledger_hash")
         row["prompt_ledger_hash"] = stored_prompt.get("ledger_hash")
         row["budget_audit_hash"] = budget_audit.get("ledger_hash")
-        return txn.append_declared_jsonl(
-            requests_path,
-            row,
-            expected_surface="agent_invocation_requests",
-        )
+        return txn.append_segment_rows(
+            root, [row], expected_surface="agent_invocation_requests",
+        )[0]
 
 
 def record_transcript(
@@ -1883,10 +1880,7 @@ def list_agent_invocation_requests(
     normalised to uppercase for comparison so historical lowercase
     ``state="claimed"`` invocations keep working.
     """
-    rows = load_declared_jsonl(
-        ensure_tools_dir(base_dir) / "agent-invocations" / "requests.jsonl",
-        expected_surface="agent_invocation_requests",
-    )
+    rows = load_segments(ensure_tools_dir(base_dir), "agent_invocation_requests")
     if state is not None:
         # Plan 026R §B.4 — per-call derived-state cache. A single list()
         # call may iterate many rows; only derive each request_id's
@@ -1942,10 +1936,7 @@ def minted_subject_refs(
     subject, per cycle.
     """
     refs: set[str] = set()
-    for row in load_declared_jsonl(
-        ensure_tools_dir(base_dir) / "agent-invocations" / "requests.jsonl",
-        expected_surface="agent_invocation_requests",
-    ):
+    for row in load_segments(ensure_tools_dir(base_dir), "agent_invocation_requests"):
         if row.get("role") != role or row.get("target_agent") != target_agent:
             continue
         row_refs = row.get("evidence_refs")
@@ -1955,10 +1946,7 @@ def minted_subject_refs(
 
 
 def _find_request(root: Path, request_id: str) -> dict[str, Any]:
-    for row in reversed(load_declared_jsonl(
-        root / "agent-invocations" / "requests.jsonl",
-        expected_surface="agent_invocation_requests",
-    )):
+    for row in reversed(load_segments(root, "agent_invocation_requests")):
         if row.get("request_id") == request_id:
             return row
     raise GovernanceError(f"agent invocation request not found: {request_id}")
@@ -1987,10 +1975,7 @@ def _request_id(
 
 
 def _find_request_by_id(root: Path, request_id: str) -> dict[str, Any] | None:
-    for row in reversed(load_declared_jsonl(
-        root / "agent-invocations" / "requests.jsonl",
-        expected_surface="agent_invocation_requests",
-    )):
+    for row in reversed(load_segments(root, "agent_invocation_requests")):
         if row.get("request_id") == request_id:
             return row
     return None
@@ -2727,10 +2712,7 @@ def derive_request_state(
         requests, results, claims = _ledgers
     else:
         root = ensure_tools_dir(base_dir)
-        requests = load_declared_jsonl(
-            root / "agent-invocations" / "requests.jsonl",
-            expected_surface="agent_invocation_requests",
-        )
+        requests = load_segments(root, "agent_invocation_requests")
         results = load_declared_jsonl(
             root / "agent-invocations" / "results.jsonl",
             expected_surface="agent_invocation_results",
@@ -3250,10 +3232,7 @@ def derive_request_states(
     """
     root = ensure_tools_dir(base_dir)
     ledgers = (
-        load_declared_jsonl(
-            root / "agent-invocations" / "requests.jsonl",
-            expected_surface="agent_invocation_requests",
-        ),
+        load_segments(root, "agent_invocation_requests"),
         load_declared_jsonl(
             root / "agent-invocations" / "results.jsonl",
             expected_surface="agent_invocation_results",
@@ -3364,10 +3343,7 @@ def next_pending_request(
 
     root = ensure_tools_dir(base_dir)
     repo_root = _anchor_repo_root(root)
-    requests = load_declared_jsonl(
-        root / "agent-invocations" / "requests.jsonl",
-        expected_surface="agent_invocation_requests",
-    )
+    requests = load_segments(root, "agent_invocation_requests")
     # Plan 032 Faz 032a (I-V12-QUEUE-01) — ONE batch derivation for the whole
     # queue. The per-request form reloaded all three ledgers per candidate;
     # on the 725-row backlog of 2026-09-02 the executor's selection step took
@@ -3649,10 +3625,7 @@ def claim_request(
         if request_for_check.get("role") == "implementation":
             conflict = _implementation_scope_conflict(
                 request_for_check,
-                requests=load_declared_jsonl(
-                    root / "agent-invocations" / "requests.jsonl",
-                    expected_surface="agent_invocation_requests",
-                ),
+                requests=load_segments(root, "agent_invocation_requests"),
                 claims=load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims"),
                 results=load_declared_jsonl(
                     root / "agent-invocations" / "results.jsonl",
@@ -3711,10 +3684,7 @@ def claim_request(
         # The request row's own ledger_hash is the integrity anchor for
         # §B.5 metadata-tamper detection. Load the request row directly
         # so we return the on-disk hash, not a derived value.
-        request_rows = load_declared_jsonl(
-            root / "agent-invocations" / "requests.jsonl",
-            expected_surface="agent_invocation_requests",
-        )
+        request_rows = load_segments(root, "agent_invocation_requests")
         envelope_row = next(
             (r for r in reversed(request_rows) if r.get("request_id") == request_id),
             None,
@@ -5452,39 +5422,24 @@ def _prepare_claim_submission(
         base_dir=root,
     )
     output_hash = output_content_hash
-    from .bridge_status_ledger import bridge_status_for_role
-
-    envelope_role = envelope.get("role")
-    row = {
-        "$schema": "aria/agent-claim-result/v1",
-        "schema_version": 1,
-        "row_id": f"result:{claim_id}",
-        "row_type": "result",
-        "claim_id": claim_id,
-        "request_id": request_id,
-        "agent_id": agent_id,
-        "role": envelope_role,
-        "status": "accepted",
-        "output_path": store_relative_artifact_path(root, sealed_output),
-        "output_hash": output_hash,
-        "content_hash": output_hash,
-        "envelope_evidence_hash": submitted_hash,
-        "invocation_id": claim_id,
-        "context_hash": context_hash,
-        "prompt_hash": prompt_hash,
-        "transcript_hash": transcript_hash,
-        "transcript_artifact_ref": store_relative_artifact_path(
+    row = _build_accepted_row(
+        claim_id=claim_id,
+        request_id=request_id,
+        agent_id=agent_id,
+        role=envelope.get("role"),
+        output_path=store_relative_artifact_path(root, sealed_output),
+        output_hash=output_hash,
+        envelope_evidence_hash=submitted_hash,
+        context_hash=context_hash,
+        prompt_hash=prompt_hash,
+        transcript_hash=transcript_hash,
+        transcript_artifact_ref=store_relative_artifact_path(
             root,
             verified_transcript_artifact,
         ),
-        # Bind accepted evidence to the trusted request tree before the row is
-        # journaled and hashed. The submitted envelope is never an authority
-        # for this SHA.
-        "target_sha": str(request.get("target_sha") or ""),
-        "bridge_status": bridge_status_for_role(envelope_role),
-        "checked_evidence_count": len(revalidation["checked_refs"]),
-        "submitted_at": utc_now(),
-    }
+        target_sha=str(request.get("target_sha") or ""),
+        checked_evidence_count=len(revalidation["checked_refs"]),
+    )
     return {
         "status": "accepted",
         "reasons": [],
@@ -6161,6 +6116,56 @@ def submit_claim_result(
         )
 
     return {"status": "accepted", "reasons": [], "row": persisted, "bridged": bridged}
+
+
+def _build_accepted_row(
+    *,
+    claim_id: str,
+    request_id: str,
+    agent_id: str,
+    role: Any,
+    output_path: str,
+    output_hash: str,
+    envelope_evidence_hash: str,
+    context_hash: str | None,
+    prompt_hash: str | None,
+    transcript_hash: str | None,
+    transcript_artifact_ref: str,
+    target_sha: str,
+    checked_evidence_count: int,
+) -> dict[str, Any]:
+    """The one constructor of an accepted result row: the executor's proof
+    row, whose meaning its schema_version declares (pinned by producer
+    fixture in test_capability_semantic_equivalence)."""
+    from .bridge_status_ledger import bridge_status_for_role
+
+    return {
+        "$schema": "aria/agent-claim-result/v1",
+        "schema_version": 1,
+        "row_id": f"result:{claim_id}",
+        "row_type": "result",
+        "claim_id": claim_id,
+        "request_id": request_id,
+        "agent_id": agent_id,
+        "role": role,
+        "status": "accepted",
+        "output_path": output_path,
+        "output_hash": output_hash,
+        "content_hash": output_hash,
+        "envelope_evidence_hash": envelope_evidence_hash,
+        "invocation_id": claim_id,
+        "context_hash": context_hash,
+        "prompt_hash": prompt_hash,
+        "transcript_hash": transcript_hash,
+        "transcript_artifact_ref": transcript_artifact_ref,
+        # Bind accepted evidence to the trusted request tree before the row is
+        # journaled and hashed. The submitted envelope is never an authority
+        # for this SHA.
+        "target_sha": target_sha,
+        "bridge_status": bridge_status_for_role(role),
+        "checked_evidence_count": checked_evidence_count,
+        "submitted_at": utc_now(),
+    }
 
 
 def _build_rejection_row(

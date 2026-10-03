@@ -1,255 +1,323 @@
 /**
- * The ARIA authority hash — one implementation, two consumers.
+ * The ARIA authority surface — derived where it is read, never recorded.
  *
- * `docs/aria/CURRENT_STATE.md` carries a `Last verified ARIA authority hash`
- * line covering every tracked file under `docs/aria/`, `aria-kernel/`,
- * `tools/aria-poc/`, and the `aria-*` workflows. It is what makes the document
- * falsifiable: a stale hash means CURRENT_STATE is describing a runtime that has
- * since moved, and `aria-doc-runtime-ssot.spec.ts` goes red.
+ * WHAT THIS MODULE ANSWERS
  *
- * WHY THIS FILE EXISTS: the hash had no producer. The spec computed it and
- * compared; refreshing it meant reading the expected value out of a Jest
- * failure and pasting it in by hand. That is the same trap the debt-plan
- * manifest was in — a mirrored value with a checker and no writer — and it
- * failed the same way, going stale the moment a kernel module changed.
+ *   1. `ariaAuthorityHash(repoRoot, rev)` — a SHA-256 over every authority path
+ *      (`docs/aria/`, `aria-kernel/`, `tools/aria-poc/`, `.github/workflows/aria-*`)
+ *      in one commit's tree: path, mode and blob id. It is a pure function of
+ *      that tree, so anyone who needs "which authority surface was this?" asks
+ *      for the commit and derives the value; nothing stores it.
+ *   2. `checkCurrentState(repoRoot)` — does `docs/aria/CURRENT_STATE.md` still
+ *      describe the tree it sits in? Every repository path in its
+ *      `## Current Normative Anchors` section must be a tracked file (or, ending
+ *      in `/`, a tracked directory), every `file.py::symbol` anywhere in it must
+ *      name a top-level definition of that module, and it must record no
+ *      SHA-256-shaped digest. The docs SSoT invariant and `--check` both consume
+ *      this one verdict, so they cannot disagree.
  *
- * The recompute-and-write path lives here rather than in the spec so that the
- * writer and the checker cannot drift: a script that reimplements the digest
- * would confidently write a value the spec then rejects, which is worse than no
- * script. The spec imports `ariaAuthorityHash` from this module, so there is
- * exactly one definition of what the hash covers.
+ * WHY (PROC-HIGH-046). Until 2026-10-02 the digest was COMMITTED as a line of
+ * CURRENT_STATE and compared with a fresh computation. The pre-commit hook
+ * rewrote it on every commit that staged an ARIA path and the post-merge hook
+ * after every merge, so every ARIA PR rewrote the same line: 17 of 17 ARIA
+ * merges on main in the fortnight before did, and each one left every other
+ * open ARIA PR stale. The value certified that a hook had run, not that anyone
+ * had read the document; the only event it failed on was a merge combining two
+ * authority changes, which is not a documentation defect. What actually makes
+ * the document falsifiable is the set of claims it makes about the tree — its
+ * anchors — and those are checked against the tree directly. A module rename
+ * that leaves an anchor dangling is the "runtime has moved" case the pin was
+ * meant to catch, and it now fails naming the anchor instead of a digest.
  *
  * CLI:
- *   ts-node tools/gates/aria-authority-hash.ts           # print, exit 0
- *   ts-node tools/gates/aria-authority-hash.ts --write    # rewrite the line
- *
- * `--write` is idempotent and rewrites only the 64 hex characters inside the
- * sentinel line. It touches no prose, because the prose is a human claim about
- * the runtime and recomputing a digest does not re-verify it.
+ *   ts-node tools/gates/aria-authority-hash.ts [<rev>]   # print the digest (default HEAD)
+ *   ts-node tools/gates/aria-authority-hash.ts --check   # CURRENT_STATE verdict, exit 0/1
  */
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const CURRENT_STATE_PATH = 'docs/aria/CURRENT_STATE.md';
 
-/** The placeholder the hash line is normalized to before hashing itself. */
-export const ARIA_AUTHORITY_HASH_SENTINEL =
-  'Last verified ARIA authority hash: `ARIA_AUTHORITY_HASH_SENTINEL`';
+/** The heading whose backticked repository paths are the document's claims. */
+export const NORMATIVE_ANCHORS_HEADING = '## Current Normative Anchors';
+
+const AUTHORITY_ROOTS = ['docs/aria', 'aria-kernel', 'tools/aria-poc'] as const;
+const AUTHORITY_WORKFLOW = /^\.github\/workflows\/aria-[^/]+\.ya?ml$/;
+
+/** A recorded digest of anything goes stale the moment its input moves. */
+const RECORDED_DIGEST = /\b[a-f0-9]{64}\b/;
+
+/** A backticked repository path, optionally carrying a `::symbol` owner. */
+const BACKTICKED_PATH = /`([A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*\/?)(?:::([A-Za-z_]\w*))?`/g;
+
+/** `file.py::symbol` anywhere in the document. */
+const PYTHON_SYMBOL = /([\w./-]+\.py)::([A-Za-z_]\w*)/g;
 
 /**
- * Matches the line in either state — already-hashed or sentinel — so the digest
- * is a fixed point: hashing the document with its own hash line collapsed to
- * the sentinel yields a value that stays valid once written back.
+ * Git with none of the GIT_* variables a hook exports: the pre-commit hook runs
+ * the gate specs with GIT_INDEX_FILE pointing at the host repository's index,
+ * and a `git -C <fixture> ls-files` under that variable would read the host.
  */
-export const ARIA_AUTHORITY_HASH_LINE =
-  /Last verified ARIA authority hash: `(?:[a-f0-9]{64}|ARIA_AUTHORITY_HASH_SENTINEL)`/;
-
-/**
- * ORPHAN-MEDIUM-768 — the Date line is normalized alongside the hash line, and
- * `--write` stamps BOTH. Before this, the writer refreshed only the 64 hex
- * characters, so a doc whose body was months stale could carry a fresh hash and
- * a frozen date — machine-fresh cover on stale content.
- *
- * ORPHAN-MEDIUM-792 — the Date line is descriptive metadata, never an
- * authorization predicate. Server-side merges run no local writer and may land
- * on the next UTC day with the authority content byte-identical to what was
- * stamped; holding the date accountable to the newest authority-commit day
- * rejected exactly those valid pins. Validity is the content hash alone, and
- * `checkAriaAuthorityHash` is the single verdict producer both the CLI and the
- * invariant consume.
- */
-export const ARIA_AUTHORITY_DATE_SENTINEL = 'Date: ARIA_AUTHORITY_DATE_SENTINEL';
-
-export const ARIA_AUTHORITY_DATE_LINE = /^Date: \d{4}-\d{2}-\d{2}$/m;
+function gitIn(repoRoot: string, args: readonly string[]): string {
+  return execFileSync('git', ['-C', repoRoot, ...args], {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
+  });
+}
 
 export function ariaRepoRoot(): string {
   try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-    }).trim();
+    return gitIn(process.cwd(), ['rev-parse', '--show-toplevel']).trim();
   } catch {
     return process.cwd();
   }
 }
 
-/**
- * Every tracked file the hash covers, sorted.
- *
- * Tracked-only on purpose: an untracked scratch file under `aria-kernel/` is
- * not part of the authority chain, and letting one move the digest would make
- * the spec fail for a file no reviewer can see.
- */
-const AUTHORITY_ROOTS = ['docs/aria', 'aria-kernel', 'tools/aria-poc'] as const;
-
-function gitIn(repoRoot: string, args: string[]): string {
-  return execFileSync('git', ['-C', repoRoot, ...args], {
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
+export interface AuthorityEntry {
+  readonly path: string;
+  readonly mode: string;
+  readonly blob: string;
 }
 
-export function ariaAuthorityFiles(repoRoot: string = ariaRepoRoot()): string[] {
-  const tracked = gitIn(repoRoot, ['ls-files', ...AUTHORITY_ROOTS])
-    .split(/\r?\n/)
-    .filter(Boolean);
-  const workflowFiles = gitIn(repoRoot, ['ls-files', '.github/workflows'])
-    .split(/\r?\n/)
-    .filter((rel) => /^\.github\/workflows\/aria-[^/]+\.ya?ml$/.test(rel));
-  return [...new Set([...tracked, ...workflowFiles])].sort();
+/** Every authority path in `rev`'s tree, sorted by path. */
+export function ariaAuthorityEntries(repoRoot: string, rev = 'HEAD'): AuthorityEntry[] {
+  const raw = gitIn(repoRoot, [
+    'ls-tree',
+    '-r',
+    '-z',
+    '--full-tree',
+    rev,
+    '--',
+    ...AUTHORITY_ROOTS,
+    '.github/workflows',
+  ]);
+  const entries: AuthorityEntry[] = [];
+  for (const record of raw.split('\0')) {
+    if (record === '') continue;
+    const tab = record.indexOf('\t');
+    const [mode, type, blob] = record.slice(0, tab).split(' ');
+    const path = record.slice(tab + 1);
+    if (type !== 'blob' || mode === undefined || blob === undefined) continue;
+    if (path.startsWith('.github/') && !AUTHORITY_WORKFLOW.test(path)) continue;
+    entries.push({ path, mode, blob });
+  }
+  return entries.sort((left, right) =>
+    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+  );
 }
 
-/**
- * Authority-root files that exist on disk but are not in the index.
- *
- * The digest is defined over `git ls-files`, so an untracked file is invisible
- * to it — and then becomes visible the instant it is staged. That gap is a
- * trap with teeth: write the hash, `git add` a new kernel test, commit, and CI
- * computes a different digest from the same commit you just validated locally.
- * It cost one red build before this guard existed. `--others
- * --exclude-standard` is the same expression `tools/quality/format-scope.json`
- * uses to answer "what will the commit contain".
- */
-export function unstagedAuthorityFiles(repoRoot: string = ariaRepoRoot()): string[] {
-  return gitIn(repoRoot, ['ls-files', '--others', '--exclude-standard', ...AUTHORITY_ROOTS])
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .sort();
-}
-
-export function normalizedAriaAuthorityContent(
-  rel: string,
-  repoRoot: string = ariaRepoRoot(),
-): string {
-  const body = readFileSync(join(repoRoot, rel), 'utf8');
-  if (rel !== CURRENT_STATE_PATH) return body;
-  return body
-    .replace(ARIA_AUTHORITY_HASH_LINE, ARIA_AUTHORITY_HASH_SENTINEL)
-    .replace(ARIA_AUTHORITY_DATE_LINE, ARIA_AUTHORITY_DATE_SENTINEL);
-}
-
-export function ariaAuthorityHash(repoRoot: string = ariaRepoRoot()): string {
+/** The authority digest of `rev`: deterministic for a given tree, stored nowhere. */
+export function ariaAuthorityHash(repoRoot: string = ariaRepoRoot(), rev = 'HEAD'): string {
   const hash = createHash('sha256');
-  for (const rel of ariaAuthorityFiles(repoRoot)) {
-    hash.update(rel);
-    hash.update('\0');
-    hash.update(normalizedAriaAuthorityContent(rel, repoRoot));
-    hash.update('\0');
+  for (const entry of ariaAuthorityEntries(repoRoot, rev)) {
+    hash.update(`${entry.path}\0${entry.mode}\0${entry.blob}\0`);
   }
   return hash.digest('hex');
 }
 
-/** Returns the hash recorded in CURRENT_STATE, or null if the line is absent. */
-export function recordedAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): string | null {
-  const body = readFileSync(join(repoRoot, CURRENT_STATE_PATH), 'utf8');
-  return body.match(/Last verified ARIA authority hash: `([a-f0-9]{64})`/)?.[1] ?? null;
+export interface PathAnchor {
+  readonly path: string;
+  readonly line: number;
+}
+
+export interface SymbolAnchor {
+  readonly path: string;
+  readonly symbol: string;
+  readonly line: number;
+}
+
+export interface CurrentStateAnchors {
+  readonly sectionFound: boolean;
+  readonly paths: readonly PathAnchor[];
+  readonly symbols: readonly SymbolAnchor[];
 }
 
 /**
- * ORPHAN-MEDIUM-792 — the pure verdict over the checked-out authority tree.
- *
- * `valid` is exactly "the declared pin equals the digest recomputed from the
- * tracked authority surface"; nothing about commit time or calendar days
- * participates. A server-side squash merge that lands a day after the
- * contributor stamped the pin keeps `valid: true` when the content is
- * unchanged, and any merge driver that lands a pin describing older content
- * is `authority_hash_stale` regardless of dates. `--check` and the
- * documentation SSoT invariant both consume this function so the two can
- * never disagree about what a valid pin is.
+ * Paths come from the normative-anchor section only: elsewhere the document
+ * also names paths it declares INVALID (repo-local shadow roots), and those
+ * are not claims that the path exists. A `::symbol` is a claim wherever it
+ * appears.
  */
-export interface AriaAuthorityHashVerdict {
-  readonly valid: boolean;
-  readonly declared: string | null;
-  readonly computed: string;
-  readonly reason: 'current' | 'authority_hash_stale';
+export function currentStateAnchors(body: string): CurrentStateAnchors {
+  const lines = body.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === NORMATIVE_ANCHORS_HEADING);
+  const paths: PathAnchor[] = [];
+  if (start !== -1) {
+    for (let index = start + 1; index < lines.length; index++) {
+      const line = lines[index] ?? '';
+      if (line.startsWith('## ')) break;
+      for (const match of line.matchAll(BACKTICKED_PATH)) {
+        const path = match[1];
+        if (path !== undefined && path.includes('/')) paths.push({ path, line: index + 1 });
+      }
+    }
+  }
+  const symbols: SymbolAnchor[] = [];
+  lines.forEach((line, index) => {
+    for (const match of line.matchAll(PYTHON_SYMBOL)) {
+      const [, path, symbol] = match;
+      if (path !== undefined && symbol !== undefined)
+        symbols.push({ path, symbol, line: index + 1 });
+    }
+  });
+  return { sectionFound: start !== -1, paths, symbols };
 }
 
-export function checkAriaAuthorityHash(
-  repoRoot: string = ariaRepoRoot(),
-): AriaAuthorityHashVerdict {
-  const declared = recordedAriaAuthorityHash(repoRoot);
-  const computed = ariaAuthorityHash(repoRoot);
-  const valid = declared === computed;
+export type CurrentStateDefect =
+  | { readonly kind: 'recorded_authority_digest'; readonly line: number }
+  | { readonly kind: 'normative_anchors_missing' }
+  | { readonly kind: 'unresolved_path'; readonly anchor: string; readonly line: number }
+  | { readonly kind: 'unresolved_symbol'; readonly anchor: string; readonly line: number };
+
+export interface CurrentStateVerdict {
+  readonly valid: boolean;
+  readonly pathAnchors: number;
+  readonly symbolAnchors: number;
+  readonly defects: readonly CurrentStateDefect[];
+}
+
+/**
+ * Same rule the docs invariant used inline: a module-level def, async def,
+ * class, assignment or annotated assignment of that name. One interpreter for
+ * every anchor; prints the indexes that do not resolve.
+ */
+const PYTHON_RESOLVER = [
+  'import ast, json, sys',
+  'missing = []',
+  'for index, (path, symbol) in enumerate(json.load(sys.stdin)):',
+  '    try:',
+  '        tree = ast.parse(open(path, encoding="utf-8").read(), filename=path)',
+  '    except (OSError, SyntaxError, UnicodeDecodeError):',
+  '        missing.append(index)',
+  '        continue',
+  '    found = False',
+  '    for node in tree.body:',
+  '        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == symbol:',
+  '            found = True',
+  '        elif isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == symbol for t in node.targets):',
+  '            found = True',
+  '        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == symbol:',
+  '            found = True',
+  '    if not found:',
+  '        missing.append(index)',
+  'json.dump(missing, sys.stdout)',
+].join('\n');
+
+function unresolvedSymbols(repoRoot: string, symbols: readonly SymbolAnchor[]): Set<number> {
+  if (symbols.length === 0) return new Set();
+  const out = execFileSync('python3', ['-c', PYTHON_RESOLVER], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    input: JSON.stringify(symbols.map((anchor) => [join(repoRoot, anchor.path), anchor.symbol])),
+  });
+  return new Set(JSON.parse(out) as number[]);
+}
+
+function firstBy<T, K>(items: readonly T[], key: (item: T) => K): T[] {
+  const seen = new Set<K>();
+  return items.filter((item) => {
+    const value = key(item);
+    if (seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+}
+
+/** The verdict over the checked-out tree: tracked paths from the index, content from disk. */
+export function checkCurrentState(repoRoot: string = ariaRepoRoot()): CurrentStateVerdict {
+  const body = readFileSync(join(repoRoot, CURRENT_STATE_PATH), 'utf8');
+  const anchors = currentStateAnchors(body);
+  const defects: CurrentStateDefect[] = [];
+
+  const digestLine = body.split(/\r?\n/).findIndex((line) => RECORDED_DIGEST.test(line));
+  if (digestLine !== -1) defects.push({ kind: 'recorded_authority_digest', line: digestLine + 1 });
+  if (!anchors.sectionFound) defects.push({ kind: 'normative_anchors_missing' });
+
+  const tracked = gitIn(repoRoot, ['ls-files', '-z'])
+    .split('\0')
+    .filter((rel) => rel !== '' && existsSync(join(repoRoot, rel)));
+  const trackedFiles = new Set(tracked);
+  const resolves = (path: string): boolean =>
+    path.endsWith('/') ? tracked.some((rel) => rel.startsWith(path)) : trackedFiles.has(path);
+
+  const paths = firstBy(anchors.paths, (anchor) => anchor.path);
+  for (const anchor of paths) {
+    if (!resolves(anchor.path)) {
+      defects.push({ kind: 'unresolved_path', anchor: anchor.path, line: anchor.line });
+    }
+  }
+
+  const symbols = firstBy(anchors.symbols, (anchor) => `${anchor.path}::${anchor.symbol}`);
+  const present = symbols.filter((anchor) => trackedFiles.has(anchor.path));
+  const missing = unresolvedSymbols(repoRoot, present);
+  for (const anchor of symbols) {
+    const index = present.indexOf(anchor);
+    if (index === -1 || missing.has(index)) {
+      defects.push({
+        kind: 'unresolved_symbol',
+        anchor: `${anchor.path}::${anchor.symbol}`,
+        line: anchor.line,
+      });
+    }
+  }
+
   return {
-    valid,
-    declared,
-    computed,
-    reason: valid ? 'current' : 'authority_hash_stale',
+    valid: defects.length === 0,
+    pathAnchors: paths.length,
+    symbolAnchors: symbols.length,
+    defects,
   };
 }
 
-export function writeAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): {
-  from: string | null;
-  to: string;
-  changed: boolean;
-} {
-  const path = join(repoRoot, CURRENT_STATE_PATH);
-  const body = readFileSync(path, 'utf8');
-  if (!ARIA_AUTHORITY_HASH_LINE.test(body)) {
-    throw new Error(`${CURRENT_STATE_PATH} has no 'Last verified ARIA authority hash' line`);
+function describeDefect(defect: CurrentStateDefect): string {
+  switch (defect.kind) {
+    case 'recorded_authority_digest':
+      return `line ${defect.line}: records a SHA-256-shaped digest; derive it instead (npm run aria:authority-hash -- <rev>)`;
+    case 'normative_anchors_missing':
+      return `no '${NORMATIVE_ANCHORS_HEADING}' section`;
+    case 'unresolved_path':
+      return `line ${defect.line}: ${defect.anchor} is not a tracked path`;
+    case 'unresolved_symbol':
+      return `line ${defect.line}: ${defect.anchor} is not a module-level definition`;
   }
-  const from = recordedAriaAuthorityHash(repoRoot);
-  const to = ariaAuthorityHash(repoRoot);
-  // ORPHAN-MEDIUM-768 — the date travels WITH the hash, always. A no-op hash
-  // write with a stale date is still a changed document: the verification
-  // claim being renewed is "this body, on this date".
-  const today = new Date().toISOString().slice(0, 10);
-  const stamped = body
-    .replace(ARIA_AUTHORITY_HASH_LINE, `Last verified ARIA authority hash: \`${to}\``)
-    .replace(ARIA_AUTHORITY_DATE_LINE, `Date: ${today}`);
-  const changed = stamped !== body;
-  if (changed) writeFileSync(path, stamped, 'utf8');
-  return { from, to, changed };
 }
 
-function main(argv: string[]): number {
+function main(argv: readonly string[]): number {
+  const flags = argv.filter((arg) => arg.startsWith('--'));
+  const positional = argv.filter((arg) => !arg.startsWith('--'));
+  if (flags.includes('--write')) {
+    process.stderr.write(
+      'aria authority hash: nothing to write — the digest is derived from a commit on demand\n' +
+        '  and recorded nowhere (PROC-HIGH-046). Print it with `npm run aria:authority-hash -- <rev>`.\n',
+    );
+    return 2;
+  }
+  if (flags.some((flag) => flag !== '--check') || positional.length > 1) {
+    process.stderr.write('usage: aria-authority-hash.ts [<rev>] | --check\n');
+    return 2;
+  }
   const repoRoot = ariaRepoRoot();
-  // WHY --check: the tool could print the digest and it could write it, but it
-  // could not ANSWER "is the declared pin current?" without the caller doing
-  // the string comparison itself. That left the question to CI, which answers
-  // it thirty minutes later. --check answers in a second and exits non-zero
-  // naming both digests, so a hook can stand on it.
-  if (argv.includes('--check')) {
-    const verdict = checkAriaAuthorityHash(repoRoot);
+  if (flags.includes('--check')) {
+    const verdict = checkCurrentState(repoRoot);
     if (verdict.valid) {
-      process.stdout.write(`aria authority hash: current (${verdict.computed})\n`);
+      process.stdout.write(
+        `CURRENT_STATE: ${verdict.pathAnchors} path anchor(s) and ${verdict.symbolAnchors} ` +
+          'symbol anchor(s) resolve; no recorded digest.\n',
+      );
       return 0;
     }
     process.stderr.write(
-      'aria authority hash: STALE pin.\n' +
-        `  declared in docs/aria/CURRENT_STATE.md: ${verdict.declared ?? '(none)'}\n` +
-        `  computed from the authority surface:    ${verdict.computed}\n` +
-        '  A merge commit runs no pre-commit, so `git merge origin/main` can move\n' +
-        '  the surface and leave the pin behind. Fix it here, not in CI:\n' +
-        '    npm run aria:authority-hash:write && git add docs/aria/CURRENT_STATE.md\n',
+      `CURRENT_STATE no longer describes this tree (${CURRENT_STATE_PATH}):\n` +
+        verdict.defects.map((defect) => `  - ${describeDefect(defect)}\n`).join('') +
+        '  Update the document to name what the tree has; the anchors are its claims.\n',
     );
     return 1;
   }
-  if (!argv.includes('--write')) {
-    process.stdout.write(`${ariaAuthorityHash(repoRoot)}\n`);
-    return 0;
-  }
-  // PRECONDITION — refuse rather than write a digest the commit will not have.
-  const untracked = unstagedAuthorityFiles(repoRoot);
-  if (untracked.length > 0) {
-    process.stderr.write(
-      'aria authority hash: refusing — untracked files under the authority roots.\n' +
-        '  The digest is computed from `git ls-files`, so these are invisible to it now\n' +
-        '  and visible the moment they are staged. Writing the hash first produces a\n' +
-        '  value the committed tree does not match, and CI is where you find out.\n' +
-        '  `git add` them (or ignore them), then re-run.\n' +
-        untracked.map((rel) => `    ${rel}\n`).join(''),
-    );
-    return 1;
-  }
-  const { from, to, changed } = writeAriaAuthorityHash(repoRoot);
-  process.stdout.write(
-    changed
-      ? `aria authority hash: ${from ?? '(none)'} -> ${to}\n`
-      : `aria authority hash: already current (${to})\n`,
-  );
+  process.stdout.write(`${ariaAuthorityHash(repoRoot, positional[0] ?? 'HEAD')}\n`);
   return 0;
 }
 

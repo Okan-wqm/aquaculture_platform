@@ -580,7 +580,7 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         from aria_kernel import agent_invocations as ai
         from aria_kernel.cycle import _phase_discovery, _phase_twin_refresh, build_phase_context
         from aria_kernel.convergence_drainer import run_convergence_drainer
-        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.ledger import load_segments
         from aria_kernel.plan_convergence import content_hash, start_plan, plan_body_from_state
         from aria_kernel.tool_registry import ensure_tools_binding
         from aria_kernel.twin import read_twin_map
@@ -660,7 +660,7 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         state = fold_plan_state(plan_id=plan_id, base_dir=self.base)
         self.assertEqual(sum(row["event_type"] == "plan_started" for row in state["events"]), 1)
         self.assertEqual(plan_body_from_state(state)["plan_content"], body)
-        requests = load_declared_jsonl(self.base / "agent-invocations/requests.jsonl", expected_surface="agent_invocation_requests")
+        requests = load_segments(self.base, "agent_invocation_requests")
         self.assertEqual(len(requests), 1)
         request = requests[0]
         self.assertEqual((request["role"], request["target_agent"], request["round_number"]),

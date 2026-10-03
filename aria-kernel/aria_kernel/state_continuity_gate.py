@@ -15,12 +15,16 @@ it, and they are not alike:
   gated here, so an empty loss list can never open the gate again.
 
 * ``surfaces_lost`` — a surface the tip carried and the snapshot does not.
-  Every such loss must be VOUCHED FOR, by exactly one of two parties:
+  Every such loss must be VOUCHED FOR, by exactly one of three parties:
 
-  - the kernel's own compaction, whose ``state_compacted`` row appended since
-    the tip names every path it pruned (``state_compact``). A write-driving
+  - the kernel's own compaction, whose ledger ``run-artifacts/compacted.jsonl``
+    names every artifact it stripped (``state_compact``). A write-driving
     ledger is never accepted this way: compaction slims ledgers, it does not
     delete them, so its absence is amnesia whatever a row claims;
+  - the kernel's own eviction (ARIA-HIGH-274), whose ``cold/pointers`` row
+    names the tip's ARTIFACT claim by path and sha256 and whose blob — the
+    very bytes — is in the object store. Nothing but an artifact is ever
+    accepted this way;
   - the operator, through ``ARIA_STATE_BOOTSTRAP_ACK`` — validated exactly
     as the bootstrap validates it (the value must name THIS repository, so a
     standing "1" or another repository's ack cannot travel) AND recorded on
@@ -65,41 +69,25 @@ def losses_not_attested_by_compaction(
     published: dict[str, Any],
     lost_surfaces: list[str],
 ) -> list[str]:
-    """The lost surfaces no compaction row appended since the tip vouches for.
+    """The lost surfaces the compaction ledger does not vouch for.
 
-    ``state_compact`` records the tools-relative paths (and ``dir/``
-    prefixes) it pruned on its ``state_compacted`` governance row; the rows
-    to consult are those appended after the published tip's own claim of
-    the governance ledger (``row_count``), i.e. this run's rows. A lost
-    surface is attested when it lives under the tools root and one of
-    those paths covers it.
+    A lost surface is attested when it lives under the tools root and the
+    compaction ledger names its path (``_compacted_artifact_paths``).
 
     A write-driving ledger is never accepted this way: compaction slims
     ledgers, it does not delete them, so its absence is amnesia whatever a
     row says — the same line ``memory_gap.write_driving_lost`` draws for
     the daily report.
     """
-    from .ledger import LedgerIntegrityError, LedgerReadLimitError
     from .memory_gap import write_driving_lost
-    from .state_compact import attested_pruned_paths, prune_attested
-    from .state_store import StateStoreRefusal, tools_root
+    from .state_store import tools_root
 
     lost = list(lost_surfaces)
     if not lost:
         return []
     previous_surfaces = published.get("surfaces") or {}
-    try:
-        attested = attested_pruned_paths(
-            tools_root(store),
-            governance_rows_since=governance_rows_claimed_by(published),
-        )
-    except (LedgerIntegrityError, LedgerReadLimitError) as exc:
-        raise StateStoreRefusal(
-            "state_publish_governance_ledger_unreadable: the compaction "
-            f"attestation could not be read ({str(exc)[:200]})"
-        ) from exc
-    # ARIA-HIGH-154 — the second attestation: ``run-artifacts/compacted.jsonl``
-    # (ARIA-HIGH-117), the ledger of every artifact a compaction stripped,
+    # ARIA-HIGH-154 — ``run-artifacts/compacted.jsonl`` (ARIA-HIGH-117), the
+    # ledger of every artifact a compaction stripped,
     # backfilled from the compact archives for a store stripped before the
     # ledger existed. On the live store the losses were exactly those: hot
     # artifacts stripped by compactions whose governance rows predate
@@ -111,7 +99,7 @@ def losses_not_attested_by_compaction(
     # the rows ride the archive, so an attestation whose archive is gone is
     # a claim about nothing.
     compacted = _compacted_artifact_paths(tools_root(store))
-    if not attested and not compacted:
+    if not compacted:
         return lost
     driving = set(write_driving_lost(lost))
     unattested: list[str] = []
@@ -122,10 +110,52 @@ def losses_not_attested_by_compaction(
         if (
             key in driving
             or claim.get("root_kind") != "tools"
-            or not (prune_attested(path, attested) or path in compacted)
+            or path not in compacted
         ):
             unattested.append(key)
     return unattested
+
+
+def losses_not_evicted_to_cold(
+    store: Any,
+    *,
+    published: dict[str, Any],
+    lost_surfaces: list[str],
+) -> list[str]:
+    """ARIA-HIGH-274 — the lost surfaces no cold pointer vouches for. A loss is
+    an eviction only when the tip claimed an ARTIFACT under the tools root, a
+    pointer names that path with the claimed sha256, and its blob holds exactly
+    those bytes. A ledger (memory, runs, the pointers) is never accepted."""
+    from .ledger import LedgerIntegrityError, LedgerReadLimitError
+    from .runtime_artifacts import cold_blob, cold_pointers
+    from .state_store import StateStoreRefusal, tools_root
+    from .tool_registry import GovernanceError
+
+    if not lost_surfaces:
+        return []
+    root = tools_root(store)
+    try:
+        cold = cold_pointers(root)
+    except (LedgerIntegrityError, LedgerReadLimitError, GovernanceError) as exc:
+        raise StateStoreRefusal(f"state_publish_cold_pointers_unreadable: {str(exc)[:200]}") from exc
+    previous_surfaces = published.get("surfaces") or {}
+    unvouched: list[str] = []
+    for key in lost_surfaces:
+        claim = previous_surfaces.get(key)
+        claim = claim if isinstance(claim, dict) else {}
+        artifact = claim.get("state_class") == "artifact" and claim.get("root_kind") == "tools"
+        pointer = cold.evicted(claim.get("path"), claim.get("sha256")) if artifact else None
+        if pointer is None or cold_blob(root, pointer) is None:
+            unvouched.append(key)
+    return unvouched
+
+
+def _unvouched_by_the_kernel(
+    store: Any, *, published: dict[str, Any], lost_surfaces: list[str],
+) -> tuple[list[str], list[str]]:
+    """``(not attested by compaction, ... nor evicted to cold)``."""
+    uncompacted = losses_not_attested_by_compaction(store, published=published, lost_surfaces=lost_surfaces)
+    return uncompacted, losses_not_evicted_to_cold(store, published=published, lost_surfaces=uncompacted)
 
 
 def _compacted_artifact_paths(tools: Any) -> frozenset[str]:
@@ -256,7 +286,7 @@ def record_operator_accepted_losses(
     continuity = snapshot_continuity(snapshot, previous)
     if continuity["status"] != "surfaces_lost":
         return ()
-    unattested = losses_not_attested_by_compaction(
+    _uncompacted, unattested = _unvouched_by_the_kernel(
         store,
         published=previous,
         lost_surfaces=continuity["lost_surfaces"],
@@ -328,14 +358,15 @@ def vouched_continuity(
             f"lost_surfaces={continuity['lost_surfaces']}"
         )
     lost = list(continuity["lost_surfaces"])
-    unattested = losses_not_attested_by_compaction(
+    uncompacted, unattested = _unvouched_by_the_kernel(
         store,
         published=published,
         lost_surfaces=lost,
     )
     verdict = {
         **continuity,
-        "compaction_attested_surfaces": sorted(set(lost) - set(unattested)),
+        "compaction_attested_surfaces": sorted(set(lost) - set(uncompacted)),
+        "cold_evicted_surfaces": sorted(set(uncompacted) - set(unattested)),
         "ack_accepted_surfaces": [],
     }
     if not unattested:
@@ -373,6 +404,7 @@ __all__ = [
     "ack_accepted_surfaces_since_tip",
     "governance_rows_claimed_by",
     "losses_not_attested_by_compaction",
+    "losses_not_evicted_to_cold",
     "record_operator_accepted_losses",
     "surfaces_digest",
     "vouched_continuity",

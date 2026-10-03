@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -14,7 +15,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 import yaml from 'js-yaml';
 
-import { ariaAuthorityHash, checkAriaAuthorityHash } from '../../tools/gates/aria-authority-hash';
+import { checkCurrentState } from '../../tools/gates/aria-authority-hash';
 
 import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = (() => {
@@ -82,6 +83,10 @@ const LIVE_WORKFLOWS = [
 
 const ARIA_SUITE_RUNNER = 'scripts/ci/aria-suite-run.sh';
 const ARIA_SUITE_SELECTOR = 'scripts/ci/aria-suite-changed.mjs';
+const ARIA_IMPORT_GRAPH = 'scripts/ci/aria-import-graph.py';
+// The selector probes parse the real kernel (~1,200 modules) before their cache is warm.
+const SELECTOR_PROBE_MS = 180_000;
+const REAL_GIT = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
 const ARIA_ADAPTERS_DIR = 'tools/aria-adapters';
 const ARIA_PYTEST_NATIVE_PLUGIN = 'aria_kernel.pytest_native_only';
 // ARIA-HIGH-136 — measured and reasoned next to the values in aria-kernel.yml.
@@ -119,9 +124,9 @@ const ARCHITECTURE_SECTIONS = [
   'Known Limits / Bilinen Sınırlar',
 ];
 
-// The digest is defined once, in the module that also writes it — see the
-// header of tools/gates/aria-authority-hash.ts. A private copy here would let
-// `npm run aria:authority-hash:write` produce a value this spec rejects.
+// What CURRENT_STATE must still say about the tree is decided once, in
+// tools/gates/aria-authority-hash.ts (`checkCurrentState`); the CLI `--check`
+// consumes the same verdict, so the two cannot disagree (ORPHAN-MEDIUM-792).
 function markdownSection(body: string, heading: string): string {
   const marker = `## ${heading}`;
   const start = body.indexOf(marker);
@@ -168,30 +173,25 @@ describe('ARIA live runtime/documentation SSoT', () => {
 
   it('CURRENT_STATE declares the live authority chain and executable anchors', () => {
     const current = read('docs/aria/CURRENT_STATE.md');
-    // ORPHAN-MEDIUM-768 — the writer stamps hash AND date in the same write,
-    // so the Date line must exist and stay ISO-shaped.
-    // ORPHAN-MEDIUM-792 — that is all it must do: the date is descriptive
-    // metadata, not an authorization predicate. A server-side merge runs no
-    // local writer and may land on the next UTC day while the authority
-    // content is byte-identical to what was stamped, and holding the date
-    // accountable to the newest authority-commit day rejected exactly those
-    // valid pins. Validity is the content hash asserted below;
-    // tools/gates/aria-authority-hash.spec.ts pins the merge regression.
+    // ORPHAN-MEDIUM-768 / -792 — the Date line is descriptive metadata the
+    // author keeps, never an authorization predicate: it must exist and stay
+    // ISO-shaped, and nothing compares it with a commit date.
     const declaredDate = current.match(/^Date: (\d{4}-\d{2}-\d{2})$/m)?.[1];
     expect(declaredDate).toBeTruthy();
     const target = current.match(/Target ref: `([^`]+)`/)?.[1];
     expect(target).toBe('origin/main');
-    const verifiedHash = current.match(/Last verified ARIA authority hash: `([a-f0-9]{64})`/)?.[1];
-    expect(verifiedHash).toBeTruthy();
-    // ORPHAN-MEDIUM-792 — one verdict producer: the same pure checker the
-    // CLI `--check` consumes decides validity here, so the invariant and the
-    // gate can never disagree about what a valid pin is.
-    const verdict = checkAriaAuthorityHash(REPO_ROOT);
+    // PROC-HIGH-046 — the document records no digest of the tree (a recorded
+    // one made every ARIA PR rewrite the same line); what it claims about the
+    // tree is its anchors, and every one must resolve. Server-side merges and
+    // next-day squashes need no re-stamp because nothing is stamped;
+    // tools/gates/aria-authority-hash.spec.ts pins the merge behaviour and the
+    // red cases.
+    const verdict = checkCurrentState(REPO_ROOT);
+    expect(verdict.defects).toEqual([]);
     expect(verdict.valid).toBe(true);
-    expect(verdict.reason).toBe('current');
-    expect(verifiedHash).toBe(verdict.computed);
-    expect(verifiedHash).toBe(ariaAuthorityHash());
-    expect(current).not.toContain('Last verified commit');
+    expect(verdict.pathAnchors).toBeGreaterThan(0);
+    expect(verdict.symbolAnchors).toBeGreaterThan(0);
+    expect(current).not.toContain('Last verified');
     expect(current).toContain('## Authority Chain');
     expect(current).toContain('Executable code and machine-checked contracts are normative');
     expect(current).toContain('Claude Code CLI');
@@ -221,36 +221,12 @@ describe('ARIA live runtime/documentation SSoT', () => {
   });
 
   it('CURRENT_STATE file.py::symbol anchors resolve through Python AST', () => {
-    const current = read('docs/aria/CURRENT_STATE.md');
-    const anchors = [...current.matchAll(/([\w./-]+\.py)::([A-Za-z_]\w*)/g)].map((match) => {
-      const [, file, symbol] = match;
-      if (!file || !symbol) {
-        throw new Error(`Malformed ARIA anchor match: ${match[0] ?? '<empty>'}`);
-      }
-      return { file, symbol };
-    });
-    expect(anchors.length).toBeGreaterThan(0);
-    const script = [
-      'import ast, sys',
-      'path, symbol = sys.argv[1], sys.argv[2]',
-      'tree = ast.parse(open(path, encoding="utf-8").read(), filename=path)',
-      'for node in tree.body:',
-      '    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == symbol:',
-      '        raise SystemExit(0)',
-      '    if isinstance(node, ast.Assign):',
-      '        for target in node.targets:',
-      '            if isinstance(target, ast.Name) and target.id == symbol:',
-      '                raise SystemExit(0)',
-      '    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == symbol:',
-      '        raise SystemExit(0)',
-      'raise SystemExit(1)',
-    ].join('\n');
-    for (const anchor of anchors) {
-      execFileSync('python3', ['-c', script, join(REPO_ROOT, anchor.file), anchor.symbol], {
-        cwd: REPO_ROOT,
-        stdio: 'ignore',
-      });
-    }
+    // The AST rule lives in checkCurrentState (one interpreter for every
+    // anchor); this keeps the symbol half visible as its own failure.
+    const symbolDefects = checkCurrentState(REPO_ROOT).defects.filter(
+      (defect) => defect.kind === 'unresolved_symbol',
+    );
+    expect(symbolDefects).toEqual([]);
   });
 
   it('every ARIA plan doc has exactly one authority marker', () => {
@@ -739,94 +715,112 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(pkg.scripts['aria:test:unit']).toBe(`bash ${ARIA_SUITE_RUNNER}`);
   });
 
-  it('treats the ARIA suite selector and both entrypoints as pre-push surfaces', () => {
+  // Runs the pre-push selector against a faked diff and returns what it asked git for and
+  // what it started. Shims live in `bin/` and write only into `log/`: a shim whose record
+  // lands on PATH can end up executing its own record (the 2026-10-02 fork bomb, see
+  // aria-suite-selector.spec.ts). `git ls-files` is the real one, so the import graph
+  // reads the real kernel.
+  const probeSelector = (
+    changed: string,
+  ): { diffArgs: string[]; bash: string[][]; npx: string[] | null } => {
     const probeDir = mkdtempSync(join(tmpdir(), 'aria-suite-changed-'));
-    const diffLog = join(probeDir, 'git-diff-args');
-    const bashLog = join(probeDir, 'bash-args');
+    const bin = join(probeDir, 'bin');
+    const log = join(probeDir, 'log');
+    const common = join(probeDir, 'common');
     try {
+      for (const dir of [bin, log, common]) mkdirSync(dir);
       writeExecutable(
-        join(probeDir, 'git'),
+        join(bin, 'git'),
         [
-          'if [ "$1" = "rev-parse" ] && [ "$2" = "--abbrev-ref" ]; then',
-          "  printf 'probe-branch\\n'",
-          '  exit 0',
-          'fi',
-          'if [ "$1" = "rev-parse" ] && [ "$2" = "--verify" ]; then',
-          '  exit 0',
-          'fi',
+          'case "$1 $2" in',
+          '  "rev-parse --abbrev-ref") echo probe-branch; exit 0 ;;',
+          '  "rev-parse --verify") exit 0 ;;',
+          `  "rev-parse --git-common-dir") echo "${common}"; exit 0 ;;`,
+          'esac',
           'if [ "$1" = "diff" ]; then',
-          '  printf \'%s\\n\' "$@" > "$ARIA_DIFF_PROBE"',
-          `  printf '${ARIA_SUITE_SELECTOR}\\n'`,
+          `  printf '%s\\n' "$@" > "${join(log, 'git-diff')}"`,
+          `  printf '%s\\n' '${changed}'`,
           '  exit 0',
           'fi',
+          `if [ "$1" = "ls-files" ]; then exec "${REAL_GIT}" "$@"; fi`,
           'exit 2',
         ].join('\n'),
       );
-      writeExecutable(join(probeDir, 'bash'), 'printf \'%s\\n\' "$@" > "$ARIA_BASH_PROBE"');
+      writeExecutable(join(bin, 'bash'), `printf '%s\\n' "$@" -- >> "${join(log, 'bash')}"`);
+      writeExecutable(
+        join(bin, 'npx'),
+        `printf '%s\\n' "ARIA_SUITE_GATE_RUN=$ARIA_SUITE_GATE_RUN" "$@" > "${join(log, 'npx')}"`,
+      );
 
-      execFileSync(process.execPath, ['scripts/ci/aria-suite-changed.mjs'], {
+      execFileSync(process.execPath, [ARIA_SUITE_SELECTOR], {
         cwd: REPO_ROOT,
         env: {
           ...process.env,
-          ARIA_BASH_PROBE: bashLog,
-          ARIA_DIFF_PROBE: diffLog,
-          PATH: `${probeDir}:${process.env.PATH ?? ''}`,
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          ARIA_PREPUSH_LOCK: join(probeDir, 'lock'),
+          ARIA_PREPUSH_BUDGET_S: '',
+          ARIA_SUITE_FULL: '',
+          ARIA_SUITE_GATE_RUN: '',
         },
       });
 
-      const diffArgs = readFileSync(diffLog, 'utf8').trim().split('\n');
+      const lines = (name: string): string[] | null =>
+        existsSync(join(log, name))
+          ? readFileSync(join(log, name), 'utf8').trim().split('\n')
+          : null;
+      const bash = existsSync(join(log, 'bash'))
+        ? readFileSync(join(log, 'bash'), 'utf8')
+            .split('--\n')
+            .filter((block) => block !== '')
+            .map((block) => block.trim().split('\n'))
+        : [];
+      return { diffArgs: lines('git-diff') ?? [], bash, npx: lines('npx') };
+    } finally {
+      removeFixtureTree(probeDir);
+    }
+  };
+
+  it(
+    'treats the ARIA suite selector and both entrypoints as pre-push surfaces',
+    () => {
+      const { diffArgs, bash, npx } = probeSelector(ARIA_SUITE_SELECTOR);
       expect(diffArgs).toContain(ARIA_SUITE_SELECTOR);
       expect(diffArgs).toContain(ARIA_SUITE_RUNNER);
+      expect(diffArgs).toContain(ARIA_IMPORT_GRAPH);
       expect(diffArgs).toContain('package.json');
       expect(diffArgs).toContain(ARIA_ADAPTERS_DIR);
-      expect(readFileSync(bashLog, 'utf8').trim()).toBe(ARIA_SUITE_RUNNER);
-    } finally {
-      removeFixtureTree(probeDir);
-    }
-  });
-
-  it('selects the adapter registry contract when only tools/aria-adapters changes', () => {
-    // ARIA-HIGH-098 — a manifest without a fixture case, or a case rewritten
-    // to expect a non-ok run, touches only tools/aria-adapters/**. The
-    // pre-push selector must reach the kernel module that refuses both.
-    const probeDir = mkdtempSync(join(tmpdir(), 'aria-suite-changed-adapters-'));
-    const bashLog = join(probeDir, 'bash-args');
-    try {
-      writeExecutable(
-        join(probeDir, 'git'),
-        [
-          'if [ "$1" = "rev-parse" ] && [ "$2" = "--abbrev-ref" ]; then',
-          "  printf 'probe-branch\\n'",
-          '  exit 0',
-          'fi',
-          'if [ "$1" = "rev-parse" ] && [ "$2" = "--verify" ]; then',
-          '  exit 0',
-          'fi',
-          'if [ "$1" = "diff" ]; then',
-          `  printf '${ARIA_ADAPTERS_DIR}/probe-adapter.tool.json\\n'`,
-          '  exit 0',
-          'fi',
-          'exit 2',
-        ].join('\n'),
+      // GATE SELF-VALIDATION (PROC-MEDIUM-045): a change to the code deciding what the next
+      // push runs is validated by the specs that drive that code, this one among them — the
+      // kernel suite never executed a line of the selector. The jest run is marked so the
+      // selector those specs start cannot start it again.
+      expect(npx).toEqual(
+        expect.arrayContaining([
+          'ARIA_SUITE_GATE_RUN=1',
+          'jest',
+          'tests/invariants/aria-doc-runtime-ssot.spec.ts',
+          'tests/invariants/aria-suite-selector.spec.ts',
+        ]),
       );
-      writeExecutable(join(probeDir, 'bash'), 'printf \'%s\\n\' "$@" > "$ARIA_BASH_PROBE"');
+      expect(bash).toEqual([]);
+    },
+    SELECTOR_PROBE_MS,
+  );
 
-      execFileSync(process.execPath, ['scripts/ci/aria-suite-changed.mjs'], {
-        cwd: REPO_ROOT,
-        env: {
-          ...process.env,
-          ARIA_BASH_PROBE: bashLog,
-          PATH: `${probeDir}:${process.env.PATH ?? ''}`,
-        },
-      });
-
-      const bashArgs = readFileSync(bashLog, 'utf8').trim().split('\n');
-      expect(bashArgs[0]).toBe(ARIA_SUITE_RUNNER);
-      expect(bashArgs).toContain('test_adapter_fixture_evidence_contract.py');
-    } finally {
-      removeFixtureTree(probeDir);
-    }
-  });
+  it(
+    'selects the adapter registry contract when only tools/aria-adapters changes',
+    () => {
+      // ARIA-HIGH-098 — a manifest without a fixture case, or a case rewritten
+      // to expect a non-ok run, touches only tools/aria-adapters/**. The
+      // pre-push selector must reach the kernel module that refuses both, and
+      // run it before anything that merely reads the directory.
+      const { bash } = probeSelector(`${ARIA_ADAPTERS_DIR}/probe-adapter.tool.json`);
+      expect(bash[0]).toEqual([
+        ARIA_SUITE_RUNNER,
+        'aria-kernel/tests/test_adapter_fixture_evidence_contract.py',
+      ]);
+    },
+    SELECTOR_PROBE_MS,
+  );
 
   it('package scripts expose the clean ARIA validation entrypoints', () => {
     const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> };

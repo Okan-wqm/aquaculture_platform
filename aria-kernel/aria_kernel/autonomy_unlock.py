@@ -332,14 +332,11 @@ def evaluate_autonomy_unlock(
     return verdict_from_rows(rows, lane=lane, now=unlock_clock(), policy=policy)
 
 
-def assert_autonomy_unlocked(
-    *,
-    lane: str,
-    base_dir: str | Path | None = None,
-    policy: dict[str, Any] | None = None,
-) -> AutonomyUnlockVerdict:
-    verdict = evaluate_autonomy_unlock(lane=lane, base_dir=base_dir, policy=policy)
-    row = {
+def unlock_verdict_row(lane: str, verdict: AutonomyUnlockVerdict) -> dict[str, Any]:
+    """The one constructor of an unlock verdict row: the autonomy_unlock
+    proof row, whose meaning its schema_version declares (pinned by producer
+    fixture in test_capability_semantic_equivalence)."""
+    return {
         "schema_version": 1,
         "recorded_at": utc_now(),
         "row_id": f"unlock:{lane}:{utc_now()}",
@@ -350,9 +347,18 @@ def assert_autonomy_unlocked(
         "requirements": verdict.requirements,
         "reasons": list(verdict.reasons),
     }
+
+
+def assert_autonomy_unlocked(
+    *,
+    lane: str,
+    base_dir: str | Path | None = None,
+    policy: dict[str, Any] | None = None,
+) -> AutonomyUnlockVerdict:
+    verdict = evaluate_autonomy_unlock(lane=lane, base_dir=base_dir, policy=policy)
     append_declared_jsonl(
         ensure_tools_dir(base_dir) / "enterprise" / "autonomy-unlock-events.jsonl",
-        row,
+        unlock_verdict_row(lane, verdict),
         expected_surface="enterprise_autonomy_unlock_events",
     )
     if not verdict.valid:

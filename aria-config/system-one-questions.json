@@ -1,0 +1,68 @@
+{
+  "$schema": "aria/system-one-questions/v1",
+  "enabled": false,
+  "model": "jev-1.13.0",
+  "questions": [
+    {
+      "id": "J0",
+      "version": 1,
+      "type": "noul",
+      "instructions": "The diff fixes the problem described in the finding",
+      "criteria": null,
+      "decision_point": ["pre_pr_open", "merge_authority"],
+      "mode": "shadow",
+      "thresholds": { "confirm_at_or_above": 0.9, "question_below": 0.05 },
+      "state_keys": ["finding", "diff"],
+      "evidence": "validated 2026-10-03 on jev-1.13.0: AUROC 0.831 [0.80-0.87], n=618, pre-registered gate passed; state = {finding: {finding: title, rule: rule_violated}, diff: one file's diff}; the verdict for a finding is the maximum over its files"
+    },
+    {
+      "id": "R5",
+      "version": 1,
+      "type": "noul",
+      "instructions": "The diff does what the message says",
+      "criteria": null,
+      "decision_point": ["pre_pr_open"],
+      "mode": "shadow",
+      "thresholds": {},
+      "state_keys": ["message", "diff"],
+      "evidence": "validated 2026-10-03 on jev-1.13.0: AUROC 0.995 [0.99-1.00], n=500; negative = another commit's message in the same project"
+    },
+    {
+      "id": "J2",
+      "version": 1,
+      "type": "noul",
+      "instructions": "The code excerpt is evidence for the problem the finding describes",
+      "criteria": null,
+      "decision_point": ["finding_evidence"],
+      "mode": "shadow",
+      "thresholds": { "supports_at_or_above": 0.7, "irrelevant_at_or_below": 0.1 },
+      "state_keys": ["finding", "file", "excerpt"],
+      "evidence": "validated 2026-10-03 on jev-1.13.0: AUROC 0.830 [0.80-0.86], n=600; negative = a line of the same file at least 30 lines away; excerpt = the cited line +-6 lines with line numbers"
+    },
+    {
+      "id": "R4",
+      "version": 1,
+      "type": "score",
+      "instructions": "How relevant this file is to the problem described",
+      "criteria": ["Unrelated to the problem", "Possibly related", "Directly where the problem is"],
+      "decision_point": ["envelope_candidate_files"],
+      "mode": "shadow",
+      "thresholds": { "top_k": 3 },
+      "state_keys": ["problem", "file", "outline"],
+      "evidence": "validated 2026-10-03 on jev-1.13.0: right file in the top 3 for 84% of 100 findings (top-1 0.56, MRR 0.73; random top-3 0.16); state = problem + path + symbol outline; ranks only the candidates it is given"
+    },
+    {
+      "id": "J1-tenant-scoping",
+      "version": 1,
+      "type": "noul",
+      "instructions": "The query in this excerpt is scoped to the current tenant",
+      "criteria": null,
+      "decision_point": ["judge_fanout"],
+      "mode": "shadow",
+      "thresholds": {},
+      "state_keys": ["rule", "file", "excerpt"],
+      "tool_ids": ["tenant-scoping-adapter"],
+      "evidence": "promising 2026-10-03 on jev-1.13.0: AUROC 0.92 for the tenant-scoping family against judge consensus (n=74 findings overall), not against human labels; a high value reads as the finding being a false positive"
+    }
+  ]
+}

@@ -80,6 +80,8 @@ AUTHORITY_SURFACES: tuple[str, ...] = (
     "aria-kernel/aria_kernel/human_required.py",
     ".github/workflows/",
     "aria-config/genesis_policy.json",
+    # ARIA-LOW-252 — the System One question registry: ARIA never writes its own questions.
+    "aria-config/system-one-questions.json",
 )
 SELF_CHANGE_PROPOSED_EVENT = "self_change_proposed"
 SELF_CHANGE_REFUSED_EVENT = "self_change_authority_surface_refused"

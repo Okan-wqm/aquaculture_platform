@@ -7,7 +7,7 @@ planned as kernel-free, yet each depends on a kernel surface that could not serv
 
 Owner: claude (implementation), okan (review). Deadline 2026-10-16.
 
-## ARIA-HIGH-279 — The kernel cannot see delta rows, its workflow inventory is a hand list, and the class builder has no origin
+## ARIA-HIGH-279 — Delta rows unseen, a hand-listed workflow inventory, no class-builder origin
 
 1. **Three registry readers, none of which sees a delta row.** F-P2 moves a PR's registry write
    out of the hash-chained `docs/reviews/_registry/findings.jsonl` into its own

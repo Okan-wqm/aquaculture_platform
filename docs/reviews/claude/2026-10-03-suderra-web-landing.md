@@ -101,3 +101,25 @@ and units surfaces, scan, reports, theme tokens and fonts) is in #1569's tree an
 directory: 100 paths that main does not have, and 320 changed files of which 72 conflict with
 main's own AquaMobil refactor (one primitive vocabulary, PageHeader bands, lucide icons, the
 persisted locale, BottomSheet dialogs).
+
+Landed as a three-way merge (base `43f0aa3bf`, production working directory against main), so
+main's own AquaMobil work is kept where both changed a file: the typed GraphQL contract
+(MOB-HIGH-022), the honest queued-write receipts, the BottomSheet dialogs, the generated enums and
+main's specs. The v4 screens arrive on main's primitives and inside main's design-system ratchet
+(no raw hex, no static inline style, no light-only surface, fewer raw buttons, fields and
+hard-coded strings than main had). The drive surface is not part of this landing — see
+MOB-HIGH-026.
+
+### MOB-HIGH-026 — The v4 drive surface reads a contract main does not serve
+
+The v4 drive screens (drive list and detail, the unit drives card, the board's drives strip,
+feeder setup) query `VfdDevice.driveBinding`, `VfdDevice.drivenUnit` and `Query.feederSetup`.
+None exists in `apps/sensor-service` or `apps/farm-service` on main: codegen against main's
+composed supergraph fails on exactly those three fields, which is why #1569 carried a
+hand-written type mirror (`src/graphql/vfd-types.ts`) that the MOB-HIGH-022 contract gate bans.
+Production's sensor-service (`34db380f9`, an ancestor of main) lacks them too, so in production the
+drive detail, the unit drives card and feeder setup already fail at the router; only the fleet
+index renders. The server side is on `feature/aquamobil-v4-redesign` (`1401860c7` drive binding,
+`05479fd83` feeder calibration). The drive screens land with that contract, regenerated from the
+supergraph; the actuation never-queued guard (`src/pwa/actuation-commands.ts`) is already on
+main.

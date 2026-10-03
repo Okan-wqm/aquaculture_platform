@@ -1,0 +1,16 @@
+# ADR-0023 / K-2′ (ARIA-HIGH-281) — run the T2 boundary probe every hour, and
+# once after boot if a run was missed while the host was down (Persistent).
+# A host timer, not a scheduled workflow: the self-hosted runner's cron fired
+# its hourly lane 3-7 times a day (ARIA-MEDIUM-277), and the probe must not
+# wait behind the cycles it watches.
+[Unit]
+Description=ARIA T2 boundary probe timer (hourly)
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+Unit=aria-t2-probe.service
+
+[Install]
+WantedBy=timers.target

@@ -202,11 +202,14 @@ class ServerSpeaksTheProtocol(_Store):
         self.assertEqual([(c["side"], c["tool"], c["ok"]) for c in calls], [("server", "delivery_status", True), ("server", "human_required_resolve", False), ("server", "handoff_read", False)])
         writer = AriaMcpServer(base_dir=self.tools, workspace_root=self.ws, allow_writes=True)
         self.assertEqual([t["name"] for t in writer.tools()], list(READ_TOOLS + WRITE_TOOLS))
-        refused = writer.call_tool("runtime_signal_ingest", {"source": "operator", "service": "svc", "summary": "s", "code_refs": ["a.py"], "operator_approval_ref": "x"})
-        self.assertTrue(refused["isError"], "short approval ref refused")
-        done = writer.call_tool("runtime_signal_ingest", {"source": "operator", "service": "svc", "summary": "s", "code_refs": ["a.py"], "operator_approval_ref": "approve-123"})
-        self.assertFalse(done["isError"], done)
-        self.assertIn("mcp_write_tool_used", (self.tools / "governance.jsonl").read_text(encoding="utf-8"))
+        # ARIA-HIGH-270 — an approval string of any length is nobody's act: a
+        # write needs an operator signature verified against the committed
+        # anchor (the signed path is pinned in tests/test_mcp_write_gate.py).
+        for ref in ("x", "approve-123"):
+            refused = writer.call_tool("runtime_signal_ingest", {"source": "operator", "service": "svc", "summary": "s", "code_refs": ["a.py"], "operator_approval_ref": ref})
+            self.assertTrue(refused["isError"], f"unsigned approval ref {ref!r} refused")
+        governance = self.tools / "governance.jsonl"
+        self.assertFalse(governance.exists() and "mcp_write_tool_used" in governance.read_text(encoding="utf-8"))
         proc = subprocess.run([sys.executable, "-m", "aria_kernel", "mcp", "serve", "--workspace-root", str(self.ws), "--tools-dir", str(self.tools)],
                               input=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n", capture_output=True, text=True, timeout=60,
                               env={**os.environ, "PYTHONPATH": str(_REPO_ROOT / "aria-kernel")})

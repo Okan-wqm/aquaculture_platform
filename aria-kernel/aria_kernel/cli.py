@@ -782,11 +782,22 @@ def build_parser() -> argparse.ArgumentParser:
                             help="Operator ed25519 private key (or its .pub with the key in ssh-agent); never stored")
     fb_request.add_argument("--signer-principal", required=True,
                             help="Principal the committed .github/manifests/aria-operator-signers names for that key")
+    fb_request.add_argument("--actor-class", required=True, choices=["T0", "T1"],
+                            help="ADR-0023 signed declaration: T0 the operator at a terminal, T1 a root session for the operator")
     fb_request.add_argument("--repo-root", default=".",
                             help="Checkout on main whose commit holds the allowed-signers file and the tracked evidence")
     fb_request.add_argument("--expires-in-hours", type=int, default=None,
                             help="Signed expiry (default and maximum: the operator-act lifetime, 168h)")
     fb_request.add_argument("--request-id", default=None, help="Optional stable id (default OP-<uuid4>)")
+    # ADR-0023 — the only way the allowed-signers file or the namespace
+    # registry changes: the operator signs the edited pair as the child of
+    # the pair committed on main, with a key that parent enrols.
+    fb_enrol = add_subparser(feedback_sub, "enrol")
+    fb_enrol.add_argument("--actor-class", required=True, choices=["T0"])
+    for flag in ("--signing-key", "--signer-principal"):  # the key may be a .pub whose private half is in ssh-agent
+        fb_enrol.add_argument(flag, required=True)
+    fb_enrol.add_argument("--repo-root", default=".")
+    fb_enrol.add_argument("--expires-in-hours", type=int, default=168)
     fb_rotate = add_subparser(feedback_sub, "rotate-signing-key")
     fb_rotate.add_argument("--reason", required=True, type=_validate_reason)
 
@@ -1675,6 +1686,8 @@ def build_parser() -> argparse.ArgumentParser:
     plan_start.add_argument("--plan-id", required=True)
     plan_start.add_argument("--initial-revision-id", required=True)
     plan_start.add_argument("--plan-file", required=True)
+    # ADR-0021 — the checkout a finding-origin plan's admission bound is computed in.
+    plan_start.add_argument("--workspace-root", default=".")
     plan_challenger = add_subparser(plan_sub, "submit-challenger")
     plan_challenger.add_argument("--plan-id", required=True)
     plan_challenger.add_argument("--challenger-file", required=True)
@@ -3049,6 +3062,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the full report as JSON instead of the one-line-per-check text.",
     )
 
+    # ADR-0023 / ARIA-HIGH-281 — the T2 boundary probe the hourly host timer
+    # (scripts/aria/runner-habitat/systemd/aria-t2-probe.timer) runs as gharunner.
+    habitat_parser = add_subparser(sub, "habitat")
+    habitat_sub = habitat_parser.add_subparsers(dest="habitat_command", required=True)
+    t2_probe = add_subparser(habitat_sub, "t2-probe")
+    t2_probe.add_argument("--workspace-root", required=True,
+                          help="The runner's checkout: its origin/main holds the allowed-signers file judged")
+    t2_probe.add_argument("--runner-env", required=True, help="The runner .env (values are never printed)")
+    t2_probe.add_argument("--key-dir", action="append", default=[],
+                          help="A directory whose keys the runner account holds (repeatable)")
+    t2_probe.add_argument("--textfile", default=None, help="Write the verdict here in Prometheus text format")
+
     # Plan 032 Faz 032b-2 — the Claude Code hook entry points. The CLI reads
     # the hook payload on stdin and prints the protocol's decision JSON.
     # ARIA-HIGH-123 — this is the KERNEL-side entry (an operator replaying a
@@ -3181,6 +3206,16 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_serve = add_subparser(mcp_sub, "serve")
     mcp_serve.add_argument("--workspace-root", default=".")
     mcp_serve.add_argument("--allow-writes", action="store_true", help="operator only: expose human_required_resolve / runtime_signal_ingest")
+    # ARIA-HIGH-270 — the operator signs one write's exact arguments; the
+    # printed approval is the call's `operator_approval` argument.
+    mcp_approve = add_subparser(mcp_sub, "approve")
+    mcp_approve.add_argument("--tool", required=True, choices=["human_required_resolve", "runtime_signal_ingest"])
+    mcp_approve.add_argument("--arguments", required=True, help="The write's arguments as JSON, without operator_approval")
+    mcp_approve.add_argument("--actor-class", required=True, choices=["T0", "T1"])
+    for flag in ("--signing-key", "--signer-principal"):  # the key may be a .pub whose private half is in ssh-agent
+        mcp_approve.add_argument(flag, required=True)
+    mcp_approve.add_argument("--expires-in-hours", type=int, default=1)
+    mcp_approve.add_argument("--workspace-root", default=".")
     add_subparser(mcp_sub, "registry")
     mcp_health = add_subparser(mcp_sub, "health")
     mcp_health.add_argument("--server", default=None)
@@ -3420,10 +3455,21 @@ def _main(argv: list[str] | None = None) -> int:
             finding_id=args.finding_id,
             signing_key=args.signing_key,
             signer_principal=args.signer_principal,
+            actor_class=args.actor_class,
             request_id=args.request_id,
             expires_in_hours=args.expires_in_hours,
             base_dir=args.tools_dir,
             repo_root=args.repo_root,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "feedback" and args.feedback_command == "enrol":
+        from aria_kernel.operator_request_signature import record_enrolment
+
+        print(json.dumps(record_enrolment(
+            repo_root=args.repo_root, base_dir=args.tools_dir, signing_key=args.signing_key,
+            signer_principal=args.signer_principal,
+            actor_class=args.actor_class, expires_in_hours=args.expires_in_hours, subject_stream=sys.stderr,
         ), indent=2, sort_keys=True))
         return 0
 
@@ -4783,7 +4829,7 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "plan":
         if args.plan_command == "start":
             payload = json.loads(Path(args.plan_file).read_text(encoding="utf-8"))
-            result = start_plan(plan_id=args.plan_id, initial_revision_id=args.initial_revision_id, plan_content=payload, base_dir=args.tools_dir)
+            result = start_plan(plan_id=args.plan_id, initial_revision_id=args.initial_revision_id, plan_content=payload, base_dir=args.tools_dir, workspace_root=args.workspace_root)
         elif args.plan_command == "submit-challenger":
             result = submit_challenger_plan(plan_id=args.plan_id, challenger=json.loads(Path(args.challenger_file).read_text(encoding="utf-8")), base_dir=args.tools_dir)
         elif args.plan_command == "request-cross-review":
@@ -6560,11 +6606,10 @@ def _main(argv: list[str] | None = None) -> int:
 
         request: dict[str, Any] = {"request_id": args.request_id, "suggested_prompt": args.query or ""}
         if args.request_id:
-            from .ledger import load_declared_jsonl
+            from .ledger import load_segments
             from .tool_registry import ensure_tools_dir
 
-            requests_path = ensure_tools_dir(args.tools_dir) / "agent-invocations" / "requests.jsonl"
-            rows = load_declared_jsonl(requests_path, expected_surface="agent_invocation_requests") if requests_path.exists() else []
+            rows = load_segments(ensure_tools_dir(args.tools_dir), "agent_invocation_requests")
             request = next((r for r in rows if r.get("request_id") == args.request_id), request)
         kwargs = {"budget_tokens": args.budget_tokens} if args.budget_tokens else {}
         print(json.dumps(compile_context(request=request, base_dir=args.tools_dir, record=False, **kwargs).to_dict(), indent=2, sort_keys=True))
@@ -6763,6 +6808,15 @@ def _main(argv: list[str] | None = None) -> int:
             from .mcp_server import AriaMcpServer
 
             return AriaMcpServer(base_dir=args.tools_dir, workspace_root=args.workspace_root, allow_writes=args.allow_writes).serve()
+        if args.mcp_command == "approve":
+            from .mcp_server import sign_mcp_write_approval
+
+            print(json.dumps(sign_mcp_write_approval(
+                args.tool, json.loads(args.arguments), signing_key=args.signing_key, signer_principal=args.signer_principal,
+                actor_class=args.actor_class, expires_in_hours=args.expires_in_hours, workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+            ), indent=2, sort_keys=True))
+            return 0
         if args.mcp_command == "registry":
             registry = mcp_client.load_mcp_registry()
             print(json.dumps({name: spec.__dict__ for name, spec in registry.servers.items()}, indent=2, sort_keys=True, default=list))
@@ -6910,6 +6964,25 @@ def _main(argv: list[str] | None = None) -> int:
         hits = search(args.query, workspace_root=args.workspace_root, kinds=args.kinds, limit=args.limit)
         print(json.dumps([h.__dict__ for h in hits], indent=2, sort_keys=True))
         return 0
+
+    if args.command == "habitat" and args.habitat_command == "t2-probe":
+        from .habitat import probe_t2_boundary, t2_boundary_textfile
+        from .main_anchor import committed_blob, main_tip
+        from .operator_request_signature import ALLOWED_SIGNERS_PATH, runner_key_blobs
+
+        workspace = Path(args.workspace_root).resolve()
+        tip = main_tip(workspace)
+        signers = committed_blob(workspace, commit=tip, path=ALLOWED_SIGNERS_PATH) if tip else None
+        boundary = probe_t2_boundary(
+            allowed_signers=signers.content if signers else None,
+            registered_keys=runner_key_blobs(workspace_root=workspace, base_dir=args.tools_dir),
+            key_dirs=[Path(directory) for directory in args.key_dir], runner_env=Path(args.runner_env),
+        )
+        if args.textfile:
+            Path(args.textfile).write_text(t2_boundary_textfile(boundary, probed_at=time.time()), encoding="utf-8")
+        print(json.dumps({"identity": boundary.identity, "held": boundary.held, "allowed_signers_commit": tip,
+                          "violations": list(boundary.violations)}, indent=2, sort_keys=True))
+        return 0 if boundary.held else 3
 
     if args.command == "doctor":
         from .doctor import render_doctor_text, run_doctor

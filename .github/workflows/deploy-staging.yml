@@ -148,6 +148,10 @@ jobs:
 
       - name: Compute deploy variables
         id: vars
+        # The dispatch/call override crosses as env data (INFRA-CRITICAL-080),
+        # never as script text; it is validated as a Docker tag before use.
+        env:
+          IMAGE_TAG_OVERRIDE: ${{ inputs.image_tag_override || github.event.inputs.image_tag_override || '' }}
         run: |
           set -euo pipefail
           # GHCR requires lowercase image paths
@@ -160,8 +164,14 @@ jobs:
           # Image tag resolution:
           #   workflow_dispatch: use override if given, else staging-<sha>
           #   push/main:         staging-<sha>
-          IMAGE_TAG_OVERRIDE="${{ inputs.image_tag_override || github.event.inputs.image_tag_override || '' }}"
           if [ -n "${IMAGE_TAG_OVERRIDE}" ]; then
+            # The override becomes an image reference and a `$GITHUB_OUTPUT`
+            # line, so it must be a Docker tag and nothing else (a line break
+            # would forge a second output).
+            if [[ ! "${IMAGE_TAG_OVERRIDE}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+              echo "::error::image_tag_override must be a Docker tag ([A-Za-z0-9_][A-Za-z0-9_.-]{0,127})."
+              exit 1
+            fi
             IMAGE_TAG="${IMAGE_TAG_OVERRIDE}"
           else
             IMAGE_TAG="staging-${{ github.sha }}"

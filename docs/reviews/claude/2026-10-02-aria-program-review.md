@@ -443,3 +443,185 @@ Rule: A scheduled lane either runs at its declared cadence or reports the gap; n
 cancel another lane's pending run.
 
 Owner okan, deadline 2026-11-13.
+
+## ARIA-HIGH-278
+
+Every aria/state publish re-verifies its own commit and refuses it once the counted evidence ledgers
+pass the 80 MiB evidence-input budget. They hold 32.9 MiB and grow about 1.5 MiB a day, so
+publishing stops around 2026-11-02. Rollover into segments (ARIA-HIGH-275) does not lower the sum:
+every segment of a counted family is still counted.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/autonomy_evidence.py:594` (`_MAX_EVIDENCE_INPUT_BYTES`, 80 MiB)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2467-2471` (counted set: every capability's
+  `count_surfaces`, 15 ledgers, 11 present on aria/state)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2563-2574` (each counted blob and segment adds to
+  `evidence_total`; over budget raises `state_commit_evidence_budget_exceeded`)
+- `aria-kernel/aria_kernel/state_store.py:1140` (`_publish_state_locked` runs that verifier on the
+  just-created commit; any exception refuses the publish)
+- `origin/aria/state` 05c5d3160: 34,504,740 bytes counted; agent-invocations/requests.jsonl
+  17.64 MiB and governance.jsonl 11.00 MiB are 87% of it
+- growth from 23.34 MiB (e6f462fb8, 09-25): 1.32 MiB/day end to end, 1.50 MiB/day least squares;
+  14 days 1.43-1.76; last 3 days 2.05-2.80 (requests.jsonl +6.72 MiB while results.jsonl stayed
+  flat, so an enabled executor adds its results on top)
+- 47.09 MiB of headroom: exceeded around 2026-11-02 (2026-10-19 at the 3-day rate, 2026-11-07 at
+  the 7-day end-to-end rate)
+
+Rule: History ARIA must keep can never make a publish-time budget refuse a publish: the verifier's
+cost is bounded by construction, and no cap is raised to make room.
+
+Re-checked on fix/aria-invocation-ledger-rollover 5cf8e0f61. Program plan rev2 does not cover this
+budget (K3 segments the ledger; the sum stays counted). Owner okan, deadline 2026-10-23.
+
+## ARIA-HIGH-286
+
+ARIA-HIGH-278 (e25d5ea8a) bounds what a publish folds by carrying each carried ledger's verified
+prefix in an `evidence_checkpoints` row. A checkpoint of another fold version is never read, and a
+store that has never recorded one has none, so after any change to how evidence is counted
+(`EVIDENCE_CHECKPOINT_FOLD_VERSION` bump) and on a store's first publish, the next publish folds
+every carried ledger from row 0 inside the same 80 MiB budget. Those ledgers hold 32.3 MiB and grow
+1.5-2.8 MiB a day: from between 2026-10-19 and 2026-11-02 on, a fold bump or a bootstrap refuses
+every publish, so the evidence-counting code can no longer change.
+
+Evidence (e25d5ea8a):
+
+- `aria-kernel/aria_kernel/autonomy_evidence.py:607` (`EVIDENCE_CHECKPOINT_FOLD_VERSION`; a
+  checkpoint of another version is not evidence)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2598` (`_carried_claim_cursors` skips every
+  other-version row, so after a bump each cursor starts at row 0)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2605` (a carried claim is charged its size less its
+  base: the whole ledger when no current checkpoint exists)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2654-2664` (`evidence_checkpoints_due` records a
+  checkpoint only at the parent claim's end, so a rebuild has no step smaller than a whole ledger)
+- `aria-kernel/aria_kernel/state_store.py:2052-2053` (checkpoint rows are deduplicated by `row_id`,
+  which omits the fold version at `autonomy_evidence.py:2661`: a rebuilt checkpoint at an old one's
+  row is never written)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2858-2863` (over budget raises
+  `state_commit_evidence_budget_exceeded`; `state_store.py:1140` verifies every just-created commit)
+- `origin/aria/state` 05c5d3160: carried ledgers 33,898,497 bytes (requests 18,492,881, governance
+  11,539,576, fixture runs 1,766,557, operator feedback 1,061,280, autonomy_state 761,494,
+  calibration 256,518, auto-merge 20,191), plus 606,243 never carried: 47.1 MiB of headroom, gone
+  around 2026-10-19 at 2.8 MiB/day and 2026-11-02 at 1.5 MiB/day
+
+The second residual e25d5ea8a named, recorded here with its numbers and no code: the counted ledgers
+that are never carried (cycles, agent_invocation_results, enterprise_readiness_claims, promotions,
+enterprise_acceptance_events, findings) are folded in full on every publish. On 05c5d3160 they hold
+606,243 bytes (results 566,985, cycles 36,209, promotions 3,049; the other three are absent), up
+from 360,726 on 09-18 (c48caea28): 0.017 MiB a day, nearly all of it results.jsonl before 09-26,
+flat since. With a rebuild bounded to two fifths of the budget, they share the remaining 48 MiB
+with the checkpoint ledger (about 1 KiB per carried MiB): about seven and a half years at that
+rate. A result row averages 1,745 bytes; an executor recording one per request (140 requests a day
+over the last three days) would add about 0.23 MiB a day, about 200 days of headroom.
+
+Rule: A change to how evidence is counted, and a store's first publish, rebuild their checkpoints in
+bounded steps: no publish folds more than a fixed slice of the carried ledgers, at any ledger age,
+and evidence the slice cannot reach is withheld by name, never estimated.
+
+Fix on fix/aria-evidence-checkpoint-rebuild (stacked on e25d5ea8a). Owner okan, deadline 2026-10-16.
+
+## ARIA-HIGH-288
+
+A capability's autonomy evidence is bound to a hash over the source bytes of a roster of kernel
+files. `_capability_authority_hash` hashes the path, tree record and blob of every file in a
+capability's `authority_paths`, and `_paths()` adds the common set to all seven capabilities
+(`autonomy_evidence`, `contention_replay`, `file_lock`, `ledger`, `state_manifest`,
+`state_snapshot`, `state_store`, `tool_registry`, `tools_binding`, `workspace`, the closure
+policy). A proof counts only while the hash at its commit equals the hash at the evaluated target,
+so any byte change to the roster (a storage refactor, a comment, a mode bit) drops every affected
+capability to `declared` (`proof_authority_changed`) until new live proof exists at the new hash.
+The common set is where the storage lanes work (CE, K2, K3, the evidence-budget lanes), so kernel
+evolution erases the autonomy evidence ARIA has earned.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/autonomy_evidence.py:846-864` (`_COMMON_AUTHORITY_PATHS`, joined into
+  every capability's roster by `_paths`)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:1747-1789` (`_capability_authority_hash`: path
+  names, tree records and blob bytes)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2020-2064` (a proof whose commit hashes differently
+  from the target is `proof_authority_changed`)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:1848-1899` (the evaluator refuses a target whose
+  hash differs from HEAD's: `evaluator_authority_changed`)
+- `origin/main` 2026-09-03..10-02, 220 first-parent commits: 15 touched the common set, 29 touched
+  at least one capability's roster, 17 reset all seven capabilities
+
+Rule: A proof is bound to the semantics it was proven under. A change that keeps every declared
+semantic version keeps earned evidence; a change of semantics moves a declared version, enforced
+against a frozen corpus whose fold output is pinned on a path ARIA's implementer cannot write; and
+each proof records the authority it was proven under.
+
+Re-checked on fix/aria-evidence-checkpoint-rebuild 19d1cc687 (wall #4 of the 2026-10-02
+inventory). Owner okan, deadline 2026-10-09.
+
+## ARIA-HIGH-295
+
+A capability's proof witnesses are folded oldest first under a budget of 128 distinct target SHAs
+per capability and 256 across all of them. `_retain_target` admits a new SHA only while the budget
+has room; once it is full, every newer SHA is dropped and the capability, or with the global budget
+every capability, carries `proof_distinct_sha_budget_exceeded` and is `declared` before any history
+is searched. History only grows, so the latch never clears: the budget turns into a permanent loss
+of the autonomy evidence ARIA has earned, and the newest proofs, the ones a current target can use,
+are exactly the ones dropped. Because witnesses are chosen across all history under that budget,
+the three ledgers with an authoritative SHA (cycles, agent_invocation_results,
+enterprise_readiness_claims) are also never carried by an evidence checkpoint.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/autonomy_evidence.py:677-678` (128 distinct targets per capability, 256
+  across all)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:3433-3475` (`_retain_target`: a SHA past the budget
+  is dropped and the budget flag set; rows stream oldest first)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:1448-1458` (the same budget in
+  `_summarize_native_rows`)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2019-2032` (a set budget flag returns `declared`
+  with no witness search; the global flag is set on every capability's summary)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:1344-1355` (`_CARRIED_COUNT_SURFACES` excludes every
+  contract with an authoritative SHA)
+- `origin/aria/state` f82569371 (2026-10-03), folded by the kernel's own accumulator: cycle_runtime
+  33 distinct targets, executor 9, global 33; 092f93f5c (09-02): 20
+
+At the measured 0.43 new cycle targets a day (09-02..10-03) cycle_runtime latches around
+2027-05-12; at one a day (wall #12 of the 2026-10-02 inventory) around 2027-01-06. The executor is
+disabled (wall #1); its accepted results carry the request's target SHA, a main head, so once it
+runs at the merge rate (94 merges in 14 days, 6.7 a day) its 128 are gone in about 18 days and the
+global 256 in about 33, which latches all seven capabilities.
+
+Rule: A capability is judged on its most recent witnesses. Each evidence contract keeps a bounded
+window of its newest distinct target SHAs, declared as policy data the implementer cannot write;
+an older SHA ages out of the window, and no history can latch a capability declared. The window is
+a bounded summary, so the ledgers that carry witnesses are carried by evidence checkpoints like
+every other counted ledger.
+
+Re-checked on fix/aria-semantic-capability-authority cdf7cbcd7 (wall #12 of the 2026-10-02
+inventory). Owner okan, deadline 2026-10-20.
+
+## ARIA-MEDIUM-296
+
+Two residuals of ARIA-HIGH-288 (wall #4), named by its implementer. First, the evidence fold version
+is pinned to the SOURCE of the fold functions: `test_the_fold_version_is_pinned_to_the_fold` hashes
+`inspect.getsource` of seven functions and the carried contracts' predicates, so renaming a local
+variable in `carried_state` fails it (measured: the digest moves from `51fee587…` to `2f4c7041…`
+while the semantic equivalence suite stays green) and demands a fold-version bump, which by
+ARIA-HIGH-288's design resets all seven capabilities. Second, a producer that changes what its proof
+rows mean without bumping their schema_version is not caught: the equivalence corpus holds
+hand-written rows, so a producer that stopped writing `git_head_sha_at_cycle` on every terminal
+cycle row, which leaves cycle_runtime unprovable for good, passes every pin (measured on
+cdf7cbcd7).
+
+Evidence:
+
+- `aria-kernel/tests/test_evidence_checkpoints.py:323-349` (the source byte pin on the fold)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:665-669` (the fold version is the declared one, so
+  a bump moves every capability's semantic authority)
+- `aria-kernel/tests/invariants/test_capability_semantic_equivalence.py:107-141` (the corpus pins
+  fold output over fixture rows; no producer constructs them)
+- `aria-kernel/aria_kernel/cycle.py:117-143`, `aria-kernel/aria_kernel/agent_invocations.py:5425-5454`
+  (proof row constructors the corpus never runs)
+
+Rule: A declared version is pinned by what the code does, never by its bytes: the carried fold's
+output on a frozen corpus is pinned per fold version, and every evidence contract producer's row,
+built from frozen inputs, is pinned by what the fold makes of it per the schema version it declares,
+so a refactor keeps every version and a change of meaning without a bump fails.
+
+Re-checked on fix/aria-semantic-capability-authority cdf7cbcd7. Owner okan, deadline 2026-10-23.

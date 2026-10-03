@@ -34,6 +34,7 @@ def start_convergent_plan_drafted_by_primary(
     plan_content: dict[str, Any],
     initial_revision_id: str,
     base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Plan ARIA-V8 v2 §4 Phase 8.1 (B-V2-07) — open a plan WITHOUT a primary envelope.
 
@@ -46,6 +47,9 @@ def start_convergent_plan_drafted_by_primary(
     to CROSS_REVIEWED.
 
     Returns the plan ledger row only (no primary_request key).
+
+    ``workspace_root`` is where ``start_plan`` computes a finding-origin
+    plan's admission bound (ADR-0021).
     """
     if not isinstance(plan_content, dict) or not plan_content:
         raise GovernanceError("plan_content is required and must be a non-empty dict")
@@ -62,6 +66,7 @@ def start_convergent_plan_drafted_by_primary(
         plan_content=plan_content,
         initial_revision_id=initial_revision_id,
         base_dir=base_dir,
+        workspace_root=workspace_root,
     )
     return {"plan": plan_row}
 

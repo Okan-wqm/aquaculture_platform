@@ -21,4 +21,6 @@ Duplicate-alert suppression is a Redis `SET NX EX` claim in `apps/alert-engine/s
 
 ## Enforcement
 
-Boot: `SchemaDriftValidator`. CI: `tests/invariants/tenant-fanout-entity-parity.spec.ts`, `entity-schema-declaration.spec.ts`, `metrics-endpoint-adoption.spec.ts`, `critical-infra-ssot.spec.ts`; `e2e/tests/integration/schema-invariants.spec.ts`, `e2e/tests/mobile/alerts-ack.spec.ts`.
+Boot: `SchemaDriftValidator`. CI: `tests/invariants/tenant-fanout-entity-parity.spec.ts`, `entity-schema-declaration.spec.ts`, `metrics-endpoint-adoption.spec.ts`, `critical-infra-ssot.spec.ts`; `e2e/tests/integration/schema-invariants.spec.ts`.
+
+Not gated: `e2e/tests/mobile/alerts-ack.spec.ts` (AquaMobil alert acknowledge) belongs to a suite that logs in for real and seeds rows; its only runner was the production-host E2E lane, now removed. It runs again once staging owns destructive E2E (INFRA-CRITICAL-097).

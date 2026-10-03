@@ -1453,10 +1453,110 @@ describe('affected development workflow contract', () => {
     };
     const deploy = affected.jobs?.['deploy-development'];
 
-    expect(deploy?.needs).toEqual(['build-development-images', 'development-deploy-contract']);
+    expect(deploy?.needs).toEqual([
+      'build-development-images',
+      'development-deploy-contract',
+      'development-deploy-mode',
+    ]);
     expect(deploy?.if).toContain('always()');
     expect(deploy?.if).toContain("needs.build-development-images.result == 'success'");
     expect(deploy?.if).toContain("needs.development-deploy-contract.result == 'success'");
+    expect(deploy?.if).toContain("needs.development-deploy-mode.outputs.mode == 'auto'");
+  });
+
+  // INFRA-HIGH-199 — the droplet rollout runs only in an operator-owned mode.
+  describe('operator-owned development deploy mode', () => {
+    interface ModeJob {
+      readonly if?: string;
+      readonly steps?: ReadonlyArray<{ readonly id?: string; readonly run?: string }>;
+    }
+
+    function modeScript(): string {
+      const affected = workflow('.github/workflows/ci-affected.yml') as {
+        jobs?: Record<string, ModeJob>;
+      };
+      const job = affected.jobs?.['development-deploy-mode'];
+      expect(job?.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/main'");
+      const step = job?.steps?.find((candidate) => candidate.id === 'mode');
+      expect(step?.run).toBeDefined();
+      return step?.run ?? '';
+    }
+
+    function resolveMode(value: string | undefined): {
+      status: number | null;
+      output: string;
+      log: string;
+    } {
+      const dir = mkdtempSync(join(tmpdir(), 'deploy-mode-'));
+      try {
+        const outputFile = join(dir, 'github-output');
+        writeFileSync(outputFile, '');
+        const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, GITHUB_OUTPUT: outputFile };
+        if (value !== undefined) env.DEVELOPMENT_DEPLOY_MODE = value;
+        const result = spawnSync('bash', ['-c', modeScript()], { encoding: 'utf8', env });
+        return {
+          status: result.status,
+          output: readFileSync(outputFile, 'utf8'),
+          log: `${result.stdout}${result.stderr}`,
+        };
+      } finally {
+        removeFixtureTree(dir);
+      }
+    }
+
+    function utcMinute(offsetMs: number): string {
+      return `${new Date(Date.now() + offsetMs).toISOString().slice(0, 16)}Z`;
+    }
+
+    it('deploys a green main only in auto mode', () => {
+      expect(resolveMode('auto')).toMatchObject({ status: 0, output: 'mode=auto\n' });
+    });
+
+    it('holds the rollout until a future UTC minute and says so', () => {
+      const until = utcMinute(24 * 3_600_000);
+      const held = resolveMode(`held-until:${until}`);
+      expect(held).toMatchObject({ status: 0, output: 'mode=held\n' });
+      expect(held.log).toContain(`held by the operator until ${until}`);
+    });
+
+    it('turns main red when a hold has expired instead of holding silently', () => {
+      const until = utcMinute(-60_000);
+      const expired = resolveMode(`held-until:${until}`);
+      expect(expired.status).toBe(1);
+      expect(expired.output).toBe('');
+      expect(expired.log).toContain(`hold expired at ${until}`);
+    });
+
+    it.each([
+      ['unset', undefined],
+      ['empty', ''],
+      ['a legacy boolean', 'true'],
+      ['a hold without a date', 'held-until:'],
+      ['a hold with a local time', 'held-until:2026-10-07T12:00'],
+    ])('fails closed and names the problem when the mode is %s', (_label, value) => {
+      const result = resolveMode(value);
+      expect(result.status).toBe(1);
+      expect(result.output).toBe('');
+      expect(result.log).toContain('DEVELOPMENT_DEPLOY_MODE');
+    });
+
+    it('reports a valid hold as a declared delivery state and requires the rollout otherwise', () => {
+      const affected = workflow('.github/workflows/ci-affected.yml') as {
+        jobs?: Record<string, { readonly needs?: string[]; readonly steps?: ModeJob['steps'] }>;
+      };
+      const status = affected.jobs?.['development-delivery-status'];
+      const script = status?.steps?.map((step) => step.run ?? '').join('\n') ?? '';
+      expect(status?.needs).toContain('development-deploy-mode');
+      expect(script).toContain(
+        'development-deploy-mode:${{ needs.development-deploy-mode.result }}',
+      );
+      expect(script).toContain(
+        `if [ "\${{ needs.development-deploy-mode.outputs.mode }}" != 'held' ]; then`,
+      );
+      expect(script).toContain(
+        'results+=("deploy-development:${{ needs.deploy-development.result }}")',
+      );
+    });
   });
 
   it('uses the selected infra matrix for pull-request image builds', () => {

@@ -3073,12 +3073,11 @@ def _on_disk_anchors(
 ) -> tuple[str | None, str | None]:
     """Read the on-disk ledger_hash for the named claim + request rows."""
     claims_path = tools_dir / "agent-invocations" / "claims.jsonl"
-    requests_path = tools_dir / "agent-invocations" / "requests.jsonl"
     claim_hash: str | None = None
     request_hash: str | None = None
     # Late import keeps standalone/mock executor startup behavior unchanged.
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
-    from aria_kernel.ledger import load_declared_jsonl
+    from aria_kernel.ledger import load_declared_jsonl, load_segments
 
     if claims_path.exists():
         for row in load_declared_jsonl(
@@ -3090,13 +3089,9 @@ def _on_disk_anchors(
                 and row.get("event") == "claimed"
             ):
                 claim_hash = row.get("ledger_hash")
-    if requests_path.exists():
-        for row in load_declared_jsonl(
-            requests_path,
-            expected_surface="agent_invocation_requests",
-        ):
-            if row.get("request_id") == request_id:
-                request_hash = row.get("ledger_hash")
+    for row in load_segments(tools_dir, "agent_invocation_requests"):
+        if row.get("request_id") == request_id:
+            request_hash = row.get("ledger_hash")
     return claim_hash, request_hash
 
 
@@ -4109,7 +4104,7 @@ def _adaptive_pre_claim_admission(
         results_path = tools_dir / "agent-invocations/results.jsonl"
         with state_transaction([request_path, claims_path, results_path]) as transaction:
             invocations._validate_claim_dispatch_authority(
-                requests=transaction.load_declared_jsonl(request_path, expected_surface="agent_invocation_requests"),
+                requests=transaction.load_segments(tools_dir, "agent_invocation_requests"),
                 claims=transaction.load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims"),
                 results=transaction.load_declared_jsonl(results_path, expected_surface="agent_invocation_results"),
                 request_id=request_id, request_ledger_hash=_inherited_claim["request_ledger_hash"],

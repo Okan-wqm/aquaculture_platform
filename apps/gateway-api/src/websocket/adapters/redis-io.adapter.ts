@@ -70,7 +70,14 @@ import { toError } from '../../common/error-normalization';
  * @see apps/gateway-api/src/main.ts for the wiring + hard-fail policy.
  */
 export class RedisIoAdapter extends IoAdapter {
-  private readonly logger = new Logger(RedisIoAdapter.name);
+  // WHY override, not a private field: since @nestjs/platform-socket.io
+  // 11.2.x the base IoAdapter owns `protected readonly logger` and logs the
+  // handler errors and failed emits it now contains instead of letting them
+  // kill the process. A private field of the same name no longer type-checks
+  // against the base. WHAT: one logger per adapter, named after the class
+  // actually running, so the base's contained-error lines and this class's
+  // Redis lines both carry the RedisIoAdapter context.
+  protected override readonly logger = new Logger(RedisIoAdapter.name);
   private pubClient?: Redis;
   private subClient?: Redis;
   private adapterConstructor?: ReturnType<typeof createAdapter>;

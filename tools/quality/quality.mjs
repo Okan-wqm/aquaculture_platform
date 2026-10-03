@@ -15,7 +15,6 @@ process.env.NX_ISOLATE_PLUGINS = 'false';
 process.env.NX_TASKS_RUNNER_DYNAMIC_OUTPUT = 'false';
 process.env.CI = 'true';
 const QUALITY_ROOT = join(REPO_ROOT, 'tools', 'quality');
-const FORMAT_SCOPE = join(QUALITY_ROOT, 'format-scope.json');
 const LINT_INVENTORY = join(QUALITY_ROOT, 'lint-target-inventory.json');
 const RUST_MANIFEST = join(QUALITY_ROOT, 'rust-toolchain-manifest.json');
 const CLOSURE_MANIFEST = join(QUALITY_ROOT, 'closure-manifest.json');
@@ -32,6 +31,24 @@ const EXPECTED_CLOSURE_ENTRYPOINTS = Object.freeze({
 });
 
 const FORMAT_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json', '.md']);
+/**
+ * The closed class vocabulary of the format scope, and whether Prettier owns
+ * each class.
+ *
+ * WHY a closed set: `format-scope check` keys archive immutability on the class
+ * name, so a classifier branch that returned a misspelled class would silently
+ * exempt its files from that rule instead of failing. Totality is asserted
+ * against this set (see classifyFormatPaths), not against "returned something".
+ */
+const FORMAT_CLASS_PRETTIER_MANAGED = Object.freeze({
+  canonical_source: true,
+  canonical_docs: true,
+  agent_contract_docs: true,
+  generated: false,
+  vendor_or_external: false,
+  runtime_evidence: false,
+  archive_immutable: false,
+});
 const NODE_COMPONENTS_LINT_SHARDS = [
   ['src/config/**/*.ts', 'src/registry/**/*.ts', 'src/wrappers/**/*.tsx', 'vite.config.ts'],
   ['src/edges/**/*.tsx'],
@@ -113,7 +130,7 @@ function usage() {
     [
       'usage: node tools/quality/quality.mjs <command>',
       'commands:',
-      '  format-scope generate|check',
+      '  format-scope check',
       '  format check|check-changed|check-staged|write|write-changed',
       '  lint-inventory generate|check',
       '  lint-all [--max-warnings=0]',
@@ -174,14 +191,10 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-function fileSha(path) {
-  return sha256(readFileSync(join(REPO_ROOT, path)));
-}
-
 function gitLsFiles() {
-  // TRACKED FILES ONLY — see the source note at the manifest builder. The
-  // untracked inclusion is what made the committed manifest carry foreign WIP
-  // that CI's clean checkout has never contained.
+  // TRACKED FILES ONLY: the format scope is what a commit contains. A staged
+  // new file is already in the index; an untracked one is not the repo's, and
+  // a clean CI checkout has never seen it.
   const out = runRequired('git', ['ls-files', '--cached', '-z']);
   return out.split('\0').filter(Boolean).sort();
 }
@@ -191,8 +204,13 @@ function extensionOf(path) {
   return index === -1 ? '' : path.slice(index);
 }
 
+/**
+ * One class per path, by the first rule that matches. Total by construction:
+ * the last statement is the catch-all. classifyFormatPaths asserts that
+ * totality rather than trusting it, so a restructured branch that returns
+ * nothing, or a class outside FORMAT_CLASS_PRETTIER_MANAGED, fails by name.
+ */
 function classifyFormatFile(path) {
-  if (!FORMAT_EXTENSIONS.has(extensionOf(path))) return null;
   if (path === 'package-lock.json' || path.endsWith('/package-lock.json')) {
     return excluded(
       path,
@@ -220,7 +238,7 @@ function classifyFormatFile(path) {
       path,
       'runtime_evidence',
       'agent-inventory-evidence',
-      'serialized agent inventory transcript; content is hash-pinned evidence',
+      'serialized agent inventory transcript; reformatting would rewrite recorded evidence',
     );
   }
   const newAriaPlan = 'docs/plans/2026-09-01-new-aria-autonomous-engineering/';
@@ -232,15 +250,20 @@ function classifyFormatFile(path) {
       path,
       'archive_immutable',
       'new-aria-evidence-authority',
-      'append-only historical evidence is hash-pinned and must retain its original bytes',
+      'append-only historical evidence must retain its original bytes; format-scope check refuses an edit',
     );
   }
-  if (path.includes('/.archive/') || path.includes('/archive/')) {
+  // The `.archive/` directory convention, and only that. A bare `/archive/`
+  // segment also matched apps/sensor-service/src/archive/, the LIVE
+  // telemetry-archive module (Parquet export, retention orchestrator), which
+  // made ordinary source unformatted and — under the immutability rule of
+  // archiveImmutabilityViolations — uneditable (PROC-MEDIUM-040).
+  if (/(^|\/)\.archive\//.test(path)) {
     return excluded(
       path,
       'archive_immutable',
       'archive-owner',
-      'historical archive content is hash-pinned evidence',
+      'historical archive content only grows; format-scope check refuses an edit',
     );
   }
   if (path === 'apps/admin-api-service/openapi.json') {
@@ -319,52 +342,138 @@ function excluded(path, cls, owner, reason) {
     prettier_managed: false,
     owner,
     reason,
-    source_of_truth: cls === 'generated' ? 'generator' : 'committed_hash',
-    hash_policy: 'sha256',
-    content_sha256: existsSync(join(REPO_ROOT, path)) ? fileSha(path) : null,
-    review_required: true,
   };
 }
 
+function isDeclaredClassification(entry) {
+  return (
+    entry !== null &&
+    typeof entry === 'object' &&
+    Object.hasOwn(FORMAT_CLASS_PRETTIER_MANAGED, entry.class) &&
+    entry.prettier_managed === FORMAT_CLASS_PRETTIER_MANAGED[entry.class]
+  );
+}
+
+/**
+ * Classify every formattable path in `paths`; fail, naming each one, when the
+ * classifier is not total over them.
+ *
+ * WHY fail instead of skip: an unclassified file is silently neither formatted
+ * nor protected — it would drop out of every format lane AND out of archive
+ * immutability with nothing reporting it.
+ */
+function classifyFormatPaths(paths) {
+  const entries = [];
+  const unclassified = [];
+  for (const path of paths) {
+    if (!FORMAT_EXTENSIONS.has(extensionOf(path))) continue;
+    const entry = classifyFormatFile(path);
+    if (isDeclaredClassification(entry)) {
+      entries.push(entry);
+    } else {
+      unclassified.push(path);
+    }
+  }
+  if (unclassified.length > 0) {
+    fail(
+      [
+        `format scope: ${unclassified.length} path(s) unclassified — classifyFormatFile must give ` +
+          'every formattable path exactly one class from FORMAT_CLASS_PRETTIER_MANAGED:',
+        ...unclassified.map((path) => `  ${path}`),
+      ].join('\n'),
+    );
+  }
+  return entries;
+}
+
+/**
+ * The format scope: every tracked formattable file with exactly one class.
+ *
+ * WHY IN MEMORY (PROC-MEDIUM-040): this used to be committed as
+ * tools/quality/format-scope.json and gated for freshness, although it is a
+ * pure function of `git ls-files --cached` and classifyFormatFile. Every PR
+ * that added or removed a tracked file had to regenerate it — 41 of the 89
+ * first-parent merges on main from 2026-09-18 to b28a5216a changed it —
+ * concurrent PRs conflicted on it whatever files they touched, and automation
+ * PRs that add one file (the ARIA daily report, the rule-health report) went
+ * red as "stale". Computing it where it is read costs one `git ls-files` and
+ * makes freshness structural: there is no copy left to drift.
+ */
 function buildFormatScope() {
-  const entries = gitLsFiles()
-    .map(classifyFormatFile)
-    .filter(Boolean)
-    .sort((a, b) => a.path.localeCompare(b.path));
-  // NO DERIVED SUMMARY SCALARS HERE, DELIBERATELY.
-  //
-  // This manifest used to also carry `file_count`, `managed_count` and
-  // `managed_file_list_sha256`. All three were pure functions of `entries`,
-  // sitting in the same file as `entries`, and — measured — they had exactly
-  // one producer (this function) and ZERO readers: `getManagedFormatFiles`,
-  // the only consumer of the manifest, reads `.entries` alone.
-  //
-  // Their cost was not neutral. Any branch that adds or removes a single
-  // tracked file changes all three, so two branches conflict on those same
-  // lines REGARDLESS of which files each one touched. That made a merge
-  // conflict here structurally certain rather than occasional: five in one
-  // day once two sessions were working at once, each resolved identically
-  // and carrying no information, because `checkManifest` rebuilds the
-  // manifest from the tree and refuses anything that differs — so whichever
-  // side of the conflict is taken, the content is recomputed anyway.
-  //
-  // Removing them costs no detection power: `checkManifest` still compares
-  // all ~9,300 entries byte-for-byte, and a checksum of data present in the
-  // same file never added any. `format-scope-derived-scalars.spec.ts` keeps
-  // them from coming back.
-  return {
-    schema_version: 1,
-    generated_by: 'tools/quality/quality.mjs format-scope generate',
-    // TRACKED FILES ONLY. The manifest is a committed artifact, so its scope
-    // must be exactly what a clean CI checkout contains. Including untracked
-    // files (--others) made every generate run on a working tree carrying
-    // foreign WIP commit entries for files CI has never seen — the check then
-    // fails on the merge ref while passing locally, a treadmill PR #1300
-    // measured three times in one day. A committer stages a new file, then
-    // regenerates; the staged-but-uncommitted file is in --cached already.
-    source: 'git ls-files --cached',
-    entries,
-  };
+  return classifyFormatPaths(gitLsFiles());
+}
+
+/**
+ * Archive immutability: an archive only grows.
+ *
+ * WHY: this is the property the committed manifest's 189 archive
+ * `content_sha256` pins stood in for, and they never enforced it — editing an
+ * archived file and regenerating re-pinned the new bytes, and a file added
+ * under an archive stayed unpinned until someone regenerated — while
+ * duplicating what git already shows in every diff. This asks git the real
+ * question directly.
+ *
+ * WHAT: `git diff --name-status -M <base>` — the worktree against the base,
+ * the comparison `format check-changed` makes, so staged and uncommitted edits
+ * count at commit time. For an archive_immutable path only status A passes;
+ * M and T (modified, type-changed), D (deleted) and R (renamed) fail. A rename
+ * is judged by its SOURCE: moving a live file INTO `.archive/` is how
+ * archiving happens and only adds bytes to the archive, while moving an
+ * archived file anywhere, inside the archive included, takes bytes out.
+ *
+ * NOT RULED HERE: runtime_evidence (aria-tools/, .aria-ci/, agent-workspace/,
+ * nested worktrees, agent inventories) and generated files. Under the
+ * manifest they were regenerate-to-edit — editable in practice, the hash
+ * following the bytes — so pinning them now would be a new rule, not a kept
+ * one. Generated files stay owned by their generators' own parity gates.
+ */
+function archiveImmutabilityViolations(base) {
+  const fields = runRequired('git', ['diff', '--name-status', '-M', '-z', base, '--']).split('\0');
+  const changes = [];
+  for (let index = 0; index < fields.length && fields[index] !== ''; ) {
+    const status = fields[index];
+    const kind = status.charAt(0);
+    const paired = kind === 'R' || kind === 'C';
+    changes.push({
+      kind,
+      source: fields[index + 1],
+      target: paired ? fields[index + 2] : null,
+    });
+    index += paired ? 3 : 2;
+  }
+  // A copy (C) leaves its source untouched and an add (A) has no prior bytes;
+  // every other status changes or removes the source path's bytes.
+  const touched = changes.filter((change) => change.kind !== 'A' && change.kind !== 'C');
+  const archived = new Set(
+    classifyFormatPaths(touched.map((change) => change.source))
+      .filter((entry) => entry.class === 'archive_immutable')
+      .map((entry) => entry.path),
+  );
+  return touched.filter((change) => archived.has(change.source));
+}
+
+function runFormatScopeCheck() {
+  const entries = buildFormatScope();
+  const base = resolveFormatBase();
+  const violations = archiveImmutabilityViolations(base);
+  if (violations.length > 0) {
+    fail(
+      [
+        `format-scope check: ${violations.length} archive_immutable file(s) changed since ${base}. ` +
+          'An archive only grows: add a new file instead of editing, deleting or moving one.',
+        ...violations.map(
+          ({ kind, source, target }) => `  ${kind}  ${source}${target ? ` -> ${target}` : ''}`,
+        ),
+      ].join('\n'),
+    );
+  }
+  const managed = entries.filter((entry) => entry.prettier_managed).length;
+  const archived = entries.filter((entry) => entry.class === 'archive_immutable').length;
+  process.stdout.write(
+    `format-scope check: ${entries.length} tracked format file(s) classified ` +
+      `(${managed} prettier-managed, ${archived} archive_immutable); ` +
+      `no archive_immutable file modified, deleted or renamed since ${base}\n`,
+  );
 }
 
 function checkManifest(path, build) {
@@ -402,15 +511,12 @@ function checkClosureManifest() {
 }
 
 function getManagedFormatFiles() {
-  if (!existsSync(FORMAT_SCOPE))
-    fail('format scope missing; run npm run quality:format-scope:generate');
-  return readJson(FORMAT_SCOPE)
-    .entries.filter((entry) => entry.prettier_managed)
+  return buildFormatScope()
+    .filter((entry) => entry.prettier_managed)
     .map((entry) => entry.path);
 }
 
 function runPrettier(mode) {
-  checkManifest(FORMAT_SCOPE, buildFormatScope);
   const files = getManagedFormatFiles();
   runPrettierFiles(mode, files);
 }
@@ -507,7 +613,7 @@ function resolveFormatBase() {
   const candidate = process.env.FORMAT_BASE_SHA?.trim() ?? '';
   if (candidate && !/^0+$/.test(candidate)) {
     if (!/^[0-9a-f]{40}$/i.test(candidate)) {
-      fail('format check-changed: FORMAT_BASE_SHA must be a full commit SHA');
+      fail('FORMAT_BASE_SHA must be a full commit SHA');
     }
     runRequired('git', ['cat-file', '-e', `${candidate}^{commit}`]);
     return candidate;
@@ -542,7 +648,6 @@ function worktreeReaders(base) {
 }
 
 function runPrettierChanged() {
-  checkManifest(FORMAT_SCOPE, buildFormatScope);
   const base = resolveFormatBase();
   const files = changedManagedFiles(base);
 
@@ -567,7 +672,6 @@ function runPrettierChanged() {
  * zero-effort default is the whole point (ORPHAN-HIGH-500).
  */
 function runPrettierWriteChanged() {
-  checkManifest(FORMAT_SCOPE, buildFormatScope);
   const base = resolveFormatBase();
   const files = changedManagedFiles(base);
 
@@ -635,8 +739,6 @@ function runPrettierWriteChanged() {
  * branch's existing debt to the merge.
  */
 function runPrettierCheckStaged() {
-  checkManifest(FORMAT_SCOPE, buildFormatScope);
-
   const staged = runRequired('git', ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR'])
     .split('\0')
     .filter(Boolean);
@@ -1128,9 +1230,11 @@ function parseClosureRunArgs(args) {
 function main() {
   const [domain, action, ...rest] = process.argv.slice(2);
   if (!domain) usage();
+  // `format-scope check` keeps its exact argv: the ARIA kernel's validation
+  // lane allowlists ("format-scope", "check") and the closure manifest runs it.
+  // There is no `generate`: nothing about the format scope is committed.
   if (domain === 'format-scope') {
-    if (action === 'generate') return writeStableJson(FORMAT_SCOPE, buildFormatScope());
-    if (action === 'check') return checkManifest(FORMAT_SCOPE, buildFormatScope);
+    if (action === 'check') return runFormatScopeCheck();
   }
   if (domain === 'format') {
     if (action === 'check') return runPrettier('check');
@@ -1154,14 +1258,12 @@ function main() {
   }
   if (domain === 'inventory') {
     if (action === 'generate') {
-      writeStableJson(FORMAT_SCOPE, buildFormatScope());
       writeStableJson(LINT_INVENTORY, buildLintInventory());
       writeStableJson(RUST_MANIFEST, buildRustManifest());
       writeClosureManifest();
       return;
     }
     if (action === 'check') {
-      checkManifest(FORMAT_SCOPE, buildFormatScope);
       checkManifest(LINT_INVENTORY, buildLintInventory);
       checkManifest(RUST_MANIFEST, buildRustManifest);
       checkClosureManifest();

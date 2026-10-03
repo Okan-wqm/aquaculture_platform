@@ -2176,8 +2176,8 @@ class SubmitResultE2ETests(unittest.TestCase):
         )
         # Patch the request row so separation_of_duties forbids judge-worker-001.
         # (Direct edit is fine for the test; in production the planner sets it.)
-        from aria_kernel.ledger import load_declared_jsonl, rewrite_declared_jsonl
-        req_path = self.tools / "agent-invocations" / "requests.jsonl"
+        from aria_kernel.ledger import load_declared_jsonl, rewrite_declared_jsonl, segment_paths
+        req_path = segment_paths(self.tools, "agent_invocation_requests")[-1]  # the request's segment
         rows = load_declared_jsonl(req_path, expected_surface="agent_invocation_requests")
         rows[-1]["separation_of_duties"] = {"forbidden_agent_ids": ["judge-worker-001"]}
         rewrite_declared_jsonl(

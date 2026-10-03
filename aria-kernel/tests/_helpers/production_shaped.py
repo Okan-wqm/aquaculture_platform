@@ -358,7 +358,7 @@ def production_staged_implementation_request(
     staged ids. Returns the request row the executor lane claims.
     """
     from aria_kernel.cycle_phases.implementer import AutonomousV9ImplementationRunner
-    from aria_kernel.ledger import load_declared_jsonl
+    from aria_kernel.ledger import load_segments
 
     operator_set_profile("strict", base_dir=tools_dir, scheduler_ceiling="strict")
     plan = production_converged_plan(
@@ -371,10 +371,7 @@ def production_staged_implementation_request(
     )
     if result.terminal_state != "IMPLEMENTATION_DISPATCHED":
         raise AssertionError(f"fixture plan was not dispatched: {result}")
-    requests = load_declared_jsonl(
-        ensure_tools_dir(tools_dir) / "agent-invocations" / "requests.jsonl",
-        expected_surface="agent_invocation_requests",
-    )
+    requests = load_segments(ensure_tools_dir(tools_dir), "agent_invocation_requests")
     row = next(
         (row for row in reversed(requests)
          if row.get("row_type") == "request" and row.get("role") == "implementation"

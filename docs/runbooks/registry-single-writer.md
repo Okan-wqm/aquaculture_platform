@@ -16,7 +16,8 @@ health**. Every push to main, the `finding-closure-reconcile` lane:
    rows without folding each other is an inconvenience and no longer a
    six-fold-per-night ritual;
 3. records the closures the merge's own `Closes:` trailers already reach
-   (`reconcile`), re-pins the debt plan and the authority hash;
+   (`reconcile`), and retires each resolved CRITICAL's debt-plan truth-table
+   row (no registry count or hash is mirrored anywhere — PROC-HIGH-046);
 4. opens/updates `automation/finding-closure-reconcile` and **requests
    auto-merge**, so the PR merges itself the moment its checks pass.
 
@@ -107,5 +108,6 @@ always there; it was invisible.
   bounces the conflict otherwise). The fold is one `remerge`, not six: the
   chain's hashes are recomputed on main regardless.
 - **The reconcile PR's own diff** is mechanically derived (trailers → rows,
-  rechain, repins). Review it after the fact in history; do not block on it —
-  that review delay is the ten-hour red window this lane closed.
+  rechain, retired truth-table rows). Review it after the fact in history; do
+  not block on it — that review delay is the ten-hour red window this lane
+  closed.

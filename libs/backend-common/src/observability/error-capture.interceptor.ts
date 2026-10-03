@@ -5,7 +5,14 @@ import {
   Logger,
   NestInterceptor,
 } from '@nestjs/common';
-import { createBaseEvent, type ServiceErrorCapturedEvent } from '@platform/event-contracts';
+import {
+  InvalidEventTenantScopeError,
+  PLATFORM_SCOPE,
+  createBaseEvent,
+  tenantScopeOf,
+  type EventTenantScope,
+  type ServiceErrorCapturedEvent,
+} from '@platform/event-contracts';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
@@ -22,8 +29,9 @@ interface CapturedRequest {
   method?: string;
   originalUrl?: string;
   url?: string;
-  tenantId?: string;
-  user?: { id?: string; tenantId?: string };
+  // `null` is what a platform principal's JWT carries at runtime.
+  tenantId?: string | null;
+  user?: { id?: string; tenantId?: string | null };
   headers?: Record<string, string | string[] | undefined>;
 }
 
@@ -181,10 +189,9 @@ export class ErrorCaptureInterceptor implements NestInterceptor {
     }
 
     const cause = error instanceof Error ? error : new Error(String(error));
-    const tenantId = this.tenantOf(request);
 
     return {
-      ...createBaseEvent<ServiceErrorCapturedEvent>('ServiceErrorCaptured', tenantId, {
+      ...createBaseEvent<ServiceErrorCapturedEvent>('ServiceErrorCaptured', this.scopeOf(request), {
         userId: request?.user?.id,
         correlationId: this.headerOf(request, 'x-request-id'),
         aggregateId: this.serviceName,
@@ -246,15 +253,39 @@ export class ErrorCaptureInterceptor implements NestInterceptor {
   }
 
   /**
-   * `createBaseEvent` routes on tenantId, and a platform-level failure belongs
-   * to no tenant. An empty string makes the bus derive the `events.system.*`
-   * subject, the same convention every other tenant-less fact uses.
+   * The tenancy scope a failure is attributed to (OBS-HIGH-009).
+   *
+   * WHAT: the tenant the request carried, when it is one; otherwise the
+   * platform scope, which `createBaseEvent` turns into the contract's single
+   * platform segment (`PLATFORM_EVENT_TENANT_ID`, SEC-HIGH-159) — the same one
+   * the bus's subject builder and its publish-time assertion route on.
+   *
+   * WHY a scope and not a string: this used to return `''` for a tenant-less
+   * failure. The bus's builder read `''` as platform and its assertion read it
+   * as a tenant named '', so every such capture was refused with "subject
+   * tenant mismatch: subject=system, payload=" and admin.error_groups stayed
+   * empty in production. A typed `EventTenantScope` cannot spell `''`.
+   *
+   * WHY a malformed claim is platform rather than an error: the request's
+   * tenant is attribution, not authority — on a pre-auth path it is the
+   * unvalidated `x-tenant-id` header. `tenantScopeOf` refuses a value that is
+   * not a UUID; letting that refusal skip the capture would lose a real defect
+   * because of what the client sent, so the defect is recorded as the
+   * platform's instead.
    */
-  private tenantOf(request: CapturedRequest | undefined): string {
+  private scopeOf(request: CapturedRequest | undefined): EventTenantScope {
     if (!request) {
-      return '';
+      return PLATFORM_SCOPE;
     }
-    return request.tenantId ?? request.user?.tenantId ?? '';
+    try {
+      // '' is not a UUID either, so it lands on the platform scope too.
+      return tenantScopeOf(request.tenantId ?? request.user?.tenantId);
+    } catch (error) {
+      if (error instanceof InvalidEventTenantScopeError) {
+        return PLATFORM_SCOPE;
+      }
+      throw error;
+    }
   }
 
   private headerOf(request: CapturedRequest | undefined, name: string): string | undefined {

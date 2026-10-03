@@ -21,6 +21,7 @@ from typing import Any
 
 from .agent_invocations import create_agent_invocation_request
 from .ledger import load_segments
+from .system_one_points import shadow_judge_fanout
 from .tool_registry import ensure_tools_dir
 
 
@@ -255,6 +256,11 @@ def dispatch_judges_for_sample(
             existing.add((group, agent))
             if max_pending_per_role is not None:
                 pending[role] = pending.get(role, 0) + 1
+    # ARIA-LOW-319 — System One, SHADOW: each judge_fanout question (J1 per rule
+    # family) about every finding minted here; recorded, read by nothing.
+    groups = {row["judgment_group_id"] for row in minted}
+    shadow_judge_fanout(base_dir=root, repo_root=repo_root,
+                        items=[item for item in items if isinstance(item, dict) and _group_id(item) in groups])
     return {"schema_version": 1, "minted_count": len(minted), "minted": minted, "skipped": skipped}
 
 

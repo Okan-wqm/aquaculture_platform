@@ -26,6 +26,7 @@ from .proposal import (
 )
 from .risk_policy import HUMAN_MERGE_LABEL, merge_route_for_change
 from .runtime_profile import enforce_profile_for_action
+from .system_one_points import shadow_pr_open
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_plans
 from .worker_dispatch import mission_for_assignment
@@ -501,6 +502,13 @@ def open_pr_for_action(
         # head_sha / base_branch but drops base_sha.
         row["base_sha"] = payload.get("base_sha")
         return row
+    # ARIA-LOW-319 — System One, SHADOW: J0 per claimed finding x file and R5 for
+    # this PR's text, recorded on its own ledger; nothing below reads an answer.
+    shadow_pr_open(
+        base_dir=base_dir, workspace_root=workspace_path, diff_text=perimeter_context.diff_text,
+        commits=perimeter_context.branch_commits, title=str(proposal.get("title") or ""), body=body,
+        subject=f"proposal:{proposal_id}",
+    )
     return _create_pull_request(
         payload=payload,
         branch=branch,

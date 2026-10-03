@@ -36,6 +36,7 @@ from .runtime_profile import (
 from .runner_attestation import verify_runner_attestation
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 from .self_merge_freeze import assert_self_merge_not_frozen
+from .system_one_points import shadow_merge
 from .watchdog_freeze import assert_merge_not_watchdog_frozen
 
 
@@ -300,6 +301,9 @@ def merge_pr_if_ready(
                     )
                     _append_decision(base_dir, result)
                 else:
+                    # ARIA-LOW-319 — System One J0, SHADOW: one row per Closes:
+                    # trailer x changed file at the moment of merge; it decides nothing.
+                    shadow_merge(base_dir=base_dir, workspace_root=workspace_root, pr=fresh_pr, diff_text=fresh_diff)
                     # ARIA-HIGH-219 — mutual exclusion is taken HERE, at the
                     # point of merge, after every gate and the perimeter have
                     # passed: one writer per target ref for the span of one

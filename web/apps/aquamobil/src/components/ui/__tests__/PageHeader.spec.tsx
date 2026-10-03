@@ -1,7 +1,8 @@
 /**
- * PageHeader is the band every AquaMobil page opens with (FE-MEDIUM-071):
- * the feature tone, the back arrow, the title and its icon, the right-hand
- * action, and the hub variant's glass box.
+ * PageHeader is the header every AquaMobil screen opens with (FE-MEDIUM-071):
+ * the back arrow (or the brand mark on a top-level screen), the context line,
+ * the title, the icon tile, the right-hand actions and the slot under the row.
+ * v4 is flat and token-only — no feature-toned gradient band.
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Bell } from 'lucide-react';
@@ -18,18 +19,15 @@ function classes(element: Element | null): string[] {
 describe('PageHeader', () => {
   afterEach(cleanup);
 
-  it('renders the title as the page heading on the feature tone with a back arrow', () => {
+  it('renders the title as the page heading with its context line and a named back arrow', () => {
     render(
       <MemoryRouter>
-        <PageHeader tone="amber" icon={Bell} title="Notifications" subtitle="3 unread" />
+        <PageHeader icon={Bell} title="Notifications" subtitle="3 unread" />
       </MemoryRouter>,
     );
     expect(screen.getByRole('heading', { level: 1, name: 'Notifications' })).toBeTruthy();
-    expect(screen.getByText('3 unread').tagName).toBe('P');
+    expect(screen.getByText('3 unread')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Back' })).toBeTruthy();
-    expect(classes(screen.getByRole('banner'))).toEqual(
-      expect.arrayContaining(['bg-gradient-to-r', 'from-amber-600', 'to-amber-500']),
-    );
   });
 
   it('runs the caller’s back handler instead of popping history', () => {
@@ -43,33 +41,29 @@ describe('PageHeader', () => {
     expect(back).toHaveBeenCalledTimes(1);
   });
 
-  it('hides the arrow on a hub band and draws the glass box and the curve', () => {
+  it('leads a top-level screen with the brand mark instead of a back arrow', () => {
     const { container } = render(
       <MemoryRouter>
-        <PageHeader variant="hub" tone="teal" icon={Bell} title="Storage">
+        <PageHeader title="Today" back={false} brand size="display" />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull();
+    expect(container.querySelector('img')).toBeTruthy();
+    expect(classes(screen.getByRole('heading', { level: 1 }))).toContain('text-display');
+  });
+
+  it('places actions on the title row and the slot under it, on the token surface', () => {
+    render(
+      <MemoryRouter>
+        <PageHeader title="Storage" actions={<button type="button">Save</button>}>
           <div data-testid="kpi">kpi</div>
         </PageHeader>
       </MemoryRouter>,
     );
-    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull();
-    expect(classes(screen.getByRole('banner'))).toEqual(
-      expect.arrayContaining(['bg-gradient-to-br', 'via-teal-600']),
-    );
-    expect(container.querySelector('svg path')).toBeTruthy();
-    expect(screen.getByTestId('kpi')).toBeTruthy();
-  });
-
-  it('places actions on the title row and keeps the plain tone on a light surface', () => {
-    render(
-      <MemoryRouter>
-        <PageHeader
-          tone="plain"
-          title="Channel Info"
-          actions={<button type="button">Save</button>}
-        />
-      </MemoryRouter>,
-    );
     expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
-    expect(classes(screen.getByRole('banner'))).toContain('bg-white');
+    expect(screen.getByTestId('kpi')).toBeTruthy();
+    const banner = classes(screen.getByRole('banner'));
+    expect(banner.some((name) => name.startsWith('bg-gradient'))).toBe(false);
+    expect(classes(screen.getByRole('heading', { level: 1 }))).toContain('text-ink-1');
   });
 });

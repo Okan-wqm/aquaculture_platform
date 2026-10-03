@@ -223,7 +223,11 @@ describe('INVARIANT (FE-HIGH-073): colour utilities only name scales and steps a
 
   it('reads both palettes', () => {
     expect(webSteps.get('primary')?.size).toBe(10);
-    expect(mobileSteps.get('ocean')?.has('600')).toBe(true);
+    // AquaMobil v4 paints only from its token scales (tokens.css → tailwind.config.js):
+    // the stepped ones are the surfaces and the ink ramp. Its legacy ocean/sea/coral
+    // palettes are deleted and banned by its own design-token invariant.
+    expect(mobileSteps.get('surface')?.has('1')).toBe(true);
+    expect(mobileSteps.get('ink')?.has('3')).toBe(true);
   });
 
   it('no source file under web/ uses a colour utility that would compile to nothing', () => {

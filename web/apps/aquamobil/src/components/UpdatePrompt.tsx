@@ -1,6 +1,7 @@
 import { RefreshCw, X } from 'lucide-react';
 import { useSyncExternalStore, type ReactElement } from 'react';
 
+import { Button, Card, IconButton } from '@/components/ui';
 import { dismissUpdate, getUpdateSnapshot, subscribeUpdate } from '@/pwa/update-available';
 
 /**
@@ -19,41 +20,34 @@ export function UpdatePrompt(): ReactElement | null {
 
   return (
     <div
-      className="fixed bottom-nav-gap left-4 right-4 z-50 animate-slide-up"
+      className="fixed bottom-nav-gap left-4 right-4 z-50 animate-am-up"
       role="status"
       aria-live="polite"
     >
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-elevated border border-gray-100 dark:border-gray-800 p-4">
+      <Card className="p-4">
         <div className="flex items-start gap-3">
-          <div className="w-12 h-12 bg-ocean-50 dark:bg-ocean-900/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <RefreshCw size={24} className="text-ocean-600" />
+          <div className="w-12 h-12 bg-acc-dim rounded-xl flex items-center justify-center flex-shrink-0">
+            <RefreshCw size={24} className="text-acc" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-gray-900 dark:text-white text-sm">
-              New version available
-            </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <h3 className="text-title font-semibold text-ink-1">New version available</h3>
+            <p className="text-meta text-ink-3 mt-1">
               Reload to update. Unsent records stay queued on this device.
             </p>
           </div>
-          <button
-            type="button"
+          <IconButton
             onClick={dismissUpdate}
             aria-label="Dismiss update notice"
-            className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
+            className="-mr-2 -mt-2 flex-shrink-0"
           >
-            <X size={18} />
-          </button>
+            <X size={18} className="text-ink-3" />
+          </IconButton>
         </div>
-        <button
-          type="button"
-          onClick={apply}
-          className="w-full mt-3 min-h-[44px] py-2.5 bg-ocean-600 hover:bg-ocean-700 text-white font-semibold rounded-xl text-sm flex items-center justify-center gap-2 touch-feedback transition-colors"
-        >
+        <Button variant="primary" block onClick={apply} className="mt-3">
           <RefreshCw size={16} />
           Reload now
-        </button>
-      </div>
+        </Button>
+      </Card>
     </div>
   );
 }

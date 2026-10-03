@@ -1,17 +1,24 @@
 /**
- * ReportsDuePage gating tests (FARM-HIGH-214 / RPT-019).
+ * ReportsPage regulatory-section gating tests (FARM-HIGH-214 / RPT-019).
  *
- * The report surface is ONLINE-ONLY: offline, the page must show an honest
+ * The regulatory section is ONLINE-ONLY: offline, it must show an honest
  * connectivity notice and fire NO network fetch (a regulator workflow is
  * never served from stale caches or queued). Online, deadlines render with
  * overdue-first ordering and the overdue chip.
+ *
+ * The farm-summary section above it has no such constraint — it reads the
+ * cached inventory — which is why the gating is scoped to the section rather
+ * than to the screen.
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { ReportsDuePage } from '../ReportsDuePage';
+import { ReportsPage } from '../ReportsPage';
+
+vi.mock('@/hooks/useTanks', () => ({ useTanks: () => ({ data: [], isLoading: false }) }));
+vi.mock('@/utils/feature-access', () => ({ useFeatureAccess: () => ({ canReach: () => true }) }));
 
 const h = vi.hoisted(() => ({
   isOnline: true,
@@ -72,7 +79,7 @@ function renderPage(): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <ReportsDuePage />
+      <ReportsPage />
     </QueryClientProvider>,
   );
 }
@@ -86,11 +93,11 @@ afterEach(() => {
   cleanup();
 });
 
-describe('ReportsDuePage — online-only report surface (FARM-HIGH-214)', () => {
+describe('ReportsPage — online-only report surface (FARM-HIGH-214)', () => {
   it('offline: shows the connectivity notice and performs NO fetch', () => {
     h.isOnline = false;
     renderPage();
-    expect(screen.getByText(/Reports need a connection/i)).toBeTruthy();
+    expect(screen.getByText(/Submissions need a connection/i)).toBeTruthy();
     expect(h.graphqlRequest).not.toHaveBeenCalled();
   });
 
@@ -98,7 +105,12 @@ describe('ReportsDuePage — online-only report surface (FARM-HIGH-214)', () => 
     renderPage();
     await waitFor(() => expect(screen.getByText(/Overdue/i)).toBeTruthy());
 
-    const buttons = screen.getAllByRole('button');
+    // Filter to the deadline rows: the screen now also carries the header's
+    // avatar button and the farm-summary section above this list, so indexing
+    // raw buttons would pin the assertion to unrelated chrome.
+    const buttons = screen
+      .getAllByRole('button')
+      .filter((b) => /Sea Lice|Smolt|Biomass|Cleaner|Slaughter/.test(b.textContent ?? ''));
     // Overdue SMOLT sorts before the not-yet-due SEA_LICE.
     expect(buttons[0].textContent).toContain('Smolt');
     expect(buttons[0].textContent).toContain('Overdue');

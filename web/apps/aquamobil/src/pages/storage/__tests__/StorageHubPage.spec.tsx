@@ -24,8 +24,13 @@ vi.mock('@/hooks/useMobilePermissions', () => ({
   useMobilePermissions: () => ({ canAccess: () => true }),
 }));
 
+// The hub opens with the app header, which reads the signed-in user.
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => ({ user: { name: 'Ola Nordvik', role: 'MODULE_MANAGER' }, tenantId: 't1' }),
+}));
+
 vi.mock('@/hooks/useOfflineQueue', () => ({
-  useOfflineQueue: () => ({ isOnline: true }),
+  useOfflineQueue: () => ({ pendingCount: 0, isOnline: true, isSyncing: false }),
 }));
 
 const h = vi.hoisted(() => {

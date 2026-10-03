@@ -12,7 +12,7 @@ export function SectionTitle({
   return (
     <h2
       className={clsx(
-        'px-4 pb-2 pt-5 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400',
+        'px-4 pb-2 pt-5 text-meta font-semibold uppercase tracking-wider text-ink-3',
         className,
       )}
     >

@@ -2,33 +2,31 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'path';
-import resolveConfig from 'tailwindcss/resolveConfig';
+import { readFileSync } from 'node:fs';
 
-import tailwindConfig from './tailwind.config.js';
+// WHY: the browser chrome shows the app's ground colour — the PWA manifest's
+// theme_color / background_color and the theme-color meta tag, which follows
+// the active theme. src/styles/tokens.css is the one record of each theme's
+// ground (`--bg-solid`); this config reads it and index.html carries
+// placeholders it fills, so the pre-paint script (public/theme-init.js) and
+// useTheme read the colours from the tag instead of spelling them again.
+type ThemeName = 'night' | 'day' | 'colour';
 
-// WHY: the browser chrome shows the brand twice — the PWA manifest's
-// theme_color and the theme-color meta tag (light and dark). Both read the
-// Tailwind palette here, so tailwind.config.js is the one record of the ocean
-// blue and the dark surface; index.html carries placeholders this config fills.
-const palette: unknown = resolveConfig(tailwindConfig).theme.colors;
+const TOKENS_CSS = readFileSync(resolve(__dirname, 'src/styles/tokens.css'), 'utf8');
 
-function isRecord(value: unknown): value is Record<string | number, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function paletteHex(scale: string, step?: number): string {
-  const entry = isRecord(palette) ? palette[scale] : undefined;
-  const value = step === undefined ? entry : isRecord(entry) ? entry[step] : undefined;
-  if (typeof value !== 'string') {
-    throw new Error(`tailwind palette has no ${scale}${step === undefined ? '' : `-${step}`}`);
+function themeGround(theme: ThemeName): string {
+  const block = new RegExp(`\\[data-theme='${theme}'\\]\\s*\\{([^}]*)\\}`).exec(TOKENS_CSS)?.[1];
+  const value = block === undefined ? undefined : /--bg-solid:\s*([^;]+);/.exec(block)?.[1]?.trim();
+  if (value === undefined || value === '') {
+    throw new Error(`src/styles/tokens.css declares no --bg-solid for the ${theme} theme`);
   }
   return value;
 }
 
-const THEME_COLOR = {
-  light: paletteHex('ocean', 600),
-  dark: paletteHex('gray', 950),
-  surface: paletteHex('white'),
+const THEME_COLOR: Record<ThemeName, string> = {
+  night: themeGround('night'),
+  day: themeGround('day'),
+  colour: themeGround('colour'),
 };
 
 export default defineConfig({
@@ -41,8 +39,9 @@ export default defineConfig({
         order: 'pre',
         handler(html: string): string {
           return html
-            .replace(/%THEME_COLOR_LIGHT%/g, THEME_COLOR.light)
-            .replace(/%THEME_COLOR_DARK%/g, THEME_COLOR.dark);
+            .replace(/%THEME_COLOR_NIGHT%/g, THEME_COLOR.night)
+            .replace(/%THEME_COLOR_DAY%/g, THEME_COLOR.day)
+            .replace(/%THEME_COLOR_COLOUR%/g, THEME_COLOR.colour);
         },
       },
     },
@@ -66,8 +65,10 @@ export default defineConfig({
         name: 'AquaMobil',
         short_name: 'AquaMobil',
         description: 'Aquaculture Mobile Data Entry - Offline First',
-        theme_color: THEME_COLOR.light,
-        background_color: THEME_COLOR.surface,
+        // The default theme is night (tokens.css `:root`), so the installed
+        // app's splash and chrome open on its ground.
+        theme_color: THEME_COLOR.night,
+        background_color: THEME_COLOR.night,
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/mobile/',
@@ -130,6 +131,13 @@ export default defineConfig({
       // bare-specifier resolution hazard the farm-shared dedupe comment below
       // documents.
       '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
+      // Single-catalog i18n SSoT (2026-09-17): the field app CONSUMES shared-ui's
+      // i18n module instead of carrying a cloned provider+catalog. Path-aliased
+      // (farm-shared/shared-contracts precedent) — the module imports only React
+      // + its own locale files, so the standalone bundle stays lean.
+      '@aquaculture/shared-ui/i18n': resolve(__dirname, '../../shared-ui/src/i18n'),
+      // Brand identity SSoT — same narrow-alias pattern as the i18n one.
+      '@aquaculture/shared-ui/brand': resolve(__dirname, '../../shared-ui/src/config/brand.ts'),
     },
     // Dedupe React across the aliased farm-shared boundary.
     //

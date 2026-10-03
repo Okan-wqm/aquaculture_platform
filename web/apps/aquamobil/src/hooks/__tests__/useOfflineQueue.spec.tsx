@@ -11,8 +11,7 @@ import { render, act, cleanup } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 
 let mockIsOnline = true;
-const mockGetPendingOperations =
-  vi.fn<(...args: unknown[]) => Promise<unknown[]>>();
+const mockGetPendingOperations = vi.fn<(...args: unknown[]) => Promise<unknown[]>>();
 
 vi.mock('@/pwa/offline-queue', () => ({
   getPendingCount: vi.fn(() => Promise.resolve(0)),
@@ -50,9 +49,8 @@ vi.mock('../useAuth', () => ({
 }));
 
 vi.mock('@tanstack/react-query', async () => {
-  const actual = await vi.importActual<typeof import('@tanstack/react-query')>(
-    '@tanstack/react-query',
-  );
+  const actual =
+    await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query');
   return {
     ...actual,
     useQueryClient: () => ({ invalidateQueries: vi.fn().mockResolvedValue(undefined) }),

@@ -1,70 +1,105 @@
 /**
- * EmptyState / ErrorState — what a list shows when it has nothing, and when it
- * could not load.
+ * EmptyState / ErrorState — "there is nothing here" and "we could not load it",
+ * said properly and never alike.
  *
- * WHY: every page centred its own icon + two lines for "nothing here", and a
- * failed query fell into that same branch — the worker read "No tanks found"
- * when the request had failed. One block for each, so an error always says
- * so and always offers a retry.
+ * WHY components: before v4 each list hand-rolled its own empty case, several
+ * rendered nothing at all — a blank area under a heading, which reads as a
+ * failed load rather than an empty list — and a failed query fell into the
+ * empty branch, so the worker read "No tanks found" when the request had
+ * failed. On a boat with intermittent signal that difference matters: "no
+ * alarms" is good news, "we could not fetch alarms" is not.
+ *
+ * `tone="error"` keeps the two visually distinct; ErrorState is the error tone
+ * with its retry wired, so a failure always says so and always offers one.
  */
-import { AlertCircle, type LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useI18n } from '@aquaculture/shared-ui/i18n';
+import { clsx } from 'clsx';
+import { AlertTriangle } from 'lucide-react';
+import { type ReactElement, type ReactNode } from 'react';
 
 import { Button } from './Button';
 
 export interface EmptyStateProps {
-  icon?: LucideIcon;
+  /** Lucide icon element, 22px. */
+  icon?: ReactNode;
+  /** The headline, e.g. "No alarms" — state the fact, not an apology. */
   title: string;
+  /** One line of context or next step. */
   description?: ReactNode;
+  /** A recovery or primary action — a <Button/>. */
   action?: ReactNode;
+  /** `empty` = nothing to show (normal); `error` = we could not load. */
+  tone?: 'empty' | 'error';
   className?: string;
 }
 
 export function EmptyState({
-  icon: Icon,
+  icon,
   title,
   description,
   action,
-  className = '',
-}: EmptyStateProps): ReactNode {
+  tone = 'empty',
+  className,
+}: EmptyStateProps): ReactElement {
   return (
-    <div className={`text-center py-12 text-gray-400 dark:text-gray-500 ${className}`}>
-      {Icon && <Icon size={48} className="mx-auto mb-3 opacity-30" aria-hidden />}
-      <p className="font-medium">{title}</p>
-      {description && <p className="text-sm mt-1">{description}</p>}
-      {action && <div className="mt-4 flex justify-center">{action}</div>}
+    <div
+      className={clsx('flex flex-col items-center text-center gap-3 px-6 py-10', className)}
+      // An error state is announced; an ordinary empty list is not, because a
+      // screen reader interrupting to say "no alarms" on every refresh is noise.
+      role={tone === 'error' ? 'alert' : undefined}
+    >
+      {icon !== undefined && (
+        <span
+          aria-hidden
+          className={clsx(
+            'w-12 h-12 rounded-2xl inline-flex items-center justify-center',
+            tone === 'error' ? 'bg-crit-dim text-crit' : 'bg-surface-2 text-ink-3',
+          )}
+        >
+          {icon}
+        </span>
+      )}
+      <span className="text-title font-semibold text-ink-1">{title}</span>
+      {description !== undefined && (
+        <span className="text-body text-ink-3 max-w-xs">{description}</span>
+      )}
+      {action}
     </div>
   );
 }
 
 export interface ErrorStateProps {
+  /** Names the failure; defaults to the generic "Could not load". */
   title?: string;
   description?: ReactNode;
-  /** Shows a Retry button. */
+  /** Shows a retry button. */
   onRetry?: () => void;
   retrying?: boolean;
   className?: string;
 }
 
 export function ErrorState({
-  title = 'Could not load',
+  title,
   description,
   onRetry,
   retrying = false,
-  className = '',
-}: ErrorStateProps): ReactNode {
+  className,
+}: ErrorStateProps): ReactElement {
+  const { t } = useI18n();
   return (
-    <div role="alert" className={`text-center py-12 text-gray-500 dark:text-gray-400 ${className}`}>
-      <AlertCircle size={48} className="mx-auto mb-3 text-red-500" aria-hidden />
-      <p className="font-medium text-gray-900 dark:text-white">{title}</p>
-      {description && <p className="text-sm mt-1">{description}</p>}
-      {onRetry && (
-        <div className="mt-4 flex justify-center">
-          <Button variant="secondary" onClick={onRetry} loading={retrying}>
-            Retry
+    <EmptyState
+      tone="error"
+      icon={<AlertTriangle size={22} />}
+      title={title ?? t('m.common.couldNotLoad')}
+      description={description}
+      className={className}
+      action={
+        onRetry && (
+          <Button variant="primary" onClick={onRetry} loading={retrying}>
+            {t('m.common.retry')}
           </Button>
-        </div>
-      )}
-    </div>
+        )
+      }
+    />
   );
 }

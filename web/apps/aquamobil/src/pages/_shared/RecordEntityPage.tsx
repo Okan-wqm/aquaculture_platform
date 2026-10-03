@@ -25,30 +25,42 @@ import {
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { SectionTitle, Select, Input, Textarea } from '../../components/ui';
-
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
-import { PageHeader, type PageHeaderTone } from '@/components/ui/PageHeader';
-import { Spinner } from '@/components/ui/Spinner';
+import {
+  Button,
+  Card,
+  CardDivider,
+  DataState,
+  EmptyState,
+  Input,
+  PageHeader,
+  Select,
+  Spinner,
+  Textarea,
+} from '@/components/ui';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
 import type { OperationType, QueuedPayload } from '@/types';
+import { toLoadable } from '@/utils/loadable';
 
 /* ---------------------------------------------------------------- */
 /*  Theme                                                            */
 /* ---------------------------------------------------------------- */
 
 /**
- * Theme tokens shared between entry header, confirm header, summary card,
- * review/submit buttons, and the stepper/reason-grid helpers. Each page
- * supplies one literal object; no "dark mode flag" handling here because
- * Tailwind dark: classes are baked into the class strings themselves.
+ * Theme tokens shared between the summary card, the review/submit buttons and
+ * the stepper/reason-grid helpers. Each page supplies one literal object. The
+ * entry and confirm headers are the app's PageHeader, which carries no
+ * per-page hue in v4.
+ *
+ * v4: every field is a plain class bag carrying BOTH the fill and the ink for
+ * the surface it names. The shell deliberately adds no ink of its own — it used
+ * to hardcode `text-white` on the CTA, which meant a page that had moved to the
+ * semantic tokens had to fight it with `!text-acc-on`. The consumer's theme now
+ * owns the pairing, so fill and ink cannot disagree.
  */
 export interface RecordEntityTheme {
-  /** Gradient class applied to entry + confirm page header bar. */
-  /** The PageHeader band tone for this record type */
-  headerTone: PageHeaderTone;
   /** Icon tint for the tank/batch info card + stepper arrows + reason-grid selection. */
   accentText: string;
   /** Summary-card heading row bg + border (confirm screen). */
@@ -61,7 +73,7 @@ export interface RecordEntityTheme {
   surfaceSoftBg: string;
   /** Border color for stepper buttons + reason grid. */
   surfaceBorder: string;
-  /** Review/submit CTA button gradient + shadow. */
+  /** Review/submit CTA button classes (fill + ink) + its shadow. */
   ctaGradient: string;
   ctaShadow: string;
   /** Class applied to the selected reason/grade border + glow. */
@@ -196,7 +208,13 @@ export function RecordEntityPage<
 
   const navigate = useNavigate();
   const { tankId } = useParams<{ tankId?: string }>();
-  const { data: tanks } = useTanks();
+  const tanksQuery = useTanks();
+  const tanks = tanksQuery.data;
+  // The tank selector picks WHICH batch the entry is written against, so a
+  // failed unit fetch rendering an empty picker says "you have no stocked
+  // tanks" when the truth is "we could not read them" — the defect this app
+  // has now been bitten by six times. Loadable keeps the two apart.
+  const tanksView = toLoadable(tanksQuery);
   const { addToQueue, isOnline } = useOfflineQueue();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -254,7 +272,9 @@ export function RecordEntityPage<
      entry was created. */
   if (showSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+      // No page tint: the ground is the <body>'s, so the notice below is the
+      // only thing carrying colour and it can be read in every theme.
+      <div className="flex flex-col items-center justify-center min-h-screen">
         {wasDuplicate ? (
           <AlreadyRecordedNotice />
         ) : (
@@ -266,35 +286,42 @@ export function RecordEntityPage<
 
   if (step === 'confirm') {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <PageHeader tone={theme.headerTone} icon={Icon} title={confirmTitle} back={() => setStep('entry')} />
+      <div className="min-h-screen">
+        <PageHeader icon={Icon} title={confirmTitle} back={() => setStep('entry')} />
 
         <div className="px-4 mt-5">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
+          <Card className="overflow-hidden">
             <div className={clsx('p-4 border-b', theme.summaryHeaderBg)}>
-              <h3 className={clsx('text-sm font-bold uppercase tracking-wider', theme.summaryHeaderText)}>
+              <h3
+                className={clsx(
+                  'text-body font-bold uppercase tracking-wider',
+                  theme.summaryHeaderText,
+                )}
+              >
                 {summaryHeading}
               </h3>
             </div>
             <div className="p-4 space-y-4">{confirmSummary}</div>
-          </div>
+          </Card>
         </div>
 
         {errors.general && <ErrorBanner message={errors.general} />}
 
         <div className="px-4 mt-6 space-y-3">
-          <button
-            onClick={() => { void handleSubmit(); }}
+          {/* Fill AND ink come from the theme — see RecordEntityTheme. The
+              button primitive supplies the density-aware height and the floor. */}
+          <Button
+            size="save"
+            block
+            onClick={() => {
+              void handleSubmit();
+            }}
             disabled={isSubmitting}
-            className={clsx(
-              'w-full py-4 text-white font-bold rounded-2xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2',
-              theme.ctaGradient,
-              theme.ctaShadow,
-            )}
+            className={clsx('font-bold', theme.ctaGradient, theme.ctaShadow)}
           >
             {isSubmitting ? (
               <>
-                <Spinner size="md" color="white" />
+                <Spinner size="md" color="inherit" />
                 {submittingLabel}
               </>
             ) : (
@@ -303,14 +330,16 @@ export function RecordEntityPage<
                 {submitLabel}
               </>
             )}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            block
             onClick={() => setStep('entry')}
             disabled={isSubmitting}
-            className="w-full py-3 text-gray-500 font-semibold rounded-2xl border border-gray-200 dark:border-gray-700 touch-feedback transition-all"
+            className="border border-line"
           >
             Go Back & Edit
-          </button>
+          </Button>
           {!isOnline && <OfflineNotice />}
         </div>
       </div>
@@ -318,13 +347,16 @@ export function RecordEntityPage<
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen">
       {/* Header */}
-      <PageHeader tone={theme.headerTone} icon={Icon} title={entryTitle} />
+      <PageHeader icon={Icon} title={entryTitle} />
 
-      {/* Tank/Batch info card */}
+      {/* Tank/Batch info card. NOT a <ListRow>: the row primitive picks its icon
+          tile from a fixed tone set, and this tile's hue is the consuming page's
+          identity (theme.iconBubbleBg + theme.accentText), which no RowTone
+          reproduces. Forcing it would flatten six pages to one colour. */}
       {selectedTank && metrics && (
-        <div className="mx-4 mt-4 bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800">
+        <Card className="mx-4 mt-4 p-4">
           <div className="flex items-center gap-3">
             <div
               className={clsx(
@@ -335,13 +367,13 @@ export function RecordEntityPage<
               <Icon className={theme.accentText} size={22} />
             </div>
             <div className="flex-1">
-              <h3 className="font-semibold text-gray-900 dark:text-white">{selectedTank.name}</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <h3 className="font-semibold text-ink-1">{selectedTank.name}</h3>
+              <p className="text-body text-ink-3">
                 {metrics.batchNumber ?? '--'} &middot; {(metrics.pieces ?? 0).toLocaleString()} fish
               </p>
             </div>
           </div>
-        </div>
+        </Card>
       )}
 
       {errors.general && <ErrorBanner message={errors.general} />}
@@ -352,40 +384,57 @@ export function RecordEntityPage<
           with their real id so the user understands the tank exists but is
           not selectable. */}
       {!tankId && (
-        <>
-          <SectionTitle>Select Tank</SectionTitle>
-          <div className="px-4">
-            <Select
-              label="Tank"
-              hideLabel
-              value={selectedTankId}
-              onChange={handleTankChange}
-              error={errors.tank}
-            >
-              <option value="">-- Select Tank --</option>
-              {tanks?.filter((t) => t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
-                </option>
-              ))}
-              {tanks?.filter((t) => !t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id} disabled>
-                  {t.name} (No active batch)
-                </option>
-              ))}
-            </Select>
-          </div>
-          {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
-            <div className="mx-4 mt-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
-              <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
-                All tanks currently have no active batches.
-              </p>
-              <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">
-                Stock fish into a tank before recording {tankEmptyActionWord}.
-              </p>
-            </div>
-          )}
-        </>
+        <div className="px-4 mt-5">
+          <DataState
+            value={tanksView}
+            label="your units"
+            skeleton="row"
+            skeletonCount={1}
+            empty={
+              <EmptyState
+                title="No units"
+                description="No units are assigned to this tenant yet, so there is nothing to record against."
+              />
+            }
+          >
+            {(units) => (
+              <>
+                <Select
+                  label="Select Tank"
+                  value={selectedTankId}
+                  onChange={handleTankChange}
+                  error={errors.tank}
+                >
+                  <option value="">-- Select Tank --</option>
+                  {units
+                    .filter((t) => t.batchMetrics)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
+                      </option>
+                    ))}
+                  {units
+                    .filter((t) => !t.batchMetrics)
+                    .map((t) => (
+                      <option key={t.id} value={t.id} disabled>
+                        {t.name} (No active batch)
+                      </option>
+                    ))}
+                </Select>
+                {units.length > 0 && units.every((t) => !t.batchMetrics) && (
+                  <Card className="mt-3 p-3 border-warn">
+                    <p className="text-warn text-body font-medium">
+                      All tanks currently have no active batches.
+                    </p>
+                    <p className="text-ink-2 text-meta mt-1">
+                      Stock fish into a tank before recording {tankEmptyActionWord}.
+                    </p>
+                  </Card>
+                )}
+              </>
+            )}
+          </DataState>
+        </div>
       )}
 
       {/* Page-specific body (stepper/reason/notes/harvest fields) */}
@@ -393,20 +442,18 @@ export function RecordEntityPage<
 
       {/* Review CTA */}
       <div className="px-4 pt-5">
-        <button
+        <Button
+          size="save"
+          block
           onClick={handleReview}
           disabled={!canReview}
-          className={clsx(
-            'w-full py-4 text-white font-bold rounded-2xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2',
-            theme.ctaGradient,
-            theme.ctaShadow,
-          )}
+          className={clsx('font-bold', theme.ctaGradient, theme.ctaShadow)}
         >
           <Icon size={20} />
           {reviewLabel}
-        </button>
+        </Button>
         {!isOnline && (
-          <p className="text-center text-amber-500 text-sm mt-3 font-medium">
+          <p className="text-center text-warn text-body mt-3 font-medium">
             Offline -- will sync when connected
           </p>
         )}
@@ -421,16 +468,16 @@ export function RecordEntityPage<
 
 function ErrorBanner({ message }: { message: string }): JSX.Element {
   return (
-    <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
-      <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-      <span className="text-red-600 dark:text-red-300 text-sm">{message}</span>
-    </div>
+    <Card className="mx-4 mt-3 p-3 flex items-center gap-2 border-crit">
+      <AlertCircle size={18} className="text-crit flex-shrink-0" />
+      <span className="text-crit text-body">{message}</span>
+    </Card>
   );
 }
 
 function OfflineNotice(): JSX.Element {
   return (
-    <p className="text-center text-amber-500 text-sm font-medium">
+    <p className="text-center text-warn text-body font-medium">
       Offline -- will sync when connected
     </p>
   );
@@ -459,30 +506,35 @@ export function QuantityStepper(props: {
   const clamp = (n: number): number => Math.floor(Math.max(1, Math.min(n, max)));
   return (
     <div className="px-4 mt-5">
-      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">{label}</h3>
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
+      <h3 className="text-meta font-bold text-ink-3 uppercase tracking-wider mb-3">{label}</h3>
+      <Card className="p-5">
         <div className="flex items-center justify-center gap-5">
+          {/* The two arrows were icon-only buttons with no accessible name —
+              a screen reader announced "button, button" either side of a
+              number. The label the section already carries names them. */}
           <button
             type="button"
+            aria-label={`Decrease ${label}`}
             onClick={() => onChange(clamp(value - 1))}
             disabled={value <= 1}
             className={clsx(
-              'w-14 h-14 rounded-2xl flex items-center justify-center disabled:opacity-30 touch-feedback border',
+              'w-14 h-14 min-h-touch min-w-touch rounded-2xl flex items-center justify-center disabled:opacity-30 touch-feedback border',
               theme.surfaceSoftBg,
               theme.surfaceBorder,
             )}
           >
             <Minus size={22} className={theme.accentText} />
           </button>
-          <div className="text-5xl font-bold text-gray-900 dark:text-white min-w-[90px] text-center tabular-nums">
+          <div className="text-hero font-mono font-bold text-ink-1 min-w-[90px] text-center tabular-nums">
             {value}
           </div>
           <button
             type="button"
+            aria-label={`Increase ${label}`}
             onClick={() => onChange(clamp(value + 1))}
             disabled={value >= max}
             className={clsx(
-              'w-14 h-14 rounded-2xl flex items-center justify-center disabled:opacity-30 touch-feedback border',
+              'w-14 h-14 min-h-touch min-w-touch rounded-2xl flex items-center justify-center disabled:opacity-30 touch-feedback border',
               theme.surfaceSoftBg,
               theme.surfaceBorder,
             )}
@@ -490,11 +542,11 @@ export function QuantityStepper(props: {
             <Plus size={22} className={theme.accentText} />
           </button>
         </div>
-        <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-3 font-medium">
+        <p className="text-center text-meta text-ink-3 mt-3 font-medium">
           Max: {max.toLocaleString()} fish in tank
         </p>
-        {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
-      </div>
+        {error && <p className="text-crit text-body text-center mt-2">{error}</p>}
+      </Card>
     </div>
   );
 }
@@ -512,23 +564,34 @@ export function ReasonGrid<TValue extends string>(props: {
   const { label, value, onChange, options, theme } = props;
   return (
     <div className="px-4 mt-5">
-      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">{label}</h3>
+      <h3 className="text-meta font-bold text-ink-3 uppercase tracking-wider mb-3">{label}</h3>
       <div className="grid grid-cols-4 gap-2">
         {options.map((r) => {
           const selected = value === r.value;
           return (
             <button
               key={r.value}
+              type="button"
+              aria-pressed={selected}
               onClick={() => onChange(r.value)}
               className={clsx(
-                'flex flex-col items-center p-3 rounded-2xl border-2 transition-all duration-150 ease-out touch-feedback bg-white dark:bg-gray-900',
+                'flex flex-col items-center p-3 min-h-touch rounded-2xl border-2 transition-all duration-150 ease-out touch-feedback bg-surface-1',
                 selected
-                  ? clsx(theme.selectionBorder, theme.surfaceSoftBg, theme.selectionGlow, 'scale-[1.02]')
-                  : 'border-gray-100 dark:border-gray-800',
+                  ? clsx(
+                      theme.selectionBorder,
+                      theme.surfaceSoftBg,
+                      theme.selectionGlow,
+                      'scale-[1.02]',
+                    )
+                  : 'border-line',
               )}
             >
               <span className="text-xl mb-1">{r.emoji}</span>
-              <span className="text-[10px] font-semibold text-center leading-tight">{r.label}</span>
+              {/* Was a 10px label — unreadable at arm's length in sunlight, and
+                  one of the last entries on the sub-12px ratchet. */}
+              <span className="text-meta font-semibold text-ink-2 text-center leading-tight">
+                {r.label}
+              </span>
             </button>
           );
         })}
@@ -538,9 +601,9 @@ export function ReasonGrid<TValue extends string>(props: {
 }
 
 /**
- * Numeric field (decimal-capable) — on the app's Input primitive, used by the regulatory
- * field-capture pages (FARM-HIGH-214): lice-stage averages are decimals
- * (e.g. 0.15 adult females per fish), which the integer QuantityStepper
+ * Numeric field (decimal-capable) — on the app's Input primitive, used by the
+ * regulatory field-capture pages (FARM-HIGH-214): lice-stage averages are
+ * decimals (e.g. 0.15 adult females per fish), which the integer QuantityStepper
  * cannot express. Empty input surfaces as null so "not entered" is
  * distinguishable from 0 (a real, meaningful lice count).
  */
@@ -554,8 +617,10 @@ export function NumberField(props: {
   error?: string;
 }): JSX.Element {
   const { label, value, onChange, placeholder = '0', step = '0.01', min = 0, error } = props;
+  // Several of these stack on one page (three lice stages); the Input primitive
+  // gives each its own id, so aria-describedby never points at a sibling's text.
   return (
-    <div className="px-4">
+    <div className="px-4 mt-3">
       <Input
         label={label}
         type="number"
@@ -579,7 +644,7 @@ export function NumberField(props: {
   );
 }
 
-/** Notes textarea — on the app's Textarea primitive, used by cull + mortality. */
+/** Notes textarea — on the app's Textarea primitive, used by cull + mortality + the regulatory pages. */
 export function NotesInput(props: {
   value: string;
   onChange: (next: string) => void;
@@ -587,18 +652,15 @@ export function NotesInput(props: {
 }): JSX.Element {
   const { value, onChange, placeholder = 'Additional observations...' } = props;
   return (
-    <>
-      <SectionTitle>Notes (Optional)</SectionTitle>
-      <div className="px-4">
-        <Textarea
-          label="Notes"
-          hideLabel
-          placeholder={placeholder}
-          value={value}
-          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
-        />
-      </div>
-    </>
+    <div className="px-4 mt-5">
+      <Textarea
+        label="Notes (Optional)"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
+        textareaClassName="h-24 resize-none"
+      />
+    </div>
   );
 }
 
@@ -611,24 +673,25 @@ export function SummaryRow(props: {
   value: ReactNode;
   valueClass?: string;
 }): JSX.Element {
-  const { label, value, valueClass = 'font-semibold text-gray-900 dark:text-white' } = props;
+  const { label, value, valueClass = 'font-semibold text-ink-1' } = props;
   return (
     <div className="flex justify-between items-center">
-      <span className="text-sm text-gray-500 dark:text-gray-400">{label}</span>
+      <span className="text-body text-ink-2">{label}</span>
       <span className={valueClass}>{value}</span>
     </div>
   );
 }
 
+/** The divider between summary rows — the card's own hairline, nothing else. */
 export function SummaryDivider(): JSX.Element {
-  return <div className="h-px bg-gray-100 dark:bg-gray-800" />;
+  return <CardDivider />;
 }
 
 export function SummaryNotesBlock({ notes }: { notes: string }): JSX.Element {
   return (
     <div>
-      <span className="text-sm text-gray-500 dark:text-gray-400">Notes</span>
-      <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{notes}</p>
+      <span className="text-body text-ink-2">Notes</span>
+      <p className="text-body text-ink-1 mt-1">{notes}</p>
     </div>
   );
 }

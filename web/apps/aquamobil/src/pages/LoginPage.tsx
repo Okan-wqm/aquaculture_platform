@@ -1,10 +1,32 @@
-import { Fish, Eye, EyeOff, AlertCircle, Waves, Fingerprint } from 'lucide-react';
+/**
+ * LoginPage — a MINIATURE of the web (shell) sign-in screen.
+ *
+ * DESIGN CONTRACT (2026-09-17): this screen mirrors
+ * web/shell/src/layouts/AuthLayout.tsx — the industrial-auth composition —
+ * scaled down for a phone: the same deep-ocean gradient ground with teal
+ * radial glows, the same frosted glass card (translucent paper, white
+ * hairline border, top highlight), the SUDERRA lockup + Caveat tagline,
+ * translucent ink fields and the teal action button. The web page is the
+ * SSoT for this look; change it there first, then mirror here. The shades are
+ * in src/styles/main.css (.am-auth-*).
+ *
+ * Brand identity (name/tagline/logo assets) comes from the shared-ui BRAND
+ * SSoT via the @aquaculture/shared-ui/brand alias — not a local copy.
+ *
+ * The WebAuthn/biometric path and the isMobileDisabled handling are untouched.
+ * NOTE: no client-side password length gate — the auth server owns that
+ * contract (see handleSubmit).
+ */
+import { BRAND } from '@aquaculture/shared-ui/brand';
+import { Eye, EyeOff, AlertCircle, Fingerprint, Lock } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useCallback, useEffect, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { Spinner } from '@/components/ui/Spinner';
+import lockupUrl from '@/assets/suderra-lockup.png';
+import { IconButton, Spinner } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
+import { BOARD_MEDIA_QUERY, useMediaQuery } from '@/hooks/useViewport';
 import {
   isWebAuthnSupported,
   hasLocalCredentials,
@@ -21,6 +43,15 @@ export function LoginPage(): JSX.Element | null {
   // the GraphQL round-trips and base64url helpers, so the typed { accessToken, user }
   // result flows straight into loginWithToken with no `any` boundary.
   const { biometricLogin, isLoggingIn: isBiometricLoading } = useWebAuthn();
+  // Tablet/phone scale split (same viewport seam the app shell uses — the
+  // media-query hook is the sanctioned export for second consumers). The
+  // DESIGN stays the web-login miniature on both; only the scale changes so
+  // a cabin tablet doesn't get a phone-sized card on a wall screen.
+  const isTablet = useMediaQuery(BOARD_MEDIA_QUERY);
+  const scale = isTablet
+    ? { card: 440, radius: 28, lockup: 160, padX: 40, tagline: 18, title: 22 }
+    : { card: 360, radius: 24, lockup: 116, padX: 28, tagline: 16, title: 19 };
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -68,11 +99,11 @@ export function LoginPage(): JSX.Element | null {
       return;
     }
 
-    // D07 VAL-01: Match the HTML minLength={8} attribute on the password input
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters');
-      return;
-    }
+    // NOTE (2026-09-17): no client-side length gate on LOGIN. The 8-char
+    // minimum is the SET-password policy (auth-service reset/change DTOs);
+    // the login contract itself has no minimum, and legacy accounts carry
+    // shorter credentials. The server is the SSoT here — inventing a local
+    // minimum locked real users out (6-char test account).
 
     try {
       await login(email, password);
@@ -117,79 +148,86 @@ export function LoginPage(): JSX.Element | null {
   }
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden bg-ocean-950">
-      {/* Animated background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-ocean-900 via-ocean-800 to-ocean-950" />
+    // Mirror of the shell's .industrial-auth ground (AuthLayout SSoT); the
+    // brand shades are in src/styles/main.css (.am-auth-*).
+    <div className="am-auth-ground relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 py-8">
+      {/* Glass card — miniature of .industrial-auth-card */}
+      <div
+        className="am-auth-card relative w-full overflow-hidden"
+        style={{ maxWidth: scale.card, borderRadius: scale.radius }}
+      >
+        {/* Top highlight — .industrial-auth-card-highlight */}
+        <div className="am-auth-highlight" />
 
-      {/* Decorative circles */}
-      <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-ocean-600/20 blur-3xl" />
-      <div className="absolute top-1/3 -left-16 w-48 h-48 rounded-full bg-sea-500/10 blur-3xl" />
-      <div className="absolute bottom-20 right-10 w-56 h-56 rounded-full bg-ocean-500/10 blur-3xl" />
-
-      {/* Wave pattern at bottom */}
-      <div className="absolute bottom-0 left-0 right-0 opacity-10">
-        <svg viewBox="0 0 1440 200" fill="none" className="w-full">
-          <path
-            d="M0,128L48,122.7C96,117,192,107,288,112C384,117,480,139,576,149.3C672,160,768,160,864,144C960,128,1056,96,1152,90.7C1248,85,1344,107,1392,117.3L1440,128V200H0Z"
-            fill="currentColor"
-            className="text-ocean-400"
-          />
-        </svg>
-      </div>
-
-      {/* Main content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 relative z-10">
-        {/* Logo area */}
-        <div className="mb-10 flex flex-col items-center">
-          <div className="w-20 h-20 bg-white/10 dark:bg-gray-900/10 backdrop-blur-md rounded-2xl flex items-center justify-center mb-5 border border-white/20 shadow-glow-ocean">
-            <Fish size={40} className="text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">AquaMobil</h1>
-          <div className="flex items-center gap-2 mt-2">
-            <Waves size={14} className="text-ocean-300" />
-            <p className="text-ocean-300 text-sm font-medium">Field Operations</p>
-            <Waves size={14} className="text-ocean-300" />
-          </div>
+        {/* Security chip — .industrial-auth-security-chip */}
+        <div className="am-auth-chip absolute flex items-center gap-1.5">
+          <span className="am-auth-chip-dot" />
+          Secure
         </div>
 
-        {/* Login card */}
-        <div className="w-full max-w-sm glass rounded-2xl shadow-elevated p-6">
-          <div className="text-center mb-6">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Welcome back</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Sign in to continue</p>
+        {/* Card header: brand — .industrial-auth-card-header/.industrial-auth-brand */}
+        <div
+          className="flex flex-col items-center pt-8 pb-2"
+          style={{ paddingLeft: scale.padX, paddingRight: scale.padX }}
+        >
+          <img
+            src={lockupUrl}
+            alt={`${BRAND.name} logo`}
+            className="am-auth-lockup"
+            style={{ width: scale.lockup }}
+          />
+          <p className="am-auth-tagline" style={{ fontSize: scale.tagline }}>
+            {BRAND.tagline}
+          </p>
+        </div>
+
+        {/* Card body — .industrial-auth-card-body */}
+        <div className="pb-6" style={{ paddingLeft: scale.padX, paddingRight: scale.padX }}>
+          <div className="mb-5 text-center">
+            <h1 className="am-auth-title font-bold" style={{ fontSize: scale.title }}>
+              Welcome back
+            </h1>
+            <p className="am-auth-ink mt-0.5 text-[13px]">Sign in to continue</p>
           </div>
 
           {/* Mobile disabled message */}
           {isMobileDisabled && (
-            <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl flex items-start gap-2">
-              <AlertCircle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
-              <p className="text-amber-700 dark:text-amber-300 text-sm">
+            <div className="am-auth-notice-warn mb-4 flex items-start gap-2 rounded-xl p-3">
+              <AlertCircle size={18} className="mt-0.5 flex-shrink-0" aria-hidden />
+              <p className="text-[13px]">
                 Mobile access is not enabled for your account. Please contact your administrator.
               </p>
             </div>
           )}
 
-          {/* Error message */}
+          {/* Error message — announced for screen readers */}
           {error && !isMobileDisabled && (
-            <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-center gap-2">
-              <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-              <p className="text-red-600 dark:text-red-300 text-sm">{error}</p>
+            <div
+              role="alert"
+              className="am-auth-notice-crit mb-4 flex items-center gap-2 rounded-xl p-3"
+            >
+              <AlertCircle
+                size={18}
+                className="am-auth-notice-crit-icon flex-shrink-0"
+                aria-hidden
+              />
+              <p className="text-[13px]">{error}</p>
             </div>
           )}
 
-          {/* Login form */}
+          {/* Login form — translucent ink fields (.surface-field-*) */}
           <form
             method="post"
             autoComplete="off"
             onSubmit={(e) => {
               void handleSubmit(e);
             }}
-            className="space-y-4"
+            className="space-y-3.5"
           >
             <div>
               <label
                 htmlFor="login-email"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                className="am-auth-accent-ink mb-1 block text-[13px] font-semibold"
               >
                 Email
               </label>
@@ -202,14 +240,14 @@ export function LoginPage(): JSX.Element | null {
                 autoComplete="username"
                 autoCapitalize="none"
                 required
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 focus:border-ocean-500 focus:ring-2 focus:ring-ocean-500/20 outline-none transition-all bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400"
+                className="am-auth-field w-full rounded-xl px-3.5 py-3 text-[15px] outline-none transition-all placeholder:opacity-60"
               />
             </div>
 
             <div>
               <label
                 htmlFor="login-password"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                className="am-auth-accent-ink mb-1 block text-[13px] font-semibold"
               >
                 Password
               </label>
@@ -221,48 +259,44 @@ export function LoginPage(): JSX.Element | null {
                   onChange={handlePasswordChange}
                   placeholder="Enter your password"
                   autoComplete="current-password"
-                  minLength={8}
                   maxLength={128}
                   required
-                  className="w-full px-4 py-3 pr-12 rounded-xl border border-gray-200 dark:border-gray-700 focus:border-ocean-500 focus:ring-2 focus:ring-ocean-500/20 outline-none transition-all bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400"
+                  className="am-auth-field w-full rounded-xl px-3.5 py-3 pr-12 text-[15px] outline-none transition-all placeholder:opacity-60"
                 />
-                <button
-                  type="button"
+                <IconButton
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                  className="am-auth-ink absolute right-1 top-1/2 -translate-y-1/2"
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                </button>
+                </IconButton>
               </div>
             </div>
-
 
             <button
               type="submit"
               disabled={isLoading || isBiometricLoading}
-              className="w-full py-3.5 px-4 bg-ocean-600 hover:bg-ocean-700 text-white font-semibold rounded-xl shadow-lg shadow-ocean-600/30 transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="am-auth-submit mt-1 w-full rounded-xl py-3 text-[15px] font-bold transition-all active:scale-[0.99] disabled:opacity-60"
             >
               {isLoading ? (
-                <>
-                  <Spinner size="md" color="white" />
+                <span className="flex items-center justify-center gap-2">
+                  <Spinner size="md" color="inherit" />
                   Signing in...
-                </>
+                </span>
               ) : (
                 'Sign In'
               )}
             </button>
           </form>
 
-          {/* Biometric Login Button */}
+          {/* Biometric Login — same outlined alternative as the web flow */}
           {biometricAvailable && (
             <div className="mt-4">
-              <div className="relative flex items-center justify-center mb-4">
+              <div className="relative mb-3 flex items-center justify-center">
                 <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-200 dark:border-gray-700" />
+                  <div className="am-auth-rule w-full border-t" />
                 </div>
-                <span className="relative bg-white dark:bg-gray-900 px-3 text-xs text-gray-400 uppercase tracking-wider">
-                  or
-                </span>
+                <span className="am-auth-ink relative px-3 text-[12px]">or</span>
               </div>
               <button
                 type="button"
@@ -270,34 +304,36 @@ export function LoginPage(): JSX.Element | null {
                   void handleBiometricLogin();
                 }}
                 disabled={isLoading || isBiometricLoading}
-                className="w-full py-3.5 px-4 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border-2 border-ocean-500 text-ocean-600 dark:text-ocean-400 font-semibold rounded-xl shadow-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+                className="am-auth-alt flex w-full items-center justify-center gap-2 rounded-xl py-3 text-[15px] font-semibold transition-all disabled:opacity-60"
               >
                 {isBiometricLoading ? (
                   <>
-                    <Spinner size="md" />
+                    <Spinner size="md" color="inherit" />
                     Verifying...
                   </>
                 ) : (
                   <>
-                    <Fingerprint size={22} />
+                    <Fingerprint size={20} aria-hidden />
                     Biometric Login
                   </>
                 )}
               </button>
             </div>
           )}
-
-          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <p className="text-center text-xs text-gray-400 dark:text-gray-500">
-              Contact your administrator if you need access.
-            </p>
-          </div>
         </div>
 
-        <p className="mt-8 text-ocean-400/60 text-xs font-medium tracking-wider uppercase">
-          v1.0.0
-        </p>
+        {/* Security footer — .industrial-auth-card-security */}
+        <div
+          className="am-auth-footer flex items-center justify-center gap-1.5 py-3"
+          style={{ paddingLeft: scale.padX, paddingRight: scale.padX }}
+        >
+          <Lock size={12} aria-hidden />
+          <span className="text-[12px]">Protected session &middot; {BRAND.name} field access</span>
+        </div>
       </div>
+
+      {/* Version string — machine value in mono */}
+      <p className="am-auth-version mt-6 font-mono text-[12px]">v1.0.0</p>
     </div>
   );
 }

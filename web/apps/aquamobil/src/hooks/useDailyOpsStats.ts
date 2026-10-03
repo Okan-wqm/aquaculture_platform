@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
-
 import { useTodaysAttendance } from './useAttendance';
 import { useAuth } from './useAuth';
 import { useTodaysDayPlans } from './useTodaysDayPlans';
@@ -23,7 +22,12 @@ type DailyOpsCountsResponse = GetTodaysDailyOpsCountsQuery['todaysDailyOpsCounts
  * WHY aggregation hook: normalizes 4 data sources into one shape with a
  * single isLoading flag, avoiding 4+ loading states in the page component.
  */
-export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean } {
+export function useDailyOpsStats(): {
+  stats: DailyOpsStats;
+  isLoading: boolean;
+  /** ORPHAN-HIGH-595: a failed counts query must not read as a quiet day. */
+  isError: boolean;
+} {
   const { tenantId, isAuthenticated } = useAuth();
 
   // Source 1: Clock-in status (React Query, already migrated)
@@ -52,12 +56,14 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
   });
 
   // Source 4: Mortality + WQ counts from the farm mobile aggregate resolver.
-  const { data: opsCounts, isLoading: opsCountsLoading } = useQuery<DailyOpsCountsResponse>({
+  const {
+    data: opsCounts,
+    isLoading: opsCountsLoading,
+    isError: opsCountsError,
+  } = useQuery<DailyOpsCountsResponse>({
     queryKey: createTenantQueryKey(tenantId, 'dailyOpsCounts', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest(
-        GET_TODAYS_DAILY_OPS_COUNTS,
-      );
+      const result = await graphqlRequest(GET_TODAYS_DAILY_OPS_COUNTS);
       return result.todaysDailyOpsCounts;
     },
     enabled: isAuthenticated && !!tenantId,
@@ -96,5 +102,7 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
   return {
     stats,
     isLoading: attendanceLoading || feedingLoading || taskStatsLoading || opsCountsLoading,
+    // ORPHAN-HIGH-595: a failed counts query must not read as a quiet day.
+    isError: opsCountsError,
   };
 }

@@ -107,7 +107,11 @@ describe('useAlerts (MOB-HIGH-006)', () => {
     const { result } = renderHook(() => useAlerts(), { wrapper });
 
     await waitFor(() => expect(result.current.alerts).toHaveLength(3));
-    expect(result.current.alerts.map((a) => a.id)).toEqual(['new-unacked', 'old-unacked', 'old-acked']);
+    expect(result.current.alerts.map((a) => a.id)).toEqual([
+      'new-unacked',
+      'old-unacked',
+      'old-acked',
+    ]);
   });
 
   it('computes unacknowledgedCount and the critical-unacked subset', async () => {
@@ -181,7 +185,10 @@ describe('useAlerts (MOB-HIGH-006)', () => {
     const { result } = renderHook(() => useAlerts(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    const keys = queryClient.getQueryCache().getAll().map((q) => q.queryKey);
+    const keys = queryClient
+      .getQueryCache()
+      .getAll()
+      .map((q) => q.queryKey);
     expect(keys.length).toBeGreaterThan(0);
     for (const key of keys) {
       expect(key.slice(0, 2)).toEqual(['tenant', 'tenant-1']);

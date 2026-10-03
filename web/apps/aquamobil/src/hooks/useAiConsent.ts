@@ -22,7 +22,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 import { useCallback } from 'react';
 
-
 import { useAuth } from './useAuth';
 
 import type {
@@ -50,6 +49,8 @@ interface UseAiConsentReturn {
   isAiEnabled: boolean;
   /** Whether the current user has consented to AI analysis. */
   hasConsented: boolean;
+  /** ORPHAN-HIGH-595: an unreadable consent state is not "not consented". */
+  isError: boolean;
   /** Toggle the user's AI consent. */
   toggleConsent: () => Promise<void>;
   /** True during initial fetch or mutation. */
@@ -69,7 +70,10 @@ interface UseAiConsentReturn {
 // the FE's `isAiEnabled`/`hasConsented` vocabulary is mapped at the boundary.
 // ---------------------------------------------------------------------------
 
-const GET_AI_SETTINGS: TypedDocumentNode<GetAiConsentStatusQuery, GetAiConsentStatusQueryVariables> = gql`
+const GET_AI_SETTINGS: TypedDocumentNode<
+  GetAiConsentStatusQuery,
+  GetAiConsentStatusQueryVariables
+> = gql`
   query GetAiConsentStatus {
     aiSettings {
       tenantAiEnabled
@@ -78,7 +82,10 @@ const GET_AI_SETTINGS: TypedDocumentNode<GetAiConsentStatusQuery, GetAiConsentSt
   }
 `;
 
-const UPDATE_USER_AI_CONSENT: TypedDocumentNode<ToggleAiConsentMutation, ToggleAiConsentMutationVariables> = gql`
+const UPDATE_USER_AI_CONSENT: TypedDocumentNode<
+  ToggleAiConsentMutation,
+  ToggleAiConsentMutationVariables
+> = gql`
   mutation ToggleAiConsent($consent: Boolean!) {
     updateUserAiConsent(consent: $consent)
   }
@@ -107,10 +114,7 @@ async function mutateAiConsent(consented: boolean): Promise<{ hasConsented: bool
     // `updateUserAiConsent` returns Boolean (success flag), not the new
     // consent value. On success the requested `consented` is the new state;
     // we surface it so the cache update + optimistic UI stay consistent.
-    await graphqlRequest(
-      UPDATE_USER_AI_CONSENT,
-      { consent: consented },
-    );
+    await graphqlRequest(UPDATE_USER_AI_CONSENT, { consent: consented });
     return { hasConsented: consented };
   } catch {
     return { hasConsented: !consented };
@@ -154,5 +158,8 @@ export function useAiConsent(): UseAiConsentReturn {
     hasConsented: query.data?.hasConsented ?? false,
     toggleConsent,
     isLoading: query.isLoading || mutation.isPending,
+    // ORPHAN-HIGH-595: an unreadable consent state is not the same as
+    // "not consented" — the caller decides, fail-closed, knowing which it is.
+    isError: query.isError,
   };
 }

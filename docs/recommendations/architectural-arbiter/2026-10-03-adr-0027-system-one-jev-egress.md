@@ -23,11 +23,21 @@ this repository on 2026-10-03 before any wiring:
 
 1. **Role.** System One classifies candidates other layers produce; it never finds, closes, merges or writes. It is
    not a `model_fleet` provider (`admits_writes` would be meaningless) and is never dispatched as an agent.
-2. **Authority ladder, per question and model version.** SHADOW (answer recorded, nothing reads it) → ORDER (ranks a
-   queue or a candidate list; requires AUROC lower bound ≥ 0.70 on n ≥ 60 labelled by people or by executable outcome,
-   not by judge consensus) → SKIP (lets a low-risk family skip Claude only where p ≥ 0.97 or ≤ 0.03 and that band's
-   Wilson precision lower bound is ≥ 0.95 on n ≥ 60). Security, migration and irreversible classes never reach SKIP.
-   A model version change or calibration loss drops the question back to SHADOW.
+2. **Authority ladder, per question and model version — earned by measured success, not a fixed count**
+   (operator, 2026-10-03: "what matters is success and correct calibration"). Success is a person's label or an
+   executable outcome (a red test turned green, a merged fix that held), never judge consensus.
+   - SHADOW: the answer is recorded; nothing reads it.
+   - ORDER (ranks a queue or a candidate list; Claude and the tests still decide): the question passed its
+     pre-registered offline gate on this repository (J0 n=618, R5 n=500, J2 n=600, R4 n=100), and at least 5 live
+     outcomes agree with it with no confident miss (a wrong answer at p ≥ 0.9 or p ≤ 0.1).
+   - SKIP (lets a low-risk family skip Claude): a sequential bound, not a sample-size rule. The offline result is the
+     prior (Beta, discounted to n=20 so live data dominates quickly), live outcomes update it, and SKIP opens only in
+     the band p ≥ 0.97 or ≤ 0.03 while the posterior 95% lower bound on that band's precision is ≥ 0.95 — about 10–20
+     live outcomes when live behaviour matches the offline measurement, never if it does not. Security, migration and
+     irreversible classes never reach SKIP.
+   - Calibration guard: answers are bucketed by stated probability; a confident miss in a high-risk class, or a rolling
+     expected calibration error above 0.10 over the last 20 outcomes, drops the question back to SHADOW, and so does
+     any model version change.
 3. **Questions are operator data.** They live only in `aria-config/system-one-questions.json` (READONLY to ARIA,
    listed in `AUTHORITY_SURFACES`), in English, each with its decision points, exact state keys, mode and model pin.
    ARIA cannot write or reword a question; a changed question is re-validated on new data before it leaves SHADOW.

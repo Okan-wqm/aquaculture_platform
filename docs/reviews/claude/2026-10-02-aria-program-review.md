@@ -553,3 +553,75 @@ each proof records the authority it was proven under.
 
 Re-checked on fix/aria-evidence-checkpoint-rebuild 19d1cc687 (wall #4 of the 2026-10-02
 inventory). Owner okan, deadline 2026-10-09.
+
+## ARIA-HIGH-295
+
+A capability's proof witnesses are folded oldest first under a budget of 128 distinct target SHAs
+per capability and 256 across all of them. `_retain_target` admits a new SHA only while the budget
+has room; once it is full, every newer SHA is dropped and the capability, or with the global budget
+every capability, carries `proof_distinct_sha_budget_exceeded` and is `declared` before any history
+is searched. History only grows, so the latch never clears: the budget turns into a permanent loss
+of the autonomy evidence ARIA has earned, and the newest proofs, the ones a current target can use,
+are exactly the ones dropped. Because witnesses are chosen across all history under that budget,
+the three ledgers with an authoritative SHA (cycles, agent_invocation_results,
+enterprise_readiness_claims) are also never carried by an evidence checkpoint.
+
+Evidence:
+
+- `aria-kernel/aria_kernel/autonomy_evidence.py:677-678` (128 distinct targets per capability, 256
+  across all)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:3433-3475` (`_retain_target`: a SHA past the budget
+  is dropped and the budget flag set; rows stream oldest first)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:1448-1458` (the same budget in
+  `_summarize_native_rows`)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:2019-2032` (a set budget flag returns `declared`
+  with no witness search; the global flag is set on every capability's summary)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:1344-1355` (`_CARRIED_COUNT_SURFACES` excludes every
+  contract with an authoritative SHA)
+- `origin/aria/state` f82569371 (2026-10-03), folded by the kernel's own accumulator: cycle_runtime
+  33 distinct targets, executor 9, global 33; 092f93f5c (09-02): 20
+
+At the measured 0.43 new cycle targets a day (09-02..10-03) cycle_runtime latches around
+2027-05-12; at one a day (wall #12 of the 2026-10-02 inventory) around 2027-01-06. The executor is
+disabled (wall #1); its accepted results carry the request's target SHA, a main head, so once it
+runs at the merge rate (94 merges in 14 days, 6.7 a day) its 128 are gone in about 18 days and the
+global 256 in about 33, which latches all seven capabilities.
+
+Rule: A capability is judged on its most recent witnesses. Each evidence contract keeps a bounded
+window of its newest distinct target SHAs, declared as policy data the implementer cannot write;
+an older SHA ages out of the window, and no history can latch a capability declared. The window is
+a bounded summary, so the ledgers that carry witnesses are carried by evidence checkpoints like
+every other counted ledger.
+
+Re-checked on fix/aria-semantic-capability-authority cdf7cbcd7 (wall #12 of the 2026-10-02
+inventory). Owner okan, deadline 2026-10-20.
+
+## ARIA-MEDIUM-296
+
+Two residuals of ARIA-HIGH-288 (wall #4), named by its implementer. First, the evidence fold version
+is pinned to the SOURCE of the fold functions: `test_the_fold_version_is_pinned_to_the_fold` hashes
+`inspect.getsource` of seven functions and the carried contracts' predicates, so renaming a local
+variable in `carried_state` fails it (measured: the digest moves from `51fee587…` to `2f4c7041…`
+while the semantic equivalence suite stays green) and demands a fold-version bump, which by
+ARIA-HIGH-288's design resets all seven capabilities. Second, a producer that changes what its proof
+rows mean without bumping their schema_version is not caught: the equivalence corpus holds
+hand-written rows, so a producer that stopped writing `git_head_sha_at_cycle` on every terminal
+cycle row, which leaves cycle_runtime unprovable for good, passes every pin (measured on
+cdf7cbcd7).
+
+Evidence:
+
+- `aria-kernel/tests/test_evidence_checkpoints.py:323-349` (the source byte pin on the fold)
+- `aria-kernel/aria_kernel/autonomy_evidence.py:665-669` (the fold version is the declared one, so
+  a bump moves every capability's semantic authority)
+- `aria-kernel/tests/invariants/test_capability_semantic_equivalence.py:107-141` (the corpus pins
+  fold output over fixture rows; no producer constructs them)
+- `aria-kernel/aria_kernel/cycle.py:117-143`, `aria-kernel/aria_kernel/agent_invocations.py:5425-5454`
+  (proof row constructors the corpus never runs)
+
+Rule: A declared version is pinned by what the code does, never by its bytes: the carried fold's
+output on a frozen corpus is pinned per fold version, and every evidence contract producer's row,
+built from frozen inputs, is pinned by what the fold makes of it per the schema version it declares,
+so a refactor keeps every version and a change of meaning without a bump fails.
+
+Re-checked on fix/aria-semantic-capability-authority cdf7cbcd7. Owner okan, deadline 2026-10-23.

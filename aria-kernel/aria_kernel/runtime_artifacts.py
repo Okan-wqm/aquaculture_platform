@@ -665,15 +665,26 @@ def resolve_artifact_payload(
     except FileNotFoundError:
         # A normal hot removal may complete between the stat and read.
         pass
+    # ARIA-HIGH-274 — an evicted artifact, from the local object store. No
+    # fetch, not even behind a flag: the verifier reaches this per run under
+    # the publish lock, and tests/test_state_lifecycle_arcs_derived.py refuses
+    # any git call there that no lifecycle arc prices.
     try:
-        resolved = _resolve_artifact_bytes(artifact_ref, base_dir=root, max_bytes=_ARCHIVE_FILE_BYTES,
-                                           _archive_only=True)
-    except LedgerIntegrityError:
-        return None
-    if resolved["status"] != "resolved":
-        return None
+        pointer = cold_pointers(root).evicted(ref.uri, ref.sha256)
+    except (LedgerIntegrityError, GovernanceError):
+        pointer = None
+    content = cold_blob(root, pointer) if pointer is not None else None
+    if content is None:
+        try:
+            resolved = _resolve_artifact_bytes(artifact_ref, base_dir=root, max_bytes=_ARCHIVE_FILE_BYTES,
+                                               _archive_only=True)
+        except LedgerIntegrityError:
+            return None
+        if resolved["status"] != "resolved":
+            return None
+        content = resolved["content"]
     try:
-        payload = json.loads(resolved["content"])
+        payload = json.loads(content)
     except (ValueError, UnicodeError):
         return None
     return payload if isinstance(payload, dict) else None
@@ -759,6 +770,77 @@ def compacted_artifacts(base_dir: str | Path | None = None) -> CompactedArtifact
     )
 
 
+COLD_POINTERS_SURFACE = "cold_pointers"
+COLD_POINTER_FIELDS: tuple[str, ...] = ("uri", "surface", "cycle_id", "sha256", "size", "git_blob", "cold_path")
+# A cold read is bounded by the per-surface publish cap, not the 2 MiB
+# archive cap: nothing larger could have been published hot in the first place.
+_COLD_BLOB_MAX_BYTES = 64 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class ColdPointers:
+    """ARIA-HIGH-274 — where each evicted artifact went, keyed by (uri, sha256):
+    an absent hot file is named here (addressable by ``git_blob``) or lost.
+    Identical rows (racing publishers) collapse; disagreeing ones are refused."""
+
+    by_key: dict[tuple[str, str], dict[str, Any]]
+
+    @classmethod
+    def from_rows(cls, rows: list[dict[str, Any]]) -> "ColdPointers":
+        by_key: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in rows:
+            pointer = {field: row.get(field) for field in COLD_POINTER_FIELDS}
+            prior = by_key.setdefault((str(pointer["uri"]), str(pointer["sha256"])), pointer)
+            if prior != pointer:
+                raise GovernanceError(f"cold_pointer_conflict:{pointer['uri']}")
+        return cls(by_key=by_key)
+
+    def evicted(self, uri: Any, sha256: Any) -> dict[str, Any] | None:
+        digest = str(sha256 or "")
+        return self.by_key.get((str(uri or ""), digest if digest.startswith("sha256:") else f"sha256:{digest}"))
+
+
+def cold_pointers(base_dir: str | Path) -> ColdPointers:
+    """Every pointer row, chain-verified; a broken chain or a conflict raises."""
+    rows: list[dict[str, Any]] = []
+    for path in sorted((Path(base_dir) / "cold" / "pointers").glob("*.jsonl")):
+        rows.extend(load_declared_jsonl(path, expected_surface=COLD_POINTERS_SURFACE)
+                    if surface_for_path(path) is not None else load_jsonl(path, verify=True))
+    return ColdPointers.from_rows(rows)
+
+
+def _cold_pointers_or_issue(root: Path, issues: list[dict[str, Any]]) -> ColdPointers:
+    """A verifier's read: an unreadable or conflicting pointer set is an issue
+    and vouches for nothing, so it cannot launder a missing artifact."""
+    try:
+        return cold_pointers(root)
+    except (LedgerIntegrityError, GovernanceError) as exc:
+        issues.append({"code": "cold_pointers_unreadable", "error": str(exc)[:300]})
+        return ColdPointers.from_rows([])
+
+
+def _git_cat_file(root: Path, args: tuple[str, ...]) -> bytes | None:
+    try:
+        proc = subprocess.run(["git", "-C", str(root), *args], stdin=subprocess.DEVNULL,
+                              capture_output=True, timeout=120, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def cold_blob(root: Path, pointer: dict[str, Any]) -> bytes | None:
+    """The evicted bytes from the local object store, or None when the blob is
+    not here, over the cap, or not the bytes the pointer's sha256 names."""
+    blob = str(pointer.get("git_blob") or "")
+    hexadecimal = len(blob) in {40, 64} and all(ch in "0123456789abcdef" for ch in blob)
+    size = _git_cat_file(root, ("cat-file", "-s", blob)) if hexadecimal else None
+    if size is None or int(size) > _COLD_BLOB_MAX_BYTES:
+        return None
+    content = _git_cat_file(root, ("cat-file", "blob", blob))
+    return content if content is not None and _sha256_bytes(content) == pointer.get("sha256") else None
+
+
+
 def resolve_finding_from_artifact(
     row: dict[str, Any],
     *,
@@ -798,7 +880,9 @@ def verify_artifacts(*, base_dir: str | Path | None = None) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     rows = load_declared_jsonl(root / "run-artifacts" / "artifact-index.jsonl", expected_surface="runtime_artifact_index")
     compacted = compacted_artifacts(root)
+    cold = _cold_pointers_or_issue(root, issues)
     verified = 0
+    evicted = 0
     for row in rows:
         artifact_id = str(row.get("artifact_id") or "")
         uri = str(row.get("current_uri") or "")
@@ -812,6 +896,9 @@ def verify_artifacts(*, base_dir: str | Path | None = None) -> dict[str, Any]:
             issues.append({"code": "run_artifact_path_escape", "artifact_id": artifact_id, "reason": str(exc)})
             continue
         if not path.exists():
+            if cold.evicted(uri, expected) is not None:
+                evicted += 1
+                continue
             issues.append({"code": "run_artifact_missing", "artifact_id": artifact_id, "path": uri})
             continue
         actual = _sha256_bytes(path.read_bytes())
@@ -831,6 +918,8 @@ def verify_artifacts(*, base_dir: str | Path | None = None) -> dict[str, Any]:
         "artifact_count": len(rows),
         "verified_count": verified,
         "compacted_artifact_count": len(compacted),
+        # ARIA-HIGH-274 — index rows whose file a publish evicted to cold.
+        "evicted_artifact_count": evicted,
         "issues": issues,
     }
 
@@ -898,6 +987,8 @@ def verify_runtime_artifacts(
         compactions, issues, COMPACTIONS_SURFACE, expected_surface=COMPACTIONS_SURFACE,
     ))
     compacted_count = 0
+    cold = _cold_pointers_or_issue(root, issues)
+    evicted_count = 0
     runs = _safe_load_jsonl(root / "runs.jsonl", issues, "runs", expected_surface="runs")
     by_cycle = root / "runs" / "by-cycle" / f"{_safe_segment(cycle_id)}.jsonl" if cycle_id is not None else None
     if by_cycle is not None and by_cycle.exists():
@@ -909,11 +1000,13 @@ def verify_runtime_artifacts(
     raw_by_run: dict[str, list[dict[str, Any]]] = {}
     for row in raw_findings:
         raw_by_run.setdefault(str(row.get("run_id") or ""), []).append(row)
-        raw_verdict, raw_issue = _raw_finding_verdict(row, base_dir=root, compacted=compacted)
+        raw_verdict, raw_issue = _raw_finding_verdict(row, base_dir=root, compacted=compacted, cold=cold)
         if raw_issue:
             issues.append(raw_issue)
         elif raw_verdict == ARTIFACT_COMPACTED:
             compacted_count += 1
+        elif raw_verdict == ARTIFACT_EVICTED:
+            evicted_count += 1
     artifact_refs_seen: list[Any] = []
     seen_run_ids: set[str] = set()
     for run in runs:
@@ -930,12 +1023,14 @@ def verify_runtime_artifacts(
             artifact_refs_seen.append(ref)
             verdict, issue = _artifact_ref_verdict(
                 ref, root=root, workspace_root=workspace,
-                source={"kind": "run", "run_id": run_id}, compacted=compacted,
+                source={"kind": "run", "run_id": run_id}, compacted=compacted, cold=cold,
             )
             if issue:
                 issues.append(issue)
             elif verdict == ARTIFACT_COMPACTED:
                 compacted_count += 1
+            elif verdict == ARTIFACT_EVICTED:
+                evicted_count += 1
             else:
                 verified += 1
     verified += _verify_cycle_files(root=root, cycle_id=cycle_id, issues=issues)
@@ -952,6 +1047,8 @@ def verify_runtime_artifacts(
         # valid, and counted apart so a store that has aged past its
         # retention window is not mistaken for one that verified nothing.
         "compacted_artifact_count": compacted_count,
+        # ARIA-HIGH-274 — refs and pointers into artifacts evicted to cold.
+        "evicted_artifact_count": evicted_count,
         "issues": issues,
     }
 
@@ -1211,13 +1308,21 @@ def restore_artifact(
     except _ArchiveUnavailable as exc:
         raise GovernanceError(f"artifact_unavailable:{artifact_ref}:{exc}") from exc
     if resolved["status"] != "resolved":
-        raise GovernanceError(f"artifact_unavailable:{artifact_ref}:{resolved['reason']}")
+        content = _cold_restore_bytes(root, ref, query=artifact_ref)
+        if content is None:
+            raise GovernanceError(f"artifact_unavailable:{artifact_ref}:{resolved['reason']}")
+        resolved = {**resolved, "status": "resolved", "content": content, "source_tier": "cold"}
     uri = ref["uri"]
     path = _resolve_uri(root, uri)
     restored_from_archive = resolved["source_tier"] == "archive"
+    restored_from_cold = resolved["source_tier"] == "cold"
     if restored_from_archive:
         _atomic_write_bytes(path, resolved["content"])
         _read_ref_content(root, uri, ref, budget=budget, max_bytes=_ARCHIVE_FILE_BYTES)
+    elif restored_from_cold:
+        _atomic_write_bytes(path, resolved["content"])
+        if _sha256_bytes(path.read_bytes()) != ref["sha256"]:
+            raise GovernanceError(f"artifact_hash_mismatch:{artifact_ref}")
     actual = ref["sha256"]
     event = append_declared_jsonl(retention_events_path(root), {
         "schema_version": 1,
@@ -1226,6 +1331,7 @@ def restore_artifact(
         "path": uri,
         "sha256": actual,
         "restored_from_archive": restored_from_archive,
+        "restored_from_cold": restored_from_cold,
         "reason": reason.strip(),
         "operator_approval_ref": operator_approval_ref.strip(),
         "recorded_at": utc_now(),
@@ -1238,6 +1344,26 @@ def restore_artifact(
         "sha256": actual,
         "retention_event_id": event.get("event_id"),
     }
+
+
+def _cold_restore_bytes(root: Path, ref: dict[str, Any], *, query: str) -> bytes | None:
+    """ARIA-HIGH-274 — an evicted artifact's bytes, fetching the cold store on
+    a local miss. The only fetch on the read side: an operator verb, never
+    reached from the publish lock (``resolve_artifact_payload`` is)."""
+    pointer = cold_pointers(root).evicted(ref["uri"], ref["sha256"])
+    if pointer is None:
+        return None
+    content = cold_blob(root, pointer)
+    if content is None:
+        from .state_store import StateStoreError, fetch_cold_store
+
+        try:
+            fetch_cold_store(root)
+        except StateStoreError as exc:
+            raise GovernanceError(f"artifact_unavailable:{query}:cold_fetch_failed:{str(exc)[:200]}") from exc
+        content = cold_blob(root, pointer)
+    return content
+
 
 def rollback_retention(
     *,
@@ -1773,6 +1899,8 @@ def _artifact_refs_from_run(run: dict[str, Any]) -> list[Any]:
 ARTIFACT_VERIFIED = "verified"
 ARTIFACT_RETAINED = "retained"
 ARTIFACT_COMPACTED = "compacted"
+# ARIA-HIGH-274 — absent from the hot tree, named by a cold pointer row.
+ARTIFACT_EVICTED = "evicted"
 
 
 def _verify_artifact_ref(
@@ -1782,10 +1910,11 @@ def _verify_artifact_ref(
     workspace_root: Path | None,
     source: dict[str, Any],
     compacted: CompactedArtifacts | None = None,
+    cold: ColdPointers | None = None,
 ) -> dict[str, Any] | None:
     """The issue with ``ref``, or None when it verifies by any lawful route."""
     _verdict, issue = _artifact_ref_verdict(
-        ref, root=root, workspace_root=workspace_root, source=source, compacted=compacted,
+        ref, root=root, workspace_root=workspace_root, source=source, compacted=compacted, cold=cold,
     )
     return issue
 
@@ -1797,6 +1926,7 @@ def _artifact_ref_verdict(
     workspace_root: Path | None,
     source: dict[str, Any],
     compacted: CompactedArtifacts | None = None,
+    cold: ColdPointers | None = None,
 ) -> tuple[str | None, dict[str, Any] | None]:
     """``(verdict, issue)`` — exactly one of the two is set.
 
@@ -1845,6 +1975,8 @@ def _artifact_ref_verdict(
     if not path.exists():
         if compacted is not None and compacted.attesting(ref) is not None:
             return ARTIFACT_COMPACTED, None
+        if cold is not None and cold.evicted(raw_path, expected_hash) is not None:
+            return ARTIFACT_EVICTED, None
         try:
             retained = _resolve_artifact_bytes(ref, base_dir=root, max_bytes=_ARCHIVE_FILE_BYTES)
         except (LedgerIntegrityError, GovernanceError, OSError):
@@ -1945,6 +2077,7 @@ def _raw_finding_verdict(
     *,
     base_dir: Path,
     compacted: CompactedArtifacts | None,
+    cold: ColdPointers | None = None,
 ) -> tuple[str | None, dict[str, Any] | None]:
     """``(verdict, issue)`` for one raw-findings row.
 
@@ -1966,6 +2099,12 @@ def _raw_finding_verdict(
     if attestation is not None and not _hot_artifact_present(ref, base_dir=base_dir):
         structural = _compacted_raw_pointer_issue(row, ref)
         return (None, structural) if structural else (ARTIFACT_COMPACTED, None)
+    # ARIA-HIGH-274 — an evicted artifact is not read under the publish lock:
+    # its thin row is checked the way a compacted one is.
+    if (isinstance(ref, dict) and cold is not None and not _hot_artifact_present(ref, base_dir=base_dir)
+            and cold.evicted(ref.get("uri"), ref.get("sha256")) is not None):
+        structural = _compacted_raw_pointer_issue(row, ref)
+        return (None, structural) if structural else (ARTIFACT_EVICTED, None)
     finding = resolve_finding_from_artifact(row, base_dir=base_dir)
     if not isinstance(finding, dict):
         return None, {"code": "raw_pointer_corrupt", "run_id": row.get("run_id"), "finding_id": row.get("finding_id")}
@@ -2497,6 +2636,7 @@ def _artifact_hash_status(
     except LedgerIntegrityError as exc:
         compacted = CompactedArtifacts.from_rows([])
         issues.append({"code": "ledger_load_failed", "ledger": COMPACTIONS_SURFACE, "error": str(exc)})
+    cold = _cold_pointers_or_issue(root, issues)
     for ref in refs:
         issue = _verify_artifact_ref(
             ref,
@@ -2504,6 +2644,7 @@ def _artifact_hash_status(
             workspace_root=workspace,
             source={"surface": "autonomy_summary"},
             compacted=compacted,
+            cold=cold,
         )
         if issue is not None:
             issues.append(issue)

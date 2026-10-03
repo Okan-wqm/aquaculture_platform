@@ -107,7 +107,11 @@ function declaredFile(workflows: Map<string, WorkflowFile>, entry: RoleEntry): W
 /** The observer's source plus every .github/manifests/ file that source loads. */
 function observerSources(file: WorkflowFile): string {
   const loaded = [...file.source.matchAll(LOADED_MANIFEST)]
-    .map((match) => join(MANIFEST_DIR, match[1]))
+    .map(([reference, name]) => {
+      // LOADED_MANIFEST's one capture group is mandatory, so a match always carries the file name.
+      if (name === undefined) throw new Error(`${reference} matched without a manifest file name`);
+      return join(MANIFEST_DIR, name);
+    })
     .filter((path) => existsSync(path))
     .map((path) => readFileSync(path, 'utf-8'));
   return [file.source, ...loaded].join('\n');

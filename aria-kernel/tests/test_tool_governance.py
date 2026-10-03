@@ -61,14 +61,14 @@ def register_active_for_test(tool, base_dir):
     namespace only and uses a faked operator GitHub act / precision=1.0 /
     evidence_chains_valid=True purely for fixture wiring.
 
-    For initial-lifecycle states (DRAFT/SANDBOX/SHADOW) and intentional
+    For the initial-lifecycle state (SHADOW) and intentional
     rejection-path probes (BROKEN status, missing fields, etc.), the
     helper falls through to register_tool unchanged so the test author's
     intent is preserved.
     """
     target = tool.get("status", "ACTIVE")
-    if target in ("DRAFT", "SANDBOX", "SHADOW"):
-        # Initial-lifecycle states pass through register_tool unchanged.
+    if target == "SHADOW":
+        # The initial-lifecycle state passes through register_tool unchanged.
         return register_tool(tool, base_dir=base_dir)
     if target not in ("ACTIVE", "CALIBRATE", "QUARANTINED"):
         # Invalid status values (BROKEN, etc.) reach register_tool's
@@ -229,10 +229,14 @@ class ToolGovernanceTests(unittest.TestCase):
             register_active_for_test(valid_tool(status="BROKEN"), base_dir=self.tools_dir)
 
     def test_registry_requires_runner_for_executable_lifecycle_states(self):
-        tool = valid_tool(status="DRAFT")
-        tool.pop("runner")
-        registered = register_tool(tool, base_dir=self.tools_dir)
-        self.assertNotIn("runner", registered)
+        # ORPHAN-MEDIUM-839 — DRAFT, the one status a tool could be registered
+        # at without a runner, left the lifecycle with SANDBOX and ARCHIVED.
+        # Every status a tool registers at is executable, so every
+        # registration names its runner.
+        shadow = valid_tool(status="SHADOW")
+        shadow.pop("runner")
+        with self.assertRaisesRegex(GovernanceError, "SHADOW tool requires runner"):
+            register_tool(shadow, base_dir=self.tools_dir)
 
         active = valid_tool()
         active.pop("runner")

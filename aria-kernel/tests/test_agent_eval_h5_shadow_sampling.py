@@ -116,9 +116,9 @@ class ShadowSamplingTests(_ShadowSamplingTestCase):
         self.assertIn("human_required_recorded", kinds)
 
     def test_active_tool_skipped(self) -> None:
-        register_tool(_manifest(tool_id="active-tool", status="DRAFT"),
+        register_tool(_manifest(tool_id="active-tool", status="SHADOW"),
                      base_dir=self.tools)
-        # promote DRAFT->SANDBOX then SANDBOX->SHADOW->ACTIVE via internal helper
+        # promote SHADOW->ACTIVE via internal helper
         from aria_kernel.tool_registry import _update_tool_internal
         _update_tool_internal("active-tool", {"status": "ACTIVE"}, base_dir=self.tools)
         _seed_run(self.tools, tool_id="active-tool", raw_count=10)

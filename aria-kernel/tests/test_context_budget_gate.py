@@ -97,8 +97,9 @@ class RoleCapTableTests(unittest.TestCase):
             self.assertEqual(ROLE_CAP_MAP[role], 0.55, msg=role)
 
     def test_executor_caps_are_045(self) -> None:
-        for role in ("implementation", "gap_closure"):
-            self.assertEqual(ROLE_CAP_MAP[role], 0.45, msg=role)
+        # `gap_closure` left this tier with the role itself (ORPHAN-MEDIUM-836):
+        # no kernel path minted it. `implementation` is the executor minted.
+        self.assertEqual(ROLE_CAP_MAP["implementation"], 0.45)
 
     def test_emergency_cap_is_065(self) -> None:
         # E14 — `architectural_arbitration` left this table with the role

@@ -102,8 +102,28 @@ Evidence:
 
 Rule: a source that plans ARIA's own findings carries ADR-0003's loop guards.
 
-Fix: not in this branch. Owner okan, deadline 2026-10-16. Prerequisite 2 (12 adversarial fixtures)
-is pinned here by `test_no_adversarial_payload_reaches_any_plan_field`.
+Fix: `finding_grounding.admit_candidate` runs `judge_loop_guards` on every admitted F_FINDING
+candidate and on nothing else; an operator request is the operator's act and is never judged by
+them. The provider folds the history once per synthesis
+(`load_grounding_context(workspace_root, tools_root=base_dir)`) from ledgers the kernel already
+writes: plan events, `synthesis_bound` rows, self-reverts and finding events. A refusal is the
+candidate's one `plan_candidate_conversion_skipped` event of the cycle, with a stable reason and a
+`loop_guard` detail. A context without that history refuses (`f_finding_loop_history_unavailable`).
+
+- Prerequisite 3: `f_finding_self_loop_origin_surface` (an ARIA-originated finding whose plan would
+  modify a path in `self_improvement.SELF_CHANGE_ALLOWED_PREFIXES`),
+  `f_finding_self_loop_own_change` (a finding emitted after an ARIA plan merged a change to its
+  evidence) and ADR-0003's own watchdog predicate, `f_finding_self_loop_watchdog_recent`.
+- Prerequisite 4: `f_finding_global_cap_exceeded`. At most `max_plans_per_24h` F-sourced plans
+  start in any rolling 24h, counted from `plan_started` stamps. The value lives in the
+  `f_finding_loop_guards` policy block (default 1); a plan an operator request bound never counts.
+- Prerequisite 5: `f_finding_subject_quarantined` (a merge the self-revert producer attributed,
+  until an operator-sourced plan for the finding starts), `f_finding_subject_cool_off`
+  (`cool_off_days`, default 7, after a failed plan or a new finding on what it changed) and
+  ADR-0003's own `f_finding_watchdog_resolution_streak`.
+
+Pinned by `aria-kernel/tests/test_f_finding_loop_guards.py`. Prerequisite 2 (12 adversarial
+fixtures) is pinned by `test_no_adversarial_payload_reaches_any_plan_field`.
 
 ## ARIA-MEDIUM-261
 
@@ -122,10 +142,17 @@ Evidence:
 Rule: the write scope of an operator- or finding-sourced plan is bounded by what admission grounded
 plus a closure the kernel computes, never by planner prose alone.
 
-Fix: not in this branch. Bounding revisions to the admitted surfaces would refuse the surfaces the
-coverage gate makes a revision add (tests, dependents, migrations); the bound must be the admitted
-surfaces united with their machine-computed impact closure, which needs an arbiter decision on that
-closure. Owner okan, deadline 2026-10-23.
+Fix: `plan_convergence.start_plan` records the bound on `plan_started` as `admission_scope`
+(`plan_origin.compute_admission_scope`): the admitted surfaces plus the roots of their
+`impact_graph.plan_downstream_impact` project closure, computed by the kernel in the plan's
+workspace with no parameter to pass one in, united with the subject pins of
+`plan_origin.SUBJECT_PIN_POLICY` (empty; the CB-5 hook). `_validate_submitted_plan` refuses a
+challenger draft or revision naming a path outside it (`revision_scope_exceeds_admission_closure`,
+paths listed, one governance row); `implementation_allowed_scope` takes the bound as a required
+argument and refuses a scope that exceeds it, so the implementation mint refuses with the plan
+still CONVERGED. A finding-origin plan with no record is refused (`admission_scope_missing`).
+Recorded as ADR-0021 (`2026-10-02-adr-0021-revision-scope-bound.md`). Tests:
+`aria-kernel/tests/test_revision_scope_bound.py`.
 
 Arbiter ruling (2026-10-02, program review of the ARIA memory and repository-knowledge plan): the
 closure is the `impact_graph.plan_downstream_impact` project closure of the admitted surfaces, and

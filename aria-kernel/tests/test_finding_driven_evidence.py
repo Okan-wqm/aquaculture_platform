@@ -69,7 +69,9 @@ class FFindingEvidenceTests(unittest.TestCase):
         candidate = {"source_type": PlanCandidateSource.F_FINDING.value, "candidate_id": finding_id,
                      "title_hint": "leaverequest UI drift"}
         return convert_candidate_to_plan_content(
-            candidate, admission=admit_candidate(candidate, load_grounding_context(fixture.repo)),
+            # ARIA-HIGH-260 — the aging source is judged against the store's loop history.
+            candidate, admission=admit_candidate(
+                candidate, load_grounding_context(fixture.repo, tools_root=fixture.tools)),
         )
 
     def test_convert_f_finding_grounds_plan_in_code_not_json(self) -> None:

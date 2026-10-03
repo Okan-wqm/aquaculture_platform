@@ -18,6 +18,11 @@ import type { NatsConnection, Status } from '@nats-io/nats-core';
 import { connect } from '@nats-io/transport-node';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  PLATFORM_EVENT_TENANT_ID,
+  PLATFORM_SCOPE,
+  createBaseEvent,
+} from '@platform/event-contracts';
 
 import { HandlerOutcome } from '../../interfaces/handler-outcome';
 import {
@@ -262,6 +267,63 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
       );
       if (!call) throw new Error('no telemetry consumer was added for SensorReading');
       expect(call[0]).toBe(DEFAULT_TELEMETRY_STREAM_NAME);
+    });
+  });
+
+  /**
+   * OBS-HIGH-009: publish() derives the subject and then asserts it against
+   * the payload; both now read the tenant through one function, so nothing
+   * publish() builds can be refused by its own assertion.
+   */
+  describe('platform-scoped publishes (OBS-HIGH-009)', () => {
+    it('publishes a platform-scoped event onto events.system.*', async () => {
+      const bus = await boot();
+      await bus.publish(
+        createBaseEvent('ServiceErrorCaptured', PLATFORM_SCOPE, {
+          aggregateId: 'farm-service',
+          aggregateType: 'Service',
+        }),
+      );
+
+      expect(jsPublish.mock.calls.map((call) => call[0])).toEqual([
+        'events.system.ServiceErrorCaptured',
+      ]);
+    });
+
+    it("refuses an '' tenant before JetStream, naming the platform sentinel", async () => {
+      // Production 2026-10-02: 39 of these, each refused only AFTER the builder
+      // had routed it to events.system.* — "subject tenant mismatch: subject=system, payload=".
+      const bus = await boot();
+
+      await expect(
+        bus.publish({
+          eventId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          eventType: 'ServiceErrorCaptured',
+          timestamp: '2026-10-02T00:00:00.000Z',
+          tenantId: '',
+        }),
+      ).rejects.toThrow(
+        /tenantId '' is not a tenancy scope; a platform-level event carries "system"/,
+      );
+      expect(jsPublish).not.toHaveBeenCalled();
+    });
+
+    it('routes a tenant-less event exactly like one carrying the platform segment', async () => {
+      // One sentinel: absent and `system` are the same fact, so the registry
+      // picks the root for both (telemetry types stay on the telemetry root).
+      const bus = await boot();
+      const base = { timestamp: '2026-10-02T00:00:00.000Z', eventType: 'SensorReading' };
+      await bus.publish({ ...base, eventId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' });
+      await bus.publish({
+        ...base,
+        eventId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        tenantId: PLATFORM_EVENT_TENANT_ID,
+      });
+
+      expect(jsPublish.mock.calls.map((call) => call[0])).toEqual([
+        'telemetry.system.SensorReading',
+        'telemetry.system.SensorReading',
+      ]);
     });
   });
 });

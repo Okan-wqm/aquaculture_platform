@@ -31,8 +31,8 @@ const PROBE_END = '// ── END GENERATED postCondition ──';
 /** The Baselines the generator owns, read from the generator itself. */
 function generatedBaselines(): string[] {
   const source = readFileSync(join(REPO_ROOT, GENERATOR), 'utf8');
-  const paths = [...source.matchAll(/path: '(apps\/[^']+\/1800000000000-Baseline\.ts)'/g)].map(
-    (match) => match[1],
+  const paths = [...source.matchAll(/path: '(apps\/[^']+\/1800000000000-Baseline\.ts)'/g)].flatMap(
+    (match) => (match[1] === undefined ? [] : [match[1]]),
   );
   if (paths.length === 0) throw new Error(`${GENERATOR} lists no Baselines`);
   return paths;

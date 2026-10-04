@@ -74,7 +74,7 @@ The fix adds run-liveness reaping (GSEC-MEDIUM-004), in `state_writer_lease_runs
 Before the fix, 14 of the 15 new tests failed (18 failures counting subtests). Examples:
 `GH013: Repository rule violations found` was missing from
 `state_writer_lease_push_failed: … refused 3 pushes; the remote is not accepting writes`;
-`git worktree add … ` failed in the fixture's post-checkout hook; the argv lacked
+`git worktree add …` failed in the fixture's post-checkout hook; the argv lacked
 `-c core.hooksPath=/dev/null`; and `acquire_writer_lease()` had no `run_status`. After the
 fix all 15 pass, with and without CI-like `GITHUB_*` variables.
 

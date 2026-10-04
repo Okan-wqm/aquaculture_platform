@@ -9,13 +9,16 @@ gate read what it invented; the first commit it pushed would have been
 refused by the husky hook and the CI range check with nothing upstream
 having said so.
 
-WHAT. Two facts, both derived and neither asked of the agent:
+WHAT. Three facts, all derived and none asked of the agent:
 
 * :func:`plan_origin` — what a plan was minted from. The candidate sources
   (``plan_synthesizer.convert_candidate_to_plan_content``) stamp the
   finding a plan addresses into ``plan_content.finding_id``; a plan with no
   finding (a git-diff synthesis, a failing-CI or operator-feedback plan, a
   mission) has none.
+* :func:`compute_admission_scope` — the write bound a finding-origin plan is
+  admitted with (ADR-0021), recorded on ``plan_started`` and enforced on
+  every later body and on the implementation scope.
 * :func:`commit_contract_for_plan` — the commit contract for that origin, in
   the terms the gate enforces: the exact trailer line when the origin has a
   form the gate accepts on a CI checkout, or no trailer and the commit
@@ -31,7 +34,10 @@ the branch's commits against the same derivation.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -215,6 +221,275 @@ def carry_started_origin(plan_content: Any, state: Any) -> Any:
     return {**plan_content, "finding_id": started}
 
 
+# ADR-0021 (ARIA-MEDIUM-261) — the write bound of a finding-sourced plan.
+#
+# WHY. A finding- or operator-sourced plan is admitted on the surfaces its
+# grounding names (``finding_grounding.admit_finding``, or the orphan
+# register's evidence), but every later body was held only to its
+# ``finding_id``: a revision could widen ``affected_surfaces`` anywhere, and
+# the implementation's ``allowed_scope`` is the CONVERGED body's surfaces. The
+# coverage gate makes a revision add dependents, so the bound cannot be the
+# admitted surfaces alone.
+#
+# WHAT. ``plan_started`` carries an ``admission_scope``: the admitted surfaces
+# (the kernel-converted seed's) plus the roots of their
+# ``impact_graph.plan_downstream_impact`` project closure, computed by
+# ``start_plan`` itself — no caller can hand one in — plus the subject pins of
+# the committed subject-pin policy. Every challenger draft, every revision and
+# the implementation scope is refused a path outside it.
+REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE = "revision_scope_exceeds_admission_closure"
+ADMISSION_SCOPE_MISSING = "admission_scope_missing"
+# 2 adds ``pin_policy``; a version-1 record predates the committed policy.
+ADMISSION_SCOPE_SCHEMA_VERSION = 2
+_ADMISSION_SCOPE_LIST_FIELDS = ("admitted_surfaces", "closure_projects", "closure_roots", "policy_pins")
+
+# CB-5 / program ruling 15 (ARIA-LOW-280) — subject pins are committed policy
+# data, never kernel literals. ADR-0021 shipped them as a Python tuple here, so
+# the only way to pin a path was a literal in kernel source, and any caller of
+# ``compute_admission_scope`` could pass its own. The bound now reads this file
+# as committed at the workspace's main-proven commit, the anchor finding
+# grounding admits on (``main_anchor``: scrubbed git, blob re-hashed), so a
+# working-tree edit or an unmerged commit is never the policy. A missing,
+# malformed or unanchored policy pins nothing and names why. A fix's journey
+# pin (``<project>/src/__journeys__/``) needs no entry: it lies under its own
+# project's closure root.
+SUBJECT_PIN_POLICY_PATH = "docs/aria/policy/subject-pins.json"
+SUBJECT_PIN_POLICY_REFUSED = "subject_pin_policy_refused"
+SUBJECT_PIN_POLICY_ANCHOR_UNAVAILABLE = "subject_pin_policy_anchor_unavailable"
+SUBJECT_PIN_POLICY_MISSING = "subject_pin_policy_missing"
+SUBJECT_PIN_POLICY_MALFORMED = "subject_pin_policy_malformed"
+_SUBJECT_PIN_POLICY_KEYS = frozenset({"$schema", "schema_version", "policy_id", "subject_pins"})
+
+
+@dataclass(frozen=True)
+class SubjectPin:
+    """Paths a subject pins into the bound of every plan it applies to.
+
+    ``subject`` is matched against the plan's subjects: its origin finding id
+    and the names of its closure projects.
+    """
+
+    subject: str
+    paths: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SubjectPinPolicy:
+    """The committed policy's pins, the blob they came from, or why there are none."""
+
+    pins: tuple[SubjectPin, ...]
+    commit: str | None
+    blob_oid: str | None
+    refused: str | None
+
+    def record(self) -> dict[str, Any]:
+        return {"path": SUBJECT_PIN_POLICY_PATH, "commit": self.commit,
+                "blob_oid": self.blob_oid, "refused": self.refused}
+
+
+class AdmissionScopeExceeded(GovernanceError):
+    """A body or scope named paths outside its plan's admission bound."""
+
+    def __init__(self, offending: list[str]) -> None:
+        self.offending = tuple(offending)
+        super().__init__(
+            f"{REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE}: {list(self.offending)} lie outside the "
+            f"admitted surfaces and their kernel-computed impact closure"
+        )
+
+
+def _bound_path(raw: Any) -> str | None:
+    """The canonical spelling the bound compares, or None for one it cannot hold."""
+    from .canonical_path import resolve_repo_relpath
+
+    try:
+        return resolve_repo_relpath(raw) if isinstance(raw, str) else None
+    except GovernanceError:
+        return None
+
+
+def _admitted_surfaces(plan_content: Any) -> list[str]:
+    """The seed's surfaces in the bound's spelling: what admission grounded."""
+    from .plan_convergence import affected_surface_paths
+
+    admitted = set()
+    for path in affected_surface_paths(plan_content.get("affected_surfaces")):
+        bound = _bound_path(path)
+        if bound is None:
+            raise GovernanceError(f"{ADMISSION_SCOPE_MISSING}: admitted surface {path!r} is not a repository path")
+        admitted.add(bound)
+    return sorted(admitted)
+
+
+def _parse_subject_pins(content: bytes) -> tuple[SubjectPin, ...]:
+    """Every pin the policy names, or GovernanceError: one bad entry refuses the whole file."""
+    try:
+        policy = json.loads(content.decode("utf-8"))
+    except ValueError as exc:
+        raise GovernanceError(f"not UTF-8 JSON ({type(exc).__name__})") from exc
+    if (not isinstance(policy, dict) or set(policy) != _SUBJECT_PIN_POLICY_KEYS
+            or type(policy["schema_version"]) is not int or policy["schema_version"] != 1
+            or policy["policy_id"] != "aria-subject-pins"
+            or not isinstance(policy["subject_pins"], list)):
+        raise GovernanceError("the top level is not the aria/subject-pins/v1 shape")
+    pins: list[SubjectPin] = []
+    for index, entry in enumerate(policy["subject_pins"]):
+        paths = entry.get("paths") if isinstance(entry, dict) else None
+        if (not isinstance(entry, dict) or set(entry) != {"subject", "paths"}
+                or not isinstance(entry["subject"], str) or not entry["subject"].strip()
+                or not isinstance(paths, list) or not paths or any(_bound_path(p) != p for p in paths)):
+            raise GovernanceError(f"subject_pins[{index}] is not {{subject, paths}} with canonical repository paths")
+        pins.append(SubjectPin(entry["subject"], tuple(paths)))
+    return tuple(pins)
+
+
+def load_subject_pin_policy(workspace_root: Any) -> SubjectPinPolicy:
+    """The policy as committed at ``workspace_root``'s main-proven commit; never the working tree."""
+    from .main_anchor import committed_blob, resolve_main_anchor
+
+    anchor = resolve_main_anchor(workspace_root)
+    if anchor.commit is None:
+        return SubjectPinPolicy((), None, None, f"{SUBJECT_PIN_POLICY_ANCHOR_UNAVAILABLE}: {anchor.reason}")
+    blob = committed_blob(workspace_root, commit=anchor.commit, path=SUBJECT_PIN_POLICY_PATH)
+    if blob is None:
+        return SubjectPinPolicy((), anchor.commit, None, SUBJECT_PIN_POLICY_MISSING)
+    try:
+        pins = _parse_subject_pins(blob.content)
+    except GovernanceError as exc:
+        return SubjectPinPolicy((), blob.commit, blob.blob_oid, f"{SUBJECT_PIN_POLICY_MALFORMED}: {exc}")
+    return SubjectPinPolicy(pins, blob.commit, blob.blob_oid, None)
+
+
+def compute_admission_scope(
+    plan_content: Any, *, workspace_root: Any, base_dir: Any,
+) -> dict[str, Any] | None:
+    """The bound a plan is admitted with, or None for a plan with no finding origin."""
+    from .impact_graph import plan_downstream_impact
+    from .tool_registry import append_tools_governance_once
+
+    origin = plan_origin(plan_content)
+    if origin.kind == ORIGIN_PLAN:
+        return None
+    if workspace_root is None:
+        raise GovernanceError(
+            f"{ADMISSION_SCOPE_MISSING}: a plan started from {origin.finding_id} is bounded by the "
+            f"closure of its admitted surfaces, which needs the workspace to compute it in"
+        )
+    admitted = _admitted_surfaces(plan_content)
+    impact = plan_downstream_impact(changed_files=admitted, workspace_root=workspace_root, base_dir=base_dir)
+    projects = sorted({*impact["changed_projects"], *impact["downstream_projects"]})
+    roots = sorted({root for root in map(_bound_path, impact["project_roots"].values()) if root})
+    policy = load_subject_pin_policy(workspace_root)
+    if policy.refused is not None:
+        # A refused policy is a standing fact of its commit, disclosed once.
+        append_tools_governance_once(base_dir, SUBJECT_PIN_POLICY_REFUSED, {
+            "origin_finding_id": origin.finding_id, **policy.record(),
+        }, claim_keys=("refused", "commit", "blob_oid"))
+    subjects = {origin.finding_id, *projects}
+    scope = {
+        "schema_version": ADMISSION_SCOPE_SCHEMA_VERSION,
+        "origin_finding_id": origin.finding_id,
+        "admitted_surfaces": admitted,
+        "closure_projects": projects,
+        "closure_roots": roots,
+        "policy_pins": sorted({p for pin in policy.pins if pin.subject in subjects for p in pin.paths}),
+        "pin_policy": policy.record(),
+        "graph_source": impact["graph_source"],
+        "impact_graph_ledger_hash": impact["ledger_hash"],
+    }
+    validate_admission_scope(scope, plan_content)
+    return scope
+
+
+def validate_admission_scope(scope: Any, plan_content: Any) -> None:
+    """Refuse an ``admission_scope`` record that is not the shape the kernel computes."""
+    version = scope.get("schema_version") if isinstance(scope, dict) else None
+    if type(version) is not int or version not in (1, ADMISSION_SCOPE_SCHEMA_VERSION):
+        raise GovernanceError(f"admission_scope must be a schema_version 1 or {ADMISSION_SCOPE_SCHEMA_VERSION} object")
+    record = scope.get("pin_policy")
+    if version == 1:
+        # Recorded when the only policy was the kernel's empty tuple: no pins, no policy record.
+        if record is not None or scope.get("policy_pins") != []:
+            raise GovernanceError("admission_scope v1 predates the committed policy: policy_pins must be empty")
+    elif (not isinstance(record, dict) or record.get("path") != SUBJECT_PIN_POLICY_PATH
+          or (record.get("refused") is None and not all(isinstance(record.get(k), str) for k in ("commit", "blob_oid")))
+          or (record.get("refused") is not None and scope.get("policy_pins") != [])):
+        raise GovernanceError("admission_scope.pin_policy must name the committed blob it read; a refused policy "
+                              "pins nothing")
+    for name in _ADMISSION_SCOPE_LIST_FIELDS:
+        value = scope.get(name)
+        if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+            raise GovernanceError(f"admission_scope.{name} must be an array of non-empty strings")
+    finding_id = plan_content.get("finding_id") if isinstance(plan_content, dict) else None
+    if scope.get("origin_finding_id") != finding_id:
+        raise GovernanceError("admission_scope.origin_finding_id must be the started plan's finding_id")
+    # The admitted half is re-derivable from the seed it is recorded beside,
+    # so a record that widens or narrows it is refused on every fold.
+    if not scope["admitted_surfaces"] or scope["admitted_surfaces"] != _admitted_surfaces(plan_content):
+        raise GovernanceError("admission_scope.admitted_surfaces must be the started plan's surfaces")
+
+
+def admission_scope_for_plan(state: Any) -> dict[str, Any] | None:
+    """The bound recorded at the plan's start; None only for a plan with no finding origin."""
+    started = state.get("plan_started") if isinstance(state, dict) else None
+    scope = started.get("admission_scope") if isinstance(started, dict) else None
+    if scope is not None:
+        return scope
+    finding_id = started_origin_finding_id(state)
+    if finding_id is None:
+        return None
+    raise GovernanceError(
+        f"{ADMISSION_SCOPE_MISSING}: plan {state.get('plan_id')!r} started from {finding_id} "
+        f"without the admission record its bodies are bounded by; restart it to record one"
+    )
+
+
+def paths_outside_admission_scope(scope: Mapping[str, Any], paths: list[Any]) -> list[str]:
+    """Every path that is neither a bound entry nor under one, named safely, in order."""
+    from .finding_grounding import safe_repo_ref
+
+    bound = [*scope["admitted_surfaces"], *scope["closure_roots"], *scope["policy_pins"]]
+    offending: list[str] = []
+    for raw in paths:
+        path = _bound_path(raw)
+        if path is not None and any(path == entry or path.startswith(entry + "/") for entry in bound):
+            continue
+        text = str(raw)
+        label = text if safe_repo_ref(text) else "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if label not in offending:
+            offending.append(label)
+    return offending
+
+
+def require_within_admission_scope(scope: Mapping[str, Any] | None, paths: list[Any]) -> None:
+    """Raise :class:`AdmissionScopeExceeded` when ``paths`` leave ``scope``; None bounds nothing."""
+    if scope is None:
+        return
+    offending = paths_outside_admission_scope(scope, paths)
+    if offending:
+        raise AdmissionScopeExceeded(offending)
+
+
+def body_paths(body: Any) -> list[str]:
+    """Every path a plan body names: its surfaces and its key changes' paths."""
+    from .plan_convergence import affected_surface_paths, key_change_paths
+
+    changes = body.get("key_changes") if isinstance(body.get("key_changes"), list) else []
+    return [*affected_surface_paths(body.get("affected_surfaces")),
+            *(path for change in changes for path in key_change_paths(change))]
+
+
+def record_admission_scope_refusal(
+    base_dir: Any, *, plan_id: Any, stage: str, error: AdmissionScopeExceeded,
+) -> None:
+    """The plan-keyed governance row every bound refusal leaves behind."""
+    from .tool_registry import append_tools_governance
+
+    append_tools_governance(base_dir, REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE, {
+        "plan_id": plan_id, "stage": stage, "offending_paths": list(error.offending),
+    })
+
+
 @dataclass(frozen=True)
 class CommitContractVerdict:
     honoured: bool
@@ -276,6 +551,9 @@ def render_commit_contract_section(contract: Any) -> str:
 
 
 __all__ = [
+    "ADMISSION_SCOPE_MISSING",
+    "ADMISSION_SCOPE_SCHEMA_VERSION",
+    "AdmissionScopeExceeded",
     "CLOSES_TRAILER_RE",
     "COMMIT_CONTRACT_SCHEMA_VERSION",
     "COMMIT_TYPES",
@@ -288,15 +566,31 @@ __all__ = [
     "ORPHAN_FINDING_ID_RE",
     "PLAN_ORIGIN_CHANGED",
     "REQUIRE_CLOSES_SUBJECT_RE",
+    "REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE",
+    "SUBJECT_PIN_POLICY_ANCHOR_UNAVAILABLE",
+    "SUBJECT_PIN_POLICY_MALFORMED",
+    "SUBJECT_PIN_POLICY_MISSING",
+    "SUBJECT_PIN_POLICY_PATH",
+    "SUBJECT_PIN_POLICY_REFUSED",
+    "SubjectPin",
+    "SubjectPinPolicy",
     "TRAILERLESS_COMMIT_TYPES",
     "CommitContractVerdict",
     "PlanOrigin",
+    "admission_scope_for_plan",
+    "body_paths",
     "carry_started_origin",
     "commit_contract_for_plan",
+    "compute_admission_scope",
+    "load_subject_pin_policy",
+    "paths_outside_admission_scope",
     "plan_origin",
+    "record_admission_scope_refusal",
     "render_commit_contract_section",
     "require_origin_unchanged",
+    "require_within_admission_scope",
     "started_origin_finding_id",
+    "validate_admission_scope",
     "validate_commit_contract",
     "verify_commits_honour_contract",
 ]

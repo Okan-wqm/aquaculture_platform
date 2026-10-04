@@ -131,8 +131,8 @@ class JudgmentBridgeE2ETests(unittest.TestCase):
             base_dir=self.tools,
         )
         # Inject the legacy request fields the bridge needs.
-        from aria_kernel.ledger import load_declared_jsonl, rewrite_declared_jsonl
-        path = self.tools / "agent-invocations" / "requests.jsonl"
+        from aria_kernel.ledger import load_declared_jsonl, rewrite_declared_jsonl, segment_paths
+        path = segment_paths(self.tools, "agent_invocation_requests")[-1]  # the request's segment
         rows = load_declared_jsonl(path, expected_surface="agent_invocation_requests")
         rows[-1]["tool_id"] = "demo-adapter"
         rows[-1]["run_id"] = "run-001"

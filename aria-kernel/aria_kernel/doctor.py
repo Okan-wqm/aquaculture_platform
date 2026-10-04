@@ -203,8 +203,9 @@ def _check_habitat(workspace_root: Path) -> DoctorCheck:
 def _requests_are_live(tools_dir: Path) -> bool:
     """Producers have written: the store is past bootstrap, so a ledger the
     producers feed cannot be legitimately absent."""
-    requests = tools_dir / "agent-invocations" / "requests.jsonl"
-    return requests.is_file() and requests.stat().st_size > 0
+    from .ledger import segment_paths
+
+    return any(path.stat().st_size > 0 for path in segment_paths(tools_dir, "agent_invocation_requests"))
 
 
 def _plans_minted(tools_dir: Path) -> int:
@@ -291,10 +292,12 @@ def _check_plan_ledger(tools_dir: Path) -> DoctorCheck:
     ledger did not, and the drainer re-started the same plan every night.
     A write-driving ledger that vanished while its producers kept writing
     is a FAIL, not a bootstrap."""
+    from .ledger import segment_paths
+
     plans_dir = tools_dir / "plans"
     plan_ledgers = sorted(plans_dir.glob("*.jsonl")) if plans_dir.is_dir() else []
     detail = {
-        "requests_ledger_present": (tools_dir / "agent-invocations" / "requests.jsonl").is_file(),
+        "requests_ledger_present": bool(segment_paths(tools_dir, "agent_invocation_requests")),
         "plan_ledgers": [path.name for path in plan_ledgers],
     }
     if _requests_are_live(tools_dir) and not plan_ledgers:

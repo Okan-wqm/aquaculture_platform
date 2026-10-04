@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import _request_event_count, derive_request_state
-from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl
+from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl, load_segments
 from .notify import NOTIFY_WORST_CASE_SECONDS, notify_best_effort
 from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
@@ -493,10 +493,7 @@ def sweep_lease_lifecycle_for_human_required(
     Records one for each, returns the lists. Idempotent.
     """
     root = ensure_tools_dir(base_dir)
-    requests = load_declared_jsonl(
-        root / "agent-invocations" / "requests.jsonl",
-        expected_surface="agent_invocation_requests",
-    )
+    requests = load_segments(root, "agent_invocation_requests")
     created: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     for request in requests:

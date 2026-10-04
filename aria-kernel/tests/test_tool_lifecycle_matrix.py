@@ -1,12 +1,13 @@
 """Plan 026R §E.10 — tool lifecycle matrix: forbidden-to-ACTIVE sources.
 
-6 tests:
+5 tests:
 
-* _FORBIDDEN_ACTIVE_SOURCES constant shape (5 entries).
-* DRAFT → ACTIVE raises.
-* SANDBOX → ACTIVE raises.
-* ARCHIVED → ACTIVE raises.
+* _FORBIDDEN_ACTIVE_SOURCES constant shape (2 entries).
 * QUARANTINED → ACTIVE raises.
+* CALIBRATE → ACTIVE raises.
+* DRAFT / SANDBOX / ARCHIVED are no longer lifecycle states: a transition
+  into or out of one is refused as unknown (ORPHAN-MEDIUM-839 removed them —
+  no production path ever produced any of them).
 * SHADOW → ACTIVE still permitted (existing gate path with precision +
   operator approval requirements).
 """
@@ -32,7 +33,7 @@ def _tool_fixture(**overrides) -> dict:
         "tool_id": overrides.pop("tool_id", "tool-e10"),
         "kind": "adapter",
         "version": "0.1.0",
-        "status": "DRAFT",
+        "status": "SHADOW",
         "owner": "platform",
         "schema_version": 2,
         "claim_types": ["fake"],
@@ -83,11 +84,9 @@ class ToolLifecycleMatrixTests(unittest.TestCase):
     def test_forbidden_active_sources_constant_shape(self) -> None:
         self.assertEqual(
             _FORBIDDEN_ACTIVE_SOURCES,
-            frozenset({
-                "DRAFT", "SANDBOX", "ARCHIVED", "QUARANTINED", "CALIBRATE",
-            }),
+            frozenset({"QUARANTINED", "CALIBRATE"}),
         )
-        self.assertEqual(len(_FORBIDDEN_ACTIVE_SOURCES), 5)
+        self.assertEqual(len(_FORBIDDEN_ACTIVE_SOURCES), 2)
 
     def _assert_forbidden(self, source_status: str) -> None:
         register_tool(_tool_fixture(tool_id=f"tool-{source_status.lower()}"), base_dir=self.base)
@@ -110,17 +109,22 @@ class ToolLifecycleMatrixTests(unittest.TestCase):
                 str(ctx.exception),
             )
 
-    def test_draft_to_active_raises(self) -> None:
-        self._assert_forbidden("DRAFT")
-
-    def test_sandbox_to_active_raises(self) -> None:
-        self._assert_forbidden("SANDBOX")
-
-    def test_archived_to_active_raises(self) -> None:
-        self._assert_forbidden("ARCHIVED")
-
     def test_quarantined_to_active_raises(self) -> None:
         self._assert_forbidden("QUARANTINED")
+
+    def test_calibrate_to_active_raises(self) -> None:
+        self._assert_forbidden("CALIBRATE")
+
+    def test_removed_statuses_are_unknown_to_the_matrix(self) -> None:
+        # ORPHAN-MEDIUM-839 — DRAFT, SANDBOX and ARCHIVED left the lifecycle.
+        # None can be a forbidden source any more, and a transition naming
+        # one is refused before any gate reads it.
+        register_tool(_tool_fixture(tool_id="tool-removed"), base_dir=self.base)
+        for status in ("DRAFT", "SANDBOX", "ARCHIVED"):
+            with self.subTest(status=status):
+                self.assertNotIn(status, _FORBIDDEN_ACTIVE_SOURCES)
+                with self.assertRaisesRegex(GovernanceError, f"unknown lifecycle state: {status}"):
+                    transition_tool("tool-removed", status, reason="removed status", base_dir=self.base)
 
     def test_shadow_to_active_still_permitted_with_evidence(self) -> None:
         # SHADOW → ACTIVE remains the documented promotion path. The

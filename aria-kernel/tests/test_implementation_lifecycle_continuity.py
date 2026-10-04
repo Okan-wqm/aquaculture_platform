@@ -150,6 +150,7 @@ def drive_plan_to_converged(
         initial_revision_id="rev-0",
         plan_content=plan_content if plan_content is not None else converging_plan_content(title),
         base_dir=tools,
+        workspace_root=workspace_root,
     )
     content_hash = fold_plan_state(
         plan_id=plan_id, base_dir=tools,

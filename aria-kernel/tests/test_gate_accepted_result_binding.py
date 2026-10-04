@@ -39,6 +39,7 @@ import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
+from tests._helpers.declared_fixtures import segmented_ledger_bytes
 from tests._helpers.operator_acts import operator_set_profile
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -657,10 +658,10 @@ class NativeSpecialistPlanBinding(unittest.TestCase):
             self.assertEqual("sha256:" + hashlib.sha256(prompt.encode()).hexdigest(), row["prompt_hash"])
             self.assertIn(json.dumps(plan.plan_content, sort_keys=True), prompt)
             self.assertEqual(bound["context"]["target_sha"], target_sha)
-        request_bytes = (tools / "agent-invocations/requests.jsonl").read_bytes()
+        request_bytes = segmented_ledger_bytes(tools, "agent_invocation_requests")
         repeated = run_specialist_review_runner(**arguments)
         self.assertEqual(repeated["request_ids"], result["request_ids"])
-        self.assertEqual((tools / "agent-invocations/requests.jsonl").read_bytes(), request_bytes)
+        self.assertEqual(segmented_ledger_bytes(tools, "agent_invocation_requests"), request_bytes)
 
 
 if __name__ == "__main__":

@@ -23,8 +23,13 @@ REQUEST_ROLES: tuple[str, ...] = (
     "completeness_critique",
     "implementation",
     "verification",
-    "gap_finding",
-    "gap_closure",
+    # `gap_finding` — REMOVED (program rev3.1): no kernel path ever minted it;
+    # the acceptance-lane gap hunt it named is an operator-driven dispatch
+    # outside the kernel. Blind enumeration (K42) re-adds a role only when its
+    # evidence trigger fires. Pinned by tests/test_role_hygiene_e14.py.
+    # `gap_closure` — REMOVED for the same reason (ORPHAN-MEDIUM-836): the
+    # executor twin of `implementation`, budgeted and never minted; the
+    # acceptance-lane gap closer is likewise an operator-driven dispatch.
     "maintenance_utility",
     "primary_authoring",
     "challenger_authoring",

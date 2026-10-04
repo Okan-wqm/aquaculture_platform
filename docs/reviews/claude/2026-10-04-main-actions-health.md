@@ -79,3 +79,24 @@ probe lines in each. No SQL changes, so no ledger or replay effect, but the PR b
 `MIGRATION-IMMUTABLE-OK:` line for `migration-immutability-witness`. Test:
 `tests/invariants/tenant-baseline-postcondition.spec.ts` pins the emitted shape and that the
 committed Baselines are exactly what the generator emits (`[noop]` on a dry run).
+
+## INFRA-MEDIUM-205
+
+Evidence (at `main@690470509`):
+
+- CI - Full runs 35497439697, 36304648357 and 37188374410:
+  `##[error]The action 'Run all tests' has timed out after 35 minutes.` In 37188374410 every target
+  that finished was green (50 of 52); `farm-service:test` and `messaging-module:test` were still
+  running at the kill. Per-target completion times against run 34745082343 (09-13) are uniformly
+  10-20% later: growth, not a hang.
+- `.github/workflows/ci-full.yml:141` (`timeout-minutes: 45`) and `:213` (`timeout-minutes: 35`)
+  were derived from `tests/invariants/ci-timeout-budget-ssot.spec.ts:59` / `:61` — job max 29.05,
+  step max 25.9, measured 2026-08-06.
+- Step durations of the run's own history: 27.85 (09-01), 29.08 (09-06), 31.18 (09-13), then
+  killed at 34.48, 35.22, 35.20.
+
+Fix: re-measured over the 14 newest completed runs (job median 30.79, p90 32.33, max 34.43; step
+max 31.18) and, because a kill point is only a lower bound, the kill points as well (step 35.22,
+job 39.25). The spec's own factors give step ≥ 47.5 → 50 and job ≥ 58.9 → 60; prologue 4.3 + 50 <
+60 keeps the step budget firing first. The spec records the new distribution and asserts the kill
+points too. The first run at the new budget is the first uncensored measurement; re-tighten from it.

@@ -569,7 +569,7 @@ jobs:
       # an opaque cancellation instead of naming the lane.
       #
       # 20, not the 25 this lane first carried: the job ceiling is bounded above
-      # by ci-full's measured 45 (see the job's own note), and a step budget that
+      # by ci-full's measured test budget (see that job's own note), and a step budget that
       # leaves the fan-out step no room under that ceiling would make the JOB fire
       # first — which is precisely the anonymous-cancellation failure the step
       # budget exists to prevent.

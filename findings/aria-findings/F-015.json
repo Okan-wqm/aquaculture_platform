@@ -1,0 +1,79 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "ui_option_drift: 'leaverequest' ui_value_not_on_wire across 2 surfaces (cross_service=False)",
+  "claim_type": "spine_drift",
+  "closes_in_commit": null,
+  "created_at": "2026-10-04T07:30:07Z",
+  "evidence_chain_id": "chain_0166397813c68311",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx",
+        "content_hash": "sha256:d0401ab4b42adb517e50cae87a83b7a43d4bce2ed9939556377f845b8378310f",
+        "envelope_hash": "sha256:584b437ec583daeb93c74542ab9b93689daccdcb4f5b0a6aeca85e098d050c1d",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 389,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "6da03252d28ea94a0ecd47d2347087ebf841fe61",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:389",
+      "summary": "leave-filter-status values: ['approved', 'cancelled', 'pending', 'rejected']"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/leave/entities/leave-request.entity.ts",
+        "content_hash": "sha256:8c53db33c77c961f6238a8ffe2f7118a53fc0a69fb1c90437b5598ed931c24b2",
+        "envelope_hash": "sha256:1f1f85035b0ed540554f2c0bd91112434bacea44ba0a972a3da1445a0311863f",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 18,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "6da03252d28ea94a0ecd47d2347087ebf841fe61",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/leave/entities/leave-request.entity.ts:18",
+      "summary": "LeaveRequestStatus values: ['approved', 'cancelled', 'draft', 'pending', 'rejected', 'withdrawn']"
+    }
+  ],
+  "facts": [
+    "classification: ui_value_not_on_wire over graphql",
+    "missing in ts/ui: ['APPROVED', 'CANCELLED', 'DRAFT', 'PENDING', 'REJECTED', 'WITHDRAWN']",
+    "missing in sql/source: ['approved', 'cancelled', 'pending', 'rejected']"
+  ],
+  "finding_id": "F-015",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": null,
+  "originating_skill": "seed:drift-scan",
+  "recommendation": null,
+  "related_specialized_agent_domains": [
+    "accessibility-auditor",
+    "frontend-expert",
+    "hr-expert"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "apps/hr-service/src/leave/entities/leave-request.entity.ts",
+      "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx"
+    ]
+  },
+  "service": null,
+  "services": [
+    "hr-service",
+    "web:hr-module"
+  ],
+  "severity": "HIGH",
+  "source_event_id": "finding:F-015:emitted",
+  "source_ledger_hash": "sha256:173bb612c7be043cdf52feaafcc986b43fcc43261b6a365b7999ae278bfc4968",
+  "status": "OPEN"
+}

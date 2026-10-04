@@ -55,7 +55,12 @@ from .plan_convergence import (
     _planning_source_context,
     request_implementation,
 )
-from .plan_origin import commit_contract_for_plan
+from .plan_origin import (
+    AdmissionScopeExceeded,
+    admission_scope_for_plan,
+    commit_contract_for_plan,
+    record_admission_scope_refusal,
+)
 from .tool_registry import GovernanceError
 
 
@@ -741,7 +746,8 @@ def issue_implementation_envelope(
         hash-verified against the CONVERGED revision, so the text the agent
         is handed is provably the text the approval ref names.
       * ``allowed_scope`` — ``implementation_allowed_scope`` over the plan's
-        own ``affected_surfaces``: the declared paths MINUS
+        own ``affected_surfaces``, refused outright when any lies outside the
+        plan's admission bound (ADR-0021): the declared paths MINUS
         ``implementation_safety.READONLY_PATHS``, computed with the same
         classifier the pre-PR-open perimeter judges the envelope with. A plan
         whose every surface is readonly leaves an empty scope and is refused
@@ -804,9 +810,18 @@ def issue_implementation_envelope(
     converged_plan_revision_id = str(body["revision_id"])
     converged_content_hash = str(body["content_hash"])
 
-    allowed_scope, refused_surfaces = implementation_allowed_scope(
-        affected_surface_paths(plan_content.get("affected_surfaces")),
-    )
+    # ADR-0021 (ARIA-MEDIUM-261) — the scope is held to the bound the plan
+    # was admitted with, read from its `plan_started` record; a CONVERGED
+    # body naming a path outside it mints nothing and leaves a plan-keyed
+    # governance row, with the plan still CONVERGED.
+    try:
+        allowed_scope, refused_surfaces = implementation_allowed_scope(
+            affected_surface_paths(plan_content.get("affected_surfaces")),
+            admission_scope=admission_scope_for_plan(state_dict),
+        )
+    except AdmissionScopeExceeded as exc:
+        record_admission_scope_refusal(base_dir, plan_id=plan_id, stage="implementation_mint", error=exc)
+        raise BridgeContractViolation(str(exc)) from exc
     if not allowed_scope:
         raise BridgeContractViolation(
             f"implementation_envelope_no_writable_scope: every declared "

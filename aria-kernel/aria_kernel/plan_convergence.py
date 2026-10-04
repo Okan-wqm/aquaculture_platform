@@ -38,7 +38,12 @@ EVENT_TYPES = {
     "revision_recorded",
     "plan_evaluated",
     "plan_abandoned",
-    "lock_reaped",
+    # `lock_reaped` — RETIRED (ORPHAN-MEDIUM-838): it had a payload validator
+    # and no emitter. `_reap_stale_lock` records nothing, and a lock reap
+    # belongs to no plan; the sibling reapers (tools root, migration) record
+    # one as a governance row. Retired before any events.jsonl row used it —
+    # the one moment this door allows. Pinned by
+    # tests/invariants/v9/test_phase_v9_0_b_event_state_machine.py.
     # Plan ARIA-V9.0-B — implementation-phase event types. Adding a
     # new event type beyond this set is a one-way door (every row in
     # events.jsonl is now signed by content_hash; renaming a kind
@@ -147,7 +152,18 @@ def start_plan(
     plan_content: dict[str, Any],
     initial_revision_id: str,
     base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Open a plan. A plan started from a finding records its admission bound.
+
+    ADR-0021 — the bound (``plan_origin.compute_admission_scope``) is
+    computed HERE from the seed's surfaces and the impact graph of
+    ``workspace_root``; there is no parameter to pass one in, so no caller
+    and no planner prose can set it. A finding-origin plan without a
+    workspace to compute it in is refused.
+    """
+    from .plan_origin import compute_admission_scope
+
     _validate_id(plan_id, "plan_id")
     _validate_id(initial_revision_id, "initial_revision_id")
     _validate_plan_content(plan_content)
@@ -156,6 +172,9 @@ def start_plan(
         "content_hash": content_hash(plan_content),
         "initial_revision_id": initial_revision_id,
     }
+    admission_scope = compute_admission_scope(plan_content, workspace_root=workspace_root, base_dir=base_dir)
+    if admission_scope is not None:
+        payload["admission_scope"] = admission_scope
     return _mutate(
         plan_id=plan_id,
         command_name="start",
@@ -592,15 +611,27 @@ def _validate_submitted_plan(
     ADR-0018 D4 — one origin check for every origin kind: a body whose
     ``finding_id`` differs from, adds to or drops the started plan's is
     refused (``plan_origin.PLAN_ORIGIN_CHANGED``).
+
+    ADR-0021 — and every path the body names stays inside the bound the plan
+    was admitted with (``revision_scope_exceeds_admission_closure``); the
+    refusal names the paths and leaves a plan-keyed governance row.
     """
     from .plan_contract import require_plan_contract
-    from .plan_origin import require_origin_unchanged
+    from .plan_origin import (
+        AdmissionScopeExceeded, admission_scope_for_plan, body_paths,
+        record_admission_scope_refusal, require_origin_unchanged, require_within_admission_scope,
+    )
 
     state_validator(state, payload)
     if body is None:
         return
     _validate_plan_content(body)
     require_origin_unchanged(state, body)
+    try:
+        require_within_admission_scope(admission_scope_for_plan(state), body_paths(body))
+    except AdmissionScopeExceeded as exc:
+        record_admission_scope_refusal(root, plan_id=state.get("plan_id"), stage="plan_submission", error=exc)
+        raise
     require_plan_contract(body, base_dir=root)
 
 
@@ -2572,6 +2603,10 @@ def _validate_event(event: dict[str, Any]) -> None:
         _validate_plan_content(payload.get("plan_content"))
         _require_hash(payload.get("content_hash"), "content_hash")
         _require_non_empty(payload.get("initial_revision_id"), "initial_revision_id")
+        if "admission_scope" in payload:
+            from .plan_origin import validate_admission_scope
+
+            validate_admission_scope(payload["admission_scope"], payload.get("plan_content"))
     elif event_type == "challenger_plan_drafted":
         _validate_plan_content(payload.get("plan_content"))
         _require_hash(payload.get("content_hash"), "content_hash")
@@ -2650,10 +2685,6 @@ def _validate_event(event: dict[str, Any]) -> None:
     elif event_type == "plan_abandoned":
         _require_non_empty(payload.get("reason"), "reason")
         _require_non_empty(payload.get("abandoned_from_state"), "abandoned_from_state")
-    elif event_type == "lock_reaped":
-        for field in ("stale_lock_pid", "lock_age_seconds", "reaped_by_pid"):
-            if not isinstance(payload.get(field), int):
-                raise GovernanceError(f"lock_reaped {field} must be an integer")
     # Plan ARIA-V9.0-B — implementation-phase event payload validators.
     # State preconditions live in _apply_event (the reducer), not here
     # — _validate_event is shape-only because validation runs once per

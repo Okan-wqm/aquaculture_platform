@@ -1048,6 +1048,7 @@ def _capture_pre_merge_context(
             )
             feedback_observation = _capture_pre_merge_operator_feedback(
                 plan_id=plan_id, state=state, rows=rows, workspace=workspace, trust_sha=live_base_sha,
+                tools=tools,
             )
             budget_observation = _capture_pre_merge_turn_budget(
                 tools=tools, rows=rows, implementation=implementation,
@@ -1237,7 +1238,7 @@ def _capture_pre_merge_coverage(
 
 def _capture_pre_merge_operator_feedback(
     *, plan_id: str, state: dict[str, Any], rows: dict[str, list[dict[str, Any]]],
-    workspace: Path, trust_sha: str,
+    workspace: Path, trust_sha: str, tools: Path,
 ) -> dict[str, Any]:
     """Observe the synthesizer's operator-feedback ingestion for THIS plan.
 
@@ -1250,19 +1251,20 @@ def _capture_pre_merge_operator_feedback(
     committed at ``trust_sha`` (the PR's live base on ``main``), read through
     the hardened git reader of ``main_anchor``: a principal revoked on
     ``main`` after the cycle cannot merge what it asked for (ADR-0020). A git
-    object needs no recheck and the lane holds no key.
+    object needs no recheck and the lane holds no key. ``tools`` names the
+    keys ARIA's runner holds, which the anchor never enrols (ARIA-HIGH-281).
     """
     from .operator_feedback_observation import observe_operator_feedback_for_plan
     from .operator_request_signature import allowed_signers_at
 
-    signers = allowed_signers_at(workspace, commit=trust_sha)
+    signers = allowed_signers_at(workspace, commit=trust_sha, base_dir=tools)
     return observe_operator_feedback_for_plan(
         plan_id=plan_id,
         plan_started=state.get("plan_started"),
         ingestion_rows=rows["operator_feedback_ingestion"],
         feedback_rows=rows["operator_feedback"],
         plan_events=rows["plan_convergence_events"],
-        allowed_signers=signers.content if signers is not None else None,
+        allowed_signers=signers,
     )
 
 

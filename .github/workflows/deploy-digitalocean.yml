@@ -99,14 +99,15 @@ on:
         required: false
         default: 'false'
 
-# Permissions are declared explicitly here so workflow_call invocations
-# from ci-affected.yml (which restricts to `contents: read`) can still
-# push images and tags. The called workflow's permissions OVERRIDE the
-# caller's when declared at this top level.
+# Least privilege per job (INFRA-CRITICAL-080). The workflow level grants
+# read only; every job declares its own `permissions:` and only the jobs that
+# push images (`packages: write`) or move the deployed/production tag
+# (`contents: write`) hold a write scope. The former workflow-level
+# `contents: write` + `packages: write` + `id-token: write` reached every job,
+# including the ones that only read, and no step here mints an OIDC token.
+# Enforced by tests/invariants/production-deploy-authority.spec.ts.
 permissions:
-  contents: write # push deployed/production after successful full deploys
-  packages: write # push container images to GHCR
-  id-token: write # OIDC for GHCR auth where used
+  contents: read
 
 env:
   REGISTRY: ghcr.io
@@ -125,6 +126,8 @@ jobs:
   production-deploy-lock:
     name: Production deployment stop-line
     runs-on: ubuntu-latest
+    # Reads only a repository variable; the job token is never used.
+    permissions: {}
     timeout-minutes: 2
     outputs:
       enabled: ${{ steps.lock.outputs.enabled }}
@@ -175,6 +178,8 @@ jobs:
       github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # git ls-remote for the deployed/staging-<sha> tag
     timeout-minutes: 60 # staging deploy typically lands in ~30 min
     steps:
       # ────────────────────────────────────────────────────────────────────
@@ -224,21 +229,23 @@ jobs:
       - name: Check bypass / capture reason
         id: bypass
         if: steps.enablement.outputs.skip != 'true'
+        # workflow_dispatch populates `github.event.inputs.X`; workflow_call
+        # populates `inputs.X`. Read both so the gate behaves identically
+        # regardless of how the workflow was invoked. Default 'false' / '' so
+        # an unset input is never silently treated as bypass=true.
+        #
+        # WHY env, not `BYPASS="${{ ... }}"` in the script (INFRA-CRITICAL-080):
+        # the runner substitutes an expression into the script text before
+        # bash parses it, so an operator-typed reason containing `"` closed
+        # the assignment and the rest ran as runner code. Through env the
+        # value is data; the script only ever reads "${BYPASS_REASON}".
+        env:
+          BYPASS_STAGING_GATE: ${{ inputs.bypass_staging_gate || github.event.inputs.bypass_staging_gate || 'false' }}
+          BYPASS_REASON: ${{ inputs.bypass_reason || github.event.inputs.bypass_reason || '' }}
         run: |
           set -euo pipefail
-          # workflow_dispatch populates `github.event.inputs.X`;
-          # workflow_call populates `inputs.X`. Read both so the gate
-          # behaves identically regardless of how the workflow was
-          # invoked. Default 'false' / '' so an unset input never
-          # silently treated as bypass=true.
-          #
-          # NOTE: outer double-quotes here, inner single-quotes in the
-          # GitHub expression. Mixing the same quote style nests
-          # incorrectly and breaks GitHub's stricter workflow-file
-          # parser (Python yaml.safe_load is lenient about it; the
-          # GitHub schema is not).
-          BYPASS="${{ inputs.bypass_staging_gate || github.event.inputs.bypass_staging_gate || 'false' }}"
-          REASON="${{ inputs.bypass_reason || github.event.inputs.bypass_reason || '' }}"
+          BYPASS="${BYPASS_STAGING_GATE}"
+          REASON="${BYPASS_REASON}"
 
           if [ "${BYPASS}" = "true" ]; then
             if [ -z "${REASON}" ]; then
@@ -246,6 +253,14 @@ jobs:
               echo "  Staging bypass is for emergencies only. Document the incident before skipping."
               exit 1
             fi
+            # The reason is echoed into a `::warning::` workflow command below;
+            # a line break would let it start a second workflow command.
+            case "${REASON}" in
+              *$'\n'* | *$'\r'*)
+                echo "::error::bypass_reason must be a single line."
+                exit 1
+                ;;
+            esac
             echo "::warning::STAGING GATE BYPASSED — reason: ${REASON}"
             echo "::warning::Logged bypass initiated by ${{ github.actor }} at $(date -u +%FT%TZ)"
             echo "bypass=true" >> "$GITHUB_OUTPUT"
@@ -323,6 +338,8 @@ jobs:
       github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 35
     steps:
       # SEC-CI-002: pinned to SHA
@@ -384,6 +401,8 @@ jobs:
       github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout + deployed/production baseline fetch
     outputs:
       image_prefix: ${{ steps.vars.outputs.image_prefix }}
       has_backend_changes: ${{ steps.detect.outputs.has_backend }}
@@ -413,6 +432,11 @@ jobs:
 
       - name: Detect affected services
         id: detect
+        # The requested service list crosses as env data (INFRA-CRITICAL-080);
+        # every entry is then matched against the generated catalog below, so
+        # an unknown name selects nothing.
+        env:
+          REQUESTED_SERVICES_INPUT: ${{ inputs.services || github.event.inputs.services || 'all' }}
         run: |
           set -euo pipefail
 
@@ -436,8 +460,7 @@ jobs:
           AFFECTED_INFRA_IMAGES=()
           FULL_DEPLOY=false
           DEPLOY_MODE="auto_selective"
-          REQUESTED_SERVICES="${{ inputs.services || github.event.inputs.services || 'all' }}"
-          REQUESTED_SERVICES="$(echo "${REQUESTED_SERVICES}" | xargs)"
+          REQUESTED_SERVICES="$(echo "${REQUESTED_SERVICES_INPUT}" | xargs)"
 
           append_backend_once() {
             local svc="$1"
@@ -665,6 +688,8 @@ jobs:
     needs: [prepare]
     if: needs.prepare.outputs.has_backend_changes == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 30
     steps:
       # SEC-CI-002: pinned to SHA
@@ -722,6 +747,8 @@ jobs:
     needs: [prepare]
     if: needs.prepare.outputs.has_frontend_changes == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 30
     steps:
       # SEC-CI-002: pinned to SHA
@@ -1173,8 +1200,11 @@ jobs:
   # ===========================================================================
   capacity-preflight:
     needs: [prepare, verify-images]
+    # `github.ref == main` is evaluated before the job starts, so a non-main
+    # dispatch never reaches the production Environment or its secrets.
     if: |
       always() &&
+      github.ref == 'refs/heads/main' &&
       needs.prepare.result == 'success' &&
       needs.verify-images.result == 'success'
     runs-on: ubuntu-latest
@@ -1183,6 +1213,27 @@ jobs:
     permissions:
       contents: read
     steps:
+      # INFRA-CRITICAL-080: this job holds the droplet SSH key, so it proves
+      # on its own — not through an upstream job's predicate — that it runs
+      # the exact current head of protected main. A re-run of an old run, or
+      # a run whose build finished after main moved, stops here before any
+      # action runs or any secret is read. Inline because it must precede
+      # checkout (a repo script or local action would need one).
+      # Enforced by tests/invariants/production-deploy-authority.spec.ts.
+      - name: Prove exact protected-main authority
+        id: protected-main-authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_WORKFLOW_SHA}" = "${GITHUB_SHA}"
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [ "${current_main}" != "${GITHUB_SHA}" ]; then
+            echo "::error::Refusing stale production authority: run=${GITHUB_SHA} current-main=${current_main}"
+            exit 1
+          fi
+
       - name: Capacity preflight on production droplet
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
         env:
@@ -1240,8 +1291,11 @@ jobs:
         capacity-preflight,
       ]
     # Only deploy if at least one image build succeeded (artifact jobs may be skipped when there are no changes)
+    # `github.ref == main` keeps a non-main run from ever starting this
+    # Environment-bound job (INFRA-CRITICAL-080).
     if: |
       always() &&
+      github.ref == 'refs/heads/main' &&
       needs.prepare.result == 'success' &&
       (needs.build-backend-artifacts.result == 'success' || needs.build-backend-artifacts.result == 'skipped') &&
       (needs.build-frontend-artifacts.result == 'success' || needs.build-frontend-artifacts.result == 'skipped') &&
@@ -1262,6 +1316,23 @@ jobs:
       contents: write
       packages: read
     steps:
+      # INFRA-CRITICAL-080: re-proved here rather than inherited from
+      # capacity-preflight — main can move during the image builds, and this
+      # job holds both the droplet SSH key and a contents:write token.
+      - name: Prove exact protected-main authority
+        id: protected-main-authority
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_WORKFLOW_SHA}" = "${GITHUB_SHA}"
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          if [ "${current_main}" != "${GITHUB_SHA}" ]; then
+            echo "::error::Refusing stale production authority: run=${GITHUB_SHA} current-main=${current_main}"
+            exit 1
+          fi
+
       # SEC-CI-002: pinned to SHA (needed for tag update step)
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

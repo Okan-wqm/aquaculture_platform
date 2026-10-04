@@ -1024,6 +1024,7 @@ def run_convergence_drainer(
                 plan_content=plan_seed,
                 initial_revision_id=f"{plan_id}-r1",
                 base_dir=base_dir,
+                workspace_root=workspace_root or Path.cwd(),
             )
             started_state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
             current_refs, current_revision_hash, current_context_paths = _planning_source_context(started_state, evidence_refs)

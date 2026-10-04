@@ -120,9 +120,27 @@ ORIGINATING_SKILL_ALLOWLIST: frozenset[str] = frozenset({
     # Sabah treni (ORPHAN-702) — the drift seeder graduates from its own
     # file format to the ONE mint path; this is its registered origin.
     "seed:drift-scan",
+    # ARIA-HIGH-279 (program plan rev2, HIGH ruling 6) — the deterministic
+    # class builder (CB-3): one finding per (class_key = tool:rule, Nx
+    # project) slice, so the operator's single signed CP-1 request names
+    # exactly one F finding. An exact origin, never a prefix.
+    "class_builder:tool_rule",
     # V10.6 detectors registered here when F-AUTO-V10.6-EXTRA-DETECTORS lands:
     # "aria-watchdog:rejection_repeat",
     # "aria-watchdog:phase_asymmetry",
+})
+# ARIA-HIGH-260 — the allowlisted origins whose producer is NOT an ARIA
+# component: the operator's own hand and the review registry
+# (docs/reviews/_registry/findings.jsonl, which report_ingestion reads and the
+# implementer cannot write — implementation_safety.READONLY_PATHS). Every
+# other origin (the watchdog, the judgment pipeline, the drift seeder, and
+# any detector added to the allowlist later) is ARIA observing itself, and a
+# record with no origin is read as ARIA's. The F_FINDING self-loop guard
+# (``finding_grounding``) reads this set; it must stay a subset of the
+# allowlist (pinned by tests/test_f_finding_loop_guards.py).
+EXTERNAL_ORIGINATING_SKILLS: frozenset[str] = frozenset({
+    "manual:operator",
+    "report_ingestion:external_pr",
 })
 
 SEVERITY_RANK = {"INFORMATIONAL": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}

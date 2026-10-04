@@ -29,6 +29,12 @@ aria-kernel/aria-tools/
 # this one untracked file. Ignored for the same reason the store is: it is
 # designed host-local runtime material, never content for the code branch.
 .aria-state-store.writers.jsonl
+# ARIA-HIGH-349 — a store whose worktree link is gone is set aside next to
+# itself as `.aria-state-store.hollow-<stamp>[-n]/` (state_store
+# `_set_aside_hollow_store`: kept for forensics, nothing deleted). It is
+# host-local runtime material like the store, so it must not dirty the lane's
+# clean-worktree gate: burn-in 37227217146 refused on exactly this directory.
+.aria-state-store.hollow-*/
 # ARIA runtime state trees — created at runtime by the kernel/workflows
 # (cycle ledgers, artifact-restored state, fresh-scan seed findings);
 # runtime writes must never dirty the discovery/burn-in worktree

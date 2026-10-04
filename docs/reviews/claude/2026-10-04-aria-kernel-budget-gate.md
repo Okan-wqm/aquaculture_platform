@@ -40,8 +40,9 @@ lines; four of them exceed 400 lines (#1766 560, #1731 454, #1739 420, #1733 405
 modules (#1756 +2, #1766 +2).
 
 The plan's rev3.1 figures (about 2.4k merged, about 3.9k open) were a 2026-10-03 snapshot.
-#1730, #1732, #1734, #1741, #1744 and #1749 merged after it, and #1753, #1755, #1756, #1759 and
-#1766 opened after it.
+
+- Merged since: #1730, #1732, #1734, #1741, #1744, #1749.
+- Opened since: #1753, #1755, #1756, #1759, #1766.
 
 Evidence:
 

@@ -44,7 +44,7 @@ const REGISTRY = join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl
  * next advisory with no safe remediation gets a dated, reviewed entry and the
  * ratchet moves to 1 in the same commit, never silently.
  */
-const MAX_EXCEPTIONS = 2;
+const MAX_EXCEPTIONS = 3;
 
 // 2026-09-16: 0 → 2, in the same commit as the two entries it admits.
 // GHSA-7w5x-hrqm-74c2 (nx toolchain, 15 packages) and GHSA-vwc7-r8mq-g2x9
@@ -52,6 +52,14 @@ const MAX_EXCEPTIONS = 2;
 // only npm remediation is a SemVer-major workspace-wide nx bump — tracked as
 // SUPPLY-HIGH-011/012. The ratchet must return to 0 when that migration lands
 // and these entries expire (2026-10-16).
+//
+// 2026-10-04: 2 → 3, in the same commit as the entry it admits.
+// GHSA-vfj7-8cjw-p6xm (braces stack exhaustion, no patched release) after
+// SUPPLY-HIGH-016 took every non-breaking upgrade: root-production is clean
+// and the entry names only the root-full, aquamobil-full and e2e-full legs,
+// where the remaining paths are dev and build tooling whose fixes are
+// semver-majors or upstream releases. Tracked as SUPPLY-HIGH-017; the entry
+// expires 2026-11-03 and the ratchet drops by one when it goes.
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ADVISORY_ID = /^GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}$/;

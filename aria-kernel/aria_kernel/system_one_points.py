@@ -7,8 +7,11 @@ finding's verdict being the maximum over its files — and R5 for the PR's
 title and body against its diff; the merge authority asks J0 for every
 ``Closes:`` trailer of the PR's commits; the judge fan-out asks each question
 registered for ``judge_fanout`` (J1, one per rule family) about every finding
-it mints judges for. No caller reads a return value, and every entry point
-swallows its own failure: a reflex never changes what the protocol does.
+it mints judges for. No caller reads a return value, every entry point
+swallows its own failure, and each stops asking once SHADOW_BUDGET_SECONDS of
+wall clock is spent (a slow Jev answers within the 5 s transport ceiling, so
+without a budget a 40-file diff could hold the 15-minute merge lane): a reflex
+never changes what the protocol does, nor how long it takes beyond the budget.
 
 ORDER — R4 ranks deterministic candidate files (tracked files that name the
 problem's identifiers) for planner and implementer envelopes ONLY when the
@@ -21,6 +24,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
@@ -32,6 +36,10 @@ FILE_DIFF_MAX_CHARS = 12_000  # J0 was validated on per-file diffs cut at 12k ch
 MAX_FILES = 40
 MAX_CANDIDATES = 12
 GIT_TIMEOUT_SECONDS = 20
+# Wall clock one entry point may spend asking; the call in flight at the deadline still
+# finishes (<= 2 attempts x 5 s), so a point costs at most ~25 s whatever Jev does.
+SHADOW_BUDGET_SECONDS = 15.0
+_clock: Callable[[], float] = time.monotonic
 _SKIP_PATH = re.compile(r"^(docs/|\.claude/)|\.md$|findings\.jsonl$|\.generated\.|/generated/|package-lock\.json$")
 _CLOSES = re.compile(r"^Closes:\s*\S+?#([A-Z][A-Z0-9]*-[A-Z]+-\d+)\s*$", re.MULTILINE)
 _OUTLINE = re.compile(
@@ -39,6 +47,14 @@ _OUTLINE = re.compile(
     r"|const \w+ = (async )?\()"
 )
 _IDENTIFIER = re.compile(r"`([^`\s]{4,80})`|\b([A-Za-z_][A-Za-z0-9]*(?:_[A-Za-z0-9]+|[a-z][A-Z][A-Za-z0-9]*)+)\b")
+
+
+class _Budget:
+    def __init__(self) -> None:
+        self._until = _clock() + SHADOW_BUDGET_SECONDS
+
+    def left(self) -> bool:
+        return _clock() < self._until
 
 
 def _enabled(base_dir: str | Path | None) -> Registry | None:
@@ -82,10 +98,12 @@ def finding_claims(registry_text: str, finding_ids: Iterable[str]) -> dict[str, 
 
 
 def _ask_j0(claims: Mapping[str, Mapping[str, str]], diff_text: str, *, point: str,
-            base_dir: str | Path | None, subject: str) -> None:
+            base_dir: str | Path | None, subject: str, budget: _Budget) -> None:
     diffs = file_diffs(diff_text)
     for finding_id, claim in claims.items():
         for path, diff in diffs.items():
+            if not budget.left():
+                return
             ask("J0", {"finding": dict(claim), "diff": diff}, decision_point=point, base_dir=base_dir,
                 subject=f"{subject}:{finding_id}:{path}")
 
@@ -100,14 +118,16 @@ def shadow_pr_open(
 ) -> None:
     """J0 per claimed finding × file, R5 for the PR text — recorded, never read."""
     try:
+        budget = _Budget()
         if _enabled(base_dir) is None or not diff_text:
             return
+        # R5 first: one call, so a J0 fan-out that spends the budget never starves it.
+        ask("R5", {"message": f"{title}\n\n{body}", "diff": diff_text[:FILE_DIFF_MAX_CHARS]},
+            decision_point="pre_pr_open", base_dir=base_dir, subject=subject)
         ids = closes_ids(_messages(commits))
         registry_path = Path(workspace_root) / REGISTRY_FINDINGS
         claims = finding_claims(registry_path.read_text(encoding="utf-8"), ids) if ids and registry_path.is_file() else {}
-        _ask_j0(claims, diff_text, point="pre_pr_open", base_dir=base_dir, subject=subject)
-        ask("R5", {"message": f"{title}\n\n{body}", "diff": diff_text[:FILE_DIFF_MAX_CHARS]},
-            decision_point="pre_pr_open", base_dir=base_dir, subject=subject)
+        _ask_j0(claims, diff_text, point="pre_pr_open", base_dir=base_dir, subject=subject, budget=budget)
     except Exception:  # noqa: BLE001 — a shadow reflex never breaks the PR opener
         return
 
@@ -117,6 +137,7 @@ def shadow_merge(
 ) -> None:
     """J0 per ``Closes:`` trailer of the PR's commits × changed file — recorded, never read."""
     try:
+        budget = _Budget()
         head = str(pr.get("head_sha") or pr.get("headRefOid") or "")
         base = str(pr.get("base_sha") or pr.get("baseRefOid") or "")
         if _enabled(base_dir) is None or workspace_root is None or not (head and base and diff_text):
@@ -124,7 +145,8 @@ def shadow_merge(
         log = _git(workspace_root, "log", "--format=%B%x00", f"{base}..{head}")
         ids = closes_ids(log.split("\x00"))
         claims = finding_claims(_git(workspace_root, "show", f"{head}:{REGISTRY_FINDINGS}"), ids) if ids else {}
-        _ask_j0(claims, diff_text, point="merge_authority", base_dir=base_dir, subject=f"pr:{pr.get('number')}")
+        _ask_j0(claims, diff_text, point="merge_authority", base_dir=base_dir, subject=f"pr:{pr.get('number')}",
+                budget=budget)
     except Exception:  # noqa: BLE001 — a shadow reflex never breaks the merge authority
         return
 
@@ -146,12 +168,15 @@ def shadow_judge_fanout(
 ) -> None:
     """Each question registered for ``judge_fanout`` and the item's tool, per minted finding — recorded."""
     try:
+        budget = _Budget()
         registry = _enabled(base_dir)
         if registry is None or repo_root is None:
             return
         questions = [q for q in registry.questions.values() if "judge_fanout" in q.decision_points]
         for item in items:
             for question in (q for q in questions if str(item.get("tool_id") or "") in q.tool_ids):
+                if not budget.left():
+                    return
                 excerpt = _excerpt(item, repo_root)
                 if excerpt:
                     rule = f"{item.get('rule') or ''}: {item.get('message') or ''}"
@@ -189,6 +214,7 @@ def rank_candidate_files(
     envelope builders do no extra work at all.
     """
     try:
+        budget = _Budget()
         registry = _enabled(base_dir)
         question = registry.questions.get("R4") if registry is not None else None
         if question is None or question.mode != "order" or "envelope_candidate_files" not in question.decision_points:
@@ -198,6 +224,8 @@ def rank_candidate_files(
         root = workspace_root if workspace_root is not None else bound_workspace_root(base_dir)
         ranked: list[dict[str, Any]] = []
         for path in _candidates(problem, root, rev):
+            if not budget.left():
+                break
             source = _git(root, "show", f"{rev}:{path}").splitlines()
             picked = [f"{index + 1:5d} {line.strip()[:140]}" for index, line in enumerate(source) if _OUTLINE.match(line)][:60]
             answer = ask("R4", {"problem": problem, "file": path, "outline": "\n".join(picked)},

@@ -19,22 +19,31 @@ One property per test:
   (sha256 pinned below, captured from c1d183969).
 * R4 on (order): the implementer section and the planner field carry the
   ranked candidates, capped at the registry's top_k.
+* Shadow invariance, per point: the outcome is the System-One-off outcome
+  whatever Jev does — answers yes, answers no, times out, refuses (HTTP 401),
+  has no credential (a hosted lane), raises, or the entry point itself raises —
+  and an entry point stops asking once its wall-clock budget is spent.
 """
 from __future__ import annotations
 
+import ast
+import contextlib
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 import unittest
+from email.message import Message
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 
 from aria_kernel import system_one_points as points
-from aria_kernel.jev_runtime import JevReply
+from aria_kernel.jev_runtime import JEV_CREDENTIAL_FILE_ENV, CircuitBreaker, JevReply, call_systemone
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.system_one import CALLS_RELPATH, CALLS_SURFACE
 from aria_kernel.tool_registry import ensure_tools_dir
@@ -76,23 +85,84 @@ def write_registry(workspace: Path, *, enabled: bool = True, r4_mode: str = "sha
 
 
 class Vendor:
-    """Answers every question; R4 scores a file by how often 'tenant' appears in its path."""
+    """Answers every question; R4 scores a file by how often 'tenant' appears in its path.
 
-    def __init__(self) -> None:
+    ``noul``/``score`` pin the answer instead: 0.99/2 is a confident yes, 0.01/0 a confident no.
+    """
+
+    def __init__(self, *, noul: float = 0.77, score: float | None = None) -> None:
         self.payloads: list[dict[str, Any]] = []
+        self.noul, self.score = noul, score
 
     def __call__(self, payload: dict[str, Any]) -> JevReply:
         self.payloads.append(payload)
         (question_id, spec), = payload["questions"].items()
         if spec["type"] == "score":
             state = json.loads(payload["state"])
-            answer = {"type": "score", "score": min(2.0, state["file"].count("tenant") * 0.7), "confidence": 0.8}
+            score = min(2.0, state["file"].count("tenant") * 0.7) if self.score is None else self.score
+            answer = {"type": "score", "score": score, "confidence": 0.8}
         else:
-            answer = {"type": "noul", "noul": 0.77}
+            answer = {"type": "noul", "noul": self.noul}
         return JevReply(model="jev-1.13.0", answers={question_id: answer}, input_tokens=50)
 
     def asked(self) -> list[str]:
         return [next(iter(payload["questions"])) for payload in self.payloads]
+
+
+# Every way Jev can answer or fail, and the ledger outcome each leaves (None: the entry point raised, no row).
+JEV_BEHAVIOURS: dict[str, tuple[str, str | None] | None] = {
+    "yes": ("answered", None),
+    "no": ("answered", None),
+    "timeout": ("unavailable", "transport_error:TimeoutError"),
+    "refused_http_401": ("unavailable", "auth_rejected_http_401"),
+    "no_credential": ("unavailable", "credential_not_configured"),
+    "transport_raises": ("unavailable", "transport_raised:RuntimeError"),
+    "entry_point_raises": None,
+}
+
+
+@contextlib.contextmanager
+def jev(behaviour: str, key_dir: Path) -> Iterator[None]:
+    """Jev behaving as ``behaviour``. Failures go through the REAL transport (urlopen patched, a fake key)."""
+    if behaviour in ("yes", "no"):
+        vendor = Vendor(noul=0.99, score=2) if behaviour == "yes" else Vendor(noul=0.01, score=0)
+        with patch("aria_kernel.system_one.call_systemone", vendor):
+            yield
+        return
+    if behaviour == "transport_raises":
+        with patch("aria_kernel.system_one.call_systemone", side_effect=RuntimeError("vendor sdk blew up")):
+            yield
+        return
+    if behaviour == "entry_point_raises":
+        with patch("aria_kernel.system_one_points.ask", side_effect=RuntimeError("system one blew up")):
+            yield
+        return
+    key = key_dir / "jev.fake-key"
+    key.write_text("fake-test-credential\n", encoding="utf-8")
+    key.chmod(0o600)
+    environ = {} if behaviour == "no_credential" else {JEV_CREDENTIAL_FILE_ENV: str(key)}
+    error: Exception = (URLError(TimeoutError("timed out")) if behaviour == "timeout"
+                        else HTTPError("https://jev.invalid", 401, "Unauthorized", Message(), None))
+    breaker = CircuitBreaker()
+
+    def transport(payload: dict[str, Any]) -> Any:
+        return call_systemone(payload, environ=environ, breaker=breaker, sleep=lambda _seconds: None)
+
+    with patch("urllib.request.urlopen", side_effect=error), patch("aria_kernel.system_one.call_systemone", transport):
+        yield
+
+
+def assert_rows_for(case: unittest.TestCase, behaviour: str, recorded: list[dict[str, Any]]) -> None:
+    expected = JEV_BEHAVIOURS[behaviour]
+    if expected is None:
+        case.assertEqual(recorded, [])
+        return
+    case.assertTrue(recorded)
+    outcome, reason = expected
+    case.assertEqual({r["outcome"] for r in recorded}, {outcome})
+    # After three consecutive failures the in-process breaker answers for the vendor.
+    case.assertEqual(recorded[0]["reason"], reason)
+    case.assertLessEqual({r["reason"] for r in recorded}, {reason, "circuit_open"})
 
 
 def rows(tools: Path) -> list[dict[str, Any]]:
@@ -180,6 +250,21 @@ class PrOpen(unittest.TestCase):
         self.assertTrue(j0["subject"].endswith(":FARM-HIGH-001:" + points.file_diffs(
             git(self.repo, "diff", "HEAD^..HEAD")).popitem()[0]))
 
+    def test_the_pr_is_the_same_whatever_jev_does(self) -> None:
+        off_result, off_gh = self.open()
+        write_registry(self.repo)
+        keys = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, keys, True)
+        for behaviour in JEV_BEHAVIOURS:
+            with self.subTest(behaviour=behaviour):
+                before = len(rows(self.tools))
+                with jev(behaviour, keys):
+                    on_result, on_gh = self.open()
+                self.assertEqual(on_gh, off_gh)
+                for key in ("url", "pr_number", "head_sha", "base_branch"):
+                    self.assertEqual(on_result.get(key), off_result.get(key), key)
+                assert_rows_for(self, behaviour, rows(self.tools)[before:])
+
 
 class Merge(unittest.TestCase):
     def setUp(self) -> None:
@@ -246,6 +331,20 @@ class Merge(unittest.TestCase):
                          [("J0", "merge_authority", "pr:7:FARM-HIGH-001:apps/farm.ts")])
         self.assertEqual(json.loads(vendor.payloads[0]["state"])["finding"]["rule"], "Every query is tenant-scoped")
 
+    def test_the_merge_decision_is_the_same_whatever_jev_does(self) -> None:
+        off_result, off_calls = self.merge()
+        write_registry(Path(self.tmp.name))
+        keys = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, keys, True)
+        for behaviour in JEV_BEHAVIOURS:
+            with self.subTest(behaviour=behaviour):
+                before = len(rows(self.tools))
+                with jev(behaviour, keys):
+                    on_result, on_calls = self.merge()
+                self.assertEqual((on_result["decision"], on_result["eligible"], on_calls),
+                                 (off_result["decision"], off_result["eligible"], off_calls))
+                assert_rows_for(self, behaviour, rows(self.tools)[before:])
+
 
 class JudgeFanout(unittest.TestCase):
     def setUp(self) -> None:
@@ -283,6 +382,18 @@ class JudgeFanout(unittest.TestCase):
         state = json.loads(vendor.payloads[0]["state"])
         self.assertIn("   12 line 12", state["excerpt"])
         self.assertEqual(state["file"], "src/farm.ts")
+
+    def test_the_mint_is_the_same_whatever_jev_does(self) -> None:
+        off = self.fan_out("off/aria-tools")
+        for behaviour in JEV_BEHAVIOURS:
+            with self.subTest(behaviour=behaviour):
+                write_registry(self.root / behaviour)
+                with jev(behaviour, self.root):
+                    on = self.fan_out(f"{behaviour}/aria-tools")
+                self.assertEqual(on["minted_count"], off["minted_count"])
+                self.assertEqual([(m["role"], m["judgment_group_id"]) for m in on["minted"]],
+                                 [(m["role"], m["judgment_group_id"]) for m in off["minted"]])
+                assert_rows_for(self, behaviour, rows(self.root / behaviour / "aria-tools"))
 
 
 class CandidateFiles(unittest.TestCase):
@@ -361,7 +472,7 @@ class Envelopes(unittest.TestCase):
 
     _PLAN = {"title": "Use `getScopedRepository` everywhere", "summary": "Scope the farm query."}
 
-    def mint(self, registry: str | None) -> tuple[str, str, list[str]]:
+    def mint(self, registry: str | None, behaviour: str | None = None) -> tuple[str, str, list[str]]:
         from aria_kernel.cross_review_bridge import issue_implementation_envelope
         from aria_kernel.plan_convergence import start_plan
         from aria_kernel.plan_round_controller import advance_plan_rounds
@@ -386,7 +497,9 @@ class Envelopes(unittest.TestCase):
             key_changes=[{"id": "kc-1", "description": "scope it", "paths": ["apps/tenant.ts"]}],
         )
         vendor = Vendor()
-        with patch("aria_kernel.system_one.call_systemone", vendor):
+        answering = (patch("aria_kernel.system_one.call_systemone", vendor) if behaviour is None
+                     else jev(behaviour, root))
+        with answering:
             drive_plan_to_converged(plan_id="plan-impl", tools=tools, workspace_root=root / "workspace", plan_content=body)
             implementer = issue_implementation_envelope(
                 plan_id="plan-impl", cross_review_revision_id="cr-1", cross_review_summary_text="{}",
@@ -413,6 +526,62 @@ class Envelopes(unittest.TestCase):
         candidates = json.loads(order_planner)["candidate_files"]
         self.assertEqual([row["path"] for row in candidates], ["apps/tenant_tenant_tenant.ts", "apps/tenant_tenant.ts"])
         self.assertNotIn("candidate_files", json.loads(base_planner))
+
+    def test_whatever_jev_does_a_shadow_or_failing_r4_leaves_every_envelope_byte_identical(self) -> None:
+        base_implementer, base_planner, _ = self.mint(None)
+        failing = [b for b in JEV_BEHAVIOURS if b not in ("yes", "no")]
+        for registry, behaviours in (("shadow", list(JEV_BEHAVIOURS)), ("order", failing)):
+            for behaviour in behaviours:
+                with self.subTest(registry=registry, behaviour=behaviour):
+                    implementer, planner, _ = self.mint(registry, behaviour)
+                    self.assertEqual((implementer, planner), (base_implementer, base_planner))
+
+
+class Budget(unittest.TestCase):
+    """A slow Jev cannot hold a lane: an entry point stops asking once SHADOW_BUDGET_SECONDS is spent."""
+
+    def test_an_entry_point_stops_asking_once_its_budget_is_spent(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        tools = ensure_tools_dir(root / "aria-tools")
+        write_registry(root)
+        (root / points.REGISTRY_FINDINGS).parent.mkdir(parents=True)
+        (root / points.REGISTRY_FINDINGS).write_text(registry_row("FARM-HIGH-001") + "\n", encoding="utf-8")
+        diff = "".join(f"diff --git a/apps/f{i}.ts b/apps/f{i}.ts\n+x{i}\n" for i in range(6))
+        clock, vendor = [0.0], Vendor()
+
+        def slow(payload: dict[str, Any]) -> JevReply:
+            clock[0] += 6.0  # every answer takes 6 s of the 10 s budget
+            return vendor(payload)
+
+        with patch.object(points, "_clock", lambda: clock[0]), patch.object(points, "SHADOW_BUDGET_SECONDS", 10.0), \
+                patch("aria_kernel.system_one.call_systemone", slow):
+            points.shadow_pr_open(base_dir=tools, workspace_root=root, diff_text=diff, title="t", body="b",
+                                  commits=[{"subject": "fix(x): y", "body": "Closes: docs/reviews/a.md#FARM-HIGH-001"}],
+                                  subject="proposal:p")
+        # R5 first (one call), then J0 per file until the budget is gone: two of seven calls.
+        self.assertEqual(vendor.asked(), ["R5", "J0"])
+        self.assertEqual(len(rows(tools)), 2)
+
+
+class Switch(unittest.TestCase):
+    def test_only_the_committed_registry_turns_system_one_on(self) -> None:
+        # No process-environment flag a run could flip: neither module reads the environment.
+        from aria_kernel import system_one
+
+        for module in (system_one, points):
+            tree = ast.parse(Path(str(module.__file__)).read_text(encoding="utf-8"))
+            names = ({node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+                     | {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)})
+            self.assertFalse({"environ", "getenv", "environb"} & names, module.__name__)
+
+    def test_no_workflow_carries_the_jev_credential(self) -> None:
+        # ADR-0027 §5: the self-hosted lanes inherit ARIA_JEV_API_KEY_FILE (a 0600 file's path) from the
+        # runner's .env; no GitHub secret holds the key and no workflow sets, overrides or prints the path.
+        carried = re.compile(r"(?i)secrets\.\w*jev|ARIA_JEV_API_KEY(?!_FILE)|ARIA_JEV_API_KEY_FILE\s*[:=]|jev_api_key")
+        for workflow in sorted((_REPO_ROOT / ".github" / "workflows").glob("*.y*ml")):
+            self.assertIsNone(carried.search(workflow.read_text(encoding="utf-8")), workflow.name)
 
 
 if __name__ == "__main__":

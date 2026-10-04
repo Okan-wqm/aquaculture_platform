@@ -1138,9 +1138,9 @@ jobs:
 
       # ARIA-HIGH-342 — give back the aria/state writer lease the restore took.
       # Unconditional (GSEC-LOW-001): release is idempotent, a no-op when this
-      # run yielded and holds none, and falls back to this run's own identity
-      # when the token did not survive. A runner that dies outright frees the
-      # branch at the expiry the restore set.
+      # run yielded and holds none, and releases only by the token (kept on
+      # disk before the acquire's push; there is no release by identity). A
+      # runner that dies outright frees the branch at the expiry it set.
       - name: Release the aria/state writer lease
         if: always()
         uses: ./.github/actions/release-aria-state-lease

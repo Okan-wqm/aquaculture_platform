@@ -9,9 +9,11 @@ description: >-
 # `if: always()` and nothing else (GSEC-LOW-001), so a failed, blocked or
 # cancelled job frees the branch at once; a runner that dies outright frees it
 # at the lease's recorded expiry. The lane passes the restore's masked
-# `writer-lease-token` output; when that did not survive, the kernel releases
-# the current lease only if its owner IS this run (`writer_identity`), so a
-# lease another writer has since taken is never released on its behalf.
+# `writer-lease-token` output — kept on disk before the acquire's push and
+# emitted whatever the acquire's exit, so a holder always has it. There is no
+# release by identity (an identity is public): without the token this is a
+# no-op, and a lease another writer has since taken is never released on its
+# behalf.
 
 inputs:
   lease-token:

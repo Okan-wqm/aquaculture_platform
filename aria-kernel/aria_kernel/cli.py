@@ -728,6 +728,15 @@ def _handle_state_lease_command(args: argparse.Namespace) -> int:
         0o600,
     )
     os.fchmod(descriptor, 0o600)
+
+    def keep_token(token: str) -> None:
+        # On disk BEFORE the push that makes it the lease's: a process that
+        # dies after its push still leaves the capability for its release.
+        os.ftruncate(descriptor, 0)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        os.write(descriptor, (token + "\n").encode("utf-8"))
+        os.fsync(descriptor)
+
     try:
         held = acquire_writer_lease(
             args.repo_root,
@@ -736,9 +745,15 @@ def _handle_state_lease_command(args: argparse.Namespace) -> int:
             poll_seconds=args.poll_seconds,
             remote=args.remote,
             state_branch=branch,
+            persist_token=keep_token,
         )
     except BaseException as failure:
         os.close(descriptor)
+        if not isinstance(failure, (StateWriterLeaseBlocked, StateStoreRefusal)):
+            # The push may have landed: keep the token for the release step.
+            raise
+        # A verdict: no token of ours is the lease's (a token minted for a
+        # push that lost its race is worthless), so none is kept.
         os.unlink(args.token_file)
         if isinstance(failure, StateWriterLeaseBlocked):
             print(json.dumps({
@@ -759,8 +774,7 @@ def _handle_state_lease_command(args: argparse.Namespace) -> int:
             }, indent=2, sort_keys=True))
             return 4
         raise
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        handle.write(held.token + "\n")
+    os.close(descriptor)
     print(json.dumps(held.as_json(), indent=2, sort_keys=True))
     return 0
 

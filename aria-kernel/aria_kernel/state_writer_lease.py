@@ -524,13 +524,21 @@ def acquire_writer_lease(
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
     now: Callable[[], datetime] = _utc_now,
+    persist_token: Callable[[str], None] | None = None,
 ) -> HeldWriterLease:
     """Take the aria/state writer lease, waiting at most ``wait_seconds``.
 
-    Raises ``StateWriterLeaseBlocked`` when another holder still has it after
-    the wait. ``owner`` is for tests; a lane is always named by
-    ``writer_identity`` (the CLI has no flag for it). The returned lease
-    carries the fresh capability token; nothing else ever sees it.
+    Raises ``StateWriterLeaseBlocked`` while ANY holder still has it after
+    the wait — this caller's own identity included. An identity is public
+    (a CI job's is four environment variables), so it re-enters nothing: the
+    d38b25979 CI run showed two processes of one job deriving the same
+    ``gha:`` identity and the second taking the first's lease without its
+    token. Only the token renews a lease (``state_writer_fence``).
+
+    ``persist_token`` receives each freshly minted token BEFORE the push that
+    would make it the lease's, so a process that dies after the push still
+    leaves the capability its release step needs (no identity fallback).
+    ``owner`` is for tests; a lane is always named by ``writer_identity``.
     """
     if not 1 <= int(ttl_minutes) <= MAX_TTL_MINUTES:
         raise StateStoreError(
@@ -547,13 +555,15 @@ def acquire_writer_lease(
     unchanged_failures = 0
     while True:
         view = read_writer_lease(root, remote=remote, state_branch=state_branch)
-        if view.is_held(now=now()) and view.lease is not None and view.lease.owner != holder:
+        if view.is_held(now=now()):
             waited = monotonic() - started
             if waited >= wait_seconds:
                 raise StateWriterLeaseBlocked(view, waited_seconds=waited)
             sleep(min(poll_seconds, max(wait_seconds - waited, 0.001)))
             continue
         token = secrets.token_hex(32)
+        if persist_token is not None:
+            persist_token(token)
         lease = build_remote_cas_lease(
             previous=view.lease,
             owner=holder,
@@ -605,27 +615,6 @@ def resolve_writer_lease_token(token: str | None = None) -> str:
     return resolved
 
 
-def require_held_writer_lease(
-    repo_root: str | Path,
-    *,
-    token: str | None = None,
-    remote: str = "origin",
-    state_branch: str = STATE_BRANCH,
-) -> WriterLeaseView:
-    """Refuse unless ``token`` (default: ``$ARIA_STATE_WRITER_LEASE_TOKEN``)
-    is the capability of the current, unreleased writer lease."""
-    presented = resolve_writer_lease_token(token)
-    view = read_writer_lease(repo_root, remote=remote, state_branch=state_branch)
-    if not view.held_by_token(presented):
-        current = view.lease
-        raise StateStoreRefusal(
-            "state_writer_lease_not_held: the presented token is not the capability of the "
-            f"current writer lease (current: {current.lease_id if current else 'none'} by "
-            f"{current.owner if current else '-'}, released={view.released})"
-        )
-    return view
-
-
 def _release_once(
     root: Path,
     view: WriterLeaseView,
@@ -658,11 +647,11 @@ def release_writer_lease(
 ) -> dict[str, Any]:
     """Give the lease back — compare, then swap. Idempotent.
 
-    Released when the caller presents the lease's token; or, with no token,
-    when the current lease's owner IS this caller's ``writer_identity`` (the
-    release step of the run that acquired it, GSEC-LOW-001); or with
+    Released when the caller presents the lease's token, or with
     ``force_foreign_reason`` — the audited operator release of a holder that
     died without releasing, recorded on the lease branch with the reason.
+    There is no release by identity: an identity is public, and the token is
+    on disk before the lease is pushed, so the holder always has it.
     Anything else leaves the lease alone and says why.
     """
     root = Path(repo_root)
@@ -680,10 +669,8 @@ def release_writer_lease(
             reason = "holder released"
         elif force_foreign_reason:
             reason = f"force-foreign: {force_foreign_reason}"
-        elif view.lease.owner == releaser:
-            reason = "holder released by identity"
         else:
-            return {"released": False, "reason": "lease_not_held_by_caller", "current": view.as_json()}
+            return {"released": False, "reason": "no_token", "current": view.as_json()}
         if _release_once(root, view, remote=remote, branch=branch, released_by=releaser, reason=reason):
             return {
                 "released": True,
@@ -782,7 +769,6 @@ __all__ = [
     "read_writer_lease",
     "release_writer_lease",
     "repair_writer_lease",
-    "require_held_writer_lease",
     "resolve_writer_lease_token",
     "token_digest",
     "view_record",

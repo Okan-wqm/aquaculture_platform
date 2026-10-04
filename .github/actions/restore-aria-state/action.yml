@@ -174,21 +174,27 @@ runs:
         set -uo pipefail
         VERDICT="${RUNNER_TEMP}/aria-state-writer-lease.json"
         TOKEN_FILE="${RUNNER_TEMP}/aria-state-writer-lease.token"
-        if PYTHONPATH=aria-kernel python3 -m aria_kernel state lease acquire \
+        PYTHONPATH=aria-kernel python3 -m aria_kernel state lease acquire \
              --repo-root . \
              --ttl-minutes "$LEASE_TTL_MINUTES" \
              --wait-seconds "$LEASE_WAIT_SECONDS" \
-             --token-file "$TOKEN_FILE" > "$VERDICT"; then
-          # The capability: masked before it is ever an output, the file gone
-          # the moment it is read, and never exported to the job environment.
+             --token-file "$TOKEN_FILE" > "$VERDICT"
+        LEASE_EXIT=$?
+        # The capability is on disk BEFORE the push that makes it the lease's
+        # (R-2), so it is handed on whatever the exit: an acquire that died
+        # after its push still lets the always() release step free the lease
+        # by token. Masked before it is ever an output, the file gone the
+        # moment it is read, never exported to the job environment.
+        if [ -s "$TOKEN_FILE" ]; then
           LEASE_TOKEN="$(cat "$TOKEN_FILE")"
-          rm -f "$TOKEN_FILE"
           echo "::add-mask::${LEASE_TOKEN}"
           echo "token=${LEASE_TOKEN}" >> "$GITHUB_OUTPUT"
+        fi
+        rm -f "$TOKEN_FILE"
+        if [ "$LEASE_EXIT" -eq 0 ]; then
           echo "writer_lease=held" >> "$GITHUB_OUTPUT"
           python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); print("aria/state writer lease held:", v["lease_id"], "epoch", v["epoch"], "until", v["expires_at"])' "$VERDICT"
         else
-          LEASE_EXIT=$?
           # A YIELD is exit 3 AND a verdict naming the holder — another
           # writer's turn — and nothing else (PR #1779 re-review R-1). Exit 4
           # (an unreadable or missing record) and every other failure are

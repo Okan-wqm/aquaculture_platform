@@ -94,6 +94,12 @@ class _TwoWriters(unittest.TestCase):
         for key in stripped:
             os.environ.pop(key, None)
         os.environ.pop(WRITER_LEASE_TOKEN_ENV, None)
+        # Hermetic identities: a CI runner exports GITHUB_RUN_ID and friends,
+        # which would give both fixture writers ONE identity. Every writer in
+        # these tests names its own (`_identity`), and the CI-shaped case is
+        # tested on purpose (`CiShapedIdentities`), never inherited.
+        for key in [key for key in os.environ if key.startswith("GITHUB_")]:
+            os.environ.pop(key, None)
 
         self.remote = self.base / "remote.git"
         self.remote.mkdir()
@@ -202,13 +208,26 @@ class _TwoWriters(unittest.TestCase):
         start = text.find("{")
         return code, (json.loads(text[start:]) if start >= 0 else {})
 
-    def _acquire(self, repo: Path, *, ttl: int = 30, wait: int = 0) -> tuple[int, dict, str]:
+    @staticmethod
+    def _identity(repo: Path, run_id: str | None = None) -> dict[str, str]:
+        """An explicit GitHub-run identity for one fixture writer."""
+        return {
+            "GITHUB_RUN_ID": run_id or str(1000 + sum(repo.name.encode("utf-8"))),
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_WORKFLOW": f"fixture-{repo.name}",
+            "GITHUB_JOB": "writer",
+        }
+
+    def _acquire(
+        self, repo: Path, *, ttl: int = 30, wait: int = 0, identity: dict[str, str] | None = None,
+    ) -> tuple[int, dict, str]:
         token_file = self.base / f"token-{repo.name}-{len(list(self.base.glob('token-*')))}"
-        code, verdict = self._cli([
-            "state", "lease", "acquire", "--repo-root", str(repo),
-            "--ttl-minutes", str(ttl), "--wait-seconds", str(wait), "--poll-seconds", "1",
-            "--token-file", str(token_file),
-        ])
+        with mock.patch.dict(os.environ, identity or self._identity(repo)):
+            code, verdict = self._cli([
+                "state", "lease", "acquire", "--repo-root", str(repo),
+                "--ttl-minutes", str(ttl), "--wait-seconds", str(wait), "--poll-seconds", "1",
+                "--token-file", str(token_file),
+            ])
         token = token_file.read_text(encoding="utf-8").strip() if token_file.exists() else ""
         return code, verdict, token
 
@@ -426,9 +445,10 @@ class WriterLeaseTransport(_TwoWriters):
     def test_acquire_records_holder_run_and_expiry_on_the_lease_branch(self) -> None:
         from aria_kernel.state_writer_lease import read_writer_lease, token_digest, writer_lease_branch
 
-        with mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "37192561282", "GITHUB_RUN_ATTEMPT": "1",
-                                          "GITHUB_WORKFLOW": "aria-agent-executor", "GITHUB_JOB": "executor"}):
-            code, held, token = self._acquire(self.repo_long, ttl=545)
+        code, held, token = self._acquire(self.repo_long, ttl=545, identity={
+            "GITHUB_RUN_ID": "37192561282", "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_WORKFLOW": "aria-agent-executor", "GITHUB_JOB": "executor",
+        })
         self.assertEqual(code, 0, held)
         self.assertEqual(writer_lease_branch("aria/state"), "aria/state-lease")
         view = read_writer_lease(self.repo_short)
@@ -476,7 +496,7 @@ class WriterLeaseTransport(_TwoWriters):
         code, verdict = self._cli(["state", "lease", "release", "--repo-root", str(self.repo_short)])
         self.assertEqual(code, 0)
         self.assertFalse(verdict["released"], verdict)
-        self.assertEqual(verdict["reason"], "lease_not_held_by_caller")
+        self.assertEqual(verdict["reason"], "no_token")
         with self.assertRaises(SystemExit):
             with contextlib.redirect_stderr(io.StringIO()):
                 cli_main(["state", "lease", "release", "--repo-root", str(self.repo_short), "--force-foreign"])
@@ -489,18 +509,23 @@ class WriterLeaseTransport(_TwoWriters):
         self.assertTrue(view.released)
         self.assertIn("runner died at 13:24Z", view.release_reason)
 
-    def test_the_release_step_falls_back_to_its_own_identity(self) -> None:
-        """GSEC-LOW-001 — a release step that lost the token still frees the
-        lease its own run took, and only that one."""
+    def test_a_release_without_the_token_releases_nothing(self) -> None:
+        """No identity fallback (R-2): the run's identity is public, so a
+        release without the token leaves the lease to its holder or expiry."""
         from aria_kernel.state_writer_lease import read_writer_lease
 
-        run = {"GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_WORKFLOW": "w", "GITHUB_JOB": "j"}
-        with mock.patch.dict(os.environ, run):
-            self._acquire(self.repo_long, ttl=30)
+        identity = self._identity(self.repo_long, run_id="7")
+        code, held, token = self._acquire(self.repo_long, ttl=30, identity=identity)
+        with mock.patch.dict(os.environ, identity):
+            code, verdict = self._cli(["state", "lease", "release", "--repo-root", str(self.repo_long)])
+        self.assertFalse(verdict["released"], verdict)
+        self.assertEqual(verdict["reason"], "no_token")
+        self.assertTrue(read_writer_lease(self.repo_long).is_held())
+        with mock.patch.dict(os.environ, {WRITER_LEASE_TOKEN_ENV: token}):
             code, verdict = self._cli(["state", "lease", "release", "--repo-root", str(self.repo_long)])
         self.assertTrue(verdict["released"], verdict)
-        self.assertTrue(read_writer_lease(self.repo_long).released)
-        code, verdict = self._cli(["state", "lease", "release", "--repo-root", str(self.repo_long)])
+        with mock.patch.dict(os.environ, {WRITER_LEASE_TOKEN_ENV: token}):
+            code, verdict = self._cli(["state", "lease", "release", "--repo-root", str(self.repo_long)])
         self.assertEqual(verdict["reason"], "already_released")
 
     def test_the_wait_is_bounded_and_names_the_holder(self) -> None:
@@ -821,6 +846,98 @@ class ReReviewFixes(_TwoWriters):
         self.assertIn("state_publish_write_denied", str(caught.exception))
         self.assertNotIn("state_writer_lease_lost", str(caught.exception))
         self.assertNotIn("aria/state moved", str(caught.exception))
+
+
+class CiShapedIdentities(_TwoWriters):
+    """The CI failure of d38b25979: with GITHUB_RUN_ID & co set, every
+    process of one job derives the SAME public identity, and the second
+    acquire re-entered the held lease without its token."""
+
+    CI_ENV = {
+        "GITHUB_RUN_ID": "1", "GITHUB_WORKFLOW": "aria-kernel", "GITHUB_JOB": "suite", "GITHUB_RUN_ATTEMPT": "1",
+    }
+
+    def test_the_same_identity_without_the_token_yields(self) -> None:
+        code, held, token = self._acquire(self.repo_long, ttl=60, identity=self.CI_ENV)
+        self.assertEqual(code, 0, held)
+        code, verdict, other = self._acquire(self.repo_short, ttl=60, identity=self.CI_ENV)
+        self.assertEqual(code, 3, verdict)
+        self.assertEqual(verdict["holder"]["lease_id"], held["lease_id"])
+        self.assertEqual(other, "", "a yield mints no capability")
+
+    def test_the_api_never_re_enters_by_owner(self) -> None:
+        from aria_kernel.state_writer_lease import StateWriterLeaseBlocked, acquire_writer_lease
+
+        acquire_writer_lease(self.repo_long, ttl_minutes=30, owner="gha:w:j:run=1:attempt=1")
+        with self.assertRaises(StateWriterLeaseBlocked):
+            acquire_writer_lease(self.repo_short, ttl_minutes=30, owner="gha:w:j:run=1:attempt=1")
+
+    def test_the_measured_scenario_holds_under_a_ci_shaped_environment(self) -> None:
+        """The module's headline scenario, with the CI variables exported for
+        the whole test — a laptop run must not pass where CI fails."""
+        with mock.patch.dict(os.environ, self.CI_ENV):
+            seed = self._store(self.repo_long)
+            self._append(seed, "seed")
+            self.assertTrue(self._publish(seed, "snap-seed")["published"])
+            code, held, token = self._acquire(self.repo_long, ttl=120, identity=self.CI_ENV)
+            self.assertEqual(code, 0, held)
+            long_job = self._store(self.repo_long)
+            self._append(long_job, "long-job-work")
+            code, yielded, _ = self._acquire(self.repo_short, ttl=95, wait=1, identity=self.CI_ENV)
+            self.assertEqual(code, 3, yielded)
+            code, result = self._cli_publish(self.repo_long, "executor-final", token=token)
+            self.assertEqual(code, 0, result)
+        self.assertIn("long-job-work", self._remote_cycle_ids(self.repo_long))
+
+    def test_the_token_is_kept_before_the_lease_is_pushed(self) -> None:
+        """R-2 — no identity fallback is needed because the capability is on
+        disk before the push that makes it the lease's: an acquire that dies
+        after its push still leaves the token its release step reads."""
+        from aria_kernel import state_writer_lease as module
+
+        real_push = module._push_record
+        kept: list[str] = []
+
+        def push_then_die(*args, **kwargs):
+            self.assertTrue(kept, "the token must be kept before the push")
+            real_push(*args, **kwargs)
+            raise RuntimeError("runner died after the lease push")
+
+        with mock.patch.object(module, "_push_record", side_effect=push_then_die), \
+                self.assertRaises(RuntimeError):
+            module.acquire_writer_lease(
+                self.repo_long, ttl_minutes=30, owner="dies", persist_token=kept.append,
+            )
+        view = module.read_writer_lease(self.repo_long)
+        self.assertTrue(view.held_by_token(kept[-1]))
+        self.assertTrue(module.release_writer_lease(self.repo_long, token=kept[-1])["released"])
+
+    def test_the_cli_token_file_survives_a_crash_after_the_push(self) -> None:
+        from aria_kernel import state_writer_lease as module
+
+        real_push = module._push_record
+        token_file = self.base / "crash-token"
+
+        def push_then_die(*args, **kwargs):
+            real_push(*args, **kwargs)
+            raise RuntimeError("runner died after the lease push")
+
+        with mock.patch.object(module, "_push_record", side_effect=push_then_die), \
+                mock.patch.dict(os.environ, self._identity(self.repo_long)), self.assertRaises(RuntimeError):
+            cli_main([
+                "state", "lease", "acquire", "--repo-root", str(self.repo_long),
+                "--ttl-minutes", "30", "--token-file", str(token_file),
+            ])
+        token = token_file.read_text(encoding="utf-8").strip()
+        self.assertTrue(module.read_writer_lease(self.repo_long).held_by_token(token))
+
+    def test_the_action_emits_a_kept_token_even_when_the_acquire_failed(self) -> None:
+        action = (REPO_ROOT / ".github/actions/restore-aria-state/action.yml").read_text(encoding="utf-8")
+        acquire = action[action.index("- name: Acquire the aria/state writer lease"):]
+        acquire = acquire[: acquire.index("- name: Check out the aria/state store")]
+        emit = acquire.index('echo "token=${LEASE_TOKEN}"')
+        branch = acquire.index("then\n          echo \"writer_lease=held\"")
+        self.assertLess(emit, branch, "the token output is written before the outcome is judged")
 
 
 class StateBranchProtection(unittest.TestCase):

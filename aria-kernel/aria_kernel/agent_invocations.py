@@ -23,6 +23,7 @@ from .evidence_trust import is_self_output_ref
 from .genesis_lifecycle import verify_shadow_eval_proof
 from .must_satisfy import MUST_SATISFY_ID_FIELD, MUST_SATISFY_TEXT_FIELD, must_satisfy_text, validate_must_satisfy
 from .git_probe import refuse_shallow_checkout
+from .plan_round_scope import PLANNING_ROUND_ROLES, require_plan_round_envelope
 from .ledger import (
     SEGMENTED_LEDGERS,
     StateTransaction,
@@ -1343,6 +1344,18 @@ def create_agent_invocation_request(
     # an item they DO carry is still held to the shape.
     if must_satisfy:
         must_satisfy = validate_must_satisfy(must_satisfy)
+    # ARIA-HIGH-345 — a planning-round envelope belongs to the plan it
+    # names. The F-007 plan's round-1 cross_review was minted with the scope
+    # and key change of another candidate in the same cycle and could only be
+    # refused by its reviewer; the drainer no longer has a parameter through
+    # which that can happen, and this refuses it for every other producer.
+    if role in PLANNING_ROUND_ROLES and convergence_id:
+        from .plan_convergence import fold_plan_state
+
+        require_plan_round_envelope(
+            fold_plan_state(plan_id=convergence_id, base_dir=root),
+            role=role, allowed_scope=list(allowed_scope or []), must_satisfy=list(must_satisfy or []),
+        )
     if forbidden_scope is not None and (
         not isinstance(forbidden_scope, list)
         or any(not isinstance(item, str) or not item.strip() for item in forbidden_scope)

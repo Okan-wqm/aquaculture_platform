@@ -37,8 +37,6 @@ from aria_kernel.plan_convergence import (
     submit_challenger_plan,
 )
 
-_MS = [{"id": "MS-1", "kind": "obligation", "description": "do x", "source": "test"}]
-
 
 class _StepCase(unittest.TestCase):
     def setUp(self) -> None:
@@ -79,9 +77,6 @@ class _StepCase(unittest.TestCase):
             workspace_root=self.root,
             plan_id="plan-1",
             plan_seed=self.plan(),
-            must_satisfy=list(_MS),
-            evidence_refs=["docs/aria/SPEC.md"],
-            allowed_scope=["aria-kernel/**"],
             max_rounds=4,
         )
 
@@ -179,6 +174,17 @@ class PlannerTwinContextTests(_StepCase):
         body["affected_surfaces"] = [{"paths": ["aria-kernel/aria_kernel/knowledge_graph.py", "web/non-authorizing-hint.ts"]}]
         return body
 
+    def started_scope(self) -> list[str]:
+        """ARIA-HIGH-345 — a round envelope's scope is the paths the plan STARTED with.
+
+        Never a caller's value and never a later revision's surfaces: the
+        revised and reviewed bodies below name other files, and the scope
+        still reads the start record.
+        """
+        from aria_kernel.plan_origin import body_paths
+        started = fold_plan_state(plan_id="plan-1", base_dir=self.tools)["plan_started"]["plan_content"]
+        return list(dict.fromkeys(body_paths(started)))
+
     def _assert_native_current_body(self, role: str, body: dict, *, cycle_id="cyc-step", scope=None,
                                     expected_feature="knowledge_graph.conventions_for_paths") -> dict:
         rows = [row for row in self.requests() if row["role"] == role]
@@ -192,7 +198,7 @@ class PlannerTwinContextTests(_StepCase):
         from aria_kernel import agent_invocations as ai
         self.assertEqual(request["evidence_refs"], body["evidence_refs"])
         self.assertEqual(request["plan_revision_hash"], content_hash(body))
-        self.assertEqual(request["allowed_scope"], scope or ["aria-kernel/**"])
+        self.assertEqual(request["allowed_scope"], scope or self.started_scope())
         self.assertEqual(request["cycle_id"], cycle_id)
         native = ai.verify_invocation_context_binding(request_id=request["request_id"], context_hash=request["context_hash"],
                                                      prompt_hash=request["prompt_hash"], base_dir=self.tools)
@@ -227,8 +233,7 @@ class PlannerTwinContextTests(_StepCase):
     def test_initial_step_uses_the_body_actually_recorded_before_mint(self) -> None:
         body = self._prepare_named_planner_source()
         result = cd.run_convergence_drainer(cycle_id="cyc-step", base_dir=self.tools, workspace_root=self.root,
-                                           plan_id="plan-1", plan_seed=body, must_satisfy=list(_MS),
-                                           evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["aria-kernel/**"])
+                                           plan_id="plan-1", plan_seed=body)
         self.assertEqual(result["arbiter_verdict"], "in_progress")
         state = fold_plan_state(plan_id="plan-1", base_dir=self.tools)
         self.assertEqual(state["plan_started"]["plan_content"], body)
@@ -240,8 +245,7 @@ class PlannerTwinContextTests(_StepCase):
         start_plan(plan_id="plan-1", initial_revision_id="rev-0", plan_content=body, base_dir=self.tools)
         result = advance_plan_rounds(plan_id="plan-1", base_dir=self.tools, workspace_root=self.root)
         self.assertEqual(result["status"], "challenger_request_opened")
-        self._assert_native_current_body("challenger_plan", body, cycle_id=None,
-                                         scope=["aria-kernel/**", "aria-tools/**", ".claude/**"])
+        self._assert_native_current_body("challenger_plan", body, cycle_id=None)
 
     def test_real_cli_advance_rounds_delivers_explicit_source_root(self) -> None:
         import io
@@ -257,8 +261,7 @@ class PlannerTwinContextTests(_StepCase):
                 code = exc.code
         self.assertEqual(code, 0, stderr.getvalue())
         self.assertEqual(json.loads(stdout.getvalue())["status"], "challenger_request_opened")
-        self._assert_native_current_body("challenger_plan", body, cycle_id=None,
-                                         scope=["aria-kernel/**", "aria-tools/**", ".claude/**"])
+        self._assert_native_current_body("challenger_plan", body, cycle_id=None)
 
     def test_controller_without_source_root_keeps_legacy_optional_context(self) -> None:
         from aria_kernel.plan_round_controller import advance_plan_rounds
@@ -268,7 +271,7 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual(advance_plan_rounds(plan_id="plan-1", base_dir=self.tools)["status"], "challenger_request_opened")
         request = next(row for row in self.requests() if row["role"] == "challenger_plan")
         self.assertEqual(request["evidence_refs"], body["evidence_refs"])
-        self.assertEqual(request["allowed_scope"], ["aria-kernel/**", "aria-tools/**", ".claude/**"])
+        self.assertEqual(request["allowed_scope"], self.started_scope())
         self.assertIsNone(request["target_sha"])
         self.assertNotIn("self_features", request["repository_map"])
         native = ai.verify_invocation_context_binding(request_id=request["request_id"], context_hash=request["context_hash"],
@@ -288,7 +291,7 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual(result["arbiter_verdict"], "in_progress")
         request = next(row for row in self.requests() if row["role"] == "challenger_plan")
         self.assertEqual(request["evidence_refs"], ["cycle:cyc-step"])
-        self.assertEqual(request["allowed_scope"], ["aria-kernel/**"])
+        self.assertEqual(request["allowed_scope"], ["aria-kernel/aria_kernel/knowledge_graph.py"])
         self.assertEqual(request["plan_revision_hash"], content_hash(body))
         self.assertIn("aria-kernel/aria_kernel/knowledge_graph.py",
                       {entry["file"] for entry in request["repository_map"]["files"]},
@@ -312,14 +315,19 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual(self.step()["arbiter_verdict"], "in_progress")
         request = next(row for row in self.requests() if row["role"] == "challenger_plan")
         self.assertEqual(request["evidence_refs"], ["cycle:cyc-step"])
-        self.assertEqual(request["allowed_scope"], ["aria-kernel/**"])
+        self.assertEqual(request["allowed_scope"], [literal, "aria-kernel/**", long_path])
         self.assertEqual(request["context_source_paths"], [literal])
         self.assertEqual(request["context_source_paths_status"], {
             "status": "partial", "reason": "unsupported_literal_hints", "supplied_count": 3,
             "accepted_count": 1, "omitted_count": 2,
         })
         prompt = ai.render_invocation_prompt(request)
-        self.assertNotIn(long_path, prompt)
+        # ARIA-HIGH-345 — the long path is one of the plan's own surfaces, so
+        # the Allowed scope section names it; no source-context section
+        # expands it.
+        scope_section = prompt.split("## Allowed scope\n\n", 1)[1].split("\n\n", 1)[0]
+        self.assertIn(long_path, scope_section)
+        self.assertNotIn(long_path, prompt.replace(scope_section, ""))
         self.assertIn("unsupported_literal_hints", prompt)
         self.assertIn("knowledge_graph.conventions_for_paths", prompt)
         self.assertEqual(ai.render_invocation_prompt(ai.fuse_prompt_envelope(request)), prompt)
@@ -394,7 +402,6 @@ class PlannerTwinContextTests(_StepCase):
         result = advance_plan_rounds(plan_id="plan-1", base_dir=self.tools, workspace_root=self.root)
         self.assertEqual(result["status"], "challenger_request_opened")
         self._assert_native_current_body("challenger_plan", revised, cycle_id=None,
-                                         scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
                                          expected_feature="runtime_artifacts.autonomy_output_summary")
 
     def test_cross_review_drainer_preserves_current_source_context_and_both_proposals(self) -> None:
@@ -430,8 +437,7 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual({json.loads(row["suggested_prompt"])["task"]["review_direction"] for row in requests},
                          {"primary_to_challenger", "challenger_to_primary"})
         for request in requests:
-            self._assert_native_body_request(request, body, cycle_id=None,
-                                             scope=["aria-kernel/**", "aria-tools/**", ".claude/**"])
+            self._assert_native_body_request(request, body, cycle_id=None)
             self.assertEqual(request["context_source_paths"], ["aria-kernel/aria_kernel/knowledge_graph.py", "web/non-authorizing-hint.ts"])
         before = native_invocation_bytes(self.tools)
         self.assertEqual(advance_plan_rounds(plan_id="plan-1", base_dir=self.tools, workspace_root=self.root)["status"], "waiting_for_reviews")
@@ -446,8 +452,7 @@ class PlannerTwinContextTests(_StepCase):
         result = advance_plan_rounds(plan_id="plan-1", base_dir=self.tools, workspace_root=self.root)
         self.assertEqual(result["status"], "primary_revision_requested")
         self.assertEqual(result["state"], "CROSS_REVIEWED")
-        request = self._assert_native_current_body("primary_plan", body, cycle_id=None,
-                                                  scope=["aria-kernel/**", "aria-tools/**", ".claude/**"])
+        request = self._assert_native_current_body("primary_plan", body, cycle_id=None)
         self.assertEqual(request["round_number"], 2)
         self.assertEqual(request["context_source_paths"], ["aria-kernel/aria_kernel/knowledge_graph.py", "web/non-authorizing-hint.ts"])
 
@@ -488,7 +493,9 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual(primary_text, prose)
         self.assertNotIn("PRIMARY_PROPOSAL_ONLY", request["suggested_prompt"])
         self.assertIn("ordinary independent challenger proposal", request["suggested_prompt"])
-        self.assertEqual(request["evidence_refs"], ["docs/aria/SPEC.md"])
+        # ARIA-HIGH-345 — with no structured current body, the refs fall back
+        # to the plan's own start record, never to a caller's value.
+        self.assertEqual(request["evidence_refs"], body["evidence_refs"])
         self.assertIsNone(request["plan_revision_hash"])
         self.assertNotIn("context_source_paths", request)
         native = ai.verify_invocation_context_binding(request_id=request["request_id"], context_hash=request["context_hash"],

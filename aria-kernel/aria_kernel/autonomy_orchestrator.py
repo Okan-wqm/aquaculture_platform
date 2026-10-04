@@ -1991,52 +1991,16 @@ def run_autonomy_orchestrator(
                 # + governance event capturing the raw plan_content
                 # for forensics. Source-substring invariant I-V7.2-04
                 # pins the literal try/except envelope.
-                # Plan ARIA-V7 §2i v2 BUGFIX — caller passes
-                # plan_synthesizer's REAL fields to convergence_runner
-                # (was passing 1-element stubs that the agent
-                # correctly refused as "underspecified envelope").
-                # The plan_synthesizer producer mints valid 7-field
-                # plan_content; the caller MUST forward those fields
-                # into the convergence envelope so the agent receives
-                # the actual work surface (evidence_refs +
-                # allowed_scope from synthesized plan; must_satisfy
-                # derived from key_changes clusters).
-                # ARIA-HIGH-104 (3)/(5) — one key-change shape (a string step
-                # or {id?, description, paths?}) read through its accessors,
-                # one obligation shape built through its constructor; a
-                # string entry no longer crashes on `.get` and an obligation
-                # the request contract refuses cannot be assembled here. The
-                # plan's wording rides as `plan_description` data: the
-                # obligation text is the kernel's, so a planner's word choice
-                # cannot fail the mint's banned-phrase scan, and the
-                # obligation id is positional so two plan entries sharing an
-                # id cannot collide at the mint either.
-                from .must_satisfy import key_change_obligation, must_satisfy_item
-                from .plan_convergence import key_change_description, key_change_id, key_change_paths
-
-                _v7_must_satisfy = [
-                    key_change_obligation(
-                        id=f"key-change-{i}",
-                        index=i,
-                        plan_description=key_change_description(kc) or str(kc),
-                        paths=key_change_paths(kc),
-                        key_change_id=key_change_id(kc),
-                    )
-                    for i, kc in enumerate(_v7_plan_content.get("key_changes") or [])
-                ] or [must_satisfy_item(
-                    id="cycle-impl-satisfies-scope",
-                    description=(
-                        "Implementation must satisfy the cycle's "
-                        "must_satisfy contract derived from "
-                        "discovery + planner output."
-                    ),
-                )]
-                _v7_evidence_refs = list(
-                    _v7_plan_content.get("evidence_refs") or [f"cycle:{cycle_id}"]
-                )
-                _v7_allowed_scope = list(
-                    _v7_plan_content.get("affected_surfaces") or [f"cycle/{cycle_id}"]
-                ) or [f"cycle/{cycle_id}"]
+                # ARIA-HIGH-345 — the runner takes NO scope, obligations or
+                # evidence from this cycle. The cycle may ADOPT a plan
+                # (`resume_candidate_plan_id`) while `_v7_plan_content` is
+                # the candidate it synthesized tonight; deriving
+                # must_satisfy / allowed_scope / evidence_refs from that
+                # candidate here minted the adopted F-007 plan's round-1
+                # cross_review with the failing_ci candidate's scope and key
+                # change. The drainer derives all three from the plan it
+                # advances (`plan_round_scope.plan_round_contract`);
+                # `plan_seed` only opens a plan that does not exist yet.
                 try:
                     # Plan ORPHAN-HIGH-082 fix: convergence_runner kwargs are
                     # now sourced from the orchestrator's own parameters
@@ -2052,9 +2016,6 @@ def run_autonomy_orchestrator(
                         workspace_root=workspace_root,
                         plan_id=active_plan_id,
                         plan_seed=_v7_plan_content,
-                        must_satisfy=_v7_must_satisfy,
-                        evidence_refs=_v7_evidence_refs,
-                        allowed_scope=_v7_allowed_scope,
                         max_rounds=max_rounds,
                     )
                 except GovernanceError as _v7_exc:

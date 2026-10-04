@@ -100,6 +100,19 @@ class _TwoWriters(unittest.TestCase):
         # tested on purpose (`CiShapedIdentities`), never inherited.
         for key in [key for key in os.environ if key.startswith("GITHUB_")]:
             os.environ.pop(key, None)
+        os.environ.pop("GH_TOKEN", None)
+        # ARIA-HIGH-350 — the reaper asks the Actions API about a held gha:
+        # lease. A fixture never reaches the network: it answers "no
+        # answer" (no reap) unless a test supplies its own fake runs.
+        from aria_kernel import state_writer_lease as lease_module
+        from aria_kernel.state_writer_lease_runs import RunStatusUnavailable
+
+        def no_actions_api(run_id: str, attempt: str):
+            raise RunStatusUnavailable("fixture: no Actions API")
+
+        api = mock.patch.object(lease_module, "github_run_attempt_status", side_effect=no_actions_api)
+        api.start()
+        self.addCleanup(api.stop)
 
         self.remote = self.base / "remote.git"
         self.remote.mkdir()

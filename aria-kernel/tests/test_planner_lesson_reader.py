@@ -55,6 +55,11 @@ class _LedgerCase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.tools = Path(self.tmp.name) / "aria-tools"
         self.workspace = Path(self.tmp.name) / "workspace"
+        # ADR-0021 (#1744) — a plan started from a finding is bounded by the
+        # closure of its admitted surfaces, computed in a workspace that holds them.
+        leave = self.workspace / "apps" / "hr-service" / "src" / "leave"
+        leave.mkdir(parents=True)
+        (leave / "leave.service.ts").write_text("export const leave = 1;\n", encoding="utf-8")
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -63,7 +68,7 @@ class _LedgerCase(unittest.TestCase):
                   **body: Any) -> None:
         """A finished plan written by the kernel's own plan writers."""
         start_plan(plan_id=plan_id, initial_revision_id="rev-0", plan_content=_body(plan_id, **body),
-                   base_dir=self.tools)
+                   base_dir=self.tools, workspace_root=self.workspace)
         if abandon is not None:
             abandon_plan(plan_id=plan_id, reason=abandon, base_dir=self.tools)
         else:
@@ -75,7 +80,7 @@ class _LedgerCase(unittest.TestCase):
 
     def current_plan(self, plan_id: str = "plan-now", **body: Any) -> None:
         start_plan(plan_id=plan_id, initial_revision_id="rev-0", plan_content=_body(plan_id, **body),
-                   base_dir=self.tools)
+                   base_dir=self.tools, workspace_root=self.workspace)
 
     def challenger_row(self, plan_id: str = "plan-now") -> dict[str, Any]:
         row = issue_challenger_envelope(

@@ -119,8 +119,7 @@ class CarriedDataMintsThroughTheRealBridge(unittest.TestCase):
     def step(self) -> dict:
         return cd.run_convergence_drainer(
             cycle_id="cyc-carried-data", base_dir=self.tools, workspace_root=self.root, plan_id="plan-1",
-            plan_seed=self.body(), must_satisfy=[{"id": "MS-1", "description": "do x"}],
-            evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["aria-kernel/**"], max_rounds=4,
+            plan_seed=self.body(), max_rounds=4,
             coverage_computer=self.gaps_payload,
         )
 

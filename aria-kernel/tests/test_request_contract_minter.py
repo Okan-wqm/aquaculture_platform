@@ -79,7 +79,8 @@ class MinterWritesTheContractTests(unittest.TestCase):
         row = issue_challenger_envelope(
             plan_id="plan-104-seed", round_number=1,
             must_satisfy=[must_satisfy_item(id="draft", description="write a competing plan")],
-            evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["docs/**"],
+            # ARIA-HIGH-345 — a round envelope is scoped to its plan's surfaces.
+            evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["aria-kernel/aria_kernel/plan_convergence.py"],
             base_dir=self.tools, plan_revision_hash=self.seed_hash, cycle_id="cyc-104",
         )
         body = plan_body_for_revision(plan_id="plan-104-seed", content_hash=self.seed_hash, base_dir=self.tools)

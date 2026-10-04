@@ -87,9 +87,10 @@ class DeclaredSurface:
 # producer for that edge would measure error handling rather than progress —
 # and the defect being hunted is a FORWARD rung no path can climb.
 #
-# Deliberately NOT applied to the tool lifecycle: QUARANTINED and ARCHIVED are
-# ordinary transition targets there, driven by quarantine.py and
-# tool_health.py, and excluding them would hide a real gap behind a word.
+# Deliberately NOT applied to the tool lifecycle: QUARANTINED is an ordinary
+# transition target there, driven by quarantine.py and tool_health.py, and
+# excluding a narrowing status would hide a real gap behind a word — ARCHIVED
+# was one, waived as unwritten until it was removed (ORPHAN-MEDIUM-839).
 _GENESIS_REFUSAL_STATE = "REJECTED"
 
 

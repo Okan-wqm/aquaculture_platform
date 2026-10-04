@@ -61,7 +61,13 @@ class _LoopFixture(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix="aria-loop-guards-")
         self.addCleanup(tmp.cleanup)
         fixture = OperatorRequestFixture(Path(tmp.name))
-        fixture.commit_files({_OTHER_FILE: "export const batch = 1;\n", _ARIA_FILE: "[project]\n"})
+        # ORPHAN-HIGH-519 — every seeded finding cites line 3 of its file, and a
+        # plan cites a ref only when the challenger's evidence rule, which
+        # reads the line, admits it.
+        fixture.commit_files({
+            _OTHER_FILE: "".join(f"export const batch{n} = {n};\n" for n in range(1, 11)),
+            _ARIA_FILE: "[project]\nname = \"aria-kernel\"\nversion = \"0.0.0\"\n",
+        })
         return fixture
 
     # -- seeding the existing ledgers -------------------------------------------------

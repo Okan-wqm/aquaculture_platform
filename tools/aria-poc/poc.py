@@ -37,6 +37,13 @@ from tools.shared.excluded_paths import (
     is_archived_migration_path,
 )
 
+# The wire-semantics module sits beside this file; the PoC is run as a script
+# and loaded by path from tests, so its directory is put on sys.path the same
+# way the repository root is above.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import drift_wire  # noqa: E402
+
 LANGUAGE_BY_EXT: dict[str, str] = {
     ".ts": "typescript", ".tsx": "typescript",
     ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript",
@@ -92,6 +99,19 @@ UI_SAFE_CONCEPT_TOKENS: tuple[str, ...] = (
     "severity", "kind", "mode",
 )
 UI_IGNORED_VALUES: set[str] = {"", "all", "any", "none", "null", "undefined"}
+# GraphQL SDL enums carry wire keys and Rust variants their serde-renamed
+# names: neither is a database value (see find_drifts).
+NOT_DB_VALUE_KINDS: set[str] = {"graphql_enum", "rust_enum"}
+NOT_UI_COMPARABLE_KINDS: set[str] = {"rust_enum"}
+UI_NON_AUTHORITATIVE_SURFACES: set[str] = {"frontend_ui", "frontend_source", "test", "docs", "generated"}
+# When no pair yields a finding, the group's promotion_reason is its most
+# telling verdict, in this order (verdict -> reason).
+UI_VERDICT_PRECEDENCE: tuple[tuple[str, str], ...] = (
+    ("match", "matches_related_value_set"),
+    ("foreign_service_subset", "foreign_service_subset"),
+    ("source_not_on_ui_transport", "source_not_on_ui_transport"),
+    ("low_similarity", "low_similarity"),
+)
 NAME_STOPWORDS: set[str] = {
     "option", "options", "select", "selector", "filter", "filters",
     "menu", "items", "item", "dropdown", "field", "input", "value",
@@ -172,8 +192,15 @@ def normalize_concept_name(name: str) -> str:
     return n
 
 
-def lower_values(values: list[str]) -> set[str]:
-    return {v.lower() for v in values if v.lower() not in UI_IGNORED_VALUES}
+def exact_values(values: list[str]) -> set[str]:
+    """The values as they travel: case-sensitive, ignoring only blank/"all"."""
+    return {v for v in values if v.lower() not in UI_IGNORED_VALUES}
+
+
+def folded_values(values: list[str]) -> set[str]:
+    """Case-folded values, used ONLY to judge whether two sets name the same
+    concept. A verdict on whether values conform is always exact_values."""
+    return {v.lower() for v in exact_values(values)}
 
 
 def jaccard(a: set[str], b: set[str]) -> float:
@@ -490,8 +517,32 @@ def run_nx_graph(repo_root: Path, out_dir: Path) -> bool:
 # Identifier regex (^[A-Za-z_][A-Za-z0-9_]*$) garbage'ı eler.
 # Bu, full ARIA'nın `typescript-nestjs-cqrs` adapter'ının (CONTRACTS §1.2
 # #1) bir alt parçası — burada izole + jenerik biçimde.
+#
+# WHY keys AND values: the two travel on different transports. The runtime
+# VALUE (`PENDING = 'pending'` -> 'pending') is what the database and a REST
+# body carry; the KEY is what GraphQL carries once `registerEnumType` names
+# the enum. Recording keys only, as this did, compared the wrong side of every
+# DB pair and hid every GraphQL case mismatch.
+REGISTER_ENUM_PATTERN = re.compile(
+    r"registerEnumType\(\s*(\w+)\s*,\s*\{[^}]*?\bname\s*:\s*['\"](\w+)['\"]", re.DOTALL,
+)
+
+
+def _graphql_registrations(enums: list[dict], registrations: list[tuple[str, str, str]]) -> None:
+    """Mark an enum GraphQL-exposed when `registerEnumType` names it in the
+    same service (or anywhere, for an enum a shared lib declares)."""
+    for e in enums:
+        service = service_of(e["ref"])
+        shared = service.startswith(("libs/", "platform/libs/"))
+        names = [gql for reg_service, ident, gql in registrations
+                 if ident == e["name"] and (reg_service == service or shared)]
+        e["graphql_name"] = names[0] if names else None
+        e["wire_values"] = e["keys"] if names else []
+
+
 def detect_ts_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
     enums: list[dict] = []
+    registrations: list[tuple[str, str, str]] = []
     for f in fates:
         if not f.path.endswith((".ts", ".tsx")):
             continue
@@ -502,6 +553,9 @@ def detect_ts_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
             text = full.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        registrations.extend(
+            (service_of(f.path), ident, gql) for ident, gql in REGISTER_ENUM_PATTERN.findall(text)
+        )
         for m in TS_ENUM_PATTERN.finditer(text):
             name = m.group(1)
             body = m.group(2)
@@ -509,22 +563,27 @@ def detect_ts_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
             # comments preceding values were being captured as part of values).
             body_clean = re.sub(r"//[^\n]*", "", body)
             body_clean = re.sub(r"/\*.*?\*/", "", body_clean, flags=re.DOTALL)
+            keys: list[str] = []
             values: list[str] = []
             for raw in body_clean.split(","):
-                raw = raw.strip()
-                if not raw:
-                    continue
-                key = raw.split("=")[0].strip().strip("'\"")
+                raw_key, _, initializer = raw.partition("=")
+                key = raw_key.strip().strip("'\"")
                 if key and re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
-                    values.append(key)
+                    keys.append(key)
+                    # A string initializer is the runtime value; a numeric or
+                    # implicit member has no string value, so its key stands in.
+                    literal = re.fullmatch(r"\s*['\"]([^'\"]*)['\"]\s*", initializer)
+                    values.append(literal.group(1) if literal else key)
             line = text[: m.start()].count("\n") + 1
             enums.append({
                 "name": name,
+                "keys": sorted(set(keys)),
                 "values": sorted(set(values)),
                 "ref": f"{f.path}:{line}",
                 "kind": "enum",
                 "surface": surface_of_path(f.path),
             })
+    _graphql_registrations(enums, registrations)
     return enums
 
 
@@ -725,7 +784,10 @@ def detect_graphql_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
             line = text[: m.start()].count("\n") + 1
             sets.append({
                 "name": name,
+                "keys": values,
                 "values": values,
+                "graphql_name": name,
+                "wire_values": values,
                 "ref": f"{f.path}:{line}",
                 "kind": "graphql_enum",
                 "surface": surface_of_path(f.path),
@@ -769,7 +831,11 @@ def detect_ui_option_groups(repo_root: Path, fates: list[FileFate]) -> list[dict
                 "surface": surface_of_path(f.path),
             })
 
-        # Inline component options={[{ value: 'x' }, ...]} blocks.
+        # Inline component options={[{ value: 'x' }, ...]} blocks. The group is
+        # named by its element's id/name attribute (`<Select options={...}
+        # id="leave-filter-status">`), which says what the list selects; the
+        # enclosing component name is the fallback, and is often 'unknown'
+        # because the component head lies further back than the lookback.
         for m in re.finditer(r"\boptions\s*=\s*\{\s*(\[[\s\S]*?\])\s*\}", text):
             body = m.group(1)
             values = extract_literal_values(body)
@@ -777,8 +843,14 @@ def detect_ui_option_groups(repo_root: Path, fates: list[FileFate]) -> list[dict
                 continue
             symbol = surrounding_symbol(text, m.start())
             line = text[: m.start()].count("\n") + 1
+            heads = list(re.finditer(r"<[A-Za-z][\w.]*\b", text[:m.start()]))
+            after = text[m.end():m.end() + 2000]
+            tail = re.search(r"<[A-Za-z/]", after)
+            element = (text[heads[-1].start():m.start()] if heads else "") + \
+                (after[:tail.start()] if tail else after)
+            element_name = attr_value(element, "id") or attr_value(element, "name")
             groups.append({
-                "name": f"{symbol}Options",
+                "name": element_name or f"{symbol}Options",
                 "component": symbol,
                 "values": values,
                 "ref": f"{f.path}:{line}",
@@ -892,14 +964,14 @@ def _dedup_enums(enums: list[dict]) -> list[dict]:
     inflates the MECHANICAL_DRIFTS list by a multiplicative factor
     (ARIA-V-003 reproduction: 126 vs ~10 on actual evidence).
 
-    Dedup key: ``(normalize_concept_name(name), tuple(sorted(lower_values(values))))``.
+    Dedup key: ``(normalize_concept_name(name), tuple(sorted(exact_values(values))))``.
     Insertion order of the first occurrence is preserved.
     """
     by_key: dict[tuple, dict] = {}
     for entry in enums:
         key = (
             normalize_concept_name(entry.get("name", "")),
-            tuple(sorted(lower_values(entry.get("values", [])))),
+            tuple(sorted(exact_values(entry.get("values", [])))),
         )
         existing = by_key.get(key)
         if existing is None:
@@ -928,8 +1000,15 @@ def find_drifts(ts_enums: list[dict], sql_enums: list[dict],
     same value set) into a single representative carrying
     ``dedup_collapsed_refs``; this is the architectural fix for
     ARIA-V-003 (drift inflation from re-exported enums).
+
+    This pair is the DB transport: the TS runtime values are compared with
+    the SQL enum values EXACTLY. Folded similarity only decides whether the
+    two name one concept. GraphQL SDL enums carry wire keys and Rust variants
+    carry serde-renamed names, so neither is a DB value and neither enters.
+    A TS value the DB enum lacks is an insert the database rejects (HIGH);
+    a TS subset of the DB enum is LOW.
     """
-    ts_enums = _dedup_enums(ts_enums)
+    ts_enums = _dedup_enums([e for e in ts_enums if e.get("kind") not in NOT_DB_VALUE_KINDS])
     sql_enums = _dedup_enums(sql_enums)
     by_norm_ts: dict[str, list[dict]] = {}
     for e in ts_enums:
@@ -939,31 +1018,37 @@ def find_drifts(ts_enums: list[dict], sql_enums: list[dict],
     drifts_filtered: list[dict] = []
     for sql in sql_enums:
         for ts in by_norm_ts.get(normalize_concept_name(sql["name"]), []):
-            ts_vals = lower_values(ts["values"])
-            sql_vals = lower_values(sql["values"])
+            ts_vals = exact_values(ts["values"])
+            sql_vals = exact_values(sql["values"])
             if ts_vals == sql_vals:
                 continue  # no drift
-            similarity = jaccard(ts_vals, sql_vals)
+            similarity = jaccard(folded_values(ts["values"]), folded_values(sql["values"]))
             ts_service = service_of(ts["ref"])
             sql_service = service_of(sql["ref"])
+            missing_in_sql = sorted(ts_vals - sql_vals)
             entry = {
                 "concept": normalize_concept_name(sql["name"]),
                 "ts": ts,
                 "sql": sql,
                 "missing_in_ts": sorted(sql_vals - ts_vals),
-                "missing_in_sql": sorted(ts_vals - sql_vals),
+                "missing_in_sql": missing_in_sql,
                 "value_jaccard_similarity": round(similarity, 3),
                 "cross_service": ts_service != sql_service,
                 "ts_service": ts_service,
                 "sql_service": sql_service,
+                "transport": "db",
+                "classification": "ts_value_not_in_db" if missing_in_sql else "ts_subset_of_db",
+                "severity": "HIGH" if missing_in_sql else "LOW",
             }
             if similarity >= jaccard_threshold:
                 drifts_above.append(entry)
             else:
                 entry["filter_reason"] = f"value_jaccard_similarity {round(similarity, 3)} below threshold {jaccard_threshold}; likely false-positive name collision"
                 drifts_filtered.append(entry)
-    # Sort: cross_service drifts first (they are categorically more critical)
-    drifts_above.sort(key=lambda d: (not d["cross_service"], -d["value_jaccard_similarity"]))
+    # Sort: most severe first, then cross-service, then similarity.
+    drifts_above.sort(key=lambda d: (
+        -drift_wire.SEVERITY_RANK[d["severity"]], not d["cross_service"], -d["value_jaccard_similarity"],
+    ))
     return drifts_above, drifts_filtered
 
 
@@ -998,9 +1083,9 @@ def related_by_name_or_overlap(ui: dict, source: dict, threshold: float) -> bool
 
 def nearest_value_sets(ui: dict, sources: list[dict], limit: int = 3) -> list[dict]:
     rows: list[dict] = []
-    ui_vals = lower_values(ui["values"])
+    ui_vals = folded_values(ui["values"])
     for source in sources:
-        source_vals = lower_values(source["values"])
+        source_vals = folded_values(source["values"])
         reason = relationship_reason(ui, source)
         similarity = jaccard(ui_vals, source_vals)
         rows.append({
@@ -1015,22 +1100,46 @@ def nearest_value_sets(ui: dict, sources: list[dict], limit: int = 3) -> list[di
     return rows[:limit]
 
 
+def ui_comparison_sources(value_sets: list[dict]) -> list[dict]:
+    """Value sets a UI option group may be judged against: backend, shared-lib,
+    migration and SDL declarations. A frontend type is not a transport's
+    contract, and a Rust variant name is not the string it serializes to."""
+    return [
+        s for s in value_sets
+        if s.get("surface", surface_of_path(s["ref"].split(":", 1)[0]))
+        not in UI_NON_AUTHORITATIVE_SURFACES and s.get("kind") not in NOT_UI_COMPARABLE_KINDS
+    ]
+
+
 def annotate_ui_option_groups(ts_value_sets: list[dict], sql_enums: list[dict],
                               ui_option_groups: list[dict],
-                              jaccard_threshold: float = 0.5) -> tuple[list[dict], list[dict]]:
+                              jaccard_threshold: float = 0.5,
+                              wire: "drift_wire.Wire | None" = None) -> tuple[list[dict], list[dict]]:
+    """Judge every UI option group against its related value sets, per transport.
+
+    Relatedness (safe concept name, name relationship, folded similarity) only
+    picks candidate pairs. The verdict is drift_wire.classify_ui_pair's, exact:
+    a UI value not on the wire is HIGH ``ui_value_not_on_wire``; a subset whose
+    missing values the UI's own backend owns is LOW ``own_service_subset``; a
+    subset whose missing values another service owns is no finding. Without a
+    loaded wire every pair is unverifiable under the wire's named reason.
+    """
+    if wire is None:
+        wire = drift_wire.Wire("unavailable", "supergraph_not_loaded")
     annotated: list[dict] = []
     drifts: list[dict] = []
-    sources = [*ts_value_sets, *sql_enums]
+    sources = ui_comparison_sources([*ts_value_sets, *sql_enums])
     for ui in ui_option_groups:
         enriched = dict(ui)
         enriched["nearest_value_sets"] = nearest_value_sets(ui, sources)
         enriched["promotion_status"] = "suppressed"
         enriched["promotion_reason"] = "not_evaluated"
+        enriched["wire_verdicts"] = []
         if not ui_group_has_safe_name(ui):
             enriched["promotion_reason"] = "unsafe_name"
             annotated.append(enriched)
             continue
-        ui_vals = lower_values(ui["values"])
+        ui_vals = exact_values(ui["values"])
         if len(ui_vals) < 2:
             enriched["promotion_reason"] = "too_few_values"
             annotated.append(enriched)
@@ -1045,48 +1154,60 @@ def annotate_ui_option_groups(ts_value_sets: list[dict], sql_enums: list[dict],
             annotated.append(enriched)
             continue
 
-        promoted = False
-        low_similarity_seen = False
-        equal_seen = False
         for source in related_sources:
-            source_vals = lower_values(source["values"])
-            similarity = jaccard(ui_vals, source_vals)
-            if ui_vals == source_vals:
-                equal_seen = True
-                continue
+            similarity = jaccard(folded_values(ui["values"]), folded_values(source["values"]))
             if similarity < jaccard_threshold:
-                low_similarity_seen = True
+                enriched["wire_verdicts"].append({
+                    "source_name": source["name"], "source_ref": source["ref"], "verdict": "low_similarity",
+                })
                 continue
-            reason = relationship_reason(ui, source) or "unknown"
-            drift = {
+            verdict = drift_wire.classify_ui_pair(
+                ui_vals, source, wire, service_of(ui["ref"]), service_of(source["ref"]),
+            )
+            enriched["wire_verdicts"].append({
+                "source_name": source["name"], "source_ref": source["ref"],
+                "verdict": verdict["verdict"], "reason": verdict["reason"],
+            })
+            if not verdict.get("severity"):
+                continue
+            drifts.append({
                 "claim_type": "frontend_dropdown_drift",
                 "concept": normalize_concept_name(source["name"]),
                 "ui": enriched,
                 "source": source,
                 "source_kind": source.get("kind", "sql_enum"),
-                "relationship": reason,
-                "missing_in_ui": sorted(source_vals - ui_vals),
-                "missing_in_source": sorted(ui_vals - source_vals),
+                "relationship": relationship_reason(ui, source) or "unknown",
+                "missing_in_ui": verdict["missing_in_ui"],
+                "missing_in_source": verdict["not_on_wire"],
                 "value_jaccard_similarity": round(similarity, 3),
-                "cross_service": service_of(ui["ref"]) != service_of(source["ref"]),
+                "classification": verdict["verdict"],
+                "severity": verdict["severity"],
+                "transport": verdict["transport"],
+                "cross_service": verdict["cross_service"],
+                "ui_backends": verdict["ui_backends"],
+                "source_owners": verdict["source_owners"],
                 "ui_service": service_of(ui["ref"]),
                 "source_service": service_of(source["ref"]),
-            }
-            drifts.append(drift)
-            promoted = True
+            })
 
-        if promoted:
+        reasons = [v.get("reason") or v["verdict"] for v in enriched["wire_verdicts"]]
+        if any(d["ui"] is enriched for d in drifts):
             enriched["promotion_status"] = "promoted"
             enriched["promotion_reason"] = "related_value_set_drift"
-        elif equal_seen:
-            enriched["promotion_reason"] = "matches_related_value_set"
-        elif low_similarity_seen:
-            enriched["promotion_reason"] = "low_similarity"
         else:
-            enriched["promotion_reason"] = "no_drift"
+            decided = next(
+                (reason for verdict, reason in UI_VERDICT_PRECEDENCE if verdict in reasons), None,
+            )
+            unverifiable = next((r for r in reasons if r.startswith("wire_unverifiable:")), None)
+            enriched["promotion_reason"] = (
+                decided if decided and decided != "low_similarity" else unverifiable or decided or "no_drift"
+            )
         annotated.append(enriched)
 
-    drifts.sort(key=lambda d: (not d["cross_service"], -d["value_jaccard_similarity"], d["ui"]["ref"]))
+    drifts.sort(key=lambda d: (
+        -drift_wire.SEVERITY_RANK[d["severity"]], not d["cross_service"],
+        -d["value_jaccard_similarity"], d["ui"]["ref"],
+    ))
     seen: dict[tuple[str, str], dict] = {}
     unique: list[dict] = []
     for d in drifts:
@@ -1096,21 +1217,27 @@ def annotate_ui_option_groups(ts_value_sets: list[dict], sql_enums: list[dict],
             "ref": d["source"]["ref"],
             "relationship": d["relationship"],
             "value_jaccard_similarity": d["value_jaccard_similarity"],
+            "classification": d["classification"],
             "missing_in_ui": d["missing_in_ui"],
             "missing_in_source": d["missing_in_source"],
         }
         key = (d["ui"]["ref"], compact_concept_key(d["concept"]))
         if key not in seen:
+            # Sorted most severe first, so the first drift per key is the
+            # representative; later ones are supporting evidence only.
             d["supporting_sources"] = [source_summary]
             seen[key] = d
             unique.append(d)
         else:
-            existing = seen[key]
-            existing["supporting_sources"].append(source_summary)
-            existing["missing_in_ui"] = sorted(set(existing["missing_in_ui"]) | set(d["missing_in_ui"]))
-            existing["missing_in_source"] = sorted(set(existing["missing_in_source"]) | set(d["missing_in_source"]))
-            existing["cross_service"] = existing["cross_service"] or d["cross_service"]
+            seen[key]["supporting_sources"].append(source_summary)
     return annotated, unique
+
+
+def load_wire(repo_root: Path, fates: list[FileFate], supergraph: str | None = None) -> "drift_wire.Wire":
+    """The composed supergraph's wire facts, or a named reason it is unavailable."""
+    return drift_wire.load_wire(
+        repo_root, fates, supergraph, service_of=service_of, surface_of=surface_of_path,
+    )
 
 
 # ─── find_frontend_dropdown_drifts ───────────────────────────────────────
@@ -1119,9 +1246,10 @@ def annotate_ui_option_groups(ts_value_sets: list[dict], sql_enums: list[dict],
 # and (2) a related TS/SQL value set by name or strong value overlap.
 def find_frontend_dropdown_drifts(ts_value_sets: list[dict], sql_enums: list[dict],
                                   ui_option_groups: list[dict],
-                                  jaccard_threshold: float = 0.5) -> list[dict]:
+                                  jaccard_threshold: float = 0.5,
+                                  wire: "drift_wire.Wire | None" = None) -> list[dict]:
     _, drifts = annotate_ui_option_groups(
-        ts_value_sets, sql_enums, ui_option_groups, jaccard_threshold,
+        ts_value_sets, sql_enums, ui_option_groups, jaccard_threshold, wire=wire,
     )
     return drifts
 
@@ -1392,6 +1520,9 @@ def build_summary(value_sets: list[dict], ui_option_groups: list[dict],
             "existing_gate_referenced": gate_referenced,
             "new_looking": novel,
         },
+        "classification_counts": dict(Counter(
+            f"{d.get('severity')}:{d.get('classification')}" for d in all_drifts
+        )),
     }
 
 
@@ -1509,7 +1640,8 @@ def write_report(out_dir: Path, fp: Fingerprint, fates: list[FileFate],
     if frontend_dropdown_drifts:
         for i, d in enumerate(frontend_dropdown_drifts[:10], 1):
             badge = "CROSS-SERVICE" if d.get("cross_service") else "same-service"
-            r.append(f"### UI Drift {i}: `{d['concept']}` — {badge} (similarity {d['value_jaccard_similarity']})\n\n")
+            r.append(f"### UI Drift {i}: `{d['concept']}` — {d['severity']} `{d['classification']}` "
+                     f"over {d['transport']}, {badge} (similarity {d['value_jaccard_similarity']})\n\n")
             r.append(f"- UI `{d['ui']['name']}` @ `{d['ui']['ref']}` "
                      f"({d.get('ui_service','?')}) — values: `{d['ui']['values']}`\n")
             r.append(f"- Source {d['source_kind']} `{d['source']['name']}` @ `{d['source']['ref']}` "
@@ -1573,6 +1705,10 @@ def main() -> int:
     ap.add_argument("--fail-on-drifts", type=int, default=0,
                     help="Exit code 1 when above-threshold drifts > N (default: 0 = fail on any drift). "
                          "Set very high to disable CI-fail behaviour.")
+    ap.add_argument("--supergraph", default=None,
+                    help=f"Composed supergraph SDL (default: <repo>/{drift_wire.SUPERGRAPH_REL}, "
+                         "written by scripts/apollo-router/build-supergraph.mjs). Missing → UI wire "
+                         "comparisons are reported unverifiable under a named reason.")
     args = ap.parse_args()
 
     repo_root = Path(args.workspace_root).resolve()
@@ -1638,8 +1774,12 @@ def main() -> int:
           f"graphql enums: {len(graphql_enums)}; rust enums: {len(rust_enums)}; "
           f"sql enums: {len(sql_enums)}; ui option groups: {len(ui_option_groups)}")
     drifts_above, drifts_filtered = find_drifts(ts_value_sets, sql_enums, args.jaccard_threshold)
+    wire = load_wire(repo_root, fates, args.supergraph)
+    print(f"[aria-poc]   wire: {wire.status}"
+          f"{' (' + wire.reason + ')' if wire.reason else ''} from {wire.supergraph}; "
+          f"ui modules mapped to subgraphs: {len(wire.module_backends)}")
     ui_option_groups, frontend_dropdown_drifts = annotate_ui_option_groups(
-        ts_value_sets, sql_enums, ui_option_groups, max(args.jaccard_threshold, 0.5),
+        ts_value_sets, sql_enums, ui_option_groups, max(args.jaccard_threshold, 0.5), wire=wire,
     )
     cross = sum(1 for d in drifts_above if d["cross_service"])
     print(f"[aria-poc]   above-threshold drifts: {len(drifts_above)} (cross-service: {cross}); "
@@ -1673,6 +1813,7 @@ def main() -> int:
             "jaccard_threshold": args.jaccard_threshold,
             "prior_audit_mentions": audit_mentions,
             "existing_gate_refs": existing_gate_refs,
+            "wire": wire.summary(),
             "summary": summary,
         }, indent=2),
         encoding="utf-8",

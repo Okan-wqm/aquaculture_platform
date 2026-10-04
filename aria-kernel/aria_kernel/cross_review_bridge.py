@@ -37,13 +37,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .agent_eval import recurring_failure_modes
 from .agent_invocations import create_agent_invocation_request
 from .bridge_exceptions import BridgeContractViolation
 from .implementation_safety import (
     READONLY_PATHS,
     implementation_allowed_scope,
 )
-from .must_satisfy import key_change_obligation, must_satisfy_item, waiver_adjudication_obligation
+from .must_satisfy import (
+    key_change_obligation,
+    must_satisfy_item,
+    observed_failure_obligation,
+    waiver_adjudication_obligation,
+)
 from .plan_contract import plan_validation_suite, render_plan_contract
 from .plan_convergence import (
     affected_surface_paths,
@@ -61,6 +67,7 @@ from .plan_origin import (
     commit_contract_for_plan,
     record_admission_scope_refusal,
 )
+from .planner_lessons import planner_lesson_obligations
 from .system_one_points import rank_candidate_files, render_candidate_files
 from .tool_registry import GovernanceError
 
@@ -343,7 +350,8 @@ def issue_primary_envelope(
         target_agent=target_agent,
         role=role,
         suggested_prompt=suggested_prompt,
-        must_satisfy=must_satisfy,
+        # ARIA-HIGH-309 — the lessons recorded plans in this plan's scope teach.
+        must_satisfy=[*must_satisfy, *planner_lesson_obligations(base_dir=base_dir, plan_id=plan_id)],
         allowed_scope=allowed_scope,
         evidence_refs=evidence_refs,
         convergence_id=plan_id,
@@ -706,6 +714,16 @@ def _implementation_must_satisfy(
     return obligations
 
 
+def _observed_failure_obligations(*, base_dir: str | Path | None, implementer: str) -> list[dict[str, Any]]:
+    """ARIA-HIGH-285 — procedural memory's reader at the implementer mint: one
+    must-check obligation per failure mode this implementer's recorded
+    episodes repeat (``agent_eval.LESSON_EPISODE_THRESHOLD`` or more)."""
+    return [
+        observed_failure_obligation(**recurring)
+        for recurring in recurring_failure_modes(base_dir=base_dir, role="implementer", subject=implementer)
+    ]
+
+
 def issue_implementation_envelope(
     *,
     plan_id: str,
@@ -861,7 +879,7 @@ def issue_implementation_envelope(
         allowed_scope=allowed_scope,
         refused_surfaces=refused_surfaces,
         validation_commands=validation_commands,
-    )
+    ) + _observed_failure_obligations(base_dir=base_dir, implementer=IMPLEMENTATION_ROLE[0])
     # ARIA-HIGH-104 (4) — the trailer is the kernel's to derive, from the
     # finding the plan was minted from; the agent prints it verbatim.
     commit_contract = commit_contract_for_plan(plan_content, plan_id=plan_id)

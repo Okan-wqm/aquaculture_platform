@@ -86,17 +86,19 @@ class TheFleetIsTheOneBinding(unittest.TestCase):
         self.assertEqual(claude_runtime._model_provider(None), "anthropic")
 
     def test_an_anthropic_auth_failure_still_walks_to_the_zai_rung(self) -> None:
-        """ARIA-HIGH-023 survives the transport change: the cross-provider
-        rung is still glm-5.3 — the executor now serves that rung through the
-        Z.ai transport instead of a redirected claude spawn. For a READ-ONLY
-        role: the Z.ai transport admits no writes (operator decision
-        2026-09-12), so a write-scope profile has no rung there."""
-        self.assertEqual(claude_runtime._cross_provider_auth_fallback("opus", write_capable=False), "glm-5.3")
-        self.assertIsNone(claude_runtime._cross_provider_auth_fallback("opus", write_capable=True))
-        self.assertEqual(claude_runtime._cross_provider_auth_fallback("glm-5.3", write_capable=False), "opus")
-        # sonnet is no rung of anything any more.
-        self.assertIsNone(claude_runtime._cross_provider_auth_fallback("sonnet", write_capable=False))
+        """ARIA-HIGH-023 survives the transport change, and since ARIA-HIGH-290
+        the rung is the next one of the role's routing ladder: glm-5.3 for a
+        READ-ONLY role on a Claude-led ladder, opus for a glm-led one, and no
+        rung for a write-scope profile (the Z.ai transport admits no writes)."""
+        from aria_kernel.runtime_profiles import routed_models
 
+        spawn = {"environ": {}, "runtimes": ("claude", "zai"), "profile_model": "opus"}
+        self.assertEqual(routed_models("primary_plan", "aria-primary-planner", write_capable=False, **spawn)[1],
+                         "glm-5.3")
+        self.assertEqual(routed_models("primary_plan", "aria-primary-planner", write_capable=True, **spawn),
+                         ("opus",))
+        self.assertEqual(routed_models("challenger_plan", "aria-challenger-planner", write_capable=False,
+                                       **spawn), ("glm-5.3", "opus"))
 
 if __name__ == "__main__":
     unittest.main()

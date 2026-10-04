@@ -1,9 +1,12 @@
 # ADR-0019 — FAILING_CI Means a Red Workflow Whose Verdict Is About `main` Itself
 
-**Status:** proposed
+**Status:** accepted (operator, 2026-10-02)
 **Date:** 2026-10-02 (role definitions corrected the same day after review round 2)
 **Owner:** okan
-**Decision deadline:** 2026-10-16
+**Implemented by:** `.github/manifests/workflow-roles.json`,
+`tests/invariants/workflow-roles.spec.ts`, `scan_failing_ci` in
+`aria-kernel/aria_kernel/plan_synthesizer.py`, tested by
+`aria-kernel/tests/test_failing_ci_main_verdict.py`
 **Finding reference:** docs/reviews/claude/2026-10-02-aria-operator-channel.md#ARIA-HIGH-256
 **Refines:** ADR-0003 (`2026-05-20-adr-0003-aria-self-feed-deferred.md`), ARCH-HIGH-002
 
@@ -49,5 +52,13 @@ red `aria-daily-report`. A blanket exclusion by trigger is wrong too: `e2e-tests
 
 ## Status of this record
 
-Proposed, not decided. Nothing in the branch that records it implements it. Until it is decided, a
-one-time operator decision outranks failing CI through the signed request channel (ADR-0018).
+Accepted by the operator on 2026-10-02 and implemented by the change that closes ARIA-HIGH-256.
+That change settles three points the proposal left open:
+
+- A `pr_verdict` workflow may reach its pull request through `workflow_run` on a workflow that has a
+  pull-request trigger: `aria-readiness-claim` runs after `aria-merge-authority`.
+- `dataflow-integrity-watchdog` is `main_verdict`: it probes the production edge, containers and
+  tenant data, and reads no workflow runs.
+- The kernel reads the manifest as committed at the checkout's commit once that commit is proven on
+  `main` (the ADR-0020 anchor), else from the working tree. A missing or malformed manifest
+  excludes nothing, and that is disclosed once per cycle.

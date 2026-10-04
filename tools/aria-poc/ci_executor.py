@@ -72,6 +72,7 @@ from claude_runtime import (
     ClaudeUsageUnavailable,
     UsageRecording,
     extract_final_message,
+    failure_cause_text,
     extract_usage,
     is_mock_mode as _claude_is_mock_mode,
     parse_claude_jsonl,
@@ -203,6 +204,9 @@ except Exception as _kernel_import_error:  # pragma: no cover - fallback keeps s
         # narrower copy is invisible, so the no-drift test is what makes the
         # duplication legitimate rather than latent.
         "verification",
+        # ARIA-HIGH-344 — the autonomy planner's queue and self-change role,
+        # minted and drained long before either set named it.
+        "maintenance_utility",
     })
     _render_invocation_prompt = None
     _fuse_prompt_envelope = None
@@ -1378,6 +1382,10 @@ def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
 
 
 STDERR_TAIL_MAX_CHARS = 2000
+# ARIA-HIGH-290 — the runtimes the spawn lane's `_dispatch_attempt` can run:
+# the managed Claude CLI and the Z.ai transport (`_run_zai_as_claude_result`).
+# A routing rung on any other runtime is skipped by `routed_models` there.
+_SPAWN_LANE_RUNTIMES: tuple[str, ...] = ("claude", "zai")
 
 
 def _bounded_stderr_tail(stderr: str | None) -> str | None:
@@ -1872,6 +1880,11 @@ def invoke_claude_cli(
     # class, detail code and the bounded stderr tail. The int return stays
     # the exit code every other caller branches on.
     on_outcome: Callable[[dict[str, Any]], None] | None = None,
+    # ARIA-HIGH-290 — the model the native admission ADMITTED for this
+    # request (its route), or None on the spawn lane, which reads the role's
+    # ladder from the routing table instead. Never the profile's own model:
+    # a role routed off its profile's vendor runs the route's model.
+    route_model: str | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
@@ -2120,6 +2133,29 @@ def invoke_claude_cli(
     if claim_id:
         spawn_extra_env["ARIA_CLAIM_ID"] = str(claim_id)
     try:
+        # ARIA-HIGH-290 — the models this spawn may run come from the ONE
+        # routing table: the native lane's admitted route (its admission owns
+        # failover, so there is no second rung here), else the role's ladder
+        # as the spawn lane's wrapper can run it — first rung, then ONE auth
+        # failover on the next.
+        if route_model is not None:
+            _models: tuple[str, ...] = (route_model,)
+        else:
+            from aria_kernel.runtime_profiles import routed_models
+
+            _models = routed_models(role, subagent_type, profile_model=agent_profile.model,
+                                    write_capable=agent_profile.write_capable, environ=os.environ,
+                                    runtimes=_SPAWN_LANE_RUNTIMES)
+        if not _models:
+            # Every rung of the role's ladder is suspended or cannot host
+            # this profile: nothing may run, and the summary says so.
+            _emit_dispatch_summary(
+                outcome="failed",
+                failure=DispatchFailure(failure_class="policy_violation", retryable=False,
+                                        detail_code="provider_routing_no_rung", phase="preflight", exit_code=1),
+                exit_code=1,
+            )
+            return 1
         # Model dispatch through the claude_runtime SSoT helper: a credit
         # exhaustion is terminal for the attempt (ClaudeCreditExhausted,
         # handled by main()'s requeue arm), a refusal rides the result and is
@@ -2243,7 +2279,7 @@ def invoke_claude_cli(
             # 82 requests, 0 results, 2026-09-04. The ledger prices through
             # budget's alias map; the reservation now takes the same road,
             # so the gate cannot price a model the ledger prices differently.
-            _reservation = price_spawn_reservation(model=agent_profile.model)
+            _reservation = price_spawn_reservation(model=_models[0])
             if _reservation.source == PRICING_SOURCE_UNKNOWN and not os.environ.get("ARIA_COST_UNKNOWN_ACK", "").strip():
                 # A typed failure, not a string: the summary writer reads
                 # .failure_class, and a str here crashed the refusal path.
@@ -2280,7 +2316,8 @@ def invoke_claude_cli(
         _effort = effective_effort(agent_profile.effort, target_agent=subagent_type, role=role, base_dir=tools_dir, request_id=request_id)
         completed = run_with_model_fallback(
             run=_dispatch_attempt,
-            model=agent_profile.model,
+            model=_models[0],
+            failover=_models[1] if len(_models) > 1 else None,
             effort=_effort,
             # The role condition of the auth failover, from the profile SSoT:
             # a write-scope profile is never handed to a read-only runtime.
@@ -2291,7 +2328,8 @@ def invoke_claude_cli(
             _unresolved_payload = {
                 "request_id": request_id,
                 "subagent_type": subagent_type,
-                "model": agent_profile.model,
+                # The rung that answered (stamped by run_with_model_fallback).
+                "model": completed.model,
                 "refusal": completed.refusal,
             }
             if tools_dir is not None:
@@ -2315,7 +2353,7 @@ def invoke_claude_cli(
                         tools_dir=tools_dir, request_id=request_id, severity="HIGH",
                         reason=f"model_safety_refusal:{_hr_category}: the model refused the request",
                         context={"code": f"model_safety_refusal:{_hr_category}", "stage": "model_refusal",
-                                 "claim_id": claim_id, "category": _hr_category, "model": agent_profile.model},
+                                 "claim_id": claim_id, "category": _hr_category, "model": completed.model},
                     )
                 except HumanRequiredRecordUnavailable as _hr_exc:
                     sys.stderr.write(
@@ -2329,7 +2367,7 @@ def invoke_claude_cli(
             )
             raise ClaudeCliUnavailable(
                 "model_safety_refusal_unresolved: request "
-                f"{request_id} refused by {agent_profile.model} "
+                f"{request_id} refused by {completed.model} "
                 f"(category={completed.refusal.get('category')!r}); "
                 "escalated to HUMAN_REQUIRED"
             )
@@ -2424,7 +2462,10 @@ def invoke_claude_cli(
     # no cause is the operator reading four ledgers to learn that the
     # limiter could not reach a bus. They go to the job log AND, through
     # the summary seam, to the caller that records the attempt.
-    _stderr_tail = _bounded_stderr_tail(completed.stderr) if completed.returncode != 0 else None
+    # ARIA-HIGH-290 — cut from the cause-ordered text, not raw stderr: the
+    # CLI's start-up notices must not push the result event's cause out.
+    _stderr_tail = (_bounded_stderr_tail(failure_cause_text(stderr=completed.stderr, events=completed.events))
+                    if completed.returncode != 0 else None)
     _emit_dispatch_summary(
         outcome="succeeded" if completed.returncode == 0 else "failed",
         failure=classify_dispatch_failure(result=completed, phase="runtime"),
@@ -3168,6 +3209,7 @@ def _run_zai_as_claude_result(
     failure_class = None
     if completed.auth_failure is not None:
         auth_failure = {
+            "signature": completed.exhaustion_signature,
             "marker": completed.auth_failure, "matched_marker": completed.auth_failure,
             "vendor_error_code": completed.error_code, "vendor_error_message": completed.error_message,
             "remedy": f"re-provision the Z.ai subscription key at its boundary ({context.credential.location})",
@@ -3175,6 +3217,7 @@ def _run_zai_as_claude_result(
         failure_class = "auth_failed"
     elif completed.credit_exhaustion is not None:
         credit_exhaustion = {
+            "signature": completed.exhaustion_signature,
             "marker": completed.credit_exhaustion, "matched_marker": completed.credit_exhaustion,
             "vendor_error_code": completed.error_code, "vendor_error_message": completed.error_message,
         }
@@ -3289,7 +3332,8 @@ def _invoke_native_codex(
         transcript_path.write_text(completed.stdout, encoding="utf-8")
         if completed.auth_failure is not None:
             result_admission = "auth_unavailable"
-            raise ClaudeAuthFailure("Codex managed authentication unavailable")
+            raise ClaudeAuthFailure("Codex managed authentication unavailable", provider=route["provider"],
+                                    model=route["model"], detail=dict(completed.auth_failure))
         if completed.credit_exhaustion is not None:
             result_admission = "quota_unavailable"
             raise ClaudeCreditExhausted(
@@ -3412,13 +3456,18 @@ def _invoke_native_zai(
         transcript_path.write_text(completed.raw_body.decode("utf-8", errors="replace"), encoding="utf-8")
         if completed.auth_failure is not None:
             result_admission = "auth_unavailable"
-            raise ClaudeAuthFailure("Z.ai subscription authentication unavailable")
+            raise ClaudeAuthFailure(
+                "Z.ai subscription authentication unavailable", provider=route["provider"], model=route["model"],
+                detail={"signature": completed.exhaustion_signature, "marker": completed.auth_failure,
+                        "vendor_error_code": completed.error_code, "http_status": completed.http_status},
+            )
         if completed.credit_exhaustion is not None:
             result_admission = "quota_unavailable"
             raise ClaudeCreditExhausted(
                 "Z.ai subscription capacity unavailable", provider=route["provider"],
                 model=route["model"],
-                detail={"marker": completed.credit_exhaustion, "vendor_error_code": completed.error_code,
+                detail={"signature": completed.exhaustion_signature, "marker": completed.credit_exhaustion,
+                        "vendor_error_code": completed.error_code,
                         "vendor_error_message": completed.error_message, "http_status": completed.http_status},
             )
         if completed.returncode != 0:
@@ -3550,6 +3599,7 @@ def _invoke_native_claude(
             role=request["role"], must_satisfy=request.get("must_satisfy") or [],
             request_envelope=request, tools_dir=tools_dir, spawn_control=spawn_control,
             signer_key_fp=signer_key_fp, git_containment=git_containment,
+            route_model=native_runtime.route["model"],
         )
         if cli_exit != 0:
             result_admission = "provider_nonzero"
@@ -4020,7 +4070,7 @@ def _admit_native_route(
     from aria_kernel.provider_cooldown import active_provider_cooldowns
 
     admission = _native_runtime_admission(
-        repo_root=policy_root, profile=profile, policy=policy, environ=environment,
+        repo_root=policy_root, profile=profile, role=request["role"], policy=policy, environ=environment,
         observe_status=observe_status,
         # The exhausted-provider memory: a provider cooled by a previous
         # attempt's ClaudeCreditExhausted is refused here without a probe.
@@ -5129,6 +5179,17 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             + _redact_lease_in_message(str(exc), lease_token)
             + ". No agent ran, so no result was submitted.\n"
         )
+        if native_runtime is not None:
+            # ARIA-HIGH-290 — a dead credential is a provider fact, answered
+            # like an exhausted quota: the provider is cooled (once per
+            # transition) and the next admission routes past it.
+            from aria_kernel.provider_cooldown import record_provider_cooldown
+
+            record_provider_cooldown(
+                tools_dir, provider=exc.provider, model=exc.model,
+                cooldown_seconds=native_runtime.policy.provider_cooldown_seconds,
+                request_id=request_id, claim_id=claim_id, detection=exc.detail,
+            )
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,

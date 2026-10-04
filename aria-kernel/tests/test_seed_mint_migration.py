@@ -22,11 +22,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools" / "aria-poc
 import seed_drift_findings as seeder  # noqa: E402
 
 
-def _drift(concept: str = "farm_status", cross: bool = True) -> dict:
+def _drift(concept: str = "farm_status", cross: bool = True, severity: str | None = "HIGH",
+           classification: str | None = "ts_value_not_in_db") -> dict:
     return {
         "drift_class": "enum-drift",
         "concept": concept,
         "cross_service": cross,
+        "severity": severity,
+        "classification": classification,
         "missing_in_ts": ["ARCHIVED"],
         "missing_in_sql": [],
         "candidate_tool": "typeorm-entity-schema-adapter",
@@ -79,9 +82,27 @@ class SeedMintTests(unittest.TestCase):
         self.assertEqual(minted, [])
         self.assertEqual(unmintable[0]["reason"], "fewer_than_two_evidence_sides")
 
-    def test_low_blast_radius_is_medium(self) -> None:
-        minted, _, _ = seeder.mint_candidates(self.repo, [_drift(cross=False)], base_dir=self.repo / 'aria-tools')
-        self.assertEqual(minted[0]["severity"], "MEDIUM")
+    def test_severity_is_the_scanner_classification_not_blast_radius(self) -> None:
+        # A same-service value the wire does not carry is HIGH because the
+        # scanner classified it so; cross_service no longer decides severity.
+        drift = _drift(cross=False, severity="HIGH", classification="ui_value_not_on_wire")
+        minted, _, _ = seeder.mint_candidates(self.repo, [drift], base_dir=self.repo / 'aria-tools')
+        self.assertEqual(minted[0]["severity"], "HIGH")
+        self.assertIn("ui_value_not_on_wire", minted[0]["claim_summary"])
+
+    def test_low_subset_meets_the_spine_drift_floor_not_a_cross_service_high(self) -> None:
+        # An own-service subset is LOW even across services; the kernel's
+        # spine_drift floor (MEDIUM) refuses it and the seeder discloses that.
+        drift = _drift(cross=True, severity="LOW", classification="own_service_subset")
+        minted, _, unmintable = seeder.mint_candidates(self.repo, [drift], base_dir=self.repo / 'aria-tools')
+        self.assertEqual(minted, [])
+        self.assertIn("severity LOW below floor", unmintable[0]["reason"])
+
+    def test_unclassified_drift_is_disclosed_not_minted(self) -> None:
+        drift = _drift(severity=None, classification=None)
+        minted, already, unmintable = seeder.mint_candidates(self.repo, [drift], base_dir=self.repo / 'aria-tools')
+        self.assertEqual((minted, already), ([], []))
+        self.assertEqual(unmintable[0]["reason"], "unclassified_drift")
 
 
 class DigestFieldTests(unittest.TestCase):

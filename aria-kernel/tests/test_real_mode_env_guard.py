@@ -4,16 +4,13 @@
 precondition for ARIA real mode and had **zero callers anywhere**. Its dormancy
 waiver was corrected on 2026-08-06 after someone re-read the CLI: the original
 claimed the mode it protects is unreachable because `run_agent_eval` defaults to
-`mock_mode=True`. That is false. `eval-run --no-mock-mode --real-envelope-file`
-is a registered argument pair (`cli.py:1103-1106`) and `cli.py:3719` computes
-`mock_mode = not args.no_mock_mode`, so real mode is reachable by an operator
-today. It was an unguarded LIVE path, not a dormant future one — bounded only
-because the flag is operator-typed rather than scheduled, which is why it stayed
-MEDIUM rather than escalating.
+`mock_mode=True`. That was false then (`--no-mock-mode --real-envelope-file`
+reached it) and the mode is gone now: since ARIA-HIGH-285 every run is real, so
+the guard covers every call.
 
-The guard goes FIRST in the real-mode branch, ahead of the provenance
-preconditions: an unsafe environment must be refused before the run starts
-reading ledgers and binding an invocation to it.
+The guard goes FIRST, ahead of the provenance preconditions: an unsafe
+environment must be refused before the run starts reading ledgers and binding
+an invocation to it.
 """
 
 from __future__ import annotations
@@ -69,7 +66,7 @@ class RealModeEnvGuardTests(unittest.TestCase):
         provenance checks has already passed the environment gate, which is the
         failure this test exists to catch.
         """
-        run_agent_eval(fixture_id=FIXTURE_ID, base_dir=self.base, mock_mode=False)
+        run_agent_eval(fixture_id=FIXTURE_ID, base_dir=self.base)
 
     def test_a_forbidden_debug_variable_refuses_the_run(self) -> None:
         for name in FORBIDDEN_REAL_MODE_ENV:
@@ -83,7 +80,7 @@ class RealModeEnvGuardTests(unittest.TestCase):
         """Order is the point, not merely presence.
 
         With the variable set, the refusal must be the environment one — not
-        `mock_mode=False requires real_response_envelope`. If the provenance
+        `real_eval_missing_response_envelope`. If the provenance
         error surfaces first, the run has already touched ledgers under a
         debugger environment the guard exists to keep it out of.
         """
@@ -103,18 +100,6 @@ class RealModeEnvGuardTests(unittest.TestCase):
             ArtifactSafetyError,
             "a clean environment was still refused by the environment guard",
         )
-
-    def test_mock_mode_is_unaffected(self) -> None:
-        """Mock mode never enters the branch, so a debug variable is irrelevant there.
-
-        This is the blast-radius statement the finding rests on: the guard is
-        scoped to the operator-typed real-mode path and does not touch the
-        default one, so wiring it cannot break a scheduled lane.
-        """
-        name = sorted(FORBIDDEN_REAL_MODE_ENV)[0]
-        with mock.patch.dict(os.environ, {name: "1"}, clear=False):
-            result = run_agent_eval(fixture_id=FIXTURE_ID, base_dir=self.base, mock_mode=True)
-        self.assertEqual(result["mock_mode"], True)
 
 
 if __name__ == "__main__":

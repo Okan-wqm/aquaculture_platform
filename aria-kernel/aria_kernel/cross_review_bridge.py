@@ -67,6 +67,7 @@ from .plan_origin import (
     commit_contract_for_plan,
     record_admission_scope_refusal,
 )
+from .planner_lessons import planner_lesson_obligations
 from .tool_registry import GovernanceError
 
 
@@ -348,7 +349,8 @@ def issue_primary_envelope(
         target_agent=target_agent,
         role=role,
         suggested_prompt=suggested_prompt,
-        must_satisfy=must_satisfy,
+        # ARIA-HIGH-309 — the lessons recorded plans in this plan's scope teach.
+        must_satisfy=[*must_satisfy, *planner_lesson_obligations(base_dir=base_dir, plan_id=plan_id)],
         allowed_scope=allowed_scope,
         evidence_refs=evidence_refs,
         convergence_id=plan_id,

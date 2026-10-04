@@ -120,9 +120,9 @@ items below are the design after those fixes, with each review id where it chang
   Nothing was restored, so nothing is lost, and no pending run is evicted.
 - The fence is part of the push (GSEC-HIGH-001). `publish_with_contention_replay` resolves
   the token itself, so no caller can skip it, and refuses unless the token holds the current
-  lease and the store is on the published tip. It renews the lease by CAS when less than one
-  leased publish arc (35 minutes: the pending recovery plus push, probe, fetch and
-  fast-forward at the git cap) is left. It then pushes the state commit and a fast-forward
+  lease and the store is on the published tip. It renews the lease by CAS when less than what
+  still follows the check is left (80 minutes: the cold staging plus the locked publish arc
+  at the git cap). It then pushes the state commit and a fast-forward
   child of the observed lease tip (same lease id, fresh `heartbeat_at`) in one
   `git push --atomic`. A takeover between the check and the push rejects both halves. Any
   contention under a lease is refused as `state_writer_lease_lost`, named from a fresh read of
@@ -137,8 +137,8 @@ items below are the design after those fixes, with each review id where it chang
   the 1800 s writer-lease wait before its restore (`ci_executor_drain.WRITER_LEASE_WAIT_SECONDS`,
   pinned equal to the workflow). The reserve is 8100 s, so the drain window plus reserve is
   485 of the job's 510 minutes, and the post-drain reserve the workflow exports is 3600 s.
-- TTL = job timeout + the 35-minute leased-publish margin (GSEC-MEDIUM-003): executor 545,
-  cycle 395, eval 60, merge-runner, readiness-claim and maintenance 50.
+- TTL = job timeout + the 80-minute leased-publish margin (GSEC-MEDIUM-003): executor 650,
+  cycle 440, eval 105, merge-runner, readiness-claim and maintenance 95.
 - `release-aria-state-lease` is each publishing job's last step, with `if: always()` and
   nothing else (GSEC-LOW-001). Release is idempotent. Without the token it releases only a
   lease whose owner is this run's `writer_identity`. The executor and cycle abort gates exempt
@@ -147,8 +147,9 @@ items below are the design after those fixes, with each review id where it chang
   released one as a fast-forward child, and refuses a valid held lease.
   `readiness probe-state-branch-protection` checks that deletion and non-fast-forward rules
   cover all three of `aria/state`, `aria/state-cold` and `aria/state-lease`. The bootstrap
-  runbook names the lease branch and the operator sequence: acquire, export the token,
-  publish, release.
+  runbook names the lease branch and the operator sequence: acquire with `--token-file`,
+  publish with `--lease-token-file`, release with `--token-file`; the token is never
+  exported into the shell.
 - The contention replay refuses (`replay_unreplayable_surface_changed`) before any reset when
   the loser changed a non-ledger surface the winner does not already hold, instead of
   reporting success over a dropped surface.
@@ -164,6 +165,45 @@ outside `state_store` calls `publish_state`, when a publishing job's TTL is belo
 margin, when its release is not a single unconditional last step carrying the token, when the
 token reaches a step that does not publish or merge, or when a kernel step after the restore
 can run on a yielded restore.
+
+## Re-review of PR #1779 at `ff05a4770` (MERGE-WITH-FIXES; both HIGH findings closed)
+
+The operator ran the protection probe against the live repository after extending ruleset
+20441794 to `aria/state-lease`:
+
+```text
+$ readiness probe-state-branch-protection --repo Okan-wqm/aquaculture_platform
+{"branches":["aria/state","aria/state-cold","aria/state-lease"],"reasons":[],"valid":true}
+```
+
+Fixed in this PR:
+
+- R-1 (MEDIUM, regression). A malformed or missing lease record made `state lease acquire`
+  exit 3, which the restore action read as a green yield, so one bad record would have made
+  every writer yield forever. Exit 3 now means only `state_writer_lease_held` with a holder in
+  the verdict. Every other refusal exits 4 and names `state lease repair`. The action yields
+  only on exit 3 with a holder present and fails red otherwise.
+- R-3 (LOW). The post-drain reserve priced only the locked arc. It now adds the leased
+  publish's preamble outside the lock (`state_writer_lease.PUBLISH_PREAMBLE_SECONDS`, 4500 s):
+  cold staging (`COLD_PUSH_ATTEMPTS` x 3 x the git cap) plus the fence's lease reads and its
+  renewal (3 + 3 x the cap). The post-drain reserve rises from 3600 s to 8100 s and the job
+  reserve from 8100 s to 12600 s. The drain window cannot shrink: below 20943 s the
+  implementation child (20343 s worst case plus the measured 600 s start window) no longer
+  fits, and every implementation would be skipped. So the window stays at 21000 s and the
+  executor's `timeout-minutes` rises from 510 to 570 (33600 s = 560 minutes, ten of margin).
+  The TTL margin rises from 35 to 80 minutes, because what must still fit after the fence
+  check is the cold staging plus the locked publish arc.
+- R-4 (LOW). `WriterFence.token` is `repr=False`. The token file is created with
+  `O_CREAT|O_EXCL|O_NOFOLLOW` and `fchmod` 0600 before the lease is taken, so a token that
+  cannot be kept leaves no lease behind. `state publish --lease-token-file` and
+  `state lease release --token-file` read it, and the runbook exports nothing.
+- R-6 (LOW). `publish_state`'s `writer_fence` is a required keyword; fixtures pass
+  `writer_fence=None` by name. A refused atomic push with neither `aria/state` nor the lease
+  branch moved is `state_publish_write_denied`, told apart from a takeover by one probe of
+  the lease branch, priced in the attempt arc.
+
+Tracked follow-ups from the re-review (owner `claude`, deadline 2026-10-18, under
+ARIA-HIGH-342), named as the re-review names them: R-2, R-5, R-7, R-8, R-9 and R-10.
 
 ## aria-state-maintenance
 
@@ -190,7 +230,8 @@ compaction runs at the next schedule that finds the branch free.
 - The replay is not streamed. With the orchestrator no longer replaying, it runs only for
   `memory_gap.restore_and_replay`; at current sizes it refuses by name rather than
   reconciling.
-- Hosted writers yield while a self-hosted job holds the lease (up to 545 minutes); see
+- Hosted writers yield while a self-hosted job holds the lease (up to 650 minutes); see
   GSEC-MEDIUM-002 above.
 - No live run has exercised the lease branch, the atomic push or the masked token output yet.
-  The ruleset was extended to `aria/state-lease` by the operator outside this diff.
+  The ruleset was extended to `aria/state-lease` by the operator outside this diff, and the
+  probe above confirms it covers all three branches.

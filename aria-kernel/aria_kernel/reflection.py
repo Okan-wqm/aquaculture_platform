@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .agent_eval import observe_agent_performance
 from .governance_reader import read_governance_rows
 from .ledger import append_declared_jsonl, load_jsonl_verified, read_jsonl
 from .snapshot import file_counts_from_payload
@@ -62,6 +63,11 @@ def run_reflection(
     if base_dir is not None:
         base_dir = Path(base_dir).resolve()
     root = ensure_tools_dir(base_dir)
+    # ARIA-HIGH-285 — agent_eval's real mode on every cycle path: each finished
+    # drafter / implementer episode becomes a procedural `performance_observed`
+    # event; with no plan ledger the refusal is named in governance. It runs
+    # BEFORE the reads below so this row's summaries include what it wrote.
+    agent_performance = observe_agent_performance(base_dir=root, cycle_id=cycle_id)
     # Plan 026R §A.2 — hot-path consumers move from `load_jsonl` (silent
     # accept of tampered / hashless rows) to `load_jsonl_verified` which
     # raises `LedgerIntegrityError` on chain mismatch, missing
@@ -166,6 +172,7 @@ def run_reflection(
         # in agent-result-bridge-status.jsonl. This is that ledger's first
         # reader.
         "bridge_health": _compute_bridge_health(root),
+        "agent_performance": agent_performance,
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),

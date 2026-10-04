@@ -33,6 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from .evidence_validator import PLAN_EVIDENCE_INADMISSIBLE
 from .finding_grounding import INTRINSIC_ADMISSION_REASONS
 from .operator_request_terms import TERMS_REASONS
 
@@ -46,8 +47,12 @@ SPENT_REFUSED = "refused"
 REQUEST_TEXT_UNUSABLE = "request_text_unusable"
 # Schema refusals of a validly signed row (operator_feedback_signature).
 _SIGNED_SCHEMA_REASONS: tuple[str, ...] = ("schema_invalid", "finding_id_missing", "finding_id_invalid")
+# ORPHAN-HIGH-519 — an admitted grounding none of whose refs the challenger's
+# rule admits (a cited line past the end of its file) is the request's own
+# problem; a harness-class refusal is a runner fault and never reaches here.
 REQUEST_REFUSAL_REASONS: tuple[str, ...] = (
-    *INTRINSIC_ADMISSION_REASONS, REQUEST_TEXT_UNUSABLE, *_SIGNED_SCHEMA_REASONS, *TERMS_REASONS,
+    *INTRINSIC_ADMISSION_REASONS, REQUEST_TEXT_UNUSABLE, PLAN_EVIDENCE_INADMISSIBLE,
+    *_SIGNED_SCHEMA_REASONS, *TERMS_REASONS,
 )
 
 

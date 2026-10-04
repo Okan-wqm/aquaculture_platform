@@ -1551,7 +1551,13 @@ def content_hash(payload: Any) -> str:
 
 
 def events_path(base_dir: str | Path | None = None) -> Path:
-    return ensure_tools_dir(base_dir) / "plans" / "events.jsonl"
+    return events_file(ensure_tools_dir(base_dir))
+
+
+def events_file(root: Path) -> Path:
+    """The plan ledger under an already-resolved tools root — no bootstrap
+    write, so read-only callers (agent_eval's doctor reader) can name it."""
+    return root / "plans" / "events.jsonl"
 
 
 def _mutate(

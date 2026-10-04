@@ -180,10 +180,12 @@ class PhaseV3_2ReflectionPathResolution(unittest.TestCase):
         )
         ga = reflection.get("gate_activity", {})
         # The "Total events" field MUST equal len(governance.jsonl).
-        # Includes 10 seeded + 1 bootstrap event.
-        self.assertEqual(ga.get("total_events"), 11)
+        # Includes 10 seeded + 1 bootstrap event + the agent_eval refusal
+        # reflection records first (ARIA-HIGH-285: no plan ledger here).
+        self.assertEqual(ga.get("total_events"), 12)
         by_kind = ga.get("by_kind", {})
         self.assertEqual(by_kind.get("agent_fitness_computed"), 10)
+        self.assertEqual(by_kind.get("agent_eval_real_refused"), 1)
         # The "recent_24h" subset MUST be ≤ total (all fresh writes
         # land inside the 24h window).
         recent = ga.get("recent_24h", {})

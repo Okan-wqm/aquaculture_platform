@@ -220,12 +220,13 @@ def classify_codex_events(events: list[dict[str, Any]], returncode: int) -> Code
         final_message="",
         events=tuple(events),
         auth_failure=(
-            {"kind": "auth_failure", "marker": auth, "returncode": returncode,
+            {"kind": "auth_failure", "signature": "codex_auth_marker", "marker": auth, "returncode": returncode,
              "remedy": "restore the managed ChatGPT session through the supported Codex login"}
             if auth and returncode != 0 else None
         ),
         credit_exhaustion=(
-            {"kind": "credit_exhaustion", "matched_marker": quota, "returncode": returncode}
+            {"kind": "credit_exhaustion", "signature": "codex_quota_marker", "matched_marker": quota,
+             "returncode": returncode}
             if quota and returncode != 0 else None
         ),
     )

@@ -22,9 +22,10 @@ reviewable frontmatter edit. Operator decision 2026-09-12: ``fable`` stays a
 named tier (ordering, pricing) and is selected by nothing — no profile, no
 frontmatter, no default; ``tests/invariants`` pins it. The same decision
 made every tier a credit LEAF: an exhausted provider is requeued under its
-cooldown (``provider_cooldown``), never retried on a weaker tier, and the
-only ladder left (``claude_runtime.AUTH_FAILOVER_TIER``) serves AUTH
-failures across vendors.
+cooldown (``provider_cooldown``), never retried on a weaker tier. Which
+VENDOR a role runs on is not this module's: the routing table
+(``runtime_profiles.load_provider_routing``, ARIA-HIGH-290) orders each
+role's providers, and a profile's model is its tier on its own vendor.
 """
 from __future__ import annotations
 

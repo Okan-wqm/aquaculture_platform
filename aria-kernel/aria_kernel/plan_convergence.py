@@ -15,7 +15,7 @@ from typing import Any, Iterator
 
 from .agent_priors import reviewer_names
 from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES
-from .ledger import append_declared_jsonl, load_declared_jsonl, load_jsonl_verified_text, verify_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl, load_jsonl, load_jsonl_verified_text, verify_jsonl
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
@@ -1019,6 +1019,7 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
     """
     root = ensure_tools_dir(base_dir)
     last_seen = _last_event_at_by_plan(root)
+    invocations: list[list[dict[str, Any]]] = []
     for plan_id in reversed(list_active_plans(base_dir=base_dir)):
         state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
         if not isinstance(state, dict):
@@ -1027,15 +1028,46 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
             continue
         stamp = last_seen.get(plan_id)
         if stamp and _older_than_hours(stamp, STALE_PLAN_MAX_AGE_HOURS):
-            abandon_plan(
-                plan_id=plan_id,
-                reason=f"stalled: no plan event since {stamp} "
-                f"(> {STALE_PLAN_MAX_AGE_HOURS}h at adoption)",
-                base_dir=base_dir,
-            )
+            # ARIA-MEDIUM-291 — the abandonment says WHY the plan stopped,
+            # read from its newest request's claim ledger; the invocation
+            # ledgers are read once per scan, and only when a plan stalled.
+            if not invocations:
+                invocations.extend(load_jsonl(root / "agent-invocations" / name)
+                                   for name in ("requests.jsonl", "claims.jsonl"))
+            stall = _stall_cause(plan_id, requests=invocations[0], claims=invocations[1])
+            stall.update(last_event_at=stamp, max_age_hours=STALE_PLAN_MAX_AGE_HOURS)
+            abandon_plan(plan_id=plan_id, reason=f"stalled:{stall['cause']}", stall=stall, base_dir=base_dir)
             continue
         return plan_id
     return None
+
+
+def _stall_cause(
+    plan_id: str, *, requests: list[dict[str, Any]], claims: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """WHY a plan stopped moving: what its newest request last ran into.
+
+    The cause is that request's last release or refusal reason on the claim
+    ledger (``provider_quota_unavailable:anthropic``, ``anchor_expired``, ...)
+    with the release envelope's code and fault domain; ``no_consumer`` when
+    nothing ever claimed it; ``no_request`` when the plan minted none; the
+    newest claim event when the request was claimed and nothing gave a reason.
+    """
+    from .release_reason import parse_release_reason
+
+    mine = [row for row in requests if row.get("convergence_id") == plan_id]
+    if not mine:
+        return {"cause": "no_request", "request_id": None, "role": None}
+    newest = mine[-1]
+    rows = [row for row in claims if row.get("request_id") == newest.get("request_id")]
+    reasoned = [row for row in rows if isinstance(row.get("reason"), str) and row["reason"].strip()]
+    if reasoned:
+        cause = reasoned[-1]["reason"].strip()
+        envelope = parse_release_reason(cause).to_row_fields()
+    else:
+        cause = "no_consumer" if not rows else f"last_claim_event:{rows[-1].get('event')}"
+        envelope = {}
+    return {"cause": cause, **envelope, "request_id": newest.get("request_id"), "role": newest.get("role")}
 
 
 FORCED_MAX_ROUNDS_REASON = "max_rounds_reached"
@@ -1088,8 +1120,10 @@ def abandon_plan(
     *,
     plan_id: str,
     reason: str,
+    stall: dict[str, Any] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Abandon a plan; ``stall`` is the stall rule's cause record (ARIA-MEDIUM-291)."""
     _validate_id(plan_id, "plan_id")
     if not isinstance(reason, str) or not reason.strip():
         raise GovernanceError("reason must be a non-empty string")
@@ -1102,6 +1136,8 @@ def abandon_plan(
             return _event_result(existing_abandon, idempotent=True)
         _require_started(state, "abandon plan")
         payload = {"reason": reason.strip(), "abandoned_from_state": state["state"]}
+        if stall is not None:
+            payload["stall"] = stall
         key = _idempotency_key(plan_id, "abandon", payload)
         existing = _find_by_idempotency(root, key)
         if existing:
@@ -1972,6 +2008,8 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
     elif event_type == "plan_abandoned":
         state["state"] = "ABANDONED"
         state["terminal_state"] = "ABANDONED"
+        # ARIA-MEDIUM-291 — why, on the state every reader folds.
+        state["abandonment"] = {"reason": payload["reason"], "stall": payload.get("stall")}
     # Plan ARIA-V9.0-B — implementation-phase reducer transitions.
     # Each event_type checks the single legal predecessor state and
     # raises GovernanceError(invalid_transition: …) on out-of-order
@@ -2691,6 +2729,11 @@ def _validate_event(event: dict[str, Any]) -> None:
     elif event_type == "plan_abandoned":
         _require_non_empty(payload.get("reason"), "reason")
         _require_non_empty(payload.get("abandoned_from_state"), "abandoned_from_state")
+        if "stall" in payload:
+            stall = payload["stall"]
+            if not isinstance(stall, dict):
+                raise GovernanceError("plan_abandoned stall must be an object")
+            _require_non_empty(stall.get("cause"), "stall.cause")
     # Plan ARIA-V9.0-B — implementation-phase event payload validators.
     # State preconditions live in _apply_event (the reducer), not here
     # — _validate_event is shape-only because validation runs once per

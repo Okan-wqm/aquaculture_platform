@@ -66,21 +66,28 @@ GATEWAY = "apps/gateway/src/main.ts"
 AUTH = "apps/auth-service/src/main.ts"
 
 
-def _seed_workspace(root: Path) -> None:
-    sources = {
-        SHARED: "export const shared = 1;\n",
-        FARM: "import { shared } from '@aqua/shared-lib';\nexport const farm = shared;\n",
-        GATEWAY: "import { farm } from '@aqua/farm-service';\nexport const gateway = farm;\n",
-        AUTH: "export const auth = 1;\n",
-    }
-    # ORPHAN-HIGH-519 — the converter cites a ref only when the challenger's
-    # evidence rule admits it at the checkout's HEAD, so the sources are committed.
-    make_local_git_repo(root.parent, name=root.name)
-    for relpath, text in sources.items():
+_WORKSPACE_SOURCES = {
+    SHARED: "export const shared = 1;\n",
+    FARM: "import { shared } from '@aqua/shared-lib';\nexport const farm = shared;\n",
+    GATEWAY: "import { farm } from '@aqua/farm-service';\nexport const gateway = farm;\n",
+    AUTH: "export const auth = 1;\n",
+}
+
+
+def _write_workspace(root: Path) -> None:
+    """The four-project sources and the reviewer agent, written but not committed."""
+    for relpath, text in _WORKSPACE_SOURCES.items():
         (root / relpath).parent.mkdir(parents=True, exist_ok=True)
         (root / relpath).write_text(text, encoding="utf-8")
     seed_reviewer_agent(root)
-    for argv in (["add", "--", *sources], ["commit", "-q", "-m", "chore(test): the project graph"]):
+
+
+def _seed_workspace(root: Path) -> None:
+    # ORPHAN-HIGH-519 — the converter cites a ref only when the challenger's
+    # evidence rule admits it at the checkout's HEAD, so the sources are committed.
+    make_local_git_repo(root.parent, name=root.name)
+    _write_workspace(root)
+    for argv in (["add", "--", *_WORKSPACE_SOURCES], ["commit", "-q", "-m", "chore(test): the project graph"]):
         subprocess.run(["git", *argv], cwd=root, check=True, capture_output=True)
 
 

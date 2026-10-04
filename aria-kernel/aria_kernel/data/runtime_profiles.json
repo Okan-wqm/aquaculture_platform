@@ -123,6 +123,7 @@
       "verification": "glm_first",
       "change_intelligence": "glm_first",
       "goldset_curation": "glm_first",
+      "maintenance_utility": "glm_first",
       "specialist_domain_review": "claude_first",
       "human_required_adjudication": {
         "aria-evidence-judge": "claude_first",

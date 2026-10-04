@@ -344,6 +344,27 @@ _ROLE_QUOTA_ORDER: tuple[str, ...] = (
     "maintenance_utility",
 )
 
+
+def require_dispatchable_arc(arc: tuple[str, ...], dispatchable: frozenset[str]) -> None:
+    """Refuse an arc that names a role the executor may not claim.
+
+    ARIA-HIGH-344. The arc is the drain's own list; the provider routing
+    table is validated against `DISPATCHABLE_ROLES` (runtime_profiles
+    `_validate_routing`). Nothing compared the two, so `maintenance_utility`
+    rode the arc for weeks outside the dispatchable set and, once routing
+    became the admission's first question, every request of it died there
+    (`provider_routing_role_unrouted`) and counted as a harness failure.
+    Checked at import, against the executor's `SUPPORTED_ROLES` (the kernel
+    set, or its no-drift standalone mirror): a drain that could only reach
+    an unroutable role does not start.
+    """
+    stray = sorted(set(arc) - set(dispatchable))
+    if stray:
+        raise RuntimeError(f"drain_arc_role_not_dispatchable:{stray}")
+
+
+require_dispatchable_arc(_ROLE_QUOTA_ORDER, _engine.SUPPORTED_ROLES)
+
 # Plan progress before backlog — the first live end-to-end run (2026-10-04,
 # executor run 37192561282) drained its plan's one challenger, accepted at
 # 10:03Z, and then kept draining a ~1,600-row judge backlog at ~6 minutes a

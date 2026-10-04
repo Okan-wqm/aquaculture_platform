@@ -21,12 +21,14 @@
 
 ---
 
-## ORPHAN-CRITICAL-810 — Production PostgreSQL restarts with an entrypoint and container configuration from different release contracts — OPEN
+## ORPHAN-CRITICAL-810 — Production PostgreSQL restarts with an entrypoint and container configuration from different release contracts — RESOLVED
 
 **Review:** 2026-09-05; owner: Codex; deadline: 2026-09-05.
 **Evidence:** Read-only runtime evidence on 2026-09-05: the live aqua-postgres container was created July 14, uses the base TimescaleDB image and User=postgres, and bind-mounts the deployment checkout entrypoint. Current entrypoint requires root staging; the declared release uses a custom image, root bootstrap, exact certificate mounts and runtime tmpfs. At approximately 15:24 UTC logs contained the root-staging FATAL; at 15:31 UTC metadata still showed exit 126 and 25 restarts. Auth logs contained EAI_AGAIN postgres and an unauthenticated GET to the public GraphQL endpoint returned HTTP 502. Later log reads differed, so the earlier FATAL is time-bounded evidence, not an assertion about every subsequent restart.
 **Source references:** `infrastructure/docker/scripts/postgres-ssl-entrypoint.sh`, `infrastructure/docker/Dockerfile.postgres-walg`, `docker-compose.droplet.yml:268`.
 **Required architectural work:** Reconcile the complete PostgreSQL image and service configuration through the supported release/rollback workflow, preserving the existing volume and compatible database version. Validate all declared staging inputs and health checks; changing only the runtime user does not satisfy the new mounts/helper contract. Live account/password verification is currently blocked by availability.
+
+**Closure (2026-10-02):** RESOLVED. The repository half landed in `b89c623e9`: the entrypoint and every WAL-G wrapper are COPYed into `infrastructure/docker/Dockerfile.postgres-walg` (:26-33), and `docker-compose.droplet.yml` runs them from the image with no checkout bind mount. The runtime half was the 2026-09-21 recreation: read-only `docker inspect aqua-postgres` shows the container created 2026-09-21T10:53Z from `ghcr.io/okan-wqm/aquaculture_platform/postgres:9b44390f98e1…` (a main commit), User=root, entrypoint `/usr/local/bin/postgres-ssl-entrypoint.sh` from the image, the two declared tmpfs mounts, the exact certificate and WAL-G secret binds, the preserved `aqua-saas_postgres_data` volume, 0 restarts, and `pg_isready` accepting connections. Its `unhealthy` status comes from WAL archiving while declared off, which is INFRA-CRITICAL-195 (fixed by #1708, operator apply pending), not from this finding. Pinned by `tests/invariants/postgres-runtime-contract.spec.ts`: every script the production service executes must be baked into the image and none may be bind-mounted from the checkout.
 
 ## ORPHAN-HIGH-811 — Credential-version draft breaks token issuance after invitation acceptance and password reset — OPEN
 

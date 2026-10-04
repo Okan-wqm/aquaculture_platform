@@ -1921,3 +1921,40 @@ finding is one nobody can navigate back to from the review that produced it.
   deploy-ssot-gates 20). Deliberately **not** fixed here: splitting the four serial passes into parallel jobs is the better
   design, but the job names are wired into the `build-status` aggregate and the required-status-check manifest, so a split
   touches branch protection and needs the ruleset moved in lockstep.
+
+## 12. Closure record (2026-10-02)
+
+Fixes on main whose commits carried no `Closes:` trailer for these IDs, so the registry kept them
+OPEN. Each was re-verified on `8083cb15e`.
+
+- **ORPHAN-CRITICAL-419** — RESOLVED. Same defect as `ORPHAN-CRITICAL-469`, closed by `54f16fa99`.
+  Since `249a5e940` (#1073) both lanes share the `aria/state` branch: the executor restores it
+  (`aria-agent-executor.yml:316`) before `agent next-pending` (`:511`) and publishes it after
+  the run. The workflow contract orders restore before the queue read and the lease check;
+  `test_restore_moved_after_the_queue_read_is_rejected` replays the defect against the live YAML.
+- **ORPHAN-CRITICAL-506** — RESOLVED by `fd9638615` (#1045). `quarantine_breaker_evidence`
+  (`circuit_breaker.py:539`) moves undecodable rows aside and keeps every decodable row;
+  `aria-kernel breaker quarantine` (`cli.py:1022`) is its command; the executor's recovery
+  dispatch (`aria-agent-executor.yml:54`, `:392-420`) runs it on the restored store before the
+  publish. `tests/invariants/v3/test_breaker_quarantine_recovery_surface.py` now pins the
+  command and the dispatch, which the workflow contract pinned only by step name.
+- **ORPHAN-CRITICAL-513** — RESOLVED by `fd9638615`, carried onto the branch transport by
+  `249a5e940`. One composite action, `.github/actions/restore-aria-state`, serves both lanes
+  (`aria-agent-executor.yml:316`, `aria-auto-cycle.yml:403`), and both publish gates read its
+  `restored`/`bootstrap` proof. Pinned by `tests/invariants/aria-single-restore-path.spec.ts` and
+  `test_the_publish_gate_is_strictly_stronger_than_the_producers`.
+- **ORPHAN-CRITICAL-516** — RESOLVED by `fd9638615` (#1045), which landed the restorations
+  already re-timestamped above the per-service maxima. `RestoreAuthUsersTenantFk1808300000000` and
+  `RestoreSharedAccessLogs1808100000000` bring back the dropped DDL, and every migration spec
+  reads `tests/invariants/lib/migration-corpus.ts`. `tests/invariants/migration-corpus.spec.ts`
+  now pins the corpus itself to each service's `[0-9]*` glob: with the corpus reading
+  `.archive/` and both restorations absent, `auth-users-tenant-fk.spec.ts` and
+  `access-log-stream-shape.spec.ts` both pass again, and only the new spec fails.
+- **ORPHAN-CRITICAL-517** — RESOLVED by `fd9638615`.
+  `libs/backend-common/src/database/audit-immutability.sql.ts` generates the update and
+  legal-hold-delete pair, applied by `RestoreAuditImmutabilityContract` in admin
+  (`1808200000000`, `shared` and `admin`), auth (`1808400000000`) and farm (`1808500000000`).
+  Pinned by `tests/invariants/audit-immutability-triggers.spec.ts`. The ai-service Baseline
+  still installs the unconditional variant on `ai.tool_execution_audit`; that table has no
+  `legalHold` column and no retention or erasure path deletes from it, so it is a separate
+  retention-policy gap, not this regression.

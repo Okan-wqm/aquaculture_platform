@@ -235,9 +235,20 @@ def _build_remote_cas_lease(
     owner: str,
     target_ref: str,
     head_sha: str,
+    ttl_minutes: int = _LEASE_DURATION_MINUTES,
 ) -> RemoteCasLease:
+    """The next lease in the epoch chain after ``previous``.
+
+    ``ttl_minutes`` defaults to the five-minute heartbeat lease the
+    autonomous loop refreshes every cycle. The aria/state writer lease
+    (``state_writer_lease``) holds one record from restore to publish, so it
+    sizes the expiry to the holder's own job bound instead; the epoch fence
+    and the lease id derivation are this one function either way.
+    """
     import hashlib
 
+    if ttl_minutes < 1:
+        raise GovernanceError(f"remote_cas_lease_ttl_must_be_positive: {ttl_minutes}")
     now = _utc_now()
     epoch = (previous.epoch + 1) if previous is not None else 1
     seed = f"{owner}:{target_ref}:{head_sha}:{epoch}:{now.isoformat()}"
@@ -249,7 +260,28 @@ def _build_remote_cas_lease(
         head_sha=head_sha,
         acquired_at=now.isoformat().replace("+00:00", "Z"),
         heartbeat_at=now.isoformat().replace("+00:00", "Z"),
-        expires_at=(now + timedelta(minutes=_LEASE_DURATION_MINUTES)).isoformat().replace("+00:00", "Z"),
+        expires_at=(now + timedelta(minutes=ttl_minutes)).isoformat().replace("+00:00", "Z"),
+    )
+
+
+def build_remote_cas_lease(
+    *,
+    previous: RemoteCasLease | None,
+    owner: str,
+    target_ref: str,
+    head_sha: str,
+    ttl_minutes: int,
+) -> RemoteCasLease:
+    """Public form of the epoch-chain step for a transport other than the
+    tools-root file — the aria/state writer lease ref (ARIA-HIGH-342)."""
+    if not owner or not target_ref or not head_sha:
+        raise GovernanceError("remote_cas_lease_requires_owner_target_ref_and_head_sha")
+    return _build_remote_cas_lease(
+        previous=previous,
+        owner=owner,
+        target_ref=target_ref,
+        head_sha=head_sha,
+        ttl_minutes=ttl_minutes,
     )
 
 
@@ -511,6 +543,7 @@ __all__ = [
     "RemoteCasLease",
     "acquire_remote_cas_lease",
     "acquire_lease",
+    "build_remote_cas_lease",
     "lease_state",
     "release_lease",
     "release_remote_cas_lease",

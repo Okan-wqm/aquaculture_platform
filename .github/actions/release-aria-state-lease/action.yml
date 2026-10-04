@@ -1,0 +1,48 @@
+name: Release the aria/state writer lease
+description: >-
+  Give back the aria/state writer lease a lane took through
+  ./.github/actions/restore-aria-state (ARIA-HIGH-342). A no-op when this job
+  holds none.
+
+# The ONE release path, the sibling of the one acquire path in the restore
+# action. Every lane that publishes aria/state runs it in an `always()` step
+# after its last publish, so a failed or cancelled job frees the branch at
+# once; a runner that dies outright frees it at the lease's recorded expiry,
+# which the lane set to its own job bound. The lease id is the job binding
+# the acquire exported (ARIA_STATE_WRITER_LEASE_ID); only the CURRENT lease
+# with that id is released, so a lease another writer has since taken is
+# never released on its behalf.
+
+inputs:
+  token:
+    description: >-
+      Token used to push the release to `aria/state-lease`. Defaults to the
+      job's `github.token`; held in this step's environment only.
+    required: false
+    default: ''
+  reason:
+    description: Printed before releasing — why the job is giving the lease back.
+    required: false
+    default: 'the job is done with aria/state'
+
+runs:
+  using: composite
+  steps:
+    - name: Release the aria/state writer lease
+      shell: bash
+      env:
+        RELEASE_TOKEN: ${{ inputs.token || github.token }}
+        RELEASE_REASON: ${{ inputs.reason }}
+      run: |
+        set -euo pipefail
+        echo "${RELEASE_REASON}"
+        if [ -z "${ARIA_STATE_WRITER_LEASE_ID:-}" ]; then
+          echo "this job holds no aria/state writer lease; nothing to release"
+          exit 0
+        fi
+        HEADER="$(printf 'x-access-token:%s' "$RELEASE_TOKEN" | base64 -w0)"
+        echo "::add-mask::${HEADER}"
+        GIT_CONFIG_COUNT=1 \
+        GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+        GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${HEADER}" \
+          PYTHONPATH=aria-kernel python3 -m aria_kernel state lease release --repo-root .

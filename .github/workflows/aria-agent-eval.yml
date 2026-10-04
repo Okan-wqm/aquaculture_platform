@@ -124,8 +124,16 @@ jobs:
         uses: ./.github/actions/restore-aria-state
         with:
           bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
+          # ARIA-HIGH-342 — this job writes aria/state: the writer lease is
+          # taken before the checkout and held to the release step, so no
+          # other lane publishes in between. Expiry = this job's
+          # timeout-minutes; past the wait the run yields by name, before it
+          # has restored anything.
+          writer-lease-ttl-minutes: '25'
+          writer-lease-wait-seconds: '600'
 
       - name: Register eval fixtures
+        if: steps.restore_state.outputs.writer-lease == 'held'
         run: |
           set -euo pipefail
           for fixture_file in aria-tools/agent-evals/fixtures/*.json; do
@@ -138,6 +146,7 @@ jobs:
       # implementer episode on the restored plan ledger. A missing plan
       # ledger is a named refusal and fails the step; there is no fallback.
       - name: Observe agent performance (real mode)
+        if: steps.restore_state.outputs.writer-lease == 'held'
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval observe \
@@ -147,6 +156,7 @@ jobs:
             --tools-dir "$ARIA_TOOLS_DIR" | jq .
 
       - name: Aggregate real fixture-run metrics per agent
+        if: steps.restore_state.outputs.writer-lease == 'held'
         run: |
           set -euo pipefail
           for agent in aria-evidence-judge aria-adversarial-judge \
@@ -215,6 +225,13 @@ jobs:
 
       # ADR-036 — upload the enterprise-preflight audit proof so the eval
       # job's governed-write decision is retained as CI evidence.
+
+      # ARIA-HIGH-342 — give back the aria/state writer lease the restore
+      # took, on every outcome; a no-op when this run yielded and holds none.
+      - name: Release the aria/state writer lease
+        if: always()
+        uses: ./.github/actions/release-aria-state-lease
+
       - name: Upload eval preflight proof
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

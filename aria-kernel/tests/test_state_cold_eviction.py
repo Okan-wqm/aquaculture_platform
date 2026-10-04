@@ -61,6 +61,7 @@ from aria_kernel.tool_health import record_run
 from aria_kernel.tool_registry import register_tool
 from tests.test_runtime_artifacts import _run, _tool
 from tests.test_state_store import REPO_HASH, StateStoreTestCase, _EnvPatch, _git
+from tests._helpers.writer_lease import holding_writer_lease
 
 COLD_BRANCH = "aria/state-cold"
 DISCOVERY_FILES = ("COMPLETION_PROOF.json", "FATES.json", "REPO_FINGERPRINT.json", "SERVICE_MAP.json", "SNAPSHOT.json")
@@ -519,7 +520,8 @@ class TheSizeAlarmWarnsAndNeverRefuses(ColdEvictionTestCase):
             parent_commit=None,
         )
         out = io.StringIO()
-        with mock.patch.object(state_store, "STATE_SIZE_ALARM_BYTES", 1024), redirect_stdout(out):
+        with mock.patch.object(state_store, "STATE_SIZE_ALARM_BYTES", 1024), redirect_stdout(out), \
+                holding_writer_lease(args.repo_root):
             code = _handle_state_command(args)
 
         self.assertEqual(code, 0, out.getvalue())

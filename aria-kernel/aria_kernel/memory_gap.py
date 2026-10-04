@@ -221,7 +221,45 @@ def reference_from_committed_anchors(repo_root: Path) -> dict[str, Any] | None:
     return None
 
 
-def resolve_continuity_reference(repo_root: Path) -> tuple[dict[str, Any] | None, str | None]:
+DETACHED_TOOLS_ROOT_NOTE = "tools_root_detached_from_state_store"
+
+
+def tools_root_is_detached(repo_root: Path, base_dir: Path | None) -> bool:
+    """Is this cycle acting on a tools root the checked-out store does not hold?
+
+    ARIA-HIGH-342 (burn-in run 37178472968). An observe burn-in runs its
+    cycles against a fresh tools root under RUNNER_TEMP — the kernel REFUSES
+    one inside the workspace (``observe_burn_in_tools_dir_must_be_outside_
+    workspace_root``) — while the job's real store sits checked out under the
+    workspace. The probe walked the STORE and the reference was the STORE's
+    branch, so when another lane published, the store was "behind the tip",
+    the verdict was critical, every observe cycle tried to rebase the real
+    store it never writes, failed, froze and aborted.
+
+    The continuity question is about the tree the cycle acts on. A tools root
+    outside the workspace is not the store and the published branch does not
+    describe it; one inside the workspace keeps the store as its reference, so
+    a lane mis-bound to an empty in-workspace root is still caught.
+    """
+    if base_dir is None:
+        return False
+    from .state_store import STORE_DIRNAME
+
+    workspace = Path(repo_root).resolve()
+    if not (workspace / STORE_DIRNAME).is_dir():
+        return False
+    try:
+        Path(base_dir).resolve().relative_to(workspace)
+    except ValueError:
+        return True
+    return False
+
+
+def resolve_continuity_reference(
+    repo_root: Path,
+    *,
+    base_dir: Path | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
     """The strongest available reference, and the name of where it came from.
 
     Precedence is by STRENGTH, not convenience: the state branch carries the
@@ -241,6 +279,11 @@ def resolve_continuity_reference(repo_root: Path) -> tuple[dict[str, Any] | None
     repo_root = Path(repo_root)
     from .state_store import STORE_DIRNAME
 
+    if tools_root_is_detached(repo_root, base_dir):
+        # Nothing published describes a tree the store does not hold: no
+        # reference, which the assessor reports as genesis or unknown —
+        # neither of which blocks — instead of judging the wrong tree.
+        return None, None
     if (repo_root / STORE_DIRNAME).is_dir():
         from .state_store import open_state_store, read_published_snapshot
 
@@ -281,7 +324,7 @@ def continuity_probe_roots(repo_root: Path, base_dir: Path) -> dict[str, Path]:
     from .state_store import STORE_DIRNAME
 
     store_dir = Path(repo_root) / STORE_DIRNAME
-    if not store_dir.is_dir():
+    if not store_dir.is_dir() or tools_root_is_detached(Path(repo_root), Path(base_dir)):
         return {"tools": Path(base_dir)}
 
     from .workspace import canonical_identity
@@ -767,6 +810,7 @@ def _frontmatter(path: Path) -> dict[str, Any] | None:
 
 
 __all__ = [
+    "DETACHED_TOOLS_ROOT_NOTE",
     "GAP_CRITICAL",
     "GAP_GENESIS",
     "GAP_OK",
@@ -780,4 +824,5 @@ __all__ = [
     "freeze_autonomous_writes",
     "reference_from_committed_anchors",
     "resolve_continuity_reference",
+    "tools_root_is_detached",
 ]

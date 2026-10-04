@@ -43,6 +43,7 @@ from aria_kernel.state_store import (
     verify_state_store,
 )
 from tests.test_state_store import REPO_HASH, StateStoreTestCase, _EnvPatch, _git
+from tests._helpers.writer_lease import holding_writer_lease
 
 
 def _old_stamp(days: int) -> str:
@@ -427,7 +428,7 @@ class TheCliVerbRunsThePreamble(MaintenanceLaneTestCase):
             parent_commit=None,
         )
         out = io.StringIO()
-        with redirect_stdout(out):
+        with redirect_stdout(out), holding_writer_lease(args.repo_root):
             code = _handle_state_command(args)
 
         self.assertEqual(code, 0, out.getvalue())
@@ -473,7 +474,8 @@ class TheCliVerbRunsThePreamble(MaintenanceLaneTestCase):
             parent_commit=None,
         )
         out = io.StringIO()
-        with _EnvPatch({BOOTSTRAP_ACK_ENV: self.identity}), redirect_stdout(out):
+        with _EnvPatch({BOOTSTRAP_ACK_ENV: self.identity}), redirect_stdout(out), \
+                holding_writer_lease(args.repo_root):
             code = _handle_state_command(args)
 
         self.assertEqual(code, 0, out.getvalue())

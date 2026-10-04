@@ -4977,6 +4977,25 @@ def _rebase_store_onto_remote_locked(
         )
         if not loser_already_accepted:
             winner_surfaces = winner_snapshot.get("surfaces") or {}
+            # ARIA-HIGH-342 — the reset below makes the tree the winner's, and
+            # only ledger suffixes are carried back across it. A non-ledger
+            # surface this lane changed (an agent output artifact, a lock
+            # record) and the winner does not already carry would vanish
+            # while the publish reported success — measured: a loser's
+            # artifact gone from disk and from the branch, `published: true`.
+            # Refused here, before anything destructive, so the bytes stay.
+            unreplayable = _unreplayable_surface_changes(
+                base_surfaces=base_surfaces,
+                local_surfaces=local_surfaces,
+                winner_surfaces=winner_surfaces,
+            )
+            if unreplayable:
+                raise StateStoreRefusal(
+                    "replay_unreplayable_surface_changed: this lane changed "
+                    f"{', '.join(unreplayable[:8])} and contention replay carries only "
+                    "ledger rows; the store keeps them and nothing was reset — publish "
+                    "under the aria/state writer lease so no other lane interleaves"
+                )
             materialization_bytes = 0
             for name in carried:
                 winner_entry = winner_surfaces.get(name) or {}
@@ -5152,6 +5171,37 @@ def _rebase_store_onto_remote_locked(
 
     _remove_recovery_package(package)
     return replayed
+
+
+_REPLAYABLE_STATE_CLASSES = frozenset({"ledger", "index"})
+
+
+def _unreplayable_surface_changes(
+    *,
+    base_surfaces: dict[str, Any],
+    local_surfaces: dict[str, Any],
+    winner_surfaces: dict[str, Any],
+) -> list[str]:
+    """Surfaces this lane changed that a replay cannot carry onto the winner.
+
+    Ledgers replay as suffixes and indexes are rebuilt from them; every other
+    class is whole-file content the reset replaces with the winner's. A local
+    change the winner already holds byte-for-byte loses nothing.
+    """
+    changed: list[str] = []
+    for name in sorted(set(base_surfaces) | set(local_surfaces)):
+        local = local_surfaces.get(name)
+        base = base_surfaces.get(name)
+        state_class = (local or base or {}).get("state_class")
+        if state_class in _REPLAYABLE_STATE_CLASSES:
+            continue
+        local_sha = (local or {}).get("sha256")
+        if local_sha == (base or {}).get("sha256"):
+            continue
+        if local_sha == (winner_surfaces.get(name) or {}).get("sha256"):
+            continue
+        changed.append(name)
+    return changed
 
 
 def verify_state_store(store: StateStore, *, repo_hash: str) -> dict[str, Any]:

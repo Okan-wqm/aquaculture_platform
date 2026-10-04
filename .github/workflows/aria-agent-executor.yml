@@ -316,8 +316,17 @@ jobs:
         uses: ./.github/actions/restore-aria-state
         with:
           bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
+          # ARIA-HIGH-342 — this job writes aria/state, so it takes the writer
+          # lease before the checkout and holds it to the release step at the
+          # end: no other lane can publish in between. The expiry is this
+          # job's own timeout-minutes; the wait covers the hosted writers'
+          # whole bounds (at most 25 min) before the run yields by name.
+          writer-lease-ttl-minutes: '510'
+          writer-lease-wait-seconds: '1800'
       - name: Pre-flight — cross-host autonomous-loop lease check
         id: lease_check
+        env:
+          WRITER_LEASE: ${{ steps.restore_state.outputs.writer-lease }}
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 - <<'PY' 2>&1 | head -20
@@ -326,6 +335,16 @@ jobs:
           import sys
 
           from aria_kernel.autonomous_host_lease import lease_state
+
+          # ARIA-HIGH-342 — no writer lease, no store: the restore yielded
+          # (another lane is writing aria/state) and checked nothing out, so
+          # this run blocks here, before anything reads the tree.
+          if os.environ.get('WRITER_LEASE') != 'held':
+              print('::warning::aria/state writer lease not held; run yielded', file=sys.stderr)
+              with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+                  f.write('blocked=true\n')
+                  f.write('blocked_host=aria/state-writer-lease\n')
+              sys.exit(0)
 
           # The store's tools root, from the binding the restore exported. A
           # literal would read an empty lease ledger in the ephemeral checkout
@@ -358,9 +377,13 @@ jobs:
       # down, mirroring the sibling producer aria-auto-cycle.yml.
       - name: Skip autonomous loop when local lease is fresh
         if: steps.lease_check.outputs.blocked == 'true'
-        run: |
-          echo "Local host holds autonomous-loop lease; exiting cleanly per Plan ARIA-V3 §2n."
-          exit 0
+        # ARIA-HIGH-342 — the one step that runs while blocked also gives back
+        # the aria/state writer lease when this run took it (blocked by a local
+        # host's autonomous-loop lease), so a blocked run never holds the
+        # branch to its expiry. A no-op when the run holds none.
+        uses: ./.github/actions/release-aria-state-lease
+        with:
+          reason: 'Local host holds the autonomous-loop lease (or another lane holds the aria/state writer lease); exiting cleanly per Plan ARIA-V3 §2n.'
 
       # RC-6 second half — recovery runs WHERE THE STATE LIVES.
       #
@@ -957,6 +980,14 @@ jobs:
               echo "::notice::chain declined — see the reason above"
               ;;
           esac
+
+      # ARIA-HIGH-342 — give back the aria/state writer lease the restore took,
+      # on every outcome: the next writer lane is waiting on it. A runner that
+      # dies outright frees it at the expiry the restore set (this job's own
+      # timeout-minutes). A no-op when the run holds none.
+      - name: Release the aria/state writer lease
+        if: always() && steps.lease_check.outputs.blocked != 'true'
+        uses: ./.github/actions/release-aria-state-lease
 
   # ARIA-HIGH-244 — the chain's return edge, on a hosted runner with the one
   # permission it needs. The executor decides (cycle_rhythm, via

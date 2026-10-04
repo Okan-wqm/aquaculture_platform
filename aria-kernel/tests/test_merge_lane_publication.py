@@ -44,6 +44,7 @@ from aria_kernel.state_store import (
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.tools_binding import bind_tools_root
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.writer_lease import holding_writer_lease
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _REPO_HASH = "repohash0222"
@@ -109,7 +110,7 @@ class _TwoLanes(unittest.TestCase):
 
     def _cli_publish(self, repo: Path, store, snapshot_id: str) -> tuple[int, dict]:
         out = io.StringIO()
-        with contextlib.redirect_stdout(out):
+        with contextlib.redirect_stdout(out), holding_writer_lease(repo):
             code = cli_main([
                 "state", "publish", "--repo-root", str(repo), "--repo-hash", _REPO_HASH,
                 "--store-dir", str(store.root), "--snapshot-id", snapshot_id, "--cycle-id", snapshot_id,

@@ -643,12 +643,16 @@ def state_store_intent_publisher(
     """The merge lane's intent publisher: the store under ``repo_root``,
     published through the contention-replay orchestrator every lane uses."""
     from .state_store import open_state_store, publish_with_contention_replay
+    from .state_writer_lease import require_held_writer_lease
     from .workspace import canonical_identity
 
     root = Path(repo_root).resolve()
 
     def publish(intent: dict[str, Any]) -> dict[str, Any]:
         store = open_state_store(root)
+        # ARIA-HIGH-342 — the merge lane writes aria/state under the same
+        # writer lease as every lane; its restore took it.
+        require_held_writer_lease(store.repo_root, remote=store.remote, state_branch=store.branch)
         return publish_with_contention_replay(
             store,
             snapshot_id=f"merge-intent-{intent['pr_number']}-{str(intent['head_sha'])[:12]}-{run_label}",

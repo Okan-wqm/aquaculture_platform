@@ -141,6 +141,13 @@ jobs:
         uses: ./.github/actions/restore-aria-state
         with:
           bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
+          # ARIA-HIGH-342 — this job writes aria/state: the writer lease is
+          # taken before the checkout and held to the release step, so no
+          # other lane publishes in between. Expiry = this job's
+          # timeout-minutes; past the wait the run yields by name, before it
+          # has restored anything.
+          writer-lease-ttl-minutes: '15'
+          writer-lease-wait-seconds: '240'
 
       # ARIA-HIGH-220 — no lane-start attestation step. It recorded a row
       # for every claim ever made, keyed by (PR, head, claim) alone, which any
@@ -165,6 +172,7 @@ jobs:
           echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
 
       - name: Run the merge lane
+        if: steps.restore_state.outputs.writer-lease == 'held'
         id: merge
         env:
           PYTHONPATH: aria-kernel
@@ -261,6 +269,12 @@ jobs:
             --repo-root . \
             --snapshot-id "merge-runner-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --cycle-id "merge-runner-${GITHUB_RUN_ID}"
+
+      # ARIA-HIGH-342 — give back the aria/state writer lease the restore
+      # took, on every outcome; a no-op when this run yielded and holds none.
+      - name: Release the aria/state writer lease
+        if: always()
+        uses: ./.github/actions/release-aria-state-lease
 
       - name: Upload merge-runner preflight proof
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

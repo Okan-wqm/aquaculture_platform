@@ -127,8 +127,18 @@ jobs:
       # exactly one materialiser — a hand-copied checkout in this lane would
       # be the RC-6 drift shape the restore action was extracted to end.
       - uses: ./.github/actions/restore-aria-state
+        id: restore_state
+        with:
+          # ARIA-HIGH-342 — compaction REWRITES ledgers, which no contention
+          # replay can carry onto another writer's publish, so this lane
+          # needs the writer lease most of all: taken before the checkout,
+          # held to the release step. Expiry = this job's timeout-minutes;
+          # past the wait the run yields by name, before restoring anything.
+          writer-lease-ttl-minutes: '15'
+          writer-lease-wait-seconds: '300'
 
       - name: Compact surfaces and strip old artifacts (canonical CLI)
+        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
         # ARIA-AUDIT-001: this step used to carry an INLINE copy of the
         # compactor. It silently skipped malformed lines, rewrote ledgers
         # without re-chaining the hash chain, and pushed the result green —
@@ -158,6 +168,7 @@ jobs:
       # stripped store answer valid here; a store that does not is left
       # unpublished with the previous tip intact.
       - name: Verify ARIA state integrity
+        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
         id: integrity
         run: |
           set -uo pipefail
@@ -233,7 +244,7 @@ jobs:
       # green run. The previous tip is untouched (nothing was pushed); what
       # is lost is only this run's compaction, which the next run redoes.
       - name: Fail when the compacted state was not published
-        if: always() && steps.integrity.outputs.state_valid != 'true'
+        if: always() && steps.restore_state.outputs.writer-lease == 'held' && (steps.integrity.outputs.state_valid != 'true')
         run: |
           set -euo pipefail
           echo "::error::the compacted aria/state tree did not pass integrity verification; nothing was published (see the step summary)"
@@ -244,3 +255,9 @@ jobs:
         run: |
           du -sh "${ARIA_TOOLS_DIR:-.aria-state-store/tools}/" 2>/dev/null || echo "N/A"
           echo "Branch size after compaction: $(du -sh "${ARIA_TOOLS_DIR:-.aria-state-store/tools}/" 2>/dev/null | cut -f1)"
+
+      # ARIA-HIGH-342 — give back the aria/state writer lease the restore
+      # took, on every outcome; a no-op when this run yielded and holds none.
+      - name: Release the aria/state writer lease
+        if: always()
+        uses: ./.github/actions/release-aria-state-lease

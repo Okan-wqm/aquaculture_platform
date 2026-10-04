@@ -67,7 +67,33 @@ inputs:
     required: false
     default: ''
 
+  writer-lease-ttl-minutes:
+    description: >-
+      ARIA-HIGH-342 — set by every lane that PUBLISHES aria/state, to its own
+      job `timeout-minutes`. The action then takes the aria/state writer lease
+      (branch `aria/state-lease`) BEFORE checking the store out, so no other
+      writer can publish between this restore and this lane's publish; the
+      lane releases it with ./.github/actions/release-aria-state-lease in an
+      `always()` step. Empty on read-only lanes, which take no lease. The
+      token must be able to push (contents:write), as the publish already
+      requires.
+    required: false
+    default: ''
+  writer-lease-wait-seconds:
+    description: >-
+      How long to wait for another writer's lease before YIELDING: no
+      checkout, `writer-lease=yielded`, the holder named in a warning and the
+      step summary, and every publish gate stays closed. Nothing has been
+      restored, so a yield loses no work.
+    required: false
+    default: '0'
+
 outputs:
+  writer-lease:
+    description: >-
+      'held' when this lane took the aria/state writer lease, 'yielded' when
+      another writer kept it past the wait; empty on a read-only lane.
+    value: ${{ steps.writer_lease.outputs.writer_lease }}
   restored:
     description: >-
       'true' only when the store was checked out at a published tip. Never
@@ -120,8 +146,53 @@ runs:
           echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
         fi
 
+    # ARIA-HIGH-342 — one writer at a time, and the turn is taken BEFORE the
+    # checkout: a lease taken after it would leave the restored tip stale the
+    # moment another writer published in between, which is the 2026-10-04
+    # data loss exactly. Same credential, same step-scoped environment as the
+    # checkout below; the lease branch is pushed fast-forward-only.
+    - name: Acquire the aria/state writer lease
+      id: writer_lease
+      if: inputs.writer-lease-ttl-minutes != ''
+      shell: bash
+      env:
+        GIT_CONFIG_COUNT: ${{ steps.read_credential.outputs.count }}
+        GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
+        GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.read_credential.outputs.header }}'
+        LEASE_TTL_MINUTES: ${{ inputs.writer-lease-ttl-minutes }}
+        LEASE_WAIT_SECONDS: ${{ inputs.writer-lease-wait-seconds }}
+      run: |
+        set -uo pipefail
+        VERDICT="${RUNNER_TEMP}/aria-state-writer-lease.json"
+        if PYTHONPATH=aria-kernel python3 -m aria_kernel state lease acquire \
+             --repo-root . \
+             --ttl-minutes "$LEASE_TTL_MINUTES" \
+             --wait-seconds "$LEASE_WAIT_SECONDS" \
+             --export-env "$GITHUB_ENV" > "$VERDICT"; then
+          echo "writer_lease=held" >> "$GITHUB_OUTPUT"
+          python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); print("aria/state writer lease held:", v["lease_id"], "epoch", v["epoch"], "until", v["expires_at"])' "$VERDICT"
+        else
+          LEASE_EXIT=$?
+          if [ "$LEASE_EXIT" -ne 3 ]; then
+            echo "::error::the aria/state writer lease could not be read or written (exit ${LEASE_EXIT})." >&2
+            exit "$LEASE_EXIT"
+          fi
+          # A YIELD, recorded where the operator looks: nothing was
+          # restored, so nothing this run did is lost.
+          echo "writer_lease=yielded" >> "$GITHUB_OUTPUT"
+          REASON="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["refusal"])' "$VERDICT")"
+          echo "::warning::aria/state writer lease yielded: ${REASON}"
+          {
+            echo '### aria/state writer lease: yielded'
+            echo '```json'
+            head -c 4000 "$VERDICT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+
     - name: Check out the aria/state store
       id: restore
+      if: inputs.writer-lease-ttl-minutes == '' || steps.writer_lease.outputs.writer_lease == 'held'
       shell: bash
       env:
         ARIA_STATE_BOOTSTRAP_ACK: ${{ inputs.bootstrap-ack }}

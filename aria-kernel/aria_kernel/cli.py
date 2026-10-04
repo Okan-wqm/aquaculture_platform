@@ -518,6 +518,8 @@ def _handle_state_command(args: argparse.Namespace) -> int:
     # argument.
     if args.state_command in {"compact", "checkout", "publish", "verify-store"}:
         return _handle_state_store_command(args)
+    if args.state_command == "lease":
+        return _handle_state_lease_command(args)
 
     # The tail is verify-snapshot's, and says so. Falling through to it was
     # what turned a missing route into a crash in an unrelated command; an
@@ -630,6 +632,17 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
         # and its rows died with the runner — a lost merge decision blinds
         # self-revert; the orchestrator rebuilds them onto the winner and
         # pushes again, and commits nothing when no row changed.
+        # ARIA-HIGH-342 — one writer at a time. The lease is checked against
+        # the REMOTE before anything is prepared: a publish from a store this
+        # process restored while another writer held the branch is exactly
+        # the interleave that cost two runs their work on 2026-10-04.
+        from .state_writer_lease import require_held_writer_lease
+
+        require_held_writer_lease(
+            store.repo_root,
+            remote=store.remote,
+            state_branch=store.branch,
+        )
         result = publish_with_contention_replay(
             store,
             snapshot_id=args.snapshot_id,
@@ -651,6 +664,63 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             f"{alarm['threshold']}-byte alarm; largest: {json.dumps(alarm['top5'])}"
         )
     print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def _handle_state_lease_command(args: argparse.Namespace) -> int:
+    """ARIA-HIGH-342 — the aria/state writer lease (``state_writer_lease``).
+
+    Exit codes follow the store verbs: 0 done, 3 a refusal verdict (the lease
+    is held by another writer — the caller yields and says why), and a
+    transport failure raises.
+    """
+    from .state_writer_lease import (
+        WRITER_LEASE_ENV,
+        StateWriterLeaseBlocked,
+        acquire_writer_lease,
+        read_writer_lease,
+        release_writer_lease,
+    )
+
+    branch = args.branch or STATE_BRANCH
+    if args.lease_command == "status":
+        view = read_writer_lease(args.repo_root, remote=args.remote, state_branch=branch)
+        print(json.dumps({"held": view.is_held(), **view.as_json()}, indent=2, sort_keys=True))
+        return 0
+    if args.lease_command == "release":
+        lease_id = (args.lease_id or os.environ.get(WRITER_LEASE_ENV, "")).strip()
+        if not lease_id:
+            print(json.dumps({"released": False, "reason": "no_lease_id"}, indent=2, sort_keys=True))
+            return 0
+        result = release_writer_lease(
+            args.repo_root, lease_id=lease_id, remote=args.remote, state_branch=branch,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    try:
+        held = acquire_writer_lease(
+            args.repo_root,
+            ttl_minutes=args.ttl_minutes,
+            wait_seconds=args.wait_seconds,
+            poll_seconds=args.poll_seconds,
+            owner=args.owner,
+            remote=args.remote,
+            state_branch=branch,
+        )
+    except StateWriterLeaseBlocked as blocked:
+        print(json.dumps({
+            "held": False,
+            "refusal": str(blocked),
+            "holder": blocked.view.as_json(),
+            "waited_seconds": round(blocked.waited_seconds, 3),
+        }, indent=2, sort_keys=True))
+        return 3
+    if args.export_env:
+        # The binding a later `state publish` in the same job reads, exported
+        # the way the restore action exports the store binding.
+        with open(args.export_env, "a", encoding="utf-8") as handle:
+            handle.write(f"{WRITER_LEASE_ENV}={held.lease_id}\n")
+    print(json.dumps(held.as_json(), indent=2, sort_keys=True))
     return 0
 
 
@@ -942,6 +1012,36 @@ def build_parser() -> argparse.ArgumentParser:
             # manufactures the exact state the re-checkout guard exists to
             # refuse — a local commit the remote does not have — and it had
             # no caller. Publishing is one indivisible act here.
+
+    # ARIA-HIGH-342 — the aria/state writer lease: one writer at a time,
+    # taken before `state checkout`, released after the last `state publish`.
+    state_lease = add_subparser(
+        state_sub, "lease",
+        help="Acquire, release or inspect the aria/state writer lease (aria/state-lease).",
+    )
+    lease_sub = state_lease.add_subparsers(dest="lease_command", required=True)
+    for lease_name, lease_help in (
+        ("acquire", "Take the writer lease, waiting at most --wait-seconds; exit 3 when it stays held."),
+        ("release", "Give back the writer lease named by --lease-id or $ARIA_STATE_WRITER_LEASE_ID."),
+        ("status", "Print the writer lease as the remote holds it."),
+    ):
+        lease_parser = add_subparser(lease_sub, lease_name, help=lease_help)
+        lease_parser.add_argument("--repo-root", required=True)
+        lease_parser.add_argument("--remote", default="origin")
+        lease_parser.add_argument("--branch", default=None,
+                                  help=f"State branch whose lease is meant (default {STATE_BRANCH}).")
+        if lease_name == "acquire":
+            lease_parser.add_argument("--ttl-minutes", type=int, required=True,
+                                      help="Lease expiry: the holder's own job bound.")
+            lease_parser.add_argument("--wait-seconds", type=int, default=0,
+                                      help="How long to wait for another holder before yielding.")
+            lease_parser.add_argument("--poll-seconds", type=int, default=15)
+            lease_parser.add_argument("--owner", default=None,
+                                      help="Holder identity; derived from the GitHub run or the host by default.")
+            lease_parser.add_argument("--export-env", default=None,
+                                      help="Append ARIA_STATE_WRITER_LEASE_ID=<id> to this file ($GITHUB_ENV).")
+        if lease_name == "release":
+            lease_parser.add_argument("--lease-id", default=None)
 
     # Wave 3 Twin-lite — the repository map (twin.py). `context` is the
     # operator/agent consumer: a compact slice read INSTEAD of a repo walk.

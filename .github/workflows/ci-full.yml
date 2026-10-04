@@ -209,6 +209,7 @@ jobs:
         uses: ./.github/actions/setup-rust-workspace
 
       - name: Run all tests
+        id: tests
         run: npm run test:all -- --coverage
         # Hang detector for the fan-out itself; rationale in the job header.
         # Strictly below the job budget by more than the worst observed prologue,
@@ -222,6 +223,13 @@ jobs:
         run: node tools/quality/coverage-evidence.js
 
       - name: Upload coverage evidence
+        # Published whenever the test run itself completed — INCLUDING when the
+        # verification above refused it. A ratchet refusal ("coverage ROSE ...
+        # Re-pin it: node tools/quality/coverage-evidence.js --write") is
+        # remedied from exactly this run's LCOV, and only this lane produces it;
+        # uploading on success alone discarded the evidence the re-pin needs
+        # (run 34745082343). Pinned by coverage-evidence-contract.spec.ts.
+        if: ${{ !cancelled() && steps.tests.outcome == 'success' }}
         # SEC-CI-002: pinned to SHA
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

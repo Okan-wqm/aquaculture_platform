@@ -100,3 +100,21 @@ max 31.18) and, because a kill point is only a lower bound, the kill points as w
 job 39.25). The spec's own factors give step ≥ 47.5 → 50 and job ≥ 58.9 → 60; prologue 4.3 + 50 <
 60 keeps the step budget firing first. The spec records the new distribution and asserts the kill
 points too. The first run at the new budget is the first uncensored measurement; re-tighten from it.
+
+## INFRA-MEDIUM-206
+
+Evidence (at `main@b5be2c1fd`):
+
+- CI - Full run 34745082343 (2026-09-13), the newest run whose test step completed: `coverage
+  evidence contract failed: … coverage ROSE and the baseline was left behind … Re-pin it: node
+tools/quality/coverage-evidence.js --write` for admin-api, auth, billing, farm, hr and sensor. The
+  run has no artifacts.
+- `.github/workflows/ci-full.yml:221` — `Verify coverage evidence` fails on any gain of a point or
+  more; `:224` — `Upload coverage evidence` carries no `if:`, so it is skipped after that failure.
+- `tools/quality/coverage-evidence.js:130` — the refusal's remedy is computed from the run's LCOV,
+  which only this lane produces for the whole suite.
+
+Fix: `Run all tests` has `id: tests` and the upload runs on
+`${{ !cancelled() && steps.tests.outcome == 'success' }}`, so a refusal leaves the evidence it names.
+Test: `tests/invariants/coverage-evidence-contract.spec.ts`. The re-pin itself still needs one
+completed CI - Full run.

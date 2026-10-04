@@ -47,6 +47,7 @@ from aria_kernel.state_store import (
 )
 from aria_kernel.tool_registry import append_tools_governance
 from tests.test_state_store import REPO_HASH, _EnvPatch, _git as _git_raw
+from tests._helpers.writer_lease import leased_publish
 
 OCT = datetime(2026, 10, 15, 12, tzinfo=timezone.utc)
 REQUESTS = "agent_invocation_requests"
@@ -114,7 +115,7 @@ class EvidenceCheckpointTests(unittest.TestCase):
     def _publish(self, store: Any) -> dict[str, Any]:
         self.published += 1
         with _EnvPatch({BOOTSTRAP_ACK_ENV: state_store._repository_identity(self.repo)}):
-            return publish_with_contention_replay(
+            return leased_publish(
                 store,
                 snapshot_id=f"snap-{self.published}",
                 cycle_id=f"cycle-{self.published}",

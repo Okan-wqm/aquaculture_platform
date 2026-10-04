@@ -44,6 +44,7 @@ from aria_kernel.state_store import (
     tools_root,
     verify_state_store,
 )
+from tests._helpers.writer_lease import leased_publish
 
 REPO_HASH = "repohash0001"
 
@@ -1630,7 +1631,7 @@ class ReCheckoutSafety(StateStoreTestCase):
             state_store, "_run_git", side_effect=push_times_out_once
         ):
             with self.assertRaises(state_store.StateStoreError):
-                state_store.publish_with_contention_replay(
+                leased_publish(
                     store,
                     snapshot_id="snap-nested-lifecycle",
                     cycle_id="cycle-nested-lifecycle",
@@ -1641,7 +1642,7 @@ class ReCheckoutSafety(StateStoreTestCase):
         # The reentrant call: recovery reconciles the committed-but-unpushed
         # attempt and the publish completes with the nested lifecycle
         # entries intact.
-        result = state_store.publish_with_contention_replay(
+        result = leased_publish(
             store,
             snapshot_id="snap-nested-lifecycle",
             cycle_id="cycle-nested-lifecycle",

@@ -61,7 +61,7 @@ from aria_kernel.tool_health import record_run
 from aria_kernel.tool_registry import register_tool
 from tests.test_runtime_artifacts import _run, _tool
 from tests.test_state_store import REPO_HASH, StateStoreTestCase, _EnvPatch, _git
-from tests._helpers.writer_lease import holding_writer_lease
+from tests._helpers.writer_lease import holding_writer_lease, leased_publish
 
 COLD_BRANCH = "aria/state-cold"
 DISCOVERY_FILES = ("COMPLETION_PROOF.json", "FATES.json", "REPO_FINGERPRINT.json", "SERVICE_MAP.json", "SNAPSHOT.json")
@@ -118,7 +118,7 @@ class ColdEvictionTestCase(StateStoreTestCase):
         return next(row for row in rows if row["run_id"] == f"run-{cycle_id}")
 
     def _publish(self, snapshot_id: str, store=None) -> dict:
-        return publish_with_contention_replay(
+        return leased_publish(
             store or self.store, snapshot_id=snapshot_id, cycle_id=snapshot_id, lane="test", repo_hash=REPO_HASH,
         )
 
@@ -293,21 +293,23 @@ class RacingPublishersKeepTheColdHistoryLinear(ColdEvictionTestCase):
         return clone
 
     def test_two_publishers_both_land_and_the_cold_branch_never_forks(self) -> None:
+        """ARIA-HIGH-342 — two publishers take turns under the writer lease:
+        B restores after A's publish, as the lease makes every lane do, and
+        each publish's cold union lands on the last one."""
         for day in (2, 3, 4):
             self._seed(_cycle(day))
         self.assertTrue(self._publish("snap-1")["published"])
+        self._seed(_cycle(5))            # A evicts day 2
+        result_a = self._publish("snap-a")
         clone = self._clone()
         store_b = self._bound_store(clone, clone.parent / "store-b")
         tools_b = tools_root(store_b)
-        self._seed(_cycle(5))            # A evicts day 2
-        self._seed(_cycle(1), tools=tools_b)  # B evicts days 1 and 2
-
-        result_a = self._publish("snap-a")
+        self._seed(_cycle(1), tools=tools_b)  # B evicts day 1
         result_b = self._publish("snap-b", store=store_b)
 
         self.assertTrue(result_a["published"], result_a)
         self.assertTrue(result_b["published"], result_b)
-        self.assertEqual(result_b["attempts"], 2)
+        self.assertEqual(result_b["attempts"], 1)
         commits = _git(self.remote, "rev-list", "--parents", COLD_BRANCH).splitlines()
         self.assertEqual(len(commits), 2)
         self.assertTrue(all(len(line.split()) <= 2 for line in commits), commits)

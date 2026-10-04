@@ -240,6 +240,10 @@ def tools_root_is_detached(repo_root: Path, base_dir: Path | None) -> bool:
     outside the workspace is not the store and the published branch does not
     describe it; one inside the workspace keeps the store as its reference, so
     a lane mis-bound to an empty in-workspace root is still caught.
+
+    This answers the GEOMETRY only. Whether a detached root is allowed is
+    `observe_burn_in_context` (GSEC-MEDIUM-006): only the observe burn-in is;
+    for every other cycle a detached root is a blocking reason.
     """
     if base_dir is None:
         return False
@@ -253,6 +257,44 @@ def tools_root_is_detached(repo_root: Path, base_dir: Path | None) -> bool:
     except ValueError:
         return True
     return False
+
+
+DETACHED_TOOLS_ROOT_REASON = "state_continuity_tools_root_detached_from_state_store"
+
+
+def observe_burn_in_context(mode: str, base_dir: Path) -> bool:
+    """The one context that may act on a tools root the store does not hold.
+
+    GSEC-MEDIUM-006 — explicit, not inferred from geometry: the cycle runs in
+    ``burn_in`` mode (only `autonomy burn-in observe` passes it) AND the tools
+    root's runtime profile is the observe profile that command sets before its
+    first cycle. A standard cycle bound to a root outside the workspace is the
+    mis-binding this gate exists for (the 2026-08 bootstrap-empty tree), and
+    stays blocking.
+    """
+    if mode != "burn_in":
+        return False
+    from .burn_in import OBSERVE_BURN_IN_PROFILE
+    from .runtime_profile import get_profile
+
+    try:
+        return get_profile(base_dir=base_dir) == OBSERVE_BURN_IN_PROFILE
+    except Exception:  # noqa: BLE001 — an unreadable profile proves no exemption
+        return False
+
+
+def detached_tools_root_verdict(repo_root: Path, base_dir: Path) -> ContinuityVerdict:
+    """The blocking verdict for a non-burn-in cycle on a detached tools root."""
+    return ContinuityVerdict(
+        status=GAP_CRITICAL,
+        reference_kind=None,
+        reasons=(
+            f"{DETACHED_TOOLS_ROOT_REASON}:tools root {Path(base_dir).as_posix()} is outside "
+            f"the workspace {Path(repo_root).as_posix()} whose state store it should be; only "
+            "an observe burn-in may act on a detached tools root",
+        ),
+        notes=(DETACHED_TOOLS_ROOT_NOTE,),
+    )
 
 
 def resolve_continuity_reference(
@@ -632,6 +674,10 @@ def restore_and_replay(
 
     if verdict.status != GAP_CRITICAL:
         return RecoveryResult(False, f"recovery_requires_critical:{verdict.status}")
+    if any(reason.startswith(DETACHED_TOOLS_ROOT_REASON) for reason in verdict.reasons):
+        # GSEC-MEDIUM-006 — the cycle acts on a tree that is not the store;
+        # rebasing the real store would repair the wrong tree.
+        return RecoveryResult(False, "recovery_refused_tools_root_detached_from_state_store")
     if verdict.reference_kind != REFERENCE_STATE_BRANCH:
         # An anchor stub proves descent and carries no tree. There is nothing
         # to reset onto, and resetting onto a guess is how a recovery destroys
@@ -811,6 +857,7 @@ def _frontmatter(path: Path) -> dict[str, Any] | None:
 
 __all__ = [
     "DETACHED_TOOLS_ROOT_NOTE",
+    "DETACHED_TOOLS_ROOT_REASON",
     "GAP_CRITICAL",
     "GAP_GENESIS",
     "GAP_OK",
@@ -823,6 +870,8 @@ __all__ = [
     "equivalence_check",
     "freeze_autonomous_writes",
     "reference_from_committed_anchors",
+    "detached_tools_root_verdict",
+    "observe_burn_in_context",
     "resolve_continuity_reference",
     "tools_root_is_detached",
 ]

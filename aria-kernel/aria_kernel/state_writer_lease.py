@@ -30,15 +30,22 @@ lease tip cannot both push.
 
 THE CONTRACT.
   * A writer acquires the lease before ``state checkout`` and releases it
-    after its last ``state publish``; ``state publish`` refuses without it
-    (``require_held_writer_lease``). The restore action acquires when a lane
+    after its last ``state publish``. The restore action acquires when a lane
     declares ``writer-lease-ttl-minutes``; the release action gives it back
     in an ``always()`` step.
-  * The expiry is the holder's own job bound, so a holder that dies without
-    releasing frees the branch when its job could no longer be running.
-  * Fencing is by lease id, not by the clock: a holder past its expiry may
-    still publish if nobody has taken the lease since, and may not once
-    anybody has (the taker's epoch is higher and its lease id differs).
+  * The lease is a CAPABILITY (GSEC-MEDIUM-001): every acquisition mints a
+    256-bit secret that only the acquirer holds; ``lease.json`` stores its
+    SHA-256. Publishing, renewing and releasing compare the hash, so knowing
+    the public lease id or the holder's name grants nothing.
+  * The fence is part of the push (GSEC-HIGH-001, ``state_writer_fence``):
+    every publish pushes the state commit and a fast-forward child of the
+    observed lease tip in one ``git push --atomic``, so a takeover between
+    the check and the push rejects the whole push. Contention under a lease
+    is refused by name (``state_writer_lease_lost``) and never replayed.
+  * The expiry is the holder's job bound plus the leased publish arc, so a
+    holder that dies without releasing frees the branch when its job could
+    no longer be running; a publish with less than the arc left renews by
+    CAS first.
   * A writer that finds the lease held waits up to its bound and then YIELDS
     by name — holder, run id, expiry, how long it waited — before it has
     restored anything, so a yield loses no work. That is the opposite of
@@ -48,14 +55,19 @@ THE CONTRACT.
 
 from __future__ import annotations
 
+import contextlib
 import getpass
+import hashlib
 import json
+import math
 import os
+import secrets
 import socket
+import subprocess
 import tempfile
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -67,22 +79,42 @@ from .state_store import (
     STATE_BRANCH,
     StateStoreError,
     StateStoreRefusal,
-    _fetch_remote_branch_tip_at,
-    _git,
-    _git_in_index,
+    _MAX_GIT_OUTPUT_BYTES,
     _MAX_GIT_STDERR_BYTES,
-    _probe_remote_tip_at,
-    _run_git,
+    _MAX_REMOTE_OUTPUT_BYTES,
+    _RemoteTipProbe,
+    _git_in_index,
+    _parse_remote_tip_listing,
     _run_git_bytes_bounded,
 )
+from .state_store_lifecycle_arcs import (
+    PUBLISH_PUSH_STEP,
+    REMOTE_BRANCH_FETCH_STEP,
+    REMOTE_TIP_PROBE_STEP,
+    STATE_STORE_PUBLISH_ARC_SECONDS,
+    LifecycleGitStep,
+    lifecycle_step_active,
+    require_step_operation,
+)
 
-WRITER_LEASE_ENV = "ARIA_STATE_WRITER_LEASE_ID"
+# The capability a holder presents. It travels as a masked step output into
+# the publish, merge and release steps only (GSEC-LOW-002), never through
+# $GITHUB_ENV, and is never printed.
+WRITER_LEASE_TOKEN_ENV = "ARIA_STATE_WRITER_LEASE_TOKEN"
 LEASE_RECORD_PATH = "lease.json"
-LEASE_SCHEMA = "aria/state-writer-lease/v1"
-# The longest job bound any writer lane declares is the executor's 510 min;
-# a day is the ceiling a caller may ask for, so a typo cannot lock the branch
-# for a week.
+LEASE_SCHEMA = "aria/state-writer-lease/v2"
+# The longest job bound any writer lane declares is the executor's; a day is
+# the ceiling a caller may ask for, so a typo cannot lock the branch for a week.
 MAX_TTL_MINUTES = 24 * 60
+# The worst case of ONE leased publish under the lifecycle lock — the pending
+# recovery and the publish attempt, at the git cap — is the store's own
+# derived bound (`state_store_lifecycle_arcs.STATE_STORE_PUBLISH_ARC_SECONDS`).
+# A leased publish never replays, so this is its whole arc; a lease with less
+# than this left is renewed by CAS before the push.
+LEASED_PUBLISH_SECONDS: float = STATE_STORE_PUBLISH_ARC_SECONDS
+# GSEC-MEDIUM-003 — a lane's TTL is its job timeout PLUS this margin, so a
+# publish at the very end of the job still has a whole leased arc left.
+PUBLISH_MARGIN_MINUTES: int = math.ceil(LEASED_PUBLISH_SECONDS / 60)
 _MAX_LEASE_RECORD_BYTES = 64 * 1024
 # A rejected push whose re-read shows the tip unchanged is a transport fault,
 # not a lost race; a few of those in a row is an outage, said by name.
@@ -106,6 +138,16 @@ class StateWriterLeaseBlocked(StateStoreRefusal):
         self.waited_seconds = waited_seconds
 
 
+class StateWriterLeaseLost(StateStoreRefusal):
+    """The lease this writer holds no longer covers its publish."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(
+            f"state_writer_lease_lost: {detail}; nothing was replayed and this "
+            "lane's rows stay in its store"
+        )
+
+
 def writer_lease_branch(state_branch: str = STATE_BRANCH) -> str:
     """The lease branch of a state branch (``aria/state-lease``)."""
     return f"{state_branch}-lease"
@@ -119,6 +161,7 @@ def writer_identity(repo_root: str | Path | None = None) -> tuple[str, str | Non
     holder. Anything else is an operator lane: host, user AND checkout, so two
     root shells on one host (the 2026-10-04 operator lane published from
     /root/aria-8b while a runner worked elsewhere) are two writers, not one.
+    An identity names a holder; it is not a credential — the token is.
     """
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
     if run_id:
@@ -134,12 +177,89 @@ def writer_identity(repo_root: str | Path | None = None) -> tuple[str, str | Non
     return f"local:{socket.gethostname()}:{user}:{checkout}", None
 
 
+# The lease's own git transport. It runs through the store's bounded runner
+# (`_run_git_bytes_bounded`: output caps, the git timeout, closed stdin) but
+# not through `state_store._run_git`, so the lease traffic of a publish is not
+# mistaken for the publish's own and the two can be reasoned about apart. The
+# remote calls name the lifecycle step they are, as every remote call must
+# when a caller already holds the lifecycle lock.
+def _lease_git_run(
+    root: Path,
+    args: tuple[str, ...],
+    *,
+    step: LifecycleGitStep | None = None,
+) -> subprocess.CompletedProcess[str]:
+    if step is not None:
+        require_step_operation(step, args)
+    remote_listing = args[0] == "ls-remote"
+    with lifecycle_step_active(step) if step is not None else contextlib.nullcontext():
+        raw = _run_git_bytes_bounded(
+            root,
+            args,
+            stdout_limit=_MAX_REMOTE_OUTPUT_BYTES if remote_listing else _MAX_GIT_OUTPUT_BYTES,
+            stderr_limit=_MAX_GIT_STDERR_BYTES,
+            budget_error="state_writer_lease_git_output_budget_exceeded",
+        )
+    return subprocess.CompletedProcess(
+        raw.args,
+        raw.returncode,
+        raw.stdout.decode("utf-8", "replace"),
+        raw.stderr.decode("utf-8", "replace"),
+    )
+
+
+def _lease_git(root: Path, *args: str) -> str:
+    proc = _lease_git_run(root, tuple(args))
+    if proc.returncode != 0:
+        raise StateStoreError(
+            f"state_writer_lease_git_failed: git {args[0]} -> {proc.stderr.strip()[:300]}"
+        )
+    return proc.stdout
+
+
+def _probe_tip(root: Path, *, remote: str, branch: str) -> _RemoteTipProbe:
+    ref = f"refs/heads/{branch}"
+    try:
+        proc = _lease_git_run(root, ("ls-remote", "--heads", remote, ref), step=REMOTE_TIP_PROBE_STEP)
+    except StateStoreError as exc:
+        return _RemoteTipProbe("unavailable", detail=str(exc)[:300])
+    if proc.returncode != 0:
+        return _RemoteTipProbe("unavailable", detail=proc.stderr.strip()[:300])
+    return _parse_remote_tip_listing(proc.stdout, ref=ref)
+
+
+def _fetch_tip(root: Path, *, remote: str, branch: str) -> str:
+    fetched = f"refs/aria/tmp/state-lease-fetch-{os.getpid()}-{secrets.token_hex(8)}"
+    try:
+        proc = _lease_git_run(
+            root,
+            ("fetch", "--no-tags", "--refmap=", remote, f"refs/heads/{branch}:{fetched}"),
+            step=REMOTE_BRANCH_FETCH_STEP,
+        )
+        if proc.returncode != 0:
+            raise StateStoreError(f"state_writer_lease_fetch_failed: {proc.stderr.strip()[:300]}")
+        return _lease_git(root, "rev-parse", "--verify", f"{fetched}^{{commit}}").strip()
+    finally:
+        _lease_git_run(root, ("update-ref", "-d", fetched))
+
+
+def token_digest(token: str) -> str:
+    return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def _iso(value: datetime) -> str:
     return value.isoformat().replace("+00:00", "Z")
+
+
+def _parse_iso(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 @dataclass(frozen=True)
@@ -149,26 +269,44 @@ class WriterLeaseView:
     tip: str | None
     lease: RemoteCasLease | None = None
     run_id: str | None = None
+    ttl_minutes: int = 0
+    secret_sha256: str = ""
     released: bool = False
     released_by: str | None = None
+    release_reason: str | None = None
 
     def is_held(self, *, now: datetime | None = None) -> bool:
         if self.lease is None or self.released:
             return False
-        try:
-            expires = datetime.fromisoformat(self.lease.expires_at.replace("Z", "+00:00"))
-        except ValueError:
-            # An unparseable expiry cannot prove the lease free; it holds.
-            return True
-        return expires > (now or _utc_now())
+        expires = _parse_iso(self.lease.expires_at)
+        # An unparseable expiry cannot prove the lease free; it holds.
+        return True if expires is None else expires > (now or _utc_now())
+
+    def seconds_left(self, *, now: datetime | None = None) -> float:
+        expires = _parse_iso(self.lease.expires_at) if self.lease else None
+        if expires is None:
+            return 0.0
+        return (expires - (now or _utc_now())).total_seconds()
+
+    def held_by_token(self, token: str | None) -> bool:
+        """The capability check: this record names THIS holder's secret."""
+        return bool(
+            token
+            and self.lease is not None
+            and not self.released
+            and self.secret_sha256
+            and secrets.compare_digest(self.secret_sha256, token_digest(token))
+        )
 
     def as_json(self) -> dict[str, Any]:
         return {
             "lease_branch_tip": self.tip,
             **(asdict(self.lease) if self.lease else {}),
             "run_id": self.run_id,
+            "ttl_minutes": self.ttl_minutes,
             "released": self.released,
             "released_by": self.released_by,
+            "release_reason": self.release_reason,
         }
 
 
@@ -181,11 +319,15 @@ class HeldWriterLease:
     expires_at: str
     state_tip: str
     lease_branch: str
+    token: str = field(repr=False)
     waited_seconds: float = 0.0
     predecessor: dict[str, Any] = field(default_factory=dict)
 
     def as_json(self) -> dict[str, Any]:
-        return {"held": True, **asdict(self)}
+        """Everything but the capability itself."""
+        payload = asdict(self)
+        payload.pop("token")
+        return {"held": True, **payload}
 
 
 def _parse_record(raw: bytes, *, tip: str) -> WriterLeaseView:
@@ -203,21 +345,47 @@ def _parse_record(raw: bytes, *, tip: str) -> WriterLeaseView:
             heartbeat_at=str(payload["heartbeat_at"]),
             expires_at=str(payload["expires_at"]),
         )
+        ttl_minutes = int(payload["ttl_minutes"])
+        secret_sha256 = str(payload["secret_sha256"])
     except (UnicodeDecodeError, ValueError, KeyError, TypeError) as exc:
-        # Fail closed: a lease nobody can read is not a free branch.
-        raise StateStoreError(
+        # Fail closed: a lease nobody can read is not a free branch. The
+        # audited way out is `state lease repair --reason`.
+        raise StateStoreRefusal(
             f"state_writer_lease_record_invalid: {LEASE_RECORD_PATH} at {tip} "
-            "is not a writer lease record"
+            "is not a writer lease record; `state lease repair --reason` replaces it"
         ) from exc
-    run_id = payload.get("run_id")
-    released_by = payload.get("released_by")
+    def text(key: str) -> str | None:
+        value = payload.get(key)
+        return str(value) if value else None
     return WriterLeaseView(
         tip=tip,
         lease=lease,
-        run_id=str(run_id) if run_id else None,
+        run_id=text("run_id"),
+        ttl_minutes=ttl_minutes,
+        secret_sha256=secret_sha256,
         released=payload.get("released") is True,
-        released_by=str(released_by) if released_by else None,
+        released_by=text("released_by"),
+        release_reason=text("release_reason"),
     )
+
+
+def _read_raw(root: Path, *, remote: str, branch: str) -> tuple[str | None, bytes | None]:
+    probe = _probe_tip(root, remote=remote, branch=branch)
+    if probe.status == "absent":
+        return None, None
+    if probe.status != "present":
+        raise StateStoreError(
+            f"state_writer_lease_unreadable: {branch} probe {probe.status} {probe.detail}"
+        )
+    tip = _fetch_tip(root, remote=remote, branch=branch)
+    raw = _run_git_bytes_bounded(
+        root,
+        ("cat-file", "blob", f"{tip}:{LEASE_RECORD_PATH}"),
+        stdout_limit=_MAX_LEASE_RECORD_BYTES,
+        stderr_limit=_MAX_GIT_STDERR_BYTES,
+        budget_error="state_writer_lease_record_too_large",
+    )
+    return tip, (raw.stdout if raw.returncode == 0 else None)
 
 
 def read_writer_lease(
@@ -227,30 +395,45 @@ def read_writer_lease(
     state_branch: str = STATE_BRANCH,
 ) -> WriterLeaseView:
     """The lease as the REMOTE holds it — never a local copy of it."""
-    root = Path(repo_root)
     branch = writer_lease_branch(state_branch)
-    probe = _probe_remote_tip_at(root, remote=remote, branch=branch)
-    if probe.status == "absent":
+    tip, raw = _read_raw(Path(repo_root), remote=remote, branch=branch)
+    if tip is None:
         return WriterLeaseView(tip=None)
-    if probe.status != "present":
-        raise StateStoreError(
-            f"state_writer_lease_unreadable: {branch} probe {probe.status} {probe.detail}"
+    if raw is None:
+        raise StateStoreRefusal(
+            f"state_writer_lease_record_missing: {branch}@{tip} carries no {LEASE_RECORD_PATH}; "
+            "`state lease repair --reason` replaces it"
         )
-    tip = _fetch_remote_branch_tip_at(
-        root, remote=remote, branch=branch, error_prefix="state_writer_lease_fetch_failed",
-    )
-    raw = _run_git_bytes_bounded(
-        root,
-        ("cat-file", "blob", f"{tip}:{LEASE_RECORD_PATH}"),
-        stdout_limit=_MAX_LEASE_RECORD_BYTES,
-        stderr_limit=_MAX_GIT_STDERR_BYTES,
-        budget_error="state_writer_lease_record_too_large",
-    )
-    if raw.returncode != 0:
-        raise StateStoreError(
-            f"state_writer_lease_record_missing: {branch}@{tip} carries no {LEASE_RECORD_PATH}"
+    return _parse_record(raw, tip=tip)
+
+
+def lease_commit(
+    root: Path,
+    *,
+    parent: str | None,
+    record: dict[str, Any],
+    message: str,
+) -> str:
+    """A commit holding ``record`` on ``parent``, built in a scratch index.
+
+    Not pushed: the caller pushes it — alone (acquire, renew, release,
+    repair) or atomically with a state commit (the publish fence).
+    """
+    with tempfile.TemporaryDirectory(prefix="aria-state-lease-") as scratch:
+        record_file = Path(scratch) / LEASE_RECORD_PATH
+        record_file.write_text(canonical_json(record) + "\n", encoding="utf-8")
+        blob = _lease_git(root, "hash-object", "-w", "--no-filters", "--", str(record_file)).strip()
+        index = Path(scratch) / "index"
+        _git_in_index(root, index, "read-tree", "--empty")
+        _git_in_index(
+            root, index, "update-index", "--add", "--cacheinfo", f"100644,{blob},{LEASE_RECORD_PATH}",
         )
-    return _parse_record(raw.stdout, tip=tip)
+        tree = _git_in_index(root, index, "write-tree").strip()
+    return _lease_git(
+        root, "-c", f"user.name={COMMITTER_NAME}", "-c", f"user.email={COMMITTER_EMAIL}",
+        "-c", "commit.gpgsign=false", "commit-tree", tree, *(("-p", parent) if parent else ()),
+        "-m", message,
+    ).strip()
 
 
 def _push_record(
@@ -262,32 +445,16 @@ def _push_record(
     record: dict[str, Any],
     message: str,
 ) -> bool:
-    """Commit ``record`` on ``parent`` and push it fast-forward-only.
-
-    Built in a scratch index and pushed by exact sha, never forced — the same
-    shape as the cold store's union commit. ``False`` is a rejected push:
-    the caller re-reads and decides whether it lost a race.
-    """
-    with tempfile.TemporaryDirectory(prefix="aria-state-lease-") as scratch:
-        record_file = Path(scratch) / LEASE_RECORD_PATH
-        record_file.write_text(canonical_json(record) + "\n", encoding="utf-8")
-        blob = _git(root, "hash-object", "-w", "--no-filters", "--", str(record_file)).strip()
-        index = Path(scratch) / "index"
-        _git_in_index(root, index, "read-tree", "--empty")
-        _git_in_index(
-            root, index, "update-index", "--add", "--cacheinfo", f"100644,{blob},{LEASE_RECORD_PATH}",
-        )
-        tree = _git_in_index(root, index, "write-tree").strip()
-    commit = _git(
-        root, "-c", f"user.name={COMMITTER_NAME}", "-c", f"user.email={COMMITTER_EMAIL}",
-        "-c", "commit.gpgsign=false", "commit-tree", tree, *(("-p", parent) if parent else ()),
-        "-m", message,
-    ).strip()
-    return _run_git(root, ("push", remote, f"{commit}:refs/heads/{branch}")).returncode == 0
+    """Commit ``record`` on ``parent`` and push it fast-forward-only, never
+    forced. ``False`` is a rejected push: the caller re-reads and decides."""
+    commit = lease_commit(root, parent=parent, record=record, message=message)
+    return _lease_git_run(
+        root, ("push", remote, f"{commit}:refs/heads/{branch}"), step=PUBLISH_PUSH_STEP,
+    ).returncode == 0
 
 
 def _state_tip(root: Path, *, remote: str, state_branch: str) -> str:
-    probe = _probe_remote_tip_at(root, remote=remote, branch=state_branch)
+    probe = _probe_tip(root, remote=remote, branch=state_branch)
     if probe.status == "present" and probe.sha:
         return probe.sha
     if probe.status == "absent":
@@ -297,14 +464,39 @@ def _state_tip(root: Path, *, remote: str, state_branch: str) -> str:
     )
 
 
-def _record(lease: RemoteCasLease, *, run_id: str | None, released_by: str | None = None) -> dict[str, Any]:
+def lease_record(
+    lease: RemoteCasLease,
+    *,
+    run_id: str | None,
+    ttl_minutes: int,
+    secret_sha256: str,
+    released_by: str | None = None,
+    release_reason: str | None = None,
+    repaired: bool = False,
+) -> dict[str, Any]:
     return {
         "schema": LEASE_SCHEMA,
         **asdict(lease),
         "run_id": run_id,
+        "ttl_minutes": ttl_minutes,
+        "secret_sha256": secret_sha256,
         "released": released_by is not None,
         "released_by": released_by,
+        "release_reason": release_reason,
+        "repaired": repaired,
     }
+
+
+def view_record(view: WriterLeaseView, lease: RemoteCasLease, **overrides: Any) -> dict[str, Any]:
+    """The record ``view`` holds, with ``lease`` swapped in (a renewal or a
+    fence: same lease id, same secret, fresh heartbeat)."""
+    return lease_record(
+        lease,
+        run_id=view.run_id,
+        ttl_minutes=view.ttl_minutes,
+        secret_sha256=view.secret_sha256,
+        **overrides,
+    )
 
 
 def acquire_writer_lease(
@@ -324,8 +516,9 @@ def acquire_writer_lease(
     """Take the aria/state writer lease, waiting at most ``wait_seconds``.
 
     Raises ``StateWriterLeaseBlocked`` when another holder still has it after
-    the wait. A holder that re-asks (same owner) takes a fresh epoch — a
-    re-entered step must not be refused by its own earlier acquisition.
+    the wait. ``owner`` is for tests; a lane is always named by
+    ``writer_identity`` (the CLI has no flag for it). The returned lease
+    carries the fresh capability token; nothing else ever sees it.
     """
     if not 1 <= int(ttl_minutes) <= MAX_TTL_MINUTES:
         raise StateStoreError(
@@ -348,6 +541,7 @@ def acquire_writer_lease(
                 raise StateWriterLeaseBlocked(view, waited_seconds=waited)
             sleep(min(poll_seconds, max(wait_seconds - waited, 0.001)))
             continue
+        token = secrets.token_hex(32)
         lease = build_remote_cas_lease(
             previous=view.lease,
             owner=holder,
@@ -360,7 +554,9 @@ def acquire_writer_lease(
             remote=remote,
             branch=branch,
             parent=view.tip,
-            record=_record(lease, run_id=run),
+            record=lease_record(
+                lease, run_id=run, ttl_minutes=int(ttl_minutes), secret_sha256=token_digest(token),
+            ),
             message=f"chore(aria-state-lease): {holder} epoch {lease.epoch} until {lease.expires_at}",
         ):
             return HeldWriterLease(
@@ -371,6 +567,7 @@ def acquire_writer_lease(
                 expires_at=lease.expires_at,
                 state_tip=lease.head_sha,
                 lease_branch=branch,
+                token=token,
                 waited_seconds=monotonic() - started,
                 predecessor=view.as_json() if view.lease else {},
             )
@@ -384,79 +581,105 @@ def acquire_writer_lease(
                 )
 
 
+def resolve_writer_lease_token(token: str | None = None) -> str:
+    """The capability this process presents, or a named refusal."""
+    resolved = (token or os.environ.get(WRITER_LEASE_TOKEN_ENV, "")).strip()
+    if not resolved:
+        raise StateStoreRefusal(
+            "state_writer_lease_required: aria/state has one writer at a time and this "
+            f"process holds no writer lease (${WRITER_LEASE_TOKEN_ENV} unset); take it with "
+            "`state lease acquire` before `state checkout`, release it after the publish"
+        )
+    return resolved
+
+
 def require_held_writer_lease(
     repo_root: str | Path,
     *,
-    lease_id: str | None = None,
+    token: str | None = None,
     remote: str = "origin",
     state_branch: str = STATE_BRANCH,
 ) -> WriterLeaseView:
-    """Refuse unless ``lease_id`` (default: ``$ARIA_STATE_WRITER_LEASE_ID``)
-    is the current, unreleased writer lease on the remote."""
-    wanted = (lease_id or os.environ.get(WRITER_LEASE_ENV, "")).strip()
-    if not wanted:
-        raise StateStoreRefusal(
-            "state_writer_lease_required: aria/state has one writer at a time and this "
-            f"process holds no writer lease (${WRITER_LEASE_ENV} unset); take it with "
-            "`state lease acquire` before `state checkout`, release it after the publish"
-        )
+    """Refuse unless ``token`` (default: ``$ARIA_STATE_WRITER_LEASE_TOKEN``)
+    is the capability of the current, unreleased writer lease."""
+    presented = resolve_writer_lease_token(token)
     view = read_writer_lease(repo_root, remote=remote, state_branch=state_branch)
-    if view.lease is None or view.lease.lease_id != wanted or view.released:
+    if not view.held_by_token(presented):
         current = view.lease
         raise StateStoreRefusal(
-            f"state_writer_lease_not_held: lease {wanted} is not the current writer lease "
-            f"(current: {current.lease_id if current else 'none'} by "
-            f"{current.owner if current else '-'}, released={view.released}); "
-            "another writer may have published since this one restored"
+            "state_writer_lease_not_held: the presented token is not the capability of the "
+            f"current writer lease (current: {current.lease_id if current else 'none'} by "
+            f"{current.owner if current else '-'}, released={view.released})"
         )
     return view
+
+
+def _release_once(
+    root: Path,
+    view: WriterLeaseView,
+    *,
+    remote: str,
+    branch: str,
+    released_by: str,
+    reason: str,
+) -> bool:
+    assert view.lease is not None
+    stamp = _iso(_utc_now())
+    released = RemoteCasLease(**{**asdict(view.lease), "heartbeat_at": stamp, "expires_at": stamp})
+    return _push_record(
+        root,
+        remote=remote,
+        branch=branch,
+        parent=view.tip,
+        record=view_record(view, released, released_by=released_by, release_reason=reason),
+        message=f"chore(aria-state-lease): release epoch {released.epoch} by {released_by} ({reason})",
+    )
 
 
 def release_writer_lease(
     repo_root: str | Path,
     *,
-    lease_id: str,
+    token: str | None = None,
+    force_foreign_reason: str | None = None,
     remote: str = "origin",
     state_branch: str = STATE_BRANCH,
 ) -> dict[str, Any]:
-    """Give the lease back — compare, then swap.
+    """Give the lease back — compare, then swap. Idempotent.
 
-    Only the CURRENT lease id can be released; a lease another writer has
-    since taken is left alone and reported. Releasing a lease id read from
-    ``state lease status`` is also how an operator frees the branch from a
-    holder that died without releasing — recorded on the lease branch as who
-    released it.
+    Released when the caller presents the lease's token; or, with no token,
+    when the current lease's owner IS this caller's ``writer_identity`` (the
+    release step of the run that acquired it, GSEC-LOW-001); or with
+    ``force_foreign_reason`` — the audited operator release of a holder that
+    died without releasing, recorded on the lease branch with the reason.
+    Anything else leaves the lease alone and says why.
     """
     root = Path(repo_root)
     branch = writer_lease_branch(state_branch)
     releaser, _run = writer_identity(root)
     for _attempt in range(_MAX_UNCHANGED_PUSH_FAILURES):
         view = read_writer_lease(root, remote=remote, state_branch=state_branch)
-        if view.lease is None or view.lease.lease_id != lease_id:
-            return {
-                "released": False,
-                "reason": "lease_not_current",
-                "lease_id": lease_id,
-                "current": view.as_json(),
-            }
+        if view.lease is None:
+            return {"released": False, "reason": "no_lease"}
         if view.released:
-            return {"released": False, "reason": "already_released", "lease_id": lease_id}
-        stamp = _iso(_utc_now())
-        released = RemoteCasLease(**{**asdict(view.lease), "heartbeat_at": stamp, "expires_at": stamp})
-        if _push_record(
-            root,
-            remote=remote,
-            branch=branch,
-            parent=view.tip,
-            record=_record(released, run_id=view.run_id, released_by=releaser),
-            message=f"chore(aria-state-lease): release epoch {released.epoch} by {releaser}",
-        ):
+            return {"released": False, "reason": "already_released", "lease_id": view.lease.lease_id}
+        if token is not None:
+            if not view.held_by_token(token):
+                return {"released": False, "reason": "token_not_current", "current": view.as_json()}
+            reason = "holder released"
+        elif force_foreign_reason:
+            reason = f"force-foreign: {force_foreign_reason}"
+        elif view.lease.owner == releaser:
+            reason = "holder released by identity"
+        else:
+            return {"released": False, "reason": "lease_not_held_by_caller", "current": view.as_json()}
+        if _release_once(root, view, remote=remote, branch=branch, released_by=releaser, reason=reason):
             return {
                 "released": True,
-                "lease_id": lease_id,
-                "epoch": released.epoch,
-                "owner": released.owner,
+                "lease_id": view.lease.lease_id,
+                "epoch": view.lease.epoch,
+                "owner": view.lease.owner,
                 "released_by": releaser,
+                "release_reason": reason,
             }
     raise StateStoreError(
         f"state_writer_lease_release_failed: {branch} refused {_MAX_UNCHANGED_PUSH_FAILURES} "
@@ -464,17 +687,92 @@ def release_writer_lease(
     )
 
 
+def repair_writer_lease(
+    repo_root: str | Path,
+    *,
+    reason: str,
+    remote: str = "origin",
+    state_branch: str = STATE_BRANCH,
+) -> dict[str, Any]:
+    """Replace a malformed or missing lease record with a released one.
+
+    The recovery path for a record nobody can parse (GSEC-HIGH-002): every
+    reader fails closed on it, so without this the branch could only be
+    unwedged by hand. The replacement is a fast-forward child of the current
+    tip, so the history keeps the broken record; it holds no secret, names
+    who repaired it and why, and the next acquisition takes a higher epoch.
+    A VALID record is not repaired: a held one is released with
+    ``release --force-foreign --reason``, a free one needs nothing.
+    """
+    if not reason.strip():
+        raise StateStoreError("state_writer_lease_repair_reason_required")
+    root = Path(repo_root)
+    branch = writer_lease_branch(state_branch)
+    repairer, _run = writer_identity(root)
+    tip, raw = _read_raw(root, remote=remote, branch=branch)
+    if tip is None:
+        return {"repaired": False, "reason": "no_lease_branch"}
+    if raw is not None:
+        try:
+            view = _parse_record(raw, tip=tip)
+        except StateStoreRefusal:
+            view = None
+        if view is not None:
+            if view.is_held():
+                raise StateStoreRefusal(
+                    "state_writer_lease_repair_refused: the record is valid and held by "
+                    f"{view.lease.owner if view.lease else '-'}; release it with "
+                    "`state lease release --force-foreign --reason`"
+                )
+            return {"repaired": False, "reason": "record_valid", "current": view.as_json()}
+    stamp = _iso(_utc_now())
+    replacement = build_remote_cas_lease(
+        previous=None,
+        owner=f"repair:{repairer}",
+        target_ref=f"refs/heads/{state_branch}",
+        head_sha=_state_tip(root, remote=remote, state_branch=state_branch),
+        ttl_minutes=1,
+    )
+    replacement = RemoteCasLease(**{**asdict(replacement), "expires_at": stamp, "heartbeat_at": stamp})
+    record = lease_record(
+        replacement,
+        run_id=None,
+        ttl_minutes=1,
+        secret_sha256="",
+        released_by=repairer,
+        release_reason=f"repair: {reason.strip()}",
+        repaired=True,
+    )
+    if not _push_record(
+        root, remote=remote, branch=branch, parent=tip, record=record,
+        message=f"chore(aria-state-lease): repair by {repairer} ({reason.strip()})",
+    ):
+        raise StateStoreError(
+            f"state_writer_lease_repair_rejected: {branch} moved while repairing; read it again"
+        )
+    return {"repaired": True, "replaced_tip": tip, "repaired_by": repairer, "reason": reason.strip()}
+
+
 __all__ = [
+    "LEASED_PUBLISH_SECONDS",
     "LEASE_SCHEMA",
     "MAX_TTL_MINUTES",
-    "WRITER_LEASE_ENV",
+    "PUBLISH_MARGIN_MINUTES",
+    "WRITER_LEASE_TOKEN_ENV",
     "HeldWriterLease",
     "StateWriterLeaseBlocked",
+    "StateWriterLeaseLost",
     "WriterLeaseView",
     "acquire_writer_lease",
+    "lease_commit",
+    "lease_record",
     "read_writer_lease",
     "release_writer_lease",
+    "repair_writer_lease",
     "require_held_writer_lease",
+    "resolve_writer_lease_token",
+    "token_digest",
+    "view_record",
     "writer_identity",
     "writer_lease_branch",
 ]

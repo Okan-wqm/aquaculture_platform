@@ -632,17 +632,9 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
         # and its rows died with the runner — a lost merge decision blinds
         # self-revert; the orchestrator rebuilds them onto the winner and
         # pushes again, and commits nothing when no row changed.
-        # ARIA-HIGH-342 — one writer at a time. The lease is checked against
-        # the REMOTE before anything is prepared: a publish from a store this
-        # process restored while another writer held the branch is exactly
-        # the interleave that cost two runs their work on 2026-10-04.
-        from .state_writer_lease import require_held_writer_lease
-
-        require_held_writer_lease(
-            store.repo_root,
-            remote=store.remote,
-            state_branch=store.branch,
-        )
+        # ARIA-HIGH-342 — one writer at a time: the orchestrator refuses
+        # without the writer-lease capability ($ARIA_STATE_WRITER_LEASE_TOKEN)
+        # and pushes the lease fence atomically with the state.
         result = publish_with_contention_replay(
             store,
             snapshot_id=args.snapshot_id,
@@ -671,15 +663,18 @@ def _handle_state_lease_command(args: argparse.Namespace) -> int:
     """ARIA-HIGH-342 — the aria/state writer lease (``state_writer_lease``).
 
     Exit codes follow the store verbs: 0 done, 3 a refusal verdict (the lease
-    is held by another writer — the caller yields and says why), and a
-    transport failure raises.
+    is held by another writer — the caller yields and says why — or a repair
+    of a valid lease), and a transport failure raises. The capability token
+    is written to ``--token-file`` (0600) and never printed.
     """
+    from .state_store import StateStoreRefusal
     from .state_writer_lease import (
-        WRITER_LEASE_ENV,
+        WRITER_LEASE_TOKEN_ENV,
         StateWriterLeaseBlocked,
         acquire_writer_lease,
         read_writer_lease,
         release_writer_lease,
+        repair_writer_lease,
     )
 
     branch = args.branch or STATE_BRANCH
@@ -688,13 +683,26 @@ def _handle_state_lease_command(args: argparse.Namespace) -> int:
         print(json.dumps({"held": view.is_held(), **view.as_json()}, indent=2, sort_keys=True))
         return 0
     if args.lease_command == "release":
-        lease_id = (args.lease_id or os.environ.get(WRITER_LEASE_ENV, "")).strip()
-        if not lease_id:
-            print(json.dumps({"released": False, "reason": "no_lease_id"}, indent=2, sort_keys=True))
-            return 0
+        if args.force_foreign and not (args.reason or "").strip():
+            raise SystemExit("state lease release --force-foreign requires --reason")
+        token = os.environ.get(WRITER_LEASE_TOKEN_ENV, "").strip() or None
         result = release_writer_lease(
-            args.repo_root, lease_id=lease_id, remote=args.remote, state_branch=branch,
+            args.repo_root,
+            token=None if args.force_foreign else token,
+            force_foreign_reason=args.reason.strip() if args.force_foreign else None,
+            remote=args.remote,
+            state_branch=branch,
         )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.lease_command == "repair":
+        try:
+            result = repair_writer_lease(
+                args.repo_root, reason=args.reason, remote=args.remote, state_branch=branch,
+            )
+        except StateStoreRefusal as refusal:
+            print(json.dumps({"repaired": False, "refusal": str(refusal)}, indent=2, sort_keys=True))
+            return 3
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     try:
@@ -703,7 +711,6 @@ def _handle_state_lease_command(args: argparse.Namespace) -> int:
             ttl_minutes=args.ttl_minutes,
             wait_seconds=args.wait_seconds,
             poll_seconds=args.poll_seconds,
-            owner=args.owner,
             remote=args.remote,
             state_branch=branch,
         )
@@ -715,11 +722,14 @@ def _handle_state_lease_command(args: argparse.Namespace) -> int:
             "waited_seconds": round(blocked.waited_seconds, 3),
         }, indent=2, sort_keys=True))
         return 3
-    if args.export_env:
-        # The binding a later `state publish` in the same job reads, exported
-        # the way the restore action exports the store binding.
-        with open(args.export_env, "a", encoding="utf-8") as handle:
-            handle.write(f"{WRITER_LEASE_ENV}={held.lease_id}\n")
+    except StateStoreRefusal as refusal:
+        # An unreadable record fails closed as a verdict; `state lease repair`.
+        print(json.dumps({"held": False, "refusal": str(refusal)}, indent=2, sort_keys=True))
+        return 3
+    # The capability goes to a file only its owner can read; stdout is a log.
+    descriptor = os.open(args.token_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(held.token + "\n")
     print(json.dumps(held.as_json(), indent=2, sort_keys=True))
     return 0
 
@@ -1022,7 +1032,8 @@ def build_parser() -> argparse.ArgumentParser:
     lease_sub = state_lease.add_subparsers(dest="lease_command", required=True)
     for lease_name, lease_help in (
         ("acquire", "Take the writer lease, waiting at most --wait-seconds; exit 3 when it stays held."),
-        ("release", "Give back the writer lease named by --lease-id or $ARIA_STATE_WRITER_LEASE_ID."),
+        ("release", "Give back the writer lease held by $ARIA_STATE_WRITER_LEASE_TOKEN (or this run)."),
+        ("repair", "Replace a malformed or missing lease record with a released one (audited)."),
         ("status", "Print the writer lease as the remote holds it."),
     ):
         lease_parser = add_subparser(lease_sub, lease_name, help=lease_help)
@@ -1036,12 +1047,18 @@ def build_parser() -> argparse.ArgumentParser:
             lease_parser.add_argument("--wait-seconds", type=int, default=0,
                                       help="How long to wait for another holder before yielding.")
             lease_parser.add_argument("--poll-seconds", type=int, default=15)
-            lease_parser.add_argument("--owner", default=None,
-                                      help="Holder identity; derived from the GitHub run or the host by default.")
-            lease_parser.add_argument("--export-env", default=None,
-                                      help="Append ARIA_STATE_WRITER_LEASE_ID=<id> to this file ($GITHUB_ENV).")
+            # No --owner: a holder is named by its run or checkout, never by
+            # a flag (GSEC-MEDIUM-001); the capability is the token.
+            lease_parser.add_argument("--token-file", required=True,
+                                      help="Write the lease's capability token here (mode 0600); never printed.")
         if lease_name == "release":
-            lease_parser.add_argument("--lease-id", default=None)
+            lease_parser.add_argument("--force-foreign", action="store_true",
+                                      help="Release the current lease although this caller does not hold it.")
+            lease_parser.add_argument("--reason", default=None,
+                                      help="Why; required with --force-foreign, recorded on the lease branch.")
+        if lease_name == "repair":
+            lease_parser.add_argument("--reason", required=True,
+                                      help="Why the record is replaced; recorded on the lease branch.")
 
     # Wave 3 Twin-lite — the repository map (twin.py). `context` is the
     # operator/agent consumer: a compact slice read INSTEAD of a repo walk.
@@ -1959,6 +1976,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     readiness_probe_bp.add_argument("--repo", required=True)
     readiness_probe_bp.add_argument("--branch", default="main")
+    # ARIA-HIGH-342 / GSEC-HIGH-002 — aria/state, aria/state-cold and
+    # aria/state-lease must all be covered by deletion + non-fast-forward.
+    readiness_probe_state = add_subparser(
+        readiness_sub,
+        "probe-state-branch-protection",
+        help="Check that the ruleset blocks deletion and force-push on all three aria/state* branches.",
+    )
+    readiness_probe_state.add_argument("--repo", required=True)
     # ARIA-HIGH-209 — the SHADOW -> ACTIVE gate's blockers, visible to the
     # operator before a promotion is attempted.
     readiness_adapter = add_subparser(
@@ -3799,6 +3824,17 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+
+    if args.command == "readiness" and args.readiness_command == "probe-state-branch-protection":
+        from .readiness_proofs import probe_state_branch_protection
+
+        try:
+            verdict = probe_state_branch_protection(repo=args.repo)
+        except GovernanceError as exc:
+            print(json.dumps({"valid": False, "repo": args.repo, "reasons": [str(exc)]}, indent=2, sort_keys=True))
+            return 2
+        print(json.dumps(verdict, indent=2, sort_keys=True))
+        return 0 if verdict["valid"] else 1
 
     if args.command == "readiness" and args.readiness_command == "probe-branch-protection":
         from .readiness_proofs import probe_branch_protection_on_demand

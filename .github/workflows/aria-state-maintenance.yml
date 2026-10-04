@@ -132,9 +132,10 @@ jobs:
           # ARIA-HIGH-342 — compaction REWRITES ledgers, which no contention
           # replay can carry onto another writer's publish, so this lane
           # needs the writer lease most of all: taken before the checkout,
-          # held to the release step. Expiry = this job's timeout-minutes;
-          # past the wait the run yields by name, before restoring anything.
-          writer-lease-ttl-minutes: '15'
+          # held to the release step. Expiry = this job's timeout-minutes plus
+          # the 35-minute leased-publish margin (GSEC-MEDIUM-003); past the
+          # wait the run yields by name, before restoring anything.
+          writer-lease-ttl-minutes: '50'
           writer-lease-wait-seconds: '300'
 
       - name: Compact surfaces and strip old artifacts (canonical CLI)
@@ -233,6 +234,9 @@ jobs:
           GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
           GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
           ARIA_STATE_BOOTSTRAP_ACK: ${{ github.event.inputs.state_reduction_ack || '' }}
+          # ARIA-HIGH-342 — the writer-lease capability, as a masked step
+          # output into this step only (GSEC-LOW-002).
+          ARIA_STATE_WRITER_LEASE_TOKEN: ${{ steps.restore_state.outputs.writer-lease-token }}
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
@@ -256,8 +260,13 @@ jobs:
           du -sh "${ARIA_TOOLS_DIR:-.aria-state-store/tools}/" 2>/dev/null || echo "N/A"
           echo "Branch size after compaction: $(du -sh "${ARIA_TOOLS_DIR:-.aria-state-store/tools}/" 2>/dev/null | cut -f1)"
 
-      # ARIA-HIGH-342 — give back the aria/state writer lease the restore
-      # took, on every outcome; a no-op when this run yielded and holds none.
+      # ARIA-HIGH-342 — give back the aria/state writer lease the restore took.
+      # Unconditional (GSEC-LOW-001): release is idempotent, a no-op when this
+      # run yielded and holds none, and falls back to this run's own identity
+      # when the token did not survive. A runner that dies outright frees the
+      # branch at the expiry the restore set.
       - name: Release the aria/state writer lease
         if: always()
         uses: ./.github/actions/release-aria-state-lease
+        with:
+          lease-token: ${{ steps.restore_state.outputs.writer-lease-token }}

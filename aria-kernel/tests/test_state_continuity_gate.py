@@ -42,6 +42,7 @@ from aria_kernel.state_store import (
     verify_state_store,
 )
 from tests.test_state_store import REPO_HASH, StateStoreTestCase, _EnvPatch, _git
+from tests._helpers.writer_lease import leased_publish
 
 
 class ContinuityGateTestCase(StateStoreTestCase):
@@ -62,7 +63,7 @@ class ContinuityGateTestCase(StateStoreTestCase):
     def _published_store(self):
         store = self._bound_store()
         self._seed_surface(store, '{"row": 1}\n')
-        result = publish_with_contention_replay(
+        result = leased_publish(
             store,
             snapshot_id="snap-1",
             cycle_id="cycle-1",
@@ -86,7 +87,7 @@ class ContinuityGateTestCase(StateStoreTestCase):
         stray = tools_root(store) / "pressure" / "hand-removed.json"
         stray.parent.mkdir(parents=True, exist_ok=True)
         stray.write_text("{}\n", encoding="utf-8")
-        result = publish_with_contention_replay(
+        result = leased_publish(
             store,
             snapshot_id="snap-with-stray",
             cycle_id="cycle-with-stray",
@@ -202,7 +203,7 @@ class AnAcceptedReductionIsRecordedInsideThePublish(ContinuityGateTestCase):
         base_rows = len(self._committed_governance_rows(store))
 
         with _EnvPatch({BOOTSTRAP_ACK_ENV: self.identity}):
-            result = publish_with_contention_replay(
+            result = leased_publish(
                 store,
                 snapshot_id="snap-3",
                 cycle_id="cycle-3",
@@ -239,7 +240,7 @@ class AnAcceptedReductionIsRecordedInsideThePublish(ContinuityGateTestCase):
 
         # The next publish needs no acknowledgment and records nothing.
         with _EnvPatch({BOOTSTRAP_ACK_ENV: None}):
-            again = publish_with_contention_replay(
+            again = leased_publish(
                 store,
                 snapshot_id="snap-4",
                 cycle_id="cycle-4",
@@ -277,7 +278,7 @@ class AnAcceptedReductionIsRecordedInsideThePublish(ContinuityGateTestCase):
         with _EnvPatch({BOOTSTRAP_ACK_ENV: self.identity}), mock.patch.object(
             ledger_inline, "INLINE_ROW_FIELD_MAX_BYTES", 8
         ):
-            result = publish_with_contention_replay(
+            result = leased_publish(
                 store,
                 snapshot_id="snap-3",
                 cycle_id="cycle-3",
@@ -325,7 +326,7 @@ class TheSingleAttemptPublishHoldsOneLock(ContinuityGateTestCase):
         with mock.patch.object(
             state_store, "prepare_publishable_snapshot", side_effect=preamble_then_probe
         ):
-            result = publish_with_contention_replay(
+            result = leased_publish(
                 store,
                 snapshot_id="snap-3",
                 cycle_id="cycle-3",

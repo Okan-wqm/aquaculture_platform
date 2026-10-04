@@ -53,6 +53,7 @@ from tests._helpers.declared_fixtures import (
     append_declared_fixture,
     rewrite_declared_fixture,
 )
+from tests._helpers.writer_lease import leased_publish
 
 REPO_HASH = "repohash0001"
 SURFACE = "cycles"
@@ -69,6 +70,15 @@ def _git(cwd: Path, *args: str) -> str:
     return subprocess.run(
         ["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True
     ).stdout
+
+
+def _pushed_state_sha(args: tuple[str, ...]) -> str:
+    """The state commit a publish push carries. Since ARIA-HIGH-342 the push
+    is `push --atomic <remote> <state>:refs/heads/aria/state <fence>:...`,
+    so the refspec is found by its target, not by its position."""
+    return next(
+        arg for arg in args if isinstance(arg, str) and arg.endswith(":refs/heads/aria/state")
+    ).split(":", 1)[0]
 
 
 class _EnvPatch:
@@ -163,7 +173,7 @@ class PublishContentionTests(unittest.TestCase):
         )
 
     def _publish(self, store, snapshot_id: str, cycle_id: str, **kw):
-        return publish_with_contention_replay(
+        return leased_publish(
             store,
             snapshot_id=snapshot_id,
             cycle_id=cycle_id,
@@ -403,6 +413,33 @@ class PublishContentionTests(unittest.TestCase):
             expected_base=base_head,
         )
 
+    def _recover_onto_tip(self, store):
+        """The loser's reconciliation since ARIA-HIGH-342: not the publish
+        (which refuses contention under a lease) but the rebase
+        `memory_gap.restore_and_replay` runs on a store behind the tip."""
+        from aria_kernel.state_snapshot import build_snapshot
+
+        base_head = _git(store.root, "rev-parse", "HEAD").strip()
+        base = state_store.read_snapshot_at_worktree_head(store, expected_head=base_head)
+        local = build_snapshot(
+            snapshot_id="recovery-local", cycle_id="recovery-local", lane="test",
+            roots=state_store.store_roots(store, REPO_HASH),
+        )
+        return state_store.rebase_store_onto_remote(
+            store, base=base, local=local, repo_hash=REPO_HASH, expected_base=base_head,
+        )
+
+    def _lose_then_recover(self, store, snapshot_id: str, cycle_id: str):
+        """A stale lane's publish is refused as lease lost, nothing replayed
+        and nothing lost; the recovery rebuilds its rows onto the tip; the
+        next leased publish lands them."""
+        rows = self._cycle_ids(store)
+        with self.assertRaisesRegex(StateStoreRefusal, "state_writer_lease_lost"):
+            self._publish(store, snapshot_id, cycle_id)
+        self.assertEqual(self._cycle_ids(store), rows, "a refused publish keeps its rows")
+        self._recover_onto_tip(store)
+        return self._publish(store, f"{snapshot_id}-recovered", cycle_id)
+
     def test_the_loser_rebuilds_onto_the_winner_and_both_rows_survive(self) -> None:
         """The property the whole PR exists for, over a real rejected push."""
         store_a = self._store(self.repo_a, "store-a")
@@ -417,10 +454,10 @@ class PublishContentionTests(unittest.TestCase):
         # A publishes first and wins.
         self._publish(store_a, "snap-a", "cycle-a")
         # B's push is rejected by the server, and B resolves it.
-        result = self._publish(store_b, "snap-b", "cycle-b")
+        result = self._lose_then_recover(store_b, "snap-b", "cycle-b")
 
         self.assertTrue(result["published"])
-        self.assertEqual(result["attempts"], 2)
+        self.assertEqual(result["attempts"], 1)
         self.assertEqual(
             self._cycle_ids(store_b), ["shared-1", "lane-a-only", "lane-b-only"]
         )
@@ -440,10 +477,10 @@ class PublishContentionTests(unittest.TestCase):
         self._append(store_b, "lane-b-only")
 
         self._publish(store_a, "snap-a", "cycle-a")
-        result = self._publish(store_b, "snap-b", "cycle-b")
+        result = self._lose_then_recover(store_b, "snap-b", "cycle-b")
 
         self.assertTrue(result["published"])
-        self.assertEqual(result["attempts"], 2)
+        self.assertEqual(result["attempts"], 1)
         self.assertEqual(
             self._cycle_ids(store_b),
             [
@@ -467,10 +504,10 @@ class PublishContentionTests(unittest.TestCase):
         self._append(store_a, "winner-only")
 
         self._publish(store_a, "snap-a", "cycle-a")
-        result = self._publish(store_b, "snap-b", "cycle-b")
+        result = self._lose_then_recover(store_b, "snap-b", "cycle-b")
 
         self.assertTrue(result["published"])
-        self.assertEqual(result["attempts"], 2)
+        self.assertEqual(result["attempts"], 1)
         self.assertEqual(
             self._cycle_ids(store_b),
             ["shared-1", "shared-extension", "winner-only"],
@@ -491,9 +528,9 @@ class PublishContentionTests(unittest.TestCase):
         self._append(store_b, "lane-b-only")
 
         self._publish(store_a, "snap-a", "cycle-a")
-        result = self._publish(store_b, "snap-b", "cycle-b")
+        result = self._lose_then_recover(store_b, "snap-b", "cycle-b")
 
-        self.assertEqual(result["attempts"], 2)
+        self.assertEqual(result["attempts"], 1)
         self.assertEqual(
             self._cycle_ids(store_b),
             ["shared-1", "lane-a-only", "lane-b-only"],
@@ -508,7 +545,7 @@ class PublishContentionTests(unittest.TestCase):
         self._append(store_a, "lane-a-only")
         self._append(store_b, "lane-b-only")
         self._publish(store_a, "snap-a", "cycle-a")
-        self._publish(store_b, "snap-b", "cycle-b")
+        self._lose_then_recover(store_b, "snap-b", "cycle-b")
 
         report = verify_jsonl(tools_root(store_b) / "cycles.jsonl")
         self.assertTrue(report["valid"], report)
@@ -543,7 +580,7 @@ class PublishContentionTests(unittest.TestCase):
         _append_glob(store_b, "lane-b-glob")
 
         self._publish(store_a, "snap-a", "cycle-a")
-        result = self._publish(store_b, "snap-b", "cycle-b")
+        result = self._lose_then_recover(store_b, "snap-b", "cycle-b")
 
         self.assertTrue(result["published"])
         rows = read_jsonl(tools_root(store_b) / glob_rel)
@@ -789,8 +826,7 @@ class PublishContentionTests(unittest.TestCase):
         replay_source = inspect.getsource(
             state_store._publish_with_contention_replay_locked,
         )
-        self.assertIn("base_head = prepared.base_head", replay_source)
-        self.assertIn("expected_base_head=base_head", replay_source)
+        self.assertIn("expected_base_head=prepared.base_head", replay_source)
         recovery_source = inspect.getsource(memory_gap_module.restore_and_replay)
         self.assertIn("base_head = _read_commit_ref", recovery_source)
         self.assertIn("expected_head=base_head", recovery_source)
@@ -809,7 +845,7 @@ class PublishContentionTests(unittest.TestCase):
             if args[0] != "push":
                 return result
             self.assertEqual(result.returncode, 0, result.stderr)
-            committed.append(args[2].split(":", 1)[0])
+            committed.append(_pushed_state_sha(args))
             return subprocess.CompletedProcess(
                 result.args,
                 1,
@@ -854,7 +890,7 @@ class PublishContentionTests(unittest.TestCase):
             result = real_run_git(cwd, args)
             if args[0] == "push":
                 self.assertEqual(result.returncode, 0, result.stderr)
-                committed.append(args[2].split(":", 1)[0])
+                committed.append(_pushed_state_sha(args))
                 return subprocess.CompletedProcess(
                     result.args,
                     1,
@@ -906,7 +942,7 @@ class PublishContentionTests(unittest.TestCase):
             if args[0] != "push":
                 return result
             self.assertEqual(result.returncode, 0, result.stderr)
-            committed.append(args[2].split(":", 1)[0])
+            committed.append(_pushed_state_sha(args))
             _git(self.repo_b, "fetch", "origin", "aria/state")
             _git(self.repo_b, "checkout", "--detach", "FETCH_HEAD")
             _git(self.repo_b, "commit", "--allow-empty", "-m", "remote descendant")
@@ -979,7 +1015,7 @@ class PublishContentionTests(unittest.TestCase):
             if cwd != store_a.root or args[0] != "push":
                 return result
             self.assertEqual(result.returncode, 0, result.stderr)
-            commit = args[2].split(":", 1)[0]
+            commit = _pushed_state_sha(args)
             committed.append(commit)
             _git(self.repo_b, "fetch", "origin", "aria/state")
             _git(self.repo_b, "checkout", "--detach", "FETCH_HEAD")
@@ -1069,7 +1105,7 @@ class PublishContentionTests(unittest.TestCase):
 
         def ambiguous_with_malformed_probe(cwd, args):
             if args[0] == "push":
-                committed.append(args[2].split(":", 1)[0])
+                committed.append(_pushed_state_sha(args))
                 return subprocess.CompletedProcess(args, 1, "", "ambiguous push")
             if args[0] == "ls-remote":
                 return subprocess.CompletedProcess(
@@ -1106,7 +1142,7 @@ class PublishContentionTests(unittest.TestCase):
         def ambiguous_with_failed_fetch(cwd, args):
             calls.append(args[0])
             if args[0] == "push":
-                committed.append(args[2].split(":", 1)[0])
+                committed.append(_pushed_state_sha(args))
                 return subprocess.CompletedProcess(args, 1, "", "ambiguous push")
             if args[0] == "ls-remote":
                 return subprocess.CompletedProcess(
@@ -1136,7 +1172,17 @@ class PublishContentionTests(unittest.TestCase):
         self.assertEqual(calls.count("fetch"), 1)
         self.assertEqual(self._temporary_state_refs(store_a), [])
 
-    def test_two_parent_delayed_acceptance_fails_closed_without_replay(self) -> None:
+    def test_a_stale_lane_is_refused_before_any_push_under_the_lease(self) -> None:
+        """The delayed-acceptance race this test used to drive cannot start.
+
+        Before ARIA-HIGH-342 a stale lane pushed, lost, and the orchestrator
+        replayed it — the window in which a late server acceptance could make
+        a two-parent history. Under the writer lease the orchestrator proves
+        the store is on the published tip before it commits: a stale lane is
+        refused with no push, no reset, no replay and no recovery package.
+        (A delayed acceptance seen by the replay primitive itself is
+        `test_accepted_loser_*`.)
+        """
         store_a = self._store(self.repo_a, "store-a")
         self._append(store_a, "shared-1")
         self._publish(store_a, "snap-base", "cycle-base")
@@ -1146,91 +1192,29 @@ class PublishContentionTests(unittest.TestCase):
         self._publish(store_a, "snap-a", "cycle-a")
 
         real_run_git = state_store._run_git
-        real_rebase = state_store.rebase_store_onto_remote
-        loser: list[str] = []
-        state_pushes: list[str] = []
+        state_pushes: list[tuple[str, ...]] = []
         resets: list[tuple[str, ...]] = []
 
-        def capture_loser(cwd, args):
+        def record(cwd, args):
             if cwd == store_b.root and args[0] == "reset":
                 resets.append(args)
             if cwd == store_b.root and args[0] == "push":
-                state_pushes.append(args[2].split(":", 1)[0])
-                if not loser:
-                    loser.append(state_pushes[-1])
+                state_pushes.append(args)
             return real_run_git(cwd, args)
-
-        def accept_loser_before_replay(store, **kwargs):
-            self.assertTrue(loser)
-            late_store = self._store(self.repo_b, "late-store")
-            self._append(late_store, "lane-b-only")
-            self._publish(late_store, "snap-late", "cycle-late")
-            canonical = _git(
-                self.remote,
-                "rev-parse",
-                "refs/heads/aria/state",
-            ).strip()
-            winner = kwargs["expected_winner"]
-            merged = _git(
-                self.repo_b,
-                "commit-tree",
-                f"{canonical}^{{tree}}",
-                "-p",
-                canonical,
-                "-p",
-                loser[0],
-                "-m",
-                "late server acceptance",
-            ).strip()
-            _git(
-                self.repo_b,
-                "push",
-                "origin",
-                f"{merged}:refs/heads/aria/state",
-            )
-            self.assertEqual(
-                _git(self.repo_b, "merge-base", "--is-ancestor", winner, merged),
-                "",
-            )
-            return real_rebase(store, **kwargs)
 
         base_head = _git(store_b.root, "rev-parse", "HEAD").strip()
         cycles_before = (tools_root(store_b) / "cycles.jsonl").read_bytes()
-        with mock.patch.object(
-            state_store,
-            "_run_git",
-            side_effect=capture_loser,
-        ), mock.patch.object(
-            state_store,
-            "rebase_store_onto_remote",
-            side_effect=accept_loser_before_replay,
-        ), mock.patch(
-            "aria_kernel.contention_replay.replay_append_only_suffixes",
-        ) as replay, self.assertRaisesRegex(
-            StateStoreError,
-            "state_publish_outcome_unknown: replay target's immutable snapshot",
-        ):
+        with mock.patch.object(state_store, "_run_git", side_effect=record), mock.patch.object(
+            state_store, "rebase_store_onto_remote", side_effect=AssertionError("replayed"),
+        ), self.assertRaisesRegex(StateStoreRefusal, "state_writer_lease_lost: aria/state is at"):
             self._publish(store_b, "snap-b", "cycle-b")
 
-        self.assertEqual(len(state_pushes), 1)
+        self.assertEqual(state_pushes, [])
         self.assertEqual(resets, [])
-        replay.assert_not_called()
         self.assertEqual(_git(store_b.root, "rev-parse", "HEAD").strip(), base_head)
-        self.assertEqual(
-            (tools_root(store_b) / "cycles.jsonl").read_bytes(),
-            cycles_before,
-        )
-        self.assertEqual(
-            self._cycle_ids(store_b),
-            ["shared-1", "lane-b-only"],
-        )
-        self.assertEqual(
-            _git(store_b.root, "write-tree").strip(),
-            _git(store_b.root, "rev-parse", f"{loser[0]}^{{tree}}").strip(),
-        )
-        transaction, manifest = self._single_recovery_package(store_b)
-        self.assertEqual(manifest["phase"], "failed_before_reset")
-        self._assert_complete_recovery_package(transaction, manifest)
+        self.assertEqual((tools_root(store_b) / "cycles.jsonl").read_bytes(), cycles_before)
+        self.assertEqual(self._cycle_ids(store_b), ["shared-1", "lane-b-only"])
+        self.assertIsNone(state_store._discover_recovery_package_path(store_b))
 
     def test_tracking_descendant_of_observed_remote_is_not_accepted(self) -> None:
         store_a = self._store(self.repo_a, "store-a")
@@ -1244,7 +1228,7 @@ class PublishContentionTests(unittest.TestCase):
             if args[0] != "push":
                 return result
             self.assertEqual(result.returncode, 0, result.stderr)
-            committed = args[2].split(":", 1)[0]
+            committed = _pushed_state_sha(args)
             descendant = _git(
                 store_a.root,
                 "commit-tree",
@@ -1290,9 +1274,20 @@ class PublishContentionTests(unittest.TestCase):
                 return result
             self.assertEqual(result.returncode, 0, result.stderr)
             injected = True
+            # A writer WITHOUT the lease (only a rogue can publish inside a
+            # held lease): the reconciliation's descendant branch is still
+            # what keeps the accepted commit instead of discarding it.
             remote_store = self._store(self.repo_b, "remote-descendant-store")
             self._append(remote_store, "remote-descendant-row")
-            self._publish(remote_store, "snap-remote", "cycle-remote")
+            state_store.publish_state(
+                remote_store,
+                snapshot=state_store.prepare_publishable_snapshot(
+                    remote_store, snapshot_id="snap-remote", cycle_id="cycle-remote",
+                    lane="test", repo_hash=REPO_HASH,
+                ).snapshot,
+                cycle_id="cycle-remote",
+                repo_hash=REPO_HASH,
+            )
             return subprocess.CompletedProcess(
                 result.args,
                 1,
@@ -1522,7 +1517,7 @@ class PublishContentionTests(unittest.TestCase):
         self._publish(store_a, "snap-a", "cycle-a")
         recovery_root = self._recovery_root(store_b)
 
-        self._publish(store_b, "snap-b", "cycle-b")
+        self._lose_then_recover(store_b, "snap-b", "cycle-b")
 
         self.assertTrue(recovery_root.is_dir())
         self.assertEqual(
@@ -2253,13 +2248,12 @@ class PublishContentionTests(unittest.TestCase):
                 repo_hash=REPO_HASH,
                 previous={},
             ),
-            "publish-with-replay": lambda: state_store.publish_with_contention_replay(
+            "publish-with-replay": lambda: leased_publish(
                 store,
                 snapshot_id="must-not-build",
                 cycle_id="must-not-publish",
                 lane="test",
                 repo_hash=REPO_HASH,
-                max_attempts=1,
             ),
         }
 
@@ -4415,7 +4409,7 @@ class PublishContentionTests(unittest.TestCase):
             "aria_kernel.contention_replay.replay_append_only_suffixes",
             side_effect=StateStoreError("injected replay failure"),
         ), self.assertRaises(StateStoreError):
-            self._publish(store_b, "snap-b", "cycle-b")
+            self._recover_onto_tip(store_b)
 
         self.assertEqual(self._cycle_ids(store_b), ["shared-1", "lane-b-only"])
         recovery, manifest = self._single_recovery_package(store_b)
@@ -4504,9 +4498,10 @@ class PublishContentionTests(unittest.TestCase):
             repo_hash=REPO_HASH,
         )
         self.assertEqual(recovered["status"], "retry_ready")
+        self._recover_onto_tip(store_b)
         result = self._publish(store_b, "snap-b-retry", "cycle-b-retry")
 
-        self.assertEqual(result["attempts"], 2)
+        self.assertEqual(result["attempts"], 1)
         self.assertEqual(
             self._cycle_ids(store_b),
             ["shared-1", "lane-a-only", "lane-b-first", "lane-b-second"],
@@ -4558,9 +4553,9 @@ class PublishContentionTests(unittest.TestCase):
             _git(store.root, "rev-parse", "HEAD").strip(),
             base_head,
         )
-        result = self._publish(store, "snap-safe-retry", "cycle-safe-retry")
+        result = self._lose_then_recover(store, "snap-safe-retry", "cycle-safe-retry")
 
-        self.assertEqual(result["attempts"], 2)
+        self.assertEqual(result["attempts"], 1)
         self.assertEqual(
             self._cycle_ids(store),
             ["shared-1", "lane-a-only", "lane-b-only"],
@@ -4663,17 +4658,13 @@ class PublishContentionTests(unittest.TestCase):
             )
         self.assertTrue(transaction.exists())
 
-    def test_exhausting_the_attempts_refuses_and_keeps_the_rows(self) -> None:
-        """Losing every attempt must refuse, not report success, and not eat rows.
+    def test_contention_under_the_lease_refuses_once_and_keeps_the_rows(self) -> None:
+        """Losing the race under a writer lease refuses on the FIRST attempt.
 
-        The rejection is injected rather than raced. An earlier version of this
-        test tried to make a second lane win repeatedly by publishing from
-        inside the rebase hook, and its outcome depended on fetch ordering — it
-        passed for the wrong reason as often as the right one. What is being
-        claimed here is a property of the ORCHESTRATOR (it stops at
-        `max_attempts` and re-raises), so the race belongs in the tests above
-        that exercise a real rejected push, and the bound belongs here where it
-        can be stated exactly.
+        ARIA-HIGH-342 / GSEC-HIGH-001 — the orchestrator used to rebuild a lost
+        race onto the winner up to `max_attempts` times. Under a lease there is
+        no second writer to race, so contention is a named refusal and never a
+        retry; and a refusal must not be a data-loss event.
         """
         store_a = self._store(self.repo_a, "store-a")
         self._append(store_a, "shared-1")
@@ -4681,7 +4672,6 @@ class PublishContentionTests(unittest.TestCase):
         self._append(store_a, "not-yet-published")
 
         attempts: list[int] = []
-        original = state_store.publish_state
         winner = _git(self.remote, "rev-parse", "refs/heads/aria/state").strip()
         base_head = _git(store_a.root, "rev-parse", "HEAD").strip()
         loser = _git(
@@ -4703,14 +4693,13 @@ class PublishContentionTests(unittest.TestCase):
                 "synthetic verified winner",
             )
 
-        state_store.publish_state = _always_rejected
-        self.addCleanup(setattr, state_store, "publish_state", original)
-
-        with self.assertRaises(StateStoreRefusal) as caught:
-            self._publish(store_a, "snap-x", "cycle-x", max_attempts=3)
-        self.assertIn("contention_unresolved", str(caught.exception))
-        self.assertEqual(len(attempts), 3)
-        # The rows are still there: a refusal must not be a data loss event.
+        with mock.patch.object(state_store, "_publish_state_locked", side_effect=_always_rejected), \
+                mock.patch.object(
+                    state_store, "rebase_store_onto_remote", side_effect=AssertionError("replayed"),
+                ), self.assertRaises(StateStoreRefusal) as caught:
+            self._publish(store_a, "snap-x", "cycle-x")
+        self.assertIn("state_writer_lease_lost", str(caught.exception))
+        self.assertEqual(len(attempts), 1)
         self.assertIn("not-yet-published", self._cycle_ids(store_a))
 
     def test_a_non_race_refusal_is_not_retried(self) -> None:
@@ -4729,7 +4718,6 @@ class PublishContentionTests(unittest.TestCase):
         self._append(store_a, "shared-2")
 
         calls: list[int] = []
-        original = state_store.publish_state
 
         def _always_unprovable(store, **kwargs):
             calls.append(1)
@@ -4737,11 +4725,9 @@ class PublishContentionTests(unittest.TestCase):
                 "state_publish_push_rejected: untyped text is not contention"
             )
 
-        state_store.publish_state = _always_unprovable
-        self.addCleanup(setattr, state_store, "publish_state", original)
-
-        with self.assertRaises(StateStoreRefusal) as caught:
-            self._publish(store_a, "snap-x", "cycle-x", max_attempts=3)
+        with mock.patch.object(state_store, "_publish_state_locked", side_effect=_always_unprovable), \
+                self.assertRaises(StateStoreRefusal) as caught:
+            self._publish(store_a, "snap-x", "cycle-x")
         self.assertIn("untyped text", str(caught.exception))
         self.assertEqual(len(calls), 1, "a non-race refusal must not be retried")
 

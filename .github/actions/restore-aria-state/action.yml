@@ -70,7 +70,10 @@ inputs:
   writer-lease-ttl-minutes:
     description: >-
       ARIA-HIGH-342 — set by every lane that PUBLISHES aria/state, to its own
-      job `timeout-minutes`. The action then takes the aria/state writer lease
+      job `timeout-minutes` plus the leased-publish margin
+      (`state_writer_lease.PUBLISH_MARGIN_MINUTES`, GSEC-MEDIUM-003; pinned
+      by tests/test_state_single_writer.py). The action then takes the
+      aria/state writer lease
       (branch `aria/state-lease`) BEFORE checking the store out, so no other
       writer can publish between this restore and this lane's publish; the
       lane releases it with ./.github/actions/release-aria-state-lease in an
@@ -89,6 +92,12 @@ inputs:
     default: '0'
 
 outputs:
+  writer-lease-token:
+    description: >-
+      The writer lease's capability (GSEC-MEDIUM-001), masked. A lane passes
+      it by `env:` / `with:` to its publish, merge and release steps ONLY
+      (GSEC-LOW-002); it is never written to $GITHUB_ENV.
+    value: ${{ steps.writer_lease.outputs.token }}
   writer-lease:
     description: >-
       'held' when this lane took the aria/state writer lease, 'yielded' when
@@ -164,11 +173,18 @@ runs:
       run: |
         set -uo pipefail
         VERDICT="${RUNNER_TEMP}/aria-state-writer-lease.json"
+        TOKEN_FILE="${RUNNER_TEMP}/aria-state-writer-lease.token"
         if PYTHONPATH=aria-kernel python3 -m aria_kernel state lease acquire \
              --repo-root . \
              --ttl-minutes "$LEASE_TTL_MINUTES" \
              --wait-seconds "$LEASE_WAIT_SECONDS" \
-             --export-env "$GITHUB_ENV" > "$VERDICT"; then
+             --token-file "$TOKEN_FILE" > "$VERDICT"; then
+          # The capability: masked before it is ever an output, the file gone
+          # the moment it is read, and never exported to the job environment.
+          LEASE_TOKEN="$(cat "$TOKEN_FILE")"
+          rm -f "$TOKEN_FILE"
+          echo "::add-mask::${LEASE_TOKEN}"
+          echo "token=${LEASE_TOKEN}" >> "$GITHUB_OUTPUT"
           echo "writer_lease=held" >> "$GITHUB_OUTPUT"
           python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); print("aria/state writer lease held:", v["lease_id"], "epoch", v["epoch"], "until", v["expires_at"])' "$VERDICT"
         else

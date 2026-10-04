@@ -228,7 +228,7 @@ except Exception as _kernel_import_error:  # pragma: no cover - fallback keeps s
     _GIT_PROBE_WORST_CASE_SECONDS = 93.0
     _GIT_TIMEOUT_SECONDS = 300
     _STATE_STORE_CHECKOUT_ARC_SECONDS = 2700.0
-    _STATE_STORE_LIFECYCLE_LIVENESS_SECONDS = 5400.0
+    _STATE_STORE_LIFECYCLE_LIVENESS_SECONDS = 2700.0  # ARIA-HIGH-342: the leased publish no longer replays
     _HUMAN_REQUIRED_RECORD_WAIT_SECONDS = 2280.0
     # 4 canonical commands x 2700 s + 4 git calls x 300 s + 10 s commit
     # verification + 300 s result decision (the evidence probe clock) +

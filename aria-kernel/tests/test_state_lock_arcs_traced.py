@@ -175,37 +175,67 @@ class _ArcTraceCase(unittest.TestCase):
 
 
 class TheLifecycleHolderSpawnsItsArc(_ArcTraceCase):
-    def test_a_lost_race_publish_spawns_one_attempt_arc_then_the_winning_push(self) -> None:
+    def test_a_stale_publish_under_the_lease_spawns_nothing_under_the_lock(self) -> None:
+        """ARIA-HIGH-342 — the lease's base check refuses a stale lane before
+        the lifecycle lock is taken for the publish: no attempt arc at all."""
         store_b = self._lost_race_stores()
 
-        with _SpawnTrace() as trace:
-            result = self.harness._publish(store_b, "snap-b", "cycle-b")
+        with _SpawnTrace() as trace, self.assertRaisesRegex(
+            state_store.StateStoreRefusal, "state_writer_lease_lost",
+        ):
+            self.harness._publish(store_b, "snap-b", "cycle-b")
 
-        self.assertTrue(result["published"])
-        self.assertEqual(result["attempts"], 2)
+        self.assertEqual(trace.under_the_lifecycle_lock(), [])
         self.assertEqual(trace.outside_the_lifecycle_lock(), [])
-        under_lock = trace.under_the_lifecycle_lock()
-        attempt = len(arcs.PUBLISH_ATTEMPT_ARC)
-        # Attempt 1, rejected: push, probe, the reconciliation fetch, the
-        # rebase's fresh fetch, the reset onto the winner. Attempt 2: the
-        # push that the server accepts — the arc's first step, nothing more.
-        self.assertRealizes(
-            under_lock[:attempt], arcs.PUBLISH_ATTEMPT_ARC,
-            chosen={attempt - 1: arcs.REPLAY_RESET_STEP},
+
+    def test_a_race_at_the_push_spawns_the_leased_attempt_arc_and_stops(self) -> None:
+        """A writer without the lease publishes after the fence was built:
+        the atomic push is rejected, the reconciliation probes and fetches,
+        and the attempt ends in a refusal — a prefix of the attempt arc,
+        inside the bound, with no rebase transaction."""
+        from aria_kernel import state_writer_fence
+
+        harness = self.harness
+        store_a = harness._store(harness.repo_a, "store-a")
+        harness._append(store_a, "shared-1")
+        harness._publish(store_a, "snap-base", "cycle-base")
+        store_a = harness._store(harness.repo_a, "store-a")
+        harness._append(store_a, "lane-a-only")
+        rogue = harness._store(harness.repo_b, "rogue")
+        harness._append(rogue, "rogue-row")
+        real_prepare = state_writer_fence.prepare_writer_fence
+
+        def prepare_then_rogue_publishes(*args, **kwargs):
+            fence = real_prepare(*args, **kwargs)
+            state_store.publish_state(
+                rogue,
+                snapshot=state_store.prepare_publishable_snapshot(
+                    rogue, snapshot_id="rogue", cycle_id="rogue", lane="test",
+                    repo_hash=contention.REPO_HASH,
+                ).snapshot,
+                cycle_id="rogue",
+                repo_hash=contention.REPO_HASH,
+            )
+            return fence
+
+        with mock.patch.object(
+            state_writer_fence, "prepare_writer_fence", side_effect=prepare_then_rogue_publishes,
+        ), _SpawnTrace() as trace, self.assertRaisesRegex(
+            state_store.StateStoreRefusal, "state_writer_lease_lost",
+        ):
+            harness._publish(store_a, "snap-a", "cycle-a")
+
+        names = _names(trace.under_the_lifecycle_lock())
+        # The rogue's own publish ran under ITS lifecycle lock too (another
+        # repository); the holder's attempt is the push and the two
+        # reconciliation reads that follow its rejection.
+        self.assertEqual(names[-3:], ["publish_push", "remote_tip_probe", "remote_branch_fetch"])
+        self.assertEqual(
+            _names(trace.under_the_lifecycle_lock()[-3:]),
+            _arc_names(arcs.PUBLISH_ATTEMPT_ARC)[:3],
         )
-        self.assertEqual(_names(under_lock[attempt:]), [arcs.PUBLISH_PUSH_STEP.name])
-        # The bound prices PUBLISH_MAX_ATTEMPTS of that arc; two attempts is
-        # inside it, and no spawn ran outside a registered step.
-        self.assertLessEqual(
-            len(under_lock) * arcs.GIT_TIMEOUT_SECONDS, arcs.STATE_STORE_PUBLISH_ARC_SECONDS,
-        )
-        self.assertNotIn(None, under_lock)
-        # Exactly one transaction held heavy steps: the rebase's arc.
-        transactions = trace.per_transaction()
-        self.assertEqual(len(transactions), 1, [_names(t) for t in transactions])
-        self.assertRealizes(
-            transactions[0], arcs.REBASE_TRANSACTION_ARC, chosen={1: arcs.REPLAY_RESET_STEP},
-        )
+        self.assertNotIn(arcs.REPLAY_RESET_STEP, trace.under_the_lifecycle_lock())
+        self.assertLessEqual(3 * arcs.GIT_TIMEOUT_SECONDS, arcs.STATE_STORE_PUBLISH_ARC_SECONDS)
 
     def test_a_rebase_whose_loser_was_accepted_fast_forwards_under_its_transaction(self) -> None:
         store, base, local, base_head, loser_head, winner = (

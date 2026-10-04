@@ -351,6 +351,9 @@ class EveryGitCallUnderTheLockIsClassifiedAndPriced(unittest.TestCase):
             "_checkout_state_store_locked":
                 arcs.arc_steps(arcs.CHECKOUT_RESTORE_ARC) | arcs.arc_steps(arcs.CHECKOUT_BOOTSTRAP_ARC),
             "_recover_pending_state_replay_locked": arcs.arc_steps(arcs.PENDING_RECOVERY_ARC),
+            # ARIA-HIGH-342 — the rebase is its own lifecycle holder now
+            # (memory_gap.restore_and_replay); the leased publish never runs it.
+            "_rebase_store_onto_remote_with_lifecycle": arcs.arc_steps(arcs.REBASE_ARC),
         }
         for root, steps in expected.items():
             with self.subTest(root=root):
@@ -402,20 +405,25 @@ class TheBoundIsTheSumOverTheArcs(unittest.TestCase):
             names(arcs.PENDING_RECOVERY_ARC),
             ["remote_branch_fetch", "owned_store_fast_forward", "remote_tip_probe"],
         )
-        # The five the typed count missed two of, in the order they run.
+        # The leased attempt (ARIA-HIGH-342): the atomic push, the
+        # reconciliation's probe and fetch, and its owned fast-forward. No
+        # rebase — contention under the writer lease is a refusal.
         self.assertEqual(
             names(arcs.PUBLISH_ATTEMPT_ARC),
-            [
-                "publish_push", "remote_tip_probe", "remote_branch_fetch",
-                "remote_branch_fetch", ("replay_reset", "owned_store_fast_forward"),
-            ],
+            ["publish_push", "remote_tip_probe", "remote_branch_fetch", "owned_store_fast_forward"],
+        )
+        self.assertEqual(
+            names(arcs.REBASE_ARC),
+            ["remote_branch_fetch", "owned_store_fast_forward", "remote_tip_probe",
+             "remote_branch_fetch", ("replay_reset", "owned_store_fast_forward")],
         )
         self.assertEqual(len(arcs.CHECKOUT_RESTORE_ARC), 9)
         self.assertEqual(len(arcs.CHECKOUT_BOOTSTRAP_ARC), 5)
         # The transaction arcs are spliced into the lifecycle arcs where the
         # holder opens the transaction, so one registry cannot describe the
         # rebase or the cleanup differently from the other.
-        self.assertEqual(arcs.PUBLISH_ATTEMPT_ARC[3:], arcs.REBASE_TRANSACTION_ARC)
+        self.assertEqual(arcs.REBASE_ARC[:3], arcs.PENDING_RECOVERY_ARC)
+        self.assertEqual(arcs.REBASE_ARC[3:], arcs.REBASE_TRANSACTION_ARC)
         self.assertEqual(arcs.CHECKOUT_RESTORE_ARC[3:6], arcs.PENDING_RECOVERY_ARC)
         self.assertEqual(arcs.CHECKOUT_RESTORE_ARC[6:8], arcs.CHECKOUT_CLEANUP_TRANSACTION_ARC)
         self.assertEqual(
@@ -425,23 +433,31 @@ class TheBoundIsTheSumOverTheArcs(unittest.TestCase):
     def test_the_numbers_are_derived_and_pinned(self) -> None:
         cap = arcs.GIT_TIMEOUT_SECONDS
         self.assertEqual(arcs.arc_seconds(arcs.PENDING_RECOVERY_ARC), 3 * cap)
-        self.assertEqual(arcs.arc_seconds(arcs.PUBLISH_ATTEMPT_ARC), 5 * cap)
+        self.assertEqual(arcs.arc_seconds(arcs.PUBLISH_ATTEMPT_ARC), 4 * cap)
+        self.assertEqual(arcs.PUBLISH_MAX_ATTEMPTS, 1)
         self.assertEqual(
             arcs.STATE_STORE_PUBLISH_ARC_SECONDS,
-            3 * cap + arcs.PUBLISH_MAX_ATTEMPTS * 5 * cap,
+            3 * cap + arcs.PUBLISH_MAX_ATTEMPTS * 4 * cap,
         )
         self.assertEqual(arcs.STATE_STORE_CHECKOUT_ARC_SECONDS, 9 * cap)
+        self.assertEqual(arcs.STATE_STORE_REBASE_ARC_SECONDS, 5 * cap)
         self.assertEqual(
             arcs.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS,
-            max(arcs.STATE_STORE_PUBLISH_ARC_SECONDS, arcs.STATE_STORE_CHECKOUT_ARC_SECONDS),
+            max(
+                arcs.STATE_STORE_PUBLISH_ARC_SECONDS,
+                arcs.STATE_STORE_CHECKOUT_ARC_SECONDS,
+                arcs.STATE_STORE_REBASE_ARC_SECONDS,
+            ),
         )
         # The values, so a retune of the cap or the attempt count is a
         # visible change here and in every consumer that pins these.
-        self.assertEqual(arcs.STATE_STORE_PUBLISH_ARC_SECONDS, 5400.0)
+        self.assertEqual(arcs.STATE_STORE_PUBLISH_ARC_SECONDS, 2100.0)
         self.assertEqual(arcs.STATE_STORE_CHECKOUT_ARC_SECONDS, 2700.0)
-        self.assertEqual(arcs.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS, 5400.0)
-        # Strictly more than the typed bound this replaces (3 x 3 x cap).
-        self.assertGreater(arcs.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS, 9 * cap)
+        self.assertEqual(arcs.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS, 2700.0)
+        # At least the typed bound the derivation replaced (3 x 3 x cap):
+        # the checkout arc, the longest holder since the leased publish
+        # stopped replaying (ARIA-HIGH-342).
+        self.assertGreaterEqual(arcs.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS, 9 * cap)
         # And what state_store re-exports is this derivation, not a copy.
         self.assertIs(state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS, arcs.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS)
         self.assertIs(state_store.STATE_STORE_CHECKOUT_ARC_SECONDS, arcs.STATE_STORE_CHECKOUT_ARC_SECONDS)

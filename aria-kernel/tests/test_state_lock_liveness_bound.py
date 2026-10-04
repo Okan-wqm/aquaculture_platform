@@ -299,40 +299,50 @@ class TheLifecycleLockWaitsForTheHoldersWholeArc(unittest.TestCase):
 
     def test_the_bound_is_the_longest_holder_arc_at_the_git_cap(self) -> None:
         cap = state_store.GIT_TIMEOUT_SECONDS
-        # The publish holder: the pending recovery (3 steps) once, then
-        # PUBLISH_MAX_ATTEMPTS attempts of 5 steps — the arc the typed count
-        # priced at 3 per attempt and no recovery.
+        # The publish holder: the pending recovery (3 steps) once, then ONE
+        # leased attempt of 4 steps — ARIA-HIGH-342: contention under the
+        # writer lease is a refusal, never a rebuild and retry.
+        self.assertEqual(state_store.PUBLISH_MAX_ATTEMPTS, 1)
         self.assertEqual(
             state_store.STATE_STORE_PUBLISH_ARC_SECONDS,
             arcs.arc_seconds(arcs.PENDING_RECOVERY_ARC)
             + state_store.PUBLISH_MAX_ATTEMPTS * arcs.arc_seconds(arcs.PUBLISH_ATTEMPT_ARC),
         )
-        self.assertEqual(state_store.STATE_STORE_PUBLISH_ARC_SECONDS, (3 + 3 * 5) * cap)
+        self.assertEqual(state_store.STATE_STORE_PUBLISH_ARC_SECONDS, (3 + 4) * cap)
         # The checkout holder: probe, fetch, probe, the recovery, probe, the
         # old store's removal, the new worktree.
         self.assertEqual(state_store.STATE_STORE_CHECKOUT_ARC_SECONDS, 9 * cap)
+        # The rebase holder (memory_gap.restore_and_replay): the recovery,
+        # then the rebase transaction's fetch and tree move.
+        self.assertEqual(arcs.STATE_STORE_REBASE_ARC_SECONDS, 5 * cap)
         self.assertEqual(
             state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS,
-            max(state_store.STATE_STORE_PUBLISH_ARC_SECONDS, state_store.STATE_STORE_CHECKOUT_ARC_SECONDS),
+            max(
+                state_store.STATE_STORE_PUBLISH_ARC_SECONDS,
+                state_store.STATE_STORE_CHECKOUT_ARC_SECONDS,
+                arcs.STATE_STORE_REBASE_ARC_SECONDS,
+            ),
         )
-        self.assertEqual(state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS, 5400.0)
+        self.assertEqual(state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS, 2700.0)
         # Strictly more than one call's cap — the defect's own measurement —
-        # more than the typed bound that undercounted the holder (9 x cap),
-        # and at least the group-lock bound, whose holder (the replay) runs
-        # INSIDE this arc.
+        # at least every holder's arc (the checkout's 9 x cap is the longest
+        # since ARIA-HIGH-342 took the rebase out of the publish), and at
+        # least the group-lock bound, whose holders run INSIDE these arcs.
         self.assertGreater(state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS, cap)
-        self.assertGreater(state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS, 9 * cap)
+        self.assertGreaterEqual(state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS, 9 * cap)
         self.assertGreaterEqual(
             state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS, STATE_LOCK_LIVENESS_SECONDS,
         )
 
-    def test_the_orchestrator_defaults_to_the_attempt_count_the_bound_prices(self) -> None:
+    def test_the_orchestrator_makes_the_one_attempt_the_bound_prices(self) -> None:
+        # ARIA-HIGH-342 — no retry parameter: a leased publish makes one
+        # attempt, so a caller cannot ask for more than the bound prices.
         for orchestrator in (
             state_store.publish_with_contention_replay,
             state_store._publish_with_contention_replay_locked,
         ):
-            parameter = inspect.signature(orchestrator).parameters["max_attempts"]
-            self.assertEqual(parameter.default, state_store.PUBLISH_MAX_ATTEMPTS)
+            self.assertNotIn("max_attempts", inspect.signature(orchestrator).parameters)
+        self.assertEqual(state_store.PUBLISH_MAX_ATTEMPTS, 1)
 
     def test_a_waiter_asks_the_lock_for_the_lifecycle_bound(self) -> None:
         waits: list[float] = []
@@ -740,27 +750,55 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
         self.assertIn(f"with {drain_budget - 20343} s of start", workflow_text)
         self.assertIn(f"(a judge child: {drain_budget - 6333} s, {drain_budget - 6933} s with", workflow_text)
         self.assertLessEqual(drain_budget + ci_executor_drain.JOB_RESERVE_SECONDS, job_seconds)
-        self.assertEqual(int(job["timeout-minutes"]), 510)
+        # 510 -> 570 (PR #1779 re-review R-3): the post-drain reserve now
+        # prices the publish preamble outside the lock (cold staging and the
+        # fence's lease reads and renewal). Shrinking the window instead
+        # would drop it below the implementation child's 20343 s.
+        self.assertEqual(int(job["timeout-minutes"]), 570)
         # Round 6: the start window before an implementation child is a
         # measured figure, not a remainder — 657 s clears the >40 s first
         # `next-pending` seen under load with the same margin the judge
         # child always had.
         self.assertGreaterEqual(drain_budget - 20343, 600)
-        self.assertEqual(ci_executor_drain.JOB_RESERVE_SECONDS, 9000)
+        self.assertEqual(ci_executor_drain.JOB_RESERVE_SECONDS, 12600)
+        # ARIA-HIGH-342 — the writer-lease wait before the restore is part of
+        # the reserve, and the YAML waits exactly what the reserve prices.
+        restore = next(
+            step for step in job["steps"] if step.get("uses") == "./.github/actions/restore-aria-state"
+        )
+        self.assertEqual(
+            int(restore["with"]["writer-lease-wait-seconds"]), ci_executor_drain.WRITER_LEASE_WAIT_SECONDS,
+        )
         # The job exports the absolute deadline every spawn and delivery
         # runs under: its own ceiling anchored at launch, minus what it must
         # still run after the drain (the publish arc and the steps
         # allowance) — the pre-spawn reservation, the pre-publication
         # admission and the delivery's `deadline_insufficient` all read it.
-        self.assertEqual(ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS,
-                         state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS + ci_executor_drain.JOB_STEPS_ALLOWANCE_SECONDS)
+        # R-3 — "the publish arc" is the WHOLE leased publish: the locked
+        # arc (the lifecycle bound) plus what runs before the lock — the
+        # fence's lease reads and renewal and the cold staging.
+        from aria_kernel.state_store import COLD_PUSH_ATTEMPTS
+        from aria_kernel.state_writer_lease import PUBLISH_PREAMBLE_SECONDS
+
+        cap = state_store.GIT_TIMEOUT_SECONDS
+        self.assertEqual(PUBLISH_PREAMBLE_SECONDS, COLD_PUSH_ATTEMPTS * 3 * cap + 3 * cap + 3 * cap)
+        self.assertEqual(PUBLISH_PREAMBLE_SECONDS, 4500)
+        self.assertEqual(
+            ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS,
+            state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS
+            + PUBLISH_PREAMBLE_SECONDS
+            + ci_executor_drain.JOB_STEPS_ALLOWANCE_SECONDS,
+        )
+        self.assertEqual(ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS, 8100)
         self.assertIn(f"JOB_TIMEOUT_MINUTES={int(job['timeout-minutes'])}\n", step["run"])
         self.assertIn(f"POST_DRAIN_RESERVE_SECONDS={ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS}\n", step["run"])
         self.assertIn("export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - POST_DRAIN_RESERVE_SECONDS ))", step["run"])
         self.assertTrue(any(step.get("name") == "Anchor the job launch epoch" for step in job["steps"]))
         # The window's end at the worst-case restore stays inside the deadline.
         self.assertLessEqual(
-            ci_executor_drain.STATE_RESTORE_WORST_CASE_SECONDS + drain_budget,
+            ci_executor_drain.WRITER_LEASE_WAIT_SECONDS
+            + ci_executor_drain.STATE_RESTORE_WORST_CASE_SECONDS
+            + drain_budget,
             job_seconds - ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS,
         )
         # The comment beside the window must state the check the loop makes.
@@ -780,9 +818,9 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
         )
         self.assertEqual(
             ci_executor_drain.JOB_RESERVE_SECONDS,
-            state_store.STATE_STORE_CHECKOUT_ARC_SECONDS
-            + state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS
-            + ci_executor_drain.JOB_STEPS_ALLOWANCE_SECONDS,
+            ci_executor_drain.WRITER_LEASE_WAIT_SECONDS
+            + state_store.STATE_STORE_CHECKOUT_ARC_SECONDS
+            + ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS,
         )
         self.assertGreater(ci_executor_drain.JOB_STEPS_ALLOWANCE_SECONDS, 0)
         # The env-less default window is the same derivation, in its

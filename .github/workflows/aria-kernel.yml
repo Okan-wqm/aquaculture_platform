@@ -336,7 +336,9 @@ jobs:
       # passed (a missing branch is refused, never created), and nothing
       # below publishes or pushes.
       - uses: ./.github/actions/restore-aria-state
+        id: restore_state
       - name: Compact surfaces and strip old artifacts (canonical CLI)
+        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
         env:
           RETAIN_DAYS: ${{ github.event.inputs.retain_days || '7' }}
         run: |
@@ -350,6 +352,7 @@ jobs:
           AFTER=$(du -sb "${ARIA_TOOLS_DIR}/" | cut -f1)
           echo "compact_result: before=${BEFORE} after=${AFTER} saved=$((BEFORE - AFTER))"
       - name: Verify ARIA state integrity
+        if: steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'
         id: integrity
         run: |
           set -uo pipefail

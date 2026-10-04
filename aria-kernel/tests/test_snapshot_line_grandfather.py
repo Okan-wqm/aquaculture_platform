@@ -51,7 +51,7 @@ class LineCapGrandfatherTests(StateStoreTestCase):
 
     def _publish(self, store, snapshot_id: str, cycle_id: str):
         return publish_state(
-            store,
+            store, writer_fence=None,
             snapshot=state_store.build_publishable_snapshot(
                 store,
                 snapshot_id=snapshot_id,

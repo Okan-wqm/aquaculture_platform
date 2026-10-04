@@ -41,7 +41,7 @@ from aria_kernel.plan_origin import (
 )
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.git_fixtures import make_local_git_repo
-from tests.test_revision_scope_bound import FARM, _seed, _seed_workspace
+from tests.test_revision_scope_bound import FARM, _seed, _seed_workspace, _write_workspace
 
 RUNBOOK_PIN = {"subject": "F-007", "paths": ["docs/runbooks/farm.md"]}
 
@@ -55,13 +55,13 @@ class SubjectPinPolicyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-subject-pins-")
         self.addCleanup(self.tmp.cleanup)
-        self.repo = make_local_git_repo(Path(self.tmp.name), name="workspace")
+        # ORPHAN-HIGH-519 — _seed_workspace creates and commits the four-project
+        # workspace, because the converter grounds the seed's refs at HEAD.
+        self.repo = Path(self.tmp.name) / "workspace"
         _seed_workspace(self.repo)
-        self._git("add", "--", ".")
-        self._git("commit", "-q", "-m", "chore(test): four-project workspace")
         self._git("update-ref", "refs/remotes/origin/main", "HEAD")
         self.tools = Path(self.tmp.name) / "aria-tools"
-        self.seed = _seed("f_finding", "F-007", [FARM])
+        self.seed = _seed(self.repo, "f_finding", "F-007", [FARM])
 
     def _git(self, *args: str) -> str:
         return subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True, text=True).stdout
@@ -156,8 +156,9 @@ class SubjectPinPolicyTests(unittest.TestCase):
         scope = self._scope()
         self.assertEqual((scope["policy_pins"], scope["pin_policy"]["refused"]),
                          ([], f"{SUBJECT_PIN_POLICY_ANCHOR_UNAVAILABLE}: {ANCHOR_NOT_ON_MAIN}"))
+        # A workspace that is not a git checkout has no HEAD to anchor on.
         plain = Path(self.tmp.name) / "plain"
-        _seed_workspace(plain)
+        _write_workspace(plain)
         scope = compute_admission_scope(self.seed, workspace_root=plain, base_dir=self.tools)
         self.assertEqual((scope["policy_pins"], scope["pin_policy"]["refused"]),
                          ([], f"{SUBJECT_PIN_POLICY_ANCHOR_UNAVAILABLE}: {ANCHOR_HEAD_UNRESOLVED}"))

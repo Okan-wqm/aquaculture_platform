@@ -126,6 +126,8 @@ class ArbiterUncertaintyIsAValidOutcome(unittest.TestCase):
                 "observer_identity_missing",
                 # Typed-judgment plan Phase 6 — the calibrated quorum's refusal.
                 "confidence_uncalibrated",
+                # ARIA-HIGH-325 — a true_positive argued on inadmissible evidence.
+                "evidence_inadmissible",
             },
         )
 

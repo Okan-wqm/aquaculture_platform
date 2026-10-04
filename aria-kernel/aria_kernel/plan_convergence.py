@@ -15,7 +15,7 @@ from typing import Any, Iterator
 
 from .agent_priors import reviewer_names
 from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES
-from .ledger import append_declared_jsonl, load_declared_jsonl, load_jsonl_verified_text, verify_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl, load_jsonl, load_jsonl_verified_text, verify_jsonl
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
@@ -38,7 +38,12 @@ EVENT_TYPES = {
     "revision_recorded",
     "plan_evaluated",
     "plan_abandoned",
-    "lock_reaped",
+    # `lock_reaped` — RETIRED (ORPHAN-MEDIUM-838): it had a payload validator
+    # and no emitter. `_reap_stale_lock` records nothing, and a lock reap
+    # belongs to no plan; the sibling reapers (tools root, migration) record
+    # one as a governance row. Retired before any events.jsonl row used it —
+    # the one moment this door allows. Pinned by
+    # tests/invariants/v9/test_phase_v9_0_b_event_state_machine.py.
     # Plan ARIA-V9.0-B — implementation-phase event types. Adding a
     # new event type beyond this set is a one-way door (every row in
     # events.jsonl is now signed by content_hash; renaming a kind
@@ -147,7 +152,18 @@ def start_plan(
     plan_content: dict[str, Any],
     initial_revision_id: str,
     base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Open a plan. A plan started from a finding records its admission bound.
+
+    ADR-0021 — the bound (``plan_origin.compute_admission_scope``) is
+    computed HERE from the seed's surfaces and the impact graph of
+    ``workspace_root``; there is no parameter to pass one in, so no caller
+    and no planner prose can set it. A finding-origin plan without a
+    workspace to compute it in is refused.
+    """
+    from .plan_origin import compute_admission_scope
+
     _validate_id(plan_id, "plan_id")
     _validate_id(initial_revision_id, "initial_revision_id")
     _validate_plan_content(plan_content)
@@ -156,6 +172,9 @@ def start_plan(
         "content_hash": content_hash(plan_content),
         "initial_revision_id": initial_revision_id,
     }
+    admission_scope = compute_admission_scope(plan_content, workspace_root=workspace_root, base_dir=base_dir)
+    if admission_scope is not None:
+        payload["admission_scope"] = admission_scope
     return _mutate(
         plan_id=plan_id,
         command_name="start",
@@ -592,15 +611,27 @@ def _validate_submitted_plan(
     ADR-0018 D4 — one origin check for every origin kind: a body whose
     ``finding_id`` differs from, adds to or drops the started plan's is
     refused (``plan_origin.PLAN_ORIGIN_CHANGED``).
+
+    ADR-0021 — and every path the body names stays inside the bound the plan
+    was admitted with (``revision_scope_exceeds_admission_closure``); the
+    refusal names the paths and leaves a plan-keyed governance row.
     """
     from .plan_contract import require_plan_contract
-    from .plan_origin import require_origin_unchanged
+    from .plan_origin import (
+        AdmissionScopeExceeded, admission_scope_for_plan, body_paths,
+        record_admission_scope_refusal, require_origin_unchanged, require_within_admission_scope,
+    )
 
     state_validator(state, payload)
     if body is None:
         return
     _validate_plan_content(body)
     require_origin_unchanged(state, body)
+    try:
+        require_within_admission_scope(admission_scope_for_plan(state), body_paths(body))
+    except AdmissionScopeExceeded as exc:
+        record_admission_scope_refusal(root, plan_id=state.get("plan_id"), stage="plan_submission", error=exc)
+        raise
     require_plan_contract(body, base_dir=root)
 
 
@@ -988,6 +1019,7 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
     """
     root = ensure_tools_dir(base_dir)
     last_seen = _last_event_at_by_plan(root)
+    invocations: list[list[dict[str, Any]]] = []
     for plan_id in reversed(list_active_plans(base_dir=base_dir)):
         state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
         if not isinstance(state, dict):
@@ -996,15 +1028,46 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
             continue
         stamp = last_seen.get(plan_id)
         if stamp and _older_than_hours(stamp, STALE_PLAN_MAX_AGE_HOURS):
-            abandon_plan(
-                plan_id=plan_id,
-                reason=f"stalled: no plan event since {stamp} "
-                f"(> {STALE_PLAN_MAX_AGE_HOURS}h at adoption)",
-                base_dir=base_dir,
-            )
+            # ARIA-MEDIUM-291 — the abandonment says WHY the plan stopped,
+            # read from its newest request's claim ledger; the invocation
+            # ledgers are read once per scan, and only when a plan stalled.
+            if not invocations:
+                invocations.extend(load_jsonl(root / "agent-invocations" / name)
+                                   for name in ("requests.jsonl", "claims.jsonl"))
+            stall = _stall_cause(plan_id, requests=invocations[0], claims=invocations[1])
+            stall.update(last_event_at=stamp, max_age_hours=STALE_PLAN_MAX_AGE_HOURS)
+            abandon_plan(plan_id=plan_id, reason=f"stalled:{stall['cause']}", stall=stall, base_dir=base_dir)
             continue
         return plan_id
     return None
+
+
+def _stall_cause(
+    plan_id: str, *, requests: list[dict[str, Any]], claims: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """WHY a plan stopped moving: what its newest request last ran into.
+
+    The cause is that request's last release or refusal reason on the claim
+    ledger (``provider_quota_unavailable:anthropic``, ``anchor_expired``, ...)
+    with the release envelope's code and fault domain; ``no_consumer`` when
+    nothing ever claimed it; ``no_request`` when the plan minted none; the
+    newest claim event when the request was claimed and nothing gave a reason.
+    """
+    from .release_reason import parse_release_reason
+
+    mine = [row for row in requests if row.get("convergence_id") == plan_id]
+    if not mine:
+        return {"cause": "no_request", "request_id": None, "role": None}
+    newest = mine[-1]
+    rows = [row for row in claims if row.get("request_id") == newest.get("request_id")]
+    reasoned = [row for row in rows if isinstance(row.get("reason"), str) and row["reason"].strip()]
+    if reasoned:
+        cause = reasoned[-1]["reason"].strip()
+        envelope = parse_release_reason(cause).to_row_fields()
+    else:
+        cause = "no_consumer" if not rows else f"last_claim_event:{rows[-1].get('event')}"
+        envelope = {}
+    return {"cause": cause, **envelope, "request_id": newest.get("request_id"), "role": newest.get("role")}
 
 
 FORCED_MAX_ROUNDS_REASON = "max_rounds_reached"
@@ -1057,8 +1120,10 @@ def abandon_plan(
     *,
     plan_id: str,
     reason: str,
+    stall: dict[str, Any] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Abandon a plan; ``stall`` is the stall rule's cause record (ARIA-MEDIUM-291)."""
     _validate_id(plan_id, "plan_id")
     if not isinstance(reason, str) or not reason.strip():
         raise GovernanceError("reason must be a non-empty string")
@@ -1071,6 +1136,8 @@ def abandon_plan(
             return _event_result(existing_abandon, idempotent=True)
         _require_started(state, "abandon plan")
         payload = {"reason": reason.strip(), "abandoned_from_state": state["state"]}
+        if stall is not None:
+            payload["stall"] = stall
         key = _idempotency_key(plan_id, "abandon", payload)
         existing = _find_by_idempotency(root, key)
         if existing:
@@ -1941,6 +2008,8 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
     elif event_type == "plan_abandoned":
         state["state"] = "ABANDONED"
         state["terminal_state"] = "ABANDONED"
+        # ARIA-MEDIUM-291 — why, on the state every reader folds.
+        state["abandonment"] = {"reason": payload["reason"], "stall": payload.get("stall")}
     # Plan ARIA-V9.0-B — implementation-phase reducer transitions.
     # Each event_type checks the single legal predecessor state and
     # raises GovernanceError(invalid_transition: …) on out-of-order
@@ -2578,6 +2647,10 @@ def _validate_event(event: dict[str, Any]) -> None:
         _validate_plan_content(payload.get("plan_content"))
         _require_hash(payload.get("content_hash"), "content_hash")
         _require_non_empty(payload.get("initial_revision_id"), "initial_revision_id")
+        if "admission_scope" in payload:
+            from .plan_origin import validate_admission_scope
+
+            validate_admission_scope(payload["admission_scope"], payload.get("plan_content"))
     elif event_type == "challenger_plan_drafted":
         _validate_plan_content(payload.get("plan_content"))
         _require_hash(payload.get("content_hash"), "content_hash")
@@ -2656,10 +2729,11 @@ def _validate_event(event: dict[str, Any]) -> None:
     elif event_type == "plan_abandoned":
         _require_non_empty(payload.get("reason"), "reason")
         _require_non_empty(payload.get("abandoned_from_state"), "abandoned_from_state")
-    elif event_type == "lock_reaped":
-        for field in ("stale_lock_pid", "lock_age_seconds", "reaped_by_pid"):
-            if not isinstance(payload.get(field), int):
-                raise GovernanceError(f"lock_reaped {field} must be an integer")
+        if "stall" in payload:
+            stall = payload["stall"]
+            if not isinstance(stall, dict):
+                raise GovernanceError("plan_abandoned stall must be an object")
+            _require_non_empty(stall.get("cause"), "stall.cause")
     # Plan ARIA-V9.0-B — implementation-phase event payload validators.
     # State preconditions live in _apply_event (the reducer), not here
     # — _validate_event is shape-only because validation runs once per

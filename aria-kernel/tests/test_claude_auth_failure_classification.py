@@ -94,7 +94,7 @@ class AuthFailureIsNotRetriedTest(unittest.TestCase):
             )
 
         with self.assertRaises(cr.ClaudeAuthFailure):
-            cr.run_with_model_fallback(run=run, model="opus", effort="high", write_capable=False)
+            cr.run_with_model_fallback(run=run, model="opus", failover="glm-5.3", effort="high", write_capable=False)
 
         # ARIA-HIGH-023 revised the single-attempt rule: every same-vendor
         # tier shares the dead credential, so the ONLY honest second attempt
@@ -125,7 +125,7 @@ class AuthFailureIsNotRetriedTest(unittest.TestCase):
             raise cr.ClaudeAuthUnavailable("zai_credential_not_configured: set ARIA_ZAI_API_KEY_FILE")
 
         with self.assertRaises(cr.ClaudeAuthFailure) as caught:
-            cr.run_with_model_fallback(run=run, model="opus", effort="high", write_capable=False)
+            cr.run_with_model_fallback(run=run, model="opus", failover="glm-5.3", effort="high", write_capable=False)
         message = str(caught.exception)
         self.assertEqual(attempts, ["opus", "glm-5.3"])
         self.assertTrue(message.startswith("claude_auth_failure: could not be refreshed on 'opus'"), message)
@@ -147,7 +147,7 @@ class AuthFailureIsNotRetriedTest(unittest.TestCase):
             )
 
         with self.assertRaises(cr.ClaudeAuthFailure) as raised:
-            cr.run_with_model_fallback(run=run, model="opus", effort="max", write_capable=True)
+            cr.run_with_model_fallback(run=run, model="opus", failover=None, effort="max", write_capable=True)
         self.assertEqual(attempts, [("opus", "max")])
         self.assertIn("write-scope", str(raised.exception))
 
@@ -161,7 +161,7 @@ class AuthFailureIsNotRetriedTest(unittest.TestCase):
             return _result(returncode=1, credit_exhaustion={"marker": "credit balance"})
 
         with self.assertRaises(cr.ClaudeCreditExhausted) as raised:
-            cr.run_with_model_fallback(run=run, model="opus", effort="high", write_capable=False)
+            cr.run_with_model_fallback(run=run, model="opus", failover="glm-5.3", effort="high", write_capable=False)
         self.assertEqual(attempts, [("opus", "high")])
         self.assertEqual(raised.exception.provider, "anthropic")
 
@@ -170,7 +170,7 @@ class AuthFailureIsNotRetriedTest(unittest.TestCase):
             return _result(returncode=0, final_message="ok")
 
         self.assertEqual(
-            cr.run_with_model_fallback(run=run, model="opus", effort="high", write_capable=True).returncode, 0,
+            cr.run_with_model_fallback(run=run, model="opus", failover=None, effort="high", write_capable=True).returncode, 0,
         )
 
 

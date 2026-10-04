@@ -24,11 +24,11 @@ on:
           - report
           - safe-image-gc
           - gate
-      deploy_sha:
-        description: 'Optional 40-character SHA to protect and evaluate. Blank uses origin/main.'
-        required: false
-        type: string
-        default: ''
+      # No input names a release, image, registry or repository
+      # (INFRA-CRITICAL-085). The release is the remote's current main,
+      # resolved on the host; the image prefix is this repository's GHCR
+      # namespace; GC touches only the generated catalog's repositories under
+      # it. The inputs below choose the operation and the capacity thresholds.
       full_deploy:
         description: 'Use full deploy capacity thresholds and pull estimate.'
         required: true
@@ -42,11 +42,6 @@ on:
         required: false
         type: string
         default: 'all'
-      image_prefix:
-        description: 'Registry image prefix used by production deploy images.'
-        required: true
-        type: string
-        default: 'ghcr.io/okan-wqm/aquaculture_platform'
 
 permissions:
   contents: read
@@ -68,46 +63,39 @@ jobs:
           # image GC with full-deploy thresholds (workflow_dispatch still uses
           # its own input defaults, e.g. operation=report).
           OPERATION: ${{ inputs.operation || 'safe-image-gc' }}
-          REQUESTED_DEPLOY_SHA: ${{ inputs.deploy_sha || '' }}
           FULL_DEPLOY: ${{ inputs.full_deploy || 'true' }}
           DEPLOY_SERVICES: ${{ inputs.deploy_services || 'all' }}
-          IMAGE_PREFIX: ${{ inputs.image_prefix || 'ghcr.io/okan-wqm/aquaculture_platform' }}
+          # The identity the image producers publish under (deploy-digitalocean
+          # `prepare` derives `ghcr.io/${REPO,,}` from the same value) — not a
+          # dispatch choice.
+          IMAGE_REPOSITORY: ${{ github.repository }}
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           command_timeout: 12m
-          envs: OPERATION,REQUESTED_DEPLOY_SHA,FULL_DEPLOY,DEPLOY_SERVICES,IMAGE_PREFIX
+          envs: OPERATION,FULL_DEPLOY,DEPLOY_SERVICES,IMAGE_REPOSITORY
           script: |
             set -euo pipefail
 
+            IMAGE_PREFIX="ghcr.io/${IMAGE_REPOSITORY,,}"
+            if ! [[ "${IMAGE_PREFIX}" =~ ^ghcr\.io/[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$ ]]; then
+              echo "::error::Repository identity does not form a GHCR image prefix: ${IMAGE_PREFIX}"
+              exit 2
+            fi
+            export IMAGE_PREFIX
+
             cd /var/aqua-saas
             git fetch --force --prune origin main
-
-            if [ -n "${REQUESTED_DEPLOY_SHA}" ]; then
-              case "${REQUESTED_DEPLOY_SHA}" in
-                *[!0-9a-f]*)
-                  echo "::error::deploy_sha must be lowercase hex."
-                  exit 2
-                  ;;
-              esac
-              if [ "${#REQUESTED_DEPLOY_SHA}" -ne 40 ]; then
-                echo "::error::deploy_sha must be exactly 40 characters."
-                exit 2
-              fi
-              TARGET_SHA="${REQUESTED_DEPLOY_SHA}"
-            else
-              TARGET_SHA="$(git rev-parse origin/main)"
-            fi
-
+            TARGET_SHA="$(git rev-parse origin/main)"
             export DEPLOY_SHA="${TARGET_SHA}"
 
             # /var/aqua-saas is the persistent bare object store on the droplet,
             # not an executable working tree. Bootstrap the canonical deploy
             # checkout helper from the exact target commit, then run maintenance
             # from the immutable checkout used by the rest of the deploy control
-            # plane. This keeps the source repo ref-only and makes scheduled and
-            # manually requested SHAs follow the same path.
+            # plane. This keeps the source repo ref-only; scheduled and manual
+            # runs both evaluate the remote's current main.
             install -d /var/lib/aqua/deploy
             git show "${TARGET_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
             source /var/lib/aqua/deploy/deploy-paths.sh

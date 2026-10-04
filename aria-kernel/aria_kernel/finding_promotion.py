@@ -53,6 +53,26 @@ def promoted_fingerprints(base_dir: str | Path | None = None) -> set[str]:
     }
 
 
+def promotion_row(
+    *,
+    finding_fingerprint: str,
+    finding_id: Any,
+    tool_id: Any,
+    judgment_group_id: Any,
+) -> dict[str, Any]:
+    """The one constructor of a promotions row: the finding_funnel proof row,
+    whose meaning its schema_version declares (pinned by producer fixture in
+    test_capability_semantic_equivalence)."""
+    return {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "finding_fingerprint": finding_fingerprint,
+        "finding_id": finding_id,
+        "tool_id": tool_id,
+        "judgment_group_id": judgment_group_id,
+    }
+
+
 def _severity_for(raw: str) -> str:
     mapped = _SEVERITY_MAP.get(str(raw).lower(), "MEDIUM")
     if _SEVERITY_RANK[mapped] < _SEVERITY_RANK[_CLAIM_FLOOR]:
@@ -176,14 +196,12 @@ def promote_consensus_findings(
         already.add(fingerprint)
         append_jsonl(
             promotions_path(root),
-            {
-                "schema_version": 1,
-                "recorded_at": utc_now(),
-                "finding_fingerprint": fingerprint,
-                "finding_id": finding.get("finding_id"),
-                "tool_id": row.get("tool_id"),
-                "judgment_group_id": row.get("judgment_group_id"),
-            },
+            promotion_row(
+                finding_fingerprint=fingerprint,
+                finding_id=finding.get("finding_id"),
+                tool_id=row.get("tool_id"),
+                judgment_group_id=row.get("judgment_group_id"),
+            ),
         )
         promoted.append({
             "finding_fingerprint": fingerprint,

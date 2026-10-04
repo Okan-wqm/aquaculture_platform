@@ -133,7 +133,7 @@ class V9PressureSourceProvider:
     successfully-yielding candidate to a CyclePlanEnvelope.
 
     Iterative fallback (closes H-2): if `convert_candidate_to_plan_content`
-    returns None for the first candidate, the provider continues
+    yields no plan for the first candidate, the provider continues
     through ALL ranked candidates before delegating to the V7
     git_diff fallback. Pre-V3.1-A, the synthesizer fell back to V7
     immediately on the first None — operator feedback was silently
@@ -179,6 +179,7 @@ class V9PressureSourceProvider:
         from ..operator_request_spend import REQUEST_TEXT_UNUSABLE
         from ..plan_candidate_source import PlanCandidateSource
         from ..plan_synthesizer import (
+            PlanEvidenceGround,
             convert_candidate_to_plan_content,
             rank_candidate_sources,
         )
@@ -194,26 +195,40 @@ class V9PressureSourceProvider:
         attempted = 0
         # ADR-0018 D5 — the anchor commit and the finding fold are read ONCE
         # per synthesis (arbiter ruling iv), then every finding-naming
-        # candidate is judged against the same view.
-        grounding_context = load_grounding_context(workspace_root)
+        # candidate is judged against the same view. ARIA-HIGH-260 — the
+        # store's plan, binding and self-revert ledgers are folded into that
+        # view too: the aging F_FINDING source carries ADR-0003's loop guards.
+        grounding_context = load_grounding_context(workspace_root, tools_root=base_dir)
+        # ORPHAN-HIGH-519 — and every candidate's refs are judged at the one
+        # commit the challenger request will name.
+        ground = PlanEvidenceGround.of(workspace_root)
         for candidate in candidates:
             # One admission for every source that names an F finding (aging
             # F findings and operator requests alike); None for sources that
             # name none.
             admission = admit_candidate(candidate, grounding_context)
-            envelope = convert_candidate_to_plan_content(candidate, admission=admission)
+            conversion = convert_candidate_to_plan_content(candidate, admission=admission, ground=ground)
+            envelope = conversion.envelope
             attempted += 1
             grounding: dict[str, Any] = {}
+            if conversion.refused_evidence_refs:
+                # A ref the challenger's rule refused is named, whether or
+                # not the candidate still converted.
+                grounding["refused_evidence_refs"] = list(conversion.refused_evidence_refs)
             if admission is not None:
                 # Refused surfaces and refs are named in the conversion
                 # event, never dropped silently; a ref that failed the safe
                 # charset is named by its hash, never echoed.
-                grounding = {
+                grounding.update({
                     "finding_id": admission.finding_id,
                     "anchor_commit": admission.anchor_commit,
                     "refused_surfaces": admission.refused_surface_records(),
                     "refused_refs": admission.refused_ref_records(),
-                }
+                })
+                if admission.loop_guard is not None:
+                    # The loop guard's evidence rides on the one skip event
+                    # the candidate gets this cycle (ARIA-HIGH-260).
+                    grounding["loop_guard"] = dict(admission.loop_guard)
             if envelope is not None:
                 # Bind BEFORE announcing the selection: the synthesized content
                 # hash is what plan_started will record, and the pre-merge
@@ -236,7 +251,10 @@ class V9PressureSourceProvider:
                     },
                 )
                 return envelope
-            if admission is not None:
+            if conversion.skip_reason is not None:
+                grounding["reason"] = conversion.skip_reason
+                grounding["runner_fault"] = conversion.harness_fault
+            elif admission is not None:
                 grounding["reason"] = admission.reason or REQUEST_TEXT_UNUSABLE
                 grounding["runner_fault"] = admission.runner_fault
             append_tools_governance(

@@ -1,0 +1,944 @@
+{
+  "acceptance_conditions": {
+    "actual_cycle_attempts": 30,
+    "actual_min_valid_cycles": 20,
+    "post_worktree_clean": true,
+    "required_cycle_attempts": 30,
+    "required_min_valid_cycles": 20,
+    "valid_cycle_evidence_verified": true,
+    "valid_cycles": 30,
+    "zero_disallowed_actions": true
+  },
+  "acceptance_verdict": "passed",
+  "agent_gap_candidates": [],
+  "artifact_hashes": {
+    "candidate-detection.json": "16b40d543f9a4da1e150f78b80bac108909885ab8645e51a2963520803f84a1b",
+    "cycle-ledger-summary.json": "2d5e8817a268bbc97f2240679f0c33715da8b21af7d77f7815b4fcf586fe2055",
+    "cycles.json": "67ca740887f4b0e391639bb2949848b89c48eb540a8f104220ac2fb5d788d518",
+    "disallowed-actions.json": "f0710a432032cc163efb84926ccf28e7a1c6f8e6f217cd38d1c736bf33683621",
+    "manifest-tail-hashes.json": "88b60790624b7e337cd09830cfcd629f98d29509a936d3e794f883769576132f"
+  },
+  "base_commit_sha": "484dc54d3d4d138be8be7b1b493039e5a92cc224",
+  "candidate_detection": "candidate-detection.json",
+  "candidate_observations": {
+    "agent_gap_candidates": [],
+    "schema_version": "aria/candidate-observations/v1",
+    "skill_gap_candidates": []
+  },
+  "completed_at": "2026-10-04T23:32:07+00:00",
+  "cycle_attempts": 30,
+  "cycle_ledger_summary": "cycle-ledger-summary.json",
+  "cycles": [
+    {
+      "completed_at": "2026-10-04T22:59:05+00:00",
+      "cycle_id": "burnin-observe-20261004T225746Z-001",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 1,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 1
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T22:57:46+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:00:11+00:00",
+      "cycle_id": "burnin-observe-20261004T225905Z-002",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 1,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 1
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T22:59:05+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:01:19+00:00",
+      "cycle_id": "burnin-observe-20261004T230011Z-003",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 1,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 1
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:00:11+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:02:24+00:00",
+      "cycle_id": "burnin-observe-20261004T230119Z-004",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:01:19+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:03:30+00:00",
+      "cycle_id": "burnin-observe-20261004T230224Z-005",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:02:24+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:04:37+00:00",
+      "cycle_id": "burnin-observe-20261004T230330Z-006",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:03:30+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:05:44+00:00",
+      "cycle_id": "burnin-observe-20261004T230437Z-007",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:04:37+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:06:50+00:00",
+      "cycle_id": "burnin-observe-20261004T230544Z-008",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:05:44+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:08:01+00:00",
+      "cycle_id": "burnin-observe-20261004T230650Z-009",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:06:50+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:09:08+00:00",
+      "cycle_id": "burnin-observe-20261004T230801Z-010",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:08:01+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:10:16+00:00",
+      "cycle_id": "burnin-observe-20261004T230908Z-011",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:09:08+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:11:25+00:00",
+      "cycle_id": "burnin-observe-20261004T231016Z-012",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:10:16+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:12:31+00:00",
+      "cycle_id": "burnin-observe-20261004T231125Z-013",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:11:25+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:13:37+00:00",
+      "cycle_id": "burnin-observe-20261004T231231Z-014",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:12:31+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:14:44+00:00",
+      "cycle_id": "burnin-observe-20261004T231337Z-015",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:13:37+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:15:50+00:00",
+      "cycle_id": "burnin-observe-20261004T231444Z-016",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:14:44+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:16:57+00:00",
+      "cycle_id": "burnin-observe-20261004T231550Z-017",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:15:50+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:18:04+00:00",
+      "cycle_id": "burnin-observe-20261004T231657Z-018",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:16:57+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:19:13+00:00",
+      "cycle_id": "burnin-observe-20261004T231804Z-019",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:18:04+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:20:28+00:00",
+      "cycle_id": "burnin-observe-20261004T231913Z-020",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:19:13+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:21:57+00:00",
+      "cycle_id": "burnin-observe-20261004T232028Z-021",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:20:28+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:23:13+00:00",
+      "cycle_id": "burnin-observe-20261004T232157Z-022",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:21:57+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:24:22+00:00",
+      "cycle_id": "burnin-observe-20261004T232313Z-023",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:23:13+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:25:29+00:00",
+      "cycle_id": "burnin-observe-20261004T232422Z-024",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:24:22+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:26:36+00:00",
+      "cycle_id": "burnin-observe-20261004T232529Z-025",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:25:29+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:27:43+00:00",
+      "cycle_id": "burnin-observe-20261004T232636Z-026",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:26:36+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:28:49+00:00",
+      "cycle_id": "burnin-observe-20261004T232743Z-027",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:27:43+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:29:54+00:00",
+      "cycle_id": "burnin-observe-20261004T232849Z-028",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:28:49+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:31:00+00:00",
+      "cycle_id": "burnin-observe-20261004T232954Z-029",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:29:54+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    },
+    {
+      "completed_at": "2026-10-04T23:32:06+00:00",
+      "cycle_id": "burnin-observe-20261004T233100Z-030",
+      "diff_changed_count": 0,
+      "discovery_complete": true,
+      "fated_file_count": 12986,
+      "memory_beliefs_written": 3,
+      "memory_evidence": {
+        "beliefs_written": 3,
+        "no_op_proof": false,
+        "observations_written": 1
+      },
+      "pressure_count": 2,
+      "pressure_evidence": {
+        "evaluated": true,
+        "pressure_count": 2
+      },
+      "schema_version": 1,
+      "started_at": "2026-10-04T23:31:00+00:00",
+      "status": "completed",
+      "triage_evidence": {
+        "decision_count": 0,
+        "evaluated": true,
+        "no_op_proof": true
+      },
+      "triaged_count": 0,
+      "valid_cycle": true,
+      "validity_reasons": []
+    }
+  ],
+  "disallowed_actions_observed": [],
+  "disallowed_actions_report": "disallowed-actions.json",
+  "discovery_summary": {
+    "all_completed_discoveries_complete": true,
+    "completed_cycles": 30,
+    "max_fated_file_count": 12986
+  },
+  "evidence_bundle": "evidence-bundle.json",
+  "evidence_bundle_hash": "sha256:dfd82932667ad278050aff4ee9a451bea6e9e64de18d3d0759d7911284fc2460",
+  "failed_cycles": 0,
+  "failure_reports": [],
+  "finding_summary": {
+    "ingested_findings_rows": 0,
+    "raw_findings_rows": 0
+  },
+  "generated_at": "2026-10-04T23:32:07+00:00",
+  "manifest_tail_hashes": "manifest-tail-hashes.json",
+  "memory_summary": {
+    "belief_rows": 90,
+    "cycle_beliefs_written": 90,
+    "observation_rows": 30
+  },
+  "min_valid_cycles": 20,
+  "pressure_summary": {
+    "latest_counts": {},
+    "latest_pressure_count": 2,
+    "pressure_log_rows": 30
+  },
+  "profile": "observe",
+  "schema_version": "aria/autonomy-burn-in-report/v1",
+  "skill_gap_candidates": [],
+  "started_at": "2026-10-04T22:57:46+00:00",
+  "target_ref": "484dc54d3d4d138be8be7b1b493039e5a92cc224",
+  "tools_dir": "/home/gharunner/actions-runner/_work/_temp/aria-burn-tools.OsRMnG",
+  "triage_summary": {
+    "cycle_triaged_count": 0,
+    "triage_decision_rows": 0
+  },
+  "valid_cycles": 30,
+  "workspace_base": "/home/gharunner/actions-runner/_work/_temp/aria-workspaces.TYDgpg",
+  "workspace_root": "/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform"
+}

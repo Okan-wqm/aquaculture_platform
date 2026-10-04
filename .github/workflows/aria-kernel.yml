@@ -37,6 +37,9 @@ on:
       # evidence touched only tools/aria-adapters/**, ran neither kernel
       # lane, and was first checked on the push to main.
       - "tools/aria-adapters/**"
+      # ADR-0025 / ARIA-MEDIUM-335 — the kernel budget gate runs in `lane`; a
+      # change to the gate itself is judged by the gate it changes.
+      - "tools/gates/kernel-budget.ts"
   push:
     branches:
       - main
@@ -181,6 +184,19 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
+      # ADR-0025 / ARIA-MEDIUM-335 — K-4′ named docs/aria/policy/kernel-budget.json
+      # as this lane's gate and nothing ran it: 4,784 kernel lines merged after
+      # K1 with no measurement anywhere. The gate measures from the policy's
+      # base_sha (full history, above): on a PR, the change is GitHub's merge
+      # commit against the base tip; on a push to main, main itself. The PR
+      # number and branch pick out a named predating PR; they reach the shell
+      # through env, never through an expression in `run:`.
+      - name: Kernel budget gate (ADR-0025)
+        env:
+          BUDGET_BASE_REF: ${{ github.event.pull_request.base.sha || github.sha }}
+          BUDGET_PR_NUMBER: ${{ github.event.pull_request.number }}
+          BUDGET_HEAD_REF: ${{ github.head_ref }}
+        run: npm run gates:kernel-budget -- --base-ref "${BUDGET_BASE_REF}" --pr-number "${BUDGET_PR_NUMBER}" --head-ref "${BUDGET_HEAD_REF}"
       - name: Run aria-kernel pytest-native tests
         # The pytest-owned half of the suite partition, whole (91 tests).
         run: bash scripts/ci/aria-suite-run.sh --pytest-native

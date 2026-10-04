@@ -1,0 +1,130 @@
+{
+  "$schema": "aria/kernel-budget/v1",
+  "schema_version": 1,
+  "status": "proposed",
+  "adr_refs": [
+    "docs/recommendations/architectural-arbiter/2026-10-04-adr-0025-kernel-budget-measured-base.md"
+  ],
+  "base_sha": "b28a5216ac3a672ecb82c3f74d70a56405977c0d",
+  "base_exception": {
+    "pr": 1710,
+    "branch": "fix/aria-operator-channel",
+    "merge_sha": "b28a5216ac3a672ecb82c3f74d70a56405977c0d",
+    "kernel_added": 1947,
+    "kernel_deleted": 358,
+    "reason": "K1 (CP-1 operator channel) predates the program; the base is its merge commit, so its lines are outside the measure and recorded here instead"
+  },
+  "ceiling": {
+    "kernel_lines": 8702,
+    "module_net": 4
+  },
+  "per_pr_max": {
+    "kernel_lines": 400,
+    "module_net": 0
+  },
+  "measurement": {
+    "main_sha": "8cc79053bb0f8fc1133896fe438ef0171550797c",
+    "measured_on": "2026-10-04",
+    "merged_kernel_lines": 4784,
+    "open_predating_kernel_lines": 3108,
+    "rev3_min_estimate_kernel_lines": 810
+  },
+  "predating_prs": [
+    {
+      "number": 1563,
+      "branch": "f0-g/security-preflight",
+      "head_sha": "edcf932a117f453d7d8c673ed98fdaad959ec273",
+      "kernel_added": 1,
+      "kernel_deleted": 0,
+      "module_delta": 0
+    },
+    {
+      "number": 1569,
+      "branch": "feat/suderra-session-20260917",
+      "head_sha": "cc65fa4bd4f768517671ad85a98ef86f7733b7c8",
+      "kernel_added": 16,
+      "kernel_deleted": 126,
+      "module_delta": 0
+    },
+    {
+      "number": 1629,
+      "branch": "claude/wonderful-archimedes-msrlg9",
+      "head_sha": "52fff66903f3857b5b23395b09b90da259994818",
+      "kernel_added": 19,
+      "kernel_deleted": 0,
+      "module_delta": 0
+    },
+    {
+      "number": 1731,
+      "branch": "fix/aria-plans-only-with-admissible-refs",
+      "head_sha": "8c33ad2a94a0491694a8d2ced45609e5397f0558",
+      "kernel_added": 454,
+      "kernel_deleted": 164,
+      "module_delta": 0
+    },
+    {
+      "number": 1733,
+      "branch": "fix/aria-closable-backlog-cap",
+      "head_sha": "0a527cf41fafbffdd221318e13fb91309746d27c",
+      "kernel_added": 405,
+      "kernel_deleted": 78,
+      "module_delta": 0
+    },
+    {
+      "number": 1738,
+      "branch": "fix/aria-agent-eval-real-mode",
+      "head_sha": "3699f9d11ab43f28303b4f205b890d0848a2ca37",
+      "kernel_added": 400,
+      "kernel_deleted": 127,
+      "module_delta": 0
+    },
+    {
+      "number": 1739,
+      "branch": "fix/aria-tool-output-content-addressed",
+      "head_sha": "6be84c9e7ec31f0deb14b932fe81c6801a16b801",
+      "kernel_added": 420,
+      "kernel_deleted": 76,
+      "module_delta": 0
+    },
+    {
+      "number": 1753,
+      "branch": "fix/aria-main-anchor-root-owned-checkout",
+      "head_sha": "c5a9bd7fc288d760971adf490f48d1391024d291",
+      "kernel_added": 128,
+      "kernel_deleted": 1,
+      "module_delta": 0
+    },
+    {
+      "number": 1755,
+      "branch": "fix/aria-agents-work-in-english",
+      "head_sha": "83a703c65cadad8010a1bfeef307fe3eab40f268",
+      "kernel_added": 9,
+      "kernel_deleted": 0,
+      "module_delta": 0
+    },
+    {
+      "number": 1756,
+      "branch": "feat/aria-system-one-core-v2",
+      "head_sha": "d3807991797a533ee74ecf54d768908365e61c0e",
+      "kernel_added": 400,
+      "kernel_deleted": 0,
+      "module_delta": 2
+    },
+    {
+      "number": 1759,
+      "branch": "fix/aria-finding-identity-lifecycle",
+      "head_sha": "3e283a81b79b77e5cc00b94ce7d572dbf2206f7f",
+      "kernel_added": 296,
+      "kernel_deleted": 104,
+      "module_delta": 0
+    },
+    {
+      "number": 1766,
+      "branch": "fix/aria-judgment-precision",
+      "head_sha": "f196d89b8b4385b073f6f09d0acfbd7e32147e24",
+      "kernel_added": 560,
+      "kernel_deleted": 50,
+      "module_delta": 2
+    }
+  ]
+}

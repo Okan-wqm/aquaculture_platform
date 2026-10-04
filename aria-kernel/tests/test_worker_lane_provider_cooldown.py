@@ -111,7 +111,8 @@ class TheExecutorCoolsTheProviderUnderItsClaim(_LaneFixture):
         worktree.mkdir(parents=True)
         assignment = {"assignment_id": "A-W-1", "target_agent": "aria-worker", "worktree_path": str(worktree),
                       "required_tests": [], "expected_trailer": "Closes-Pressure: P-A-W-1", "timeout_seconds": 60}
-        detection = {"matched_marker": "usage-credits", "source": "cli_usage_limit_message", "returncode": 0}
+        detection = {"signature": "claude_usage_credits_hint", "matched_marker": "usage-credits",
+                     "source": "cli_usage_limit_message", "returncode": 0}
 
         def exhausted_claude(**kwargs: Any) -> ClaudeRunResult:
             self.spawned.append(kwargs["model"])
@@ -177,7 +178,7 @@ class TheHookSkipsACooledProviderBeforeClaiming(_LaneFixture):
         self._seed_dispatch_row()
         # Cooled by ANOTHER run — the planner lane's — five minutes ago.
         record_provider_cooldown(self.tools_root, provider="anthropic", model="opus", cooldown_seconds=900,
-                                 request_id="AIR-planner", claim_id="CL-planner", detection={},
+                                 request_id="AIR-planner", claim_id="CL-planner", detection={"signature": "claude_credit_error"},
                                  now=datetime.now(timezone.utc) - timedelta(minutes=5))
         result = self._dispatch()
         self.assertEqual(result["status"], "provider_cooldown")
@@ -196,7 +197,7 @@ class TheHookSkipsACooledProviderBeforeClaiming(_LaneFixture):
     def test_an_expired_cooldown_does_not_gate(self) -> None:
         self._seed_dispatch_row()
         record_provider_cooldown(self.tools_root, provider="anthropic", model="opus", cooldown_seconds=60,
-                                 request_id="AIR-old", claim_id="CL-old", detection={},
+                                 request_id="AIR-old", claim_id="CL-old", detection={"signature": "claude_credit_error"},
                                  now=datetime.now(timezone.utc) - timedelta(hours=1))
         result = self._dispatch()
         self.assertNotEqual(result["status"], "provider_cooldown")
@@ -206,7 +207,7 @@ class TheHookSkipsACooledProviderBeforeClaiming(_LaneFixture):
     def test_another_providers_cooldown_does_not_gate_a_worker(self) -> None:
         self._seed_dispatch_row()
         record_provider_cooldown(self.tools_root, provider="zai", model="glm-5.3", cooldown_seconds=900,
-                                 request_id="AIR-zai", claim_id="CL-zai", detection={})
+                                 request_id="AIR-zai", claim_id="CL-zai", detection={"signature": "zai_quota_refusal"})
         result = self._dispatch()
         self.assertNotEqual(result["status"], "provider_cooldown")
         self.assertEqual(len(self.captured_argvs), 1)
@@ -236,7 +237,7 @@ class TheHookReleasesAQuotaExhaustionUnderTheProviderName(_LaneFixture):
             claim_id = argv[argv.index("--claim-id") + 1]
             record_provider_cooldown(self.tools_root, provider="anthropic", model="opus", cooldown_seconds=900,
                                      request_id=argv[2], claim_id=claim_id,
-                                     detection={"matched_marker": "usage-credits"})
+                                     detection={"signature": "claude_usage_credits_hint", "matched_marker": "usage-credits"})
             return _CapturedSubprocess(returncode=1, stderr="claude_credit_exhausted: provider='anthropic'")
 
         with patch("aria_kernel.worker_dispatch_hook.subprocess.run", child_exhausts_opus):
@@ -279,6 +280,33 @@ class TheHookReleasesAQuotaExhaustionUnderTheProviderName(_LaneFixture):
         released = next(row for row in self._governance() if row["kind"] == "dispatch_claim_released")
         self.assertEqual(released["details"]["reason"], "worker_executor_failed")
         self.assertIn("worker_dispatch_executor_exit_nonzero", self._kinds())
+
+    def test_a_cooldown_another_run_began_during_this_claim_names_the_release(self) -> None:
+        # ARIA-HIGH-290 — the cooldown is written once per transition: the
+        # child that runs into an exhaustion the planner lane has ALREADY
+        # cooled writes no row of its own. No cooldown stood at claim time,
+        # so the standing one began during this claim and names the release.
+        self._seed_dispatch_row()
+
+        def child_runs_into_a_standing_cooldown(argv, *args, **kwargs):
+            record_provider_cooldown(self.tools_root, provider="anthropic", model="opus", cooldown_seconds=900,
+                                     request_id="AIR-planner", claim_id="CL-planner",
+                                     detection={"signature": "claude_usage_limit_notice"})
+            standing = record_provider_cooldown(
+                self.tools_root, provider="anthropic", model="opus", cooldown_seconds=900,
+                request_id=argv[2], claim_id=argv[argv.index("--claim-id") + 1],
+                detection={"signature": "claude_usage_limit_notice"})
+            self.assertEqual(standing["details"]["claim_id"], "CL-planner", "the standing row, not a new one")
+            return _CapturedSubprocess(returncode=1, stderr="claude_credit_exhausted: provider='anthropic'")
+
+        with patch("aria_kernel.worker_dispatch_hook.subprocess.run", child_runs_into_a_standing_cooldown):
+            result = dispatch_one_pending_worker_assignment(
+                base_dir=self.tools_root, agent_id="daemon:test:3",
+                github_adapter=MagicMock(name="github_adapter"),
+            )
+        self.assertEqual(result["status"], "provider_cooldown")
+        self.assertEqual(result["provider_cooldown"]["cooldown_claim_id"], "CL-planner")
+        self.assertEqual(len([row for row in self._governance() if row["kind"] == PROVIDER_COOLDOWN_GOVERNANCE_KIND]), 1)
 
 
 class _FakeSleep:

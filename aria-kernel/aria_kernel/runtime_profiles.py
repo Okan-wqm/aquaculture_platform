@@ -34,6 +34,7 @@ from __future__ import annotations
 import re
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -215,6 +216,135 @@ def profile_by_id(profile_id: str, *, path: str | Path | None = None) -> Runtime
         raise GovernanceError(f"runtime_profile_unknown:{profile_id}") from exc
 
 
+# ---------------------------------------------------------------------------
+# ARIA-HIGH-290 — provider routing (operator decision 2026-10-02). The ONE
+# statement of which vendor a role runs on: `provider_routing` in this file,
+# beside the envelopes, under the same READONLY_PATHS + authority-hash guard.
+# A role names a ladder (or, for a role whose seats are distinct agents, one
+# ladder per seat); a ladder lists fleet providers in the order the native
+# admission tries them, so its second rung is the automatic failover.
+# `suspended_providers` removes a provider from every ladder in one edit. A
+# profile's `model` is the tier its seat runs at on the vendor that serves
+# that model; on any other vendor the seat runs that vendor's model
+# (`model_fleet.route_model`).
+# ---------------------------------------------------------------------------
+PROVIDER_ROUTING_KEY = "provider_routing"
+PROVIDER_ROUTING_SCHEMA_VERSION = 1
+_ROUTING_KEYS: frozenset[str] = frozenset({"_doc", "schema_version", "suspended_providers", "ladders", "roles"})
+# The vendor-diversity guard: the seats a decision compares must not share a
+# vendor while both their lead vendors are available. The loader refuses a
+# table whose pair is led by one vendor, and the admission runs each seat on
+# the first eligible rung of its ladder, so with both lead vendors eligible
+# the two seats differ; with one of them cooled, suspended or logged out,
+# both run on the vendor that is left (the operator's failover). A kernel
+# invariant, not routing data: the table chooses which vendor leads each
+# seat, never that both seats share one.
+INDEPENDENCE_PAIRS: tuple[tuple[str, str], ...] = (
+    ("primary_plan", "challenger_plan"),
+    ("primary_authoring", "challenger_authoring"),
+    ("evidence_judgment", "adversarial_judgment"),
+)
+# Roles whose seats hold write tools: their ladders may name only providers
+# whose runtime can write (`model_fleet.Provider.admits_writes`).
+WRITE_SCOPE_ROLES: frozenset[str] = frozenset({"implementation"})
+
+
+@dataclass(frozen=True)
+class ProviderRouting:
+    suspended_providers: tuple[str, ...]
+    ladders: Mapping[str, tuple[str, ...]]
+    roles: Mapping[str, str | Mapping[str, str]]
+
+    def ladder_for(self, role: str, target_agent: str, *, include_suspended: bool = False) -> tuple[str, ...]:
+        """The providers a seat tries, in order; suspended ones removed unless asked for."""
+        entry = self.roles.get(role)
+        if entry is None:
+            raise GovernanceError(f"provider_routing_role_unrouted:{role}")
+        name = entry if isinstance(entry, str) else entry.get(target_agent)
+        if name is None:
+            raise GovernanceError(f"provider_routing_target_unrouted:{role}:{target_agent}")
+        return tuple(provider for provider in self.ladders[name]
+                     if include_suspended or provider not in self.suspended_providers)
+
+
+def _validate_routing(raw: Any) -> ProviderRouting:
+    """The routing block, or a refusal naming the first rule it breaks."""
+    from .agent_surface import DISPATCHABLE_ROLES, ROLE_TARGET_PAIRING
+    from .model_fleet import _FLEET, provider_admits_writes
+
+    fleet = {provider.key for provider in _FLEET}
+    if (not isinstance(raw, dict) or set(raw) - _ROUTING_KEYS
+            or raw.get("schema_version") != PROVIDER_ROUTING_SCHEMA_VERSION):
+        raise GovernanceError("provider_routing_shape")
+    suspended = raw.get("suspended_providers")
+    if (not isinstance(suspended, list) or len(set(suspended)) != len(suspended)
+            or any(provider not in fleet for provider in suspended)):
+        raise GovernanceError(f"provider_routing_suspended:{suspended!r}")
+    ladders_raw, roles_raw = raw.get("ladders"), raw.get("roles")
+    if not isinstance(ladders_raw, dict) or not isinstance(roles_raw, dict):
+        raise GovernanceError("provider_routing_shape")
+    ladders: dict[str, tuple[str, ...]] = {}
+    for name, ladder in ladders_raw.items():
+        if (not isinstance(ladder, list) or not ladder or len(set(ladder)) != len(ladder)
+                or any(provider not in fleet for provider in ladder)):
+            raise GovernanceError(f"provider_routing_ladder:{name}:{ladder!r}")
+        ladders[name] = tuple(ladder)
+    if set(roles_raw) != set(DISPATCHABLE_ROLES):
+        raise GovernanceError(f"provider_routing_roles:missing={sorted(set(DISPATCHABLE_ROLES) - set(roles_raw))}"
+                              f":extra={sorted(set(roles_raw) - set(DISPATCHABLE_ROLES))}")
+    roles: dict[str, str | dict[str, str]] = {}
+    for role, entry in roles_raw.items():
+        if isinstance(entry, dict) and set(entry) != set(ROLE_TARGET_PAIRING.get(role, ())):
+            raise GovernanceError(f"provider_routing_targets:{role}:{sorted(entry)}")
+        names = [entry] if isinstance(entry, str) else list(entry.values()) if isinstance(entry, dict) else [None]
+        if any(name not in ladders for name in names):
+            raise GovernanceError(f"provider_routing_role_ladder:{role}:{entry!r}")
+        if role in WRITE_SCOPE_ROLES and not all(provider_admits_writes(p) for n in names for p in ladders[n]):
+            raise GovernanceError(f"provider_routing_write_scope:{role}")
+        roles[role] = entry if isinstance(entry, str) else dict(entry)
+    for first, second in INDEPENDENCE_PAIRS:
+        seats = (roles[first], roles[second])
+        if not all(isinstance(seat, str) for seat in seats) or ladders[seats[0]][0] == ladders[seats[1]][0]:
+            raise GovernanceError(f"provider_routing_independence:{first}:{second}")
+    return ProviderRouting(suspended_providers=tuple(suspended), ladders=ladders, roles=roles)
+
+
+@lru_cache(maxsize=4)
+def _routing_cached(path_str: str) -> ProviderRouting:
+    try:
+        raw = json.loads(Path(path_str).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise GovernanceError(f"runtime_profiles_unreadable:{path_str}:{type(exc).__name__}") from exc
+    if not isinstance(raw, dict) or raw.get("$schema") != RUNTIME_PROFILES_SCHEMA:
+        raise GovernanceError("runtime_profiles_schema")
+    return _validate_routing(raw.get(PROVIDER_ROUTING_KEY))
+
+
+def load_provider_routing(path: str | Path | None = None) -> ProviderRouting:
+    """The validated routing table (refuses by name; a half-valid table never loads)."""
+    return _routing_cached(str(Path(path) if path else profiles_path()))
+
+
+def routed_models(
+    role: str, target_agent: str, *, profile_model: str, write_capable: bool,
+    environ: Mapping[str, str], runtimes: tuple[str, ...],
+) -> tuple[str, ...]:
+    """The models the SPAWN lane tries for a seat, in its ladder's order.
+
+    The spawn lane (no native admission) runs the first and retries ONCE on
+    the next for an auth failure; `runtimes` is what its wrapper can run,
+    and a write-scope seat keeps only write-capable rungs.
+    """
+    from .model_fleet import _FLEET, route_model
+
+    rows = {provider.key: provider for provider in _FLEET}
+    return tuple(
+        route_model(rows[key], profile_model, environ)
+        for key in load_provider_routing().ladder_for(role, target_agent)
+        if rows[key].runtime_hint in runtimes and (rows[key].admits_writes or not write_capable)
+    )
+
+
 def disallowed_tools_for(profile: RuntimeProfile) -> tuple[str, ...]:
     """The ``--disallowedTools`` list a spawn under ``profile`` carries.
 
@@ -288,6 +418,12 @@ __all__ = [
     "ALWAYS_DENIED_TOOLS",
     "CLAUDE_TOOL_UNIVERSE",
     "EXTERNAL_WRITE_DENY_RULES",
+    "INDEPENDENCE_PAIRS",
+    "PROVIDER_ROUTING_KEY",
+    "ProviderRouting",
+    "WRITE_SCOPE_ROLES",
+    "load_provider_routing",
+    "routed_models",
     "RUNTIME_PROFILES_SCHEMA",
     "RUNTIME_PROFILE_FRONTMATTER_KEY",
     "RuntimeProfile",

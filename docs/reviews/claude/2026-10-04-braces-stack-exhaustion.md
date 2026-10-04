@@ -131,3 +131,67 @@ Every published version of those packages still reaches braces.
 floors in the manifest and in every lock copy: `@nestjs/graphql` ≥ 13.4.5
 (declared `^13.4.5`), `http-cache-semantics` ≥ 4.3.0 and `@fastify/busboy` ≥
 3.2.1. The last two are lock-only, like `engine.io`.
+
+## SUPPLY-HIGH-017 — braces in dev and build tooling: reviewed exception until 2026-11-03
+
+After SUPPLY-HIGH-016 every remaining path is GHSA-vfj7-8cjw-p6xm in a full
+leg: `root-full` 16 packages, `aquamobil-full` 5, `e2e-full` 29. No production
+leg reaches braces.
+
+### What an attacker needs
+
+The crash needs a deeply nested brace _pattern_ to reach `braces`: the pattern
+argument of micromatch, fast-glob, globby, chokidar/anymatch, or braces itself.
+The strings matched against a pattern (file paths, stack frames) are not brace
+expanded. So the question for each path is where its patterns come from.
+
+| path (leg)                                                                                                                                                       | where the patterns come from                                                                                                                               | what removes it                                                                                                                                                                                                                                                      |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@graphql-codegen/cli` 7.1.2 → micromatch; `@graphql-tools/{code,graphql,json}-file-loader` → globby 11; `git-loader` → micromatch; `graphql-config` (root-full) | `codegen.ts` (`schema`, `documents`), run by `npm run codegen` / `codegen:check` locally and in CI                                                         | no release: `@graphql-codegen/cli` 7.4.3 (latest) declares `micromatch ^4.0.5`; the latest loaders (code-file 8.1.41, graphql-file 8.1.22, json-file 8.0.36) declare `globby ^11.0.3`, git-loader 8.0.44 `micromatch ^4.0.8`. npm's proposal is a downgrade to 3.2.0 |
+| `tsc-alias` 1.8.17 → chokidar 3.6.0, globby 11.1.0 (root-full)                                                                                                   | `tools/build/build-service.sh:22`, `-p apps/<svc>/tsconfig.build.json`; image builder stage only, the runtime stage installs `--omit=dev`                  | no release: 1.9.7 (latest) declares `chokidar ^3.5.3`, `globby ^11.0.4`; npm's proposal is a downgrade to 1.0.11                                                                                                                                                     |
+| `@nx/react` 22.7.8, `@nx/module-federation` → `http-proxy-middleware` 3.0.7 → micromatch (root-full)                                                             | the proxy options of nx's React and module-federation dev-server executors; no project or `nx.json` plugin references `@nx/react`, so nothing invokes them | no release: http-proxy-middleware 3.0.7 (v3-latest) and 4.2.0 (latest) declare `micromatch ^4.0.8`; npm's proposal is `@nx/react` 19.6.7 (downgrade). Same nx line as SUPPLY-HIGH-011/012                                                                            |
+| `tailwindcss` 3.4.19 → chokidar 3, fast-glob, micromatch (root-full through the aquamobil workspace; aquamobil-full)                                             | `web/apps/aquamobil/tailwind.config.js` `content`; Vite build stage, the output is static CSS                                                              | semver-major: tailwindcss 4 (3.4.19 is the `v3-lts` tag)                                                                                                                                                                                                             |
+| `jest` 29.7.0 tree, 29 packages (e2e-full)                                                                                                                       | `e2e/jest.config.ts` (`testMatch`) and CLI arguments from `e2e/package.json` scripts                                                                       | semver-major: jest ^30.5.2 with `@types/jest` 30, the release the root runs after SUPPLY-HIGH-016 (`ts-jest ^29.4.12` already accepts jest 30)                                                                                                                       |
+
+Every pattern on these paths is committed configuration or a command line in
+a script or workflow. A party that can change one can already run code in the
+same job: `codegen.ts`, `jest.config.ts` and `tailwind.config.js` are modules
+the tool executes. The worst outcome is a crashed tooling process (a CI job,
+a build stage, a dev server), not a service. No path is in a runtime image.
+
+Overrides are no way out. braces has no patched version to override to, and
+moving micromatch, fast-glob, globby or chokidar outside the range each parent
+declares (globby 12+ is ESM-only, chokidar 4 removed glob support) breaks
+those parents and is not taken.
+
+### The exception
+
+`scripts/ci/npm-audit-exceptions.json` → `GHSA-vfj7-8cjw-p6xm`: owner `claude`,
+expires 2026-11-03, finding SUPPLY-HIGH-017, scopes `root-full`,
+`aquamobil-full` and `e2e-full`, and the 43 packages the three legs report.
+No production scope is named. `MAX_EXCEPTIONS` in
+`tests/invariants/npm-audit-exception-ssot.spec.ts` goes from 2 to 3 in the
+same commit.
+
+Known limit of the schema: `packages` is one list for all of an entry's
+scopes. The jest names are excepted in `root-full` too, although the root jest
+graph left braces in SUPPLY-HIGH-016. A regression of root jest to a
+micromatch-carrying release would not turn `root-full` red while this entry
+lives. The root pins jest, jest-util and jest-environment-node exactly, so
+such a regression is a reviewed manifest change.
+
+### Plan, owner `claude`, deadline 2026-11-03
+
+1. `e2e/`: jest ^29.7.0 → ^30.5.2 and `@types/jest` ^29 → 30. This removes
+   all 29 `e2e-full` packages.
+2. `web/apps/aquamobil/`: tailwindcss 3 → 4 (CSS-first config, the Vite
+   plugin). This removes the `aquamobil-full` leg's 5 packages and tailwindcss,
+   chokidar 3 and fast-glob from `root-full`.
+3. Re-check upstream for `@graphql-codegen/cli` and the `@graphql-tools`
+   loaders, `tsc-alias` and `http-proxy-middleware`, and for a patched braces,
+   which clears every path at once. `@nx/react` is referenced by no project
+   or `nx.json` plugin; whether it stays is part of the nx migration that
+   SUPPLY-HIGH-011/012 track.
+4. Drop each package from the entry as its path goes; delete the entry and
+   lower the ratchet when the list is empty. On 2026-11-03 the gate fails
+   closed and the argument has to be made again.

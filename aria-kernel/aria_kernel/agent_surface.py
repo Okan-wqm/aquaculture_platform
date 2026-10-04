@@ -23,8 +23,13 @@ REQUEST_ROLES: tuple[str, ...] = (
     "completeness_critique",
     "implementation",
     "verification",
-    "gap_finding",
-    "gap_closure",
+    # `gap_finding` — REMOVED (program rev3.1): no kernel path ever minted it;
+    # the acceptance-lane gap hunt it named is an operator-driven dispatch
+    # outside the kernel. Blind enumeration (K42) re-adds a role only when its
+    # evidence trigger fires. Pinned by tests/test_role_hygiene_e14.py.
+    # `gap_closure` — REMOVED for the same reason (ORPHAN-MEDIUM-836): the
+    # executor twin of `implementation`, budgeted and never minted; the
+    # acceptance-lane gap closer is likewise an operator-driven dispatch.
     "maintenance_utility",
     "primary_authoring",
     "challenger_authoring",
@@ -84,6 +89,18 @@ DISPATCHABLE_ROLES: FrozenSet[str] = frozenset({
     # is minted but can never be claimed, are the same defect from opposite
     # ends, and this repository has now closed nineteen of them.
     "verification",
+    # ARIA-HIGH-344 — the twentieth. Minted by two kernel paths (the
+    # autonomy_orchestrator next-cycle queue projection and
+    # self_change_bridge) and drained by the executor's quota round since
+    # Y4 (ORPHAN-705), it was never named here because the drain spawns
+    # `ci_executor.py <request_id>` and never passes the
+    # `claim_and_dispatch_one` gate this set guards. The provider routing
+    # table (ARIA-HIGH-290) is validated against THIS set, so the role was
+    # left unrouted and every drained request died in admission
+    # (`provider_routing_role_unrouted:maintenance_utility`, executor runs
+    # 37192561282 and 37205463513). `ci_executor_drain` now refuses to load
+    # an arc naming a role outside this set.
+    "maintenance_utility",
 })
 
 DRAFTER_ROLES: FrozenSet[str] = frozenset({
@@ -163,6 +180,12 @@ ROLE_TARGET_PAIRING: dict[str, tuple[str, ...]] = {
     "verification": ("aria-adversarial-judge",),
     "change_intelligence": ("aria-change-intelligence",),
     "goldset_curation": ("aria-goldset-curator",),
+    # The one agent both maintenance_utility minters address
+    # (autonomy_orchestrator's queue projection and
+    # self_change_bridge.SELF_CHANGE_TARGET_AGENT): read-only and
+    # kernel-envelope only, so a queue item or a self-change PROPOSAL can
+    # never be served by an agent that holds write tools.
+    "maintenance_utility": ("aria-autonomy-planner",),
 }
 
 DERIVED_REQUEST_STATES: tuple[str, ...] = (

@@ -1,7 +1,7 @@
 {
   "$schema": "aria/runtime-profiles/v1",
   "schema_version": 1,
-  "_doc": "Plan 032 Faz 032b — kernel-owned runtime profiles. This file is the AUTHORITY for what an ARIA agent may run as: model tier, effort, Claude tools, write scope, environment passthrough, external-write permission, per-run budget and concurrency. Agent markdown under .claude/agents/ REFERENCES a profile by id (`runtime_profile:`) and MIRRORS model/effort/tools for the Claude Code loader; a mirror that disagrees with this file fails validation, and this file lives under READONLY_PATHS + the authority hash, so an agent cannot widen its own envelope by editing prose it can reach. Operator decision 2026-09-12: the fable tier is not selected by any profile — decision nodes run on opus; MODEL_TIER_ORDER keeps the name so the tier-protection ordering stays defined; no ladder selects it (every tier is a credit leaf — an exhausted provider is requeued under its cooldown, never downgraded).",
+  "_doc": "Plan 032 Faz 032b — kernel-owned runtime profiles. This file is the AUTHORITY for what an ARIA agent may run as: model tier, effort, Claude tools, write scope, environment passthrough, external-write permission, per-run budget and concurrency. Agent markdown under .claude/agents/ REFERENCES a profile by id (`runtime_profile:`) and MIRRORS model/effort/tools for the Claude Code loader; a mirror that disagrees with this file fails validation, and this file lives under READONLY_PATHS + the authority hash, so an agent cannot widen its own envelope by editing prose it can reach. Operator decision 2026-09-12: the fable tier is not selected by any profile — decision nodes run on opus; MODEL_TIER_ORDER keeps the name so the tier-protection ordering stays defined; no ladder selects it (every tier is a credit leaf — an exhausted provider is requeued under its cooldown, never downgraded). ARIA-HIGH-290 (operator decision 2026-10-02): which VENDOR a role runs on is `provider_routing` below, not a profile's `model`; a profile's `model` is the tier its seat runs at on the vendor that serves that model, and on any other vendor the seat runs that vendor's model (model_fleet.route_model).",
   "profiles": {
     "planner": {
       "description": "Read-only planning and drafting on the most capable tier.",
@@ -98,6 +98,38 @@
       "budget_usd_per_run": 0.5,
       "max_concurrent": 1,
       "mcp_servers": ["aria"]
+    }
+  },
+  "provider_routing": {
+    "_doc": "ARIA-HIGH-290 - THE provider routing table (operator decision 2026-10-02). Each dispatchable role names a ladder (human_required_adjudication names one per panel seat); a ladder lists fleet providers in the order the native admission tries them: the first eligible one runs, and a cooled (quota or auth), logged-out or refused provider is passed by name, so a ladder's second rung is its automatic failover. Z.ai glm-5.3 leads the high-volume roles and the adversarial judge; Claude leads the primary planner, the implementer, the evidence judge and the arbiter. suspended_providers removes a provider from every ladder: [\"anthropic\"] routes every read-only role to Z.ai in one edit, and the implementation ladder then has no rung (it waits by name; Z.ai and Codex have no write-capable runtime). Validated at load by runtime_profiles._validate_routing: every dispatchable role routed exactly once, ladders of distinct fleet providers, write-scope roles on write-admitting providers only, and each independence pair (primary and challenger planner, primary and challenger drafter, evidence and adversarial judge) led by different vendors, so the pair runs on two vendors whenever both lead vendors are available and on the one left when either is out.",
+    "schema_version": 1,
+    "suspended_providers": [],
+    "ladders": {
+      "claude_first": ["anthropic", "zai", "openai"],
+      "glm_first": ["zai", "anthropic", "openai"],
+      "claude_writer": ["anthropic"]
+    },
+    "roles": {
+      "primary_plan": "claude_first",
+      "challenger_plan": "glm_first",
+      "cross_review": "glm_first",
+      "completeness_critique": "glm_first",
+      "implementation": "claude_writer",
+      "primary_authoring": "claude_first",
+      "challenger_authoring": "glm_first",
+      "evidence_judgment": "claude_first",
+      "adversarial_judgment": "glm_first",
+      "consensus_arbitration": "claude_first",
+      "verification": "glm_first",
+      "change_intelligence": "glm_first",
+      "goldset_curation": "glm_first",
+      "maintenance_utility": "glm_first",
+      "specialist_domain_review": "claude_first",
+      "human_required_adjudication": {
+        "aria-evidence-judge": "claude_first",
+        "aria-adversarial-judge": "glm_first",
+        "aria-consensus-arbiter": "claude_first"
+      }
     }
   }
 }

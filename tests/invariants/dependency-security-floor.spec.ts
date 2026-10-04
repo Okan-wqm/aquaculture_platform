@@ -60,10 +60,22 @@ const ROOT_SECURITY_FLOORS = {
   'fast-uri': '3.1.8',
   // GHSA-m9gg-hp2v-232j, GHSA-f596-whhp-79r4 (1.14.x line fixed in 1.14.5).
   '@grpc/grpc-js': '1.14.5',
+  // GHSA-xjh9-v7x6-24jw, GHSA-x8mw-p69m-v3mx (fixed in 3.2.1; SUPPLY-HIGH-016).
+  // Codegen tooling only, through @whatwg-node/node-fetch's `^3.1.1`.
+  '@fastify/busboy': '3.2.1',
+  // GHSA-ch52-4w7c-c8xp covers every release through 4.2.0; 4.3.0 is the first
+  // outside it (SUPPLY-HIGH-016). Production: @apollo/gateway ->
+  // make-fetch-happen `^4.1.1`, so the lock is the only place this floor lives.
+  'http-cache-semantics': '4.3.0',
   // GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc.
   'ip-address': '10.5.1',
   // GHSA-3pph-fpjx-jg34.
   multer: '2.4.0',
+  // 13.4.5 globs type paths with tinyglobby instead of fast-glob, which takes
+  // fast-glob -> micromatch -> braces (GHSA-vfj7-8cjw-p6xm, no patched braces
+  // release exists) out of the production graph (SUPPLY-HIGH-016).
+  // @nestjs/apollo deep-imports @nestjs/graphql internals and moves with it.
+  '@nestjs/graphql': '13.4.5',
   // GHSA-m8vh-jmq9-5rjg (fixed in 11.2.4) + GHSA-96h4-vgxj-gvm2 (11.2.5). The
   // whole Nest lockstep family moves with it; see NEST_LOCKSTEP_PACKAGES.
   '@nestjs/microservices': '11.2.5',
@@ -100,6 +112,7 @@ const ROOT_FLOOR_DECLARATIONS: readonly RootFloorDeclaration[] = [
   { dependency: 'ip-address', field: 'overrides' },
   { dependency: 'multer', field: 'overrides' },
   { dependency: 'multer', field: 'dependencies' },
+  { dependency: '@nestjs/graphql', field: 'dependencies' },
   { dependency: '@nestjs/microservices', field: 'dependencies' },
   { dependency: 'nodemailer', field: 'dependencies' },
   { dependency: 'piscina', field: 'dependencies' },

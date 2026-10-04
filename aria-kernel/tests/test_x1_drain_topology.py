@@ -56,9 +56,9 @@ class DrainTopologyPins(unittest.TestCase):
         arc = tuple(ci_executor_drain._ROLE_QUOTA_ORDER)
         # Every dispatchable role has an explicit place in the arc — a role
         # added to the vocabulary without a consumer is the judged_judges=0
-        # defect class. maintenance_utility is minted by the autonomy
-        # orchestrator without joining DISPATCHABLE_ROLES; it rides the arc
-        # by name.
+        # defect class. The converse holds too (ARIA-HIGH-344): every arc
+        # role is dispatchable, so the routing table — validated against
+        # DISPATCHABLE_ROLES — routes everything the arc can reach.
         for role in DISPATCHABLE_ROLES:
             if role in ("primary_authoring", "challenger_authoring"):
                 # drafter roles are consumed by the skill-genesis lane,
@@ -66,6 +66,7 @@ class DrainTopologyPins(unittest.TestCase):
                 continue
             self.assertIn(role, arc)
         self.assertIn("maintenance_utility", arc)
+        self.assertEqual(sorted(set(arc) - DISPATCHABLE_ROLES), [])
         # Planning lane opens the arc; judges sit right behind it, ahead of
         # the arbitration that depends on their verdicts.
         self.assertEqual(arc[0], "implementation")

@@ -72,6 +72,7 @@ _PROFILE_SURFACE_BY_NAME: dict[str, str] = {
     "memory_contradictions": "observation",
     "memory_calibration": "observation",
     "memory_learning_events": "observation",
+    "memory_procedural": "observation",
     "goldset_proposals": "observation",
     "pressure_artifacts": "observation",
     "pressure_log": "observation",
@@ -580,6 +581,9 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("memory_contradictions", "memory/contradictions.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
     StateSurface("memory_calibration", "memory/calibration.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
     StateSurface("memory_learning_events", "memory/learning-events.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
+    # ARIA-HIGH-285 — procedural memory (agent_eval `performance_observed`), declared exactly
+    # like the ledgers above; tests/test_agent_eval_real_mode.py pins the equality (K2 `memory`).
+    StateSurface("memory_procedural", "memory/procedural.jsonl", "ledger", "memory", "runtime", True, "append_fsync", True, memory=True),
     StateSurface("goldset_proposals", "goldsets/proposals.jsonl", "ledger", "goldset", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("pressure_artifacts", "pressure/*.json", "artifact", "pressure", "runtime", True, "rewrite_fsync", True),
     StateSurface("pressure_log", "pressure/pressure-log.jsonl", "ledger", "pressure", "runtime", True, "append_fsync", True),

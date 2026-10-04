@@ -117,7 +117,7 @@ def _drain(queue, child_results, env=None, tmp=None):
         # shared-checkout lane keeps every subprocess a next-pending or a
         # child. Worktree provisioning: test_executor_request_worktree.py.
         ci_executor_drain, "_executor_policy",
-        return_value={"max_concurrent": 1, "worktree_per_request": False},
+        return_value={"max_concurrent": 1, "worktree_per_request": False, "surplus_after_planning_turn": 0},
     ):
         rc = ci_executor_drain.drain_pending(
             tools_dir=out_dir / "aria-tools", repo_root=_REPO_ROOT
@@ -513,7 +513,7 @@ class DrainJudgeBatchTests(unittest.TestCase):
         with patch.dict(os.environ, env_vars), patch.object(
             ci_executor_drain.subprocess, "run", side_effect=fake_run,
         ), patch.object(
-            ci_executor_drain, "_executor_policy", return_value={"max_concurrent": 1, "worktree_per_request": False},
+            ci_executor_drain, "_executor_policy", return_value={"max_concurrent": 1, "worktree_per_request": False, "surplus_after_planning_turn": 0},
         ), patch.object(
             ci_executor_drain, "_judge_batch_policy", return_value=(batch_size, ("zai",)),
         ), patch.object(

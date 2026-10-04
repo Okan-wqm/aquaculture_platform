@@ -9,7 +9,7 @@ fixture suite, C4-c recorded the prefix chain up to DRAFT, and there
 the arc stopped: DRAFT → REAL_SANDBOX → SHADOW stayed structurally
 unreachable because no writer joined the invocation ledgers
 (requests/claims/contexts/prompts/results/transcripts) to
-`run_agent_eval(mock_mode=False)` and `record_transition`.
+`run_agent_eval` and `record_transition`.
 
 WHAT it does: given one completed invocation, it resolves the REAL
 ledger rows, builds the 8 refs via `ledger_refs.ledger_ref_for_row`
@@ -245,7 +245,6 @@ def bridge_shadow_eval_from_invocation(
         fixture_id=fixture_id,
         base_dir=base_dir,
         repo_root=repo_root,
-        mock_mode=False,
         real_response_envelope=envelope,
         invocation_id=invocation_id,
         transcript_hash=transcript_hash,

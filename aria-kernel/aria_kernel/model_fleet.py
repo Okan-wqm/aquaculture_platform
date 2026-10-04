@@ -1,12 +1,11 @@
 """ARIA's provider fleet and the mixed-model dispatch policy.
 
 Operator requirement (2026-08-29): agents must NOT all run on one model.
-When two or more providers are available, roles are deliberately STRIPED
-across them so judges and discussants actually talk ACROSS models — the
-two-distinct-model anchor exists precisely to reward that. When only one
-provider is up (a subscription can be absent at any time, ARIA-HIGH-023),
-every role runs on it: homogeneity under scarcity is honest, and the
-cross-provider failover ladder keeps the lane alive rather than mocked.
+Which vendor leads each role is the routing table (`provider_routing` in
+`data/runtime_profiles.json`, ARIA-HIGH-290, operator decision 2026-10-02);
+the two seats of an independence pair are kept on different vendors by
+`runtime_profiles.ProviderRouting.select_provider`. When only one provider
+is up, every role runs on it: homogeneity under scarcity is honest.
 
 Provider identity is ENVIRONMENT-PROVEN, never claimed: each provider has
 a cheap, side-effect-free availability probe, and the assignment is a pure
@@ -24,6 +23,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -211,28 +211,20 @@ def available_providers(environ: dict[str, str] | None = None) -> list[Provider]
     return out
 
 
-def assign_mixed_models(
-    roles: list[str],
-    environ: dict[str, str] | None = None,
-) -> dict[str, str]:
-    """Assign each role a model so available providers are DELIBERATELY mixed.
+def route_model(provider: Provider, profile_model: str, environ: Mapping[str, str]) -> str:
+    """The model a seat runs on `provider` when its profile declares `profile_model`.
 
-    The stripe: role i goes to provider[i % n] over the available providers
-    in fleet order. With ≥2 providers this guarantees adjacent roles (the
-    judge pair, the challenger and its reviewer) land on DIFFERENT vendors —
-    the property the two-distinct-model anchor rewards and single-vendor
-    groupthink destroys. With exactly one provider every role maps to it:
-    the requirement "karışsınlar" is conditional on availability, and under
-    scarcity homogeneity is the honest assignment, not a degraded mock.
+    ARIA-HIGH-290 — one rule for the native admission and the spawn lane:
+    the managed Claude route runs the profile's own Anthropic tier (a foreign
+    tier falls back to the fleet default), Z.ai runs `provider_model` (the
+    operator's ARIA_ZAI_MODEL or glm-5.3), Codex runs its managed model.
+    Which provider a seat tries first is routing data, never this function.
     """
-    providers = available_providers(environ)
-    if not providers:
-        return {}
-    env = dict(os.environ if environ is None else environ)
-    assignment: dict[str, str] = {}
-    for index, role in enumerate(roles):
-        assignment[role] = provider_model(providers[index % len(providers)], env)
-    return assignment
+    if provider.key == "openai":
+        return "gpt-6-astra"
+    if provider.key == "anthropic" and provider_for_model(profile_model) in (None, "anthropic"):
+        return profile_model
+    return provider_model(provider, dict(environ))
 
 
 def zai_provider() -> Provider:

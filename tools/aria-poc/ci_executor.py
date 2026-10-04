@@ -3646,6 +3646,29 @@ def _invoke_native_claude(
         })
 
 
+def _native_request_evidence_refusal(request: dict[str, Any], accepted: dict[str, Any]) -> str | None:
+    """None when ``accepted`` carries exactly ``request``'s evidence, else the
+    refusal code.
+
+    ARIA-HIGH-346 — the comparison is against the kernel's projection
+    (``accepted_result_request_binding``), the same function the accepted-row
+    constructor writes through, never against the raw request fields. The
+    raw comparison read an unanchored request's ``target_sha`` as ``None``
+    and the row's as ``""`` (the kernel's spelling of "no anchor"), so every
+    accepted HUMAN_REQUIRED adjudication seat — the role minted with no
+    anchor by design — was refused here after the kernel had accepted it
+    (executor runs 37205463513, 37221168808: harness_failed=1, job red).
+    Exact for every field: an anchored request still needs its SHA, and an
+    unanchored one still needs a row bound to no anchor.
+    """
+    from aria_kernel.agent_invocations import accepted_result_request_binding
+
+    expected = accepted_result_request_binding(request)
+    if any(accepted.get(name) != value for name, value in expected.items()):
+        return "native_runtime_result_request_evidence_unavailable"
+    return None
+
+
 def _accepted_native_runtime_result(
     *, tools_dir: Path, request_id: str, claim_id: str, agent_id: str,
     session_id: str, policy_digest: str,
@@ -3664,8 +3687,9 @@ def _accepted_native_runtime_result(
     )
     if accepted is None or accepted.get("claim_id") != claim_id or accepted.get("agent_id") != agent_id:
         raise GovernanceError("native_runtime_result_acceptance_unavailable")
-    if any(accepted.get(name) != request.get(name) for name in ("target_sha", "context_hash", "prompt_hash")):
-        raise GovernanceError("native_runtime_result_request_evidence_unavailable")
+    refusal = _native_request_evidence_refusal(request, accepted)
+    if refusal is not None:
+        raise GovernanceError(refusal)
     sealed_path = invocations.resolve_output_artifact_path(tools_dir, accepted["output_path"])
     invocations._assert_submission_artifact_path_safe(tools_dir, sealed_path)
     content = invocations._read_stable_submission_artifact(sealed_path)

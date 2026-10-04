@@ -5393,8 +5393,9 @@ def _prepare_claim_submission(
         )
     assert compliance is not None
 
-    request_context_hash = str(request.get("context_hash") or "")
-    request_prompt_hash = str(request.get("prompt_hash") or "")
+    request_binding = accepted_result_request_binding(request)
+    request_context_hash = request_binding["context_hash"]
+    request_prompt_hash = request_binding["prompt_hash"]
     if not request_context_hash or not request_prompt_hash:
         raise GovernanceError("submit_claim_result_request_missing_context_prompt_binding")
     if context_hash != request_context_hash:
@@ -5430,14 +5431,14 @@ def _prepare_claim_submission(
         output_path=store_relative_artifact_path(root, sealed_output),
         output_hash=output_hash,
         envelope_evidence_hash=submitted_hash,
-        context_hash=context_hash,
-        prompt_hash=prompt_hash,
+        # The request evidence in the projection's own spelling (equal to
+        # the submitted context/prompt hashes, checked above).
+        **request_binding,
         transcript_hash=transcript_hash,
         transcript_artifact_ref=store_relative_artifact_path(
             root,
             verified_transcript_artifact,
         ),
-        target_sha=str(request.get("target_sha") or ""),
         checked_evidence_count=len(revalidation["checked_refs"]),
     )
     return {
@@ -6116,6 +6117,27 @@ def submit_claim_result(
         )
 
     return {"status": "accepted", "reasons": [], "row": persisted, "bridged": bridged}
+
+
+def accepted_result_request_binding(request: Mapping[str, Any]) -> dict[str, str]:
+    """The request evidence an accepted result row carries, spelled the way
+    the row carries it: ``target_sha``, ``context_hash``, ``prompt_hash``.
+
+    THE one projection. The accepted-row constructor writes it and every
+    reader that proves a row belongs to its request compares against it, so
+    the writer and the proof cannot disagree on how an absent field reads.
+    ARIA-HIGH-346: an unanchored request (``target_sha`` None or absent —
+    every HUMAN_REQUIRED adjudication panel seat, ORPHAN-CRITICAL-495) is
+    written as ``""`` while the executor's native reconciliation compared
+    the row against the raw ``None``, refusing every such accepted result
+    as ``native_runtime_result_request_evidence_unavailable`` (executor runs
+    37205463513, 37221168808).
+    """
+    return {
+        "target_sha": str(request.get("target_sha") or ""),
+        "context_hash": str(request.get("context_hash") or ""),
+        "prompt_hash": str(request.get("prompt_hash") or ""),
+    }
 
 
 def _build_accepted_row(

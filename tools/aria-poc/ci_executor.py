@@ -204,6 +204,9 @@ except Exception as _kernel_import_error:  # pragma: no cover - fallback keeps s
         # narrower copy is invisible, so the no-drift test is what makes the
         # duplication legitimate rather than latent.
         "verification",
+        # ARIA-HIGH-344 — the autonomy planner's queue and self-change role,
+        # minted and drained long before either set named it.
+        "maintenance_utility",
     })
     _render_invocation_prompt = None
     _fuse_prompt_envelope = None

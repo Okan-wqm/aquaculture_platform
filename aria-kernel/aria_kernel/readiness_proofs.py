@@ -567,6 +567,64 @@ def _probe_branch_rules(
 
 
 # --------------------------------------------------------------------------
+# ARIA-HIGH-342 / GSEC-HIGH-002 — the three aria/state branches are protected.
+#
+# Every compare-and-swap the state store relies on is git's fast-forward rule:
+# `publish_state` on aria/state, the cold union on aria/state-cold, the writer
+# lease and its atomic fence on aria/state-lease. A force-push or a deletion on
+# ANY of the three silently voids that guarantee, so the ruleset must name all
+# three. This is the measurement; `readiness probe-state-branch-protection`
+# runs it and exits non-zero on any uncovered branch.
+STATE_BRANCHES: tuple[str, ...] = ("aria/state", "aria/state-cold", "aria/state-lease")
+REQUIRED_STATE_BRANCH_RULES: tuple[str, ...] = ("deletion", "non_fast_forward")
+
+
+def state_branch_protection_reasons(rules_for: Any) -> list[str]:
+    """Every missing rule, as ``state_branch_unprotected:<branch>:<rule>``.
+
+    ``rules_for(branch)`` returns GitHub's ``rules/branches/<branch>`` listing
+    (the ACTIVE rules that apply to the branch, from every ruleset).
+    """
+    reasons: list[str] = []
+    for branch in STATE_BRANCHES:
+        listing = rules_for(branch)
+        present = {
+            rule.get("type") for rule in (listing if isinstance(listing, list) else [])
+            if isinstance(rule, dict)
+        }
+        reasons.extend(
+            f"state_branch_unprotected:{branch}:{rule}"
+            for rule in REQUIRED_STATE_BRANCH_RULES
+            if rule not in present
+        )
+    return reasons
+
+
+def probe_state_branch_protection(*, repo: str, gh_cli: str = "gh") -> dict[str, Any]:
+    """Measure the three state branches' active rules through the gh API."""
+    import json
+    import subprocess
+
+    def rules_for(branch: str) -> list[Any]:
+        proc = subprocess.run(
+            [gh_cli, "api", f"repos/{repo}/rules/branches/{branch}"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if proc.returncode != 0:
+            raise GovernanceError(
+                f"state_branch_rules_probe_failed:{branch}: "
+                f"{proc.stderr.strip().splitlines()[0][:200] if proc.stderr else '<empty>'}"
+            )
+        listing = json.loads(proc.stdout)
+        if not isinstance(listing, list):
+            raise GovernanceError(f"state_branch_rules_probe_failed:{branch}: listing is not a list")
+        return listing
+
+    reasons = state_branch_protection_reasons(rules_for)
+    return {"repo": repo, "branches": list(STATE_BRANCHES), "valid": not reasons, "reasons": reasons}
+
+
+# --------------------------------------------------------------------------
 # F5-d (ORPHAN-694) — remote-CAS lease proof producer.
 #
 # WHY: `acquire_remote_cas_lease` implemented full CAS semantics (epoch

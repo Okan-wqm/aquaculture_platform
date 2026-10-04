@@ -759,9 +759,11 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
         # the drain window grew to 21000 s so an implementation child has a
         # 657 s start window (the first `next-pending` alone took over 40 s
         # under load), and this cap moves with the YAML timeout it mirrors.
+        # 510 -> 570 (ARIA-HIGH-342, PR #1779 re-review R-3): the post-drain
+        # reserve prices the leased publish's preamble outside the lock.
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._EXECUTOR),
-            (510 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+            (570 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
         # 50 → 360 (operator decision 2026-08-13): the night's window is the
         # 360-minute platform ceiling. Smoke runs 1-3 proved 50 was the

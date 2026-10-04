@@ -67,7 +67,42 @@ inputs:
     required: false
     default: ''
 
+  writer-lease-ttl-minutes:
+    description: >-
+      ARIA-HIGH-342 — set by every lane that PUBLISHES aria/state, to its own
+      job `timeout-minutes` plus the leased-publish margin
+      (`state_writer_lease.PUBLISH_MARGIN_MINUTES`, GSEC-MEDIUM-003; pinned
+      by tests/test_state_single_writer.py). The action then takes the
+      aria/state writer lease
+      (branch `aria/state-lease`) BEFORE checking the store out, so no other
+      writer can publish between this restore and this lane's publish; the
+      lane releases it with ./.github/actions/release-aria-state-lease in an
+      `always()` step. Empty on read-only lanes, which take no lease. The
+      token must be able to push (contents:write), as the publish already
+      requires.
+    required: false
+    default: ''
+  writer-lease-wait-seconds:
+    description: >-
+      How long to wait for another writer's lease before YIELDING: no
+      checkout, `writer-lease=yielded`, the holder named in a warning and the
+      step summary, and every publish gate stays closed. Nothing has been
+      restored, so a yield loses no work.
+    required: false
+    default: '0'
+
 outputs:
+  writer-lease-token:
+    description: >-
+      The writer lease's capability (GSEC-MEDIUM-001), masked. A lane passes
+      it by `env:` / `with:` to its publish, merge and release steps ONLY
+      (GSEC-LOW-002); it is never written to $GITHUB_ENV.
+    value: ${{ steps.writer_lease.outputs.token }}
+  writer-lease:
+    description: >-
+      'held' when this lane took the aria/state writer lease, 'yielded' when
+      another writer kept it past the wait; empty on a read-only lane.
+    value: ${{ steps.writer_lease.outputs.writer_lease }}
   restored:
     description: >-
       'true' only when the store was checked out at a published tip. Never
@@ -120,8 +155,71 @@ runs:
           echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
         fi
 
+    # ARIA-HIGH-342 — one writer at a time, and the turn is taken BEFORE the
+    # checkout: a lease taken after it would leave the restored tip stale the
+    # moment another writer published in between, which is the 2026-10-04
+    # data loss exactly. Same credential, same step-scoped environment as the
+    # checkout below; the lease branch is pushed fast-forward-only.
+    - name: Acquire the aria/state writer lease
+      id: writer_lease
+      if: inputs.writer-lease-ttl-minutes != ''
+      shell: bash
+      env:
+        GIT_CONFIG_COUNT: ${{ steps.read_credential.outputs.count }}
+        GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
+        GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.read_credential.outputs.header }}'
+        LEASE_TTL_MINUTES: ${{ inputs.writer-lease-ttl-minutes }}
+        LEASE_WAIT_SECONDS: ${{ inputs.writer-lease-wait-seconds }}
+      run: |
+        set -uo pipefail
+        VERDICT="${RUNNER_TEMP}/aria-state-writer-lease.json"
+        TOKEN_FILE="${RUNNER_TEMP}/aria-state-writer-lease.token"
+        PYTHONPATH=aria-kernel python3 -m aria_kernel state lease acquire \
+             --repo-root . \
+             --ttl-minutes "$LEASE_TTL_MINUTES" \
+             --wait-seconds "$LEASE_WAIT_SECONDS" \
+             --token-file "$TOKEN_FILE" > "$VERDICT"
+        LEASE_EXIT=$?
+        # The capability is on disk BEFORE the push that makes it the lease's
+        # (R-2), so it is handed on whatever the exit: an acquire that died
+        # after its push still lets the always() release step free the lease
+        # by token. Masked before it is ever an output, the file gone the
+        # moment it is read, never exported to the job environment.
+        if [ -s "$TOKEN_FILE" ]; then
+          LEASE_TOKEN="$(cat "$TOKEN_FILE")"
+          echo "::add-mask::${LEASE_TOKEN}"
+          echo "token=${LEASE_TOKEN}" >> "$GITHUB_OUTPUT"
+        fi
+        rm -f "$TOKEN_FILE"
+        if [ "$LEASE_EXIT" -eq 0 ]; then
+          echo "writer_lease=held" >> "$GITHUB_OUTPUT"
+          python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); print("aria/state writer lease held:", v["lease_id"], "epoch", v["epoch"], "until", v["expires_at"])' "$VERDICT"
+        else
+          # A YIELD is exit 3 AND a verdict naming the holder — another
+          # writer's turn — and nothing else (PR #1779 re-review R-1). Exit 4
+          # (an unreadable or missing record) and every other failure are
+          # RED: one broken record must not make every writer yield green.
+          if [ "$LEASE_EXIT" -ne 3 ] || ! python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("holder") else 1)' "$VERDICT" 2>/dev/null; then
+            echo "::error::the aria/state writer lease is not usable (exit ${LEASE_EXIT}); see \`state lease status\` and \`state lease repair --reason\` (docs/runbooks/aria-state-branch-bootstrap.md)." >&2
+            head -c 4000 "$VERDICT" >&2 || true
+            exit 1
+          fi
+          # A YIELD, recorded where the operator looks: nothing was
+          # restored, so nothing this run did is lost.
+          echo "writer_lease=yielded" >> "$GITHUB_OUTPUT"
+          REASON="$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); print(v["refusal"], "| holder:", v["holder"]["owner"])' "$VERDICT")"
+          echo "::warning::aria/state writer lease yielded: ${REASON}"
+          {
+            echo '### aria/state writer lease: yielded'
+            echo '```json'
+            head -c 4000 "$VERDICT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+
     - name: Check out the aria/state store
       id: restore
+      if: inputs.writer-lease-ttl-minutes == '' || steps.writer_lease.outputs.writer_lease == 'held'
       shell: bash
       env:
         ARIA_STATE_BOOTSTRAP_ACK: ${{ inputs.bootstrap-ack }}

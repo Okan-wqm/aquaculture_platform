@@ -44,6 +44,7 @@ from aria_kernel.state_store import (
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.tools_binding import bind_tools_root
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.writer_lease import holding_writer_lease, leased_publish
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _REPO_HASH = "repohash0222"
@@ -109,7 +110,7 @@ class _TwoLanes(unittest.TestCase):
 
     def _cli_publish(self, repo: Path, store, snapshot_id: str) -> tuple[int, dict]:
         out = io.StringIO()
-        with contextlib.redirect_stdout(out):
+        with contextlib.redirect_stdout(out), holding_writer_lease(repo):
             code = cli_main([
                 "state", "publish", "--repo-root", str(repo), "--repo-hash", _REPO_HASH,
                 "--store-dir", str(store.root), "--snapshot-id", snapshot_id, "--cycle-id", snapshot_id,
@@ -118,14 +119,14 @@ class _TwoLanes(unittest.TestCase):
 
 
 class StatePublishSurvivesTheRaceTests(_TwoLanes):
-    def test_the_lane_that_lost_the_race_still_publishes_its_rows(self) -> None:
+    def test_the_lane_that_lost_the_race_is_refused_and_keeps_its_rows(self) -> None:
         # Both lanes stand on the one published aria/state tip, as every
         # workflow does. (Two stores bootstrapped before the branch exists
         # would each mint their own genesis commit: unrelated histories,
         # which is a different refusal from the race this test is about.)
         store_a = self._store(self.repo_a, "store-a")
         self._append(store_a, "cycle-seed")
-        seeded = publish_with_contention_replay(
+        seeded = leased_publish(
             store_a, snapshot_id="snap-seed", cycle_id="cycle-seed", lane="test", repo_hash=_REPO_HASH,
         )
         self.assertTrue(seeded["published"])
@@ -139,22 +140,23 @@ class StatePublishSurvivesTheRaceTests(_TwoLanes):
         self._append(store_a, "cycle-won")
         self._append(store_b, "cycle-lost-the-race")
         # Lane A pushes first; lane B's store still stands on the old tip.
-        first = publish_with_contention_replay(
+        first = leased_publish(
             store_a, snapshot_id="snap-a", cycle_id="cycle-won", lane="test", repo_hash=_REPO_HASH,
         )
         self.assertTrue(first["published"])
+        tip = _git(self.remote, "rev-parse", "refs/heads/aria/state").strip()
         code, verdict = self._cli_publish(self.repo_b, store_b, "snap-b")
-        self.assertEqual(code, 0, verdict)
-        self.assertTrue(verdict["published"], verdict)
-        self.assertGreaterEqual(verdict["attempts"], 2)
-        # Lane B's store now IS the published tip, carrying both lanes' rows.
+        # ARIA-HIGH-342 — a lane on a stale tip cannot have held the writer
+        # lease from its restore, so its publish is refused by name (exit 3,
+        # a verdict) and never replayed onto the other lane's turn; its rows
+        # stay in its store and the branch is untouched.
+        self.assertEqual(code, 3, verdict)
+        self.assertFalse(verdict["published"], verdict)
+        self.assertIn("state_writer_lease_lost", verdict["refusal"])
         cycles = [str(row["cycle_id"]) for row in read_jsonl(tools_root(store_b) / "cycles.jsonl")]
-        self.assertIn("cycle-won", cycles)
         self.assertIn("cycle-lost-the-race", cycles)
-        self.assertEqual(
-            _git(store_b.root, "rev-parse", "HEAD").strip(),
-            _git(self.remote, "rev-parse", "refs/heads/aria/state").strip(),
-        )
+        self.assertNotIn("cycle-won", cycles)
+        self.assertEqual(_git(self.remote, "rev-parse", "refs/heads/aria/state").strip(), tip)
 
     def test_a_store_with_no_new_rows_publishes_nothing(self) -> None:
         store_a = self._store(self.repo_a, "store-a")

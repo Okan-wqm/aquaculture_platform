@@ -146,6 +146,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           RUN_ID: ${{ steps.pr.outputs.run_id }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
         run: |
           set -euo pipefail
           work="${RUNNER_TEMP}/claim-evidence"
@@ -166,8 +167,18 @@ jobs:
             head: .head.sha
           }' > "${work}/pr-flat.json"
           base_sha="$(jq -r '.base.sha' < <(gh api "repos/${repo}/pulls/${PR_NUMBER}"))"
-          gh api "repos/${repo}/compare/${base_sha}...${{ steps.pr.outputs.head_sha }}" \
-            --jq '.files[].patch // empty' > "${work}/compare.patch" || true
+          # The DLP diff surface is the PR's unified diff from THIS checkout's
+          # object store — the same store produce_dlp_proof reads the head's
+          # touched files from. The compare API's per-file `patch` fields carry
+          # hunk bodies without `diff --git a/<path>` headers (and none at all
+          # for binary or oversized files), so the scope check failed
+          # dlp_diff_surface_incomplete on every claim; its `|| true` also
+          # turned an API failure into an empty, vacuous surface.
+          PYTHONPATH=aria-kernel python3 -m aria_kernel readiness build-diff-surface \
+            --workspace-root "$GITHUB_WORKSPACE" \
+            --base-sha "${base_sha}" \
+            --head-sha "${HEAD_SHA}" \
+            --output "${work}/compare.patch" | jq '{file_count, size_bytes, sha256}'
           # ORPHAN-HIGH-788 — the env key is WORK_DIR (uppercase): every
           # consumer below reads ${WORK_DIR}, and the lowercase spelling
           # died on `set -u`'s "unbound variable" the moment this lane

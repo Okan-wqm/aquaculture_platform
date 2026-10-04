@@ -937,13 +937,37 @@ def _phase_state_continuity(context: PhaseContext) -> dict[str, Any]:
     Three responsibilities, three places, one rule each.
     """
     from .memory_gap import (
+        DETACHED_TOOLS_ROOT_NOTE,
         REFERENCE_STATE_BRANCH,
         assess_memory_continuity,
         continuity_probe_roots,
+        detached_tools_root_verdict,
+        observe_burn_in_context,
         resolve_continuity_reference,
         store_is_at_published_tip,
+        tools_root_is_detached,
     )
     from .state_snapshot import build_snapshot
+
+    # ARIA-HIGH-342 / GSEC-MEDIUM-006 — a tools root outside the workspace is
+    # not the store. Only the explicit observe burn-in may act on one (it is
+    # then judged against no reference); any other cycle on such a root is a
+    # positive finding, blocking, and recovery will not rebase the real store
+    # on its behalf.
+    detached = tools_root_is_detached(Path(context.workspace_root), Path(context.base_dir))
+    if detached and not observe_burn_in_context(str(context.mode), Path(context.base_dir)):
+        blocked = detached_tools_root_verdict(Path(context.workspace_root), Path(context.base_dir))
+        return {
+            "schema_version": 1,
+            "status": blocked.status,
+            "reference_kind": blocked.reference_kind,
+            "reasons": list(blocked.reasons),
+            "notes": list(blocked.notes),
+            "lost_surfaces": [],
+            "current_manifest_root": None,
+            "reference_manifest_root": None,
+            "blocks_action": blocked.blocks_action,
+        }
 
     # The probe must walk the roots the reference COVERS. Tools-only was right
     # while every reference was an anchor stub with no surface map; against a
@@ -962,7 +986,12 @@ def _phase_state_continuity(context: PhaseContext) -> dict[str, Any]:
     # callsite spells differently. It deliberately does NOT swallow a damaged
     # store; that raise reaches this phase's `record_and_continue`, which is
     # the "failed to look" outcome rather than a quietly weaker answer.
-    reference, reference_kind = resolve_continuity_reference(Path(context.workspace_root))
+    # ARIA-HIGH-342 — the reference is the store's only when the cycle acts on
+    # the store: an observe burn-in's RUNNER_TEMP tools root is not it.
+    reference, reference_kind = resolve_continuity_reference(
+        Path(context.workspace_root),
+        base_dir=Path(context.base_dir),
+    )
 
     # Descent is decided by the transport, not by chain linkage: a probe is
     # built fresh and so has no `prev_manifest_root`, which makes the linkage
@@ -986,7 +1015,7 @@ def _phase_state_continuity(context: PhaseContext) -> dict[str, Any]:
         "status": verdict.status,
         "reference_kind": verdict.reference_kind,
         "reasons": list(verdict.reasons),
-        "notes": list(verdict.notes),
+        "notes": list(verdict.notes) + ([DETACHED_TOOLS_ROOT_NOTE] if detached else []),
         "lost_surfaces": list(verdict.lost_surfaces),
         "current_manifest_root": verdict.current_manifest_root,
         "reference_manifest_root": verdict.reference_manifest_root,

@@ -29,6 +29,80 @@
     "tmp/**"
   ],
   "claim_types": ["schema_drift"],
+  "rules": {
+    "typeorm_entity_schema_required": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "An entity that must declare its schema does not, so its table can land in public.",
+      "premises": [
+        "The cited @Entity() declares no literal schema option.",
+        "The table is not a per-tenant table that search_path routes into the tenant schema (it is cross-tenant, listed in MODULE_SCHEMAS infrastructureTables, or owned by a platform service)."
+      ]
+    },
+    "module_schema_table_missing": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "HIGH",
+      "defect_claim": "An entity's table is absent from MODULE_SCHEMAS, so schema management does not create or check it.",
+      "premises": [
+        "The cited entity maps a table the service owns.",
+        "MODULE_SCHEMAS for the service does not list the table, and no other registration covers it."
+      ]
+    },
+    "migration_registry_missing_entry": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "HIGH",
+      "defect_claim": "A migration class exists but is not registered, so it never runs.",
+      "premises": [
+        "The cited migration class is meant to run (it is not archived or superseded).",
+        "The service's migration registry does not include the class, directly or through a glob."
+      ]
+    },
+    "migration_registry_missing_file": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A registered migration has no implementation, so the migration run fails or skips it.",
+      "premises": [
+        "The service's migration registry names the cited class.",
+        "No migration file in the service declares the class."
+      ]
+    },
+    "db_snapshot_table_missing": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "An entity's table does not exist in the database schema it is deployed against.",
+      "premises": [
+        "The cited entity maps a table the service reads or writes at runtime.",
+        "The schema snapshot the finding names was taken from the database the service runs against and does not contain the table."
+      ]
+    },
+    "db_snapshot_column_missing": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "An entity column does not exist in the deployed table, so queries on it fail.",
+      "premises": [
+        "The cited entity column is mapped (not a virtual, relation-only or excluded property).",
+        "The schema snapshot the finding names was taken from the deployed database and lacks the column."
+      ]
+    },
+    "db_snapshot_uuid_type_mismatch": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "An entity declares a uuid column the database stores as another type.",
+      "premises": [
+        "The cited entity column is declared uuid.",
+        "The deployed column's type, per the named snapshot, is not uuid."
+      ]
+    },
+    "db_snapshot_nullability_mismatch": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "An entity requires a value the database column allows to be null.",
+      "premises": [
+        "The cited entity column is declared NOT NULL.",
+        "The deployed column, per the named snapshot, is nullable."
+      ]
+    }
+  },
   "owner": "platform",
   "runner": {
     "type": "subprocess",

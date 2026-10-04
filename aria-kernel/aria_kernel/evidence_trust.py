@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .canonical_path import resolve_repo_relpath
+from .canonical_path import matches_repo_glob, resolve_repo_relpath
 from .evidence_probe import BaselineResolution, GitProbeSession
 from .tool_registry import GovernanceError
 
@@ -23,6 +23,73 @@ SELF_OUTPUT_PREFIXES: tuple[str, ...] = (
     "runner-temp/",
     "tmp/",
 )
+
+# ARIA-HIGH-324/325 — ARIA's detector source: the adapters, the PoC tools and
+# the kernel that judge the product. A file here describes how a finding was
+# DETECTED, never whether the product is wrong, so it is not evidence that a
+# finding of a product-scoped tool is a product defect. A tool whose declared
+# scope is ARIA itself (kernel-dead-wire-adapter, agent-harness-security-
+# adapter) is the exception, and the exception is read off its scope.
+ARIA_DETECTOR_SOURCE_PREFIXES: tuple[str, ...] = (
+    "tools/aria-adapters/",
+    "tools/aria-poc/",
+    "aria-kernel/",
+)
+
+
+def _glob_literal_prefix(glob: str) -> str:
+    """The literal leading part of a repo glob, up to its first wildcard."""
+    cut = min((glob.find(ch) for ch in "*?[{" if ch in glob), default=len(glob))
+    return glob[:cut]
+
+
+def forbidden_detector_scope(declared_scope: Any) -> list[str]:
+    """The detector-source globs a judge of a tool with this declared scope
+    may not cite as evidence of a product defect: every ARIA detector prefix
+    the scope does not reach into."""
+    reach = [_glob_literal_prefix(str(glob)) for glob in declared_scope or ()]
+    return [
+        f"{prefix}**"
+        for prefix in ARIA_DETECTOR_SOURCE_PREFIXES
+        if not any(lit.startswith(prefix) or prefix.startswith(lit) for lit in reach)
+    ]
+
+
+# The two refusal classes ``tool_evidence_refusal`` answers with.
+ARIA_DETECTOR_SOURCE_CLASS = "aria_detector_source"
+OUTSIDE_DECLARED_SCOPE_CLASS = "outside_declared_scope"
+
+
+def tool_evidence_refusal(ref: str, *, declared_scope: Any) -> str | None:
+    """Why ``ref`` cannot stand as evidence that a finding of a tool with
+    ``declared_scope`` is a product defect; ``None`` when it can.
+
+    ARIA-HIGH-325 — F-009/F-010/F-011 were promoted on nine refs into
+    ``tools/aria-adapters/``: the judges cited the rule's own code to show
+    the rule fired. A ref inside the producing tool's declared scope is
+    admissible, so a tool scoped to ARIA itself may cite ARIA. Outside it,
+    ARIA's detector source is ``aria_detector_source`` and any other path
+    ``outside_declared_scope``. Judged on the canonical path, so
+    ``web/../tools/aria-adapters/x.ts`` is detector source. With no scope (a
+    tool the registry does not know) only the class rule can be judged.
+    """
+    path_part, _line = _split_ref(str(ref).strip())
+    try:
+        canonical: str | None = resolve_repo_relpath(path_part)
+    except GovernanceError:
+        canonical = None
+    if canonical is not None and declared_scope is not None and any(
+        matches_repo_glob(canonical, str(glob)) for glob in declared_scope
+    ):
+        return None
+    if canonical is not None and any(
+        f"{canonical}/".startswith(prefix) for prefix in ARIA_DETECTOR_SOURCE_PREFIXES
+    ):
+        return ARIA_DETECTOR_SOURCE_CLASS
+    if declared_scope is None:
+        return None
+    return OUTSIDE_DECLARED_SCOPE_CLASS
+
 
 def is_self_output_ref(ref: str) -> bool:
     """True when ``ref`` names ARIA's own output (gitignored, unresolvable at
@@ -435,6 +502,9 @@ def _git_tree_exists(
 
 
 __all__ = [
+    "ARIA_DETECTOR_SOURCE_CLASS",
+    "ARIA_DETECTOR_SOURCE_PREFIXES",
+    "OUTSIDE_DECLARED_SCOPE_CLASS",
     "EvidenceEnvelope",
     "EvidencePolicy",
     "GitProbeSession",
@@ -443,4 +513,6 @@ __all__ = [
     "is_self_output_ref",
     "parse_evidence_ref",
     "classify_evidence_ref",
+    "tool_evidence_refusal",
+    "forbidden_detector_scope",
 ]

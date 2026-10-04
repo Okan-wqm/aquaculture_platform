@@ -44,6 +44,17 @@
     "tmp/**"
   ],
   "claim_types": ["lint_rule"],
+  "rules": {
+    "*": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "The cited code has the defect the named lint rule describes.",
+      "premises": [
+        "The cited line has the behaviour the named rule's message describes, in code that runs (not a test fixture, generated file or dead branch).",
+        "The behaviour is a defect in this context: a correct program would not keep it, rather than a style preference the codebase allows."
+      ]
+    }
+  },
   "owner": "platform",
   "runner": {
     "type": "subprocess",

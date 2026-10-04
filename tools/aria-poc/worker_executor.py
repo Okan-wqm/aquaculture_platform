@@ -329,6 +329,9 @@ def main(argv: list[str] | None = None) -> int:
         completed = run_with_model_fallback(
             run=_dispatch_attempt,
             model=profile.model,
+            # A worker writes, and only the managed Claude route can host a
+            # write-scope profile (Provider.admits_writes): no failover rung.
+            failover=None,
             effort=profile.effort,
             write_capable=profile.write_capable,
             on_credit=_on_credit,

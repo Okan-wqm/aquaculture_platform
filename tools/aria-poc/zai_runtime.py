@@ -421,6 +421,21 @@ class ZaiRunResult:
         """0 for an admitted completion; 1 otherwise. Mirrors the CLI runtimes."""
         return 0 if self.http_status == 200 and self.final_message else 1
 
+    @property
+    def exhaustion_signature(self) -> str | None:
+        """The provider-exhaustion signature this answer is, or None.
+
+        ARIA-HIGH-290 — the two Z.ai members of the kernel's closed table
+        (`aria_kernel.provider_cooldown.PROVIDER_EXHAUSTION_SIGNATURES`):
+        `_classify`'s quota refusal (HTTP 429/402, `_QUOTA_ERROR_CODES`) and
+        its auth rejection (HTTP 401/403, `_AUTH_ERROR_CODES`).
+        """
+        if self.credit_exhaustion is not None:
+            return "zai_quota_refusal"
+        if self.auth_failure is not None:
+            return "zai_auth_refusal"
+        return None
+
 
 def resolve_zai_max_tokens(environ: dict[str, str] | None = None) -> int:
     env = dict(os.environ if environ is None else environ)

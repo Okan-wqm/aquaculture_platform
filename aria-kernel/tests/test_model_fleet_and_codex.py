@@ -24,7 +24,6 @@ if str(_POC) not in sys.path:
     sys.path.insert(0, str(_POC))
 
 from aria_kernel.model_fleet import (  # noqa: E402
-    assign_mixed_models,
     available_providers,
     provider_for_model,
 )
@@ -154,59 +153,15 @@ class MixedAssignment(unittest.TestCase):
         codex_home = effective_home / ".codex"
         codex_home.mkdir()
         (codex_home / "auth.json").write_text("{}\n", encoding="utf-8")
-        roles = ["evidence_judgment", "adversarial_judgment", "consensus_arbitration"]
-        # Both the filesystem probe and its existing assignment consumer run
-        # normally. No provider-list or selection function is replaced.
+        # The filesystem probe runs normally; nothing is replaced. Which of
+        # these providers a role runs on is the routing table's question
+        # (ARIA-HIGH-290), not this probe's.
         with mock.patch("aria_kernel.model_fleet.Path.home", return_value=ambient_home):
-            assignment = assign_mixed_models(roles, environ={
-                "HOME": str(effective_home), "PATH": str(binary_dir),
-            })
-        self.assertEqual(assignment, {
-            "evidence_judgment": "opus",
-            "adversarial_judgment": "gpt-5.2-codex",
-            "consensus_arbitration": "opus",
-        })
+            providers = available_providers({"HOME": str(effective_home), "PATH": str(binary_dir)})
+        self.assertEqual([provider.key for provider in providers], ["anthropic", "openai"])
 
-    def test_two_providers_stripe_roles_across_vendors(self) -> None:
-        # Simulate both claude+codex binaries present by injecting them via
-        # PATH built by available_providers is binary-gated; test the pure
-        # assignment function through its provider list seam instead.
-        from aria_kernel import model_fleet
-
-        providers = [
-            p for p in model_fleet._FLEET if p.key in ("anthropic", "openai")
-        ]
-        original = model_fleet.available_providers
-        model_fleet.available_providers = lambda env=None: providers  # type: ignore[assignment]
-        try:
-            roles = ["evidence_judgment", "adversarial_judgment", "consensus_arbitration"]
-            assignment = assign_mixed_models(roles)
-        finally:
-            model_fleet.available_providers = original  # type: ignore[assignment]
-        # Adjacent roles NEVER share a vendor when >=2 providers exist —
-        # the anti-groupthink property the operator asked for.
-        self.assertEqual(assignment["evidence_judgment"], "opus")
-        self.assertEqual(assignment["adversarial_judgment"], "gpt-5.2-codex")
-        self.assertEqual(assignment["consensus_arbitration"], "opus")
-        self.assertNotEqual(
-            assignment["evidence_judgment"],
-            assignment["adversarial_judgment"],
-        )
-
-    def test_single_provider_runs_everything_on_it(self) -> None:
-        from aria_kernel import model_fleet
-
-        providers = [p for p in model_fleet._FLEET if p.key == "zai"]
-        original = model_fleet.available_providers
-        model_fleet.available_providers = lambda env=None: providers  # type: ignore[assignment]
-        try:
-            assignment = assign_mixed_models(["a", "b", "c", "d"])
-        finally:
-            model_fleet.available_providers = original  # type: ignore[assignment]
-        self.assertEqual(set(assignment.values()), {"glm-5.3"})
-
-    def test_no_providers_assign_nothing(self) -> None:
-        self.assertEqual(assign_mixed_models(["a"], environ={"PATH": _EMPTY_PATH_DIR}), {})
+    def test_no_providers_are_available_without_binaries_or_credentials(self) -> None:
+        self.assertEqual(available_providers({"PATH": _EMPTY_PATH_DIR}), [])
 
     def test_provider_for_model_mapping(self) -> None:
         self.assertEqual(provider_for_model("opus"), "anthropic")
@@ -695,13 +650,6 @@ class CodexBridge(unittest.TestCase):
             ("zai", "glm-5.3", "zai", "ARIA_ZAI_API_KEY"),
             ("openai", "gpt-5.2-codex", "codex", "OPENAI_API_KEY"),
         ])
-        # Only availability is simulated; the real assignment owner still
-        # stripes its original defaults. This is not a distinct-model trial.
-        with mock.patch.object(model_fleet, "available_providers", return_value=list(model_fleet._FLEET)):
-            assignment = assign_mixed_models(["judge", "reviewer", "arbiter", "scout"])
-        self.assertEqual(assignment, {
-            "judge": "opus", "reviewer": "glm-5.3", "arbiter": "gpt-5.2-codex", "scout": "opus",
-        })
 
     def test_argv_shape_is_the_pinned_contract(self) -> None:
         from codex_runtime import build_codex_argv

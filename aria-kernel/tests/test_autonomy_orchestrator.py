@@ -670,10 +670,13 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         self.assertEqual(request["target_sha"], head)
         self.assertEqual(request["plan_revision_hash"], content_hash(body))
         self.assertEqual(request["evidence_refs"], body["evidence_refs"])
-        self.assertEqual(request["allowed_scope"], fresh_seed["affected_surfaces"])
+        # ARIA-HIGH-345 — the scope is the plan's own (its started surfaces;
+        # this plan has no finding origin, so no admission bound), never the
+        # candidate the cycle synthesized beside an adopted plan.
+        self.assertEqual(request["allowed_scope"], body["affected_surfaces"])
         self.assertEqual(request["context_source_paths"], body["affected_surfaces"])
         if adopted:
-            self.assertNotEqual(request["context_source_paths"], request["allowed_scope"])
+            self.assertNotEqual(request["allowed_scope"], fresh_seed["affected_surfaces"])
         native = ai.verify_invocation_context_binding(request_id=request["request_id"], context_hash=request["context_hash"],
                                                      prompt_hash=request["prompt_hash"], base_dir=self.base)
         self.assertEqual(native["context"]["repo_root"], str(repo.resolve()))
@@ -701,7 +704,7 @@ class AutonomyOrchestratorTests(unittest.TestCase):
     def test_outer_cycle_reaches_real_challenger_with_discovery_context(self) -> None:
         self._run_with_native_planner_source(adopted=False)
 
-    def test_outer_adopted_plan_uses_recorded_body_with_unchanged_caller_scope(self) -> None:
+    def test_outer_adopted_plan_uses_recorded_body_and_its_own_scope(self) -> None:
         self._run_with_native_planner_source(adopted=True)
 
     def _run_with_real_memory(

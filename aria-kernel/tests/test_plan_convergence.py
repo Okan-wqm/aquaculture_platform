@@ -1021,9 +1021,7 @@ class PlanConvergenceTests(unittest.TestCase):
         self.assertEqual((self.tools_dir / "plans/events.jsonl").read_bytes(), before_plan)
         from aria_kernel.convergence_drainer import run_convergence_drainer
         arguments = dict(cycle_id="cyc-native-spine-drain", base_dir=self.tools_dir,
-                         workspace_root=self.root, plan_id=plan_id, plan_seed=body,
-                         must_satisfy=[{"id": "preserve-event", "description": "Preserve the actual event contract."}],
-                         evidence_refs=[source_path + ":2"], allowed_scope=[source_path, schema_path], max_rounds=5)
+                         workspace_root=self.root, plan_id=plan_id, plan_seed=body, max_rounds=5)
         outcome = run_convergence_drainer(**arguments)
         self.assertEqual(outcome["arbiter_verdict"], "in_progress", outcome)
         self.assertEqual(plan_status(plan_id=plan_id, base_dir=self.tools_dir)["state"], "CRITIQUED")

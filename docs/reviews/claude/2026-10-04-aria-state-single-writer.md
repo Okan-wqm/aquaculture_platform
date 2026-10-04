@@ -140,9 +140,9 @@ items below are the design after those fixes, with each review id where it chang
 - TTL = job timeout + the 80-minute leased-publish margin (GSEC-MEDIUM-003): executor 650,
   cycle 440, eval 105, merge-runner, readiness-claim and maintenance 95.
 - `release-aria-state-lease` is each publishing job's last step, with `if: always()` and
-  nothing else (GSEC-LOW-001). Release is idempotent. Without the token it releases only a
-  lease whose owner is this run's `writer_identity`. The executor and cycle abort gates exempt
-  exactly that step by name.
+  nothing else (GSEC-LOW-001). Release is idempotent and needs the token: there is no release
+  by identity (see "CI on PR #1779" below). The executor and cycle abort gates exempt exactly
+  that step by name.
 - `state lease repair --reason` (GSEC-HIGH-002) replaces a malformed or missing record with a
   released one as a fast-forward child, and refuses a valid held lease.
   `readiness probe-state-branch-protection` checks that deletion and non-fast-forward rules
@@ -203,7 +203,29 @@ Fixed in this PR:
   the lease branch, priced in the attempt arc.
 
 Tracked follow-ups from the re-review (owner `claude`, deadline 2026-10-18, under
-ARIA-HIGH-342), named as the re-review names them: R-2, R-5, R-7, R-8, R-9 and R-10.
+ARIA-HIGH-342), named as the re-review names them: R-5, R-7, R-8, R-9 and R-10. R-2 is fixed
+below.
+
+## CI on PR #1779 at `d38b25979`
+
+Two failures that the local runs missed:
+
+- `test_control_reachability::test_every_dormant_control_is_declared` listed
+  `require_held_writer_lease`. Since the fence moved into the orchestrator nothing called it,
+  so it is deleted, not declared dormant.
+- The headline scenario test failed only in CI, where `GITHUB_RUN_ID`, `GITHUB_WORKFLOW`,
+  `GITHUB_JOB` and `GITHUB_RUN_ATTEMPT` are set. Both fixture writers derived the same `gha:`
+  identity, and the second acquire re-entered the held lease instead of yielding. That is a
+  product defect, not only a test one: a job's identity is public, so any second process of the
+  same job could take its held lease without the token (the GSEC-MEDIUM-001 residual, and R-2).
+  - Fixed: identity re-enters nothing. Any held lease blocks every acquirer, the caller's own
+    identity included, and only the token renews (the fence).
+  - The identity-fallback release is gone (R-2). The token is written to its file before the
+    push that makes it the lease's, and the restore action emits it whatever the acquire's
+    exit, so the release step always has it.
+  - The fixtures now give every writer an explicit, distinct identity and clear inherited
+    `GITHUB_*` variables. `CiShapedIdentities` runs the scenario with CI-like variables
+    exported, so a laptop run cannot pass where CI fails.
 
 ## aria-state-maintenance
 

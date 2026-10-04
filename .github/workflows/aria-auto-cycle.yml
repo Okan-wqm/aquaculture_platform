@@ -403,8 +403,18 @@ jobs:
         uses: ./.github/actions/restore-aria-state
         with:
           bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
+          # ARIA-HIGH-342 — this job writes aria/state, so it takes the writer
+          # lease before the checkout and holds it to the release step at the
+          # end: no other lane can publish in between. The expiry is this
+          # job's own timeout-minutes plus the 80-minute leased-publish margin
+          # (GSEC-MEDIUM-003); the wait covers the hosted writers' whole
+          # bounds (at most 25 min) before the run yields by name.
+          writer-lease-ttl-minutes: '440'
+          writer-lease-wait-seconds: '1800'
       - name: Pre-flight - cross-host autonomous-loop lease check
         id: lease_check
+        env:
+          WRITER_LEASE: ${{ steps.restore_state.outputs.writer-lease }}
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 - <<'PY' 2>&1 | head -20
@@ -413,6 +423,16 @@ jobs:
           import sys
 
           from aria_kernel.autonomous_host_lease import lease_state
+
+          # ARIA-HIGH-342 — no writer lease, no store: the restore yielded
+          # (another lane is writing aria/state) and checked nothing out, so
+          # this run blocks here, before anything reads the tree.
+          if os.environ.get('WRITER_LEASE') != 'held':
+              print('::warning::aria/state writer lease not held; run yielded', file=sys.stderr)
+              with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+                  f.write('blocked=true\n')
+                  f.write('blocked_host=aria/state-writer-lease\n')
+              sys.exit(0)
 
           # os.environ[...] rather than a literal: the lease ledger lives in
           # the store, and a KeyError here is the correct outcome if the
@@ -1049,6 +1069,9 @@ jobs:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
           GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
+          # ARIA-HIGH-342 — the writer-lease capability, as a masked step
+          # output into this step only (GSEC-LOW-002).
+          ARIA_STATE_WRITER_LEASE_TOKEN: ${{ steps.restore_state.outputs.writer-lease-token }}
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
@@ -1112,3 +1135,14 @@ jobs:
         run: |
           echo "::error::ARIA state failed integrity verification; captured as quarantine-evidence-${GITHUB_RUN_ID} and NOT published to the aria/state branch." >&2
           exit 1
+
+      # ARIA-HIGH-342 — give back the aria/state writer lease the restore took.
+      # Unconditional (GSEC-LOW-001): release is idempotent, a no-op when this
+      # run yielded and holds none, and releases only by the token (kept on
+      # disk before the acquire's push; there is no release by identity). A
+      # runner that dies outright frees the branch at the expiry it set.
+      - name: Release the aria/state writer lease
+        if: always()
+        uses: ./.github/actions/release-aria-state-lease
+        with:
+          lease-token: ${{ steps.restore_state.outputs.writer-lease-token }}

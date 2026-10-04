@@ -42,6 +42,7 @@ from aria_kernel.state_store import (
     verify_state_store,
 )
 from tests.test_state_store import REPO_HASH, StateStoreTestCase, _EnvPatch, _git
+from tests._helpers.writer_lease import leased_publish
 
 
 class ContinuityGateTestCase(StateStoreTestCase):
@@ -62,7 +63,7 @@ class ContinuityGateTestCase(StateStoreTestCase):
     def _published_store(self):
         store = self._bound_store()
         self._seed_surface(store, '{"row": 1}\n')
-        result = publish_with_contention_replay(
+        result = leased_publish(
             store,
             snapshot_id="snap-1",
             cycle_id="cycle-1",
@@ -86,7 +87,7 @@ class ContinuityGateTestCase(StateStoreTestCase):
         stray = tools_root(store) / "pressure" / "hand-removed.json"
         stray.parent.mkdir(parents=True, exist_ok=True)
         stray.write_text("{}\n", encoding="utf-8")
-        result = publish_with_contention_replay(
+        result = leased_publish(
             store,
             snapshot_id="snap-with-stray",
             cycle_id="cycle-with-stray",
@@ -132,7 +133,7 @@ class AChainBrokenSnapshotNeverPublishes(ContinuityGateTestCase):
         head_before = _git(store.root, "rev-parse", "HEAD").strip()
         snapshot_before = (store.root / "snapshot.json").read_bytes()
         with self.assertRaises(StateStoreRefusal) as caught:
-            publish_state(store, snapshot=snapshot, cycle_id="cycle-2", repo_hash=REPO_HASH)
+            publish_state(store, writer_fence=None, snapshot=snapshot, cycle_id="cycle-2", repo_hash=REPO_HASH)
         message = str(caught.exception)
         self.assertIn("state_publish_continuity_chain_broken", message)
         self.assertIn("a-snapshot-this-branch-never-published", message)
@@ -172,7 +173,7 @@ class TheAcknowledgmentIsValidatedLikeTheBootstrap(ContinuityGateTestCase):
 
             follow_up = self._snapshot(store, "snap-3", cycle_id="cycle-3")
             with self.assertRaises(StateStoreRefusal) as caught:
-                publish_state(store, snapshot=follow_up, cycle_id="cycle-3", repo_hash=REPO_HASH)
+                publish_state(store, writer_fence=None, snapshot=follow_up, cycle_id="cycle-3", repo_hash=REPO_HASH)
             self.assertIn("state_publish_reduction_ack_mismatch", str(caught.exception))
         self.assertNotIn(lost, follow_up["surfaces"])
 
@@ -184,7 +185,7 @@ class TheAcknowledgmentIsValidatedLikeTheBootstrap(ContinuityGateTestCase):
             self.assertEqual(prepared.accepted_losses_recorded, ())
             with self.assertRaises(StateStoreRefusal) as caught:
                 publish_state(
-                    store,
+                    store, writer_fence=None,
                     snapshot=prepared.snapshot,
                     cycle_id="cycle-3",
                     repo_hash=REPO_HASH,
@@ -202,7 +203,7 @@ class AnAcceptedReductionIsRecordedInsideThePublish(ContinuityGateTestCase):
         base_rows = len(self._committed_governance_rows(store))
 
         with _EnvPatch({BOOTSTRAP_ACK_ENV: self.identity}):
-            result = publish_with_contention_replay(
+            result = leased_publish(
                 store,
                 snapshot_id="snap-3",
                 cycle_id="cycle-3",
@@ -239,7 +240,7 @@ class AnAcceptedReductionIsRecordedInsideThePublish(ContinuityGateTestCase):
 
         # The next publish needs no acknowledgment and records nothing.
         with _EnvPatch({BOOTSTRAP_ACK_ENV: None}):
-            again = publish_with_contention_replay(
+            again = leased_publish(
                 store,
                 snapshot_id="snap-4",
                 cycle_id="cycle-4",
@@ -259,7 +260,7 @@ class AnAcceptedReductionIsRecordedInsideThePublish(ContinuityGateTestCase):
         with _EnvPatch({BOOTSTRAP_ACK_ENV: self.identity}):
             follow_up = self._snapshot(store, "snap-3", cycle_id="cycle-3")
             with self.assertRaises(StateStoreRefusal) as caught:
-                publish_state(store, snapshot=follow_up, cycle_id="cycle-3", repo_hash=REPO_HASH)
+                publish_state(store, writer_fence=None, snapshot=follow_up, cycle_id="cycle-3", repo_hash=REPO_HASH)
         message = str(caught.exception)
         self.assertIn("state_publish_losses_acceptance_unrecorded", message)
         self.assertIn(lost, message)
@@ -277,7 +278,7 @@ class AnAcceptedReductionIsRecordedInsideThePublish(ContinuityGateTestCase):
         with _EnvPatch({BOOTSTRAP_ACK_ENV: self.identity}), mock.patch.object(
             ledger_inline, "INLINE_ROW_FIELD_MAX_BYTES", 8
         ):
-            result = publish_with_contention_replay(
+            result = leased_publish(
                 store,
                 snapshot_id="snap-3",
                 cycle_id="cycle-3",
@@ -325,7 +326,7 @@ class TheSingleAttemptPublishHoldsOneLock(ContinuityGateTestCase):
         with mock.patch.object(
             state_store, "prepare_publishable_snapshot", side_effect=preamble_then_probe
         ):
-            result = publish_with_contention_replay(
+            result = leased_publish(
                 store,
                 snapshot_id="snap-3",
                 cycle_id="cycle-3",

@@ -61,7 +61,7 @@ class RestoredTreeBindTestCase(StateStoreTestCase):
             ensure_tools_binding(workspace_root=self.repo)
         self._seed_surface(store, '{"row": 1}\n')
         publish_state(
-            store,
+            store, writer_fence=None,
             snapshot=self._snapshot(store, "snap-1"),
             cycle_id="cycle-1",
             repo_hash=REPO_HASH,

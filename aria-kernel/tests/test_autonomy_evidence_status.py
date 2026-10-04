@@ -3994,7 +3994,7 @@ class ReadOnlyStateAdmissionTests(unittest.TestCase):
             repo_hash=identity,
         )
         publish_state(
-            self.store,
+            self.store, writer_fence=None,
             snapshot=snapshot,
             cycle_id="cycle-state-1",
             repo_hash=identity,
@@ -5102,7 +5102,7 @@ class ReadOnlyStateAdmissionTests(unittest.TestCase):
             repo_hash=identity,
         )
         publish_state(
-            self.store,
+            self.store, writer_fence=None,
             snapshot=snapshot,
             cycle_id="cycle-foreign-contract",
             repo_hash=identity,

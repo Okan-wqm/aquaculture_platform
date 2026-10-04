@@ -74,6 +74,7 @@ from aria_kernel.state_compact import (
 from aria_kernel.tool_health import record_run
 from aria_kernel.tool_registry import ensure_tools_binding, register_tool
 from tests.test_runtime_artifacts import _run, _tool
+from tests._helpers.writer_lease import holding_writer_lease
 
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 MAINTENANCE = WORKFLOWS / "aria-state-maintenance.yml"
@@ -861,7 +862,7 @@ class NoLanePublishesAnUnverifiedStore(unittest.TestCase):
             snapshot_id="state-maintenance-1-1", cycle_id="state-maintenance-1", parent_commit=None,
         )
         out = io.StringIO()
-        with redirect_stdout(out):
+        with redirect_stdout(out), holding_writer_lease(args.repo_root):
             code = _handle_state_command(args)
 
         self.assertEqual(code, 3, out.getvalue())

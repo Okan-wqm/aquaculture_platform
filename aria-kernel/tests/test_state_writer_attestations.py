@@ -36,7 +36,7 @@ class StateWriterAttestationTests(unittest.TestCase):
             store = harness._bootstrap()
             harness._seed_surface(store, "")
             publish_state(
-                store,
+                store, writer_fence=None,
                 snapshot=harness._snapshot(store, "writers-snap-1"),
                 cycle_id="cycle-writers",
                 repo_hash=REPO_HASH,

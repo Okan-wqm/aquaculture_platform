@@ -43,6 +43,11 @@
     "tool_governance": 1.0
   },
   "enable_request_generation": true,
+  "f_finding_loop_guards": {
+    "_doc": "ARIA-HIGH-260 / ADR-0003 prerequisites 3-5 \u2014 loop guards on the aging F_FINDING plan source, which plans ARIA's own findings unattended. max_plans_per_24h: at most this many F_FINDING-sourced plans may START in any rolling 24h window, counted from plan_started stamps on the plan ledger (a plan an operator request bound never counts; 0 switches the source off; above 24 is REFUSED). cool_off_days: a finding whose earlier plan failed (implementation_rejected, plan_abandoned, plan_evaluated HUMAN_REQUIRED), or after whose merge another finding was emitted on the surfaces it changed, is not re-planned by this source for this many days; a plan the self-revert producer attributed a bad outcome to quarantines its finding until an operator-sourced plan for it starts. Operator requests (priority 0) are never judged by these guards. Read by finding_grounding.f_finding_loop_policy, key by key over this block; a block that is not an object, an unknown key or an out-of-bounds value refuses every F_FINDING candidate by name.",
+    "cool_off_days": 7,
+    "max_plans_per_24h": 1
+  },
   "fitness_staleness_threshold_days": 7,
   "genesis_lifecycle": {
     "_doc": "Enterprise autonomy lifecycle gate. Skill/agent genesis cannot jump from pressure gap to request/draft/materialization without HUMAN_REQUIRED, real sandbox, SHADOW, EVAL_WINDOW and ACTIVE evidence.",

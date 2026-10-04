@@ -175,6 +175,53 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
         verdict = verify_workflow_registry(workspace_root=repo)
         self.assertTrue(verdict.valid, verdict.reasons)
 
+    def test_every_contracted_workflow_is_discovered(self) -> None:
+        # ARIA-HIGH-279 — discovery is the inventory the registry is checked
+        # against; a contracted workflow it cannot see (finding-closure-
+        # reconcile, missing from the old hand list) drops out of the
+        # inventory and of every check that walks it.
+        repo = Path(__file__).resolve().parents[2]
+        self.assertEqual(sorted(set(WORKFLOW_CONTRACTS) - set(discover_aria_workflows(repo))), [])
+
+    def test_a_new_aria_workflow_without_a_contract_fails_the_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "aria-registry-fold.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text("name: fold\njobs: {}\n", encoding="utf-8")
+            verdict = verify_workflow_registry(
+                workspace_root=root, contract_registry={}, audited_exclusions={},
+            )
+        self.assertFalse(verdict.valid)
+        self.assertEqual(verdict.uncovered_workflows, ("aria-registry-fold",))
+
+    def test_a_workflow_that_calls_the_kernel_preflight_must_be_contracted(self) -> None:
+        # ARIA-HIGH-279 — the preflight refuses an uncontracted workflow at
+        # run time; the registry refuses it at test time, whatever its name.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflows = root / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "finding-registry-fold.yml").write_text(
+                "name: fold\njobs:\n  fold:\n    runs-on: ubuntu-latest\n    steps:\n"
+                "      - name: Persist enterprise workflow preflight\n        run: |\n"
+                "          python3 -c 'from aria_kernel.preflight import verify_workflow_preflight;"
+                " verify_workflow_preflight(workflow_id=\"finding-registry-fold\")'\n",
+                encoding="utf-8",
+            )
+            (workflows / "lint.yml").write_text(
+                "name: lint\n# verify_workflow_preflight( is named in a comment only\njobs:\n"
+                "  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm run lint\n",
+                encoding="utf-8",
+            )
+            discovered = set(discover_aria_workflows(root))
+            verdict = verify_workflow_registry(
+                workspace_root=root, contract_registry={}, audited_exclusions={},
+            )
+        self.assertEqual(discovered, {"finding-registry-fold"})
+        self.assertFalse(verdict.valid)
+        self.assertEqual(verdict.uncovered_workflows, ("finding-registry-fold",))
+
     def test_audited_kernel_workflows_have_no_expiry_time_bomb(self) -> None:
         # D1 (ADR-036) — the kernel workflow is audited-excluded with a
         # NON-expiring sentinel; the canonical's dated expires_at=2026-07-05

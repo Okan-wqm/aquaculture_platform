@@ -1,14 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HandlerOutcome, SubscribeTo } from '@platform/event-bus';
-import type { ServiceErrorCapturedEvent } from '@platform/event-contracts';
+import { eventTenantScope, type ServiceErrorCapturedEvent } from '@platform/event-contracts';
 
 import { ErrorSeverity } from '../entities/error-tracking.entity';
 import { ErrorTrackingService } from '../services/error-tracking.service';
 
-/** A tenant-less platform failure travels with an empty tenant segment. */
-const NO_TENANT = '';
-
-/** `uuid` columns; anything that is not one must arrive as absent, not as ''. */
+/** `userId` is a `uuid` column; a value that is not one must arrive as absent. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -58,8 +55,8 @@ export class ErrorCaptureProjectionHandler {
         service: event.service,
         environment: event.environment,
         release: event.release,
-        tenantId: this.uuidOrUndefined(event.tenantId),
-        userId: this.uuidOrUndefined(event.userId),
+        tenantId: this.tenantOf(event),
+        userId: this.userIdOf(event),
         context: {
           request:
             event.httpMethod && event.httpRoute
@@ -93,14 +90,21 @@ export class ErrorCaptureProjectionHandler {
   }
 
   /**
-   * The wire carries `''` for "no tenant" so the bus derives the
-   * `events.system.*` subject; the columns are `uuid`, where `''` is a type
-   * error rather than an absence.
+   * The store's tenant of record, parsed through the contract (SEC-HIGH-159,
+   * OBS-HIGH-009). A platform-level failure carries the one platform segment
+   * (`PLATFORM_EVENT_TENANT_ID`) and is stored with no tenant — the group's
+   * `affectedTenants` stays empty and the occurrence's `uuid` column NULL. A
+   * value that is neither a tenant UUID nor that segment is not read as
+   * "no tenant": `eventTenantScope` throws, and the catch above acks it with
+   * the reason, so a second platform spelling can never become a row.
    */
-  private uuidOrUndefined(value: string | undefined): string | undefined {
-    if (!value || value === NO_TENANT || !UUID_RE.test(value)) {
-      return undefined;
-    }
-    return value;
+  private tenantOf(event: ServiceErrorCapturedEvent): string | undefined {
+    const scope = eventTenantScope(event);
+    return scope.kind === 'tenant' ? scope.tenantId : undefined;
+  }
+
+  private userIdOf(event: ServiceErrorCapturedEvent): string | undefined {
+    const { userId } = event;
+    return userId !== undefined && UUID_RE.test(userId) ? userId : undefined;
   }
 }

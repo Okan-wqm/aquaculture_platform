@@ -53,7 +53,9 @@ class PlanCandidateSource(str, Enum):
     FAILING_CI = "failing_ci"
     """Workflows that are red on ``main`` now — each workflow's newest
     pass/fail verdict among the newest completed runs, kept when it
-    failed (``plan_synthesizer.scan_failing_ci``, ARIA-HIGH-250).
+    failed (``plan_synthesizer.scan_failing_ci``, ARIA-HIGH-250) and
+    when its verdict is about ``main`` per
+    ``.github/manifests/workflow-roles.json`` (ADR-0019).
     Cached 10-min TTL at ``aria-tools/cache/gh-run-list.json`` to
     stay below GitHub API 5000/hr rate limit."""
 

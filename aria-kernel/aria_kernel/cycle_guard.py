@@ -107,6 +107,12 @@ FINDING_OPENERS: dict[str, tuple[str, ...]] = {
     "experiment_author": (),  # mints bench work; opens no finding itself
     "judgment_fanout": ("ai_consensus:",),
     "seed_drift_findings": ("seed:drift-scan",),
+    # ARIA-HIGH-279 — the deterministic class builder (CB-3) is an ARIA
+    # producer (not in finding.EXTERNAL_ORIGINATING_SKILLS), so its exact
+    # origin is throttled like every other ARIA opener. finding.py admits the
+    # origin ahead of its emitter; the CB-3 emitter admits through
+    # admit_finding_opener(..., "class_builder", ...) under this name.
+    "class_builder": ("class_builder:tool_rule",),
 }
 FINDING_OPERATOR_ORIGINS: tuple[str, ...] = ("manual:operator", "report_ingestion:")
 OPENER_THROTTLE_KIND = "finding_opener_throttled"

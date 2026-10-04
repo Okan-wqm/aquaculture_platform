@@ -235,7 +235,10 @@ Bir **adapter**, `registry.json`'daki bir manifest satırıdır; ARIA'nın repo'
 observation/finding ürettiği bir **subprocess runner**'dır. `output_schema.required` mutlaka
 `read_paths` içerir (adapter'ın neyi incelediğine dair öz-raporu).
 
-Yaşam döngüsü: `DRAFT → SANDBOX → SHADOW → ACTIVE → CALIBRATE → QUARANTINED → ARCHIVED`.
+Yaşam döngüsü: `SHADOW → ACTIVE → CALIBRATE → QUARANTINED`; araç SHADOW'da kaydolur, karantinadan
+tek çıkış operatörün serbest bırakmasıdır (`unquarantine_tool`, QUARANTINED → CALIBRATE). `DRAFT`,
+`SANDBOX` ve `ARCHIVED` hiçbir üretim yolu üretmediği için kaldırıldı (ORPHAN-MEDIUM-839); taslak ve
+sandbox, yazım döngüsünün kayıttan önceki aşamalarıdır.
 ACTIVE'e tek meşru yol **SHADOW→ACTIVE**'dir ve şart ister: `precision ≥ precision_min` (default
 0.85), `critical_false_positives == 0`, ve operatör onayı **veya** auto-promote token (ama
 `evidence_chains_valid` asla bypass edilemez).

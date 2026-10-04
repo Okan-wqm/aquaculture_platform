@@ -215,7 +215,7 @@ def ingest_operator_feedback(
     moment = now or datetime.now(timezone.utc)
     ledger = root / OPERATOR_FEEDBACK_LEDGER_NAME
     history = request_history_for(root)
-    signers, anchor_reason = allowed_signers_for_checkout(repo_root)
+    signers, anchor_reason = allowed_signers_for_checkout(repo_root, base_dir=root)
     scan = _Scan(root, cycle_id, history)
     spent_rows: list[dict[str, Any]] = []
     groups: dict[str, list[tuple[dict[str, Any], str]]] = {}
@@ -226,7 +226,7 @@ def ingest_operator_feedback(
         rows_scanned += 1
         if not is_operator_request_row(row):
             continue
-        verdict = verify_operator_request(row, allowed_signers=signers.content if signers else None)
+        verdict = verify_operator_request(row, allowed_signers=signers)
         if verdict.reason is not None:
             scan.drop(row, line_no, verdict.reason, signer=verdict.signer)
             continue
@@ -237,7 +237,7 @@ def ingest_operator_feedback(
         if identifier in history.spent:
             spent_rows.append({"id": identifier, "subject_digest": digest, "reason": history.spent[identifier]})
             continue
-        schema = operator_request_schema_reason(row, now=moment)
+        schema = operator_request_schema_reason(row, now=moment, anchor=signers)
         if schema is not None:
             scan.drop(row, line_no, schema, signer=verdict.signer)
             scan.refusals.append((dict(row, _subject_digest=digest), schema))

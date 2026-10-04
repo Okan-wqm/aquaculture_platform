@@ -85,6 +85,10 @@ POLICY_KEYS = {
     # implementer_turn_budget_for_store); the key joins the contract here so
     # an operator override is merged rather than silently dropped.
     "implementer_turn_budget",
+    # ARIA-HIGH-260 — ADR-0003's loop guards on the aging F_FINDING source:
+    # the per-24h plan-start cap and the subject cool-off. Validated and
+    # consumed by finding_grounding.f_finding_loop_policy.
+    "f_finding_loop_guards",
 }
 
 JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {

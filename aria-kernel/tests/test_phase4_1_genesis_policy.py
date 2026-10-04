@@ -165,6 +165,11 @@ class GenesisPolicyTests(unittest.TestCase):
                 # the spawn settings and the pre-merge capture. Was the
                 # literal 10 in turn_budget.IMPLEMENTER_TURN_BUDGET.
                 "implementer_turn_budget",
+                # ARIA-HIGH-260 — f_finding_loop_guards: the per-24h
+                # plan-start cap and subject cool-off of ADR-0003's loop
+                # guards on the aging F_FINDING source, consumed via
+                # finding_grounding.f_finding_loop_policy.
+                "f_finding_loop_guards",
             },
         )
 

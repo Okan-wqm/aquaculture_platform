@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import derive_request_state
-from .ledger import load_declared_jsonl
+from .ledger import load_declared_jsonl, load_segments
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -77,10 +77,7 @@ def _governance_kinds(tools_root: Path) -> list[str]:
 
 def _claim_active_count(tools_root: Path) -> int:
     """Count requests whose derived state is CLAIMED or RUNNING right now."""
-    requests = load_declared_jsonl(
-        tools_root / "agent-invocations" / "requests.jsonl",
-        expected_surface="agent_invocation_requests",
-    )
+    requests = load_segments(tools_root, "agent_invocation_requests")
     active = 0
     for req in requests:
         rid = req.get("request_id")
@@ -163,10 +160,7 @@ def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str,
     from .agent_eval import count_eval_runs_by_mode
 
     tools_root = ensure_tools_dir(base_dir)
-    requests = load_declared_jsonl(
-        tools_root / "agent-invocations" / "requests.jsonl",
-        expected_surface="agent_invocation_requests",
-    )
+    requests = load_segments(tools_root, "agent_invocation_requests")
     results = load_declared_jsonl(
         tools_root / "agent-invocations" / "results.jsonl",
         expected_surface="agent_invocation_results",

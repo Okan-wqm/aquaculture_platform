@@ -35,10 +35,11 @@ prevent.
 
 from __future__ import annotations
 
+import ast
 import unittest
 from pathlib import Path
 
-from aria_kernel.literal_provenance import ProductionIndex
+from aria_kernel.literal_provenance import ProductionIndex, argument_for
 from aria_kernel.surface_reachability import (
     declared_surfaces,
     undeclared_written_members,
@@ -197,19 +198,38 @@ class SurfaceReachabilityTests(unittest.TestCase):
         # `aria-kernel agent request --role X` mints whatever the operator
         # typed (cli.py, role=args.role). If that callsite counted, every role
         # in REQUEST_ROLES would be certified live by one argparse attribute
-        # and this entire file would be theatre. `gap_finding` is the canary:
-        # the CLI can mint it, and it must still read as unwritten.
+        # and this entire file would be theatre.
         #
-        # The canary used to be `verification` — until the same change that
-        # added this file gave that role a real minter (decision_questioning),
-        # at which point the assertion started failing for the RIGHT reason.
-        # A canary must be a member nothing writes; when one gets wired, the
-        # canary moves rather than the gate loosening.
+        # The pin used to be a canary — a member nothing writes, asserted to
+        # read as unwritten although the CLI can mint it: `verification`
+        # until it got a real minter, then `gap_finding`, then `gap_closure`.
+        # Each canary left when its role was wired or deleted, and the last
+        # one took the last unwritten role with it (ORPHAN-MEDIUM-836). So the
+        # pin now asks the question itself: the CLI's `role=args.role`
+        # callsites exist, and no evidence the walk gives for a written role
+        # cites one of them. It no longer needs a dormant member to stand on.
         surface = next(s for s in self.surfaces if s.surface_id == "agent_surface_request_role")
-        self.assertIn("gap_finding", surface.members)
-        self.assertIn(
-            "gap_finding",
-            self.unwritten["agent_surface_request_role"],
+        passthrough = {
+            f"{path.relative_to(self.index.repo_root).as_posix()}:{call.lineno}"
+            for writer in surface.writers
+            for path, call in self.index.calls_to(writer.function)
+            if (argument := argument_for(call, field=writer.field, position=writer.position)) is not None
+            and ast.unparse(argument) == "args.role"
+        }
+        self.assertTrue(
+            passthrough,
+            "no `role=args.role` callsite of the request writer remains — this pin "
+            "guards nothing; point it at the CLI passthrough that replaced it",
+        )
+        vouching = sorted(
+            f"{role} <- {location}"
+            for role, locations in written_members(surface, self.index).items()
+            for location in locations
+            if location in passthrough
+        )
+        self.assertEqual(
+            vouching,
+            [],
             "an opaque argument started counting as a writer — the walk has "
             "lost the distinction between minting a role and forwarding one",
         )

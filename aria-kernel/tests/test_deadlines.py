@@ -343,7 +343,11 @@ class RegistryDeadlines(_Fixture):
         self.ws.joinpath(*deadlines.REGISTRY_FINDINGS_RELPATH).unlink()
         self.assertEqual(self.organ().reason, "deadlines_undecided:registry_finding:FileNotFoundError")
         self.ws.joinpath(*deadlines.REGISTRY_FINDINGS_RELPATH).write_text('{"id": "x"\n', encoding="utf-8")
-        self.assertEqual(self.organ().reason, "deadlines_undecided:registry_finding:JSONDecodeError")
+        # ARIA-HIGH-279 — the organ reads through the one registry view, whose
+        # strict reader records a ledger_row_corrupt diagnostic and raises
+        # GovernanceError naming file:line, where the organ's own json.loads
+        # raised a bare JSONDecodeError.
+        self.assertEqual(self.organ().reason, "deadlines_undecided:registry_finding:GovernanceError")
 
     def test_an_undecided_source_does_not_hide_the_others(self) -> None:
         self.ws.joinpath(*deadlines.REGISTRY_FINDINGS_RELPATH).unlink()

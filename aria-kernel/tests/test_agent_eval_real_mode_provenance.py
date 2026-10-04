@@ -1,6 +1,6 @@
 """Plan 023 v3 §A-8 — agent_eval real-mode provenance binding.
 
-Pre-Plan-023 run_agent_eval(mock_mode=False) accepted any caller-
+Pre-Plan-023 run_agent_eval in real mode accepted any caller-
 provided real_response_envelope dict without proof that an actual
 agent invocation produced it. No lease binding. No invocation_id.
 No transcript ledger. The eval row simply trusted the dict shape.
@@ -17,16 +17,15 @@ use is recorded with provenance_mode='legacy_envelope_feed' and an
 operator_approval_ref for audit.
 
 Tests:
-1. mock_mode=True → no provenance fields required (regression).
-2. mock_mode=False + invocation_id + transcript_hash → accepted +
+1. (ARIA-HIGH-285) there is no mock mode left to exempt from provenance.
+2. invocation_id + transcript_hash → accepted +
    provenance_mode='real_invocation' on the row.
-3. mock_mode=False without invocation_id and without legacy opt-in →
+3. no invocation_id and no legacy opt-in →
    real_eval_missing_provenance_fields reject.
-4. mock_mode=False + allow_legacy_envelope_feed=True without
-   operator_approval_ref → legacy_envelope_feed_requires_operator_
-   approval_ref reject.
-5. mock_mode=False + allow_legacy_envelope_feed=True + approval_ref
-   → accepted + provenance_mode='legacy_envelope_feed'.
+4. allow_legacy_envelope_feed=True without operator_approval_ref →
+   real_eval_legacy_envelope_feed_removed reject.
+5. allow_legacy_envelope_feed=True + approval_ref →
+   real_eval_legacy_envelope_feed_removed reject.
 """
 from __future__ import annotations
 
@@ -252,15 +251,12 @@ class RealModeProvenanceTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_mock_mode_no_provenance_required(self) -> None:
-        """Regression: mock_mode=True does not require invocation_id."""
-        result = run_agent_eval(
-            fixture_id="F999_TEST",
-            base_dir=self.tools,
-            mock_mode=True,
-        )
-        self.assertEqual(result["mock_mode"], True)
-        self.assertEqual(result["provenance_mode"], "mock")
+    def test_no_run_is_exempt_from_provenance(self) -> None:
+        """ARIA-HIGH-285: the mock exemption is gone; a run with no
+        provenance at all is refused."""
+        with self.assertRaises(GovernanceError) as ctx:
+            run_agent_eval(fixture_id="F999_TEST", base_dir=self.tools, real_response_envelope=_envelope())
+        self.assertIn("real_eval_missing_provenance_fields", str(ctx.exception))
 
     def test_real_mode_with_invocation_id_accepted(self) -> None:
         """Plan 023 v3 §A-8: real-mode + invocation_id + transcript_hash
@@ -270,7 +266,6 @@ class RealModeProvenanceTests(unittest.TestCase):
         result = run_agent_eval(
             fixture_id="F999_TEST",
             base_dir=self.tools,
-            mock_mode=False,
             real_response_envelope=_envelope(),
             invocation_id="invocation-uuid-001",
             transcript_hash=transcript_hash,
@@ -310,8 +305,7 @@ class RealModeProvenanceTests(unittest.TestCase):
             run_agent_eval(
                 fixture_id="F999_TEST",
                 base_dir=self.tools,
-                mock_mode=False,
-                real_response_envelope=_envelope(),
+                    real_response_envelope=_envelope(),
                 # No invocation_id, no allow_legacy_envelope_feed.
             )
         self.assertIn("real_eval_missing_provenance_fields", str(ctx.exception))
@@ -321,8 +315,7 @@ class RealModeProvenanceTests(unittest.TestCase):
             run_agent_eval(
                 fixture_id="F999_TEST",
                 base_dir=self.tools,
-                mock_mode=False,
-                real_response_envelope=_envelope(),
+                    real_response_envelope=_envelope(),
                 allow_legacy_envelope_feed=True,
                 # No operator_approval_ref.
             )
@@ -333,8 +326,7 @@ class RealModeProvenanceTests(unittest.TestCase):
             run_agent_eval(
                 fixture_id="F999_TEST",
                 base_dir=self.tools,
-                mock_mode=False,
-                real_response_envelope=_envelope(),
+                    real_response_envelope=_envelope(),
                 allow_legacy_envelope_feed=True,
                 operator_approval_ref="docs/operator/legacy/feed-001",
             )

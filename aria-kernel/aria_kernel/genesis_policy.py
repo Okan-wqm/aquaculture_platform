@@ -225,11 +225,49 @@ EXECUTOR_DEFAULTS: dict[str, Any] = {
     # `worktree_per_request` is on, so two agents never share a checkout.
     "max_concurrent": 1,
     "worktree_per_request": False,
+    # Plan progress before backlog (the first live end-to-end run,
+    # 2026-10-04): once a drain has succeeded on a planning-lane request and
+    # none is left pending, it finishes its quota round and stops, so the
+    # plan's next cycle is not queued behind backlog work on the shared
+    # runner. This is how many MORE backlog requests it may take beyond the
+    # quota round before stopping. 0 = none; the run cap
+    # (MAX_REQUESTS_PER_RUN) and the drain window still bound any value.
+    "surplus_after_planning_turn": 0,
 }
 
 
+def _validated_surplus_after_planning_turn(raw: Any) -> int:
+    """One gate for the planning-turn surplus: a non-negative integer.
+
+    Refused, never coerced (RC-4, the source_qualification discipline): a
+    ``true``, a ``"3"`` or a ``1.5`` silently read as a count would teach
+    the operator something false about what the drain does after a plan's
+    turn.
+    """
+    from .tool_registry import GovernanceError
+
+    # bool is an int subclass; ``true`` is not a number of requests.
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise GovernanceError(
+            "genesis_policy_executor_surplus_after_planning_turn_not_an_integer: "
+            f"surplus_after_planning_turn={raw!r}. Write a whole number of backlog "
+            "requests (0 or more) the drain may take after a planning turn."
+        )
+    if raw < 0:
+        raise GovernanceError(
+            "genesis_policy_executor_surplus_after_planning_turn_negative: "
+            f"surplus_after_planning_turn={raw!r}. A drain cannot take fewer than "
+            "zero requests; write 0 to stop right after the quota round."
+        )
+    return raw
+
+
 def executor_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
-    """Plan 032 Faz 032h — typed accessor for the executor block."""
+    """Plan 032 Faz 032h — typed accessor for the executor block.
+
+    ``surplus_after_planning_turn`` is validated field by field and a bad
+    value is refused with a ``GovernanceError`` naming the field.
+    """
     if repo_root is not None:
         merged = load_policy(repo_root)
     else:
@@ -243,6 +281,9 @@ def executor_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
         block.update({k: raw_block[k] for k in EXECUTOR_DEFAULTS if k in raw_block})
     block["max_concurrent"] = max(1, min(8, int(block["max_concurrent"])))
     block["worktree_per_request"] = bool(block["worktree_per_request"])
+    block["surplus_after_planning_turn"] = _validated_surplus_after_planning_turn(
+        block["surplus_after_planning_turn"]
+    )
     return block
 
 

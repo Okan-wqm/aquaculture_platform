@@ -34,8 +34,6 @@ Invariants:
 """
 from __future__ import annotations
 
-import importlib.util
-import sys
 import unittest
 from pathlib import Path
 
@@ -45,11 +43,13 @@ CI_EXECUTOR_PATH = REPO_ROOT / "tools" / "aria-poc" / "ci_executor.py"
 
 
 def _load_ci_executor():
-    spec = importlib.util.spec_from_file_location("ci_executor", CI_EXECUTOR_PATH)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["ci_executor"] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    # The shared loader registers the module only for the load. The old
+    # recipe left a stray "ci_executor" in sys.modules for the rest of the
+    # process, which hid a broken private loader elsewhere whenever both
+    # tests shared a shard.
+    from tests._helpers.executor_module import load_ci_executor
+
+    return load_ci_executor()
 
 
 class TestV8CanonicalNormalizer(unittest.TestCase):

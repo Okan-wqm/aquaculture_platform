@@ -182,12 +182,11 @@ class CiExecutorReleaseArgvShapeTests(unittest.TestCase):
         self.assertIn('"--agent-id"', src)
         self.assertIn('"--lease-token-from-env"', src)
         # Function signature now accepts agent_id kwarg.
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "ci_executor", ARIA_POC / "ci_executor.py",
-        )
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        # The one loader that registers the module before executing it; a
+        # private spec recipe fails at the executor's first @dataclass when no
+        # earlier test in the process happened to register it.
+        from tests._helpers.executor_module import load_ci_executor
+        mod = load_ci_executor()
         sig = inspect.signature(mod._release_claim)
         self.assertIn("agent_id", sig.parameters)
 

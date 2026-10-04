@@ -16,6 +16,7 @@ from .plan_convergence import (
     request_cross_review,
     submit_challenger_plan,
 )
+from .planner_lessons import planner_lesson_obligations
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -156,7 +157,9 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
                 "id": f"{role}_material_risk_review",
                 "description": "Return risks, validation commands, evidence refs, and a clear recommendation.",
                 "required": True,
-            }
+            },
+            # ARIA-HIGH-309 — the lessons recorded plans in this plan's scope teach.
+            *planner_lesson_obligations(base_dir=root, plan_id=plan_id),
         ],
         allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
         evidence_refs=source_refs,

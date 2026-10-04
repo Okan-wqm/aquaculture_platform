@@ -461,6 +461,21 @@ jobs:
             --tools-dir "$ARIA_TOOLS_DIR" \
             --trigger session_start
 
+      - name: Fetch the composed supergraph for the drift scan
+        if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # ARIA-HIGH-333 — the scan judges a UI option list against what the GraphQL transport carries, which it
+          # reads from the composed supergraph. This host does not compose one; the artifact CI composed for HEAD's
+          # exact schema is fetched instead. Without it the scan reports wire_unverifiable rather than guessing.
+          SG_DIR="${RUNNER_TEMP}/aria-supergraph"
+          if out="$(python3 tools/aria-poc/fetch_supergraph.py --repo-root "$GITHUB_WORKSPACE" --repo "$GITHUB_REPOSITORY" --out-dir "$SG_DIR")"; then
+            echo "ARIA_SUPERGRAPH=${SG_DIR}/supergraph.graphql" >> "$GITHUB_ENV"
+          fi
+          echo "$out"
+
       - name: Seed drift findings from fresh scan
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
         run: |
@@ -471,7 +486,7 @@ jobs:
           # kernel's own `repo_state_root`, so the seeds land in the store the
           # cycle_guard reads from — writing them to the checkout instead would
           # be a producer that stays green feeding a consumer that stays empty.
-          python3 tools/aria-poc/seed_drift_findings.py --repo-root "$GITHUB_WORKSPACE" | tail -12
+          python3 tools/aria-poc/seed_drift_findings.py --repo-root "$GITHUB_WORKSPACE" ${ARIA_SUPERGRAPH:+--supergraph "$ARIA_SUPERGRAPH"} | tail -12
 
       - name: Cycle guard (advisory)
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'

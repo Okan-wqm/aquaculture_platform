@@ -33,3 +33,25 @@ Fix: the kernel builds the surface (`aria_kernel/readiness_diff_surface.py`,
 check reads, so the scanned text and the touched set come from one source. Full object ids only;
 an unresolvable commit fails closed before anything is written. The lane calls it and the `|| true`
 is gone. Tests: `aria-kernel/tests/test_readiness_diff_surface.py`.
+
+## INFRA-MEDIUM-203
+
+Evidence (at `main@690470509`):
+
+- Run 37221005747 (17:34Z): `##[error]9 scheduled workflow(s) are stale or failing`. Issue #1005
+  lists `aria-merge-runner.yml | failure | 154.9 | 3`. That workflow has been `disabled_manually`
+  since 2026-09-28 (`gh api repos/.../actions/workflows/aria-merge-runner.yml` → `state`); its last
+  run failed on 2026-09-28 06:40Z, so the incident reported a failing lane, not a stopped one.
+  `aria-state-maintenance.yml` was disabled on 2026-10-04 after a green run on 2026-10-03 and
+  filed nothing; under `maxAgeHours: 48` it would have surfaced on 2026-10-05 as a stale `success`.
+- `.github/workflows/scheduled-workflow-watchdog.yml:34` — the per-lane loop begins with
+  `listWorkflowRuns`; the workflow's own state is never read. `:101` — age comes from the newest
+  executed run; `:161` — the conclusion is `run?.conclusion ?? 'missing'`.
+- `.github/manifests/scheduled-workflows.json:31` — `aria-merge-runner.yml` is watched with
+  `maxAgeHours: 3`.
+
+Fix: the watchdog reads `actions.getWorkflow` for each lane; a non-`active` state
+(`disabled_manually`, `disabled_inactivity`, …) is the incident conclusion and no run judgement can
+override it. The disabled lanes remain incidents: whether to re-enable or retire them is the
+operator's decision. Test: `tests/invariants/scheduled-workflow-watchdog-disabled-lane.spec.ts`
+runs the workflow's real inline script against a fake GitHub API.

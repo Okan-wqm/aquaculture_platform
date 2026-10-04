@@ -1,13 +1,15 @@
 {
   "tool_id": "test-gap-adapter",
   "kind": "adapter",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "status": "SHADOW",
   "declared_scope": [
     "apps/**/*.{ts,tsx}",
     "libs/**/*.{ts,tsx}",
     "platform/libs/**/*.{ts,tsx}",
-    "web/**/*.{ts,tsx}"
+    "web/**/*.{ts,tsx}",
+    "e2e/**/*.ts",
+    "tests/**/*.ts"
   ],
   "output_schema": {
     "type": "object",
@@ -19,6 +21,7 @@
   },
   "default_input": {
     "roots": ["apps", "libs", "platform/libs", "web"],
+    "coverageRoots": ["e2e", "tests"],
     "includeWriteBoundaryFindings": false
   },
   "allowed_read_globs": [
@@ -29,7 +32,9 @@
     "platform/libs/**/*.ts",
     "platform/libs/**/*.tsx",
     "web/**/*.ts",
-    "web/**/*.tsx"
+    "web/**/*.tsx",
+    "e2e/**/*.ts",
+    "tests/**/*.ts"
   ],
   "forbidden_read_globs": [
     ".claude/**",
@@ -44,6 +49,35 @@
     "tmp/**"
   ],
   "claim_types": ["test_gap"],
+  "rules": {
+    "high_risk_source_without_adjacent_test": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A write boundary with behaviour of its own has no test that exercises it.",
+      "premises": [
+        "The cited source performs writes and has behaviour beyond returning constants (it takes dependencies or computes results).",
+        "No unit, integration or e2e test imports it, sits beside it, or calls its route or GraphQL field."
+      ]
+    },
+    "migration_without_test": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "HIGH",
+      "defect_claim": "A migration that destroys or reshapes data has no test that runs it.",
+      "premises": [
+        "The cited migration drops, deletes, truncates, alters a type of, or forces row-level security on live data.",
+        "No test or migration-check job runs this migration against a database and asserts its effect."
+      ]
+    },
+    "security_source_without_security_test": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "HIGH",
+      "defect_claim": "A guard implementation or a public write has no test that exercises its security behaviour.",
+      "premises": [
+        "The cited source implements a guard (or authentication strategy) or exposes a write to unauthenticated callers.",
+        "No unit, integration or e2e test imports it, sits beside it, or calls its route or GraphQL field."
+      ]
+    }
+  },
   "owner": "platform",
   "runner": {
     "type": "subprocess",
@@ -60,6 +94,6 @@
     "node_max_old_space_mb": 3072
   },
   "freshness_window_hours": 168,
-  "parse_window_signature": "sha256:ddf30a8910c1c38fe624009d58cc057efa8d6af46dd25e0fa7d652dd43d28507",
+  "parse_window_signature": "sha256:b853219a517751c0981b5b77eb66dfbb7e487abbd82bdc6af6570efd45b82b43",
   "schema_version": 1
 }

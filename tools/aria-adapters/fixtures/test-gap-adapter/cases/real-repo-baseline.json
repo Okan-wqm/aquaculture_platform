@@ -2,7 +2,8 @@
   "name": "real-repo-baseline",
   "lane": "real_repo_baseline",
   "input": {
-    "roots": ["apps", "libs", "platform/libs", "web"]
+    "roots": ["apps", "libs", "platform/libs", "web"],
+    "coverageRoots": ["e2e", "tests"]
   },
   "expected": {
     "status": "ok",

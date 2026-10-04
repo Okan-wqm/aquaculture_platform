@@ -1108,8 +1108,14 @@ def _pre_submit_validate_envelope(
         # judge one truth.
         from aria_kernel.judgment_bridge import validate_judge_response
 
+        # ARIA-HIGH-324 — the premise obligations a true_positive must
+        # satisfy are read off the request's `must_satisfy`, so the gate
+        # reads them from the same row as well.
         gate_request = dict(request or {})
-        if not (gate_request.get("tool_id") and gate_request.get("run_id") and gate_request.get("finding_id")):
+        if not (
+            gate_request.get("tool_id") and gate_request.get("run_id")
+            and gate_request.get("finding_id") and gate_request.get("must_satisfy")
+        ):
             request_id = str(gate_request.get("request_id") or envelope.get("request_id") or "")
             tools_dir_raw = os.environ.get("ARIA_TOOLS_DIR")
             if request_id and tools_dir_raw:
@@ -1121,7 +1127,7 @@ def _pre_submit_validate_envelope(
                 except Exception:
                     full_row = None
                 if full_row:
-                    for key in ("tool_id", "run_id", "finding_id", "judgment_group_id"):
+                    for key in ("tool_id", "run_id", "finding_id", "judgment_group_id", "must_satisfy"):
                         if not gate_request.get(key) and full_row.get(key):
                             gate_request[key] = full_row[key]
         return validate_judge_response(

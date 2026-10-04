@@ -11,12 +11,14 @@ affected_surfaces from the finding's real references.
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
 from aria_kernel.finding_grounding import refs_from_finding_record
 from aria_kernel.plan_synthesizer import (
+    PlanEvidenceGround,
     convert_candidate_to_plan_content,
     scan_orphan_findings,
 )
@@ -56,10 +58,13 @@ class FFindingEvidenceTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         fixture = OperatorRequestFixture(Path(tmp.name))
+        # ORPHAN-HIGH-519 — every cited line exists: a plan cites only refs
+        # the challenger's evidence rule admits, and the rule reads the line.
+        lines = "".join(f"line {n}\n" for n in range(1, 401))
         fixture.commit_files({
-            "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx": "x\n",
-            "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts": "x\n",
-            "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md": "x\n",
+            "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx": lines,
+            "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts": lines,
+            "docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/tenant-config.md": lines,
         })
         return fixture
 
@@ -72,7 +77,8 @@ class FFindingEvidenceTests(unittest.TestCase):
             # ARIA-HIGH-260 — the aging source is judged against the store's loop history.
             candidate, admission=admit_candidate(
                 candidate, load_grounding_context(fixture.repo, tools_root=fixture.tools)),
-        )
+            ground=PlanEvidenceGround.of(fixture.repo),
+        ).envelope
 
     def test_convert_f_finding_grounds_plan_in_code_not_json(self) -> None:
         fixture = self._checkout()
@@ -109,11 +115,11 @@ class FFindingEvidenceTests(unittest.TestCase):
         self.assertIsNone(self._convert(fixture, "F-101"))
 
     def test_missing_path_is_not_converted(self) -> None:
-        env = convert_candidate_to_plan_content({
+        conversion = convert_candidate_to_plan_content({
             "source_type": PlanCandidateSource.F_FINDING.value,
             "candidate_id": "F-101", "path": "/nonexistent/F-101.json", "title_hint": "x",
-        })
-        self.assertIsNone(env)
+        }, ground=PlanEvidenceGround(Path("/nonexistent"), None))
+        self.assertIsNone(conversion.envelope)
 
     def test_a_consensus_promoted_finding_converts_on_its_evidences(self) -> None:
         # ARIA-HIGH-183 — the aria/finding/v1 shape the consensus promotion
@@ -176,6 +182,7 @@ class FFindingEvidenceTests(unittest.TestCase):
 class OrphanRegistryEvidenceTests(unittest.TestCase):
     def _workspace_with_orphan(self, evidence: list | None) -> str:
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
         reviews = Path(d) / "docs" / "reviews"
         (reviews / "_registry").mkdir(parents=True)
         (reviews / "orphan-findings.md").write_text(
@@ -197,25 +204,42 @@ class OrphanRegistryEvidenceTests(unittest.TestCase):
             candidates[0].get("evidence"), ["apps/hr-service/src/leave/leave.entity.ts"],
         )
 
+    def _committed(self, evidence: list | None) -> Path:
+        """The orphan workspace as a checkout, every file committed (the rule reads commits)."""
+        import subprocess
+
+        from tests._helpers.git_fixtures import make_local_git_repo
+
+        workspace = Path(self._workspace_with_orphan(evidence))
+        repo = make_local_git_repo(workspace, name="repo")
+        for relative in ("docs/reviews/orphan-findings.md", "docs/reviews/_registry/findings.jsonl"):
+            (repo / relative).parent.mkdir(parents=True, exist_ok=True)
+            (repo / relative).write_text((workspace / relative).read_text(encoding="utf-8"), encoding="utf-8")
+        (repo / "apps/hr-service/src/leave").mkdir(parents=True)
+        (repo / "apps/hr-service/src/leave/leave.entity.ts").write_text("export class Leave {}\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=repo, check=True, capture_output=True)
+        return repo
+
     def test_orphan_plan_uses_registry_evidence(self) -> None:
-        env = convert_candidate_to_plan_content({
-            "source_type": PlanCandidateSource.ORPHAN_FINDING.value,
-            "candidate_id": "ORPHAN-HIGH-501", "severity": "HIGH", "raw_id": "501",
-            "title_hint": "Address ORPHAN-HIGH-501",
-            "evidence": ["apps/hr-service/src/leave/leave.entity.ts"],
-        })
+        repo = self._committed(["apps/hr-service/src/leave/leave.entity.ts"])
+        [candidate] = scan_orphan_findings(repo)
+        env = convert_candidate_to_plan_content(candidate, ground=PlanEvidenceGround.of(repo)).envelope
         self.assertEqual(
             env.content["affected_surfaces"], ["apps/hr-service/src/leave/leave.entity.ts"],
         )
         self.assertNotIn("docs/reviews/orphan-findings.md", env.content["affected_surfaces"])
+        # ORPHAN-HIGH-519 — the finding's heading line is cited after its code.
+        self.assertEqual(env.content["evidence_refs"],
+                         ["apps/hr-service/src/leave/leave.entity.ts", "docs/reviews/orphan-findings.md:1"])
 
     def test_orphan_without_registry_evidence_falls_back_to_doc(self) -> None:
-        env = convert_candidate_to_plan_content({
-            "source_type": PlanCandidateSource.ORPHAN_FINDING.value,
-            "candidate_id": "ORPHAN-HIGH-501", "severity": "HIGH", "raw_id": "501",
-            "title_hint": "Address ORPHAN-HIGH-501",
-        })
+        repo = self._committed(None)
+        [candidate] = scan_orphan_findings(repo)
+        env = convert_candidate_to_plan_content(candidate, ground=PlanEvidenceGround.of(repo)).envelope
         self.assertEqual(env.content["affected_surfaces"], ["docs/reviews/orphan-findings.md"])
+        # The register's heading line, never `#<id>`: a path no file has.
+        self.assertEqual(env.content["evidence_refs"], ["docs/reviews/orphan-findings.md:1"])
 
 
 if __name__ == "__main__":

@@ -56,3 +56,15 @@ failed job/step files via `gh api` into real repo paths; keep
 derived, so iterative fallback reaches the next source instead of wedging the
 cycle. Scheduled into Wave 9 (runtime connectors). Owner:
 aria-acceptance-gap-fixer. Deadline: 2026-09-30.
+
+**Recurrence after the deadline (read from `origin/aria/state` @ `5351fcb18`
+on 2026-10-02).** Three plans started citing only `gh-run-list:ci-run-<id>`
+(`plan-cyc-20260816T182612Z-auto`, `plan-cyc-20260929T143339Z-auto`,
+`plan-cyc-20260930T214247Z-auto`). The challenger of the 09-29 plan refused
+`agent_refused:evidence` ("not a repo-relative path[:line]") and the plan ended
+HUMAN_REQUIRED on `convergence_envelope_dead:challenger_plan`; the 09-30 plan
+is still open. The same rule was broken by two more producers: operator plans
+cited `aria-tools/operator-feedback.jsonl:<id>` and the ORPHAN fallback cited
+`orphan-findings.md#<id>`. `gh run list` has no `path` field, so the run is
+resolved through `gh workflow list` (workflow id to file) and
+`gh run view --json jobs` (the failing job and step).

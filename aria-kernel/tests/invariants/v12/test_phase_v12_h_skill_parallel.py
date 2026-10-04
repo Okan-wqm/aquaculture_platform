@@ -169,12 +169,15 @@ class RollbackAndShadow(_Repo):
 
 class DrainParallelism(_Repo):
     def test_I_V12_PAR_01_policy_launch_settle_worktrees(self) -> None:
-        self.assertEqual(EXECUTOR_DEFAULTS, {"max_concurrent": 1, "worktree_per_request": False})
-        self.assertEqual(executor_policy(), {"max_concurrent": 1, "worktree_per_request": False})
+        self.assertEqual(EXECUTOR_DEFAULTS, {"max_concurrent": 1, "worktree_per_request": False,
+                                             "surplus_after_planning_turn": 0})
+        self.assertEqual(executor_policy(), {"max_concurrent": 1, "worktree_per_request": False,
+                                             "surplus_after_planning_turn": 0})
         cfg = self.root / "cfg"
         (cfg / "aria-config").mkdir(parents=True)
         (cfg / "aria-config" / "genesis_policy.json").write_text(json.dumps({"executor": {"max_concurrent": 99, "worktree_per_request": 1}}), encoding="utf-8")
-        self.assertEqual(executor_policy(cfg), {"max_concurrent": 8, "worktree_per_request": True})
+        self.assertEqual(executor_policy(cfg), {"max_concurrent": 8, "worktree_per_request": True,
+                                                "surplus_after_planning_turn": 0})
         drain = (_POC / "ci_executor_drain.py").read_text(encoding="utf-8")
         self.assertLess(drain.index("def _launch("), drain.index("def _settle("))
         self.assertIn("if len(inflight) >= max_concurrent:\n            _settle(inflight.pop(0))", drain)

@@ -172,7 +172,7 @@ class TheChildsImportPathIsTheCheckoutsNotItsCwds(unittest.TestCase):
                                      "GITHUB_OUTPUT": str(root / "out.txt"), "ARIA_DRAIN_BUDGET_SECONDS": "100000"}), \
                 patch.object(drain.subprocess, "run", side_effect=next_pending), \
                 patch.object(drain, "_executor_policy",
-                             return_value={"max_concurrent": 1, "worktree_per_request": True}):
+                             return_value={"max_concurrent": 1, "worktree_per_request": True, "surplus_after_planning_turn": 0}):
             drain.drain_pending(tools_dir=root / "aria-tools", repo_root=repo)
         self.assertTrue(captured, "the drain never launched a child")
         # The child stands in the worktree and imports from the CHECKOUT.

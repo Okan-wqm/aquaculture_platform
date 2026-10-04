@@ -107,7 +107,7 @@ class _Fixture:
                 mock.patch.object(ci_executor_drain, "record_failure", new=fake_record_failure), \
                 mock.patch.object(
                     ci_executor_drain, "_executor_policy",
-                    return_value={"max_concurrent": 1, "worktree_per_request": True},
+                    return_value={"max_concurrent": 1, "worktree_per_request": True, "surplus_after_planning_turn": 0},
                 ):
             rc = ci_executor_drain.drain_pending(tools_dir=self.tmp / "aria-tools", repo_root=_REPO_ROOT)
         return rc, parent_output.read_text(encoding="utf-8")

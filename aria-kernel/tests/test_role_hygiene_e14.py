@@ -461,13 +461,25 @@ class DispatchableRolesTest(unittest.TestCase):
 
     def test_every_role_with_a_new_producer_can_be_claimed(self) -> None:
         from aria_kernel.agent_surface import DISPATCHABLE_ROLES
+        from aria_kernel.self_change_bridge import SELF_CHANGE_ROLE
 
         for role in (
             GOLDSET_CURATION_ROLE,
             CHANGE_INTELLIGENCE_ROLE,
             CONSENSUS_ARBITRATION_ROLE,
+            # ARIA-HIGH-344 — minted by autonomy_orchestrator and
+            # self_change_bridge, drained by the quota round, and absent
+            # here until every drained request of it died unrouted.
+            SELF_CHANGE_ROLE,
         ):
             self.assertIn(role, DISPATCHABLE_ROLES, role)
+
+    def test_every_mintable_role_can_be_claimed(self) -> None:
+        # The general form of the rule above: a role a request envelope may
+        # name and no executor may claim is a request that waits forever.
+        from aria_kernel.agent_surface import DISPATCHABLE_ROLES
+
+        self.assertEqual(sorted(set(REQUEST_ROLES) - DISPATCHABLE_ROLES), [])
 
     def test_the_executor_standalone_fallback_does_not_drift(self) -> None:
         # The fallback literal in ci_executor is only used when the kernel

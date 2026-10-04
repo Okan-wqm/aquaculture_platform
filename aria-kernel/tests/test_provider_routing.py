@@ -187,7 +187,7 @@ class TheLoaderRefusesAMalformedTable(unittest.TestCase):
         cases = {
             "unknown_key": (lambda b: b.update(extra=1), "provider_routing_shape"),
             "missing_role": (lambda b: b["roles"].pop("cross_review"), "provider_routing_roles"),
-            "extra_role": (lambda b: b["roles"].update(maintenance_utility="claude_first"), "provider_routing_roles"),
+            "extra_role": (lambda b: b["roles"].update(gap_finding="claude_first"), "provider_routing_roles"),
             "unknown_provider": (lambda b: b["ladders"]["glm_first"].append("mistral"), "provider_routing_ladder"),
             "duplicate_rung": (lambda b: b["ladders"]["glm_first"].append("zai"), "provider_routing_ladder"),
             "empty_ladder": (lambda b: b["ladders"].update(claude_writer=[]), "provider_routing_ladder"),
@@ -206,8 +206,11 @@ class TheLoaderRefusesAMalformedTable(unittest.TestCase):
 
     def test_an_unrouted_role_is_refused_at_the_reader(self) -> None:
         with self.assertRaises(GovernanceError) as refused:
-            load_provider_routing().ladder_for("maintenance_utility", "aria-autonomy-planner")
-        self.assertIn("provider_routing_role_unrouted:maintenance_utility", str(refused.exception))
+            # `gap_finding` was removed from REQUEST_ROLES (program rev3.1);
+            # `maintenance_utility` used to stand here, and pinned as a
+            # refusal the very gap that failed every executor run.
+            load_provider_routing().ladder_for("gap_finding", "aria-any")
+        self.assertIn("provider_routing_role_unrouted:gap_finding", str(refused.exception))
 
 
 class TheTwoSeatsOfAPairNeverShareAVendor(_RoleFixture):

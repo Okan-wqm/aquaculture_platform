@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -86,16 +87,11 @@ VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 # roles it can serve. Nothing here ever selects sonnet, haiku or fable.
 #
 # What survives is the cross-vendor AUTH failover (ARIA-HIGH-023): a dead
-# credential is a fact about the vendor, so the first tier authenticating
-# through a DIFFERENT vendor is a genuinely different attempt. Bidirectional
-# on purpose — a dead Z.ai key falls glm-5.3 back to the Anthropic pool.
-# The walk is role-conditioned IN CODE (see _cross_provider_auth_fallback):
-# the fleet row says which providers admit writes, and a write-scope profile
-# is never retried on a provider whose runtime is read-only.
-AUTH_FAILOVER_TIER: dict[str, str] = {
-    "opus": "glm-5.3",
-    "glm-5.3": "opus",
-}
+# credential is a fact about the vendor, so a tier authenticating through a
+# DIFFERENT vendor is a genuinely different attempt. WHICH tier is routing
+# data, not a table here (ARIA-HIGH-290): the spawn lane passes the next rung
+# of the role's ladder (`aria_kernel.runtime_profiles.routed_models`) as
+# `failover`, and the native lane passes none — its admission owns failover.
 
 
 def _model_provider(model: str | None) -> str:
@@ -125,32 +121,6 @@ def _provider_admits_writes(provider: str) -> bool:
     from aria_kernel.model_fleet import provider_admits_writes
 
     return provider_admits_writes(provider)
-
-
-def _cross_provider_auth_fallback(model: str | None, *, write_capable: bool) -> str | None:
-    """First ladder tier authenticating through a DIFFERENT vendor (ARIA-HIGH-023).
-
-    Walks ``AUTH_FAILOVER_TIER`` from ``model``, skipping same-vendor rungs
-    (they share the dead credential), and returns the first cross-vendor tier
-    whose provider can serve THIS role: ``write_capable`` is the profile's
-    own fact (``AgentRuntimeProfile.write_capable``), and a rung whose
-    provider is a read-only runtime is skipped for a write-scope profile
-    rather than handed a request it cannot execute. Cycle-bounded: the map
-    is cyclic (``opus -> glm-5.3 -> opus``), so the walk tracks visited tiers
-    and gives up at the first repeat. Returns ``None`` when no admissible
-    cross-vendor tier is reachable — the caller then treats the auth failure
-    as terminal.
-    """
-    origin_provider = _model_provider(model)
-    visited: set[str] = set()
-    current = AUTH_FAILOVER_TIER.get(str(model or ""))
-    while current is not None and current not in visited:
-        visited.add(current)
-        provider = _model_provider(current)
-        if provider != origin_provider and (not write_capable or _provider_admits_writes(provider)):
-            return current
-        current = AUTH_FAILOVER_TIER.get(current)
-    return None
 
 
 ALLOW_API_KEY_MODE_ENV_VAR = "ARIA_ALLOW_CLAUDE_API_KEY_MODE"
@@ -204,7 +174,18 @@ class ClaudeAuthFailure(RuntimeError):
     failed", which is what let five nights of dispatches die without anyone
     learning that the session had expired. It is also NOT retried on another
     tier — every tier authenticates through the same credential.
+
+    ARIA-HIGH-290 — like ClaudeCreditExhausted it names the ``provider`` whose
+    credential failed, the ``model`` that ran into it and the detection
+    record (``detail``, carrying the signature), so the native lane cools
+    that provider and the next admission routes past it.
     """
+
+    def __init__(self, message: str, *, provider: str, model: str, detail: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.model = model
+        self.detail = detail
 
 
 class ClaudeCreditExhausted(RuntimeError):
@@ -258,8 +239,8 @@ class ClaudeRunResult:
     credit_exhaustion: dict[str, Any] | None = None
     # Authentication failure record, or None. Detection only; executors own the
     # policy. Not recoverable by any SAME-vendor rung — ARIA-HIGH-023 lets
-    # run_with_model_fallback cross vendors on auth failure; see
-    # AUTH_FAILURE_MARKERS and _cross_provider_auth_fallback.
+    # run_with_model_fallback cross vendors on auth failure, on the rung the
+    # role's routing ladder names; see AUTH_FAILURE_MARKERS.
     auth_failure: dict[str, Any] | None = None
     # ARIA-HIGH-002 — typed terminal classification of THIS result (auth
     # failure / credit-exhaustion markers, process exit), stamped by the
@@ -1759,6 +1740,24 @@ USAGE_LIMIT_MARKERS: tuple[str, ...] = (
     "usage-credits",              # the /usage-credits purchase command
     "switch models with /model",  # the model-switch hint in the limit notice
 )
+# (1b) THE NOTICE LINE ITSELF — ARIA-HIGH-290. The CLI's limit notice has a
+# shape no marker above names: measured 2026-10-01 on exit 1, "You've hit
+# your weekly limit · resets 6am (UTC)" (also 2026-08-22 on exit 0, sealed
+# as a judge's evidence: "... resets Aug 23, 10am (UTC)"). Matched as a whole
+# LINE that opens with "You've hit/reached your … limit", so prose that
+# merely discusses limits never matches; the line travels on the record as
+# `reset_hint`, from which the kernel's `provider_cooldown.stated_reset`
+# reads the reset the vendor stated.
+USAGE_LIMIT_NOTICE_RX = re.compile(
+    r"^\W*you(?:'|\u2019)?ve\s+(?:hit|reached)\s+your\b[^\n]{0,60}?\blimit\b[^\n]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+# The signature each Claude detection names — members of the kernel's closed
+# table (`aria_kernel.provider_cooldown.PROVIDER_EXHAUSTION_SIGNATURES`), the
+# only shapes a provider cooldown may be written for.
+CLAUDE_EXHAUSTION_SIGNATURES: tuple[str, ...] = (
+    "claude_usage_credits_hint", "claude_usage_limit_notice", "claude_credit_error", "claude_auth_failure",
+)
 # (2) API CREDIT/QUOTA ERROR — an actual failure (returncode != 0) whose text
 #     names a credit/quota/billing problem.
 #
@@ -1834,6 +1833,7 @@ def extract_auth_failure(
         return None
     return {
         "kind": "auth_failure",
+        "signature": "claude_auth_failure",
         "marker": marker,
         "returncode": returncode,
         # The remedy is a human act on the runner host, so it travels with the
@@ -1846,6 +1846,7 @@ def run_with_model_fallback(
     *,
     run: Callable[[str, str], ClaudeRunResult],
     model: str,
+    failover: str | None,
     effort: str,
     write_capable: bool,
     on_credit: Callable[[str, dict[str, Any]], None] | None = None,
@@ -1872,21 +1873,27 @@ def run_with_model_fallback(
       retried when the provider is back, never on a weaker tier.
     * A REFUSAL is returned on the result (``.refusal``), not retried: the
       executors escalate it to HUMAN_REQUIRED (``model_safety_refusal_unresolved``).
-    * ARIA-HIGH-023 — an AUTH failure walks ``AUTH_FAILOVER_TIER`` (same-vendor
-      rungs skipped, cycle-bounded) to the first CROSS-provider tier whose
-      runtime can serve this role and retries there at the original effort:
-      a dead credential is a vendor-level fact, and the other vendor's
-      credential is genuinely different. A write-scope profile has no such
-      rung — the other vendors' runtimes are read-only — so its auth failure
-      is terminal at once. Both vendors failing auth raises
+    * ARIA-HIGH-023 — an AUTH failure retries once on ``failover``, the
+      caller's next rung of the role's routing ladder (ARIA-HIGH-290), at
+      the original effort: a dead credential is a vendor-level fact, and the
+      other vendor's credential is genuinely different. ``None`` (a
+      write-scope profile, whose other vendors' runtimes are read-only, or
+      the native lane, whose admission owns failover) makes the auth failure
+      terminal at once. A ``failover`` on the same vendor, or a read-only
+      one for a write-scope profile, is refused before any attempt. Both vendors failing auth raises
       :class:`ClaudeAuthFailure`; no mock verdict is ever produced here. The
       failover attempt's own credit exhaustion is the same terminal raise,
       naming the vendor that ran out.
     * Exactly ONE retry per call, never chained.
     """
+    if failover is not None and (_model_provider(failover) == _model_provider(model)
+                                 or (write_capable and not _provider_admits_writes(_model_provider(failover)))):
+        raise ClaudePolicyViolation(
+            f"auth_failover_rung_inadmissible: {model!r} -> {failover!r} (write_capable={write_capable})"
+        )
     completed = run(model, effort)
     if completed.auth_failure is not None:
-        cross = _cross_provider_auth_fallback(model, write_capable=write_capable)
+        cross = failover
         if cross is not None:
             try:
                 retried = run(cross, effort)
@@ -1900,21 +1907,24 @@ def run_with_model_fallback(
                 raise ClaudeAuthFailure(
                     f"claude_auth_failure: {completed.auth_failure.get('marker')} on "
                     f"{model!r}, and the cross-provider rung {cross!r} is unavailable "
-                    f"({exc}); remedy: {completed.auth_failure.get('remedy')}"
+                    f"({exc}); remedy: {completed.auth_failure.get('remedy')}",
+                    provider=_model_provider(model), model=model, detail=dict(completed.auth_failure),
                 ) from exc
             if retried.auth_failure is not None:
                 raise ClaudeAuthFailure(
                     f"claude_auth_failure: {completed.auth_failure.get('marker')} on "
                     f"{model!r}, and the cross-provider rung {cross!r} failed auth "
                     f"too ({retried.auth_failure.get('marker')}) — both providers "
-                    f"are unavailable; remedy: {completed.auth_failure.get('remedy')}"
+                    f"are unavailable; remedy: {completed.auth_failure.get('remedy')}",
+                    provider=_model_provider(cross), model=cross, detail=dict(retried.auth_failure),
                 )
             return _stamp_model(_raise_if_exhausted(retried, model=cross, on_credit=on_credit), cross)
         raise ClaudeAuthFailure(
             f"claude_auth_failure: {completed.auth_failure.get('marker')} on {model!r}"
             + (" — a write-scope profile has no cross-vendor rung (the other "
                "runtimes are read-only)" if write_capable else " — no cross-vendor rung")
-            + f"; {completed.auth_failure.get('remedy')}"
+            + f"; {completed.auth_failure.get('remedy')}",
+            provider=_model_provider(model), model=model, detail=dict(completed.auth_failure),
         )
     return _stamp_model(_raise_if_exhausted(completed, model=model, on_credit=on_credit), model)
 
@@ -1968,15 +1978,16 @@ def extract_credit_exhaustion(
     Two shapes are matched over the FULL response text (stderr + final message
     + assistant content + the terminal ``result`` event):
 
-    * A CLI **usage-limit message** (``USAGE_LIMIT_MARKERS`` or the
-      "reached your … limit" co-occurrence) fires REGARDLESS of returncode —
+    * A CLI **usage-limit message** (``USAGE_LIMIT_MARKERS`` or a
+      ``USAGE_LIMIT_NOTICE_RX`` line) fires REGARDLESS of returncode —
       the CLI returns its limit notice as assistant content on a clean exit,
       so a ``returncode != 0`` gate would miss it (the 2026-07-03 live case).
     * An API **credit/quota error** (``CREDIT_ERROR_MARKERS``) fires only on a
       real failure (``returncode != 0``), so a plan that merely mentions
       "billing" on a clean run is never misread.
 
-    Returns a record naming the matched marker, or ``None``.
+    Returns a record naming the matched marker and its ``signature`` (a
+    member of ``CLAUDE_EXHAUSTION_SIGNATURES``), or ``None``.
     """
     haystacks: list[str] = [stderr or "", final_message or ""]
     for event in events:
@@ -1986,15 +1997,19 @@ def extract_credit_exhaustion(
             haystacks.append(str(event.get("result") or ""))
             haystacks.append(str(event.get("error") or ""))
             haystacks.append(str(event.get("subtype") or ""))
-    blob = "\n".join(haystacks).lower()
+    text = "\n".join(haystacks)
+    blob = text.lower()
+    notice = USAGE_LIMIT_NOTICE_RX.search(text)
+    notice_line = notice.group(0).strip() if notice is not None else None
     # (1) CLI usage-limit MESSAGE — content-based, returncode-independent.
     limit_marker = next((m for m in USAGE_LIMIT_MARKERS if m in blob), None)
-    if limit_marker is None and "reached your" in blob and "limit" in blob:
-        limit_marker = "reached_your_limit"
-    if limit_marker is not None:
+    if limit_marker is not None or notice_line is not None:
         return {
             "source": "cli_usage_limit_message",
-            "matched_marker": limit_marker,
+            "signature": ("claude_usage_credits_hint" if limit_marker is not None
+                          else "claude_usage_limit_notice"),
+            "matched_marker": limit_marker or "usage_limit_notice",
+            "reset_hint": notice_line,
             "returncode": returncode,
         }
     # (2) API credit/quota ERROR — gated on a real (nonzero-exit) failure.
@@ -2003,10 +2018,40 @@ def extract_credit_exhaustion(
             if marker in blob:
                 return {
                     "source": "cli_error_text",
+                    "signature": "claude_credit_error",
                     "matched_marker": marker,
                     "returncode": returncode,
                 }
     return None
+
+
+# CLI notices that open a spawn on a host and say nothing about how it ended.
+# Measured 2026-10-01: "Ignoring 481 permissions.allow entries from
+# .claude/settings.local.json: this workspace has not been trusted. ..." was
+# the WHOLE recorded tail of every failed attempt (ARIA-HIGH-290).
+BENIGN_CLI_NOTICE_RX = re.compile(
+    r"^Ignoring \d+ permissions\.(?:allow|deny) entries from .*has not been trusted", re.MULTILINE,
+)
+
+
+def failure_cause_text(*, stderr: str, events: tuple[dict[str, Any], ...]) -> str:
+    """The text a failed run's recorded tail is cut from, ordered cause LAST.
+
+    The executor keeps the last ``STDERR_TAIL_MAX_CHARS`` of this. The CLI
+    reports a terminal condition — the weekly-limit notice, an API error —
+    in the stream's ``result`` event, while stderr may carry only start-up
+    notices; tailing stderr alone recorded the notice and lost the cause.
+    Order: the benign notices (``BENIGN_CLI_NOTICE_RX``), then every other
+    stderr line in its own order, then the terminal ``result`` event's text
+    and error, so no length of notice can push the cause out of the tail.
+    """
+    lines = (stderr or "").splitlines()
+    notices = [line for line in lines if BENIGN_CLI_NOTICE_RX.match(line)]
+    others = [line for line in lines if not BENIGN_CLI_NOTICE_RX.match(line)]
+    terminal = next((event for event in reversed(events) if event.get("type") == "result"), None)
+    outcome = ([f"result: {part}" for part in (terminal.get("result"), terminal.get("error"))
+                if isinstance(part, str) and part.strip()] if terminal is not None else [])
+    return "\n".join(notices + others + outcome)
 
 
 def extract_usage(events: tuple[dict[str, Any], ...]) -> dict[str, Any] | None:

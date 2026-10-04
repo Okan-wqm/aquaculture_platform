@@ -67,12 +67,12 @@ export ARIA_STATE_BOOTSTRAP_ACK="Okan-wqm/aquaculture_platform"
 # 1. Take the writer lease. Exit 3 means another writer holds it; the JSON
 #    names the holder, its run and its expiry. Do not work around it.
 PYTHONPATH=aria-kernel python3 -m aria_kernel state lease acquire \
-  --repo-root . --ttl-minutes 60 --token-file "$HOME/.aria-state-lease-token"
+  --repo-root . --ttl-minutes 120 --token-file "$HOME/.aria-state-lease-token"
 
-# 2. Present its capability to the publish (the token is a secret; it is
-#    never printed, and lease.json stores only its SHA-256).
-export ARIA_STATE_WRITER_LEASE_TOKEN="$(cat "$HOME/.aria-state-lease-token")"
-
+# 2. Check the store out under that lease. The token stays in its file
+#    (created exclusively, mode 0600): it is a secret, it is never printed,
+#    lease.json stores only its SHA-256, and it is never exported into the
+#    shell — each command that needs it reads the file.
 PYTHONPATH=aria-kernel python3 -m aria_kernel state checkout --repo-root .
 ```
 
@@ -89,7 +89,8 @@ Then publish the first snapshot:
 PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
   --repo-root . \
   --snapshot-id "bootstrap-$(date -u +%Y%m%dT%H%M%SZ)" \
-  --cycle-id "operator-bootstrap"
+  --cycle-id "operator-bootstrap" \
+  --lease-token-file "$HOME/.aria-state-lease-token"
 ```
 
 Expected: `"published": true`, `"pushed": true`,
@@ -98,8 +99,9 @@ Expected: `"published": true`, `"pushed": true`,
 Then give the lease back:
 
 ```bash
-PYTHONPATH=aria-kernel python3 -m aria_kernel state lease release --repo-root .
-unset ARIA_STATE_WRITER_LEASE_TOKEN && rm -f "$HOME/.aria-state-lease-token"
+PYTHONPATH=aria-kernel python3 -m aria_kernel state lease release --repo-root . \
+  --token-file "$HOME/.aria-state-lease-token"
+rm -f "$HOME/.aria-state-lease-token"
 ```
 
 A publish that finds the branch moved under its lease, or the lease taken over
@@ -148,7 +150,7 @@ trusting "the latest".)
 
 - **A holder died without releasing.** `state lease status --repo-root .` names
   it. Its lease frees itself at the recorded expiry (job timeout plus the
-  35-minute publish margin). To free it sooner, after confirming its run is
+  80-minute publish margin). To free it sooner, after confirming its run is
   gone:
   `state lease release --repo-root . --force-foreign --reason "<run id> died at <time>"`.
   The release is a commit on `aria/state-lease` that records who and why.

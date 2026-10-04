@@ -898,12 +898,14 @@ def publish_state(
     cycle_id: str,
     repo_hash: str,
     expected_base_head: str | None = None,
-    writer_fence: "WriterFence | None" = None,
+    writer_fence: "WriterFence | None",
 ) -> dict[str, Any]:
     """The compare-and-swap primitive. Lanes never call it: they publish
     through `publish_with_contention_replay`, which builds the writer-lease
     fence this pushes atomically (ARIA-HIGH-342; pinned by
-    tests/test_state_single_writer.py — no kernel module calls this)."""
+    tests/test_state_single_writer.py — no kernel module calls this).
+    ``writer_fence`` has no default: an unfenced push must be asked for by
+    name (``writer_fence=None``), which only fixtures do."""
     with _state_store_lifecycle_lock(store.repo_root):
         return _publish_state_locked(
             store,
@@ -922,7 +924,7 @@ def _publish_state_locked(
     cycle_id: str,
     repo_hash: str,
     expected_base_head: str | None = None,
-    writer_fence: "WriterFence | None" = None,
+    writer_fence: "WriterFence | None",
 ) -> dict[str, Any]:
     """Commit and push a snapshot — refusing unless it descends from the tip.
 
@@ -1227,7 +1229,7 @@ def _publish_state_locked(
             base_head=pre_commit_head,
             repo_hash=repo_hash,
             detail=detail,
-            leased=writer_fence is not None,
+            writer_fence=writer_fence,
         )
         push_outcome = "reconciled"
 
@@ -1745,14 +1747,17 @@ def _reconcile_nonzero_push(
     base_head: str,
     repo_hash: str,
     detail: str,
-    leased: bool = False,
+    writer_fence: "WriterFence | None" = None,
 ) -> str:
     """Classify an ambiguous non-zero push without duplicating committed rows.
 
-    ``leased`` — the push carried the writer-lease fence atomically. A state
-    tip that did not move then means the FENCE was rejected (a takeover):
-    the commit is rolled back to the index, as for any lost race, and the
-    orchestrator names it from a fresh read of the lease.
+    ``writer_fence`` — the push carried the writer-lease fence atomically. A
+    state tip that did not move then has two readings, told apart by the
+    lease branch itself: it moved off the fence's parent (a takeover — the
+    commit is rolled back to the index and the orchestrator names it from a
+    fresh read of the lease), or it did not (the server refused the push for
+    another reason — permission, ruleset, transport — and that is
+    ``state_publish_write_denied``, never a lost lease; R-6).
     """
     if _read_commit_ref(store.root, "HEAD") != committed_head:
         raise StateStoreRefusal(
@@ -1806,7 +1811,17 @@ def _reconcile_nonzero_push(
             target_head=fetched_tip,
         )
         return fetched_tip
-    if fetched_tip == base_head and leased:
+    if fetched_tip == base_head and writer_fence is not None:
+        lease_probe = _probe_remote_tip_at(
+            store.root, remote=store.remote, branch=writer_fence.lease_branch,
+        )
+        if lease_probe.status != "present" or lease_probe.sha == writer_fence.parent_tip:
+            raise StateStoreError(
+                "state_publish_write_denied: the server refused the atomic push while "
+                "neither aria/state nor its writer lease moved "
+                f"(lease branch {lease_probe.status}); nothing was taken by another writer; "
+                f"preserving commit at HEAD. {detail}"
+            )
         _soft_reset_owned_commit(
             store,
             committed_head=committed_head,

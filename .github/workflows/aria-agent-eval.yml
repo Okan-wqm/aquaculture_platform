@@ -127,10 +127,10 @@ jobs:
           # ARIA-HIGH-342 — this job writes aria/state: the writer lease is
           # taken before the checkout and held to the release step, so no
           # other lane publishes in between. Expiry = this job's
-          # timeout-minutes plus the 35-minute leased-publish margin
+          # timeout-minutes plus the 80-minute leased-publish margin
           # (GSEC-MEDIUM-003); past the wait the run yields by name, before it
           # has restored anything.
-          writer-lease-ttl-minutes: '60'
+          writer-lease-ttl-minutes: '105'
           writer-lease-wait-seconds: '600'
 
       - name: Register eval fixtures

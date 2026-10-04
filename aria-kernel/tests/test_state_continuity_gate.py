@@ -133,7 +133,7 @@ class AChainBrokenSnapshotNeverPublishes(ContinuityGateTestCase):
         head_before = _git(store.root, "rev-parse", "HEAD").strip()
         snapshot_before = (store.root / "snapshot.json").read_bytes()
         with self.assertRaises(StateStoreRefusal) as caught:
-            publish_state(store, snapshot=snapshot, cycle_id="cycle-2", repo_hash=REPO_HASH)
+            publish_state(store, writer_fence=None, snapshot=snapshot, cycle_id="cycle-2", repo_hash=REPO_HASH)
         message = str(caught.exception)
         self.assertIn("state_publish_continuity_chain_broken", message)
         self.assertIn("a-snapshot-this-branch-never-published", message)
@@ -173,7 +173,7 @@ class TheAcknowledgmentIsValidatedLikeTheBootstrap(ContinuityGateTestCase):
 
             follow_up = self._snapshot(store, "snap-3", cycle_id="cycle-3")
             with self.assertRaises(StateStoreRefusal) as caught:
-                publish_state(store, snapshot=follow_up, cycle_id="cycle-3", repo_hash=REPO_HASH)
+                publish_state(store, writer_fence=None, snapshot=follow_up, cycle_id="cycle-3", repo_hash=REPO_HASH)
             self.assertIn("state_publish_reduction_ack_mismatch", str(caught.exception))
         self.assertNotIn(lost, follow_up["surfaces"])
 
@@ -185,7 +185,7 @@ class TheAcknowledgmentIsValidatedLikeTheBootstrap(ContinuityGateTestCase):
             self.assertEqual(prepared.accepted_losses_recorded, ())
             with self.assertRaises(StateStoreRefusal) as caught:
                 publish_state(
-                    store,
+                    store, writer_fence=None,
                     snapshot=prepared.snapshot,
                     cycle_id="cycle-3",
                     repo_hash=REPO_HASH,
@@ -260,7 +260,7 @@ class AnAcceptedReductionIsRecordedInsideThePublish(ContinuityGateTestCase):
         with _EnvPatch({BOOTSTRAP_ACK_ENV: self.identity}):
             follow_up = self._snapshot(store, "snap-3", cycle_id="cycle-3")
             with self.assertRaises(StateStoreRefusal) as caught:
-                publish_state(store, snapshot=follow_up, cycle_id="cycle-3", repo_hash=REPO_HASH)
+                publish_state(store, writer_fence=None, snapshot=follow_up, cycle_id="cycle-3", repo_hash=REPO_HASH)
         message = str(caught.exception)
         self.assertIn("state_publish_losses_acceptance_unrecorded", message)
         self.assertIn(lost, message)

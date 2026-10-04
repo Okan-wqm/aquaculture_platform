@@ -370,7 +370,7 @@ class TheFenceIsPartOfThePush(_TwoWriters):
         rogue = self._store(self.repo_short)
         self._append(rogue, "rogue-row")
         state_store.publish_state(
-            rogue,
+            rogue, writer_fence=None,
             snapshot=state_store.prepare_publishable_snapshot(
                 rogue, snapshot_id="rogue", cycle_id="rogue", lane="test", repo_hash=REPO_HASH,
             ).snapshot,
@@ -394,7 +394,7 @@ class TheFenceIsPartOfThePush(_TwoWriters):
         self._seeded()
         # Long enough that the publish needs no renewal: the lease tip below
         # must be the one the fence was built on.
-        holder = acquire_writer_lease(self.repo_long, ttl_minutes=60, owner="holder")
+        holder = acquire_writer_lease(self.repo_long, ttl_minutes=120, owner="holder")
         store = self._store(self.repo_long)
         self._append(store, "holder-row")
         rogue = self._store(self.repo_short)
@@ -405,7 +405,7 @@ class TheFenceIsPartOfThePush(_TwoWriters):
         def prepare_then_rogue_publishes(*args, **kwargs):
             fence = real_prepare(*args, **kwargs)
             state_store.publish_state(
-                rogue,
+                rogue, writer_fence=None,
                 snapshot=state_store.prepare_publishable_snapshot(
                     rogue, snapshot_id="rogue", cycle_id="rogue", lane="test", repo_hash=REPO_HASH,
                 ).snapshot,
@@ -573,8 +573,13 @@ class AWedgedLeaseIsRepairedNotHandEdited(_TwoWriters):
         self._wedge()
         wedged_tip = self._remote_tip("aria/state-lease")
         code, verdict, _ = self._acquire(self.repo_short, ttl=30)
-        self.assertEqual(code, 3, "an unreadable lease is not a free branch")
-        self.assertIn("state_writer_lease_record_invalid", verdict["refusal"])
+        # R-1 — an unreadable record is an ERROR (exit 4) naming the repair,
+        # never the yield (exit 3, a holder) that would turn every writer
+        # green-and-idle for as long as the record stays broken.
+        self.assertEqual(code, 4, "an unreadable lease is neither a free branch nor a holder")
+        self.assertNotIn("holder", verdict)
+        self.assertIn("state_writer_lease_record_invalid", verdict["error"])
+        self.assertIn("state lease repair", verdict["error"])
         code, repaired = self._cli([
             "state", "lease", "repair", "--repo-root", str(self.repo_short),
             "--reason", "record overwritten by a hand edit",
@@ -596,8 +601,8 @@ class AWedgedLeaseIsRepairedNotHandEdited(_TwoWriters):
         code, verdict = self._cli([
             "state", "lease", "repair", "--repo-root", str(self.repo_short), "--reason", "x",
         ])
-        self.assertEqual(code, 3)
-        self.assertIn("state_writer_lease_repair_refused", verdict["refusal"])
+        self.assertEqual(code, 4)
+        self.assertIn("state_writer_lease_repair_refused", verdict["error"])
 
 
 class ReplayRefusesWhatItCannotCarry(_TwoWriters):
@@ -694,6 +699,128 @@ class ContinuityScope(_TwoWriters):
             any(reason.startswith("state_continuity_store_not_at_tip") for reason in verdict["reasons"]),
             verdict,
         )
+
+
+class ReReviewFixes(_TwoWriters):
+    """PR #1779 re-review: R-1, R-4, R-6."""
+
+    def _seeded(self) -> None:
+        seed = self._store(self.repo_long)
+        self._append(seed, "seed")
+        self.assertTrue(self._publish(seed, "snap-seed")["published"])
+
+    def test_only_a_held_lease_yields(self) -> None:
+        """R-1 — exit 3 carries a holder; a missing record is exit 4."""
+        from aria_kernel.state_writer_lease import acquire_writer_lease
+
+        acquire_writer_lease(self.repo_long, ttl_minutes=30, owner="holder")
+        code, verdict, _ = self._acquire(self.repo_short, ttl=30)
+        self.assertEqual(code, 3)
+        self.assertEqual(verdict["holder"]["owner"], "holder")
+        # A lease-branch tip that carries no lease.json at all (a fast-forward
+        # child, as anything on that branch must be).
+        tip = self._remote_tip("aria/state-lease")
+        _git(self.repo_long, "fetch", "origin", "aria/state-lease")
+        empty_tree = _git(self.repo_long, "hash-object", "-w", "-t", "tree", "/dev/null").strip()
+        bare = _git(self.repo_long, "commit-tree", empty_tree, "-p", tip, "-m", "no record").strip()
+        _git(self.repo_long, "push", "origin", f"{bare}:refs/heads/aria/state-lease")
+        code, verdict, _ = self._acquire(self.repo_short, ttl=30)
+        self.assertEqual(code, 4, verdict)
+        self.assertIn("state_writer_lease_record_missing", verdict["error"])
+        self.assertIn("state lease repair", verdict["error"])
+
+    def test_the_action_yields_only_on_a_verdict_with_a_holder(self) -> None:
+        action = (REPO_ROOT / ".github/actions/restore-aria-state/action.yml").read_text(encoding="utf-8")
+        acquire = action[action.index("- name: Acquire the aria/state writer lease"):]
+        acquire = acquire[: acquire.index("- name: Check out the aria/state store")]
+        self.assertIn('"$LEASE_EXIT" -ne 3', acquire)
+        self.assertIn('["holder"]', acquire, "a yield must be proven by the verdict's holder")
+        self.assertIn("state lease repair", acquire)
+
+    def test_the_fence_never_prints_its_token(self) -> None:
+        from aria_kernel.state_writer_fence import WriterFence
+
+        fence = WriterFence(
+            commit="c" * 40, lease_branch="aria/state-lease", parent_tip="p" * 40,
+            lease_id="sha256:x", epoch=1, token="s3cret-token",
+        )
+        self.assertNotIn("s3cret-token", repr(fence))
+
+    def test_the_token_file_is_created_exclusively_and_never_through_a_symlink(self) -> None:
+        from aria_kernel.state_writer_lease import read_writer_lease
+
+        target = self.base / "elsewhere"
+        target.write_text("", encoding="utf-8")
+        link = self.base / "token-link"
+        link.symlink_to(target)
+        with self.assertRaises(OSError):
+            cli_main([
+                "state", "lease", "acquire", "--repo-root", str(self.repo_long),
+                "--ttl-minutes", "5", "--token-file", str(link),
+            ])
+        self.assertIsNone(read_writer_lease(self.repo_long).tip, "no lease taken when the token cannot be kept")
+        code, held, token = self._acquire(self.repo_long, ttl=5)
+        self.assertEqual(code, 0, held)
+        mode = os.stat(next(self.base.glob("token-long-job-*"))).st_mode & 0o777
+        self.assertEqual(mode, 0o600)
+
+    def test_publish_and_release_take_the_token_from_a_file(self) -> None:
+        """R-4 — the operator never exports the capability into a shell."""
+        from aria_kernel.state_writer_lease import read_writer_lease
+
+        self._seeded()
+        token_file = self.base / "operator-token"
+        code, held = self._cli([
+            "state", "lease", "acquire", "--repo-root", str(self.repo_long),
+            "--ttl-minutes", "30", "--token-file", str(token_file),
+        ])
+        self.assertEqual(code, 0, held)
+        store = self._store(self.repo_long)
+        self._append(store, "operator-row")
+        code, result = self._cli([
+            "state", "publish", "--repo-root", str(self.repo_long), "--repo-hash", REPO_HASH,
+            "--snapshot-id", "op", "--cycle-id", "op", "--lease-token-file", str(token_file),
+        ])
+        self.assertEqual(code, 0, result)
+        self.assertIn("operator-row", self._remote_cycle_ids(self.repo_long))
+        code, released = self._cli([
+            "state", "lease", "release", "--repo-root", str(self.repo_long), "--token-file", str(token_file),
+        ])
+        self.assertTrue(released["released"], released)
+        self.assertTrue(read_writer_lease(self.repo_long).released)
+        runbook = (REPO_ROOT / "docs/runbooks/aria-state-branch-bootstrap.md").read_text(encoding="utf-8")
+        self.assertNotIn("export ARIA_STATE_WRITER_LEASE_TOKEN", runbook)
+        self.assertIn("--lease-token-file", runbook)
+
+    def test_publish_state_has_no_unfenced_default(self) -> None:
+        import inspect
+
+        parameter = inspect.signature(state_store.publish_state).parameters["writer_fence"]
+        self.assertIs(parameter.default, inspect.Parameter.empty)
+        self.assertEqual(parameter.kind, inspect.Parameter.KEYWORD_ONLY)
+
+    def test_a_refused_push_with_an_unmoved_lease_is_write_denied_not_lease_lost(self) -> None:
+        """R-6 — permission, ruleset or transport: the state did not move and
+        neither did the lease, so nothing was lost to another writer."""
+        from aria_kernel.state_writer_lease import acquire_writer_lease
+
+        self._seeded()
+        holder = acquire_writer_lease(self.repo_long, ttl_minutes=120, owner="holder")
+        store = self._store(self.repo_long)
+        self._append(store, "holder-row")
+        real_run_git = state_store._run_git
+
+        def push_denied(cwd, args):
+            if args and args[0] == "push" and "--atomic" in args:
+                return subprocess.CompletedProcess(args, 1, "", "remote: Permission denied (ruleset)")
+            return real_run_git(cwd, args)
+
+        with mock.patch.object(state_store, "_run_git", side_effect=push_denied):
+            with self.assertRaises(state_store.StateStoreError) as caught:
+                self._publish(store, "holder", token=holder.token)
+        self.assertIn("state_publish_write_denied", str(caught.exception))
+        self.assertNotIn("state_writer_lease_lost", str(caught.exception))
+        self.assertNotIn("aria/state moved", str(caught.exception))
 
 
 class StateBranchProtection(unittest.TestCase):

@@ -275,15 +275,17 @@ STATE_TRANSACTION_ARCS: dict[str, LifecycleArc] = {
 
 # ONE attempt of `_publish_with_contention_replay_locked` at its longest:
 # the atomic push (state + writer-lease fence) exits non-zero;
-# `_reconcile_nonzero_push` probes the remote and fetches its tip, and when
-# the remote already carries the commit it fast-forwards the store onto it.
-# Contention ends the attempt with a refusal: ARIA-HIGH-342 took the rebase
-# out of the publish, so it is priced by its own arc below.
+# `_reconcile_nonzero_push` probes the remote and fetches its tip; then
+# either the remote already carries the commit and the store fast-forwards
+# onto it, or the state tip did not move and one probe of the lease branch
+# tells a takeover from a refused write (R-6). Contention ends the attempt
+# with a refusal: ARIA-HIGH-342 took the rebase out of the publish, so it is
+# priced by its own arc below.
 PUBLISH_ATTEMPT_ARC: LifecycleArc = (
     PUBLISH_PUSH_STEP,
     REMOTE_TIP_PROBE_STEP,
     REMOTE_BRANCH_FETCH_STEP,
-    OWNED_STORE_FAST_FORWARD_STEP,
+    (OWNED_STORE_FAST_FORWARD_STEP, REMOTE_TIP_PROBE_STEP),
 )
 
 # `rebase_store_onto_remote` (its one production caller is

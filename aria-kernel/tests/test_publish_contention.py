@@ -773,7 +773,7 @@ class PublishContentionTests(unittest.TestCase):
             "state_publish_base_head_moved",
         ):
             state_store.publish_state(
-                store_a,
+                store_a, writer_fence=None,
                 snapshot=snapshot,
                 cycle_id="cycle-raced-before-write",
                 repo_hash=REPO_HASH,
@@ -1280,7 +1280,7 @@ class PublishContentionTests(unittest.TestCase):
             remote_store = self._store(self.repo_b, "remote-descendant-store")
             self._append(remote_store, "remote-descendant-row")
             state_store.publish_state(
-                remote_store,
+                remote_store, writer_fence=None,
                 snapshot=state_store.prepare_publishable_snapshot(
                     remote_store, snapshot_id="snap-remote", cycle_id="cycle-remote",
                     lane="test", repo_hash=REPO_HASH,
@@ -1451,7 +1451,7 @@ class PublishContentionTests(unittest.TestCase):
             "state_publish_outcome_unknown",
         ):
             state_store.publish_state(
-                store_a,
+                store_a, writer_fence=None,
                 snapshot=snapshot,
                 cycle_id="cycle-1",
                 repo_hash=REPO_HASH,
@@ -1496,7 +1496,7 @@ class PublishContentionTests(unittest.TestCase):
             "state_publish_outcome_unknown",
         ):
             state_store.publish_state(
-                store_a,
+                store_a, writer_fence=None,
                 snapshot=snapshot,
                 cycle_id="cycle-1",
                 repo_hash=REPO_HASH,
@@ -2235,7 +2235,7 @@ class PublishContentionTests(unittest.TestCase):
                 repo_hash=REPO_HASH,
             ),
             "publish": lambda: state_store.publish_state(
-                store,
+                store, writer_fence=None,
                 snapshot={},
                 cycle_id="must-not-publish",
                 repo_hash=REPO_HASH,
@@ -2317,7 +2317,7 @@ class PublishContentionTests(unittest.TestCase):
                 expected_base=base_head,
             ),
             "publish": lambda fresh: state_store.publish_state(
-                fresh,
+                fresh, writer_fence=None,
                 snapshot=local,
                 cycle_id="must-not-publish",
                 repo_hash=REPO_HASH,
@@ -4017,7 +4017,7 @@ class PublishContentionTests(unittest.TestCase):
             previous=base,
         )
         state_store.publish_state(
-            store_b,
+            store_b, writer_fence=None,
             snapshot=local,
             cycle_id="cycle-loser",
             repo_hash=REPO_HASH,
@@ -4542,7 +4542,7 @@ class PublishContentionTests(unittest.TestCase):
             "state_publish_ancestry_unproven",
         ):
             state_store.publish_state(
-                store,
+                store, writer_fence=None,
                 snapshot=local,
                 cycle_id="stale-direct-publish",
                 repo_hash=REPO_HASH,

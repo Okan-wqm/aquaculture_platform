@@ -74,8 +74,10 @@ from typing import Any, Callable
 from .autonomous_host_lease import RemoteCasLease, build_remote_cas_lease
 from .ledger import canonical_json
 from .state_store import (
+    COLD_PUSH_ATTEMPTS,
     COMMITTER_EMAIL,
     COMMITTER_NAME,
+    GIT_TIMEOUT_SECONDS,
     STATE_BRANCH,
     StateStoreError,
     StateStoreRefusal,
@@ -106,14 +108,24 @@ LEASE_SCHEMA = "aria/state-writer-lease/v2"
 # The longest job bound any writer lane declares is the executor's; a day is
 # the ceiling a caller may ask for, so a typo cannot lock the branch for a week.
 MAX_TTL_MINUTES = 24 * 60
-# The worst case of ONE leased publish under the lifecycle lock — the pending
-# recovery and the publish attempt, at the git cap — is the store's own
-# derived bound (`state_store_lifecycle_arcs.STATE_STORE_PUBLISH_ARC_SECONDS`).
-# A leased publish never replays, so this is its whole arc; a lease with less
-# than this left is renewed by CAS before the push.
-LEASED_PUBLISH_SECONDS: float = STATE_STORE_PUBLISH_ARC_SECONDS
+# THE LEASED PUBLISH, PRICED WHOLE (PR #1779 re-review R-3). Before the lock
+# the orchestrator builds the fence — the lease probe and fetch and the
+# state-tip probe, and on a lease running short its renewal push and re-read —
+# and stages the cold eviction (`state_store._push_cold_union`: per attempt
+# a probe, a fetch and a push). Under the lock it runs the store's own
+# derived publish arc. Every git call at the store's cap.
+PUBLISH_PREAMBLE_SECONDS: int = (
+    COLD_PUSH_ATTEMPTS * 3 * GIT_TIMEOUT_SECONDS  # cold staging
+    + 3 * GIT_TIMEOUT_SECONDS  # fence reads: lease probe, lease fetch, state-tip probe
+    + 3 * GIT_TIMEOUT_SECONDS  # renewal: push, then the re-read's probe and fetch
+)
+# What must still fit in the lease when the fence has been checked: the cold
+# staging and the locked publish. A lease with less than this left is renewed
+# by CAS before anything is pushed. A leased publish never replays.
+LEASED_PUBLISH_SECONDS: float = COLD_PUSH_ATTEMPTS * 3 * GIT_TIMEOUT_SECONDS + STATE_STORE_PUBLISH_ARC_SECONDS
 # GSEC-MEDIUM-003 — a lane's TTL is its job timeout PLUS this margin, so a
-# publish at the very end of the job still has a whole leased arc left.
+# publish at the very end of the job still finds that much left and never
+# needs the renewal it could not afford.
 PUBLISH_MARGIN_MINUTES: int = math.ceil(LEASED_PUBLISH_SECONDS / 60)
 _MAX_LEASE_RECORD_BYTES = 64 * 1024
 # A rejected push whose re-read shows the tip unchanged is a transport fault,
@@ -758,6 +770,7 @@ __all__ = [
     "LEASE_SCHEMA",
     "MAX_TTL_MINUTES",
     "PUBLISH_MARGIN_MINUTES",
+    "PUBLISH_PREAMBLE_SECONDS",
     "WRITER_LEASE_TOKEN_ENV",
     "HeldWriterLease",
     "StateWriterLeaseBlocked",

@@ -22,7 +22,7 @@ supposed to be two. The refusal re-reads the lease to say which it was.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Callable
 
@@ -56,7 +56,7 @@ class WriterFence:
     parent_tip: str
     lease_id: str
     epoch: int
-    token: str
+    token: str = field(repr=False)
 
     def refspec(self) -> str:
         return f"{self.commit}:refs/heads/{self.lease_branch}"

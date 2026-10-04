@@ -189,14 +189,19 @@ runs:
           python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); print("aria/state writer lease held:", v["lease_id"], "epoch", v["epoch"], "until", v["expires_at"])' "$VERDICT"
         else
           LEASE_EXIT=$?
-          if [ "$LEASE_EXIT" -ne 3 ]; then
-            echo "::error::the aria/state writer lease could not be read or written (exit ${LEASE_EXIT})." >&2
-            exit "$LEASE_EXIT"
+          # A YIELD is exit 3 AND a verdict naming the holder — another
+          # writer's turn — and nothing else (PR #1779 re-review R-1). Exit 4
+          # (an unreadable or missing record) and every other failure are
+          # RED: one broken record must not make every writer yield green.
+          if [ "$LEASE_EXIT" -ne 3 ] || ! python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("holder") else 1)' "$VERDICT" 2>/dev/null; then
+            echo "::error::the aria/state writer lease is not usable (exit ${LEASE_EXIT}); see \`state lease status\` and \`state lease repair --reason\` (docs/runbooks/aria-state-branch-bootstrap.md)." >&2
+            head -c 4000 "$VERDICT" >&2 || true
+            exit 1
           fi
           # A YIELD, recorded where the operator looks: nothing was
           # restored, so nothing this run did is lost.
           echo "writer_lease=yielded" >> "$GITHUB_OUTPUT"
-          REASON="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["refusal"])' "$VERDICT")"
+          REASON="$(python3 -c 'import json,sys; v=json.load(open(sys.argv[1])); print(v["refusal"], "| holder:", v["holder"]["owner"])' "$VERDICT")"
           echo "::warning::aria/state writer lease yielded: ${REASON}"
           {
             echo '### aria/state writer lease: yielded'

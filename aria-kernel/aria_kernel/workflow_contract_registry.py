@@ -348,9 +348,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # margin). 500 → 510 (round 6): the window grew to 21000 s so
                 # an implementation child has 657 s of start window, not 57 —
                 # the first `next-pending` alone took over 40 s under load.
-                # The YAML is the pin; this must move with it
+                # 510 → 570 (ARIA-HIGH-342, PR #1779 re-review R-3): the
+                # post-drain reserve now prices the leased publish's preamble
+                # outside the lock (cold staging, the fence's lease reads and
+                # renewal: 4500 s). The YAML is the pin; this must move with it
                 # (`_verify_job_timeout_minutes`).
-                job_timeout_minutes=510,
+                job_timeout_minutes=570,
                 required_steps=(
                     _EXECUTOR_RESTORE_STEP,
                     _EXECUTOR_LEASE_STEP,

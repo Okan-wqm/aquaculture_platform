@@ -637,6 +637,11 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
         # and pushes the lease fence atomically with the state.
         result = publish_with_contention_replay(
             store,
+            writer_lease_token=(
+                _read_lease_token_file(args.lease_token_file)
+                if getattr(args, "lease_token_file", None)
+                else None
+            ),
             snapshot_id=args.snapshot_id,
             cycle_id=args.cycle_id,
             # Derived from the entry point, never from an argument — the
@@ -662,10 +667,14 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
 def _handle_state_lease_command(args: argparse.Namespace) -> int:
     """ARIA-HIGH-342 — the aria/state writer lease (``state_writer_lease``).
 
-    Exit codes follow the store verbs: 0 done, 3 a refusal verdict (the lease
-    is held by another writer — the caller yields and says why — or a repair
-    of a valid lease), and a transport failure raises. The capability token
-    is written to ``--token-file`` (0600) and never printed.
+    Exit codes: 0 done; 3 ONLY when another writer holds the lease (the
+    verdict names the holder, and the caller yields); 4 for every other
+    refusal — an unreadable or missing record, a repair of a valid lease —
+    which is an error naming `state lease repair`, never a yield (PR #1779
+    re-review R-1: one bad record must not make every writer go quietly
+    green). A transport failure raises. The capability token is written to
+    ``--token-file`` (created exclusively, 0600, never through a symlink) and
+    never printed.
     """
     from .state_store import StateStoreRefusal
     from .state_writer_lease import (
@@ -685,7 +694,11 @@ def _handle_state_lease_command(args: argparse.Namespace) -> int:
     if args.lease_command == "release":
         if args.force_foreign and not (args.reason or "").strip():
             raise SystemExit("state lease release --force-foreign requires --reason")
-        token = os.environ.get(WRITER_LEASE_TOKEN_ENV, "").strip() or None
+        token = (
+            _read_lease_token_file(args.token_file)
+            if args.token_file
+            else os.environ.get(WRITER_LEASE_TOKEN_ENV, "").strip() or None
+        )
         result = release_writer_lease(
             args.repo_root,
             token=None if args.force_foreign else token,
@@ -701,10 +714,20 @@ def _handle_state_lease_command(args: argparse.Namespace) -> int:
                 args.repo_root, reason=args.reason, remote=args.remote, state_branch=branch,
             )
         except StateStoreRefusal as refusal:
-            print(json.dumps({"repaired": False, "refusal": str(refusal)}, indent=2, sort_keys=True))
-            return 3
+            print(json.dumps({"repaired": False, "error": str(refusal)}, indent=2, sort_keys=True))
+            return 4
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    # The capability goes to a file only its owner can read; stdout is a log.
+    # The file is created BEFORE the lease is taken, exclusively and never
+    # through a symlink (R-4): a token that cannot be kept must not leave a
+    # lease behind that nobody can release by capability.
+    descriptor = os.open(
+        args.token_file,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+        0o600,
+    )
+    os.fchmod(descriptor, 0o600)
     try:
         held = acquire_writer_lease(
             args.repo_root,
@@ -714,24 +737,42 @@ def _handle_state_lease_command(args: argparse.Namespace) -> int:
             remote=args.remote,
             state_branch=branch,
         )
-    except StateWriterLeaseBlocked as blocked:
-        print(json.dumps({
-            "held": False,
-            "refusal": str(blocked),
-            "holder": blocked.view.as_json(),
-            "waited_seconds": round(blocked.waited_seconds, 3),
-        }, indent=2, sort_keys=True))
-        return 3
-    except StateStoreRefusal as refusal:
-        # An unreadable record fails closed as a verdict; `state lease repair`.
-        print(json.dumps({"held": False, "refusal": str(refusal)}, indent=2, sort_keys=True))
-        return 3
-    # The capability goes to a file only its owner can read; stdout is a log.
-    descriptor = os.open(args.token_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    except BaseException as failure:
+        os.close(descriptor)
+        os.unlink(args.token_file)
+        if isinstance(failure, StateWriterLeaseBlocked):
+            print(json.dumps({
+                "held": False,
+                "refusal": str(failure),
+                "holder": failure.view.as_json(),
+                "waited_seconds": round(failure.waited_seconds, 3),
+            }, indent=2, sort_keys=True))
+            return 3
+        if isinstance(failure, StateStoreRefusal):
+            print(json.dumps({
+                "held": False,
+                "error": (
+                    f"{failure}; this is not another writer's turn — inspect with "
+                    "`state lease status` and replace a broken record with "
+                    "`state lease repair --reason`"
+                ),
+            }, indent=2, sort_keys=True))
+            return 4
+        raise
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
         handle.write(held.token + "\n")
     print(json.dumps(held.as_json(), indent=2, sort_keys=True))
     return 0
+
+
+def _read_lease_token_file(path: str) -> str:
+    """The capability, read from the file `state lease acquire` wrote."""
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+    with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+        token = handle.read().strip()
+    if not token:
+        raise GovernanceError(f"state_writer_lease_token_file_empty:{path}")
+    return token
 
 
 def _record_launch_failure(argv: list[str] | None) -> None:
@@ -1018,6 +1059,11 @@ def build_parser() -> argparse.ArgumentParser:
             store_parser.add_argument("--snapshot-id", required=True)
             store_parser.add_argument("--cycle-id", required=True)
             store_parser.add_argument("--parent-commit", default=None)
+            # ARIA-HIGH-342 — the writer-lease capability, read from the file
+            # `state lease acquire --token-file` wrote; without it the token
+            # comes from $ARIA_STATE_WRITER_LEASE_TOKEN (a lane's step env).
+            store_parser.add_argument("--lease-token-file", default=None,
+                                      help="File holding the writer-lease token (operator lane).")
             # No --no-push. A "rehearsal" that commits without pushing
             # manufactures the exact state the re-checkout guard exists to
             # refuse — a local commit the remote does not have — and it had
@@ -1052,6 +1098,8 @@ def build_parser() -> argparse.ArgumentParser:
             lease_parser.add_argument("--token-file", required=True,
                                       help="Write the lease's capability token here (mode 0600); never printed.")
         if lease_name == "release":
+            lease_parser.add_argument("--token-file", default=None,
+                                      help="File holding the token; else $ARIA_STATE_WRITER_LEASE_TOKEN.")
             lease_parser.add_argument("--force-foreign", action="store_true",
                                       help="Release the current lease although this caller does not hold it.")
             lease_parser.add_argument("--reason", default=None,

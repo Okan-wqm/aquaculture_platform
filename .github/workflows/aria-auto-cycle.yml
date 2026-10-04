@@ -406,10 +406,10 @@ jobs:
           # ARIA-HIGH-342 — this job writes aria/state, so it takes the writer
           # lease before the checkout and holds it to the release step at the
           # end: no other lane can publish in between. The expiry is this
-          # job's own timeout-minutes plus the 35-minute leased-publish margin
+          # job's own timeout-minutes plus the 80-minute leased-publish margin
           # (GSEC-MEDIUM-003); the wait covers the hosted writers' whole
           # bounds (at most 25 min) before the run yields by name.
-          writer-lease-ttl-minutes: '395'
+          writer-lease-ttl-minutes: '440'
           writer-lease-wait-seconds: '1800'
       - name: Pre-flight - cross-host autonomous-loop lease check
         id: lease_check

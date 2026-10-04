@@ -410,7 +410,8 @@ class TheBoundIsTheSumOverTheArcs(unittest.TestCase):
         # rebase — contention under the writer lease is a refusal.
         self.assertEqual(
             names(arcs.PUBLISH_ATTEMPT_ARC),
-            ["publish_push", "remote_tip_probe", "remote_branch_fetch", "owned_store_fast_forward"],
+            ["publish_push", "remote_tip_probe", "remote_branch_fetch",
+             ("owned_store_fast_forward", "remote_tip_probe")],
         )
         self.assertEqual(
             names(arcs.REBASE_ARC),

@@ -133,9 +133,9 @@ jobs:
           # replay can carry onto another writer's publish, so this lane
           # needs the writer lease most of all: taken before the checkout,
           # held to the release step. Expiry = this job's timeout-minutes plus
-          # the 35-minute leased-publish margin (GSEC-MEDIUM-003); past the
+          # the 80-minute leased-publish margin (GSEC-MEDIUM-003); past the
           # wait the run yields by name, before restoring anything.
-          writer-lease-ttl-minutes: '50'
+          writer-lease-ttl-minutes: '95'
           writer-lease-wait-seconds: '300'
 
       - name: Compact surfaces and strip old artifacts (canonical CLI)

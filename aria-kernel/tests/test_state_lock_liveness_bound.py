@@ -750,13 +750,17 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
         self.assertIn(f"with {drain_budget - 20343} s of start", workflow_text)
         self.assertIn(f"(a judge child: {drain_budget - 6333} s, {drain_budget - 6933} s with", workflow_text)
         self.assertLessEqual(drain_budget + ci_executor_drain.JOB_RESERVE_SECONDS, job_seconds)
-        self.assertEqual(int(job["timeout-minutes"]), 510)
+        # 510 -> 570 (PR #1779 re-review R-3): the post-drain reserve now
+        # prices the publish preamble outside the lock (cold staging and the
+        # fence's lease reads and renewal). Shrinking the window instead
+        # would drop it below the implementation child's 20343 s.
+        self.assertEqual(int(job["timeout-minutes"]), 570)
         # Round 6: the start window before an implementation child is a
         # measured figure, not a remainder — 657 s clears the >40 s first
         # `next-pending` seen under load with the same margin the judge
         # child always had.
         self.assertGreaterEqual(drain_budget - 20343, 600)
-        self.assertEqual(ci_executor_drain.JOB_RESERVE_SECONDS, 8100)
+        self.assertEqual(ci_executor_drain.JOB_RESERVE_SECONDS, 12600)
         # ARIA-HIGH-342 — the writer-lease wait before the restore is part of
         # the reserve, and the YAML waits exactly what the reserve prices.
         restore = next(
@@ -770,15 +774,31 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
         # still run after the drain (the publish arc and the steps
         # allowance) — the pre-spawn reservation, the pre-publication
         # admission and the delivery's `deadline_insufficient` all read it.
-        self.assertEqual(ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS,
-                         state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS + ci_executor_drain.JOB_STEPS_ALLOWANCE_SECONDS)
+        # R-3 — "the publish arc" is the WHOLE leased publish: the locked
+        # arc (the lifecycle bound) plus what runs before the lock — the
+        # fence's lease reads and renewal and the cold staging.
+        from aria_kernel.state_store import COLD_PUSH_ATTEMPTS
+        from aria_kernel.state_writer_lease import PUBLISH_PREAMBLE_SECONDS
+
+        cap = state_store.GIT_TIMEOUT_SECONDS
+        self.assertEqual(PUBLISH_PREAMBLE_SECONDS, COLD_PUSH_ATTEMPTS * 3 * cap + 3 * cap + 3 * cap)
+        self.assertEqual(PUBLISH_PREAMBLE_SECONDS, 4500)
+        self.assertEqual(
+            ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS,
+            state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS
+            + PUBLISH_PREAMBLE_SECONDS
+            + ci_executor_drain.JOB_STEPS_ALLOWANCE_SECONDS,
+        )
+        self.assertEqual(ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS, 8100)
         self.assertIn(f"JOB_TIMEOUT_MINUTES={int(job['timeout-minutes'])}\n", step["run"])
         self.assertIn(f"POST_DRAIN_RESERVE_SECONDS={ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS}\n", step["run"])
         self.assertIn("export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - POST_DRAIN_RESERVE_SECONDS ))", step["run"])
         self.assertTrue(any(step.get("name") == "Anchor the job launch epoch" for step in job["steps"]))
         # The window's end at the worst-case restore stays inside the deadline.
         self.assertLessEqual(
-            ci_executor_drain.STATE_RESTORE_WORST_CASE_SECONDS + drain_budget,
+            ci_executor_drain.WRITER_LEASE_WAIT_SECONDS
+            + ci_executor_drain.STATE_RESTORE_WORST_CASE_SECONDS
+            + drain_budget,
             job_seconds - ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS,
         )
         # The comment beside the window must state the check the loop makes.
@@ -800,8 +820,7 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
             ci_executor_drain.JOB_RESERVE_SECONDS,
             ci_executor_drain.WRITER_LEASE_WAIT_SECONDS
             + state_store.STATE_STORE_CHECKOUT_ARC_SECONDS
-            + state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS
-            + ci_executor_drain.JOB_STEPS_ALLOWANCE_SECONDS,
+            + ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS,
         )
         self.assertGreater(ci_executor_drain.JOB_STEPS_ALLOWANCE_SECONDS, 0)
         # The env-less default window is the same derivation, in its

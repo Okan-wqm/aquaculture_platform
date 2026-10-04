@@ -111,7 +111,7 @@ class MaintenanceLaneTestCase(StateStoreTestCase):
             repo_hash=REPO_HASH,
         )
         result = publish_state(
-            store,
+            store, writer_fence=None,
             snapshot=prepared.snapshot,
             cycle_id=cycle_id,
             repo_hash=REPO_HASH,

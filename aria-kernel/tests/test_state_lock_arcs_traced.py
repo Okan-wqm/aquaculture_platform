@@ -208,7 +208,7 @@ class TheLifecycleHolderSpawnsItsArc(_ArcTraceCase):
         def prepare_then_rogue_publishes(*args, **kwargs):
             fence = real_prepare(*args, **kwargs)
             state_store.publish_state(
-                rogue,
+                rogue, writer_fence=None,
                 snapshot=state_store.prepare_publishable_snapshot(
                     rogue, snapshot_id="rogue", cycle_id="rogue", lane="test",
                     repo_hash=contention.REPO_HASH,

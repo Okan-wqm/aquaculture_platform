@@ -42,9 +42,13 @@ from typing import Any
 FINDING_ID_BASE = 101
 CANDIDATE_TOOL_SQL = "typeorm-entity-schema-adapter"
 CANDIDATE_TOOL_UI = "event-contracts-adapter"
+# The scanner classifies every drift it emits and names its severity
+# (ui_value_not_on_wire / ts_value_not_in_db HIGH, own-service subsets LOW).
+# The seeder mints that severity; it does not re-derive one from blast radius.
+MINTABLE_SEVERITIES = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
 
 
-def run_fresh_scan(repo_root: Path) -> dict[str, Any]:
+def run_fresh_scan(repo_root: Path, supergraph: str | None = None) -> dict[str, Any]:
     """Run the PoC mechanical scanner at HEAD and return its drift doc."""
     with tempfile.TemporaryDirectory(dir=repo_root) as tmp:
         out_rel = Path(tmp).name
@@ -57,6 +61,7 @@ def run_fresh_scan(repo_root: Path) -> dict[str, Any]:
             # The seeder is a producer, not a gate — CI-fail semantics
             # belong to the poc's own invocation surface.
             "--fail-on-drifts", "999999999",
+            *(["--supergraph", supergraph] if supergraph else []),
         ]
         subprocess.run(cmd, check=True, cwd=repo_root, capture_output=True, text=True)
         return json.loads((repo_root / out_rel / "MECHANICAL_DRIFTS.json").read_text(encoding="utf-8"))
@@ -64,6 +69,7 @@ def run_fresh_scan(repo_root: Path) -> dict[str, Any]:
 
 def _sort_key(drift: dict[str, Any]) -> tuple[Any, ...]:
     return (
+        -MINTABLE_SEVERITIES.get(str(drift.get("severity")), 0),
         not bool(drift.get("cross_service")),
         bool(drift.get("existing_gate_refs")),
         -float(drift.get("value_jaccard_similarity") or 0.0),
@@ -121,6 +127,8 @@ def render_finding(drift: dict[str, Any], *, finding_id: str, head_sha: str) -> 
         "concept": concept,
         "missing_in_ts": drift.get("missing_in_ts") or drift.get("missing_in_ui") or [],
         "missing_in_sql": drift.get("missing_in_sql") or [],
+        "classification": drift.get("classification"),
+        "severity": drift.get("severity"),
         "cross_service": bool(drift.get("cross_service")),
         "existing_gate_refs": drift.get("existing_gate_refs") or [],
         "candidate_tools": [drift["candidate_tool"]],
@@ -180,9 +188,10 @@ def mint_candidates(
     """ORPHAN-702 — every drift goes through the ONE mint path.
 
     Chain-id dedupe keeps one durable record per drift across nights;
-    claim_type=spine_drift by definition; severity from blast radius;
-    a drift the kernel refuses is DISCLOSED as unmintable, never
-    hand-written around the gate.
+    claim_type=spine_drift by definition; severity is the scanner's
+    classification (a drift without one is unmintable — fail closed, never
+    a guessed HIGH); a drift the kernel refuses is DISCLOSED as unmintable,
+    never hand-written around the gate.
     """
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
     from aria_kernel.cycle_guard import OpenerAdmission, admit_finding_opener, backlog_census
@@ -209,6 +218,10 @@ def mint_candidates(
         if len(evidences) < 2:
             unmintable.append({"concept": concept, "reason": "fewer_than_two_evidence_sides"})
             continue
+        severity = str(drift.get("severity"))
+        if severity not in MINTABLE_SEVERITIES or not drift.get("classification"):
+            unmintable.append({"concept": concept, "reason": "unclassified_drift"})
+            continue
         chain_id = _evidence_chain_id([
             {"ref": e["ref"], "summary": e.get("summary", "")} for e in evidences
         ])
@@ -224,12 +237,13 @@ def mint_candidates(
             unmintable.append({"concept": concept, "reason": "opener_throttled:" + ",".join(admission.reasons)})
             continue
         summary = (
-            f"{drift['drift_class']}: '{concept}' value sets diverge across "
+            f"{drift['drift_class']}: '{concept}' {drift['classification']} across "
             f"{len(evidences)} surfaces (cross_service={bool(drift.get('cross_service'))})"
         )
         facts = [
+            f"classification: {drift['classification']} over {drift.get('transport') or 'db'}",
             f"missing in ts/ui: {sorted(drift.get('missing_in_ts') or drift.get('missing_in_ui') or [])[:8]}",
-            f"missing in sql: {sorted(drift.get('missing_in_sql') or [])[:8]}",
+            f"missing in sql/source: {sorted(drift.get('missing_in_sql') or drift.get('missing_in_source') or [])[:8]}",
         ]
         try:
             record = emit_finding(
@@ -237,7 +251,7 @@ def mint_candidates(
                 base_dir=base_dir,
                 claim_type="spine_drift",
                 claim_summary=summary,
-                severity="HIGH" if drift.get("cross_service") else "MEDIUM",
+                severity=severity,
                 evidences=evidences,
                 facts=facts,
                 scope_files=sorted({e["ref"].split(":")[0] for e in evidences}),
@@ -263,6 +277,10 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--limit", type=int, default=20, help="Max findings to seed")
+    parser.add_argument(
+        "--supergraph", default=None,
+        help="Composed supergraph SDL passed to poc.py (default: its dist/graphql path).",
+    )
     args = parser.parse_args(argv)
 
     repo_root = Path(args.repo_root).resolve()
@@ -273,7 +291,12 @@ def main(argv: list[str] | None = None) -> int:
     ).stdout.strip()
 
     print(f"[seed] fresh mechanical scan at {head_sha[:12]} ...", flush=True)
-    drifts_doc = run_fresh_scan(repo_root)
+    drifts_doc = run_fresh_scan(repo_root, args.supergraph)
+    wire = drifts_doc.get("wire") or {}
+    if wire.get("status") != "ok":
+        # UI drifts need the wire; without it they are unverifiable, not absent.
+        print(f"[seed] WIRE UNAVAILABLE: {wire.get('reason') or 'no_wire_section'} "
+              f"({wire.get('supergraph')}) — UI option drifts were not judged")
     total_sql = len(drifts_doc.get("drifts_above_threshold") or [])
     total_ui = len(drifts_doc.get("frontend_dropdown_drifts") or [])
     candidates = select_candidates(drifts_doc, limit=args.limit)

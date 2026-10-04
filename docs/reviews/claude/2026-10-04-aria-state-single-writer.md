@@ -97,38 +97,73 @@ scope, and the observe cycle should never have tried to rebase the real store.
 ## The fix
 
 One writer lease, an extension of the existing `RemoteCasLease`, given a remote transport.
+The first revision of this fix was reviewed read-only on PR #1779 (MERGE-WITH-FIXES); the
+items below are the design after those fixes, with each review id where it changed it.
 
 - `aria_kernel/state_writer_lease.py`: the record is the existing `RemoteCasLease` (epoch
-  fence, owner, target ref, head sha, expiry) plus the run id, kept as `lease.json` on the
-  branch `aria/state-lease`. Every change is a commit pushed by exact sha without force, so
-  the server's fast-forward rule is the compare-and-swap, as for `aria/state` and the cold
-  store `aria/state-cold`. `build_remote_cas_lease` gains a TTL so the expiry is the holder's
-  job bound rather than the five-minute heartbeat.
+  fence, owner, target ref, head sha, expiry) plus the run id, the TTL and the SHA-256 of a
+  secret, kept as `lease.json` on the branch `aria/state-lease`. Every change is a commit
+  pushed by exact sha without force, so the server's fast-forward rule is the
+  compare-and-swap, as for `aria/state` and the cold store `aria/state-cold`.
+  `build_remote_cas_lease` gains a TTL so the expiry is the holder's job bound rather than the
+  five-minute heartbeat.
+- The lease is a capability (GSEC-MEDIUM-001). Each acquisition mints a 256-bit secret that
+  only the acquirer holds (`--token-file`, mode 0600, never printed); publish, renewal, fence
+  and release compare its hash. The CLI has no `--owner` flag, and releasing a lease the
+  caller does not hold needs `--force-foreign --reason`, recorded on the lease branch.
 - The lease is taken BEFORE the checkout: `restore-aria-state` takes it when the lane sets
-  `writer-lease-ttl-minutes` (its own `timeout-minutes`) and exports
-  `ARIA_STATE_WRITER_LEASE_ID`. A writer that finds it held waits up to
-  `writer-lease-wait-seconds`, then yields: no checkout, `writer-lease=yielded`, the holder,
-  run id and expiry in a warning and the step summary. Nothing was restored, so nothing is
-  lost, and no pending run is evicted.
-- `state publish` and the merge lane's intent publisher refuse without the current lease
-  (`state_writer_lease_required`, `state_writer_lease_not_held`). The operator lane is the
-  same CLI, so `state lease acquire` refuses it while a job holds the branch.
-- `release-aria-state-lease` gives it back in an `always()` step after the last publish; in
-  the executor and the cycle the announce step of the existing abort gate also releases. A
-  runner that dies outright frees the branch at the recorded expiry. Fencing is by lease id,
-  so a holder past its expiry may publish only while nobody has taken the lease since.
+  `writer-lease-ttl-minutes` and hands the token on as a masked step output
+  (`writer-lease-token`) that the lane passes by `env:` / `with:` to its publish, merge and
+  release steps only, never through `GITHUB_ENV` (GSEC-LOW-002). A writer that finds the
+  lease held waits up to `writer-lease-wait-seconds`, then yields: no checkout,
+  `writer-lease=yielded`, the holder, run id and expiry in a warning and the step summary.
+  Nothing was restored, so nothing is lost, and no pending run is evicted.
+- The fence is part of the push (GSEC-HIGH-001). `publish_with_contention_replay` resolves
+  the token itself, so no caller can skip it, and refuses unless the token holds the current
+  lease and the store is on the published tip. It renews the lease by CAS when less than one
+  leased publish arc (35 minutes: the pending recovery plus push, probe, fetch and
+  fast-forward at the git cap) is left. It then pushes the state commit and a fast-forward
+  child of the observed lease tip (same lease id, fresh `heartbeat_at`) in one
+  `git push --atomic`. A takeover between the check and the push rejects both halves. Any
+  contention under a lease is refused as `state_writer_lease_lost`, named from a fresh read of
+  the lease, and is never replayed. The orchestrator no longer replays at all; the replay
+  primitive stays for `memory_gap.restore_and_replay`. No kernel module calls `publish_state`
+  directly.
+- The lifecycle bounds are re-derived from the code. The publish attempt is the atomic push,
+  then the reconciliation's probe, fetch and owned fast-forward, with one attempt
+  (`PUBLISH_MAX_ATTEMPTS = 1`). The publish arc is 2100 s, down from 5400 s. The rebase that
+  `memory_gap.restore_and_replay` runs is priced by its own `REBASE_ARC` (1500 s). The
+  lifecycle liveness bound is now the checkout arc, 2700 s. The executor's job reserve adds
+  the 1800 s writer-lease wait before its restore (`ci_executor_drain.WRITER_LEASE_WAIT_SECONDS`,
+  pinned equal to the workflow). The reserve is 8100 s, so the drain window plus reserve is
+  485 of the job's 510 minutes, and the post-drain reserve the workflow exports is 3600 s.
+- TTL = job timeout + the 35-minute leased-publish margin (GSEC-MEDIUM-003): executor 545,
+  cycle 395, eval 60, merge-runner, readiness-claim and maintenance 50.
+- `release-aria-state-lease` is each publishing job's last step, with `if: always()` and
+  nothing else (GSEC-LOW-001). Release is idempotent. Without the token it releases only a
+  lease whose owner is this run's `writer_identity`. The executor and cycle abort gates exempt
+  exactly that step by name.
+- `state lease repair --reason` (GSEC-HIGH-002) replaces a malformed or missing record with a
+  released one as a fast-forward child, and refuses a valid held lease.
+  `readiness probe-state-branch-protection` checks that deletion and non-fast-forward rules
+  cover all three of `aria/state`, `aria/state-cold` and `aria/state-lease`. The bootstrap
+  runbook names the lease branch and the operator sequence: acquire, export the token,
+  publish, release.
 - The contention replay refuses (`replay_unreplayable_surface_changed`) before any reset when
   the loser changed a non-ledger surface the winner does not already hold, instead of
   reporting success over a dropped surface.
-- The continuity phase treats a tools root outside the workspace as detached from the store
-  (`memory_gap.tools_root_is_detached`): no reference, so genesis or unknown, with the note
-  `tools_root_detached_from_state_store`. A tools root inside the workspace keeps the store
-  as its reference, so a lane mis-bound to an empty in-workspace root is still caught.
+- Continuity (GSEC-MEDIUM-006): only the explicit observe burn-in (`burn_in` mode and the
+  observe runtime profile, both set by `autonomy burn-in observe`) may act on a tools root
+  outside the workspace; it is then judged against no reference, with the note
+  `tools_root_detached_from_state_store`. Any other cycle on such a root gets the blocking
+  reason `state_continuity_tools_root_detached_from_state_store`, and recovery refuses to
+  rebase the real store on its behalf.
 
-Gates: `EveryWriterTakesTurns` fails when a kernel function calls
-`publish_with_contention_replay` without `require_held_writer_lease`, when a publishing job's
-TTL differs from its `timeout-minutes`, when it has no `always()` release after its last
-publish, or when a kernel step after the restore can run on a yielded restore.
+Gates: `EveryWriterTakesTurns` fails when the fence leaves the orchestrator, when anything
+outside `state_store` calls `publish_state`, when a publishing job's TTL is below timeout plus
+margin, when its release is not a single unconditional last step carrying the token, when the
+token reaches a step that does not publish or merge, or when a kernel step after the restore
+can run on a yielded restore.
 
 ## aria-state-maintenance
 
@@ -138,13 +173,24 @@ its restore to after its publish, and no other compliant writer can publish in b
 a long job holds the lease, maintenance waits 300 s and then yields by name; that day's
 compaction runs at the next schedule that finds the branch free.
 
+## Tracked follow-ups (owner `claude`, deadline 2026-10-18, under ARIA-HIGH-342)
+
+- GSEC-MEDIUM-002: a yield should be a named non-success rather than a green skip; a yielded
+  `aria-readiness-claim` should be re-triggered for its head sha; the eval cron should move
+  off the executor window.
+- GSEC-MEDIUM-004: reap a `gha:` lease whose run has concluded instead of waiting for its
+  expiry, and renew a long holder's lease by heartbeat.
+- GSEC-MEDIUM-005: governance-ledger audit rows for acquire, renew, fence, release and repair,
+  next to the lease-branch commits.
+- GSEC-LOW-004: hash the local owner (host, user, checkout path) in the public record.
+- GSEC-LOW-005: fetch the lease branch with `--depth=1`.
+
 ## Not done
 
-- The replay is not streamed. With turns in place it runs only after a lease expiry; at
-  current sizes it refuses by name rather than reconciling.
-- Hosted writers yield while a self-hosted job holds the lease (up to 510 minutes). A yielded
-  `aria-readiness-claim` is not re-triggered for its head sha, and a yielded merge-runner or
-  eval run waits for its next schedule. Throughput of those lanes during long jobs is the cost
-  of no lost work; ARIA-HIGH-342 tracks it (owner `claude`, deadline 2026-10-11).
-- No live run has exercised the lease branch yet: `aria/state-lease` is created by the first
-  writer that acquires it, and branch rulesets on GitHub were not readable from this host.
+- The replay is not streamed. With the orchestrator no longer replaying, it runs only for
+  `memory_gap.restore_and_replay`; at current sizes it refuses by name rather than
+  reconciling.
+- Hosted writers yield while a self-hosted job holds the lease (up to 545 minutes); see
+  GSEC-MEDIUM-002 above.
+- No live run has exercised the lease branch, the atomic push or the masked token output yet.
+  The ruleset was extended to `aria/state-lease` by the operator outside this diff.

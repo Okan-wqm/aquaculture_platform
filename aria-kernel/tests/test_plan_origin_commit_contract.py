@@ -266,19 +266,15 @@ class PerimeterCheckTests(unittest.TestCase):
 
 class TheSynthesizerRecordsTheOriginTests(unittest.TestCase):
     def test_finding_sourced_candidates_stamp_finding_id(self) -> None:
-        orphan = convert_candidate_to_plan_content({
-            "source_type": PlanCandidateSource.ORPHAN_FINDING.value, "candidate_id": "ORPHAN-HIGH-104",
-            "severity": "HIGH", "raw_id": "104", "title_hint": "Address ORPHAN-HIGH-104",
-        })
-        self.assertEqual(orphan.content["finding_id"], "ORPHAN-HIGH-104")
-        self.assertEqual(commit_contract_for_plan(orphan.content, plan_id="p")["trailer"],
-                         "Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-104")
         # ARIA-HIGH-181 / ADR-0018 D5 — an F-finding converts only on the
-        # shared admission: OPEN, a code reference tracked in the checkout.
+        # shared admission: OPEN, a code reference tracked in the checkout;
+        # ORPHAN-HIGH-519 — every source's refs pass the challenger's rule
+        # there, so all three candidates convert against one checkout.
         import os
         from unittest import mock
 
         from aria_kernel.finding_grounding import admit_candidate, load_grounding_context
+        from aria_kernel.plan_synthesizer import PlanEvidenceGround
         from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture
 
         checkout = tempfile.TemporaryDirectory(prefix="aria-origin-finding-")
@@ -287,19 +283,31 @@ class TheSynthesizerRecordsTheOriginTests(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=True):
             fixture = OperatorRequestFixture(Path(checkout.name))
             fixture.seed_finding("F-099", refs=[f"{GROUNDED_FILE}:12"])
+            ground = PlanEvidenceGround.of(fixture.repo)
             candidate = {
                 "source_type": PlanCandidateSource.F_FINDING.value, "candidate_id": "F-099",
                 "mtime": 1.0, "title_hint": "Process F-099",
             }
             f_finding = convert_candidate_to_plan_content(
+                # ARIA-HIGH-260 — the aging source is judged against the store's loop history.
                 candidate, admission=admit_candidate(
                     candidate, load_grounding_context(fixture.repo, tools_root=fixture.tools)),
-            )
+                ground=ground,
+            ).envelope
+            orphan = convert_candidate_to_plan_content({
+                "source_type": PlanCandidateSource.ORPHAN_FINDING.value, "candidate_id": "ORPHAN-HIGH-104",
+                "severity": "HIGH", "raw_id": "104", "title_hint": "Address ORPHAN-HIGH-104",
+                "evidence": [f"{GROUNDED_FILE}:3"],
+            }, ground=ground).envelope
+            ci = convert_candidate_to_plan_content({
+                "source_type": PlanCandidateSource.FAILING_CI.value, "candidate_id": "run-1",
+                "workflow_name": "ci", "workflow_path": ".github/workflows/ci.yml",
+                "head_sha": "abc", "title_hint": "Fix CI",
+            }, ground=ground).envelope
+        self.assertEqual(orphan.content["finding_id"], "ORPHAN-HIGH-104")
+        self.assertEqual(commit_contract_for_plan(orphan.content, plan_id="p")["trailer"],
+                         "Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-104")
         self.assertEqual(f_finding.content["finding_id"], "F-099")
-        ci = convert_candidate_to_plan_content({
-            "source_type": PlanCandidateSource.FAILING_CI.value, "candidate_id": "run-1",
-            "workflow_name": "ci", "head_sha": "abc", "title_hint": "Fix CI",
-        })
         self.assertNotIn("finding_id", ci.content)
 
 

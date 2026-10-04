@@ -148,7 +148,7 @@ class _DrainHarness:
             # worktree provisioning has its own tests
             # (test_executor_request_worktree.py).
             ci_executor_drain, "_executor_policy",
-            return_value={"max_concurrent": 1, "worktree_per_request": False},
+            return_value={"max_concurrent": 1, "worktree_per_request": False, "surplus_after_planning_turn": 0},
         ):
             return ci_executor_drain.drain_pending(
                 tools_dir=tools_dir, repo_root=_REPO_ROOT,

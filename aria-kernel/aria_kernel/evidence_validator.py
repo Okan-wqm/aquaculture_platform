@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from .evidence_probe import GitProbeSession
 from .evidence_trust import EVIDENCE_REF_RE, EvidencePolicy, classify_evidence_ref, parse_evidence_ref
@@ -507,6 +508,102 @@ def _check_agent_ref(
         errors.append({"code": "agent_evidence_line_missing", "path": path, "line": line, "line_count": line_count})
 
 
+def _judge_agent_ref(
+    ref: str,
+    *,
+    root: Path,
+    target_sha: str | None,
+    probe_session: GitProbeSession,
+    allow_kernel_artifacts: bool,
+    errors: list[dict[str, Any]],
+    checked: list[str],
+    evidence_envelopes: list[dict[str, Any]],
+) -> None:
+    """THE rule for one agent evidence ref: grammar, repo path, line, committed at ``target_sha``.
+
+    ORPHAN-HIGH-519 — the submit path and plan synthesis ask this one function,
+    so a plan the kernel mints cites only refs its challenger can cite back.
+    """
+    _check_agent_ref(
+        ref, root=root, errors=errors, checked=checked,
+        allow_kernel_artifacts=allow_kernel_artifacts,
+    )
+    if _is_ledger_pointer_ref(ref):
+        return  # Z2 — a ledger pointer has no repo classification
+    if allow_kernel_artifacts and _kernel_artifact_verdict(ref, root)[0]:
+        # Verified by content hash against the results ledger — the repo
+        # classification below cannot describe it (the artifact is
+        # state-store-owned and was never meant to be committed).
+        return
+    envelope = classify_evidence_ref(
+        ref,
+        workspace_root=root,
+        source_hint="agent_output",
+        target_sha=target_sha,
+        probe_session=probe_session,
+    )
+    evidence_envelopes.append(envelope.to_dict())
+    try:
+        EvidencePolicy.require_repo_verified(envelope)
+    except GovernanceError as exc:
+        errors.append({
+            "code": _unverified_evidence_code("agent", envelope.trust_grade),
+            "ref": ref,
+            "reason": str(exc),
+        })
+
+
+# ORPHAN-HIGH-519 — why a plan candidate is not minted: it offered no ref
+# the challenger's rule admits. Spends an operator request unless every
+# refusal is the harness's (``AgentEvidenceAdmission.harness_fault``).
+PLAN_EVIDENCE_INADMISSIBLE = "plan_evidence_inadmissible"
+_HARNESS_EVIDENCE_CODES: frozenset[str] = frozenset(
+    _unverified_evidence_code("agent", grade) for grade in _UNVERIFIED_GRADE_CODE_SUFFIX
+)
+
+
+@dataclass(frozen=True)
+class AgentEvidenceAdmission:
+    """Refs the agent rule admits, and each refused ref with its rejection codes."""
+
+    admitted: tuple[str, ...]
+    refused: tuple[dict[str, Any], ...]
+
+    @property
+    def harness_fault(self) -> bool:
+        """Nothing admitted and every refusal says the harness could not verify."""
+        codes = {code for entry in self.refused for code in entry["codes"]}
+        return not self.admitted and bool(codes) and codes <= _HARNESS_EVIDENCE_CODES
+
+
+def admissible_agent_evidence_refs(
+    refs: Iterable[Any], *, workspace_root: str | Path, target_sha: str | None,
+) -> AgentEvidenceAdmission:
+    """Each ref judged by :func:`_judge_agent_ref` at ``target_sha``, one probe session for all.
+
+    ``target_sha`` is the commit the planning envelope will name (the drainer
+    threads the checkout HEAD), so admitted here means admitted at the submit.
+    """
+    root = Path(workspace_root).resolve()
+    session = GitProbeSession()
+    admitted: list[str] = []
+    refused: list[dict[str, Any]] = []
+    for ref in refs:
+        errors: list[dict[str, Any]] = []
+        if not isinstance(ref, str) or not ref.strip():
+            errors.append({"code": "agent_evidence_ref_not_string"})
+        else:
+            _judge_agent_ref(
+                ref, root=root, target_sha=target_sha, probe_session=session,
+                allow_kernel_artifacts=False, errors=errors, checked=[], evidence_envelopes=[],
+            )
+        if errors:
+            refused.append({"ref": ref, "codes": [str(error["code"]) for error in errors]})
+        else:
+            admitted.append(ref)
+    return AgentEvidenceAdmission(tuple(admitted), tuple(refused))
+
+
 def validate_agent_response_evidence(
     *,
     response: dict[str, Any],
@@ -549,6 +646,14 @@ def validate_agent_response_evidence(
     # and every ref grades `verification_unavailable` rather than being
     # compared against an anchor the submitter did not cite.
     probe_session = probe_session if probe_session is not None else GitProbeSession()
+    target_sha = _request_target_sha(request)
+
+    def judge(ref: str) -> None:
+        _judge_agent_ref(
+            ref, root=root, target_sha=target_sha, probe_session=probe_session,
+            allow_kernel_artifacts=allow_kernel_artifacts, errors=errors,
+            checked=checked, evidence_envelopes=evidence_envelopes,
+        )
 
     response_refs = response.get("evidence_refs") or []
     if not isinstance(response_refs, list):
@@ -558,33 +663,7 @@ def validate_agent_response_evidence(
         if not isinstance(ref, str) or not ref.strip():
             errors.append({"code": "agent_evidence_ref_not_string"})
             continue
-        _check_agent_ref(
-            ref, root=root, errors=errors, checked=checked,
-            allow_kernel_artifacts=allow_kernel_artifacts,
-        )
-        if _is_ledger_pointer_ref(ref):
-            continue  # Z2 — a ledger pointer has no repo classification
-        if allow_kernel_artifacts and _kernel_artifact_verdict(ref, root)[0]:
-            # Verified by content hash against the results ledger — the
-            # repo classification below cannot describe it (the artifact
-            # is state-store-owned and was never meant to be committed).
-            continue
-        envelope = classify_evidence_ref(
-            ref,
-            workspace_root=root,
-            source_hint="agent_output",
-            target_sha=_request_target_sha(request),
-            probe_session=probe_session,
-        )
-        evidence_envelopes.append(envelope.to_dict())
-        try:
-            EvidencePolicy.require_repo_verified(envelope)
-        except GovernanceError as exc:
-            errors.append({
-                "code": _unverified_evidence_code("agent", envelope.trust_grade),
-                "ref": ref,
-                "reason": str(exc),
-            })
+        judge(ref)
 
     # Plan 024 §B-2 — satisfaction_matrix non-empty enforcement.
     # Pre-fix an agent response with `satisfaction_matrix: []` passed
@@ -612,30 +691,7 @@ def validate_agent_response_evidence(
                         {"code": "agent_matrix_evidence_ref_not_string", "id": entry.get("id")}
                     )
                     continue
-                _check_agent_ref(
-                    ref, root=root, errors=errors, checked=checked,
-                    allow_kernel_artifacts=allow_kernel_artifacts,
-                )
-                if _is_ledger_pointer_ref(ref):
-                    continue  # Z2 — same single definition as above
-                if allow_kernel_artifacts and _kernel_artifact_verdict(ref, root)[0]:
-                    continue  # ORPHAN-734 — same single definition as above
-                envelope = classify_evidence_ref(
-                    ref,
-                    workspace_root=root,
-                    source_hint="agent_output",
-                    target_sha=_request_target_sha(request),
-                    probe_session=probe_session,
-                )
-                evidence_envelopes.append(envelope.to_dict())
-                try:
-                    EvidencePolicy.require_repo_verified(envelope)
-                except GovernanceError as exc:
-                    errors.append({
-                        "code": _unverified_evidence_code("agent", envelope.trust_grade),
-                        "ref": ref,
-                        "reason": str(exc),
-                    })
+                judge(ref)
 
     # Cross-check: when a request is provided, every ref the agent
     # claims must either live inside `allowed_scope` OR be one of the

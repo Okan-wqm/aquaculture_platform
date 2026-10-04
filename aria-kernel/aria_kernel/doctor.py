@@ -514,6 +514,20 @@ def _check_economy(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("economy", "ok", "" if stats else "no_usage_rows", detail)
 
 
+def _check_learning(tools_dir: Path) -> DoctorCheck:
+    """ARIA-HIGH-285 — the learning KPIs the recorded episodes compute (and
+    the ones they cannot, named), with a WARN while finished episodes on the
+    plan ledger wait unobserved: the cycle's real-mode observation is not
+    running."""
+    from .agent_eval import performance_kpis, unobserved_episode_count
+
+    detail = performance_kpis(base_dir=tools_dir)
+    pending = unobserved_episode_count(base_dir=tools_dir)
+    if pending:
+        return DoctorCheck("learning", "warn", f"performance_unobserved:{pending}", detail)
+    return DoctorCheck("learning", "ok", "" if detail["episodes"] else "no_episodes", detail)
+
+
 CALIBRATION_GATE_DOWNGRADE_WARN_DAYS: int = 7
 
 
@@ -653,6 +667,7 @@ def run_doctor(
         _guarded("gateway", lambda: _check_gateway(tools_dir)),
         _guarded("gateway_heartbeat_fresh", lambda: _check_gateway_heartbeat_fresh(tools_dir)),
         _guarded("economy", lambda: _check_economy(tools_dir)),
+        _guarded("learning", lambda: _check_learning(tools_dir)),
         _guarded("orchestrator", lambda: _check_orchestrator(tools_dir)),
         _guarded("tools", lambda: _check_tools(tools_dir)),
         _guarded("deadlines", lambda: _check_deadlines(tools_dir, workspace)),

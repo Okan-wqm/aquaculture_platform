@@ -26,6 +26,8 @@ WHAT these tests pin, in the order a request travels:
 """
 from __future__ import annotations
 
+import ast
+
 import sys
 import unittest
 from pathlib import Path
@@ -82,10 +84,23 @@ class MaintenanceUtilityIsOneContract(unittest.TestCase):
         # literal pair; self_change_bridge names it as constants.
         self.assertEqual(SELF_CHANGE_ROLE, "maintenance_utility")
         self.assertEqual(ROLE_TARGET_PAIRING["maintenance_utility"], (SELF_CHANGE_TARGET_AGENT,))
-        source = (_REPO_ROOT / "aria-kernel" / "aria_kernel" / "autonomy_orchestrator.py").read_text(
-            encoding="utf-8",
+        # The orchestrator's mint call, read as a call node (Plan 026R §H.1:
+        # node shape, never a source substring): every call that names
+        # role="maintenance_utility" must address the paired agent.
+        tree = ast.parse(
+            (_REPO_ROOT / "aria-kernel" / "aria_kernel" / "autonomy_orchestrator.py").read_text(encoding="utf-8"),
         )
-        self.assertIn('target_agent="aria-autonomy-planner",\n                role="maintenance_utility"', source)
+        pairs = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg}
+            role = kwargs.get("role")
+            if isinstance(role, ast.Constant) and role.value == "maintenance_utility":
+                target = kwargs.get("target_agent")
+                pairs.append(target.value if isinstance(target, ast.Constant) else None)
+        self.assertTrue(pairs, "autonomy_orchestrator mints no maintenance_utility request")
+        self.assertEqual(set(pairs), {SELF_CHANGE_TARGET_AGENT})
 
     def test_it_routes_glm_first_like_the_other_high_volume_read_only_roles(self) -> None:
         routing = load_provider_routing()

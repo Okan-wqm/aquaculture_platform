@@ -29,8 +29,10 @@ Evidence (at `main@690470509`):
   adopted plan fell through to the caller's value.
 - `aria-kernel/aria_kernel/convergence_drainer.py:1041`, `:1063`, `:1084`, `:1119`, `:1220`,
   `:873`: the challenger, cross_review, primary-revision and completeness-critic mints all took
-  the caller's `allowed_scope` unchanged. Evidence refs were already re-derived from the plan
-  body (`_planning_source_context`), which is why the bad envelope carried the right F-007 refs.
+  the caller's `allowed_scope` unchanged. The planner and reviewer mints re-derived evidence
+  refs from the plan body (`_planning_source_context`), which is why the bad envelope carried the
+  right F-007 refs. The completeness-critic mint (`:872`) appended the caller's `evidence_refs`
+  instead, so it would have carried the other candidate's refs as well.
 - `aria-kernel/aria_kernel/plan_round_controller.py:164`, `:227`: the CLI round controller
   hard-coded `["aria-kernel/**", "aria-tools/**", ".claude/**"]` for every plan.
 - `aria-kernel/tests/test_autonomy_orchestrator.py:704`

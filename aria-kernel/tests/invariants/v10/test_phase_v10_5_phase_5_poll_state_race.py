@@ -107,12 +107,6 @@ class PollStateRaceInvariants(unittest.TestCase):
                         ],
                         "evidence_refs": ["docs/aria/SPEC.md"],
                     },
-                    must_satisfy=[{
-                        "id": "MS-1", "kind": "obligation",
-                        "description": "d", "source": "t",
-                    }],
-                    evidence_refs=["docs/aria/SPEC.md"],
-                    allowed_scope=["aria-kernel/**"],
                 )
         elapsed = time.monotonic() - started
         self.assertTrue(observed, "the step never observed plan state")

@@ -579,9 +579,6 @@ class PlannerSelectedSourceTests(unittest.TestCase):
                 result = run_convergence_drainer(
                     cycle_id="cyc-flow-source", base_dir=tools, workspace_root=repo,
                     plan_id="flow-plan", plan_seed=body,
-                    must_satisfy=[{"id": "flow-contract", "kind": "obligation",
-                                   "description": "Verify acknowledgement across the named flow", "source": "test"}],
-                    evidence_refs=refs, allowed_scope=["web/shell/**", "apps/notification-service/**"],
                     max_rounds=4,
                 )
                 self.assertEqual(result["arbiter_verdict"], "in_progress")

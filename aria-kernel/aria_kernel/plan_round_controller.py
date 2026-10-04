@@ -16,6 +16,7 @@ from .plan_convergence import (
     request_cross_review,
     submit_challenger_plan,
 )
+from .plan_round_scope import plan_round_contract
 from .planner_lessons import planner_lesson_obligations
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
@@ -146,6 +147,10 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
     from .convergence_drainer import _resolve_workspace_head_sha
     source_refs, revision_hash, context_paths = _planning_source_context(state, [revision_id])
     target_sha = _resolve_workspace_head_sha(workspace_root) if workspace_root is not None else None
+    # ARIA-HIGH-345 — the scope and key-change obligations are THIS plan's
+    # (`plan_round_scope.plan_round_contract`); the hard-coded kernel scope
+    # this replaced named no file of a plan outside aria-kernel.
+    contract = plan_round_contract(state)
     request = create_agent_invocation_request(
         target_agent=DEFAULT_PLANNER_AGENTS[role],
         role=role,
@@ -158,10 +163,11 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
                 "description": "Return risks, validation commands, evidence refs, and a clear recommendation.",
                 "required": True,
             },
+            *contract.must_satisfy,
             # ARIA-HIGH-309 — the lessons recorded plans in this plan's scope teach.
             *planner_lesson_obligations(base_dir=root, plan_id=plan_id),
         ],
-        allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
+        allowed_scope=list(contract.allowed_scope),
         evidence_refs=source_refs,
         plan_revision_hash=revision_hash,
         context_source_paths=context_paths,
@@ -210,6 +216,7 @@ def _ensure_cross_review_round(root: Path, state: dict[str, Any], *,
     from .convergence_drainer import _resolve_workspace_head_sha
     source_refs, revision_hash, context_paths = _planning_source_context(state, [target_revision_id])
     target_sha = _resolve_workspace_head_sha(workspace_root) if workspace_root is not None else None
+    contract = plan_round_contract(state)
     for task in payload["tasks"]:
         request = create_agent_invocation_request(
             target_agent=DEFAULT_PLANNER_AGENTS["cross_review"],
@@ -222,9 +229,10 @@ def _ensure_cross_review_round(root: Path, state: dict[str, Any], *,
                     "id": "cross_review_direction",
                     "description": f"Answer {task['review_direction']} with risks and required revisions.",
                     "required": True,
-                }
+                },
+                *contract.must_satisfy,
             ],
-            allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
+            allowed_scope=list(contract.allowed_scope),
             evidence_refs=source_refs,
             plan_revision_hash=revision_hash,
             context_source_paths=context_paths,

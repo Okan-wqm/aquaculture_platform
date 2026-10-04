@@ -129,12 +129,15 @@ jobs:
     runs-on: [self-hosted, linux, claude]
     # The drain window (ARIA_DRAIN_BUDGET_SECONDS below, 21000 s) plus the
     # reserve the job needs outside it — the state restore before the loop
-    # (the checkout arc, 2700 s), the publish after it (the lifecycle
-    # holder's longest arc, 5400 s) and the unbounded setup/verification
-    # steps around them (900 s), every arc a sum over the registered git
-    # steps of `state_store_lifecycle_arcs` at the store's git cap, as
-    # `ci_executor_drain.JOB_RESERVE_SECONDS` (9000 s) — is 30000 s = 500
-    # minutes; 510 keeps ten minutes of margin. The pairing is pinned by
+    # (the checkout arc, 2700 s, after the aria/state writer-lease wait of at
+    # most 1800 s, ARIA-HIGH-342), the publish after it (the lifecycle
+    # holder's longest arc, 2700 s, plus the leased publish's preamble
+    # outside the lock — cold staging and the fence's lease reads and
+    # renewal, 4500 s) and the unbounded setup/verification steps around
+    # them (900 s), every arc a sum over git steps at the store's git cap, as
+    # `ci_executor_drain.JOB_RESERVE_SECONDS` (12600 s) — is 33600 s = 560
+    # minutes; 570 keeps ten minutes of margin (510 -> 570 for the preamble:
+    # a narrower window could not hold the 20343 s implementation child). The pairing is pinned by
     # `aria-kernel/tests/test_state_lock_liveness_bound.py`, which reads
     # this file, and mirrored in `workflow_contract_registry` (150 → 200
     # with the child pricing of 2026-09-12; 200 → 280 once the lifecycle
@@ -147,10 +150,11 @@ jobs:
     # pre-spawn admission's) — into the window: a window
     # that cannot hold an implementation child never delivers one, and a
     # child admitted without that term ran three hours past the window into
-    # the reserve; 500 → 510 with round 6's start window, below). Legal on
+    # the reserve; 500 → 510 with round 6's start window, below; 510 → 570
+    # for the leased publish's preamble, ARIA-HIGH-342). Legal on
     # a self-hosted runner, where the platform's job ceiling is days, not
     # the hosted six hours.
-    timeout-minutes: 510
+    timeout-minutes: 570
     outputs:
       # ARIA-HIGH-244 — the chain decision leaves this job as data; the
       # dispatch itself runs in `chain-next-cycle`, the one job whose token
@@ -316,8 +320,18 @@ jobs:
         uses: ./.github/actions/restore-aria-state
         with:
           bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
+          # ARIA-HIGH-342 — this job writes aria/state, so it takes the writer
+          # lease before the checkout and holds it to the release step at the
+          # end: no other lane can publish in between. The expiry is this
+          # job's own timeout-minutes plus the 80-minute leased-publish margin
+          # (GSEC-MEDIUM-003); the wait covers the hosted writers' whole
+          # bounds (at most 25 min) before the run yields by name.
+          writer-lease-ttl-minutes: '650'
+          writer-lease-wait-seconds: '1800'
       - name: Pre-flight — cross-host autonomous-loop lease check
         id: lease_check
+        env:
+          WRITER_LEASE: ${{ steps.restore_state.outputs.writer-lease }}
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 - <<'PY' 2>&1 | head -20
@@ -326,6 +340,16 @@ jobs:
           import sys
 
           from aria_kernel.autonomous_host_lease import lease_state
+
+          # ARIA-HIGH-342 — no writer lease, no store: the restore yielded
+          # (another lane is writing aria/state) and checked nothing out, so
+          # this run blocks here, before anything reads the tree.
+          if os.environ.get('WRITER_LEASE') != 'held':
+              print('::warning::aria/state writer lease not held; run yielded', file=sys.stderr)
+              with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+                  f.write('blocked=true\n')
+                  f.write('blocked_host=aria/state-writer-lease\n')
+              sys.exit(0)
 
           # The store's tools root, from the binding the restore exported. A
           # literal would read an empty lease ledger in the ephemeral checkout
@@ -649,7 +673,8 @@ jobs:
           # ARIA-HIGH-124 (round 3) — the ABSOLUTE deadline every spawn and
           # every delivery in this job runs under: the job's own ceiling
           # anchored at launch, minus what the job must still run after the
-          # drain (the publish arc 5400 s + the steps allowance 900 s =
+          # drain (the publish arc 2700 s + its preamble outside the lock
+          # 4500 s + the steps allowance 900 s =
           # `ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS`). The spawn
           # clamp reads it (claude_runtime), the executor reserves the
           # delivery out of it before an implementation spawn and again
@@ -657,8 +682,8 @@ jobs:
           # name (`deadline_insufficient`) when what remains cannot hold its
           # worst case — nothing pushed, nothing opened. The pin in
           # `test_state_lock_liveness_bound.py` reads both numbers here.
-          JOB_TIMEOUT_MINUTES=510
-          POST_DRAIN_RESERVE_SECONDS=6300
+          JOB_TIMEOUT_MINUTES=570
+          POST_DRAIN_RESERVE_SECONDS=8100
           ANCHOR_EPOCH="${ARIA_JOB_LAUNCH_EPOCH:-$(date +%s)}"
           export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - POST_DRAIN_RESERVE_SECONDS ))
           echo "job deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - ${POST_DRAIN_RESERVE_SECONDS}s post-drain reserve, anchored at job launch)"
@@ -818,6 +843,9 @@ jobs:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
           GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
+          # ARIA-HIGH-342 — the writer-lease capability, as a masked step
+          # output into this step only (GSEC-LOW-002).
+          ARIA_STATE_WRITER_LEASE_TOKEN: ${{ steps.restore_state.outputs.writer-lease-token }}
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
@@ -957,6 +985,17 @@ jobs:
               echo "::notice::chain declined — see the reason above"
               ;;
           esac
+
+      # ARIA-HIGH-342 — give back the aria/state writer lease the restore took.
+      # Unconditional (GSEC-LOW-001): release is idempotent, a no-op when this
+      # run yielded and holds none, and releases only by the token (kept on
+      # disk before the acquire's push; there is no release by identity). A
+      # runner that dies outright frees the branch at the expiry it set.
+      - name: Release the aria/state writer lease
+        if: always()
+        uses: ./.github/actions/release-aria-state-lease
+        with:
+          lease-token: ${{ steps.restore_state.outputs.writer-lease-token }}
 
   # ARIA-HIGH-244 — the chain's return edge, on a hosted runner with the one
   # permission it needs. The executor decides (cycle_rhythm, via

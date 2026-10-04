@@ -32,8 +32,10 @@ MAINTENANCE = _WORKFLOWS / "aria-state-maintenance.yml"
 RESTORE_ACTION = "./.github/actions/restore-aria-state"
 COMPACT_STEP = "Compact surfaces and strip old artifacts (canonical CLI)"
 VERIFY_STEP = "Verify ARIA state integrity"
-# The keys that make a step do what it does. `if:` is among them: the
-# maintenance lane has none on these two steps, so neither may the gate.
+# The keys that make a step do what it does. `if:` is among them: both lanes
+# gate these two steps on the restore proof (ARIA-HIGH-342 — a maintenance
+# run that yielded the writer lease restored nothing), and the gate must carry
+# the same condition the lane does.
 _BEHAVIOUR_KEYS = ("name", "id", "env", "run", "if", "uses", "with")
 
 

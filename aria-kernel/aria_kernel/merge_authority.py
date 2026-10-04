@@ -653,6 +653,9 @@ def state_store_intent_publisher(
 
     def publish(intent: dict[str, Any]) -> dict[str, Any]:
         store = open_state_store(root)
+        # ARIA-HIGH-342 — the orchestrator fences this publish with the
+        # writer lease the merge lane's restore took; the token reaches this
+        # step through $ARIA_STATE_WRITER_LEASE_TOKEN.
         return publish_with_contention_replay(
             store,
             snapshot_id=f"merge-intent-{intent['pr_number']}-{str(intent['head_sha'])[:12]}-{run_label}",

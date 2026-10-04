@@ -67,6 +67,7 @@ print(json.dumps({
     "git_timeout": ci_executor._GIT_TIMEOUT_SECONDS,
     "lifecycle_bound": ci_executor._STATE_STORE_LIFECYCLE_LIVENESS_SECONDS,
     "checkout_arc": ci_executor._STATE_STORE_CHECKOUT_ARC_SECONDS,
+    "publish_preamble": ci_executor._STATE_PUBLISH_PREAMBLE_SECONDS,
     "record_wait": ci_executor._HUMAN_REQUIRED_RECORD_WAIT_SECONDS,
     "record_worst_case": ci_executor.HUMAN_REQUIRED_RECORD_WORST_CASE_SECONDS,
     "delivery_worst_case": ci_executor.IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS,
@@ -122,6 +123,11 @@ class KernelImportFallbackIsAnnounced(unittest.TestCase):
         self.assertEqual(without_kernel["git_timeout"], GIT_TIMEOUT_SECONDS)
         self.assertEqual(without_kernel["lifecycle_bound"], STATE_STORE_LIFECYCLE_LIVENESS_SECONDS)
         self.assertEqual(without_kernel["checkout_arc"], STATE_STORE_CHECKOUT_ARC_SECONDS)
+        # ARIA-HIGH-342 — the leased publish's preamble outside the lock.
+        from aria_kernel.state_writer_lease import PUBLISH_PREAMBLE_SECONDS
+
+        self.assertEqual(without_kernel["publish_preamble"], PUBLISH_PREAMBLE_SECONDS)
+        self.assertEqual(with_kernel["publish_preamble"], PUBLISH_PREAMBLE_SECONDS)
         self.assertEqual(without_kernel["record_wait"], HUMAN_REQUIRED_RECORD_WAIT_SECONDS)
         self.assertEqual(without_kernel["record_worst_case"], with_kernel["record_worst_case"])
         self.assertEqual(with_kernel["record_worst_case"], ci_executor.HUMAN_REQUIRED_RECORD_WORST_CASE_SECONDS)

@@ -55,3 +55,27 @@ Fix: the watchdog reads `actions.getWorkflow` for each lane; a non-`active` stat
 override it. The disabled lanes remain incidents: whether to re-enable or retire them is the
 operator's decision. Test: `tests/invariants/scheduled-workflow-watchdog-disabled-lane.spec.ts`
 runs the workflow's real inline script against a fake GitHub API.
+
+## DATA-MEDIUM-019
+
+Evidence (at `main@690470509`):
+
+- CI - Full runs 34018063733, 34745082343, 35497439697, 36304648357 and 37188374410 (every weekly
+  run since 2026-09-06): `lint-and-typecheck` fails on one error,
+  `apps/ai-service/src/database/migrations/1800000000000-Baseline.ts 43:15 error Unsafe assignment
+of an any value @typescript-eslint/no-unsafe-assignment`.
+- `scripts/migration/dequalify-tenant-baselines.mjs:268` — the generator emits the probe as
+  `const rows: Array<{ missing: string }> = await queryRunner.query(...)`;
+  `node_modules/typeorm/query-runner/QueryRunner.d.ts:105` types `query()` as `Promise<any>`, so the
+  line is an unchecked `any` → row-type assignment. The other six services' lint policies leave the
+  rule off; ai-service's does not.
+- `scripts/ci/affected-target-policy.json:56` — ai-service lint is quarantined in the affected lane
+  (INFRA-MEDIUM-154, expires 2026-10-31), so the PR that landed the probe never ran it and only the
+  weekly full lane did.
+
+Fix: the generator binds the result to `unknown` and narrows it with `Array.isArray` (fails closed
+on any other shape); `--apply` re-emitted the probe in all seven Baselines, changing only the two
+probe lines in each. No SQL changes, so no ledger or replay effect, but the PR body needs a
+`MIGRATION-IMMUTABLE-OK:` line for `migration-immutability-witness`. Test:
+`tests/invariants/tenant-baseline-postcondition.spec.ts` pins the emitted shape and that the
+committed Baselines are exactly what the generator emits (`[noop]` on a dry run).

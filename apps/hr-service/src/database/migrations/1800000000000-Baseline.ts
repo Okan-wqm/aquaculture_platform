@@ -265,7 +265,7 @@ export class Baseline1800000000000 implements MigrationInterface {
 
     // ── GENERATED postCondition (DATA-CRITICAL-010) — do not hand-edit ──
     public async postCondition(queryRunner: QueryRunner): Promise<boolean> {
-        const rows: Array<{ missing: string }> = await queryRunner.query(`
+        const rows: unknown = await queryRunner.query(`
             SELECT expected.table_name AS missing
               FROM (VALUES ('attendance_records'), ('certification_types'), ('departments_hr'), ('employee_certifications'), ('employee_kpis'), ('employees'), ('goals'), ('holidays'), ('leave_balances'), ('leave_requests'), ('leave_types'), ('payrolls'), ('performance_reviews'), ('safety_training_records'), ('schedule_entries'), ('schedules'), ('scheduling_settings'), ('shifts'), ('training_courses'), ('training_enrollments'), ('weekly_plan_entries'), ('weekly_plans'), ('work_areas'), ('work_rotations')) AS expected(table_name)
              WHERE NOT EXISTS (
@@ -275,7 +275,7 @@ export class Baseline1800000000000 implements MigrationInterface {
                   AND table_name = expected.table_name
              )
         `);
-        return rows.length === 0;
+        return Array.isArray(rows) && rows.length === 0;
     }
     // ── END GENERATED postCondition ──
 

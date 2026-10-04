@@ -34,6 +34,11 @@ _TRUST_ANCHORS = (
     ors.ALLOWED_SIGNERS_PATH, ors.NAMESPACE_REGISTRY_PATH, ors.ENROLMENTS_PATH, OPERATORS_POLICY_RELPATH,
     "docs/aria/policy/autonomy-unlock.json",
     "docs/recommendations/architectural-arbiter/2026-10-02-adr-0023-signature-namespace-registry.md",
+    # ARIA-MEDIUM-335 / ADR-0025 — the kernel budget, its ADR and its gate: ARIA does not set
+    # its own ceiling.
+    "docs/aria/policy/kernel-budget.json",
+    "docs/recommendations/architectural-arbiter/2026-10-04-adr-0025-kernel-budget-measured-base.md",
+    "tools/gates/kernel-budget.ts",
     # ARIA-HIGH-260 — report_ingestion mints "external" findings from it.
     "docs/reviews/_registry/findings.jsonl",
     "packs/software-repo/critical-journeys.json", "tools/aria-labels/x", "tools/runtime-truth/x",

@@ -40,11 +40,10 @@ if str(_POC) not in sys.path:
 
 import claude_runtime  # noqa: E402
 from claude_runtime import (  # noqa: E402
-    AUTH_FAILOVER_TIER,
     ClaudeAuthFailure,
     ClaudeCreditExhausted,
+    ClaudePolicyViolation,
     ClaudeRunResult,
-    _cross_provider_auth_fallback,
     run_with_model_fallback,
 )
 
@@ -90,19 +89,25 @@ class _ScriptedRun:
 
 class TheLadderStatesTheDecisionAsData(unittest.TestCase):
     def test_no_in_vendor_credit_rung_exists(self) -> None:
-        """The old map had fable -> opus and opus -> sonnet. Neither name may
-        appear as a key OR a value: sonnet is not a rung and fable is selected
-        by nothing (tests/invariants/test_fable_is_selected_by_nothing)."""
-        names = set(AUTH_FAILOVER_TIER) | set(AUTH_FAILOVER_TIER.values())
-        self.assertFalse(names & {"sonnet", "haiku", "fable"}, names)
-        self.assertEqual(AUTH_FAILOVER_TIER, {"opus": "glm-5.3", "glm-5.3": "opus"})
-        for primary, target in AUTH_FAILOVER_TIER.items():
-            with self.subTest(primary=primary):
-                self.assertNotEqual(primary, target, "a tier cannot fail over to itself")
-                # Every rung crosses a vendor: an in-vendor rung would be a
-                # downgrade wearing the auth ladder's name.
-                self.assertNotEqual(claude_runtime._model_provider(primary),
-                                    claude_runtime._model_provider(target))
+        """ARIA-HIGH-290 — the auth failover is the next rung of the role's
+        routing ladder, not a code table: AUTH_FAILOVER_TIER is gone, every
+        ladder is a list of DISTINCT providers (no in-vendor rung can be
+        written), and no rung resolves to sonnet, haiku or fable."""
+        from aria_kernel.agent_surface import DISPATCHABLE_ROLES
+        from aria_kernel.runtime_profiles import load_provider_routing, routed_models
+
+        self.assertFalse(hasattr(claude_runtime, "AUTH_FAILOVER_TIER"))
+        self.assertFalse(hasattr(claude_runtime, "_cross_provider_auth_fallback"))
+        routing = load_provider_routing()
+        for name, ladder in routing.ladders.items():
+            with self.subTest(ladder=name):
+                self.assertEqual(len(set(ladder)), len(ladder), "a ladder never repeats a vendor")
+        for role in DISPATCHABLE_ROLES:
+            entry = routing.roles[role]
+            for target in (entry if isinstance(entry, dict) else ["aria-any"]):
+                models = routed_models(role, target, profile_model="opus", write_capable=False,
+                                       environ={}, runtimes=("claude", "zai"))
+                self.assertFalse(set(models) & {"sonnet", "haiku", "fable"}, (role, models))
 
     def test_the_old_ladder_names_are_gone(self) -> None:
         """MODEL_FALLBACK_TIER and CREDIT_FALLBACK_EFFORT had one reader each
@@ -135,7 +140,7 @@ class CreditExhaustionIsTerminalOnEveryTier(unittest.TestCase):
             with self.subTest(write_capable=write_capable):
                 with self.assertRaises(ClaudeCreditExhausted) as raised:
                     run_with_model_fallback(
-                        run=run, model="opus", effort="max", write_capable=write_capable,
+                        run=run, model="opus", failover=None, effort="max", write_capable=write_capable,
                         on_credit=audit,
                     )
                 self.assertEqual(run.calls, [("opus", "max")])
@@ -147,7 +152,7 @@ class CreditExhaustionIsTerminalOnEveryTier(unittest.TestCase):
     def test_an_exhausted_glm_names_zai(self) -> None:
         run = _ScriptedRun(_result(credit={"matched_marker": "quota exceeded"}, tag="glm-5.3"))
         with self.assertRaises(ClaudeCreditExhausted) as raised:
-            run_with_model_fallback(run=run, model="glm-5.3", effort="medium", write_capable=False)
+            run_with_model_fallback(run=run, model="glm-5.3", failover="opus", effort="medium", write_capable=False)
         self.assertEqual(run.calls, [("glm-5.3", "medium")])
         self.assertEqual((raised.exception.provider, raised.exception.model), ("zai", "glm-5.3"))
 
@@ -159,7 +164,7 @@ class CreditExhaustionIsTerminalOnEveryTier(unittest.TestCase):
         )
         audit = _CreditAudit()
         with self.assertRaises(ClaudeCreditExhausted):
-            run_with_model_fallback(run=run, model="opus", effort="high", write_capable=True, on_credit=audit)
+            run_with_model_fallback(run=run, model="opus", failover=None, effort="high", write_capable=True, on_credit=audit)
         self.assertEqual(len(run.calls), 1)
         self.assertEqual(len(audit.seen), 1)
 
@@ -174,14 +179,14 @@ class RefusalIsReturnedNotRetried(unittest.TestCase):
     def test_a_refusal_rides_the_result_after_one_call(self) -> None:
         refusal = {"category": "cyber"}
         run = _ScriptedRun(_result(refusal=refusal, tag="opus-refused"), _result(tag="never"))
-        out = run_with_model_fallback(run=run, model="opus", effort="high", write_capable=False)
+        out = run_with_model_fallback(run=run, model="opus", failover="glm-5.3", effort="high", write_capable=False)
         self.assertEqual(run.calls, [("opus", "high")])
         self.assertEqual(out.refusal, refusal)
         self.assertEqual(out.final_message, "opus-refused")
 
     def test_a_clean_run_passes_through(self) -> None:
         run = _ScriptedRun(_result(tag="opus-clean"))
-        out = run_with_model_fallback(run=run, model="opus", effort="high", write_capable=True)
+        out = run_with_model_fallback(run=run, model="opus", failover=None, effort="high", write_capable=True)
         self.assertEqual(run.calls, [("opus", "high")])
         self.assertEqual(out.final_message, "opus-clean")
 
@@ -194,7 +199,7 @@ class AuthFailoverIsCrossVendorAndRoleConditioned(unittest.TestCase):
             _result(auth={"marker": "invalid api key", "remedy": "login"}, tag="opus"),
             _result(tag="glm-5.3"),
         )
-        out = run_with_model_fallback(run=run, model="opus", effort="high", write_capable=False)
+        out = run_with_model_fallback(run=run, model="opus", failover="glm-5.3", effort="high", write_capable=False)
         self.assertEqual(run.calls, [("opus", "high"), ("glm-5.3", "high")])
         self.assertEqual(out.final_message, "glm-5.3")
 
@@ -203,7 +208,7 @@ class AuthFailoverIsCrossVendorAndRoleConditioned(unittest.TestCase):
             _result(auth={"marker": "unauthorized", "remedy": "key"}, tag="glm-5.3"),
             _result(tag="opus"),
         )
-        out = run_with_model_fallback(run=run, model="glm-5.3", effort="medium", write_capable=False)
+        out = run_with_model_fallback(run=run, model="glm-5.3", failover="opus", effort="medium", write_capable=False)
         self.assertEqual(run.calls, [("glm-5.3", "medium"), ("opus", "medium")])
         self.assertEqual(out.final_message, "opus")
 
@@ -216,31 +221,34 @@ class AuthFailoverIsCrossVendorAndRoleConditioned(unittest.TestCase):
             _result(tag="glm-must-never-run"),
         )
         with self.assertRaises(ClaudeAuthFailure) as raised:
-            run_with_model_fallback(run=run, model="opus", effort="max", write_capable=True)
+            run_with_model_fallback(run=run, model="opus", failover=None, effort="max", write_capable=True)
         self.assertEqual(run.calls, [("opus", "max")])
         self.assertIn("write-scope", str(raised.exception))
         self.assertIn("re-authenticate", str(raised.exception))
 
     def test_the_role_condition_is_read_from_the_fleet_row(self) -> None:
-        """Not a literal list of provider names in claude_runtime: the walk
-        asks the fleet whether the rung's provider admits writes."""
+        """Not a literal list of provider names in claude_runtime: the
+        routing reader asks the fleet whether a rung's provider admits
+        writes, and the helper refuses a read-only rung for a writer."""
         from aria_kernel.model_fleet import provider_admits_writes
+        from aria_kernel.runtime_profiles import routed_models
 
         self.assertTrue(provider_admits_writes("anthropic"))
         self.assertFalse(provider_admits_writes("zai"))
         self.assertFalse(provider_admits_writes("openai"))
         self.assertFalse(provider_admits_writes("nobody"), "an unlisted provider admits nothing")
-        self.assertEqual(_cross_provider_auth_fallback("opus", write_capable=False), "glm-5.3")
-        self.assertIsNone(_cross_provider_auth_fallback("opus", write_capable=True))
-        # glm -> opus is admissible for a writer too: anthropic admits writes.
-        self.assertEqual(_cross_provider_auth_fallback("glm-5.3", write_capable=True), "opus")
-        self.assertIsNone(_cross_provider_auth_fallback("haiku", write_capable=False))
-        # The walk is a cycle (opus -> glm-5.3 -> opus) and must terminate.
-        for start in AUTH_FAILOVER_TIER:
-            with self.subTest(walk_from=start):
-                resolved = _cross_provider_auth_fallback(start, write_capable=False)
-                self.assertIsNotNone(resolved)
-                self.assertNotEqual(resolved, start)
+        spawn = {"environ": {}, "runtimes": ("claude", "zai"), "profile_model": "opus"}
+        self.assertEqual(routed_models("evidence_judgment", "aria-evidence-judge", write_capable=False, **spawn),
+                         ("opus", "glm-5.3"))
+        self.assertEqual(routed_models("evidence_judgment", "aria-evidence-judge", write_capable=True, **spawn),
+                         ("opus",))
+        for inadmissible, write_capable in (("glm-5.3", True), ("sonnet", False)):
+            with self.subTest(failover=inadmissible):
+                run = _ScriptedRun(_result(tag="never"))
+                with self.assertRaises(ClaudePolicyViolation):
+                    run_with_model_fallback(run=run, model="opus", failover=inadmissible, effort="high",
+                                            write_capable=write_capable)
+                self.assertEqual(run.calls, [], "refused before any attempt")
 
     def test_both_vendors_failing_auth_is_terminal_and_names_both(self) -> None:
         run = _ScriptedRun(
@@ -248,7 +256,7 @@ class AuthFailoverIsCrossVendorAndRoleConditioned(unittest.TestCase):
             _result(auth={"marker": "unauthorized", "remedy": "zai key"}, tag="glm-5.3"),
         )
         with self.assertRaises(ClaudeAuthFailure) as raised:
-            run_with_model_fallback(run=run, model="opus", effort="high", write_capable=False)
+            run_with_model_fallback(run=run, model="opus", failover="glm-5.3", effort="high", write_capable=False)
         message = str(raised.exception)
         self.assertIn("opus", message)
         self.assertIn("glm-5.3", message)
@@ -264,7 +272,7 @@ class AuthFailoverIsCrossVendorAndRoleConditioned(unittest.TestCase):
         )
         audit = _CreditAudit()
         with self.assertRaises(ClaudeCreditExhausted) as raised:
-            run_with_model_fallback(run=run, model="opus", effort="high", write_capable=False,
+            run_with_model_fallback(run=run, model="opus", failover="glm-5.3", effort="high", write_capable=False,
                                     on_credit=audit)
         self.assertEqual(len(run.calls), 2)
         self.assertEqual((raised.exception.provider, raised.exception.model), ("zai", "glm-5.3"))
@@ -290,7 +298,7 @@ class ExecutorWiringPins(unittest.TestCase):
         calls = _helper_calls(tree)
         self.assertEqual(len(calls), 1, "exactly one helper call per executor")
         keywords = {keyword.arg: keyword.value for keyword in calls[0].keywords}
-        self.assertEqual(set(keywords), {"run", "model", "effort", "write_capable", "on_credit"})
+        self.assertEqual(set(keywords), {"run", "model", "failover", "effort", "write_capable", "on_credit"})
         # `write_capable=<profile>.write_capable` — the profile SSoT's own
         # property, not a literal and not a re-derivation from the tools list.
         write_capable = keywords["write_capable"]

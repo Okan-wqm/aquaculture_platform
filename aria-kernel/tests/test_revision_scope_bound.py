@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import subprocess
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -49,8 +50,9 @@ from aria_kernel.plan_origin import (
     compute_admission_scope,
     paths_outside_admission_scope,
 )
-from aria_kernel.plan_synthesizer import convert_candidate_to_plan_content
+from aria_kernel.plan_synthesizer import PlanEvidenceGround, convert_candidate_to_plan_content
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.git_fixtures import make_local_git_repo
 from tests._helpers.operator_acts import operator_set_profile
 from tests.test_implementation_lifecycle_continuity import (
     converging_plan_content,
@@ -64,28 +66,43 @@ GATEWAY = "apps/gateway/src/main.ts"
 AUTH = "apps/auth-service/src/main.ts"
 
 
-def _seed_workspace(root: Path) -> None:
-    sources = {
-        SHARED: "export const shared = 1;\n",
-        FARM: "import { shared } from '@aqua/shared-lib';\nexport const farm = shared;\n",
-        GATEWAY: "import { farm } from '@aqua/farm-service';\nexport const gateway = farm;\n",
-        AUTH: "export const auth = 1;\n",
-    }
-    for relpath, text in sources.items():
+_WORKSPACE_SOURCES = {
+    SHARED: "export const shared = 1;\n",
+    FARM: "import { shared } from '@aqua/shared-lib';\nexport const farm = shared;\n",
+    GATEWAY: "import { farm } from '@aqua/farm-service';\nexport const gateway = farm;\n",
+    AUTH: "export const auth = 1;\n",
+}
+
+
+def _write_workspace(root: Path) -> None:
+    """The four-project sources and the reviewer agent, written but not committed."""
+    for relpath, text in _WORKSPACE_SOURCES.items():
         (root / relpath).parent.mkdir(parents=True, exist_ok=True)
         (root / relpath).write_text(text, encoding="utf-8")
     seed_reviewer_agent(root)
 
 
-def _seed(source_type: str, finding_id: str, surfaces: list[str]) -> dict:
-    """The plan body the kernel converter writes for an admitted finding."""
+def _seed_workspace(root: Path) -> None:
+    # ORPHAN-HIGH-519 — the converter cites a ref only when the challenger's
+    # evidence rule admits it at the checkout's HEAD, so the sources are committed.
+    make_local_git_repo(root.parent, name=root.name)
+    _write_workspace(root)
+    for argv in (["add", "--", *_WORKSPACE_SOURCES], ["commit", "-q", "-m", "chore(test): the project graph"]):
+        subprocess.run(["git", *argv], cwd=root, check=True, capture_output=True)
+
+
+def _seed(root: Path, source_type: str, finding_id: str, surfaces: list[str]) -> dict:
+    """The plan body the kernel converter writes for an admitted finding, grounded at ``root``'s HEAD."""
     admission = FindingAdmission(finding_id, None, evidence_refs=tuple(surfaces), affected_surfaces=tuple(surfaces))
     if source_type == "operator_feedback":
         candidate = {"source_type": source_type, "candidate_id": "OP-1", "finding_id": finding_id,
                      "request": "Remediate at the root.", "priority": "P0"}
     else:
         candidate = {"source_type": source_type, "candidate_id": finding_id}
-    return convert_candidate_to_plan_content(candidate, admission=admission).content
+    conversion = convert_candidate_to_plan_content(
+        candidate, admission=admission, ground=PlanEvidenceGround.of(root))
+    assert conversion.envelope is not None, conversion
+    return conversion.envelope.content
 
 
 def _body(seed: dict, surfaces: list[str], **extra: object) -> dict:
@@ -149,16 +166,16 @@ class RevisionScopeBoundTests(unittest.TestCase):
         return fold_plan_state(plan_id=plan_id, base_dir=self.tools)["plan_started"]["admission_scope"]
 
     def test_a_revision_adding_a_surface_inside_the_closure_passes(self) -> None:
-        plan_id = self._start(_seed("f_finding", "F-007", [SHARED]))
+        plan_id = self._start(_seed(self.root, "f_finding", "F-007", [SHARED]))
         self._critiqued(plan_id)
         # gateway is downstream of shared-lib only through farm-service.
         widened = [SHARED, "libs/shared-lib/src/index.spec.ts", FARM, GATEWAY]
         self.assertEqual(paths_outside_admission_scope(self._scope(plan_id), widened), [])
-        self.assertTrue(self._revise(plan_id, _body(_seed("f_finding", "F-007", [SHARED]), widened))["event_appended"])
+        self.assertTrue(self._revise(plan_id, _body(_seed(self.root, "f_finding", "F-007", [SHARED]), widened))["event_appended"])
         self.assertEqual(self._refusals(), [])
 
     def test_a_revision_adding_a_surface_outside_is_refused_with_the_paths_named(self) -> None:
-        seed = _seed("f_finding", "F-007", [FARM])
+        seed = _seed(self.root, "f_finding", "F-007", [FARM])
         plan_id = self._start(seed)
         self._critiqued(plan_id)
         # `apps/farm-service-extra` shares a prefix with a closure root, not the root itself.
@@ -179,7 +196,7 @@ class RevisionScopeBoundTests(unittest.TestCase):
     def test_an_operator_request_plan_and_an_f_finding_plan_are_both_bounded(self) -> None:
         for source_type, finding_id in (("operator_feedback", "F-007"), ("f_finding", "F-008")):
             with self.subTest(source=source_type):
-                seed = _seed(source_type, finding_id, [FARM])
+                seed = _seed(self.root, source_type, finding_id, [FARM])
                 plan_id = self._start(seed)
                 self.assertEqual(self._scope(plan_id)["origin_finding_id"], finding_id)
                 with self.assertRaisesRegex(GovernanceError, REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE):
@@ -189,7 +206,7 @@ class RevisionScopeBoundTests(unittest.TestCase):
     def test_the_closure_is_the_kernels_and_planner_claims_cannot_move_it(self) -> None:
         # No caller of start_plan can hand it a bound; it computes one.
         self.assertNotIn("admission_scope", inspect.signature(start_plan).parameters)
-        seed = _seed("f_finding", "F-007", [SHARED])
+        seed = _seed(self.root, "f_finding", "F-007", [SHARED])
         plan_id = self._start(dict(seed, admission_scope={"closure_roots": ["apps"]}))
         scope = self._scope(plan_id)
         impact = plan_downstream_impact(changed_files=[SHARED], workspace_root=self.root, base_dir=self.tools)
@@ -207,7 +224,7 @@ class RevisionScopeBoundTests(unittest.TestCase):
         # Subject pins come from the committed policy alone (test_subject_pin_policy).
 
     def test_a_tampered_admitted_half_is_refused_on_the_record(self) -> None:
-        seed = _seed("f_finding", "F-007", [FARM])
+        seed = _seed(self.root, "f_finding", "F-007", [FARM])
         scope = compute_admission_scope(seed, workspace_root=self.root, base_dir=self.tools)
         with self.assertRaisesRegex(GovernanceError, "admitted_surfaces must be the started plan's surfaces"):
             _append_event(root=self.tools, plan_id="plan-tampered", event_type="plan_started",
@@ -218,7 +235,7 @@ class RevisionScopeBoundTests(unittest.TestCase):
                           })
 
     def test_a_finding_plan_without_its_admission_record_is_refused(self) -> None:
-        seed = _seed("f_finding", "F-007", [FARM])
+        seed = _seed(self.root, "f_finding", "F-007", [FARM])
         with self.assertRaisesRegex(GovernanceError, ADMISSION_SCOPE_MISSING):
             start_plan(plan_id="plan-nows", plan_content=seed, initial_revision_id="plan-nows-r0",
                        base_dir=self.tools)

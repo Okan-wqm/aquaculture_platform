@@ -391,15 +391,17 @@ def _run_judge_batch(
             max_tokens=resolve_zai_max_tokens(dict(os.environ)), reasoning_effort=route["effort"],
             json_object=True,
         )
-        if completed.auth_failure is not None:
-            call_failure = "auth_failed"
-        elif completed.credit_exhaustion is not None:
-            call_failure = "credit_exhausted"
+        if completed.exhaustion_signature is not None:
+            # ARIA-HIGH-290 — a quota refusal and an auth rejection are both
+            # provider facts: the provider is cooled (once per transition).
+            call_failure = "credit_exhausted" if completed.credit_exhaustion is not None else "auth_failed"
             from aria_kernel.provider_cooldown import record_provider_cooldown
             record_provider_cooldown(
                 tools_dir, provider=route["provider"], model=route["model"],
                 cooldown_seconds=policy.provider_cooldown_seconds, request_id=batch_id, claim_id=batch_id,
-                detection={"marker": completed.credit_exhaustion, "vendor_error_code": completed.error_code,
+                detection={"signature": completed.exhaustion_signature,
+                           "marker": completed.credit_exhaustion or completed.auth_failure,
+                           "vendor_error_code": completed.error_code,
                            "vendor_error_message": completed.error_message, "http_status": completed.http_status},
             )
         elif completed.returncode != 0:

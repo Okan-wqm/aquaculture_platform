@@ -414,13 +414,17 @@ class TestV9FailingCiIsCurrentlyRed(unittest.TestCase):
 
     def _scan(self, rows):
         calls = []
+        # ORPHAN-HIGH-519 — after the run list, the scanner asks for the
+        # workflow paths and each red run's jobs; this suite pins the verdict,
+        # so those answer nothing.
+        answers = {("run", "list"): rows, ("workflow", "list"): [], ("run", "view"): {"jobs": []}}
 
         def fake_run(argv, **kwargs):
             calls.append(argv)
 
             class _Result:
                 returncode = 0
-                stdout = json.dumps(rows)
+                stdout = json.dumps(answers[(argv[1], argv[2])])
                 stderr = ""
             return _Result()
 
@@ -429,7 +433,7 @@ class TestV9FailingCiIsCurrentlyRed(unittest.TestCase):
                 with mock.patch("shutil.which", return_value="/usr/bin/gh"):
                     with mock.patch.dict(os.environ, {"ARIA_DRY_RUN": ""}):
                         result = _ps.scan_failing_ci(tmp, cache_dir=tmp)
-        self.assertEqual(len(calls), 1)
+        self.assertEqual([argv[1:3] for argv in calls].count(["run", "list"]), 1)
         return result, calls[0]
 
     def test_workflow_that_went_green_supplies_no_candidate(self):

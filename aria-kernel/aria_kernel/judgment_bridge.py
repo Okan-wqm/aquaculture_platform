@@ -40,6 +40,7 @@ from .feedback_store import (
 )
 from .independence_check import is_executor_identity
 from .model_fleet import provider_reports_confidence
+from .must_satisfy import TRUE_POSITIVE_PREMISE_KINDS
 from .typed_judgment import (
     PRIMITIVES,
     ChoiceQuestion,
@@ -257,6 +258,8 @@ def validate_judge_response(
             pass
         else:
             errors.append(f"judge_verdict.verdict:invalid:{verdict!r}")
+    if verdict == "true_positive":
+        errors.extend(_unmet_true_positive_premises(request, response))
     tool_id = request.get("tool_id") or verdict_block.get("tool_id")
     run_id = request.get("run_id") or verdict_block.get("run_id")
     finding_id = request.get("finding_id") or verdict_block.get("finding_id")
@@ -268,6 +271,32 @@ def validate_judge_response(
     elif str(judge_id).startswith("ci-executor:"):
         errors.append("judge_verdict:executor_shaped_judge_identity")
     return errors
+
+
+def _unmet_true_positive_premises(request: dict[str, Any], response: dict[str, Any]) -> list[str]:
+    """ARIA-HIGH-324 — the premise and product-defect obligations a
+    true_positive left short of ``satisfied``.
+
+    The obligations come from the REQUEST the kernel minted (judge_fanout,
+    from the rule's manifest contract), never from the response, so a judge
+    cannot shed one by not mentioning it. A request minted before rule
+    contracts carries none and is held to none.
+    """
+    required = [
+        str(item.get("id"))
+        for item in request.get("must_satisfy") or []
+        if isinstance(item, dict) and item.get("kind") in TRUE_POSITIVE_PREMISE_KINDS
+    ]
+    answered = {
+        str(entry.get("id")): entry.get("verdict")
+        for entry in response.get("satisfaction_matrix") or []
+        if isinstance(entry, dict)
+    }
+    return [
+        f"judge_verdict.true_positive_premise_unmet:{obligation}"
+        for obligation in required
+        if answered.get(obligation) != "satisfied"
+    ]
 
 
 def record_judge_verdict_from_response(

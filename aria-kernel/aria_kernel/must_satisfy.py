@@ -66,6 +66,13 @@ WAIVER_ADJUDICATION_KIND = "waiver_adjudication"
 COVERAGE_GAP_KIND = "coverage_gap"
 ARCHITECTURE_SPINE_KIND = "architecture_spine_regression"
 PLAN_CONTRACT_VIOLATION_KIND = "plan_contract_violation"
+# ARIA-HIGH-324 — a judge's obligations for one adapter finding, minted from
+# its rule's manifest contract (rule_contract): one per premise, and one for
+# the product defect the rule claims. A true_positive must satisfy every one
+# of them; the judge bridge refuses it otherwise.
+RULE_PREMISE_KIND = "rule_premise"
+PRODUCT_DEFECT_KIND = "product_defect"
+TRUE_POSITIVE_PREMISE_KINDS: tuple[str, ...] = (RULE_PREMISE_KIND, PRODUCT_DEFECT_KIND)
 # A plan-contract reason code is a token of the kernel's own vocabulary
 # (``plan_contract.PLAN_CONTRACT_REASONS`` and the gate's ``plan_body_unavailable``),
 # never prose: the constructor holds the parameter to that shape so the one
@@ -237,6 +244,41 @@ def plan_contract_obligation(
     )
 
 
+def rule_premise_obligation(*, index: int, rule: str, premise: str, **data: Any) -> dict[str, Any]:
+    """The obligation that premise ``index`` of ``rule`` holds in the product.
+
+    The premise is manifest-authored text about the product, so it rides as
+    data (``premise``) under a kernel-composed description.
+    """
+    return must_satisfy_item(
+        id=f"premise:{index}",
+        kind=RULE_PREMISE_KIND,
+        description=(
+            f"Premise {index} of this finding's rule holds as a fact about the product at the "
+            "finding's location: verify the statement under this obligation's `premise` in the "
+            "repository's product code or config, never in the detector's own source. Answer "
+            "`satisfied` only when it holds; otherwise `contradicted` with the evidence."
+        ),
+        **{"rule": rule, "premise": premise},
+        **data,
+    )
+
+
+def product_defect_obligation(*, rule: str, claim_type: str, defect_claim: str, **data: Any) -> dict[str, Any]:
+    """The obligation that a person must change the product to resolve the finding."""
+    return must_satisfy_item(
+        id="defect",
+        kind=PRODUCT_DEFECT_KIND,
+        description=(
+            "A person must change product code or configuration at this finding's location to "
+            "resolve the defect stated under this obligation's `defect_claim`. A rule that fired "
+            "on product code that is already correct is a false_positive, not a satisfied defect."
+        ),
+        **{"rule": rule, "claim_type": claim_type, "defect_claim": defect_claim},
+        **data,
+    )
+
+
 def upcast_sealed_items(items: Any, *, field: str = "must_satisfy") -> list[dict[str, Any]]:
     """The obligations of a SEALED row in the canonical shape, for a re-mint.
 
@@ -331,7 +373,10 @@ __all__ = [
     "MUST_SATISFY_TEXT_FIELD",
     "PLAN_CONTRACT_VIOLATION_KIND",
     "PLAN_TEXT_FIELD",
+    "PRODUCT_DEFECT_KIND",
+    "RULE_PREMISE_KIND",
     "SEALED_LEGACY_TEXT_FIELD",
+    "TRUE_POSITIVE_PREMISE_KINDS",
     "WAIVER_ADJUDICATION_KIND",
     "architecture_spine_obligation",
     "coverage_gap_obligation",
@@ -339,6 +384,8 @@ __all__ = [
     "must_satisfy_item",
     "must_satisfy_text",
     "plan_contract_obligation",
+    "product_defect_obligation",
+    "rule_premise_obligation",
     "upcast_sealed_items",
     "validate_must_satisfy",
     "waiver_adjudication_obligation",

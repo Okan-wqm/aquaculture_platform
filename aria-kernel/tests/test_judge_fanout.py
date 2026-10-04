@@ -10,9 +10,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.agent_invocations import create_agent_invocation_request
+from aria_kernel.agent_invocations import create_agent_invocation_request, list_agent_invocation_requests
 from aria_kernel.judge_fanout import dispatch_judges_for_sample
 from aria_kernel.tool_registry import ensure_tools_dir
+
+from tests._helpers.rule_contracts import register_contracted_tool
 
 
 def _item(i: int) -> dict:
@@ -28,6 +30,9 @@ class JudgeFanoutTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.tools = Path(self._tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools)
+        # ARIA-HIGH-324 — a finding is judged against its rule's contract,
+        # read from the registered manifest of the tool that emitted it.
+        register_contracted_tool(self.tools, "tool-x")
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -136,6 +141,89 @@ class JudgeFanoutTests(unittest.TestCase):
         self.assertEqual(len(rows), 2)
         for row in rows:
             self.assertNotIn("evidence_excerpts", row)
+
+
+_BUNDLE_CONTRACT = {
+    "claim_type": "absence_in_scope",
+    "severity_cap": "LOW",
+    "defect_claim": "The module ships without a size budget that fails CI when it is exceeded.",
+    "premises": [
+        "The module has a production Vite build.",
+        "No CI workflow or build step fails when the module's bundle exceeds a declared size.",
+    ],
+}
+
+
+class JudgeEnvelopeStatesTheRuleContractTests(unittest.TestCase):
+    """ARIA-HIGH-324 — the envelope says what a true positive IS.
+
+    F-011: three judges confirmed "nothing warns when the bundle grows" by
+    checking that the rule's predicate held; nothing in the envelope said a
+    true positive is a product defect a person must change, nor what this
+    rule claims about the product, nor that the detector's own source is not
+    evidence about the product.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tools = Path(self._tmp.name) / "aria-tools"
+        ensure_tools_dir(self.tools)
+        register_contracted_tool(
+            self.tools, "bundle-budget-adapter",
+            rules={"bundle_budget_not_enforced": dict(_BUNDLE_CONTRACT)},
+            declared_scope=["web/**/*.{ts,tsx,js,json}"],
+        )
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _item(self, rule: str = "bundle_budget_not_enforced") -> dict:
+        return {
+            "tool_id": "bundle-budget-adapter", "run_id": "r1", "cycle_id": "c1",
+            "finding_id": "bundle-budget:not-enforced:web/apps/aquamobil", "rule": rule,
+            "severity": "low", "path": "web/apps/aquamobil/vite.config.ts",
+            "message": "no bundle-budget.json", "evidence": [], "finding_fingerprint": "fp-bundle",
+        }
+
+    def test_premises_become_obligations_and_detector_source_is_forbidden(self) -> None:
+        result = dispatch_judges_for_sample(sample={"cycle_id": "c1", "items": [self._item()]}, base_dir=self.tools)
+        self.assertEqual(result["minted_count"], 2)
+        for row in list_agent_invocation_requests(base_dir=self.tools):
+            obligations = row["must_satisfy"]
+            premises = [item for item in obligations if item.get("kind") == "rule_premise"]
+            self.assertEqual([item["premise"] for item in premises], _BUNDLE_CONTRACT["premises"])
+            defect = [item for item in obligations if item.get("kind") == "product_defect"]
+            self.assertEqual([item["defect_claim"] for item in defect], [_BUNDLE_CONTRACT["defect_claim"]])
+            for prefix in ("tools/aria-adapters/**", "tools/aria-poc/**", "aria-kernel/**"):
+                self.assertIn(prefix, row["forbidden_scope"])
+            prompt = row["suggested_prompt"]
+            self.assertIn("product defect", prompt)
+            self.assertIn("whether the rule fired is not the question", prompt.lower())
+
+    def test_a_rule_with_no_contract_is_not_judged(self) -> None:
+        result = dispatch_judges_for_sample(
+            sample={"cycle_id": "c1", "items": [self._item(rule="rule_nobody_declared")]},
+            base_dir=self.tools,
+        )
+        self.assertEqual(result["minted_count"], 0)
+        self.assertEqual({s["reason"] for s in result["skipped"]}, {"rule_contract_undeclared"})
+
+    def test_a_tool_whose_scope_is_aria_may_cite_aria(self) -> None:
+        register_contracted_tool(
+            self.tools, "kernel-dead-wire-adapter",
+            rules={"policy_key_never_read": dict(_BUNDLE_CONTRACT, claim_type="wrong_code", severity_cap="MEDIUM")},
+            declared_scope=["aria-kernel/aria_kernel/**/*.py"],
+        )
+        item = dict(
+            self._item(rule="policy_key_never_read"), tool_id="kernel-dead-wire-adapter",
+            path="aria-kernel/aria_kernel/data/policy.json", finding_fingerprint="fp-kernel",
+        )
+        dispatch_judges_for_sample(sample={"cycle_id": "c1", "items": [item]}, base_dir=self.tools)
+        rows = [r for r in list_agent_invocation_requests(base_dir=self.tools) if r["tool_id"] == "kernel-dead-wire-adapter"]
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertNotIn("aria-kernel/**", row["forbidden_scope"])
+            self.assertIn("tools/aria-adapters/**", row["forbidden_scope"])
 
 
 if __name__ == "__main__":

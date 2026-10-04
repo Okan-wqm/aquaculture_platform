@@ -3,6 +3,10 @@
   "incidentTitle": "[scheduled-workflow-watchdog] Scheduled workflow incident",
   "workflows": [
     {
+      "workflow": "apollo-supergraph-validate.yml",
+      "maxAgeHours": 192
+    },
+    {
       "workflow": "aria-agent-eval.yml",
       "maxAgeHours": 192
     },

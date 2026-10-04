@@ -114,7 +114,7 @@ class _Fixture(unittest.TestCase):
                                       plan_content=envelope.content, candidate=candidate)
         if start:
             start_plan(plan_id=plan_id, plan_content=envelope.content, initial_revision_id=f"{plan_id}-r1",
-                       base_dir=self.tools)
+                       base_dir=self.tools, workspace_root=self.fx.repo)
         return envelope.content
 
 
@@ -413,7 +413,7 @@ class PreMergeObservationTests(_Fixture):
         self.signed = self.fx.record(request_id="OP-obs")
         self.content = self._bind_and_maybe_start("cyc-obs", start=True, plan_id="plan-obs")
         self.state = fold_plan_state(plan_id="plan-obs", base_dir=self.tools)
-        self.anchor = ors.allowed_signers_for_checkout(self.fx.repo)[0].content
+        self.anchor = ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[0]
 
     def _observe(self, *, plan_started=None, ingestion_rows=None, feedback_rows=None, plan_events=None,
                  allowed_signers=b"default", now=None):
@@ -440,9 +440,10 @@ class PreMergeObservationTests(_Fixture):
 
     def test_a_signer_the_anchor_no_longer_enrols_fails(self) -> None:
         successor = mint_ed25519_key(Path(self.tmp.name) / "successor", name="k")
-        self.fx.commit_files({ors.ALLOWED_SIGNERS_PATH: allowed_signers_line("successor@aria.test", successor)},
-                             message="chore(test): revoke the fixture operator")
-        revoked = ors.allowed_signers_for_checkout(self.fx.repo)[0].content
+        # ADR-0023 — a rotation is a signed enrolment by a key the parent enrols.
+        self.fx.enrol({ors.ALLOWED_SIGNERS_PATH: allowed_signers_line("successor@aria.test", successor)})
+        revoked = ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)[0]
+        self.assertIsNotNone(revoked)
         self.assertEqual(self._observe(allowed_signers=revoked)["operator_feedback_unavailable_reason"],
                          "operator_feedback_consumed_row_unsigned:" + ors.SIGNER_NOT_ENROLLED)
         self.assertEqual(self._observe(allowed_signers=None)["operator_feedback_unavailable_reason"],
@@ -461,7 +462,7 @@ class PreMergeObservationTests(_Fixture):
         ingestion.bind_plan_synthesis(base_dir=self.tools, cycle_id="cyc-other",
                                       plan_content=other_content, candidate=candidate)
         start_plan(plan_id="plan-other", plan_content=other_content, initial_revision_id="plan-other-r1",
-                   base_dir=self.tools)
+                   base_dir=self.tools, workspace_root=self.fx.repo)
         events = _plan_events(self.tools) + [{"plan_id": "plan-other", "event_type": "implementation_merged",
                                               "payload": {}}]
         self.assertEqual(self._observe(plan_events=events)["operator_feedback_unavailable_reason"], ALREADY_MERGED)
@@ -508,12 +509,14 @@ class PreMergeObservationTests(_Fixture):
         head = git(self.fx.repo, "rev-parse", "HEAD").strip()
         observation = _capture_pre_merge_operator_feedback(
             plan_id="plan-obs", state=self.state, rows=rows, workspace=self.fx.repo, trust_sha=head,
+            tools=self.fx.tools,
         )
         self.assertTrue(observation["operator_feedback_verified"], observation)
         root_commit = subprocess.run(["git", "rev-list", "--max-parents=0", "HEAD"], cwd=self.fx.repo,
                                      check=True, capture_output=True, text=True).stdout.strip()
         before_anchor = _capture_pre_merge_operator_feedback(
             plan_id="plan-obs", state=self.state, rows=rows, workspace=self.fx.repo, trust_sha=root_commit,
+            tools=self.fx.tools,
         )
         self.assertEqual(before_anchor["operator_feedback_unavailable_reason"],
                          "operator_feedback_consumed_row_unsigned:" + ors.ALLOWED_SIGNERS_UNAVAILABLE)

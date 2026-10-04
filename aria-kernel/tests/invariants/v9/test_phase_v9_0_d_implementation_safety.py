@@ -28,14 +28,16 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 class TestV9HardFailRegistry(unittest.TestCase):
 
     def test_i_v9_safety_15_hard_fail_checks(self):
-        """HARD_FAIL_CHECKS MUST contain exactly 18 entries. v1 plan had
+        """HARD_FAIL_CHECKS MUST contain exactly 20 entries. v1 plan had
         6; v3 audit grew to 15; Plan 031 §031e added the 16th
         (expert_consensus_evidence_verified); the plan-coverage gate
         (ORPHAN-HIGH-310) added the 17th (plan_coverage_witness_verified);
-        ARIA-HIGH-104 added the 18th (commit_contract_honoured)."""
+        ARIA-HIGH-104 added the 18th (commit_contract_honoured);
+        INFRA-MEDIUM-197 added the 19th (readonly_paths_untouched_at_merge);
+        ARIA-MEDIUM-282 added the 20th (enrolments_unexpired_at_merge)."""
         self.assertEqual(
-            len(_is.HARD_FAIL_CHECKS), 18,
-            f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 18)",
+            len(_is.HARD_FAIL_CHECKS), 20,
+            f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 20)",
         )
 
     # ORPHAN-CRITICAL-428 — the count above was the ONLY thing pinned, and
@@ -153,9 +155,10 @@ class TestV9HardFailRegistry(unittest.TestCase):
         # an empty context it fails by name, "native_implementation_binding_
         # unavailable", never by passing and never by pretending to be unbuilt.
         # The rewrite this test's earlier draft demanded when "phase B lands":
-        # all seven pre-merge predicates are live (branch tip, per-file
+        # all nine pre-merge predicates are live (branch tip, per-file
         # exclusion, content hash, plan coverage, expert consensus, operator
-        # feedback signature, cycle and turn budget), so nothing answers
+        # feedback signature, cycle and turn budget, read-only paths, enrolment
+        # expiry at merge), so nothing answers
         # "check_not_implemented" any more and merge stays closed on an
         # empty context only because every predicate refuses by name.
         whole = _is.run_hard_fail_checks(_is.HardFailContext())
@@ -213,6 +216,12 @@ class TestV9HardFailRegistry(unittest.TestCase):
             "expert_consensus_evidence_verified",
             "plan_coverage_witness_verified",
             "commit_contract_honoured",
+            # INFRA-MEDIUM-197 — the merge authority refuses an ARIA change
+            # to a READONLY path even when the branch moved after PR open.
+            "readonly_paths_untouched_at_merge",
+            # ARIA-MEDIUM-282 — appended enrolment rows judged at the merge
+            # authority's clock, not only when the required check ran.
+            "enrolments_unexpired_at_merge",
         }
         actual = {c.name for c in _is.HARD_FAIL_CHECKS}
         self.assertEqual(
@@ -235,6 +244,11 @@ class TestV9Immutable(unittest.TestCase):
             # ARIA-MEDIUM-087 — the policy the kernel obeys is not the
             # governed agent's to write.
             "aria-config/",
+            # ADR-0023 / ARIA-LOW-267 — operator trust anchors and arbiter
+            # decisions; ARIA-HIGH-260 — the finding registry report
+            # ingestion mints "external" findings from.
+            "docs/aria/policy/", "docs/recommendations/", "packs/", "tools/aria-labels/",
+            "tools/runtime-truth/", "libs/journey-pins/", "docs/reviews/_registry/",
         }
         actual = set(_is.READONLY_PATHS)
         missing = required - actual
@@ -917,7 +931,7 @@ class TestPhaseAGateExitCriterion(unittest.TestCase):
     def test_pre_merge_gate_still_cannot_pass(self):
         """Merge stays closed by construction, not by a flag.
 
-        The cleanest ACTION is still not a merge: all seven pre-merge
+        The cleanest ACTION is still not a merge: all nine pre-merge
         predicates answer only from native implementation evidence that a
         clean action context does not carry. Each failure says so by name; a
         pre-merge failure for any other reason here would mean a predicate

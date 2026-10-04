@@ -265,6 +265,9 @@ class TestV9PublicApi(unittest.TestCase):
             # handed out and verified by the promotion reader.
             "register_convention_signer", "lookup_convention_signer",
             "verify_convention_signer", "fingerprint_of_public_key",
+            # ARIA-HIGH-281 — the registry's key blobs: the keys ARIA's runner
+            # signed with, which the operator allowed-signers file never enrols.
+            "registered_signer_key_blobs",
         }
         self.assertEqual(set(_kg.__all__), canonical)
         self.assertTrue(issubclass(

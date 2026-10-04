@@ -24,7 +24,8 @@ from pathlib import Path
 from unittest import mock
 
 from aria_kernel import convergence_drainer as cd
-from aria_kernel.ledger import load_jsonl
+from aria_kernel.ledger import load_jsonl, load_segments
+from tests._helpers.declared_fixtures import native_invocation_bytes
 from aria_kernel.plan_convergence import (
     content_hash,
     events_path,
@@ -85,10 +86,7 @@ class _StepCase(unittest.TestCase):
         )
 
     def requests(self) -> list[dict]:
-        path = self.tools / "agent-invocations" / "requests.jsonl"
-        if not path.exists():
-            return []
-        return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        return load_segments(self.tools, "agent_invocation_requests")
 
     def _cross_task(self, task_id: str, reviewer: str, direction: str, rev: str, h: str) -> dict:
         from datetime import datetime, timedelta, timezone
@@ -222,11 +220,9 @@ class PlannerTwinContextTests(_StepCase):
         result = self.step()  # The ordinary resumed caller still supplies the old seed/refs.
         self.assertEqual(result["arbiter_verdict"], "in_progress")
         self._assert_native_current_body("challenger_plan", body)
-        before = {name: (self.tools / f"agent-invocations/{name}.jsonl").read_bytes()
-                  for name in ("requests", "contexts", "prompts")}
+        before = native_invocation_bytes(self.tools)
         self.step()
-        for name, data in before.items():
-            self.assertEqual((self.tools / f"agent-invocations/{name}.jsonl").read_bytes(), data)
+        self.assertEqual(native_invocation_bytes(self.tools), before)
 
     def test_initial_step_uses_the_body_actually_recorded_before_mint(self) -> None:
         body = self._prepare_named_planner_source()
@@ -437,11 +433,9 @@ class PlannerTwinContextTests(_StepCase):
             self._assert_native_body_request(request, body, cycle_id=None,
                                              scope=["aria-kernel/**", "aria-tools/**", ".claude/**"])
             self.assertEqual(request["context_source_paths"], ["aria-kernel/aria_kernel/knowledge_graph.py", "web/non-authorizing-hint.ts"])
-        before = {name: (self.tools / f"agent-invocations/{name}.jsonl").read_bytes()
-                  for name in ("requests", "contexts", "prompts")}
+        before = native_invocation_bytes(self.tools)
         self.assertEqual(advance_plan_rounds(plan_id="plan-1", base_dir=self.tools, workspace_root=self.root)["status"], "waiting_for_reviews")
-        for name, data in before.items():
-            self.assertEqual((self.tools / f"agent-invocations/{name}.jsonl").read_bytes(), data)
+        self.assertEqual(native_invocation_bytes(self.tools), before)
 
     def test_later_primary_controller_forwards_current_body_and_explicit_root(self) -> None:
         from aria_kernel.plan_round_controller import advance_plan_rounds
@@ -505,7 +499,6 @@ class PlannerTwinContextTests(_StepCase):
     def test_real_discovery_twin_reaches_challenger_context(self) -> None:
         from aria_kernel import agent_invocations as ai
         from aria_kernel.cycle import _phase_discovery, _phase_twin_refresh, build_phase_context
-        from aria_kernel.ledger import load_declared_jsonl
         from aria_kernel.tool_registry import ensure_tools_binding
         from tests._helpers.git_fixtures import _git
 
@@ -536,8 +529,7 @@ class PlannerTwinContextTests(_StepCase):
                    plan_content=self.plan(), base_dir=self.tools)
         result = self.step()
         self.assertEqual(result["arbiter_verdict"], "in_progress")
-        requests_path = self.tools / "agent-invocations/requests.jsonl"
-        requests = load_declared_jsonl(requests_path, expected_surface="agent_invocation_requests")
+        requests = load_segments(self.tools, "agent_invocation_requests")
         challengers = [row for row in requests if row["role"] == "challenger_plan"]
         self.assertEqual(len(challengers), 1)
         request = challengers[0]
@@ -553,12 +545,10 @@ class PlannerTwinContextTests(_StepCase):
             {"repo_root": binding["context"]["repo_root"], "cycle_id": request["cycle_id"]},
             {"repo_root": str(self.root.resolve()), "cycle_id": "cyc-step"},
         )
-        before = {name: (self.tools / f"agent-invocations/{name}.jsonl").read_bytes()
-                  for name in ("requests", "contexts", "prompts")}
+        before = native_invocation_bytes(self.tools)
         repeated = self.step()
         self.assertEqual(repeated["arbiter_verdict"], "in_progress")
-        for name, content in before.items():
-            self.assertEqual((self.tools / f"agent-invocations/{name}.jsonl").read_bytes(), content)
+        self.assertEqual(native_invocation_bytes(self.tools), before)
 
 
 class NoStepEverSleeps(_StepCase):

@@ -5,8 +5,10 @@ Before the fix the gate was defined and default-gated but no production path
 invoked it — the only perimeter callsites were pr_manager's GATE_PRE_PR_OPEN
 pair, so ADR-041 decision 3's "fresh pre-merge re-check" existed in prose only.
 
-Behavioral pin: a perimeter refusal stops the merge. All seven GATE_PRE_MERGE
-checks consume native evidence — unwaived plan-time coverage, the accepted
+Behavioral pin: a perimeter refusal stops the merge. All nine GATE_PRE_MERGE
+checks consume native evidence — the PR's changed paths against
+READONLY_PATHS (INFRA-MEDIUM-197), the enrolment rows it appends at the
+merge authority's clock (ARIA-MEDIUM-282), unwaived plan-time coverage, the accepted
 expert panel, the operator-feedback ingestion the merged plan's synthesis
 was bound to, and the hook's turn-budget verdicts (cycle_and_turn_budget_cap).
 Waiver adjudication and current graph reattestation are not established by
@@ -29,6 +31,7 @@ from unittest.mock import patch
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
 from aria_kernel.merge_authority import merge_pr_if_ready
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.declared_fixtures import segmented_ledger_bytes
 from tests._helpers.node_modules import installed_node_modules
 from tests._helpers.operator_acts import operator_set_profile
 
@@ -171,9 +174,9 @@ class PreMergePerimeterTests(unittest.TestCase):
         self.assertIn("pre_merge_perimeter_blocked", reasons)
         # Every pre-merge predicate is live and answers from native evidence;
         # a fixture with no implementation binding is refused by name by all
-        # seven, never by a placeholder.
+        # nine, never by a placeholder.
         perimeter_reasons = [reason for reason in reasons if reason != "pre_merge_perimeter_blocked"]
-        self.assertEqual(len(perimeter_reasons), 7, reasons)
+        self.assertEqual(len(perimeter_reasons), 9, reasons)
         self.assertTrue(
             all(reason.endswith(":native_implementation_binding_unavailable") for reason in perimeter_reasons),
             reasons,
@@ -691,7 +694,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             for path in tools.rglob("*") if path.is_file() and path.suffix in {".json", ".jsonl"}}, native_before)
 
         # Earlier authority gates are fixture controls. The normal runner,
-        # authority capture and seven predicates below execute their real code.
+        # authority capture and nine predicates below execute their real code.
         from contextlib import ExitStack
         from aria_kernel.auto_merge import SnapshotGitHubAdapter
         from aria_kernel.auto_merge_runners import RealAutoMergeRunner
@@ -811,7 +814,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             self.assertIsNone(accepted_result_for_request(
                 request_id=expert_request["request_id"], base_dir=tools,
             ))
-        expert_request_bytes = (tools / "agent-invocations/requests.jsonl").read_bytes()
+        expert_request_bytes = segmented_ledger_bytes(tools, "agent_invocation_requests")
 
         def invoke_current_runner(*, selected_root, pr_observation=pr, expected_expert=False,
                                   expected_budget=True):
@@ -859,7 +862,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(repeated_context.pre_merge_evidence.result_row_hash,
             submitted["row"]["ledger_hash"])
         self.assertFalse(repeated_checks["expert_consensus_evidence_verified"].passed)
-        self.assertEqual((tools / "agent-invocations/requests.jsonl").read_bytes(), expert_request_bytes)
+        self.assertEqual(segmented_ledger_bytes(tools, "agent_invocation_requests"), expert_request_bytes)
 
         with self.subTest(ordinary_case="missing_workspace_input"):
             missing_context, missing_checks = invoke_current_runner(selected_root=None, expected_budget=False)
@@ -996,7 +999,7 @@ class NativeImplementationContextTests(unittest.TestCase):
                     submitted["row"]["ledger_hash"])
         self.assertEqual(len({row["claim_id"] for row in expert_results}), 2)
         self.assertEqual(len({row["transcript_hash"] for row in expert_results}), 2)
-        self.assertEqual((tools / "agent-invocations/requests.jsonl").read_bytes()[:len(expert_request_bytes)],
+        self.assertEqual(segmented_ledger_bytes(tools, "agent_invocation_requests")[:len(expert_request_bytes)],
             expert_request_bytes)
         reviewed_context, reviewed_checks = invoke_current_runner(
             selected_root=repo, expected_expert=True,

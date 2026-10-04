@@ -554,6 +554,19 @@ def lookup_convention_signer(
     return None
 
 
+def registered_signer_key_blobs(
+    *, base_dir: str | Path | None, workspace_root: str | Path | None,
+) -> frozenset[str]:
+    """Every public key blob the signer registry holds: the cycle keys ARIA's runner (T2) signed with.
+
+    ADR-0023 / ARIA-HIGH-281 — the operator allowed-signers file never enrols
+    one of them. Read through the verified ledger reader, so a broken chain
+    raises instead of reading as "no keys".
+    """
+    path = _signer_registry_path(base_dir=base_dir, workspace_root=workspace_root)
+    return frozenset(str(row["public_key"]) for row in _signer_registry_rows(path) if row.get("public_key"))
+
+
 def verify_convention_signer(
     row: dict[str, Any],
     *,
@@ -1124,5 +1137,6 @@ __all__ = (
     "fingerprint_of_public_key",
     "register_convention_signer",
     "lookup_convention_signer",
+    "registered_signer_key_blobs",
     "verify_convention_signer",
 )

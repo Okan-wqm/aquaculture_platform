@@ -75,6 +75,12 @@ def plan_downstream_impact(
         "changed_projects": changed_projects,
         "direct_projects": changed_projects,
         "downstream_projects": downstream,
+        # ADR-0021 — where each closure project lives, so a reader can bound
+        # paths by the closure without building the graph a second time.
+        "project_roots": {
+            name: graph["projects"][name]["root"]
+            for name in [*changed_projects, *downstream] if name in graph["projects"]
+        },
         "unknown_files": unknown_files,
         "graph_source": graph["graph_source"],
         "confidence": 0.9 if graph["graph_source"] == "nx_graph_json" and not unknown_files else 0.65,

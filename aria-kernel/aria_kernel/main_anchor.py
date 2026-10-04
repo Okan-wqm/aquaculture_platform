@@ -133,6 +133,11 @@ def _trusted_tips(repo_root: str | Path) -> list[str]:
     return tips
 
 
+def main_tip(repo_root: str | Path) -> str | None:
+    """The commit ``refs/remotes/origin/main`` names, resolved through the hardened git, or None."""
+    return _resolve_commit(repo_root, MAIN_TRACKING_REF)
+
+
 def resolve_main_anchor(repo_root: str | Path) -> MainAnchor:
     """The checkout's commit, accepted only when it is proven on ``main``."""
     if _git_binary() is None:
@@ -208,6 +213,7 @@ __all__ = [
     "CommittedBlob",
     "MainAnchor",
     "committed_blob",
+    "main_tip",
     "resolve_main_anchor",
     "scrubbed_git_env",
     "tracked_files_at",

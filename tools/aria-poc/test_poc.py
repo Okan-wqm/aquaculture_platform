@@ -134,11 +134,16 @@ export function FarmStatusSelect() {
         self.assertEqual(service, "web/apps/aquamobil")
 
     def test_frontend_dropdown_drift_requires_safe_concept_and_overlap(self) -> None:
+        # A frontend type is not a transport contract, so the comparison
+        # source is the backend's GraphQL-exposed enum (wire values).
         ts_sets = [{
             "name": "FarmStatus",
             "values": ["active", "inactive", "archived", "maintenance"],
-            "ref": "web/modules/farm-module/src/types.ts:1",
-            "kind": "union",
+            "graphql_name": "FarmStatus",
+            "wire_values": ["active", "inactive", "archived", "maintenance"],
+            "ref": "apps/farm-service/src/farm/farm.entity.ts:1",
+            "kind": "enum",
+            "surface": "backend_app",
         }]
         sql_enums: list[dict] = []
         ui_groups = [{
@@ -149,13 +154,17 @@ export function FarmStatusSelect() {
             "kind": "ui_option_group",
             "source": "select",
         }]
+        wire = aria_poc.drift_wire.Wire(
+            "ok", module_backends={"web/modules/farm-module": {"apps/farm-service"}},
+        )
 
-        drifts = aria_poc.find_frontend_dropdown_drifts(ts_sets, sql_enums, ui_groups)
+        drifts = aria_poc.find_frontend_dropdown_drifts(ts_sets, sql_enums, ui_groups, wire=wire)
 
         self.assertEqual(len(drifts), 1)
         self.assertEqual(drifts[0]["claim_type"], "frontend_dropdown_drift")
         self.assertEqual(drifts[0]["missing_in_ui"], ["maintenance"])
         self.assertEqual(drifts[0]["relationship"], "normalized_name_match")
+        self.assertEqual(drifts[0]["classification"], "own_service_subset")
 
     def test_frontend_dropdown_drift_does_not_promote_generic_timezone_select(self) -> None:
         ts_sets = [{
@@ -180,26 +189,33 @@ export function FarmStatusSelect() {
     def test_leave_filter_status_matches_leave_request_status_by_tokens(self) -> None:
         ts_sets = [{
             "name": "LeaveRequestStatus",
-            "values": ["pending", "approved", "rejected", "cancelled"],
-            "ref": "web/modules/hr-module/src/types.ts:1",
-            "kind": "union",
-            "surface": "frontend_source",
+            "keys": ["APPROVED", "CANCELLED", "PENDING", "REJECTED"],
+            "values": ["approved", "cancelled", "pending", "rejected"],
+            "graphql_name": "LeaveRequestStatus",
+            "wire_values": ["APPROVED", "CANCELLED", "PENDING", "REJECTED"],
+            "ref": "apps/hr-service/src/leave/entities/leave-request.entity.ts:18",
+            "kind": "enum",
+            "surface": "backend_app",
         }]
         ui_groups = [{
             "name": "leave-filter-status",
             "component": "LeaveFilters",
-            "values": ["pending", "approved", "rejected"],
+            "values": ["PENDING", "APPROVED", "REJECTED"],
             "ref": "web/modules/hr-module/src/LeaveFilters.tsx:2",
             "kind": "ui_option_group",
             "source": "select",
             "surface": "frontend_ui",
         }]
+        wire = aria_poc.drift_wire.Wire(
+            "ok", module_backends={"web/modules/hr-module": {"apps/hr-service"}},
+        )
 
-        drifts = aria_poc.find_frontend_dropdown_drifts(ts_sets, [], ui_groups)
+        drifts = aria_poc.find_frontend_dropdown_drifts(ts_sets, [], ui_groups, wire=wire)
 
         self.assertEqual(len(drifts), 1)
         self.assertEqual(drifts[0]["relationship"], "shared_concept_tokens:leave")
-        self.assertEqual(drifts[0]["missing_in_ui"], ["cancelled"])
+        self.assertEqual(drifts[0]["missing_in_ui"], ["CANCELLED"])
+        self.assertIs(drifts[0]["cross_service"], False)
 
     def test_edge_online_options_do_not_match_status_by_value_overlap_alone(self) -> None:
         ts_sets = [{

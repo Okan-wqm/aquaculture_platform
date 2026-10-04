@@ -103,6 +103,7 @@ from .state_snapshot import (
 
 if TYPE_CHECKING:
     from .state_compact import ColdStaging
+    from .state_writer_fence import WriterFence
 
 STATE_BRANCH = "aria/state"
 STORE_DIRNAME = ".aria-state-store"
@@ -897,7 +898,14 @@ def publish_state(
     cycle_id: str,
     repo_hash: str,
     expected_base_head: str | None = None,
+    writer_fence: "WriterFence | None",
 ) -> dict[str, Any]:
+    """The compare-and-swap primitive. Lanes never call it: they publish
+    through `publish_with_contention_replay`, which builds the writer-lease
+    fence this pushes atomically (ARIA-HIGH-342; pinned by
+    tests/test_state_single_writer.py — no kernel module calls this).
+    ``writer_fence`` has no default: an unfenced push must be asked for by
+    name (``writer_fence=None``), which only fixtures do."""
     with _state_store_lifecycle_lock(store.repo_root):
         return _publish_state_locked(
             store,
@@ -905,6 +913,7 @@ def publish_state(
             cycle_id=cycle_id,
             repo_hash=repo_hash,
             expected_base_head=expected_base_head,
+            writer_fence=writer_fence,
         )
 
 
@@ -915,6 +924,7 @@ def _publish_state_locked(
     cycle_id: str,
     repo_hash: str,
     expected_base_head: str | None = None,
+    writer_fence: "WriterFence | None",
 ) -> dict[str, Any]:
     """Commit and push a snapshot — refusing unless it descends from the tip.
 
@@ -1194,14 +1204,19 @@ def _publish_state_locked(
 
     # Push the exact verified object id, never the moving ``HEAD`` symbolic
     # ref. A non-fast-forward update is rejected by the server, which is the
-    # compare-and-swap this design relies on.
+    # compare-and-swap this design relies on. ARIA-HIGH-342 / GSEC-HIGH-001 —
+    # with the writer-lease fence the push is ATOMIC: the state commit and a
+    # fast-forward child of the observed lease tip land together or not at
+    # all, so a takeover after the lease check rejects the state half too.
     proc = _run_git_step(
         PUBLISH_PUSH_STEP,
         store.root,
         (
             "push",
+            *(("--atomic",) if writer_fence is not None else ()),
             store.remote,
             f"{committed_head}:refs/heads/{store.branch}",
+            *((writer_fence.refspec(),) if writer_fence is not None else ()),
         ),
     )
     push_outcome = "accepted"
@@ -1214,6 +1229,7 @@ def _publish_state_locked(
             base_head=pre_commit_head,
             repo_hash=repo_hash,
             detail=detail,
+            writer_fence=writer_fence,
         )
         push_outcome = "reconciled"
 
@@ -1731,8 +1747,18 @@ def _reconcile_nonzero_push(
     base_head: str,
     repo_hash: str,
     detail: str,
+    writer_fence: "WriterFence | None" = None,
 ) -> str:
-    """Classify an ambiguous non-zero push without duplicating committed rows."""
+    """Classify an ambiguous non-zero push without duplicating committed rows.
+
+    ``writer_fence`` — the push carried the writer-lease fence atomically. A
+    state tip that did not move then has two readings, told apart by the
+    lease branch itself: it moved off the fence's parent (a takeover — the
+    commit is rolled back to the index and the orchestrator names it from a
+    fresh read of the lease), or it did not (the server refused the push for
+    another reason — permission, ruleset, transport — and that is
+    ``state_publish_write_denied``, never a lost lease; R-6).
+    """
     if _read_commit_ref(store.root, "HEAD") != committed_head:
         raise StateStoreRefusal(
             "state_publish_head_moved_during_push: HEAD no longer names the "
@@ -1785,6 +1811,26 @@ def _reconcile_nonzero_push(
             target_head=fetched_tip,
         )
         return fetched_tip
+    if fetched_tip == base_head and writer_fence is not None:
+        lease_probe = _probe_remote_tip_at(
+            store.root, remote=store.remote, branch=writer_fence.lease_branch,
+        )
+        if lease_probe.status != "present" or lease_probe.sha == writer_fence.parent_tip:
+            raise StateStoreError(
+                "state_publish_write_denied: the server refused the atomic push while "
+                "neither aria/state nor its writer lease moved "
+                f"(lease branch {lease_probe.status}); nothing was taken by another writer; "
+                f"preserving commit at HEAD. {detail}"
+            )
+        _soft_reset_owned_commit(
+            store,
+            committed_head=committed_head,
+            base_head=base_head,
+        )
+        raise StateStoreRefusal(
+            "state_writer_lease_fence_rejected: aria/state did not move and the atomic "
+            f"push with the lease fence was refused; the commit was rolled back. {detail}"
+        )
     if fetched_tip == base_head:
         raise StateStoreError(
             "state_publish_write_denied: the verified remote tip did not move "
@@ -2242,6 +2288,11 @@ def _rows_unchanged_since_published(store: StateStore, prepared: PreparedPublish
     return prepared.snapshot.get("surfaces") == published.get("surfaces")
 
 
+class _LeasedContention(StateStoreRefusal):
+    """A leased publish met contention; the orchestrator names it outside
+    the lifecycle lock (``state_writer_fence.lease_lost``) and never replays."""
+
+
 def publish_with_contention_replay(
     store: StateStore,
     *,
@@ -2249,34 +2300,53 @@ def publish_with_contention_replay(
     cycle_id: str,
     lane: str,
     repo_hash: str,
-    max_attempts: int = PUBLISH_MAX_ATTEMPTS,
     parent_commit: str | None = None,
+    writer_lease_token: str | None = None,
 ) -> dict[str, Any]:
-    """The publish every lane runs (``state publish``, ARIA-HIGH-222).
+    """The publish every lane runs (``state publish``), under the writer lease.
 
-    Every lane used to publish single-attempt: a lane that lost the
-    fast-forward race to another lane's push was refused, and the rows it
-    recorded — a merge decision among them — died with its runner. This
-    rebuilds the loser's rows onto the winner's tree and pushes again, up
-    to ``max_attempts``; and a store whose rows equal the published tip's
-    commits nothing (``no_row_changes``).
+    ARIA-HIGH-342 / GSEC-HIGH-001 — THE FENCE IS HERE, so no caller can skip
+    it. Before anything is written the orchestrator verifies the caller's
+    writer-lease capability (``writer_lease_token``, else
+    ``$ARIA_STATE_WRITER_LEASE_TOKEN``), that the store is on the published
+    tip, and that the lease outlives one leased publish (renewing it by CAS
+    when it would not); then it pushes the state commit and the lease fence in
+    one ``git push --atomic``. A takeover between the check and the push
+    rejects both halves.
+
+    THERE IS NO REPLAY HERE ANY MORE. ARIA-HIGH-222 rebuilt a lost race onto
+    the winner; under a lease there is no second writer to race, so any
+    contention — a rejected fence, a moved state tip — is refused as
+    ``state_writer_lease_lost`` with this lane's rows left in its store.
+    (`rebase_store_onto_remote` stays: `memory_gap.restore_and_replay` repairs
+    a store that is behind the tip at cycle start.) A store whose rows equal
+    the published tip's commits nothing (``no_row_changes``).
 
     ARIA-HIGH-274 — old cycles go to the cold store BEFORE the lock
-    (`_stage_cold_eviction`); every attempt's preamble evicts them under it.
+    (`_stage_cold_eviction`); the attempt's preamble evicts them under it.
     """
+    from .state_writer_fence import lease_lost, prepare_writer_fence
+
+    # A pending recovery package is discovered before anything reads the tree
+    # — the fence reads HEAD to prove the store is on the published tip.
+    recover_pending_state_replay(store, repo_hash=repo_hash)
+    writer_fence = prepare_writer_fence(store, token=writer_lease_token)
     cold, cold_report = _stage_cold_eviction(store)
-    with _state_store_lifecycle_lock(store.repo_root):
-        return _publish_with_contention_replay_locked(
-            store,
-            snapshot_id=snapshot_id,
-            cycle_id=cycle_id,
-            lane=lane,
-            repo_hash=repo_hash,
-            max_attempts=max_attempts,
-            parent_commit=parent_commit,
-            cold=cold,
-            cold_report=cold_report,
-        )
+    try:
+        with _state_store_lifecycle_lock(store.repo_root):
+            return _publish_with_contention_replay_locked(
+                store,
+                snapshot_id=snapshot_id,
+                cycle_id=cycle_id,
+                lane=lane,
+                repo_hash=repo_hash,
+                parent_commit=parent_commit,
+                cold=cold,
+                cold_report=cold_report,
+                writer_fence=writer_fence,
+            )
+    except _LeasedContention as contention:
+        raise lease_lost(store, writer_fence, contention) from contention
 
 
 def _publish_with_contention_replay_locked(
@@ -2286,180 +2356,87 @@ def _publish_with_contention_replay_locked(
     cycle_id: str,
     lane: str,
     repo_hash: str,
-    max_attempts: int = PUBLISH_MAX_ATTEMPTS,
+    writer_fence: "WriterFence",
     parent_commit: str | None = None,
     cold: ColdStaging | None = None,
     cold_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Publish, and on a lost race rebuild onto the winner and try again.
+    """One leased publish attempt under the lifecycle lock.
 
     WHY THIS IS A LAYER ABOVE `publish_state` RATHER THAN INSIDE IT.
     `publish_state` has exactly one job — prove this snapshot descends from the
-    published tip, then commit and push or refuse. Retrying requires a NEW
-    snapshot (the surfaces changed, and the predecessor is now the winner's),
-    so folding the loop inward would make the ancestry proof and the thing it
-    checks share a function. The proof stays non-omittable regardless: this
-    orchestrator has no path to the branch that does not go through
-    `publish_state`.
-
-    THE ORDER IS THE SAFETY PROPERTY. The loser's rows are copied out BEFORE
-    the worktree is reset to the winner's tree, so there is no moment where
-    they exist only in memory. `git reset --hard` then makes the tree exactly
-    the winner's — not "mostly the winner's" — and the replay adds this lane's
-    suffix back on top through the normal appender, which re-chains every row
-    and refreshes the adjacent index.
-
-    ONLY LEDGER SURFACES ARE REPLAYED. A rewrite-class surface has no suffix to
-    speak of: its content is a whole-file projection, so the winner's version
-    wins and the fact is recorded rather than silently applied. Index surfaces
-    are derived and are rebuilt by the appender anyway.
+    published tip, then commit and push (with the fence) or refuse. The
+    preamble that builds the snapshot runs here, under the same lock, so
+    nothing can take the lock between the preamble's index mutation and the
+    commit.
     """
     recover_pending_state_replay(store, repo_hash=repo_hash)
-    if max_attempts < 1:
-        raise ValueError(f"publish_max_attempts_must_be_positive: {max_attempts}")
-
-    last_refusal: StateStoreRefusal | None = None
     dropped: list[dict[str, str]] = []
     accepted: list[str] = []
-    # ARIA-MEDIUM-230 — what bounding the compactable ledgers did, per
-    # attempt (a replayed attempt re-prepares, so it re-bounds).
-    compactions: list[dict[str, Any]] = []
-    # ARIA-HIGH-274 — the staging report, then what each attempt evicted.
+    # ARIA-HIGH-274 — the staging report, then what the attempt evicted.
     cold_eviction: dict[str, Any] = {**(cold_report or {}), "evictions": []}
-    for attempt in range(1, max_attempts + 1):
-        if _read_commit_ref(store.root, "HEAD") is None:
-            raise StatePublishOutcomeUnknown(
-                "state_publish_outcome_unknown: replay base HEAD is unavailable"
-            )
-        prepared = prepare_publishable_snapshot(
-            store,
-            # Distinct per attempt: two attempts are two different trees, and
-            # reusing one id would make the ledger claim they were the same.
-            snapshot_id=snapshot_id if attempt == 1 else f"{snapshot_id}-r{attempt}",
-            cycle_id=cycle_id,
-            lane=lane,
-            repo_hash=repo_hash,
-            parent_commit=parent_commit,
-            cold=cold,
+    if _read_commit_ref(store.root, "HEAD") is None:
+        raise StatePublishOutcomeUnknown(
+            "state_publish_outcome_unknown: publish base HEAD is unavailable"
         )
-        cold_eviction["evictions"].append(prepared.cold_eviction)
-        dropped.extend(prepared.dropped_inherited_entries)
-        compactions.append({key: value for key, value in prepared.compaction.items() if key != "result"})
-        accepted.extend(prepared.accepted_losses_recorded)
-        base_head = prepared.base_head
-        base = prepared.previous
-        snapshot = prepared.snapshot
-        if attempt == 1 and _rows_unchanged_since_published(store, prepared):
-            # ARIA-HIGH-222 — nothing this lane recorded is missing from the
-            # published tip, so there is nothing to publish: a commit here
-            # would carry a new snapshot id over identical rows.
-            return {
-                "published": False,
-                "reason": "no_row_changes",
-                "snapshot_id": snapshot.get("snapshot_id"),
-                "manifest_root": snapshot.get("manifest_root"),
-                "attempts": attempt,
-                "dropped_inherited_entries": dropped,
-                "accepted_losses_recorded": accepted,
-                "state_compaction": compactions,
-                "cold_eviction": cold_eviction,
-                "size_alarm": state_size_alarm(snapshot),
-            }
-        try:
-            result = publish_state(
-                store,
-                snapshot=snapshot,
-                cycle_id=cycle_id,
-                repo_hash=repo_hash,
-                expected_base_head=base_head,
-            )
-        except StatePublishContention as refusal:
-            last_refusal = refusal
-            rebase_store_onto_remote(
-                store,
-                base=base,
-                local=snapshot,
-                repo_hash=repo_hash,
-                expected_winner=refusal.winner_commit,
-                expected_loser=refusal.loser_commit,
-                expected_base=refusal.base_commit,
-            )
-            resolved_head = _read_commit_ref(store.root, "HEAD")
-            if resolved_head is None:
-                raise StatePublishOutcomeUnknown(
-                    "state_publish_outcome_unknown: replay resolution HEAD is "
-                    "unavailable"
-                )
-            if _strict_is_ancestor(
-                store.root,
-                refusal.loser_commit,
-                resolved_head,
-            ):
-                return {
-                    "published": True,
-                    "pushed": True,
-                    "snapshot_id": snapshot.get("snapshot_id"),
-                    "manifest_root": snapshot.get("manifest_root"),
-                    "continuity": snapshot_continuity(snapshot, base),
-                    "push_outcome": "reconciled",
-                    "remote_tip": resolved_head,
-                    "attempts": attempt,
-                    "dropped_inherited_entries": dropped,
-                    "accepted_losses_recorded": accepted,
-                    "state_compaction": compactions,
-                    "cold_eviction": cold_eviction,
-                    "size_alarm": state_size_alarm(snapshot),
-                }
-            if attempt == max_attempts:
-                break
-            continue
-        except StateStoreRefusal as refusal:
-            # Multiple detached state worktrees in one repository share the
-            # remote-tracking ref. Another lane can therefore advance the
-            # publication anchor while this lane's HEAD (and uncommitted
-            # suffix) correctly remains on its own exact base. publish_state
-            # must refuse that stale ancestry before committing; the
-            # orchestrator classifies the proven fast-forward as a pre-commit
-            # lost race and runs the same durable replay without inventing a
-            # loser commit that does not exist.
-            if not str(refusal).startswith("state_publish_ancestry_unproven:"):
-                raise
-            winner_head = _read_commit_ref(
-                store.root,
-                _publication_anchor(store),
-            )
-            if (
-                winner_head is None
-                or winner_head == base_head
-                or not _strict_is_ancestor(store.root, base_head, winner_head)
-            ):
-                raise
-            last_refusal = refusal
-            rebase_store_onto_remote(
-                store,
-                base=base,
-                local=snapshot,
-                repo_hash=repo_hash,
-                expected_winner=winner_head,
-                expected_base=base_head,
-            )
-            if attempt == max_attempts:
-                break
-            continue
+    prepared = prepare_publishable_snapshot(
+        store,
+        snapshot_id=snapshot_id,
+        cycle_id=cycle_id,
+        lane=lane,
+        repo_hash=repo_hash,
+        parent_commit=parent_commit,
+        cold=cold,
+    )
+    cold_eviction["evictions"].append(prepared.cold_eviction)
+    dropped.extend(prepared.dropped_inherited_entries)
+    # ARIA-MEDIUM-230 — what bounding the compactable ledgers did.
+    compactions = [{key: value for key, value in prepared.compaction.items() if key != "result"}]
+    accepted.extend(prepared.accepted_losses_recorded)
+    snapshot = prepared.snapshot
+    if _rows_unchanged_since_published(store, prepared):
+        # ARIA-HIGH-222 — nothing this lane recorded is missing from the
+        # published tip, so there is nothing to publish: a commit here
+        # would carry a new snapshot id over identical rows.
         return {
-            **result,
-            "attempts": attempt,
+            "published": False,
+            "reason": "no_row_changes",
+            "snapshot_id": snapshot.get("snapshot_id"),
+            "manifest_root": snapshot.get("manifest_root"),
+            "attempts": 1,
             "dropped_inherited_entries": dropped,
             "accepted_losses_recorded": accepted,
             "state_compaction": compactions,
             "cold_eviction": cold_eviction,
             "size_alarm": state_size_alarm(snapshot),
         }
-
-    raise StateStoreRefusal(
-        f"state_publish_contention_unresolved: {max_attempts} attempts all lost the "
-        f"race; the rows are intact in the store. ({last_refusal})"
-    )
+    try:
+        result = _publish_state_locked(
+            store,
+            snapshot=snapshot,
+            cycle_id=cycle_id,
+            repo_hash=repo_hash,
+            expected_base_head=prepared.base_head,
+            writer_fence=writer_fence,
+        )
+    except StatePublishContention as refusal:
+        raise _LeasedContention(str(refusal)) from refusal
+    except StateStoreRefusal as refusal:
+        # Another worktree of this repository advanced the shared tracking
+        # ref: under a lease that is contention like any other, not a race
+        # to rebuild.
+        if str(refusal).startswith(("state_publish_ancestry_unproven:", "state_writer_lease_fence_rejected:")):
+            raise _LeasedContention(str(refusal)) from refusal
+        raise
+    return {
+        **result,
+        "attempts": 1,
+        "dropped_inherited_entries": dropped,
+        "accepted_losses_recorded": accepted,
+        "state_compaction": compactions,
+        "cold_eviction": cold_eviction,
+        "size_alarm": state_size_alarm(snapshot),
+    }
 
 
 @dataclass(frozen=True)
@@ -4977,6 +4954,25 @@ def _rebase_store_onto_remote_locked(
         )
         if not loser_already_accepted:
             winner_surfaces = winner_snapshot.get("surfaces") or {}
+            # ARIA-HIGH-342 — the reset below makes the tree the winner's, and
+            # only ledger suffixes are carried back across it. A non-ledger
+            # surface this lane changed (an agent output artifact, a lock
+            # record) and the winner does not already carry would vanish
+            # while the publish reported success — measured: a loser's
+            # artifact gone from disk and from the branch, `published: true`.
+            # Refused here, before anything destructive, so the bytes stay.
+            unreplayable = _unreplayable_surface_changes(
+                base_surfaces=base_surfaces,
+                local_surfaces=local_surfaces,
+                winner_surfaces=winner_surfaces,
+            )
+            if unreplayable:
+                raise StateStoreRefusal(
+                    "replay_unreplayable_surface_changed: this lane changed "
+                    f"{', '.join(unreplayable[:8])} and contention replay carries only "
+                    "ledger rows; the store keeps them and nothing was reset — publish "
+                    "under the aria/state writer lease so no other lane interleaves"
+                )
             materialization_bytes = 0
             for name in carried:
                 winner_entry = winner_surfaces.get(name) or {}
@@ -5152,6 +5148,37 @@ def _rebase_store_onto_remote_locked(
 
     _remove_recovery_package(package)
     return replayed
+
+
+_REPLAYABLE_STATE_CLASSES = frozenset({"ledger", "index"})
+
+
+def _unreplayable_surface_changes(
+    *,
+    base_surfaces: dict[str, Any],
+    local_surfaces: dict[str, Any],
+    winner_surfaces: dict[str, Any],
+) -> list[str]:
+    """Surfaces this lane changed that a replay cannot carry onto the winner.
+
+    Ledgers replay as suffixes and indexes are rebuilt from them; every other
+    class is whole-file content the reset replaces with the winner's. A local
+    change the winner already holds byte-for-byte loses nothing.
+    """
+    changed: list[str] = []
+    for name in sorted(set(base_surfaces) | set(local_surfaces)):
+        local = local_surfaces.get(name)
+        base = base_surfaces.get(name)
+        state_class = (local or base or {}).get("state_class")
+        if state_class in _REPLAYABLE_STATE_CLASSES:
+            continue
+        local_sha = (local or {}).get("sha256")
+        if local_sha == (base or {}).get("sha256"):
+            continue
+        if local_sha == (winner_surfaces.get(name) or {}).get("sha256"):
+            continue
+        changed.append(name)
+    return changed
 
 
 def verify_state_store(store: StateStore, *, repo_hash: str) -> dict[str, Any]:

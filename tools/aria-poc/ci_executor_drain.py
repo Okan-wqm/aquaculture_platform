@@ -273,7 +273,8 @@ DEFAULT_DRAIN_BUDGET_SECONDS = (
 #   count typed here);
 # * the publish after it — the lifecycle holder's longest arc
 #   (`state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS`: the pending
-#   recovery, then every attempt's push, probe, fetches and tree move);
+#   recovery, then the leased publish's push, probe, fetch and tree move —
+#   it never replays since ARIA-HIGH-342);
 # * the steps around them that carry no kernel bound — checkout of main,
 #   node dependencies (a cold `npm ci` measured 2m50s), the attestation
 #   probe, integrity verification, the handoff snapshot, artifact uploads —
@@ -283,10 +284,23 @@ DEFAULT_DRAIN_BUDGET_SECONDS = (
 # reserve arithmetic spent two state-lock bounds of this on them; now the
 # window charges the child, and the reserve is the job's own.
 STATE_RESTORE_WORST_CASE_SECONDS = _engine._STATE_STORE_CHECKOUT_ARC_SECONDS
+# ARIA-HIGH-342 — before that restore the job takes the aria/state writer
+# lease, waiting at most this long for another writer (the restore action's
+# `writer-lease-wait-seconds` in aria-agent-executor.yml, pinned equal by
+# tests/test_state_lock_liveness_bound.py) before it yields by name.
+WRITER_LEASE_WAIT_SECONDS = 1800
 JOB_STEPS_ALLOWANCE_SECONDS = 900
+# ARIA-HIGH-342 (PR #1779 re-review R-3) — the publish is more than its
+# locked arc: before the lock the orchestrator builds the writer-lease fence
+# (lease reads, a renewal when the lease runs short) and stages the cold
+# eviction. `state_writer_lease.PUBLISH_PREAMBLE_SECONDS` prices that at the
+# git cap; dropping it is how a job runs out of time with its work unpublished.
+PUBLISH_PREAMBLE_SECONDS = _engine._STATE_PUBLISH_PREAMBLE_SECONDS
 JOB_RESERVE_SECONDS = int(
-    STATE_RESTORE_WORST_CASE_SECONDS
+    WRITER_LEASE_WAIT_SECONDS
+    + STATE_RESTORE_WORST_CASE_SECONDS
     + _engine._STATE_STORE_LIFECYCLE_LIVENESS_SECONDS
+    + PUBLISH_PREAMBLE_SECONDS
     + JOB_STEPS_ALLOWANCE_SECONDS
 )
 # ARIA-HIGH-124 (round 3) — the part of that reserve the job still needs
@@ -296,7 +310,9 @@ JOB_RESERVE_SECONDS = int(
 # delivery in the job runs under. The restore arc is spent BEFORE the drain,
 # so it is inside the window's elapsed time, not after the deadline.
 JOB_RESERVE_AFTER_DRAIN_SECONDS = int(
-    _engine._STATE_STORE_LIFECYCLE_LIVENESS_SECONDS + JOB_STEPS_ALLOWANCE_SECONDS
+    _engine._STATE_STORE_LIFECYCLE_LIVENESS_SECONDS
+    + PUBLISH_PREAMBLE_SECONDS
+    + JOB_STEPS_ALLOWANCE_SECONDS
 )
 
 

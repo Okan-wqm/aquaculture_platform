@@ -14,7 +14,7 @@
       "claim_types": [
         "harness_security"
       ],
-      "created_at": "2026-10-04T15:13:50+00:00",
+      "created_at": "2026-10-05T00:22:58+00:00",
       "declared_scope": [
         ".claude/agents/**/*.md",
         ".github/workflows/*.{yml,yaml}",
@@ -52,6 +52,72 @@
       },
       "owner": "platform-security",
       "parse_window_signature": "sha256:cab930301925f2ed6cd8f9ac4e56b94422bae291078642342c29d2f059880151",
+      "rules": {
+        "agent_self_modification_bypass": {
+          "claim_type": "wrong_code",
+          "defect_claim": "An agent can rewrite its own definition or the definitions that govern it, outside review.",
+          "premises": [
+            "The cited agent definition grants the Edit or Write tool.",
+            "Nothing in the agent's dispatch (allowed scope, forbidden scope or a write gate) stops it from writing under .claude/agents/."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "broad_shell_permission": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A workflow grants write permissions its jobs do not need.",
+          "premises": [
+            "The cited line grants write-all or contents: write to the workflow or a job.",
+            "No step in the jobs that receive the permission writes to the repository (push, release, tag, or a commit through the API)."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "direct_anthropic_api_usage": {
+          "claim_type": "wrong_code",
+          "defect_claim": "Code reaches the Anthropic API directly instead of through the approved wrapper.",
+          "premises": [
+            "The cited file imports or calls @anthropic-ai/sdk.",
+            "The file runs in ARIA, CI or a product service, not in a test double, a type-only import or documentation."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "lease_token_in_logs": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A lease token is written where a reader of logs or stdout can replay it.",
+          "premises": [
+            "The cited line writes a value derived from a lease token to a log, print or stdout sink.",
+            "The written value is the token or enough of it to replay, not a hash, a prefix-free reference or a redaction."
+          ],
+          "severity_cap": "CRITICAL"
+        },
+        "prompt_injection_surface": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "An agent that reads content an outside party can author runs without a tool allowlist or with unrestricted paths.",
+          "premises": [
+            "The cited agent definition declares no tools allowlist, or allows every path (allowed_paths: **).",
+            "The agent is dispatched on content an outside party can author (pull request or issue text, fork code, review comments)."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "secret_leak_in_yaml_or_md": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A usable credential is committed in a workflow, agent definition or ARIA source file.",
+          "premises": [
+            "The cited line holds a credential value itself (key, token or password), not a placeholder, a variable reference or a secret-store lookup.",
+            "The value is not a documented dummy, test fixture or redacted example."
+          ],
+          "severity_cap": "CRITICAL"
+        },
+        "workflow_run_or_pr_target_untrusted_checkout": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A privileged workflow checks out code from an untrusted pull request and runs it with the base repository's secrets or write token.",
+          "premises": [
+            "The workflow is triggered by pull_request_target or workflow_run.",
+            "A step checks out the pull request's head ref or head sha.",
+            "A later step builds, tests or executes the checked-out code while secrets or a write-scoped token are available to it."
+          ],
+          "severity_cap": "CRITICAL"
+        }
+      },
       "runner": {
         "argv": [
           "python3",
@@ -65,7 +131,7 @@
       "schema_version": 1,
       "status": "QUARANTINED",
       "tool_id": "agent-harness-security-adapter",
-      "updated_at": "2026-10-04T15:13:50+00:00",
+      "updated_at": "2026-10-05T00:22:58+00:00",
       "version": "1.0.0"
     },
     {
@@ -75,7 +141,7 @@
       "claim_types": [
         "event_contract"
       ],
-      "created_at": "2026-10-04T15:13:51+00:00",
+      "created_at": "2026-10-05T00:22:59+00:00",
       "declared_scope": [
         "libs/event-contracts/src/**/*.ts"
       ],
@@ -112,6 +178,53 @@
       },
       "owner": "platform",
       "parse_window_signature": "sha256:419db7e2156fc9c061a230e1915098a9188a048a82d8173195c5727ac3548a9c",
+      "rules": {
+        "base_event_field_missing": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "BaseEvent lacks a field every event must carry.",
+          "premises": [
+            "The BaseEvent interface in libs/event-contracts does not declare the named field.",
+            "The field is not supplied by an interface BaseEvent extends."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "create_base_event_missing": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "libs/event-contracts exposes no createBaseEvent factory, so event ids, timestamps, tenant ids and versions are minted inconsistently.",
+          "premises": [
+            "libs/event-contracts does not export a createBaseEvent function.",
+            "Producers construct BaseEvent fields by hand instead of through another exported factory."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "event_id_brand_missing": {
+          "claim_type": "wrong_code",
+          "defect_claim": "EventId is a plain string, so inline event construction compiles.",
+          "premises": [
+            "BaseEvent's eventId is typed as an unbranded string in libs/event-contracts.",
+            "No other type-level construct in libs/event-contracts stops an event literal from assigning a plain string eventId."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "schema_catalog_empty": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "A runtime event-schema catalog is empty, so runtime validation covers no event types.",
+          "premises": [
+            "The cited catalog contains no schema entries.",
+            "The runtime validator dispatches events through this catalog, not through another populated one."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "schema_catalog_not_wired_to_validator": {
+          "claim_type": "wrong_code",
+          "defect_claim": "An event-schema catalog is never consulted by the runtime validator, so its schemas validate nothing.",
+          "premises": [
+            "The runtime validator dispatcher does not reference the cited catalog, directly or through an import.",
+            "The catalog holds schemas for events that cross a trust boundary at runtime."
+          ],
+          "severity_cap": "HIGH"
+        }
+      },
       "runner": {
         "argv": [
           "node",
@@ -128,7 +241,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "event-contracts-adapter",
-      "updated_at": "2026-10-04T15:13:51+00:00",
+      "updated_at": "2026-10-05T00:22:59+00:00",
       "version": "1.0.0"
     },
     {
@@ -143,7 +256,7 @@
       "claim_types": [
         "security_boundary"
       ],
-      "created_at": "2026-10-04T15:13:51+00:00",
+      "created_at": "2026-10-05T00:23:00+00:00",
       "declared_scope": [
         "apps/**/*.ts",
         "libs/backend-common/src/**/*.ts",
@@ -193,6 +306,53 @@
       },
       "owner": "platform",
       "parse_window_signature": "sha256:d7e53e1973827f9aecd9ca8553e0cfb2f5c40b6c446dcf9c1596144a264df18c",
+      "rules": {
+        "controller_missing_guard_boundary": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "A route is reachable without the authentication or authorization its data requires.",
+          "premises": [
+            "The cited route has no guard, role or permission decorator on the method or its class, and is not marked public.",
+            "No guard registered for the whole service (APP_GUARD, middleware or the gateway) protects the route."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "dangerous_html_without_sanitizer": {
+          "claim_type": "wrong_code",
+          "defect_claim": "Markup that can carry attacker-controlled content is rendered unsanitized.",
+          "premises": [
+            "The cited sink passes markup to dangerouslySetInnerHTML without sanitizing it first.",
+            "The markup can contain content a user or an external system supplies."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "mutation_missing_role_boundary": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "A GraphQL mutation runs for any authenticated caller, without a role, permission or guard check.",
+          "premises": [
+            "The cited mutation has no role, permission or guard decorator on the method or its class.",
+            "No guard registered for the whole service (APP_GUARD or the gateway) enforces a role or permission for it."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "public_write_endpoint_without_allowlist": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "An unauthenticated caller can reach a write endpoint that no allowlist or tenant-skip rationale accounts for.",
+          "premises": [
+            "The cited endpoint is marked public and performs a write (POST, PUT, PATCH, DELETE or a GraphQL mutation).",
+            "No allowlist entry, tenant-skip rationale or gateway rule restricts who can reach it."
+          ],
+          "severity_cap": "CRITICAL"
+        },
+        "raw_security_sensitive_import": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A security-sensitive SDK is used directly instead of through the approved wrapper.",
+          "premises": [
+            "The cited file imports the named SDK directly.",
+            "The file is runtime code outside the approved wrapper, not a test, a type-only import or the wrapper itself."
+          ],
+          "severity_cap": "HIGH"
+        }
+      },
       "runner": {
         "argv": [
           "node",
@@ -209,7 +369,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "security-boundary-adapter",
-      "updated_at": "2026-10-04T15:13:51+00:00",
+      "updated_at": "2026-10-05T00:23:00+00:00",
       "version": "1.0.0"
     },
     {
@@ -221,7 +381,7 @@
       "claim_types": [
         "tenant_scoping"
       ],
-      "created_at": "2026-10-04T15:13:52+00:00",
+      "created_at": "2026-10-05T00:23:00+00:00",
       "declared_scope": [
         "apps/**/*.ts",
         "libs/**/*.ts",
@@ -268,6 +428,35 @@
       },
       "owner": "platform",
       "parse_window_signature": "sha256:49e017b382fbfa537337dcf5e16ffc1624ec35e90de9bcf6b8d287ad529f998c",
+      "rules": {
+        "tenant_guard_missing": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "A service imports TenantGuard but never applies it, so requests run without tenant context enforcement.",
+          "premises": [
+            "The cited module imports TenantGuard and registers no APP_GUARD for it.",
+            "No other mechanism (a controller-level guard on every route, middleware or the gateway) enforces tenant context for the service."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "tenant_raw_query_missing_tenant_predicate": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A raw SQL query can read or change another tenant's rows.",
+          "premises": [
+            "The cited query touches a table shared across tenants, not a per-tenant table that search_path routes into the tenant's own schema.",
+            "Neither the query's predicate, row-level security nor the calling context restricts it to the current tenant."
+          ],
+          "severity_cap": "CRITICAL"
+        },
+        "tenant_repository_unscoped_read": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A repository call can read or change another tenant's rows.",
+          "premises": [
+            "The cited call reads or writes a table shared across tenants (a cross-tenant table, or one keyed by tenantId), not a per-tenant table that search_path routes into the tenant's own schema.",
+            "Neither the call's predicate, the repository helper, row-level security nor the caller restricts it to the current tenant."
+          ],
+          "severity_cap": "CRITICAL"
+        }
+      },
       "runner": {
         "argv": [
           "node",
@@ -285,7 +474,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "tenant-scoping-adapter",
-      "updated_at": "2026-10-04T15:13:52+00:00",
+      "updated_at": "2026-10-05T00:23:00+00:00",
       "version": "1.0.0"
     },
     {
@@ -297,19 +486,27 @@
         "platform/libs/**/*.ts",
         "platform/libs/**/*.tsx",
         "web/**/*.ts",
-        "web/**/*.tsx"
+        "web/**/*.tsx",
+        "e2e/**/*.ts",
+        "tests/**/*.ts"
       ],
       "claim_types": [
         "test_gap"
       ],
-      "created_at": "2026-10-04T15:13:52+00:00",
+      "created_at": "2026-10-05T00:23:00+00:00",
       "declared_scope": [
         "apps/**/*.{ts,tsx}",
         "libs/**/*.{ts,tsx}",
         "platform/libs/**/*.{ts,tsx}",
-        "web/**/*.{ts,tsx}"
+        "web/**/*.{ts,tsx}",
+        "e2e/**/*.ts",
+        "tests/**/*.ts"
       ],
       "default_input": {
+        "coverageRoots": [
+          "e2e",
+          "tests"
+        ],
         "includeWriteBoundaryFindings": false,
         "roots": [
           "apps",
@@ -350,7 +547,36 @@
         "type": "object"
       },
       "owner": "platform",
-      "parse_window_signature": "sha256:ddf30a8910c1c38fe624009d58cc057efa8d6af46dd25e0fa7d652dd43d28507",
+      "parse_window_signature": "sha256:b853219a517751c0981b5b77eb66dfbb7e487abbd82bdc6af6570efd45b82b43",
+      "rules": {
+        "high_risk_source_without_adjacent_test": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "A write boundary with behaviour of its own has no test that exercises it.",
+          "premises": [
+            "The cited source performs writes and has behaviour beyond returning constants (it takes dependencies or computes results).",
+            "No unit, integration or e2e test imports it, sits beside it, or calls its route or GraphQL field."
+          ],
+          "severity_cap": "MEDIUM"
+        },
+        "migration_without_test": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "A migration that destroys or reshapes data has no test that runs it.",
+          "premises": [
+            "The cited migration drops, deletes, truncates, alters a type of, or forces row-level security on live data.",
+            "No test or migration-check job runs this migration against a database and asserts its effect."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "security_source_without_security_test": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "A guard implementation or a public write has no test that exercises its security behaviour.",
+          "premises": [
+            "The cited source implements a guard (or authentication strategy) or exposes a write to unauthenticated callers.",
+            "No unit, integration or e2e test imports it, sits beside it, or calls its route or GraphQL field."
+          ],
+          "severity_cap": "HIGH"
+        }
+      },
       "runner": {
         "argv": [
           "node",
@@ -368,8 +594,8 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "test-gap-adapter",
-      "updated_at": "2026-10-04T15:13:52+00:00",
-      "version": "1.1.0"
+      "updated_at": "2026-10-05T00:23:00+00:00",
+      "version": "1.2.0"
     },
     {
       "allowed_read_globs": [
@@ -379,7 +605,7 @@
       "claim_types": [
         "schema_drift"
       ],
-      "created_at": "2026-10-04T15:13:52+00:00",
+      "created_at": "2026-10-05T00:23:01+00:00",
       "declared_scope": [
         "apps/**/*.ts",
         "libs/backend-common/src/database/schema-manager.service.ts"
@@ -417,6 +643,80 @@
       },
       "owner": "platform",
       "parse_window_signature": "sha256:279526798279a75e61ea430aa99d506ab91e3f547eacbed66c03e3fbaf085035",
+      "rules": {
+        "db_snapshot_column_missing": {
+          "claim_type": "wrong_code",
+          "defect_claim": "An entity column does not exist in the deployed table, so queries on it fail.",
+          "premises": [
+            "The cited entity column is mapped (not a virtual, relation-only or excluded property).",
+            "The schema snapshot the finding names was taken from the deployed database and lacks the column."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "db_snapshot_nullability_mismatch": {
+          "claim_type": "wrong_code",
+          "defect_claim": "An entity requires a value the database column allows to be null.",
+          "premises": [
+            "The cited entity column is declared NOT NULL.",
+            "The deployed column, per the named snapshot, is nullable."
+          ],
+          "severity_cap": "MEDIUM"
+        },
+        "db_snapshot_table_missing": {
+          "claim_type": "wrong_code",
+          "defect_claim": "An entity's table does not exist in the database schema it is deployed against.",
+          "premises": [
+            "The cited entity maps a table the service reads or writes at runtime.",
+            "The schema snapshot the finding names was taken from the database the service runs against and does not contain the table."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "db_snapshot_uuid_type_mismatch": {
+          "claim_type": "wrong_code",
+          "defect_claim": "An entity declares a uuid column the database stores as another type.",
+          "premises": [
+            "The cited entity column is declared uuid.",
+            "The deployed column's type, per the named snapshot, is not uuid."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "migration_registry_missing_entry": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "A migration class exists but is not registered, so it never runs.",
+          "premises": [
+            "The cited migration class is meant to run (it is not archived or superseded).",
+            "The service's migration registry does not include the class, directly or through a glob."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "migration_registry_missing_file": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A registered migration has no implementation, so the migration run fails or skips it.",
+          "premises": [
+            "The service's migration registry names the cited class.",
+            "No migration file in the service declares the class."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "module_schema_table_missing": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "An entity's table is absent from MODULE_SCHEMAS, so schema management does not create or check it.",
+          "premises": [
+            "The cited entity maps a table the service owns.",
+            "MODULE_SCHEMAS for the service does not list the table, and no other registration covers it."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "typeorm_entity_schema_required": {
+          "claim_type": "wrong_code",
+          "defect_claim": "An entity that must declare its schema does not, so its table can land in public.",
+          "premises": [
+            "The cited @Entity() declares no literal schema option.",
+            "The table is not a per-tenant table that search_path routes into the tenant schema (it is cross-tenant, listed in MODULE_SCHEMAS infrastructureTables, or owned by a platform service)."
+          ],
+          "severity_cap": "HIGH"
+        }
+      },
       "runner": {
         "argv": [
           "node",
@@ -433,7 +733,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "typeorm-entity-schema-adapter",
-      "updated_at": "2026-10-04T15:13:52+00:00",
+      "updated_at": "2026-10-05T00:23:01+00:00",
       "version": "1.1.0"
     },
     {
@@ -446,7 +746,7 @@
       "claim_types": [
         "performance_budget"
       ],
-      "created_at": "2026-10-04T15:13:50+00:00",
+      "created_at": "2026-10-05T00:22:59+00:00",
       "declared_scope": [
         "web/**/*.{ts,tsx,js,json}"
       ],
@@ -490,6 +790,26 @@
       },
       "owner": "platform",
       "parse_window_signature": "sha256:5870176b20a60f6611b661ffdbbdad134e8e5d494efcd2a4dcf7a29cf58bed32",
+      "rules": {
+        "bundle_budget_not_enforced": {
+          "claim_type": "absence_in_scope",
+          "defect_claim": "The module ships without a size budget that fails CI when its bundle grows past it.",
+          "premises": [
+            "The module has a production Vite build (a vite config beside its package.json).",
+            "No bundle-budget.json beside the module and no CI workflow or build step fails when the module's bundle exceeds a declared size."
+          ],
+          "severity_cap": "LOW"
+        },
+        "heavy_dependency_statically_imported": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A heavyweight library is welded into the module's initial chunk by a static import.",
+          "premises": [
+            "The cited line statically imports the named library in module source that ships in the production bundle.",
+            "The importing file is reachable from the module's entry without a dynamic import() or React.lazy boundary in between."
+          ],
+          "severity_cap": "MEDIUM"
+        }
+      },
       "runner": {
         "argv": [
           "node",
@@ -506,8 +826,8 @@
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "bundle-budget-adapter",
-      "updated_at": "2026-10-04T15:13:50+00:00",
-      "version": "1.0.0"
+      "updated_at": "2026-10-05T00:22:59+00:00",
+      "version": "1.1.0"
     },
     {
       "allowed_read_globs": [
@@ -516,7 +836,7 @@
       "claim_types": [
         "doc_staleness"
       ],
-      "created_at": "2026-10-04T15:13:50+00:00",
+      "created_at": "2026-10-05T00:22:59+00:00",
       "declared_scope": [
         "docs/**/*.md"
       ],
@@ -558,6 +878,17 @@
       },
       "owner": "platform",
       "parse_window_signature": "sha256:bfd725b814d0b313d63cbb333d0acde649bf2c737a2149f68fb2671367a6e3ea",
+      "rules": {
+        "doc_references_missing_path": {
+          "claim_type": "currency_gap",
+          "defect_claim": "A document describes a repository path that no longer exists, so a reader is pointed at a surface that is gone.",
+          "premises": [
+            "The cited line names the path as an existing part of the repository, not as a file to create, a removed file or a historical record.",
+            "The path does not exist in the repository at the judged commit, and no file it was renamed to is named beside it."
+          ],
+          "severity_cap": "MEDIUM"
+        }
+      },
       "runner": {
         "argv": [
           "node",
@@ -574,7 +905,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "doc-staleness-adapter",
-      "updated_at": "2026-10-04T15:13:50+00:00",
+      "updated_at": "2026-10-05T00:22:59+00:00",
       "version": "1.0.0"
     },
     {
@@ -586,7 +917,7 @@
       "claim_types": [
         "contract_parity"
       ],
-      "created_at": "2026-10-04T15:13:51+00:00",
+      "created_at": "2026-10-05T00:22:59+00:00",
       "declared_scope": [
         "apps/**/dto/**/*.ts",
         "web/**/*.{ts,tsx}"
@@ -632,6 +963,17 @@
       },
       "owner": "platform",
       "parse_window_signature": "sha256:96197733542447a341a65a4b142fc15a302cd870f93b499424f82f74af16abc4",
+      "rules": {
+        "hand_copied_dto_field_drift": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A frontend DTO hand-copied from a backend DTO has drifted, so the ValidationPipe strips or rejects fields and input is lost.",
+          "premises": [
+            "The frontend type is a copy of the cited backend DTO, sent to or read from the endpoint that DTO validates.",
+            "The two field sets differ in a field the request or response actually carries."
+          ],
+          "severity_cap": "HIGH"
+        }
+      },
       "runner": {
         "argv": [
           "node",
@@ -648,7 +990,7 @@
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "fe-dto-parity-adapter",
-      "updated_at": "2026-10-04T15:13:51+00:00",
+      "updated_at": "2026-10-05T00:22:59+00:00",
       "version": "1.0.0"
     },
     {
@@ -660,7 +1002,7 @@
       "claim_types": [
         "kernel_dead_wire"
       ],
-      "created_at": "2026-10-04T15:13:51+00:00",
+      "created_at": "2026-10-05T00:22:59+00:00",
       "declared_scope": [
         "aria-kernel/aria_kernel/**/*.py",
         "aria-kernel/aria_kernel/data/*.json"
@@ -703,6 +1045,26 @@
       },
       "owner": "platform",
       "parse_window_signature": "sha256:a6ec9ab9569735c09e6258cdb50be6ba61091b82962a604fb3f086dc6d083f1d",
+      "rules": {
+        "cli_verb_never_routed": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A kernel CLI subcommand parses but no branch dispatches it, so invoking it does nothing.",
+          "premises": [
+            "The cited subcommand is registered on the kernel CLI parser.",
+            "No dispatch branch or handler mapping runs code for the subcommand."
+          ],
+          "severity_cap": "MEDIUM"
+        },
+        "policy_key_never_read": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A kernel policy file declares a tunable that no kernel module reads, so setting it changes nothing.",
+          "premises": [
+            "The cited key is declared in aria-kernel/aria_kernel/data/*.json as an operator tunable.",
+            "No kernel module reads the key, directly or through a loader that iterates the policy block."
+          ],
+          "severity_cap": "MEDIUM"
+        }
+      },
       "runner": {
         "argv": [
           "node",
@@ -719,7 +1081,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "kernel-dead-wire-adapter",
-      "updated_at": "2026-10-04T15:13:51+00:00",
+      "updated_at": "2026-10-05T00:22:59+00:00",
       "version": "1.0.0"
     },
     {
@@ -736,7 +1098,7 @@
       "claim_types": [
         "lint_rule"
       ],
-      "created_at": "2026-10-04T15:13:51+00:00",
+      "created_at": "2026-10-05T00:23:00+00:00",
       "declared_scope": [
         "apps/**/*.{ts,tsx}",
         "libs/**/*.{ts,tsx}",
@@ -785,6 +1147,17 @@
       },
       "owner": "platform",
       "parse_window_signature": "sha256:e91ca54cb282e55bd49b3d50ccc36f7a25858be38a46ca77f72102077cc5da41",
+      "rules": {
+        "*": {
+          "claim_type": "wrong_code",
+          "defect_claim": "The cited code has the defect the named lint rule describes.",
+          "premises": [
+            "The cited line has the behaviour the named rule's message describes, in code that runs (not a test fixture, generated file or dead branch).",
+            "The behaviour is a defect in this context: a correct program would not keep it, rather than a style preference the codebase allows."
+          ],
+          "severity_cap": "HIGH"
+        }
+      },
       "runner": {
         "argv": [
           "node",
@@ -802,7 +1175,7 @@
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "lint-rules-adapter",
-      "updated_at": "2026-10-04T15:13:51+00:00",
+      "updated_at": "2026-10-05T00:23:00+00:00",
       "version": "1.0.0"
     }
   ]

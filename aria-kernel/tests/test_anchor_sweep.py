@@ -23,6 +23,8 @@ from aria_kernel.agent_invocations import (
 from aria_kernel.judge_fanout import dispatch_judges_for_sample, pending_judge_counts
 from aria_kernel.tool_registry import ensure_tools_dir
 
+from tests._helpers.rule_contracts import DEFAULT_RULE_CONTRACT, register_contracted_tool
+
 
 def _sample_item(finding_id: str = "F-1") -> dict:
     return {
@@ -31,6 +33,10 @@ def _sample_item(finding_id: str = "F-1") -> dict:
         "finding_id": finding_id,
         "cycle_id": "cyc-1",
         "finding_fingerprint": f"fp-{finding_id}",
+        # The sampler lifts the rule to the item's top level
+        # (feedback_store._sample_item_from_finding); the fan-out reads it
+        # there to resolve the rule's judgment contract.
+        "rule": "r1",
         "finding": {"id": finding_id, "rule": "r1", "message": "m"},
     }
 
@@ -40,6 +46,7 @@ class AnchorSweepTests(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="aria-786-"))
         self.tools = self._tmp / "aria-tools"
         ensure_tools_dir(self.tools)
+        register_contracted_tool(self.tools, "tool-a", rules={"r1": dict(DEFAULT_RULE_CONTRACT)})
         self.now = datetime(2026, 8, 21, 12, 0, 0, tzinfo=timezone.utc)
         self.request = create_agent_invocation_request(
             target_agent="aria-evidence-judge",

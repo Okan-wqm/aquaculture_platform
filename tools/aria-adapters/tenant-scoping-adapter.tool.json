@@ -30,6 +30,35 @@
     "tmp/**"
   ],
   "claim_types": ["tenant_scoping"],
+  "rules": {
+    "tenant_repository_unscoped_read": {
+      "claim_type": "wrong_code",
+      "severity_cap": "CRITICAL",
+      "defect_claim": "A repository call can read or change another tenant's rows.",
+      "premises": [
+        "The cited call reads or writes a table shared across tenants (a cross-tenant table, or one keyed by tenantId), not a per-tenant table that search_path routes into the tenant's own schema.",
+        "Neither the call's predicate, the repository helper, row-level security nor the caller restricts it to the current tenant."
+      ]
+    },
+    "tenant_raw_query_missing_tenant_predicate": {
+      "claim_type": "wrong_code",
+      "severity_cap": "CRITICAL",
+      "defect_claim": "A raw SQL query can read or change another tenant's rows.",
+      "premises": [
+        "The cited query touches a table shared across tenants, not a per-tenant table that search_path routes into the tenant's own schema.",
+        "Neither the query's predicate, row-level security nor the calling context restricts it to the current tenant."
+      ]
+    },
+    "tenant_guard_missing": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "HIGH",
+      "defect_claim": "A service imports TenantGuard but never applies it, so requests run without tenant context enforcement.",
+      "premises": [
+        "The cited module imports TenantGuard and registers no APP_GUARD for it.",
+        "No other mechanism (a controller-level guard on every route, middleware or the gateway) enforces tenant context for the service."
+      ]
+    }
+  },
   "owner": "platform",
   "runner": {
     "type": "subprocess",

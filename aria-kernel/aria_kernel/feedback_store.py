@@ -38,6 +38,11 @@ SAMPLE_RECENCY_HOURS = 168
 # apart on what counts as a legitimate non-verdict outcome.
 CONSENSUS_UNCERTAINTY_REASONS = (
     "conformal_abstain",
+    # ARIA-HIGH-325 — a true_positive whose agreeing judges cite evidence the
+    # producing tool's scope does not admit (ARIA's detector source outside
+    # it, or any path outside it): the judges argued the rule, not the
+    # product.
+    "evidence_inadmissible",
     # Typed-judgment plan Phase 6 (ARIA-HIGH-167/173) — under `enforce`, the
     # judges that agreed did not include two CALIBRATED judges of distinct
     # models; their verdict is a suggestion the label queue reads, never
@@ -838,6 +843,33 @@ def _has_unverifiable_evidence(rows: list[dict[str, Any]], workspace_root: str |
     return False
 
 
+def _declared_scope_of(tool_id: str, base_dir: str | Path | None) -> tuple[str, ...] | None:
+    """The producing tool's declared scope; ``None`` for a tool the registry
+    does not know (only the detector-source class can be judged then)."""
+    from .tool_registry import get_tool
+
+    try:
+        tool = get_tool(tool_id, base_dir)
+    except GovernanceError:
+        return None
+    return tuple(str(glob) for glob in tool.get("declared_scope") or ())
+
+
+def _has_inadmissible_evidence(rows: list[dict[str, Any]], declared_scope: tuple[str, ...] | None) -> bool:
+    """ARIA-HIGH-325 — True if any judge in ``rows`` cites a ref
+    ``evidence_trust.tool_evidence_refusal`` refuses for the producing tool.
+    Applied to the judges that agreed on a true_positive: the consensus row
+    is the union of their refs, so one judge citing the detector's source
+    puts it on the row that promotion reads."""
+    from .evidence_trust import tool_evidence_refusal
+
+    return any(
+        tool_evidence_refusal(ref, declared_scope=declared_scope) is not None
+        for row in rows
+        for ref in _optional_string_list(row.get("evidence_refs"))
+    )
+
+
 def generate_ai_consensus(
     *,
     tool_id: str,
@@ -909,6 +941,8 @@ def generate_ai_consensus(
 
     consensus_rows = []
     uncertainties = []
+    # ARIA-HIGH-325 — read once: what a true_positive of this tool may cite.
+    tool_scope = _declared_scope_of(tool_id, base_dir)
     for key, by_judge in sorted(grouped.items()):
         rows = list(by_judge.values())
         run_id, finding_id, group_id = key
@@ -1006,6 +1040,12 @@ def generate_ai_consensus(
         # workspace_root keep the pure mechanical gate.
         if workspace_root is not None and _has_unverifiable_evidence(rows, workspace_root):
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "evidence_not_repo_verified"))
+            continue
+        # ARIA-HIGH-325 — what a true_positive may stand on. Unconditional:
+        # admissibility needs the registry, not a workspace. A false_positive
+        # may cite the detector to explain why it misfired.
+        if settled_verdict == "true_positive" and _has_inadmissible_evidence(closing, tool_scope):
+            uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "evidence_inadmissible"))
             continue
         dissenting = len(rows) - len(agreeing)
         severity = _max_severity(str(row.get("severity") or "medium") for row in agreeing)

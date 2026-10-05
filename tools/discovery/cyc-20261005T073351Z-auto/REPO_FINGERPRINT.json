@@ -1,15 +1,15 @@
 {
   "adr_count": 59,
-  "fated_file_count": 12963,
+  "fated_file_count": 12994,
   "file_counts": {
-    "allowed": 12919,
-    "fated": 12963,
+    "allowed": 12950,
+    "fated": 12994,
     "generated": 44,
-    "git_tracked": 12963,
+    "git_tracked": 12994,
     "unknown": 0,
-    "working_tree": 12963
+    "working_tree": 12994
   },
-  "generated_at": "2026-10-04T07:31:56+00:00",
+  "generated_at": "2026-10-05T07:35:27+00:00",
   "has_nx": true,
   "has_package_json": true,
   "language_histogram": {
@@ -43,7 +43,7 @@
     ".jsx": 1,
     ".lock": 22,
     ".map": 23,
-    ".md": 1917,
+    ".md": 1928,
     ".microfrontend": 1,
     ".mjs": 61,
     ".pem": 1,
@@ -52,7 +52,7 @@
     ".postgres-walg": 1,
     ".prebuilt": 1,
     ".ps1": 1,
-    ".py": 1211,
+    ".py": 1230,
     ".rs": 436,
     ".service": 7,
     ".sh": 76,
@@ -77,10 +77,10 @@
     ".wasm": 2,
     ".webmanifest": 1,
     ".yaml": 140,
-    ".yml": 99,
+    ".yml": 100,
     "<none>": 49
   },
-  "legacy_tracked_file_count": 12963,
+  "legacy_tracked_file_count": 12994,
   "migration_count": 297,
   "migration_evidence_paths": [
     "apps/ai-service/src/database/migrations/1800000000000-Baseline.ts",
@@ -95,7 +95,7 @@
   "schema_version": 2,
   "service_count": 17,
   "shared_lib_count": 16,
-  "tracked_file_count": 12963,
+  "tracked_file_count": 12994,
   "web_app_count": 1,
   "web_dir_child_count": 4,
   "web_mfe_count": 8,

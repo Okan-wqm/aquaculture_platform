@@ -1,5 +1,5 @@
 {
-  "cycle_id": "cyc-20261004T073028Z-auto",
+  "cycle_id": "cyc-20261005T073351Z-auto",
   "files": [
     {
       "content_hash": "sha256:ac446b43dab77fc76803c348c1aa7232237d148581b0c4848894bf2bdec5fff1",
@@ -1283,6 +1283,13 @@
       "suffix": ".yml"
     },
     {
+      "content_hash": "sha256:9972a7e10563c1d3a6e840d80bac6a2892d964a0352fd7ca360debacc9da64ce",
+      "fate": "tracked",
+      "path": ".github/actions/release-aria-state-lease/action.yml",
+      "size_bytes": 1956,
+      "suffix": ".yml"
+    },
+    {
       "content_hash": "sha256:ab14e6a44fdcaf56ff4f5996b7216a3b6ae4cc72bd483f4a985a0f898b2b3079",
       "fate": "tracked",
       "path": ".github/actions/require-self-hosted-runner/action.yml",
@@ -1290,10 +1297,10 @@
       "suffix": ".yml"
     },
     {
-      "content_hash": "sha256:6d9dec5485d00f7fe3f723561a436288f7ac17719e63968a084e5ad34c0de5ae",
+      "content_hash": "sha256:d53143667c4a768d7e5fb993dcb761e4433f49d43fe774d1f551a1aeeaed8162",
       "fate": "tracked",
       "path": ".github/actions/restore-aria-state/action.yml",
-      "size_bytes": 14100,
+      "size_bytes": 19475,
       "suffix": ".yml"
     },
     {
@@ -1472,24 +1479,24 @@
       "suffix": ".yml"
     },
     {
-      "content_hash": "sha256:330332feb253b48ef0d4304bc25a83c9809d2ed15f932575366a8cafd9b1c29e",
+      "content_hash": "sha256:a60942fe52975adcd7f8b6ba5606158a8f3602a72f8755339e06d5b8a3561d2c",
       "fate": "tracked",
       "path": ".github/workflows/aria-agent-eval.yml",
-      "size_bytes": 11258,
+      "size_bytes": 12508,
       "suffix": ".yml"
     },
     {
-      "content_hash": "sha256:f3877096060e15a53b4fd2b35d05010185444a22f1746d0926473b4d0ddfb1a5",
+      "content_hash": "sha256:c5c9dc2734ecb54d1a2bf92807fb0ece7b3e62f3b692d903e64e0d6cfe82b442",
       "fate": "tracked",
       "path": ".github/workflows/aria-agent-executor.yml",
-      "size_bytes": 56245,
+      "size_bytes": 58672,
       "suffix": ".yml"
     },
     {
-      "content_hash": "sha256:eda6791da9cd071dbb08134157c3c75d369f412154dd0b10e6c74bcd94fcbaed",
+      "content_hash": "sha256:2a424775c01759733583be2731bdd5e2d8720a281d77c1f12db951c0305f953c",
       "fate": "tracked",
       "path": ".github/workflows/aria-auto-cycle.yml",
-      "size_bytes": 62146,
+      "size_bytes": 64194,
       "suffix": ".yml"
     },
     {
@@ -1507,10 +1514,10 @@
       "suffix": ".yml"
     },
     {
-      "content_hash": "sha256:b056018002915c8c79bf59e664ef47f523ca7e915491e368146034c4896298ad",
+      "content_hash": "sha256:4f119b03dc7a38deb4d856f387077032e28d1a630bab7cf69828f28e23ba6814",
       "fate": "tracked",
       "path": ".github/workflows/aria-kernel.yml",
-      "size_bytes": 22124,
+      "size_bytes": 22370,
       "suffix": ".yml"
     },
     {
@@ -1521,10 +1528,10 @@
       "suffix": ".yml"
     },
     {
-      "content_hash": "sha256:65713456e0bf7f4f7a6120521e625d1d5306750f11f669993c3d6f89e944d814",
+      "content_hash": "sha256:d4a60a503481c8d9b97e64b24952d6f9c11315fcb2508319c1d4b2e8b9b5c05d",
       "fate": "tracked",
       "path": ".github/workflows/aria-merge-runner.yml",
-      "size_bytes": 13069,
+      "size_bytes": 14620,
       "suffix": ".yml"
     },
     {
@@ -1535,10 +1542,10 @@
       "suffix": ".yml"
     },
     {
-      "content_hash": "sha256:b09007ae3071620f4bdd7c67cdce6b2c8b7decb273de3f025e80457c9feeb65b",
+      "content_hash": "sha256:236b3e64d72b11f6336620ff1a8f585826af16019ee8e4678db9b0896dce3626",
       "fate": "tracked",
       "path": ".github/workflows/aria-readiness-claim.yml",
-      "size_bytes": 18714,
+      "size_bytes": 20478,
       "suffix": ".yml"
     },
     {
@@ -1549,10 +1556,10 @@
       "suffix": ".yml"
     },
     {
-      "content_hash": "sha256:015f0af7662993386598ea545c8232123305a105749f31632a59d57797fe4c8b",
+      "content_hash": "sha256:3686b99602ea48da941e6150c4f28e94fd551cec34d18ca96291bc0a2d140a1e",
       "fate": "tracked",
       "path": ".github/workflows/aria-state-maintenance.yml",
-      "size_bytes": 13166,
+      "size_bytes": 14848,
       "suffix": ".yml"
     },
     {
@@ -1843,10 +1850,10 @@
       "suffix": ".yml"
     },
     {
-      "content_hash": "sha256:597e98d395a89e4dff332e581f59d6fa610ec160fa5122f553523ca0dc2d9300",
+      "content_hash": "sha256:08279a668f5c9cd298db2bca9f8b3069314737bd9c520af0480a01d34ea10e56",
       "fate": "tracked",
       "path": ".gitignore",
-      "size_bytes": 9848,
+      "size_bytes": 10247,
       "suffix": ""
     },
     {
@@ -34918,6 +34925,13 @@
       "suffix": ".py"
     },
     {
+      "content_hash": "sha256:e2b5600c3702daf007e887619fb9bfc2c0c1c78f14db85c7792140ef5689eeac",
+      "fate": "tracked",
+      "path": "aria-kernel/aria_kernel/adapter_findings.py",
+      "size_bytes": 1894,
+      "suffix": ".py"
+    },
+    {
       "content_hash": "sha256:f75b4493ebeb3e1af335287558bdad40fa25e03a69fb48064b69a7b6a6566f3d",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/adapter_fixture_contract.py",
@@ -34960,10 +34974,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:0e71b9c411c46da29ba6c73d5a95b5f35a833361026533ae2ec74b6b8c8213d2",
+      "content_hash": "sha256:596736cda4bc2a506e250cdc2d8a7af4dace5852d9abf9066af5e0c6b817f514",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/agent_eval.py",
-      "size_bytes": 40877,
+      "size_bytes": 51522,
       "suffix": ".py"
     },
     {
@@ -34974,10 +34988,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:9cf2c4c8bd2d26a16812114090d1e0c4c91dcfb648d9ac9bed008475ba1093ef",
+      "content_hash": "sha256:bc79bf7c790e36d0df274ab3583641ef6e5c6845714581224a62c7538386de62",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/agent_invocations.py",
-      "size_bytes": 282787,
+      "size_bytes": 284744,
       "suffix": ".py"
     },
     {
@@ -35030,10 +35044,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:b7ca1ca52b1fc973f01927d652bd5679c73fedc686922734c3f51d0d5bacd0a3",
+      "content_hash": "sha256:8b841e8ff7c3925f2194f48f1d05ab826e8708a7981d4c016de9f57f1cee109e",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/agent_surface.py",
-      "size_bytes": 9381,
+      "size_bytes": 10517,
       "suffix": ".py"
     },
     {
@@ -35093,10 +35107,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:aede79cce28c65d8bb6a6fadc3fe040b6ce96da5d2be42453a2432100854e249",
+      "content_hash": "sha256:0905cba98b3eec7030f9aa03e3bd61f67714d714faf377bd5037251a0d2ed9d0",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/autonomous_host_lease.py",
-      "size_bytes": 17901,
+      "size_bytes": 19151,
       "suffix": ".py"
     },
     {
@@ -35128,10 +35142,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:ced30e325ca7770a173f507cfe4ce9cc968bc2133a045bd004b93f09ca5c39a4",
+      "content_hash": "sha256:94f0f4badf807f48c5dc803a9adec91456fec00fcc97b6341d9bf963a571477e",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/autonomy_orchestrator.py",
-      "size_bytes": 145287,
+      "size_bytes": 143149,
       "suffix": ".py"
     },
     {
@@ -35296,10 +35310,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:e46749b74fd5743da5fe16943fdd94087dcd6dc42b09e03f927b90111e5ab6e0",
+      "content_hash": "sha256:4d34b9e09ed945db15eab4239a50a740bdb618e04c2bed1d183181e553ff1480",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/cli.py",
-      "size_bytes": 346428,
+      "size_bytes": 356823,
       "suffix": ".py"
     },
     {
@@ -35380,17 +35394,17 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:49f9e0def074f4da2f284c9dd3ad618846433796c4f338693e027773f5385042",
+      "content_hash": "sha256:272f522d24250cb3e89961dacd962294a14e0a46bf89f2d1ac12ae29934df43b",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/convergence_drainer.py",
-      "size_bytes": 57877,
+      "size_bytes": 58867,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:9cdc0e466ed8de1adb034abc2673ea93212bf748146668739c718683aab0ee86",
+      "content_hash": "sha256:a5b7f54e82d343adf81d2d6347b2fd68bbfef658b22bd55c53a0b664a7f19136",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/convergent_planning_bridge.py",
-      "size_bytes": 5558,
+      "size_bytes": 5765,
       "suffix": ".py"
     },
     {
@@ -35422,17 +35436,17 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:1580149cd0ec55979d23eeda96e5b487a7bd36bf2779d523867da0ada2888987",
+      "content_hash": "sha256:521e2f1817b4dfa296a223c5ccc9440df7bdc4f5ec37c6d7e7467965ab600a72",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/cross_review_bridge.py",
-      "size_bytes": 45505,
+      "size_bytes": 46411,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:b971955f864684af8729aee3b4132f030fe558d9f9eba3df4d75e90dda0cdf21",
+      "content_hash": "sha256:e45c6e047b81d67837902efc34cf98df69eea38c7a6a8299d002f1b3f3330b04",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/cycle.py",
-      "size_bytes": 190161,
+      "size_bytes": 191588,
       "suffix": ".py"
     },
     {
@@ -35562,10 +35576,10 @@
       "suffix": ".json"
     },
     {
-      "content_hash": "sha256:16a8c7c715f6279e9385b9f4b2b5acaa297b1a2449bca3d21d1520db608c922f",
+      "content_hash": "sha256:864ec5d39b265bd88ff555fd00c619f8f4144018af6afee85f7b5b05ce20a3ba",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/data/runtime_profiles.json",
-      "size_bytes": 7233,
+      "size_bytes": 7275,
       "suffix": ".json"
     },
     {
@@ -35639,10 +35653,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:3d89cccf7ea6d0c674240db1506325cb5a4e4df3bb55c748d2b867ad7866d40f",
+      "content_hash": "sha256:8acf753b82519b99e80ac632cb218037d45ab6899ad795da369544a7a0cae262",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/doctor.py",
-      "size_bytes": 31631,
+      "size_bytes": 32380,
       "suffix": ".py"
     },
     {
@@ -35702,10 +35716,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:0ff432a798a0673b3bba7f9b052a758b6ca5262ed8784553f918220767b3267e",
+      "content_hash": "sha256:b5f09904991e4ca01e8e1e10ed40fce122e2a9e386e8cd6b463cbba7b4b3308b",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/evidence_trust.py",
-      "size_bytes": 17951,
+      "size_bytes": 21059,
       "suffix": ".py"
     },
     {
@@ -35765,10 +35779,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:185543ab2efbcbdac2c4bc2484f74e39034b7496c246422edf7030f07ed9916c",
+      "content_hash": "sha256:59a6672d3142be64c818b0beb3644770c9099e7900314d965bf94f0e080557be",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/feedback_store.py",
-      "size_bytes": 83034,
+      "size_bytes": 85054,
       "suffix": ".py"
     },
     {
@@ -35793,10 +35807,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:6c0c614f73f146a6076e7c8d77e34a024c6975c545d24ecba3f493dc68c8ecf7",
+      "content_hash": "sha256:7226712770c39479f993b1f996580efbfa6a92a229feacabe54fdd4782a21342",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/finding_promotion.py",
-      "size_bytes": 8347,
+      "size_bytes": 10886,
       "suffix": ".py"
     },
     {
@@ -35884,10 +35898,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:21a54f99c852793535d61fa81d962e1dea1edb4fb5078a605b207d1cf0994ba0",
+      "content_hash": "sha256:7c36e2fbe37322b22d48294a641c9b37c6d5537f074eb5daa72377b5a06e671f",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/genesis_policy.py",
-      "size_bytes": 38577,
+      "size_bytes": 40534,
       "suffix": ".py"
     },
     {
@@ -35996,10 +36010,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:ccde9f6e257e0b256e4dd9b2ec712b4fbd7ac5624a194ee1cddca077d15537dc",
+      "content_hash": "sha256:99a135cadf490d666ce33eb16966f7c0910262ef3458ae85321cf6b434233287",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/human_required.py",
-      "size_bytes": 33385,
+      "size_bytes": 33635,
       "suffix": ".py"
     },
     {
@@ -36094,24 +36108,24 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:88816c44f0c2451e5abf20b449c9b6991bc0f8e096004e66b56c7770e1052169",
+      "content_hash": "sha256:5db62b71e2ce8be2fc37b3d11fa293b7a9e119e7b9e08d5db4b939a82c1fe2d1",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/judge_fanout.py",
-      "size_bytes": 27591,
+      "size_bytes": 31248,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:8cf5b556acbbc702829284f9302548fc8949638e410ff0ba0fa4761d889b9a19",
+      "content_hash": "sha256:796abfbeb497830254a0b73fc3963f9b6cce2032841cae2a8f66ef37e1ba859b",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/judge_replay.py",
-      "size_bytes": 7836,
+      "size_bytes": 8767,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:ef292f5102cddc5d642c970cbe9c2e0551294149ef0000f412d771c31ef63e98",
+      "content_hash": "sha256:2884697744d2e02713549d17550f1b8b29ce010544c59f87887b54f75c2856c8",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/judgment_bridge.py",
-      "size_bytes": 24346,
+      "size_bytes": 25538,
       "suffix": ".py"
     },
     {
@@ -36220,17 +36234,17 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:4dfa0940aec138f633f6a19c89048afcb950249aa49472d540f994d20bfbb29c",
+      "content_hash": "sha256:a2a638b5bc669da1b0b8ab0997b81ef6f11c739a8da27fa15767e39a589c25f4",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/memory_gap.py",
-      "size_bytes": 34744,
+      "size_bytes": 38882,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:e81f2e8ecd0b369820feba7ceb47642f5eb4657c164dc83a7767bcfa13dcc895",
+      "content_hash": "sha256:ec2e54be6b39274c9714dff0ca492f6a622211fb761991894035049f901a07fb",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/merge_authority.py",
-      "size_bytes": 74241,
+      "size_bytes": 74447,
       "suffix": ".py"
     },
     {
@@ -36290,10 +36304,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:6ad7f3f702bd161ca4fe23b1f0abf4e6ec7e4735edea774b6026f609da4cada0",
+      "content_hash": "sha256:8ba26c4d34c9f9e67b197fd6d96cda642eedcf438532d61f5a59df14fa558142",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/must_satisfy.py",
-      "size_bytes": 15632,
+      "size_bytes": 20870,
       "suffix": ".py"
     },
     {
@@ -36458,10 +36472,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:dd8aa093f283d09b9a51bdfec682e5fe9e1a27eb17eae5614d109ac0260a9921",
+      "content_hash": "sha256:9b9eae05f9e618d50e73773db16cbe9a9ea2f31c42bc3a5cc2f5b92564d8958b",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/plan_convergence.py",
-      "size_bytes": 157120,
+      "size_bytes": 157342,
       "suffix": ".py"
     },
     {
@@ -36486,10 +36500,17 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:ca8db1b7a77b19d0cac6f8b8b67f1fa8590349d7e9370f434ee88d17b4d1a45a",
+      "content_hash": "sha256:826a4c29be7d5e695fb240b1d0677401dcb1a4a4b18997a9e9908c9a992a5a02",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/plan_round_controller.py",
-      "size_bytes": 15353,
+      "size_bytes": 15957,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:162b3972f886a2a5f96d03509064283ecd02e5ec8620dfda60ba16bc042e2e07",
+      "fate": "tracked",
+      "path": "aria-kernel/aria_kernel/plan_round_scope.py",
+      "size_bytes": 9517,
       "suffix": ".py"
     },
     {
@@ -36504,6 +36525,13 @@
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/planner_dispatch_hook.py",
       "size_bytes": 33488,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:c3c32712c76856ff2f1ee037b43afbcc40ea69e2be63a69b5ec2e3145cccc6fa",
+      "fate": "tracked",
+      "path": "aria-kernel/aria_kernel/planner_lessons.py",
+      "size_bytes": 3788,
       "suffix": ".py"
     },
     {
@@ -36626,10 +36654,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:21b0991256706ca43cec29467c62e3f91c6ad4c3bfd1a0dd94d7b9f2ef2990b2",
+      "content_hash": "sha256:e8e8816347796bb3f07584e3be83d96ef7def5f9d99f7024034c4347ac281af9",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/readiness_proofs.py",
-      "size_bytes": 66760,
+      "size_bytes": 69311,
       "suffix": ".py"
     },
     {
@@ -36647,10 +36675,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:ae624481a7ab34eed2a27a4f0c9b9f4ae1e8c16780436b6eca9d7958df0e3d05",
+      "content_hash": "sha256:f5feee61e0a8522593a8e60d3e9562d14c5edb8130cee4c9b6d3d7d0c3fe59bb",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/reflection.py",
-      "size_bytes": 74198,
+      "size_bytes": 74695,
       "suffix": ".py"
     },
     {
@@ -36735,6 +36763,13 @@
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/rollback_bundle.py",
       "size_bytes": 3972,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:0d1cbacb01db671ee8b3527c55e9beb07d53f92d57d783911187fe0ee68b4097",
+      "fate": "tracked",
+      "path": "aria-kernel/aria_kernel/rule_contract.py",
+      "size_bytes": 6640,
       "suffix": ".py"
     },
     {
@@ -37046,10 +37081,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:ad32f676c4684d1a4b4478610842dc3fce5bc09de14d717192a0fd6024f35e93",
+      "content_hash": "sha256:0df21da8c4bd0555b4552abb475bb3c9266dfcdf8deb0f8ce669567eed73ece2",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/shadow_eval_bridge.py",
-      "size_bytes": 13153,
+      "size_bytes": 13111,
       "suffix": ".py"
     },
     {
@@ -37123,31 +37158,31 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:bf52c653b5b4eaf469672b8e728f8abba2dab2a353f326659785b1eeddaaf00e",
+      "content_hash": "sha256:4ef2405c69956d3e01fb3ad126a24a65223c29d7aa2ef86b83f8ca042514088e",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/state_manifest.py",
-      "size_bytes": 83411,
+      "size_bytes": 83783,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:c67ba179e480422b3caaf72e47a561261efa58c3eb8f8d6988365b318167f78f",
+      "content_hash": "sha256:ec0f20f7ed35da2b90a972dc44bda216a495a5ad17e66369a93004e9f9a03485",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/state_snapshot.py",
-      "size_bytes": 68516,
+      "size_bytes": 75462,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:73942abc9a45fc1499648d4858327ab4bb20da8c3799e16a35b54e59e462c6e2",
+      "content_hash": "sha256:87f445d201892f348b56d7d4f4be070f34101fafefb9efe0c825d174f18461d5",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/state_store.py",
-      "size_bytes": 252305,
+      "size_bytes": 254081,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:58ef50f3d92759e202f51b6ff13ca1dabc69026594ecdf2d30bef705c5c0963d",
+      "content_hash": "sha256:b3e7b22b4bd535312dcb919fa472c9aeb71f286a377b1b088490f40a1c767f13",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/state_store_lifecycle_arcs.py",
-      "size_bytes": 19405,
+      "size_bytes": 20303,
       "suffix": ".py"
     },
     {
@@ -37155,6 +37190,20 @@
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/state_tree_contract.py",
       "size_bytes": 13621,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:83033201712057f6c1adb50d7db6967c3ee03070621f1cceab1c8f9dbac3690c",
+      "fate": "tracked",
+      "path": "aria-kernel/aria_kernel/state_writer_fence.py",
+      "size_bytes": 6725,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:76787cd683344ff24dec374761766f019e5b556fa9fefdac38c894d60d56fb72",
+      "fate": "tracked",
+      "path": "aria-kernel/aria_kernel/state_writer_lease.py",
+      "size_bytes": 31101,
       "suffix": ".py"
     },
     {
@@ -37242,10 +37291,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:6cdcae10c370a80b806a7b0fa4d2fc4150dc954886018b29b3b669c77b7be50e",
+      "content_hash": "sha256:d767dc184a6f2fb70b493a3d38f485454203dca7839346279d509025fc2c9c52",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/tool_registry.py",
-      "size_bytes": 74653,
+      "size_bytes": 75079,
       "suffix": ".py"
     },
     {
@@ -37410,17 +37459,17 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:eded66c1115524ce5ce04fad13c4f0e4b45629c7ada3e3abe5745189f32b6e79",
+      "content_hash": "sha256:cdd43bd76f35c9ed70d32c495afbe156e2844da22eedfdd0708c823aae0307f0",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/workflow_contract_registry.py",
-      "size_bytes": 55889,
+      "size_bytes": 56616,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:db08c0deb6f119c36944e42501885c8d1a7565c2793380c733aa3c913ee7622a",
+      "content_hash": "sha256:30a03e30455524b6d5bd61d6c78715df74d7cc1660ea35a7efd00b5ff62e8f98",
       "fate": "tracked",
       "path": "aria-kernel/aria_kernel/workflow_contracts.py",
-      "size_bytes": 40179,
+      "size_bytes": 40528,
       "suffix": ".py"
     },
     {
@@ -37627,6 +37676,13 @@
       "suffix": ".py"
     },
     {
+      "content_hash": "sha256:844980db3a4321437ae847c2d6060d952e9d91a4f890eac801cbf1ee484e40cd",
+      "fate": "tracked",
+      "path": "aria-kernel/tests/_helpers/rule_contracts.py",
+      "size_bytes": 2485,
+      "suffix": ".py"
+    },
+    {
       "content_hash": "sha256:d153fe26aaaddd4f46ca15bfb3043660f66d05e361920700b244d78583ded162",
       "fate": "tracked",
       "path": "aria-kernel/tests/_helpers/suite_shard_weights.json",
@@ -37645,6 +37701,13 @@
       "fate": "tracked",
       "path": "aria-kernel/tests/_helpers/unix_sockets.py",
       "size_bytes": 1517,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:f4ba1baac17f05589de7d9174795cf6be687f141ddf23b8bb299424acd849853",
+      "fate": "tracked",
+      "path": "aria-kernel/tests/_helpers/writer_lease.py",
+      "size_bytes": 1728,
       "suffix": ".py"
     },
     {
@@ -38306,10 +38369,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:b25d91279946e00f10d1fde1f9dbe4d8540fdbc3aaed8e2a0e72485c9c15b582",
+      "content_hash": "sha256:f7840ae7de330e033bea45f5b1244e2a0c6fe82611fccd90dd2dd626be80a1dc",
       "fate": "tracked",
       "path": "aria-kernel/tests/invariants/v10/test_phase_v10_5_phase_5_poll_state_race.py",
-      "size_bytes": 6316,
+      "size_bytes": 6026,
       "suffix": ".py"
     },
     {
@@ -38474,10 +38537,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:2425109e7c8951d56cf33fb7eb1be845a719fd1586818cd5f215ca945fde1794",
+      "content_hash": "sha256:b5ae82b5ea69ab3df96e49c6d46acdaeaa7303f655b06ce39d43ff661a8a6f7f",
       "fate": "tracked",
       "path": "aria-kernel/tests/invariants/v12/test_phase_v12_h_skill_parallel.py",
-      "size_bytes": 14551,
+      "size_bytes": 14791,
       "suffix": ".py"
     },
     {
@@ -38859,10 +38922,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:2e903b1fa53a0b2df43e77ef32797e458be7a49f09fa064b245c25b4fcf82056",
+      "content_hash": "sha256:49781264a8f12009dea00f9723a03ce1ea55c9ab64403fbcca5584c70ad344a8",
       "fate": "tracked",
       "path": "aria-kernel/tests/invariants/v3_2/test_phase_v3_2_reflection_path_resolution.py",
-      "size_bytes": 10477,
+      "size_bytes": 10642,
       "suffix": ".py"
     },
     {
@@ -39055,10 +39118,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:e57d886b9a8ea85db6f6cb2332eea691ea29d3e758c76fda9e4d23edc73ea8ab",
+      "content_hash": "sha256:253dba1e2b9233dd5caa141f4d5e50f4b7e1a9bfc2592d5c3d8f0efd079ca794",
       "fate": "tracked",
       "path": "aria-kernel/tests/invariants/v7/test_phase_v7_3_universal_dispatcher.py",
-      "size_bytes": 5851,
+      "size_bytes": 5995,
       "suffix": ".py"
     },
     {
@@ -39181,10 +39244,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:f228583bcc293dc7feb928f71daf6b2286b954189f765eea5db795e5388173e7",
+      "content_hash": "sha256:0129a5abfa60bb1849f4a1d43e402a5525587796bba69dfbdeca90cc1e9719b5",
       "fate": "tracked",
       "path": "aria-kernel/tests/invariants/v8/test_phase_v8_4_canonical_normalizer.py",
-      "size_bytes": 6855,
+      "size_bytes": 6949,
       "suffix": ".py"
     },
     {
@@ -39412,10 +39475,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:3c0e528609b6ca3741b81cae930e1ae181d83dd1b429427ac289fd2bf62d2569",
+      "content_hash": "sha256:7b2985fc62074f5fa3f57bd314a62c6bb1f7de4e4e176006b313ec0281283e42",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_agent_eval.py",
-      "size_bytes": 23740,
+      "size_bytes": 24548,
       "suffix": ".py"
     },
     {
@@ -39440,10 +39503,17 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:fa6907dd237ebb71593cfcb17dc5d81be12442991585481b597e174ce60bcd59",
+      "content_hash": "sha256:18f46198fd04929488b1880fa51dcce2fde0f635038ab33d94498a6349859570",
+      "fate": "tracked",
+      "path": "aria-kernel/tests/test_agent_eval_real_mode.py",
+      "size_bytes": 19900,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:ed2e11c5db6670885c89baf702a0e7bb0eb5bbf3267b331d773bd0e882022b04",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_agent_eval_real_mode_provenance.py",
-      "size_bytes": 13316,
+      "size_bytes": 13131,
       "suffix": ".py"
     },
     {
@@ -39552,10 +39622,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:205c9623f7cce43b5be02f765f4464139f48619c50ef7758a499612180d26e12",
+      "content_hash": "sha256:c3662b90d7f381e23bd3becc5544984a15203966a98e7e3400a6e5dc91fdb4e8",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_anchor_sweep.py",
-      "size_bytes": 4810,
+      "size_bytes": 5214,
       "suffix": ".py"
     },
     {
@@ -39587,10 +39657,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:2e4029c44875280b205375a729235b2016deb4028d73e0e301c110d9db54cfed",
+      "content_hash": "sha256:16bb23b61af8bfc5c2c9bbc1e004f8da467451f612bce9c51cecec5255fc0a52",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_arbiter_uncertainty_contract.py",
-      "size_bytes": 5297,
+      "size_bytes": 5423,
       "suffix": ".py"
     },
     {
@@ -39713,10 +39783,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:29115bfd80858a7b846223da54aba5a2206714a682f838056d5d010fcea69d64",
+      "content_hash": "sha256:0771129a75dbb7bdbcb6e0ea2e517a53c4017f382775824b228f88d5b67172ff",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_autonomy_evidence_status.py",
-      "size_bytes": 254319,
+      "size_bytes": 254357,
       "suffix": ".py"
     },
     {
@@ -39741,10 +39811,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:71036b9672aa48e4089019328c78aa6f1fd7bd742a3c2948e3931c64a094f73c",
+      "content_hash": "sha256:67384eb2417fd695c9f3ed504be039bb152e694e94c40510d5fc475db4fba0de",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_autonomy_orchestrator.py",
-      "size_bytes": 120465,
+      "size_bytes": 120671,
       "suffix": ".py"
     },
     {
@@ -40112,10 +40182,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:8aea572ea50b8fe419d2a0c86c0849ea4d5a8dcee90768c6aa57568d2684f755",
+      "content_hash": "sha256:30a7c3bae5933778e6825158167c460965b9146762fa87a6cd9af00f9e63475c",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_compaction_attestation.py",
-      "size_bytes": 46891,
+      "size_bytes": 46990,
       "suffix": ".py"
     },
     {
@@ -40217,17 +40287,17 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:292e5171f67df351dcc44b6609bdc4d82a48ca0271b5ccb6e53e64d835bc9345",
+      "content_hash": "sha256:5ba5a1f38cb6e4bcba78df34f937bc0711600862f2312dfa07f9cdb7e00203e1",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_convergence_drainer_carried_data.py",
-      "size_bytes": 12973,
+      "size_bytes": 12836,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:22851d9840382d8469ac3aacfb72dfd7fd6887d3abccb7c20c5452bbbdfe0831",
+      "content_hash": "sha256:6a460bc4461a912f462c2b7c359e7b4f287a062b677cc2d21e4a6600c911a20f",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_convergence_resumable_step.py",
-      "size_bytes": 46592,
+      "size_bytes": 46787,
       "suffix": ".py"
     },
     {
@@ -40441,6 +40511,13 @@
       "suffix": ".py"
     },
     {
+      "content_hash": "sha256:f1141e9c315999745262ebb237f4ebc5fc58128cd87f61515b76f8e611cc0b95",
+      "fate": "tracked",
+      "path": "aria-kernel/tests/test_detector_source_evidence.py",
+      "size_bytes": 5834,
+      "suffix": ".py"
+    },
+    {
       "content_hash": "sha256:b067e6af56bed3e8d0ff43bbe2a231627e4058f2b95293d764114afaa99a2d7b",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_dispatch_idempotency.py",
@@ -40466,6 +40543,13 @@
       "fate": "tracked",
       "path": "aria-kernel/tests/test_draft_validator_refusal.py",
       "size_bytes": 1301,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:5805c57166e91ab9985cfd3f8d0ba7b4946231f1e9556d4e309cb265d61ac1f6",
+      "fate": "tracked",
+      "path": "aria-kernel/tests/test_drain_arc_routing_contract.py",
+      "size_bytes": 5433,
       "suffix": ".py"
     },
     {
@@ -40637,10 +40721,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:7de2c985bc37f2084035ad02d12470c2cb8b0de71eddedb7b9a0cfdaf2aabd66",
+      "content_hash": "sha256:829a82f8eee43c1f82034b91162087b13a2f981a1fd0492452a6894039e9326a",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_evidence_checkpoints.py",
-      "size_bytes": 28572,
+      "size_bytes": 28611,
       "suffix": ".py"
     },
     {
@@ -40651,10 +40735,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:1fb9fad49bfa2ddf8ae32888967a0731efd748b9add57ae2223cd8797777c3d0",
+      "content_hash": "sha256:c90a1095c537c6f77b254fd62fb009e246ddbb6a86e17aafb3b2b6fe6dd4becb",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_evidence_excerpts.py",
-      "size_bytes": 29427,
+      "size_bytes": 29125,
       "suffix": ".py"
     },
     {
@@ -40742,17 +40826,24 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:f22a9c7311c0d72e342cabe02fcba0693d2f2d23a4d228bd9c11b0a8281e01bc",
+      "content_hash": "sha256:8810775695a8304a7782b5f49502ceda19483d018aa17ea6eb6c4ca0fbf5af11",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_executor_drain_breaker.py",
-      "size_bytes": 22601,
+      "size_bytes": 22635,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:20fee46a79c04cd455ffad1f48c9ac3f2b74909ebb7cb373544f545e7cb5804f",
+      "content_hash": "sha256:83b884d24b364521566eb004986a35f42ed5e53d69ce07d9190b8e736db7ac89",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_executor_drain_mode.py",
-      "size_bytes": 32245,
+      "size_bytes": 32313,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:7ed92e1274a2a542ca91f85181aadb658ed94d3bb0e1f5db4021fe5ca3d2af7b",
+      "fate": "tracked",
+      "path": "aria-kernel/tests/test_executor_drain_plan_progress_first.py",
+      "size_bytes": 16162,
       "suffix": ".py"
     },
     {
@@ -40791,10 +40882,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:7c992899ae545520214c60d099c52afe77828a8c45ef97ddec8307ec5ffe2df4",
+      "content_hash": "sha256:19c32ba78ec98daaf4e88cbb959ba7b5adb1c86ba86690247066b17ad3c5a03c",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_executor_kernel_import_fallback.py",
-      "size_bytes": 7557,
+      "size_bytes": 7950,
       "suffix": ".py"
     },
     {
@@ -40805,10 +40896,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:77d3852f59969da9c57924f5205b418d0e4cec25536bb303ba3ca25091cba724",
+      "content_hash": "sha256:8b6c6075960aea873aa0de4ddf5c86ea41a5d1a359d582a8030f725a2589cdcb",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_executor_request_worktree.py",
-      "size_bytes": 12149,
+      "size_bytes": 12183,
       "suffix": ".py"
     },
     {
@@ -40847,10 +40938,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:b1483692f550e12635eb7a2b5905cc2dc13d4ba77ef2e20d322eb6a2af57b99d",
+      "content_hash": "sha256:79dd137fc2818011bc66153bde250007c905004ca8576aca3b314eabe021429d",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_executor_worktree_bracket_bound.py",
-      "size_bytes": 9695,
+      "size_bytes": 9729,
       "suffix": ".py"
     },
     {
@@ -40952,10 +41043,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:5aeeaeb60db1b995d1360e1c185c0b9fabcb57a2155890c1c58d51c4657b6709",
+      "content_hash": "sha256:f8e42a83d7d172814f6156061ea96bec201abbc932b4e86ff2fa51a5a884e34c",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_finding_promotion.py",
-      "size_bytes": 6609,
+      "size_bytes": 14604,
       "suffix": ".py"
     },
     {
@@ -41330,10 +41421,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:dfb230b9c2040991b47b63c5491ac5b58ee75903a5893b633a2f1c5d9085a9d0",
+      "content_hash": "sha256:d21cee7cee5148d320201f5ca682a411255a48c7715ae0c254eb086b84e4cb27",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_judge_fanout.py",
-      "size_bytes": 6925,
+      "size_bytes": 11476,
       "suffix": ".py"
     },
     {
@@ -41344,10 +41435,17 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:49553c7e403f397b52e846a20a0473452e89d5aa92a42579474c9410d7ae24bb",
+      "content_hash": "sha256:c82d9c9ad61378ddec2ae71d52485491ec5ae7960f78c36db8382aedb471a243",
+      "fate": "tracked",
+      "path": "aria-kernel/tests/test_judge_premise_contract.py",
+      "size_bytes": 3916,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:72a364089d15de4cafd300f363d1e89fa3d5dff39e7eb32462519690ab71b887",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_judge_replay.py",
-      "size_bytes": 5663,
+      "size_bytes": 7961,
       "suffix": ".py"
     },
     {
@@ -41603,10 +41701,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:4053257e85574774cc49e20fafcad1b69649ea7e42fa6439684370a47a8f58de",
+      "content_hash": "sha256:ed68d830ea8b3c07cfa88e900b06fc42bc2a7b32d5b7ca3dba4fc0fe7ffa800a",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_memory_not_compactable.py",
-      "size_bytes": 17490,
+      "size_bytes": 17509,
       "suffix": ".py"
     },
     {
@@ -41659,10 +41757,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:51dc2e685c445884092a5229ea27f996dc99fa4e91ce3ac52d3e8566cce1ebf5",
+      "content_hash": "sha256:e4d0fad1e122b89997823081000a43888e7f3ef463da4bb74a31754750839857",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_merge_lane_publication.py",
-      "size_bytes": 19943,
+      "size_bytes": 20248,
       "suffix": ".py"
     },
     {
@@ -41757,10 +41855,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:501b618961f16b1d43e53e489f0b2a1488e5314ab6937f3be06574f40eb7dfde",
+      "content_hash": "sha256:94167554c80090da680b6aa7ef7243021012c74c2b180bf304dc4fad9ebeab46",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_must_satisfy_shape.py",
-      "size_bytes": 28991,
+      "size_bytes": 29204,
       "suffix": ".py"
     },
     {
@@ -41789,6 +41887,13 @@
       "fate": "tracked",
       "path": "aria-kernel/tests/test_native_exit_cause.py",
       "size_bytes": 6026,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:8a41377addf703f05abf22703d6f9ae7bf0db978bdfa5d8cd4fce8db051addd3",
+      "fate": "tracked",
+      "path": "aria-kernel/tests/test_native_reconcile_unanchored_request.py",
+      "size_bytes": 14966,
       "suffix": ".py"
     },
     {
@@ -42086,10 +42191,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:af984fe2a253c51ab2c2d8c3912a09422337305872b32e0b4bde0a792d064792",
+      "content_hash": "sha256:ce18803765199287b72cab6b6c49b20e516c2492ba3d5d54d7fe50fbdec379f3",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_plan_convergence.py",
-      "size_bytes": 68615,
+      "size_bytes": 68392,
       "suffix": ".py"
     },
     {
@@ -42135,6 +42240,13 @@
       "suffix": ".py"
     },
     {
+      "content_hash": "sha256:45e1a912acdd869e9186e29ece87ecb9b1e186ca8fc0d2565d76ed16228decc0",
+      "fate": "tracked",
+      "path": "aria-kernel/tests/test_plan_round_scope_from_plan.py",
+      "size_bytes": 16514,
+      "suffix": ".py"
+    },
+    {
       "content_hash": "sha256:9f51245556e36abf54d563d626948054f0a11ab21a8768f9be2681f6b2f025a0",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_plan_stall_reason.py",
@@ -42160,6 +42272,13 @@
       "fate": "tracked",
       "path": "aria-kernel/tests/test_planner_hook_single_claim.py",
       "size_bytes": 15752,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:aa5dbf16ee4b7992d00f0917260526e194928f888d813c9fd967bb09b64d3c9e",
+      "fate": "tracked",
+      "path": "aria-kernel/tests/test_planner_lesson_reader.py",
+      "size_bytes": 12046,
       "suffix": ".py"
     },
     {
@@ -42310,17 +42429,17 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:52caa054fcd0959aa1eebc94b91c9644654d8592158fecf6910df9a533e1df17",
+      "content_hash": "sha256:8849d8281ecc01a66cd270ac2c62920d2ff00b9f58bb1a1372a47fbc55fdf734",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_provider_routing.py",
-      "size_bytes": 14688,
+      "size_bytes": 14867,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:d2842fa1f865015c15dd8d33e097c24aca2b053872f46f3a19cb3a973945b2aa",
+      "content_hash": "sha256:a5a61d932884058f6e56abdf4916d3e8a8e61a92ce4b4056f02dc923d6cb2dd0",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_publish_contention.py",
-      "size_bytes": 182752,
+      "size_bytes": 183578,
       "suffix": ".py"
     },
     {
@@ -42380,10 +42499,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:b43feb8bfb97d99a9ce75a0d98dcf2a4ad59394bcc7fc26b75f155d0e8376fd8",
+      "content_hash": "sha256:d08573636fd30e11dab912a4da1a1625f178a7eebfd4f95c0ac7b3589f234cfe",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_real_mode_env_guard.py",
-      "size_bytes": 5495,
+      "size_bytes": 4564,
       "suffix": ".py"
     },
     {
@@ -42436,10 +42555,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:37a343e09818c1430d3fb9fd8b20e23e72baea9658d0e895fd5cb46388142f93",
+      "content_hash": "sha256:b9cdee144dd45284344dd3f2f1cae7dd95c264e0093068f123a816cc9191533c",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_release_claim_lease_token.py",
-      "size_bytes": 7123,
+      "size_bytes": 7200,
       "suffix": ".py"
     },
     {
@@ -42499,10 +42618,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:d4d5927ed9e8e7943c123020958da1942d43418a9765c4dcda253847f2eb8cac",
+      "content_hash": "sha256:6eb2cb9514bcc10dc499fee28c9cf13f56180dad9b7737d026e3263e5b60338d",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_request_contract_minter.py",
-      "size_bytes": 11691,
+      "size_bytes": 11810,
       "suffix": ".py"
     },
     {
@@ -42583,10 +42702,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:0f08f6ebeeee43ef59f672f7c9bd23e62bd3930122bca4a36b6bc79d5829c1af",
+      "content_hash": "sha256:668c41ea5423be8f4e03554b2b42d6a8b169495afd037f56f5f8447e83bac648",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_role_hygiene_e14.py",
-      "size_bytes": 22730,
+      "size_bytes": 23395,
       "suffix": ".py"
     },
     {
@@ -42594,6 +42713,13 @@
       "fate": "tracked",
       "path": "aria-kernel/tests/test_rollback_artifact_publication.py",
       "size_bytes": 12072,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:9aea2a32b729fd24647799744a19d7bf50828384fd652e0d6600699c0bddeebd",
+      "fate": "tracked",
+      "path": "aria-kernel/tests/test_rule_contract_manifests.py",
+      "size_bytes": 5773,
       "suffix": ".py"
     },
     {
@@ -42814,10 +42940,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:5963c4a77b36ff8c7086116403fd73a3ec425fea510f0ecb7f9aada67342991c",
+      "content_hash": "sha256:4787c0e53f7c9654df7d21f3cafe9b4090f67880882917c76ec344688bf62703",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_shadow_eval_bridge.py",
-      "size_bytes": 13763,
+      "size_bytes": 13746,
       "suffix": ".py"
     },
     {
@@ -42870,10 +42996,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:fe124bf109db5ac44c21982a6e42cbaa6d183fbf96d1d1f28038e5c0681edef9",
+      "content_hash": "sha256:bebf2081a18ea993bd749963a40ed9fbe53c7e6c53b47db4f7b537a09034a38d",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_snapshot_line_grandfather.py",
-      "size_bytes": 4528,
+      "size_bytes": 4547,
       "suffix": ".py"
     },
     {
@@ -42926,10 +43052,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:d1363913c37f61e61232cb3b6cf5a00b8b4d0b1dfa7fa5eb8ba6466c0b8e6cac",
+      "content_hash": "sha256:c52e2180bf1b432c181755567a05fd038ef54b4875db5249e4c598808cfc51df",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_state_cold_eviction.py",
-      "size_bytes": 28992,
+      "size_bytes": 29316,
       "suffix": ".py"
     },
     {
@@ -42940,38 +43066,38 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:0f0232fbeb40a0bf25ecab863e3d4761edf18a9dab69db81f6fa39559ba748f9",
+      "content_hash": "sha256:835b6ddffd39da8e92bdc84de1af5c91db7f1b15d7e6eeaba5dfc3c4f58065cf",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_state_compaction_gate.py",
-      "size_bytes": 5416,
+      "size_bytes": 5542,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:7bad3fa8f638b176f664b9f2f8c94685c4c74ce4079444abfc6fab3dc0645c74",
+      "content_hash": "sha256:a6f0955d124d9064b90e863502988fba75ab610c207934ad7b5eef2b8d30c458",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_state_continuity_gate.py",
-      "size_bytes": 15504,
+      "size_bytes": 15539,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:fbde6200197830006728b2961cbc951c5da146e4ff5db8dfa6cd0f701d9c7a03",
+      "content_hash": "sha256:fc92290b447fa896103388a02266a3c264bdd9643212adf20c1360f6c07ab1f4",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_state_lifecycle_arcs_derived.py",
-      "size_bytes": 29747,
+      "size_bytes": 30728,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:a61e0954b43096d5af61eca97da097b4a0d050910a257d94af707e0a7b3587e7",
+      "content_hash": "sha256:65e17d24f28837c82019c729b4a679e266699e03f21b43f1116cf47586f3957b",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_state_lock_arcs_traced.py",
-      "size_bytes": 15032,
+      "size_bytes": 16477,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:212efbb59d0a973914a49e3cf2d8744c48e7c1b3162746739666320d22744170",
+      "content_hash": "sha256:d3589a84252130d0e29ad1fb20ec2ee98e4850aeac40e47c5bb28c6926a9cc7b",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_state_lock_liveness_bound.py",
-      "size_bytes": 43828,
+      "size_bytes": 45883,
       "suffix": ".py"
     },
     {
@@ -42982,10 +43108,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:e6e4a1dfc026f54adae3444746d1a134cb3eb7f1369df604c84afb5e366c3fa0",
+      "content_hash": "sha256:def27a9f6248a60db70bb4b9312994ff134f2504b8dabbbcc937b2e569e22702",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_state_publish_maintenance.py",
-      "size_bytes": 27053,
+      "size_bytes": 27227,
       "suffix": ".py"
     },
     {
@@ -42996,31 +43122,45 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:a232eae2f7837e327d5d2b30b9b3a65596296a50941e88faf158f4baf37c6a35",
+      "content_hash": "sha256:d307e6f6d2e3af382f946ce367ef5e2ffb27961172705cd084bc1dbb6a6eeb78",
+      "fate": "tracked",
+      "path": "aria-kernel/tests/test_state_single_writer.py",
+      "size_bytes": 54882,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:53ce56787611144f8014d9015a3edd9cdcd1661dd0b5c272add7be2a50927b71",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_state_snapshot.py",
-      "size_bytes": 43580,
+      "size_bytes": 47082,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:c4984383fc4258653fbdd365d3322145f9f5589f44c44be7b5aa76f74fdc8b16",
+      "content_hash": "sha256:e48f38d86d3ada47d2ed9443c728427c79bd3da002c4c1749a3233031da2f3f7",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_state_store.py",
-      "size_bytes": 171096,
+      "size_bytes": 172387,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:3e0ec3830cf8b2817ec7fff1d8efe31415058fb328b4957561ac5a23d2776ffe",
+      "content_hash": "sha256:bd41246434ebc6286079a4a5485f27cf2ead71b1fa0e951a4d124836a78d452a",
+      "fate": "tracked",
+      "path": "aria-kernel/tests/test_state_store_hollow_aside_ignored.py",
+      "size_bytes": 2001,
+      "suffix": ".py"
+    },
+    {
+      "content_hash": "sha256:b5c212e60fdb05214b899fc91c66239ce6e0d9ad7826957e2c1ee86c683e2ffb",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_state_tree_contract.py",
-      "size_bytes": 24136,
+      "size_bytes": 24193,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:499528255a3dd4d0386070f408ebe63c3377df4d6ace359c570219c2f611d5c8",
+      "content_hash": "sha256:611b90536ac5c163891fc1a2399bef42ff4c44f0b04cd631c1c9fb45bf380702",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_state_writer_attestations.py",
-      "size_bytes": 3269,
+      "size_bytes": 3288,
       "suffix": ".py"
     },
     {
@@ -43206,10 +43346,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:b03789c28ee2c84fd5f53b9a35b8d6fd205295482ec4318fa708015c2885ec24",
+      "content_hash": "sha256:a0fe3cd8eed43933738ac384cb49aae0fb5c8d9229132ce716f48d3bb5964605",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_tools_binding.py",
-      "size_bytes": 15007,
+      "size_bytes": 15026,
       "suffix": ".py"
     },
     {
@@ -43479,10 +43619,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:082825914c334a680b6fcc5a7ea3838b77e890a50e6faa369665dda8effcae6c",
+      "content_hash": "sha256:27ae8354dea8651e72f5caa5da4a123067ea15030fb88f70f1295eae2a405893",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_workflow_enterprise_preflight.py",
-      "size_bytes": 50118,
+      "size_bytes": 50268,
       "suffix": ".py"
     },
     {
@@ -43521,10 +43661,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:fcdb2abae378ad17259f688dd9e9b34a687b3b589f468a278acdfc50a9bc1596",
+      "content_hash": "sha256:dc57117569d116920fbfceeb049b2ff53fa18b7b850e44a1e40552c7a1223ca6",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_x1_drain_topology.py",
-      "size_bytes": 4045,
+      "size_bytes": 4167,
       "suffix": ".py"
     },
     {
@@ -43549,17 +43689,17 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:ac7105610c88a991b1f50b6c88089568f23630f8137fc4896d5215b199a3da95",
+      "content_hash": "sha256:d2cbdfa219d1b084b9fb9accc7423d8947dce780a11c2516194b6a74a71784d1",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_y1y3_claim_lifecycle.py",
-      "size_bytes": 11403,
+      "size_bytes": 11869,
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:477fcea2281bf0bdd8a0cfd4db8a137529a3523bb54154acfb41552a9ec27461",
+      "content_hash": "sha256:70f653a4faf0772b66700199a6ba4d1768c88986efbed9ed99354950ef9499dc",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_y2_mint_discipline.py",
-      "size_bytes": 5412,
+      "size_bytes": 5535,
       "suffix": ".py"
     },
     {
@@ -43591,10 +43731,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:21a7a61ea1d582a6521e22d7388e5a34740057f79633356eea6df0b5ab2bc79b",
+      "content_hash": "sha256:a5a489deebebde6ff056dbbb13320a710e90faccc82d5bcc7ba118230c766b38",
       "fate": "tracked",
       "path": "aria-kernel/tests/test_z1_store_isolation.py",
-      "size_bytes": 11917,
+      "size_bytes": 11936,
       "suffix": ".py"
     },
     {
@@ -52404,10 +52544,10 @@
       "suffix": ".yaml"
     },
     {
-      "content_hash": "sha256:84f615f15fbaea9937a33fc01dce6d921e03c896e9dd676948ac33e8ac727c54",
+      "content_hash": "sha256:523ec366691beade261161f0e5c5f4d5157b6f993705c5c245ec8d15ab4a7a60",
       "fate": "tracked",
       "path": "docs/reviews/_registry/findings.jsonl",
-      "size_bytes": 3750092,
+      "size_bytes": 3787393,
       "suffix": ".jsonl"
     },
     {
@@ -53335,6 +53475,13 @@
       "suffix": ".md"
     },
     {
+      "content_hash": "sha256:98b64b9ef7a5d4ab4292a76fb2857de334e0c5b48d6d760fd1e5645336c3f0ce",
+      "fate": "tracked",
+      "path": "docs/reviews/claude/2026-10-02-aria-agent-eval-real-mode.md",
+      "size_bytes": 5373,
+      "suffix": ".md"
+    },
+    {
       "content_hash": "sha256:fae59ecc8946b6e8b676b3924e86b34825d9360c23c0b1c4a952f706fffd4226",
       "fate": "tracked",
       "path": "docs/reviews/claude/2026-10-02-aria-critical-path-ci.md",
@@ -53433,10 +53580,24 @@
       "suffix": ".md"
     },
     {
+      "content_hash": "sha256:831a87018c96915127217dd9702dff7d844e0d80cbfb2ed0b6263252925393a6",
+      "fate": "tracked",
+      "path": "docs/reviews/claude/2026-10-03-aria-find-gaps-judgment.md",
+      "size_bytes": 6624,
+      "suffix": ".md"
+    },
+    {
       "content_hash": "sha256:770ed4755ee3590161be45dae1bfd0cbd40089c646e1a31bef3df67069205727",
       "fate": "tracked",
       "path": "docs/reviews/claude/2026-10-03-aria-gap-finding-role.md",
       "size_bytes": 2428,
+      "suffix": ".md"
+    },
+    {
+      "content_hash": "sha256:b0728b2ab7932f1ff1aa9046bea49f97ce9ef961afa09c7e10d49ab067705bf5",
+      "fate": "tracked",
+      "path": "docs/reviews/claude/2026-10-03-aria-planner-lesson-reader.md",
+      "size_bytes": 3297,
       "suffix": ".md"
     },
     {
@@ -53465,6 +53626,62 @@
       "fate": "tracked",
       "path": "docs/reviews/claude/2026-10-03-workflow-roles-e2e-test.md",
       "size_bytes": 938,
+      "suffix": ".md"
+    },
+    {
+      "content_hash": "sha256:4e28af60e33533f81b8036ec905895c829dbe0f5d0d07f7b16137b468f8025d6",
+      "fate": "tracked",
+      "path": "docs/reviews/claude/2026-10-04-aria-cross-review-scope-from-plan.md",
+      "size_bytes": 7549,
+      "suffix": ".md"
+    },
+    {
+      "content_hash": "sha256:9ee0e268a187533e5841648f9843175dad4b0782032c7f03b03b12e4db424f22",
+      "fate": "tracked",
+      "path": "docs/reviews/claude/2026-10-04-aria-drain-plan-progress-first.md",
+      "size_bytes": 3561,
+      "suffix": ".md"
+    },
+    {
+      "content_hash": "sha256:ea4e9cfb6f4c6679965e1cde1fbc26fd0df5073578745edac7e535eaa05cd43f",
+      "fate": "tracked",
+      "path": "docs/reviews/claude/2026-10-04-aria-hollow-store-aside-ignored.md",
+      "size_bytes": 1193,
+      "suffix": ".md"
+    },
+    {
+      "content_hash": "sha256:5853c663bd934a3aa857413cf1d1e3766abb5ce2ef747d3dae254f1101ea96db",
+      "fate": "tracked",
+      "path": "docs/reviews/claude/2026-10-04-aria-hr-adjudication-reconcile.md",
+      "size_bytes": 5343,
+      "suffix": ".md"
+    },
+    {
+      "content_hash": "sha256:134f9a44965b4caa92305361c0427dbc701663d8ef00f397dc1f5303bc9a7215",
+      "fate": "tracked",
+      "path": "docs/reviews/claude/2026-10-04-aria-maintenance-utility-route.md",
+      "size_bytes": 5933,
+      "suffix": ".md"
+    },
+    {
+      "content_hash": "sha256:c9c0d7a32a0f1e07bde9aec9f600c4f077fc1c48fe3f9218a4f82e56bf783970",
+      "fate": "tracked",
+      "path": "docs/reviews/claude/2026-10-04-aria-snapshot-mutation-race.md",
+      "size_bytes": 3765,
+      "suffix": ".md"
+    },
+    {
+      "content_hash": "sha256:43e6d2b7b390011d9918dadba1bd5a0eccafa70074d6947615d953c156415557",
+      "fate": "tracked",
+      "path": "docs/reviews/claude/2026-10-04-aria-state-single-writer.md",
+      "size_bytes": 17240,
+      "suffix": ".md"
+    },
+    {
+      "content_hash": "sha256:42df2226afe27b4dfc8d8c92a2f28792b0a2def9649629e5ac78c3c005431a0c",
+      "fate": "tracked",
+      "path": "docs/reviews/claude/2026-10-04-braces-stack-exhaustion.md",
+      "size_bytes": 14075,
       "suffix": ".md"
     },
     {
@@ -55407,10 +55624,10 @@
       "suffix": ".md"
     },
     {
-      "content_hash": "sha256:7066b38e2ddf0910518366685c003d2346f794a6212a50418601167ab9aed4d2",
+      "content_hash": "sha256:d2c3c6d077044acb87f0332b1f0d844c125883174274f822083cf74db3f357b6",
       "fate": "tracked",
       "path": "docs/runbooks/aria-state-branch-bootstrap.md",
-      "size_bytes": 5488,
+      "size_bytes": 8198,
       "suffix": ".md"
     },
     {
@@ -65669,17 +65886,17 @@
       "suffix": ".md"
     },
     {
-      "content_hash": "sha256:1f3e79d1c0d6c3710d861aa57211e12907d451a0b13329d4e797b2c005f3d6a8",
+      "content_hash": "sha256:84f42796ff8edc503787b5ddd6d827bee84b8d18e27fe81f48b418b3351564f0",
       "fate": "tracked",
       "path": "package-lock.json",
-      "size_bytes": 1613052,
+      "size_bytes": 1480524,
       "suffix": ".json"
     },
     {
-      "content_hash": "sha256:56c11522913dbe57cf859ef0a1efd8290c02a69eff2abdd079a510ee8c60368d",
+      "content_hash": "sha256:c17ddc5de393d5c983f77941652c2b2908b64a7aa8b9c5dd3d542d79f006bc62",
       "fate": "tracked",
       "path": "package.json",
-      "size_bytes": 25391,
+      "size_bytes": 25360,
       "suffix": ".json"
     },
     {
@@ -66523,10 +66740,10 @@
       "suffix": ".mjs"
     },
     {
-      "content_hash": "sha256:7ee8efdfe27173ef2d9a0f9e8bee0dd8335d04686cde1b6a12b03a2ee69d3bdb",
+      "content_hash": "sha256:4c7208bb355cc6f345a6f98d3c9c3d2f89db0caadf8717a19c82009f25d201e4",
       "fate": "tracked",
       "path": "scripts/ci/npm-audit-exceptions.json",
-      "size_bytes": 1240,
+      "size_bytes": 3161,
       "suffix": ".json"
     },
     {
@@ -71031,10 +71248,10 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:b043c471e84d711ecfd6be5bcf88ede8b96c812f7f46e09c18da796adf49d167",
+      "content_hash": "sha256:26b81e36f367f5f15954f4af423aa48aed889e6b9dddf297c6ec64cd5830de0d",
       "fate": "tracked",
       "path": "tests/invariants/dependency-security-floor.spec.ts",
-      "size_bytes": 42290,
+      "size_bytes": 43129,
       "suffix": ".ts"
     },
     {
@@ -72074,10 +72291,10 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:ddbd072bd5f64d40c3587861419ec44b5f2d98179dc03c8d4138ebec8a86f2e3",
+      "content_hash": "sha256:4a52ded442f99c5d6d9499ab395e6fbe81c1b25ff3df3a51f7e73f1bbf0e20b3",
       "fate": "tracked",
       "path": "tests/invariants/npm-audit-exception-ssot.spec.ts",
-      "size_bytes": 11255,
+      "size_bytes": 11767,
       "suffix": ".ts"
     },
     {
@@ -72949,31 +73166,31 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:5b3cadebdaf5613daa06d838f0ac49878dcc5a5f2716acf349c2b7579f651076",
+      "content_hash": "sha256:9ff1617d0f9bf9949583fabb7a420fab8b1f7eb993865e8d4cf1deb1ec3a0e9a",
       "fate": "tracked",
       "path": "tools/aria-adapters/agent-harness-security-adapter.tool.json",
-      "size_bytes": 1420,
+      "size_bytes": 4791,
       "suffix": ".json"
     },
     {
-      "content_hash": "sha256:ef69c1106731b81fc975125096309c62fa94c4332ac85aea815e525dbaac4e45",
+      "content_hash": "sha256:b5a5893967990c980f10e8e874480e654b3270e4cd94ad453cb9a44d7737d4f2",
       "fate": "tracked",
       "path": "tools/aria-adapters/bundle-budget-adapter.test.ts",
-      "size_bytes": 2132,
+      "size_bytes": 3306,
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:2847972c5da4b4fa9d95fd6c62b7e75cd0f6ce6ec256d35ca72cf751aa07d563",
+      "content_hash": "sha256:4cdfbd13e44cd1328fa61afa769006db763f486e51c4670be131f12265d03f0c",
       "fate": "tracked",
       "path": "tools/aria-adapters/bundle-budget-adapter.tool.json",
-      "size_bytes": 1291,
+      "size_bytes": 2288,
       "suffix": ".json"
     },
     {
-      "content_hash": "sha256:0bb2018539780e64730dcaba827e1ce03d6ea8f6c0462b45b4efe0e3df103675",
+      "content_hash": "sha256:d48a5b7f4bb44b2f261b24652297217986ee3df74ce11ed48bb2e829f2fb553b",
       "fate": "tracked",
       "path": "tools/aria-adapters/bundle-budget-adapter.ts",
-      "size_bytes": 7862,
+      "size_bytes": 8202,
       "suffix": ".ts"
     },
     {
@@ -72984,10 +73201,10 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:54baa5df57b17a669a3c474496a89bd948cfe3383c927aa9554e4b26d440ee40",
+      "content_hash": "sha256:72c66b0a7f36689f76ef06ef3297361153085e37e5c6561213c0f4a64338bff3",
       "fate": "tracked",
       "path": "tools/aria-adapters/doc-staleness-adapter.tool.json",
-      "size_bytes": 1194,
+      "size_bytes": 1756,
       "suffix": ".json"
     },
     {
@@ -73005,10 +73222,10 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:f54a46bab7b2e9e3459e5b1fd3ae6b821ab472859aa420d39c0884e6aacaf612",
+      "content_hash": "sha256:40bdb74c679d3e9a9a09427211095472129273f35cbe973a6f63f74d01cf7e48",
       "fate": "tracked",
       "path": "tools/aria-adapters/event-contracts-adapter.tool.json",
-      "size_bytes": 1192,
+      "size_bytes": 3379,
       "suffix": ".json"
     },
     {
@@ -73026,10 +73243,10 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:6f2dba6cac80139419b1b90fe4d1cef931017d8ec7ab4b19d2f5bc296ec8bc3c",
+      "content_hash": "sha256:864ff56e18ed940a704fe4e35565366011b4bffa9a39560799df47e196886b1e",
       "fate": "tracked",
       "path": "tools/aria-adapters/fe-dto-parity-adapter.tool.json",
-      "size_bytes": 1292,
+      "size_bytes": 1803,
       "suffix": ".json"
     },
     {
@@ -73257,10 +73474,10 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:4f531f18c35eeea4e31b184043d46565f780bc3ee3f590ad67083a45a57d81f8",
+      "content_hash": "sha256:a7df1c96e6a3a01a31c268a87e127ba3212ff91e5d79bb714014fb1eb14bbcb8",
       "fate": "tracked",
       "path": "tools/aria-adapters/fixtures/test-gap-adapter/cases/real-repo-baseline.json",
-      "size_bytes": 485,
+      "size_bytes": 524,
       "suffix": ".json"
     },
     {
@@ -73292,24 +73509,24 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:82f554e957271b688ef48f5f08e3e395b549bd372dcd989c6c9f2e2bf553e60a",
+      "content_hash": "sha256:b4cef07a0cc39b651d7ba70cefa86095a0dc491e4103449cf32f3eec5f503dca",
       "fate": "tracked",
       "path": "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-testgap/apps/billing-service/src/payment/__tests__/capture.handler.ts",
-      "size_bytes": 337,
+      "size_bytes": 359,
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:b35c267da12368b15e51e1c751a2e0c5dafbb439fc85396a09196f6c9134517b",
+      "content_hash": "sha256:0258515468b01e77f230eb937d7bc1b5ff7b6cae9c7733d41a1d0937a5f457db",
       "fate": "tracked",
       "path": "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-testgap/apps/billing-service/src/payment/capture.handler.ts",
-      "size_bytes": 73,
+      "size_bytes": 319,
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:0c7c2239d1c1716c07de79d509483b81143d3ec72bda61fe171c391174adc39f",
+      "content_hash": "sha256:9599ed90a8d9edd15713ec17e7bdd2e560185f136b8f0a129ff0c82cb66eece9",
       "fate": "tracked",
       "path": "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-testgap/apps/billing-service/src/payment/refund.handler.ts",
-      "size_bytes": 71,
+      "size_bytes": 400,
       "suffix": ".ts"
     },
     {
@@ -73348,10 +73565,10 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:0e6acf438d0f91a9d47d29a229373c9dafbd469ca8bbc0d93cd4f33fea8076f4",
+      "content_hash": "sha256:86e485bb81c3ab629981df3ed727db6904d2e416d0fbec6c02bd8a40049e62c1",
       "fate": "tracked",
       "path": "tools/aria-adapters/kernel-dead-wire-adapter.tool.json",
-      "size_bytes": 1417,
+      "size_bytes": 2290,
       "suffix": ".json"
     },
     {
@@ -73369,10 +73586,10 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:73a31073c0ddb7e572cc98a4564a5b5c9d4bb511fd51118d222598e80112fae7",
+      "content_hash": "sha256:18a576687b7a98ef2128199750ad24ab8e8893e5d6c2204873fc475f99aaafa1",
       "fate": "tracked",
       "path": "tools/aria-adapters/lint-rules-adapter.tool.json",
-      "size_bytes": 1544,
+      "size_bytes": 2050,
       "suffix": ".json"
     },
     {
@@ -73404,10 +73621,10 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:3538cb0a3d6dab4740c02240ddae9dcce2cfcc76f43192455dd41195eb2423ad",
+      "content_hash": "sha256:78e9a7725dca96b3a2dad211d01e12beb31d44f21e43ffa16e6ba6111fd6a28a",
       "fate": "tracked",
       "path": "tools/aria-adapters/security-boundary-adapter.tool.json",
-      "size_bytes": 1567,
+      "size_bytes": 3908,
       "suffix": ".json"
     },
     {
@@ -73425,10 +73642,10 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:c9c011e31a39b592d8c307a4bdf9e0dcc77bfe9dbcba4871ca50338affa657f6",
+      "content_hash": "sha256:2453ff103d104a36064e6a636006abd4e58b4889b1d123aaa827265f62c54ea9",
       "fate": "tracked",
       "path": "tools/aria-adapters/tenant-scoping-adapter.tool.json",
-      "size_bytes": 1384,
+      "size_bytes": 2948,
       "suffix": ".json"
     },
     {
@@ -73439,24 +73656,24 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:29dee3442bb69864d3ceed9a04a15bfbf1f295c9c4a4f20f26b7b77f754f7d0c",
+      "content_hash": "sha256:479302665ff6901cb68d4e4a2ef5a694d9af5737e88b46afd14d2fc8757b6e46",
       "fate": "tracked",
       "path": "tools/aria-adapters/test-gap-adapter.test.ts",
-      "size_bytes": 4475,
+      "size_bytes": 9444,
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:5c2ceda6a63830acc9f6b4d83d68ce919430f8a3f59705d70b1b6dc502451bb0",
+      "content_hash": "sha256:e663ea3bd79aa1e905866668a21b820a802dbcd0a92e5396955b4c277ecae12b",
       "fate": "tracked",
       "path": "tools/aria-adapters/test-gap-adapter.tool.json",
-      "size_bytes": 1552,
+      "size_bytes": 3138,
       "suffix": ".json"
     },
     {
-      "content_hash": "sha256:574f92635effc17ca57313b056e69e819a4908bcf8242c81ccc10f4470eef0cf",
+      "content_hash": "sha256:bd960c030421345303fcd19d31828bcf20167663eac3a84500aa49c2e3c82bea",
       "fate": "tracked",
       "path": "tools/aria-adapters/test-gap-adapter.ts",
-      "size_bytes": 17883,
+      "size_bytes": 27384,
       "suffix": ".ts"
     },
     {
@@ -73474,10 +73691,10 @@
       "suffix": ".ts"
     },
     {
-      "content_hash": "sha256:5d9219f00698a61fdf087343e16a46bec43214039ba3e0b2c7bd21bc5043e846",
+      "content_hash": "sha256:3a65b90fcdef977c6738eab12fd87d03e5912e8336c6916ce987bb3d0200883c",
       "fate": "tracked",
       "path": "tools/aria-adapters/typeorm-entity-schema-adapter.tool.json",
-      "size_bytes": 1305,
+      "size_bytes": 4680,
       "suffix": ".json"
     },
     {
@@ -73516,10 +73733,10 @@
       "suffix": ".py"
     },
     {
-      "content_hash": "sha256:a8130ec70d10767bcb4b9c362662e2aeacbd81ea10cc5fce752c84672f393eb3",
+      "content_hash": "sha256:851637b3293b057b3291a158591a44d0eb507dec55264b41515c22c171c44e28",
       "fate": "tracked",
       "path": "tools/aria-poc/ci_executor.py",
-      "size_bytes": 299044,
+      "size_bytes": 300963,
       "suffix": ".py"
     },
     {
@@ -73530,10 +73747,10 @@
       "suffix": ".md"
     },
     {
-      "content_hash": "sha256:c9586334afb26030d902be62d483bc3c2ea6e9f7a70200614cdbb6530b4ffa62",
+      "content_hash": "sha256:9f0519733c112a329e045997b6bac1edefe4198a72d990cc10822817b052b92f",
       "fate": "tracked",
       "path": "tools/aria-poc/ci_executor_drain.py",
-      "size_bytes": 56260,
+      "size_bytes": 63392,
       "suffix": ".py"
     },
     {

@@ -23,6 +23,7 @@ from .evidence_trust import is_self_output_ref
 from .genesis_lifecycle import verify_shadow_eval_proof
 from .must_satisfy import MUST_SATISFY_ID_FIELD, MUST_SATISFY_TEXT_FIELD, must_satisfy_text, validate_must_satisfy
 from .git_probe import refuse_shallow_checkout
+from .plan_round_scope import PLANNING_ROUND_ROLES, require_plan_round_envelope
 from .ledger import (
     SEGMENTED_LEDGERS,
     StateTransaction,
@@ -1343,6 +1344,18 @@ def create_agent_invocation_request(
     # an item they DO carry is still held to the shape.
     if must_satisfy:
         must_satisfy = validate_must_satisfy(must_satisfy)
+    # ARIA-HIGH-345 — a planning-round envelope belongs to the plan it
+    # names. The F-007 plan's round-1 cross_review was minted with the scope
+    # and key change of another candidate in the same cycle and could only be
+    # refused by its reviewer; the drainer no longer has a parameter through
+    # which that can happen, and this refuses it for every other producer.
+    if role in PLANNING_ROUND_ROLES and convergence_id:
+        from .plan_convergence import fold_plan_state
+
+        require_plan_round_envelope(
+            fold_plan_state(plan_id=convergence_id, base_dir=root),
+            role=role, allowed_scope=list(allowed_scope or []), must_satisfy=list(must_satisfy or []),
+        )
     if forbidden_scope is not None and (
         not isinstance(forbidden_scope, list)
         or any(not isinstance(item, str) or not item.strip() for item in forbidden_scope)
@@ -5393,8 +5406,9 @@ def _prepare_claim_submission(
         )
     assert compliance is not None
 
-    request_context_hash = str(request.get("context_hash") or "")
-    request_prompt_hash = str(request.get("prompt_hash") or "")
+    request_binding = accepted_result_request_binding(request)
+    request_context_hash = request_binding["context_hash"]
+    request_prompt_hash = request_binding["prompt_hash"]
     if not request_context_hash or not request_prompt_hash:
         raise GovernanceError("submit_claim_result_request_missing_context_prompt_binding")
     if context_hash != request_context_hash:
@@ -5430,14 +5444,14 @@ def _prepare_claim_submission(
         output_path=store_relative_artifact_path(root, sealed_output),
         output_hash=output_hash,
         envelope_evidence_hash=submitted_hash,
-        context_hash=context_hash,
-        prompt_hash=prompt_hash,
+        # The request evidence in the projection's own spelling (equal to
+        # the submitted context/prompt hashes, checked above).
+        **request_binding,
         transcript_hash=transcript_hash,
         transcript_artifact_ref=store_relative_artifact_path(
             root,
             verified_transcript_artifact,
         ),
-        target_sha=str(request.get("target_sha") or ""),
         checked_evidence_count=len(revalidation["checked_refs"]),
     )
     return {
@@ -6116,6 +6130,27 @@ def submit_claim_result(
         )
 
     return {"status": "accepted", "reasons": [], "row": persisted, "bridged": bridged}
+
+
+def accepted_result_request_binding(request: Mapping[str, Any]) -> dict[str, str]:
+    """The request evidence an accepted result row carries, spelled the way
+    the row carries it: ``target_sha``, ``context_hash``, ``prompt_hash``.
+
+    THE one projection. The accepted-row constructor writes it and every
+    reader that proves a row belongs to its request compares against it, so
+    the writer and the proof cannot disagree on how an absent field reads.
+    ARIA-HIGH-346: an unanchored request (``target_sha`` None or absent —
+    every HUMAN_REQUIRED adjudication panel seat, ORPHAN-CRITICAL-495) is
+    written as ``""`` while the executor's native reconciliation compared
+    the row against the raw ``None``, refusing every such accepted result
+    as ``native_runtime_result_request_evidence_unavailable`` (executor runs
+    37205463513, 37221168808).
+    """
+    return {
+        "target_sha": str(request.get("target_sha") or ""),
+        "context_hash": str(request.get("context_hash") or ""),
+        "prompt_hash": str(request.get("prompt_hash") or ""),
+    }
 
 
 def _build_accepted_row(

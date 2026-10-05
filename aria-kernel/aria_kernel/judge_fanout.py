@@ -20,7 +20,10 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request
+from .evidence_trust import forbidden_detector_scope
 from .ledger import load_segments
+from .must_satisfy import must_satisfy_item, product_defect_obligation, rule_premise_obligation
+from .rule_contract import RuleContract, resolve_rule_contract
 from .tool_registry import ensure_tools_dir
 
 
@@ -70,16 +73,69 @@ def _group_id(item: dict[str, Any]) -> str:
     return f"judge:{item.get('tool_id')}:{_finding_key(item)}"
 
 
-def _render_prompt(item: dict[str, Any]) -> str:
+def _render_prompt(item: dict[str, Any], contract: RuleContract) -> str:
+    """ARIA-HIGH-324 — the question is the PRODUCT, not the rule: both
+    verdicts are defined and the rule's product claim is stated (see
+    rule_contract for why)."""
     return (
-        "Judge whether this adapter finding is a true_positive or false_positive.\n"
+        "Decide whether this adapter finding names a product defect.\n"
+        "true_positive: every premise obligation holds as a fact about the product at the "
+        "finding's location, AND a person must change product code or configuration to "
+        "resolve the defect claim below.\n"
+        "false_positive: at least one premise does not hold, or nothing in the product needs "
+        "to change.\n"
+        "Whether the rule fired is not the question: the detector reporting this finding is "
+        "given. Judge the product, never the rule's predicate.\n"
+        "Evidence for true_positive lies in this tool's declared scope "
+        f"({', '.join(contract.declared_scope)}); ARIA's detector source (forbidden_scope) "
+        "is never evidence about the product.\n"
         f"finding_id: {item.get('finding_id')}\n"
         f"rule: {item.get('rule')}\n"
         f"severity: {item.get('severity')}\n"
         f"path: {item.get('path')}\n"
         f"message: {item.get('message')}\n"
-        "Return verdict true_positive|false_positive with file:line evidence."
+        f"defect claim: {contract.defect_claim}\n"
+        "Return verdict true_positive|false_positive with file:line evidence, and answer every "
+        "must_satisfy obligation in satisfaction_matrix."
     )
+
+
+def _judge_obligations(contract: RuleContract) -> list[dict[str, Any]]:
+    """The rule's premises and its defect claim, as obligations the judge
+    answers; ``judgment_bridge`` refuses a true_positive that leaves one of
+    them short of ``satisfied``."""
+    obligations = [
+        rule_premise_obligation(index=index, rule=contract.rule, premise=premise)
+        for index, premise in enumerate(contract.premises, start=1)
+    ]
+    obligations.append(product_defect_obligation(
+        rule=contract.rule, claim_type=contract.claim_type, defect_claim=contract.defect_claim,
+    ))
+    obligations.append(must_satisfy_item(
+        id="verdict",
+        description=(
+            "Return true_positive only when every premise obligation and the defect obligation "
+            "are satisfied, false_positive otherwise, with file:line evidence about the product."
+        ),
+    ))
+    return obligations
+
+
+def judge_request_fields(item: dict[str, Any], contract: RuleContract) -> dict[str, Any]:
+    """The contract-bound part of a judge envelope for one finding: prompt,
+    obligations and scopes. The live fan-out and the gold-set replay
+    (judge_replay) both mint through it, so replay recall measures the same
+    question live judges answer."""
+    return {
+        "suggested_prompt": _render_prompt(item, contract),
+        "must_satisfy": _judge_obligations(contract),
+        # A false_positive may cite anything that refutes a premise, the
+        # detector's own source included; what a true_positive may stand on
+        # is bounded by forbidden_scope here and by the trust layer at
+        # consensus and promotion.
+        "allowed_scope": ["**"],
+        "forbidden_scope": forbidden_detector_scope(contract.declared_scope),
+    }
 
 
 def _evidence_refs(item: dict[str, Any]) -> list[str]:
@@ -201,13 +257,28 @@ def dispatch_judges_for_sample(
     judged: dict[str, set[tuple[str, str]]] = {}
     minted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    contracts: dict[tuple[str, str], RuleContract | None] = {}
     for item in items:
         if not isinstance(item, dict):
             continue
         group = _group_id(item)
-        prompt = _render_prompt(item)
         refs = _evidence_refs(item)
         tool_id = str(item.get("tool_id") or "")
+        rule = str(item.get("rule") or "")
+        if (tool_id, rule) not in contracts:
+            contracts[(tool_id, rule)] = resolve_rule_contract(tool_id=tool_id, rule=rule, base_dir=root)
+        contract = contracts[(tool_id, rule)]
+        if contract is None:
+            # ARIA-HIGH-324 — a rule that states no claim about the product
+            # cannot be judged for one: the judge would fall back to asking
+            # whether the rule fired. Refused visibly, per judge.
+            skipped.extend(
+                {"judgment_group_id": group, "target_agent": agent,
+                 "reason": "rule_contract_undeclared", "tool_id": tool_id, "rule": rule}
+                for _role, agent in JUDGE_FANOUT
+            )
+            continue
+        envelope = judge_request_fields(item, contract)
         if tool_id not in judged:
             judged[tool_id] = _judged_pairs(root, tool_id)
         finding_key = _finding_key(item)
@@ -229,9 +300,7 @@ def dispatch_judges_for_sample(
             req = create_agent_invocation_request(
                 target_agent=agent,
                 role=role,
-                suggested_prompt=prompt,
-                must_satisfy=[{"id": "verdict", "description": "Return true_positive or false_positive with file:line evidence"}],
-                allowed_scope=["**"],
+                **envelope,
                 evidence_refs=refs or None,
                 finding_id=str(item.get("finding_id") or ""),
                 # ORPHAN-HIGH-765 — thread the sampler's fingerprint onto the

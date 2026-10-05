@@ -343,7 +343,10 @@ class PlanTextNeverReachesTheScannedFieldTests(unittest.TestCase):
         # `must_satisfy_item(description=<plan text>)` — the exact shape that
         # was refused. Read as node shapes (Plan 026R §H.1), not substrings.
         kernel = Path(__file__).resolve().parents[1] / "aria_kernel"
-        for module in ("cross_review_bridge.py", "autonomy_orchestrator.py"):
+        # ARIA-HIGH-345 — the round obligations moved from the orchestrator
+        # (which built them from the cycle's candidate) to plan_round_scope
+        # (which builds them from the plan's own start record).
+        for module in ("cross_review_bridge.py", "plan_round_scope.py"):
             calls = _calls_in(kernel / module)
             with self.subTest(module=module):
                 self.assertIn("key_change_obligation", {name for name, _ in calls})

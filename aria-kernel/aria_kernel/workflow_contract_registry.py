@@ -70,6 +70,11 @@ class WorkflowAbortGate:
     # holds the lease, which is ORPHAN-CRITICAL-469 restored with the
     # contract gate still green.
     announce_step: str = ""
+    # ARIA-HIGH-342 / GSEC-LOW-001 — idempotent cleanup that must run even
+    # while blocked: the aria/state writer-lease release. Exempt by NAME, and
+    # only with exactly `if: always()` and only as the release action, so the
+    # exemption cannot be borrowed by a worker step.
+    cleanup_steps: tuple[str, ...] = ()
 
     @property
     def guard_expression(self) -> str:
@@ -343,9 +348,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # margin). 500 → 510 (round 6): the window grew to 21000 s so
                 # an implementation child has 657 s of start window, not 57 —
                 # the first `next-pending` alone took over 40 s under load.
-                # The YAML is the pin; this must move with it
+                # 510 → 570 (ARIA-HIGH-342, PR #1779 re-review R-3): the
+                # post-drain reserve now prices the leased publish's preamble
+                # outside the lock (cold staging, the fence's lease reads and
+                # renewal: 4500 s). The YAML is the pin; this must move with it
                 # (`_verify_job_timeout_minutes`).
-                job_timeout_minutes=510,
+                job_timeout_minutes=570,
                 required_steps=(
                     _EXECUTOR_RESTORE_STEP,
                     _EXECUTOR_LEASE_STEP,
@@ -383,6 +391,7 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     gate_step=_EXECUTOR_LEASE_STEP,
                     guard_output="steps.lease_check.outputs.blocked",
                     announce_step="Skip autonomous loop when local lease is fresh",
+                    cleanup_steps=("Release the aria/state writer lease",),
                 ),
             ),
         ),
@@ -505,6 +514,7 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     gate_step=_CYCLE_LEASE_STEP,
                     guard_output="steps.lease_check.outputs.blocked",
                     announce_step="Skip when local lease is fresh",
+                    cleanup_steps=("Release the aria/state writer lease",),
                 ),
             ),
         ),

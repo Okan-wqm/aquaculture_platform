@@ -33,6 +33,72 @@
   ],
   "forbidden_read_globs": [".git/**", "node_modules/**", "dist/**"],
   "claim_types": ["harness_security"],
+  "rules": {
+    "secret_leak_in_yaml_or_md": {
+      "claim_type": "wrong_code",
+      "severity_cap": "CRITICAL",
+      "defect_claim": "A usable credential is committed in a workflow, agent definition or ARIA source file.",
+      "premises": [
+        "The cited line holds a credential value itself (key, token or password), not a placeholder, a variable reference or a secret-store lookup.",
+        "The value is not a documented dummy, test fixture or redacted example."
+      ]
+    },
+    "workflow_run_or_pr_target_untrusted_checkout": {
+      "claim_type": "wrong_code",
+      "severity_cap": "CRITICAL",
+      "defect_claim": "A privileged workflow checks out code from an untrusted pull request and runs it with the base repository's secrets or write token.",
+      "premises": [
+        "The workflow is triggered by pull_request_target or workflow_run.",
+        "A step checks out the pull request's head ref or head sha.",
+        "A later step builds, tests or executes the checked-out code while secrets or a write-scoped token are available to it."
+      ]
+    },
+    "broad_shell_permission": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A workflow grants write permissions its jobs do not need.",
+      "premises": [
+        "The cited line grants write-all or contents: write to the workflow or a job.",
+        "No step in the jobs that receive the permission writes to the repository (push, release, tag, or a commit through the API)."
+      ]
+    },
+    "prompt_injection_surface": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "HIGH",
+      "defect_claim": "An agent that reads content an outside party can author runs without a tool allowlist or with unrestricted paths.",
+      "premises": [
+        "The cited agent definition declares no tools allowlist, or allows every path (allowed_paths: **).",
+        "The agent is dispatched on content an outside party can author (pull request or issue text, fork code, review comments)."
+      ]
+    },
+    "direct_anthropic_api_usage": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "Code reaches the Anthropic API directly instead of through the approved wrapper.",
+      "premises": [
+        "The cited file imports or calls @anthropic-ai/sdk.",
+        "The file runs in ARIA, CI or a product service, not in a test double, a type-only import or documentation."
+      ]
+    },
+    "lease_token_in_logs": {
+      "claim_type": "wrong_code",
+      "severity_cap": "CRITICAL",
+      "defect_claim": "A lease token is written where a reader of logs or stdout can replay it.",
+      "premises": [
+        "The cited line writes a value derived from a lease token to a log, print or stdout sink.",
+        "The written value is the token or enough of it to replay, not a hash, a prefix-free reference or a redaction."
+      ]
+    },
+    "agent_self_modification_bypass": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "An agent can rewrite its own definition or the definitions that govern it, outside review.",
+      "premises": [
+        "The cited agent definition grants the Edit or Write tool.",
+        "Nothing in the agent's dispatch (allowed scope, forbidden scope or a write gate) stops it from writing under .claude/agents/."
+      ]
+    }
+  },
   "owner": "platform-security",
   "runner": {
     "type": "subprocess",

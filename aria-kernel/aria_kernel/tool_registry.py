@@ -882,6 +882,13 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         raise GovernanceError("claim_types must be a non-empty array")
     if "default_input" in candidate and not isinstance(candidate["default_input"], dict):
         raise GovernanceError("default_input must be a JSON object when provided")
+    if "rules" in candidate:
+        # ARIA-HIGH-324 — the per-rule judgment contract (rule_contract) is
+        # checked at the one gate every registry row passes, so a contract
+        # the judge fan-out or the promotion could not use never registers.
+        from .rule_contract import validate_rule_contracts
+
+        candidate["rules"] = validate_rule_contracts(candidate["rules"], tool_id=str(candidate["tool_id"]))
 
     # E13-C11 — freshness metadata (see DEFAULT_FRESHNESS_WINDOW_HOURS
     # comment for the full WHY). Optional in the manifest; defaulted when

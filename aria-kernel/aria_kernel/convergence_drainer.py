@@ -84,6 +84,7 @@ from .plan_coverage import (
     environment_unable_payload,
     parse_critic_adjudication,
 )
+from .plan_round_scope import plan_round_contract
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 # Plan ARIA-V10.4 Phase 3.H.2 — the convergence drainer mints
@@ -177,9 +178,6 @@ class ConvergenceRunner(Protocol):
         workspace_root: Path | None,
         plan_id: str,
         plan_seed: dict[str, Any],
-        must_satisfy: list[dict[str, Any]],
-        evidence_refs: list[str],
-        allowed_scope: list[str],
         max_rounds: int = 4,
     ) -> ConvergenceResult: ...
 
@@ -541,9 +539,6 @@ def run_convergence_drainer(
     workspace_root: str | Path | None,
     plan_id: str,
     plan_seed: dict[str, Any],
-    must_satisfy: list[dict[str, Any]],
-    evidence_refs: list[str],
-    allowed_scope: list[str],
     max_rounds: int = 4,
     coverage_computer: Any | None = None,
     critic_adjudicator: Any | None = None,
@@ -559,6 +554,16 @@ def run_convergence_drainer(
     when injected, the critic is resolved synchronously exactly as the
     tests expect; production leaves it None and gets the async
     mint-then-fold path.
+
+    ARIA-HIGH-345 — there is no ``must_satisfy`` / ``allowed_scope`` /
+    ``evidence_refs`` parameter. They were the CYCLE's values: the
+    orchestrator computed them from the candidate it synthesized this cycle
+    and the drainer minted every round envelope of the plan it ADOPTED with
+    them, so the F-007 plan's round-1 cross_review carried the failing_ci
+    candidate's scope and key change. Every envelope minted here now derives
+    them from the plan's own ``plan_started`` record and admission bound
+    (``plan_round_scope.plan_round_contract``); ``plan_seed`` is read only to
+    start a plan that does not exist yet.
     """
     root = ensure_tools_dir(base_dir)
     transcript_dir = root / "convergence"
@@ -594,16 +599,26 @@ def run_convergence_drainer(
     state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
     plan_state = state.get("state")
     current_round = int(state.get("current_round") or 1)
-    current_refs, current_revision_hash, current_context_paths = _planning_source_context(state, evidence_refs) if plan_state is not None else (list(evidence_refs), None, None)
-    # Adopted plans derive their obligations from what the plan STARTED
-    # with plus carried coverage gaps — not tonight's fresh synthesis,
-    # which may describe a different problem entirely.
-    if plan_state is not None:
-        started = state.get("plan_started") or {}
-        started_ms = started.get("must_satisfy") if isinstance(started, dict) else None
-        base_ms = started_ms if isinstance(started_ms, list) else must_satisfy
+    # Every round envelope's scope and obligations are the plan's own:
+    # what it STARTED with (its key changes, its surfaces, its admission
+    # bound) plus the gaps measured on it.
+    allowed_scope: list[str]
+    base_ms: list[dict[str, Any]]
+    current_refs: list[str]
+    current_revision_hash: str | None
+    current_context_paths: list[str] | None
+    if plan_state is None:
+        # No plan yet: nothing to derive from. The start branch below opens
+        # the plan from `plan_seed` and derives from the record start writes.
+        allowed_scope, base_ms = [], []
+        current_refs, current_revision_hash, current_context_paths = [], None, None
     else:
-        base_ms = must_satisfy
+        round_contract = plan_round_contract(state)
+        allowed_scope = list(round_contract.allowed_scope)
+        base_ms = list(round_contract.must_satisfy)
+        current_refs, current_revision_hash, current_context_paths = _planning_source_context(
+            state, list(round_contract.evidence_refs),
+        )
     effective_must_satisfy: list[dict[str, Any]] = [*base_ms, *coverage_carry, *spine_carry]
 
     def _result(verdict: str, *, rounds: int, converged: dict[str, Any] | None = None,
@@ -869,7 +884,7 @@ def run_convergence_drainer(
                             closure_manifest_text=manifest_text,
                             closure_manifest_hash=str(payload.get("closure_manifest_hash")),
                             waivers=list(payload.get("waived", [])),
-                            evidence_refs=[str(payload.get("closure_manifest_path")), *evidence_refs],
+                            evidence_refs=[str(payload.get("closure_manifest_path")), *current_refs],
                             allowed_scope=allowed_scope,
                             base_dir=base_dir,
                             target_sha=target_sha,
@@ -1027,18 +1042,21 @@ def run_convergence_drainer(
                 workspace_root=workspace_root or Path.cwd(),
             )
             started_state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-            current_refs, current_revision_hash, current_context_paths = _planning_source_context(started_state, evidence_refs)
+            started_contract = plan_round_contract(started_state)
+            current_refs, current_revision_hash, current_context_paths = _planning_source_context(
+                started_state, list(started_contract.evidence_refs),
+            )
             request_id = _ensure_envelope(
                 _STEP_ROLE_CHALLENGER,
                 1,
                 lambda: issue_challenger_envelope(
                     plan_id=plan_id,
                     round_number=1,
-                    must_satisfy=effective_must_satisfy,
+                    must_satisfy=[*started_contract.must_satisfy, *coverage_carry, *spine_carry],
                     evidence_refs=current_refs,
                     plan_revision_hash=current_revision_hash,
                     context_source_paths=current_context_paths,
-                    allowed_scope=allowed_scope,
+                    allowed_scope=list(started_contract.allowed_scope),
                     base_dir=base_dir,
                     target_sha=target_sha,
                     context_repo_root=workspace_root,

@@ -582,6 +582,12 @@ def _verify_abort_gate(
         # ORPHAN-CRITICAL-469 restored, with the contract gate still green.
         # It is now allowed on the declared announce step alone.
         is_announce_step = _step_label(step, index) == gate.announce_step
+        if (
+            _step_label(step, index) in gate.cleanup_steps
+            and condition == "always()"
+            and step.get("uses") == WRITER_LEASE_RELEASE_ACTION
+        ):
+            continue
         if _step_is_gated(
             condition,
             guard=guard,
@@ -593,6 +599,9 @@ def _verify_abort_gate(
         )
         failure_classes.append("workflow_contract_abort_gate")
 
+
+# ARIA-HIGH-342 — the one action a gate's cleanup step may be.
+WRITER_LEASE_RELEASE_ACTION = "./.github/actions/release-aria-state-lease"
 
 _BURN_IN_STEP_MARKER = "autonomy burn-in observe"
 # The burn-in branch of a mode-aware timeout expression, e.g.

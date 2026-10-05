@@ -124,8 +124,17 @@ jobs:
         uses: ./.github/actions/restore-aria-state
         with:
           bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
+          # ARIA-HIGH-342 — this job writes aria/state: the writer lease is
+          # taken before the checkout and held to the release step, so no
+          # other lane publishes in between. Expiry = this job's
+          # timeout-minutes plus the 80-minute leased-publish margin
+          # (GSEC-MEDIUM-003); past the wait the run yields by name, before it
+          # has restored anything.
+          writer-lease-ttl-minutes: '105'
+          writer-lease-wait-seconds: '600'
 
       - name: Register eval fixtures
+        if: steps.restore_state.outputs.writer-lease == 'held'
         run: |
           set -euo pipefail
           for fixture_file in aria-tools/agent-evals/fixtures/*.json; do
@@ -138,6 +147,7 @@ jobs:
       # implementer episode on the restored plan ledger. A missing plan
       # ledger is a named refusal and fails the step; there is no fallback.
       - name: Observe agent performance (real mode)
+        if: steps.restore_state.outputs.writer-lease == 'held'
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval observe \
@@ -147,6 +157,7 @@ jobs:
             --tools-dir "$ARIA_TOOLS_DIR" | jq .
 
       - name: Aggregate real fixture-run metrics per agent
+        if: steps.restore_state.outputs.writer-lease == 'held'
         run: |
           set -euo pipefail
           for agent in aria-evidence-judge aria-adversarial-judge \
@@ -206,6 +217,9 @@ jobs:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
           GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
+          # ARIA-HIGH-342 — the writer-lease capability, as a masked step
+          # output into this step only (GSEC-LOW-002).
+          ARIA_STATE_WRITER_LEASE_TOKEN: ${{ steps.restore_state.outputs.writer-lease-token }}
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
@@ -215,6 +229,18 @@ jobs:
 
       # ADR-036 — upload the enterprise-preflight audit proof so the eval
       # job's governed-write decision is retained as CI evidence.
+
+      # ARIA-HIGH-342 — give back the aria/state writer lease the restore took.
+      # Unconditional (GSEC-LOW-001): release is idempotent, a no-op when this
+      # run yielded and holds none, and releases only by the token (kept on
+      # disk before the acquire's push; there is no release by identity). A
+      # runner that dies outright frees the branch at the expiry it set.
+      - name: Release the aria/state writer lease
+        if: always()
+        uses: ./.github/actions/release-aria-state-lease
+        with:
+          lease-token: ${{ steps.restore_state.outputs.writer-lease-token }}
+
       - name: Upload eval preflight proof
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

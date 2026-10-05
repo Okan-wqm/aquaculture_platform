@@ -602,6 +602,10 @@ CONSENSUS_UNCERTAINTY_SEVERITY = {
     # Plan 024 §C — a judge citing evidence that does not resolve in the repo is
     # a fabrication signal; the cheap tier must not be rubber-stamped on it.
     "evidence_not_repo_verified": "HIGH",
+    # ARIA-HIGH-325 — the agreeing judges cited evidence the producing tool's
+    # scope does not admit (ARIA's own detector source, typically): they
+    # argued the rule fired, not that the product is wrong.
+    "evidence_inadmissible": "HIGH",
     # Kalibre Zekâ Z2b — a judge group with no numeric confidence at all is
     # a bridge/schema fault, not a quality verdict; it escalates under its
     # own name (a reason absent from this map is silently dropped as

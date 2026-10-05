@@ -33,6 +33,26 @@
     "tmp/**"
   ],
   "claim_types": ["kernel_dead_wire"],
+  "rules": {
+    "policy_key_never_read": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A kernel policy file declares a tunable that no kernel module reads, so setting it changes nothing.",
+      "premises": [
+        "The cited key is declared in aria-kernel/aria_kernel/data/*.json as an operator tunable.",
+        "No kernel module reads the key, directly or through a loader that iterates the policy block."
+      ]
+    },
+    "cli_verb_never_routed": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A kernel CLI subcommand parses but no branch dispatches it, so invoking it does nothing.",
+      "premises": [
+        "The cited subcommand is registered on the kernel CLI parser.",
+        "No dispatch branch or handler mapping runs code for the subcommand."
+      ]
+    }
+  },
   "owner": "platform",
   "runner": {
     "type": "subprocess",

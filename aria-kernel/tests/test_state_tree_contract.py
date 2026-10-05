@@ -161,7 +161,7 @@ class InheritedEntriesAreHealed(StateStoreTestCase):
     def _publish(self, store, snapshot_id: str, cycle_id: str) -> dict:
         prepared = self._prepare(store, snapshot_id, cycle_id)
         result = publish_state(
-            store,
+            store, writer_fence=None,
             snapshot=prepared.snapshot,
             cycle_id=cycle_id,
             repo_hash=REPO_HASH,
@@ -234,7 +234,7 @@ class InheritedEntriesAreHealed(StateStoreTestCase):
 
         follow_up = self._snapshot(store, "snap-2", cycle_id="cycle-2")
         with self.assertRaises(StateStoreRefusal) as caught:
-            publish_state(store, snapshot=follow_up, cycle_id="cycle-2", repo_hash=REPO_HASH)
+            publish_state(store, writer_fence=None, snapshot=follow_up, cycle_id="cycle-2", repo_hash=REPO_HASH)
 
         message = str(caught.exception)
         self.assertIn("state_publish_inherited_unclaimed_entries_unhealed", message)
@@ -346,7 +346,7 @@ class InheritedEntriesAreHealed(StateStoreTestCase):
         store = self._bootstrap()  # deliberately unbound
         self._seed_surface(store, '{"row": "attested"}\n')
         publish_state(
-            store,
+            store, writer_fence=None,
             snapshot=self._snapshot(store, "snap-1"),
             cycle_id="cycle-1",
             repo_hash=REPO_HASH,

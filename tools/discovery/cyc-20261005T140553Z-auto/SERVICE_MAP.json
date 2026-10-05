@@ -120,7 +120,7 @@
       "path": "apps/sensor-service"
     }
   ],
-  "generated_at": "2026-10-04T15:13:30+00:00",
+  "generated_at": "2026-10-05T14:07:33+00:00",
   "libs": [
     {
       "has_project_json": true,

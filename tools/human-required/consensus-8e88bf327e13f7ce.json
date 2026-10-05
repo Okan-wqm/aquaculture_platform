@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "tenant-raw-query-missing-predicate:apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts:515",
+    "judgment_group_id": "judge:tenant-scoping-adapter:finding:70d944486ea3cdc651920766d798d01933276ee7568e5c06c3abc669583cefc6",
+    "kind": "consensus_escalation",
+    "run_id": "4c1384cd-7dfe-4ff2-a4d9-8e32e1b64589",
+    "tool_id": "tenant-scoping-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'tenant-raw-query-missing-predicate:apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts:515' (tool 'tenant-scoping-adapter', run '4c1384cd-7dfe-4ff2-a4d9-8e32e1b64589'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-05T14:20:43Z",
+  "request_id": "consensus-8e88bf327e13f7ce",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-12T14:20:43Z",
+  "status": "open"
+}

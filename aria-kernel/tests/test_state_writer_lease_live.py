@@ -78,6 +78,38 @@ class DataPushesRunNoHooks(_TwoWriters):
         self.assertIn("operator-row", self._remote_cycle_ids(self.repo_long))
         self.assertTrue(release_writer_lease(self.repo_long, token=held.token)["released"])
 
+    def test_the_fixtures_own_git_runs_no_hooks_either(self) -> None:
+        """CI on PR #1791 (387dc969e, suite (8)): the fixture's own helper
+        `git fetch` ran the failing hooks this class arms. A fetch that moves
+        the remote-tracking ref fires `reference-transaction`, the hook
+        aborted it (`fatal: ref updates aborted by hook`, exit 128), and the
+        helper hid git's stderr. Reproduced here deterministically by
+        putting the tracking ref behind the published tip."""
+        seed = self._store(self.repo_long)
+        self._append(seed, "seed")
+        self.assertTrue(self._publish(seed, "snap-seed")["published"])
+        store = self._store(self.repo_long)
+        self._append(store, "second")
+        self.assertTrue(self._publish(store, "snap-second")["published"])
+        tip = _git(self.repo_long, "rev-parse", "refs/remotes/origin/aria/state").strip()
+        _git(self.repo_long, "update-ref", "refs/remotes/origin/aria/state", f"{tip}^")
+        self._arm_hooks(self.repo_long)
+        self.assertIn("second", self._remote_cycle_ids(self.repo_long))
+
+    def test_a_failing_helper_git_names_what_git_said(self) -> None:
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            _git(self.repo_long, "rev-parse", "--verify", "refs/heads/no-such-branch")
+        self.assertIn("fatal:", str(caught.exception))
+        self.assertIn("rev-parse --verify refs/heads/no-such-branch", str(caught.exception))
+
+    def test_the_fixture_environment_is_hermetic(self) -> None:
+        from tests._helpers.hermetic_git import hermetic_git_env_is_active
+
+        self.assertTrue(hermetic_git_env_is_active())
+        self.assertEqual(os.environ["HOME"], str(self.base / "home"))
+        self.assertFalse([key for key in os.environ if key.startswith("GIT_")
+                          and key not in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM")])
+
     def test_a_force_foreign_release_from_a_checkout_without_node_modules_works(self) -> None:
         """The live failure, reproduced: the operator lane's checkout has a
         pre-push gate that cannot run."""

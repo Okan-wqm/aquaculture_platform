@@ -196,12 +196,54 @@ class _SurfaceNamespaceCollector:
         projection[relative] = identity
 
 
+@dataclass
+class _DirectoryEntrySets:
+    """Each walked directory's entry-set digest, scanned once per pass.
+
+    WHY NOT THE DIRECTORY'S TIMESTAMPS. Linux stamps inode times from the
+    coarse clock — one jiffy, 1 ms at HZ=1000 and 4 ms at HZ=250 — and some
+    filesystems keep whole seconds. A file created in a directory inside
+    the tick of that directory's previous change leaves its ``st_mtime_ns``
+    and ``st_ctime_ns`` exactly as they were, and a directory's size does
+    not move for one entry. The stat identity therefore cannot say "the
+    namespace did not change"; the entry set itself can. One scan per
+    directory per pass (not per surface — the root alone is walked by
+    every declared surface) keeps the cost to one listing of each walked
+    directory, charged to the same discovery budget.
+    """
+
+    discovery_budget: _SnapshotDiscoveryBudget
+    digests: dict[tuple[str, str], str] = field(default_factory=dict)
+
+    def observe(
+        self,
+        root_kind: str,
+        relative: str,
+        directory_fd: int,
+        *,
+        surface_name: str,
+    ) -> None:
+        key = (root_kind, relative)
+        if key in self.digests:
+            return
+        self.digests[key] = _directory_entries_digest(
+            directory_fd,
+            surface_name=surface_name,
+            discovery_budget=self.discovery_budget,
+        )
+
+
 @dataclass(frozen=True)
 class _SnapshotNamespaceProjection:
-    """Canonical pass result compared byte-for-byte before publication."""
+    """Canonical pass result compared byte-for-byte before publication.
+
+    A directory row is ``(root_kind, relative, stat identity, entry-set
+    digest)``: the digest is what notices a namespace change the stat
+    identity cannot (see ``_DirectoryEntrySets``).
+    """
 
     leaves: tuple[tuple[str, str, str, _SnapshotStatIdentity], ...]
-    directories: tuple[tuple[str, str, _SnapshotStatIdentity], ...]
+    directories: tuple[tuple[str, str, _SnapshotStatIdentity, str], ...]
 
 
 _ROOT_FD_UNSET = object()
@@ -267,6 +309,7 @@ def build_snapshot(
         by_name = {surface.name: surface for surface in declared}
         prior_claims = (previous or {}).get("surfaces") or {}
         prefix_witnesses: dict[str, _PrefixWitness] = {}
+        attested: dict[tuple[str, str], str] = {}
         for surface_name, root_kind, relative, expected_identity in (
             first_projection.leaves
         ):
@@ -302,6 +345,7 @@ def build_snapshot(
             if total_size > SNAPSHOT_MAX_INPUT_BYTES:
                 raise SnapshotError("snapshot_input_budget_exceeded")
             surfaces[name] = entry
+            attested[(root_kind, relative)] = entry["sha256"]
             if policy == "artifact_only":
                 artifact_only.append(name)
 
@@ -326,6 +370,12 @@ def build_snapshot(
         )
         if first_projection != second_projection:
             raise SnapshotError("snapshot_surface_changed:namespace_projection")
+        _reverify_snapshot_leaf_contents(
+            second_projection,
+            attested=attested,
+            roots=roots,
+            root_anchors=root_anchors,
+        )
         _revalidate_snapshot_directories(
             second_projection,
             root_anchors=root_anchors,
@@ -895,6 +945,7 @@ def _snapshot_namespace_projection(
         tuple[str, str],
         _SnapshotStatIdentity,
     ] = {}
+    entry_sets = _DirectoryEntrySets(discovery_budget=discovery_budget)
     for surface in declared:
         if surface.root_kind not in roots or _storage_policy(surface) == "excluded":
             continue
@@ -907,6 +958,7 @@ def _snapshot_namespace_projection(
             root_fd,
             discovery_budget=discovery_budget,
             projection=collector,
+            entry_sets=entry_sets,
         )
         for relative, identity in collector.directories.items():
             key = (surface.root_kind, relative)
@@ -951,10 +1003,58 @@ def _snapshot_namespace_projection(
             for key, identity in sorted(leaves.items())
         ),
         directories=tuple(
-            (*key, identity)
+            (*key, identity, _projected_entry_set(entry_sets, key))
             for key, identity in sorted(directories.items())
         ),
     )
+
+
+def _projected_entry_set(
+    entry_sets: _DirectoryEntrySets,
+    key: tuple[str, str],
+) -> str:
+    try:
+        return entry_sets.digests[key]
+    except KeyError as exc:  # pragma: no cover - internal projection invariant
+        raise SnapshotError(
+            f"snapshot_surface_projection_incomplete:{key[0]}:{key[1] or '.'}",
+        ) from exc
+
+
+def _reverify_snapshot_leaf_contents(
+    projection: _SnapshotNamespaceProjection,
+    *,
+    attested: Mapping[tuple[str, str], str],
+    roots: Mapping[str, Path],
+    root_anchors: Mapping[str, _SnapshotRootAnchor],
+) -> None:
+    """Re-hash every attested leaf after pass two; refuse if any byte moved.
+
+    The two passes compare stat identities, and a stat identity cannot see
+    a rewrite that keeps the inode and the size inside one timestamp tick
+    (see ``_DirectoryEntrySets``): the manifest would then pin bytes that
+    are no longer on disk. Reading each leaf a second time costs one more
+    read of the attested bytes (bounded by ``SNAPSHOT_MAX_INPUT_BYTES``)
+    and is the only check that does not depend on the clock.
+    """
+    for _surface_name, root_kind, relative, identity in projection.leaves:
+        try:
+            expected = attested[(root_kind, relative)]
+        except KeyError as exc:  # pragma: no cover - internal projection invariant
+            raise SnapshotError(
+                f"snapshot_surface_projection_incomplete:{relative}",
+            ) from exc
+        digest = hashlib.sha256()
+        with _bounded_regular_file_chunks(
+            Path(roots[root_kind]),
+            relative,
+            root_fd=root_anchors[root_kind].descriptor,
+            expected_identity=identity,
+        ) as (_size, chunks):
+            for chunk in chunks:
+                digest.update(chunk)
+        if digest.hexdigest() != expected:
+            raise SnapshotError(f"snapshot_surface_changed:{relative}")
 
 
 def _revalidate_snapshot_directories(
@@ -963,14 +1063,19 @@ def _revalidate_snapshot_directories(
     root_anchors: Mapping[str, _SnapshotRootAnchor],
     discovery_budget: _SnapshotDiscoveryBudget,
 ) -> None:
-    """DFS over P2's directory trie while retaining ancestry descriptors only."""
+    """DFS over P2's directory trie while retaining ancestry descriptors only.
+
+    Each directory is checked twice over: its stat identity, and its entry
+    set re-scanned against P2's digest — the stat identity alone misses an
+    entry created inside one timestamp tick (see ``_DirectoryEntrySets``).
+    """
     expected = {
-        (root_kind, relative): identity
-        for root_kind, relative, identity in projection.directories
+        (root_kind, relative): (identity, entry_set)
+        for root_kind, relative, identity, entry_set in projection.directories
     }
     children: dict[
         tuple[str, str],
-        list[tuple[str, str, _SnapshotStatIdentity]],
+        list[tuple[str, str, tuple[_SnapshotStatIdentity, str]]],
     ] = {}
     for (root_kind, relative), identity in expected.items():
         if not relative:
@@ -999,10 +1104,35 @@ def _revalidate_snapshot_directories(
             f"errno={error.errno}",
         ) from error
 
+    def validate_entry_set(
+        root_kind: str,
+        relative: str,
+        descriptor: int,
+        entry_set: str,
+    ) -> None:
+        try:
+            observed = _directory_entries_digest(
+                descriptor,
+                surface_name=f"{root_kind}:{relative or '.'}",
+                discovery_budget=discovery_budget,
+            )
+        except SnapshotError as exc:
+            cause = exc.__cause__
+            if isinstance(cause, OSError):
+                raise_os_error(root_kind, relative, cause)
+            raise
+        if observed != entry_set:
+            raise SnapshotError(
+                f"snapshot_surface_changed:{root_kind}:{relative or '.'}",
+            )
+
     def validate_root(
         root_kind: str,
-        identity: _SnapshotStatIdentity,
+        expected_root: tuple[_SnapshotStatIdentity, str],
+        *,
+        final: bool,
     ) -> int:
+        identity, entry_set = expected_root
         discovery_budget.charge()
         anchor = root_anchors[root_kind]
         if anchor.descriptor is None:
@@ -1019,6 +1149,8 @@ def _revalidate_snapshot_directories(
             or _stat_identity(path_state) != identity
         ):
             raise SnapshotError(f"snapshot_surface_changed:{root_kind}:.")
+        if final:
+            validate_entry_set(root_kind, "", anchor.descriptor, entry_set)
         return anchor.descriptor
 
     def lstat_for_revalidation(
@@ -1047,7 +1179,7 @@ def _revalidate_snapshot_directories(
         parent_relative: str,
         parent_fd: int,
     ) -> None:
-        for name, relative, identity in sorted(
+        for name, relative, (identity, entry_set) in sorted(
             children.get((root_kind, parent_relative), ()),
         ):
             before = lstat_for_revalidation(
@@ -1096,6 +1228,7 @@ def _revalidate_snapshot_directories(
                         raise SnapshotError(
                             f"snapshot_surface_changed:{root_kind}:{relative}",
                         )
+                    validate_entry_set(root_kind, relative, descriptor, entry_set)
             except SnapshotError as exc:
                 cause = exc.__cause__
                 if isinstance(cause, OSError):
@@ -1116,10 +1249,10 @@ def _revalidate_snapshot_directories(
         for (root_kind, relative), identity in expected.items()
         if not relative
     )
-    for root_kind, identity in roots:
-        root_fd = validate_root(root_kind, identity)
+    for root_kind, expected_root in roots:
+        root_fd = validate_root(root_kind, expected_root, final=False)
         visit(root_kind=root_kind, parent_relative="", parent_fd=root_fd)
-        validate_root(root_kind, identity)
+        validate_root(root_kind, expected_root, final=True)
 
 
 def _surface_entries(
@@ -1394,12 +1527,53 @@ def _scan_snapshot_directory(
         ) from exc
 
 
+def _directory_entries_digest(
+    directory_fd: int,
+    *,
+    surface_name: str,
+    discovery_budget: _SnapshotDiscoveryBudget,
+) -> str:
+    """sha256 over a directory's entries: name, inode and file type, sorted.
+
+    Read from ``d_ino`` / ``d_type`` (no per-entry stat where the
+    filesystem reports them), so an added, removed, renamed, or retyped
+    entry changes the digest whatever the directory's timestamps say.
+    """
+    rows: list[tuple[bytes, int, bytes]] = []
+    for entry in _scan_snapshot_directory(
+        directory_fd,
+        surface_name=surface_name,
+        discovery_budget=discovery_budget,
+    ):
+        try:
+            if entry.is_symlink():
+                kind = b"l"
+            elif entry.is_dir(follow_symlinks=False):
+                kind = b"d"
+            elif entry.is_file(follow_symlinks=False):
+                kind = b"f"
+            else:
+                kind = b"o"
+            inode = entry.inode()
+        except OSError as exc:
+            raise SnapshotError(
+                f"snapshot_surface_enumeration_unavailable:{surface_name}",
+            ) from exc
+        rows.append((os.fsencode(entry.name), inode, kind))
+    digest = hashlib.sha256()
+    for name, inode, kind in sorted(rows):
+        # A name holds neither NUL nor "/", so this framing is unambiguous.
+        digest.update(name + b"\0" + str(inode).encode("ascii") + b"\0" + kind + b"/")
+    return digest.hexdigest()
+
+
 def _secure_surface_matches(
     surface: StateSurface,
     root_fd: int,
     *,
     discovery_budget: _SnapshotDiscoveryBudget,
     projection: _SurfaceNamespaceCollector | None = None,
+    entry_sets: _DirectoryEntrySets | None = None,
 ) -> list[str]:
     """Discover one surface without following or enumerating symlink trees."""
     if projection is None:
@@ -1441,6 +1615,13 @@ def _secure_surface_matches(
                 f"snapshot_surface_ancestry_not_directory:{'/'.join(prefix) or '.'}",
             )
         projection.record_directory("/".join(prefix), directory_state)
+        if entry_sets is not None:
+            entry_sets.observe(
+                surface.root_kind,
+                "/".join(prefix),
+                directory_fd,
+                surface_name=surface.name,
+            )
         component = pattern_parts[pattern_index]
         is_final = pattern_index == len(pattern_parts) - 1
 

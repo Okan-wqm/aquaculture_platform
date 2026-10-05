@@ -4,9 +4,14 @@
 // WHY: no adapter watched frontend performance at all — the fleet covered
 // D1-security and D4-testability while every MFE could grow unbounded.
 // WHAT (deterministic, no build required):
-//   * `no_bundle_budget_declared` — an MFE ships without any declared bundle
-//     budget (no `build.chunkSizeWarningLimit` in its vite config and no
-//     `bundle-budget.json` beside it): nothing even WARNS when it bloats.
+//   * `bundle_budget_not_enforced` — an MFE with a production Vite build has
+//     no `bundle-budget.json` beside it, the per-module size budget this rule
+//     reads. ARIA-MEDIUM-327: the rule used to be `no_bundle_budget_declared`,
+//     counted `build.chunkSizeWarningLimit` as a budget and told the judge
+//     "nothing warns when the bundle grows". Both were wrong: a warning limit
+//     fails nothing, and Vite warns above 500 kB by default whether or not the
+//     limit is set. What a person can act on is the ABSENCE of an enforced
+//     budget, so the finding is LOW and states only that absence.
 //   * `heavy_dependency_statically_imported` — a known heavyweight library
 //     is imported statically in module source, which welds it into the
 //     initial chunk; the fix is a dynamic `import()` at the use site.
@@ -41,8 +46,8 @@ interface AdapterObservation {
 
 interface AdapterFinding {
   readonly id: string;
-  readonly rule: 'no_bundle_budget_declared' | 'heavy_dependency_statically_imported';
-  readonly severity: 'medium' | 'high';
+  readonly rule: 'bundle_budget_not_enforced' | 'heavy_dependency_statically_imported';
+  readonly severity: 'low' | 'high';
   readonly path: string;
   readonly line?: number;
   readonly message: string;
@@ -109,10 +114,9 @@ export function analyzeBundleBudgets(
     const viteConfig = ['vite.config.ts', 'vite.config.mts', 'vite.config.js']
       .map((name) => join(moduleRoot, name))
       .find((path) => workspacePathExists(path));
-    const budgetManifest = join(moduleRoot, 'bundle-budget.json');
-    const hasBudget =
-      workspacePathExists(budgetManifest) ||
-      (viteConfig !== undefined && readWorkspaceFile(viteConfig).includes('chunkSizeWarningLimit'));
+    // A `chunkSizeWarningLimit` is deliberately NOT a budget here: it only
+    // moves the build-time warning, and the build still succeeds past it.
+    const hasBudget = workspacePathExists(join(moduleRoot, 'bundle-budget.json'));
     if (viteConfig !== undefined) {
       readPaths.push(normalizeWorkspacePath(relative(workspaceRoot, viteConfig)));
     }
@@ -125,15 +129,14 @@ export function analyzeBundleBudgets(
     if (viteConfig !== undefined && !hasBudget) {
       const viteRel = normalizeWorkspacePath(relative(workspaceRoot, viteConfig));
       findings.push({
-        id: `bundle-budget:no-budget:${rel}`,
-        rule: 'no_bundle_budget_declared',
-        severity: 'medium',
+        id: `bundle-budget:not-enforced:${rel}`,
+        rule: 'bundle_budget_not_enforced',
+        severity: 'low',
         path: viteRel,
         line: 1,
         message:
-          `MFE \`${rel}\` declares no bundle budget: its vite config has no ` +
-          '`build.chunkSizeWarningLimit` and no `bundle-budget.json` exists — ' +
-          'nothing warns when the bundle grows.',
+          `MFE \`${rel}\` has a production Vite build and no \`bundle-budget.json\` ` +
+          'beside it, so no declared size budget is enforced for this module.',
         evidence: [{ path: viteRel, line: 1 }],
         confidence: 0.9,
       });

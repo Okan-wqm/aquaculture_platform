@@ -170,6 +170,11 @@ runs:
         GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.read_credential.outputs.header }}'
         LEASE_TTL_MINUTES: ${{ inputs.writer-lease-ttl-minutes }}
         LEASE_WAIT_SECONDS: ${{ inputs.writer-lease-wait-seconds }}
+        # ARIA-HIGH-350 — run-liveness reaping: a held gha: lease whose run
+        # attempt has concluded (a cancelled job runs no always() release) is
+        # taken over by CAS. The read uses the token this step already holds
+        # (the job needs actions: read); no answer means no reap.
+        GH_TOKEN: ${{ inputs.token || github.token }}
       run: |
         set -uo pipefail
         VERDICT="${RUNNER_TEMP}/aria-state-writer-lease.json"

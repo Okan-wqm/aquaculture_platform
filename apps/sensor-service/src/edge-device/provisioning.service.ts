@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 import {
-  getTenantSchemaName,
   runInTenantRead,
+  runInTenantTransaction,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
 
@@ -390,9 +390,11 @@ export class ProvisioningService {
 
     // Wrap in transaction to prevent partial activation
     // Set search_path to the device's tenant schema so TypeORM writes to the correct schema
-    return await this.dataSource.transaction(async (transactionalManager) => {
-      const tenantSchema = this.getTenantSchemaFromId(device.tenantId);
-      await transactionalManager.query(`SET LOCAL search_path TO "${tenantSchema}", sensor, public`);
+    // SENSOR-CRITICAL-143: a public endpoint has no request tenant. Pinning
+    // search_path alone left the RLS tenant GUC unset, so under FORCE RLS this
+    // UPDATE matched zero rows and activation silently did nothing.
+    return await runInTenantTransaction(this.dataSource, 'sensor', device.tenantId, async (qr) => {
+      const transactionalManager = qr.manager;
 
       // Update device
       device.tokenUsedAt = new Date();
@@ -670,11 +672,9 @@ export class ProvisioningService {
           // Regenerate MQTT credentials for the recovery
           const { password: mqttPassword, hash: mqttPasswordHash } = this.generateMqttCredentials();
           existing.mqttPasswordHash = mqttPasswordHash;
-          await this.dataSource.transaction(async (txManager) => {
-            const recoverySchema = this.getTenantSchemaFromId(existing.tenantId);
-            await txManager.query(`SET LOCAL search_path TO "${recoverySchema}", sensor, public`);
-            await txManager.save(existing);
-          });
+          await runInTenantTransaction(this.dataSource, 'sensor', existing.tenantId, (qr) =>
+            qr.manager.save(existing),
+          );
           const mqttResult = await this.mqttAuthService.addDeviceCredentials(existing.mqttClientId ?? '', mqttPasswordHash);
           if (!mqttResult) {
             throw new Error('Failed to write MQTT credentials');
@@ -709,9 +709,10 @@ export class ProvisioningService {
 
     // Wrap in transaction: atomic maxDevices increment + device creation
     // If device creation fails, the usedCount rollback happens automatically
-    const saved = await this.dataSource.transaction(async (transactionalManager) => {
-      const tenantSchema = this.getTenantSchemaFromId(key.tenantId);
-      await transactionalManager.query(`SET LOCAL search_path TO "${tenantSchema}", sensor, public`);
+    // SENSOR-CRITICAL-143: inside the key's tenant boundary — with search_path
+    // alone the INSERT failed the FORCE RLS WITH CHECK (tenant GUC unset).
+    const saved = await runInTenantTransaction(this.dataSource, 'sensor', key.tenantId, async (qr) => {
+      const transactionalManager = qr.manager;
 
       // Atomically check and increment used count BEFORE device creation (prevents TOCTOU race + orphans)
       await this.tenantKeyService.incrementUsedCount(key.id, key.maxDevices ?? null, transactionalManager);
@@ -793,124 +794,19 @@ export class ProvisioningService {
   }
 
   // ============================================
-  // Tenant Schema Helpers
-  // ============================================
-
-  /**
-   * Delegate to the canonical backend-common implementation.
-   * Duplicate removed — single source of truth in getTenantSchemaName().
-   */
-  private getTenantSchemaFromId(tenantId: string): string {
-    return getTenantSchemaName(tenantId);
-  }
-
-  // ============================================
   // Cross-Schema Device Lookup (for public endpoints)
   // ============================================
 
   /**
-   * Find a device across all tenant schemas.
-   *
-   * Public provisioning endpoints (install, activate) have no tenant context,
-   * so search_path defaults to "sensor, public". But devices are stored in
-   * tenant-specific schemas (tenant_*). This method dynamically builds a
-   * UNION ALL query across all tenant schemas to find the device.
+   * Find a device by a public identifier with no tenant context (install /
+   * activate endpoints). SENSOR-CRITICAL-143: the directory + per-tenant
+   * boundary lookup lives once in DeviceDirectoryService.findDevice.
    */
-  private async findDeviceAcrossSchemas(
+  private findDeviceAcrossSchemas(
     column: 'device_code' | 'id',
     value: string,
   ): Promise<EdgeDevice | null> {
-    // SENSOR-MEDIUM-004: O(1) directory route first — resolve the tenant with a
-    // single indexed lookup, then query only that tenant's edge_devices.
-    const tenantId = await this.deviceDirectory.lookupTenantId(column, value);
-    if (tenantId) {
-      const schema = this.getTenantSchemaFromId(tenantId);
-      const rows = await this.dataSource.query(
-        `SELECT * FROM "${schema}".edge_devices WHERE ${column} = $1 LIMIT 1`,
-        [value],
-      );
-      if (rows && rows.length > 0) {
-        return this.mapRowToEdgeDevice(rows[0]);
-      }
-      // Stale directory entry (device moved/deleted): fall through to the scan.
-    }
-
-    const device = await this.scanDeviceAcrossSchemas(column, value);
-    if (device) {
-      await this.deviceDirectory.backfill({
-        deviceId: device.id,
-        deviceCode: device.deviceCode,
-        mqttClientId: device.mqttClientId ?? null,
-        tenantId: device.tenantId,
-      });
-    }
-    return device;
-  }
-
-  /**
-   * Authoritative fallback: UNION-ALL scan across every tenant schema. Used only
-   * when the directory misses (SENSOR-MEDIUM-004).
-   */
-  private async scanDeviceAcrossSchemas(
-    column: 'device_code' | 'id',
-    value: string,
-  ): Promise<EdgeDevice | null> {
-    // 1. Get all tenant schemas
-    const schemas: { schema_name: string }[] = await this.dataSource.query(
-      `SELECT schema_name FROM information_schema.schemata WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'`,
-    );
-
-    if (schemas.length === 0) {
-      return null;
-    }
-
-    // 2. Build UNION ALL query across all tenant schemas
-    // Schema names are validated by the regex above (tenant_ + 16 hex chars only)
-    const unionParts = schemas.map(
-      (s) => `SELECT * FROM "${s.schema_name}".edge_devices WHERE ${column} = $1`,
-    );
-    const sql = `(${unionParts.join(' UNION ALL ')}) LIMIT 1`;
-
-    const rows = await this.dataSource.query(sql, [value]);
-
-    if (!rows || rows.length === 0) {
-      return null;
-    }
-
-    // 3. Map raw row to EdgeDevice entity (snake_case → camelCase)
-    return this.mapRowToEdgeDevice(rows[0]);
-  }
-
-  /**
-   * Map a raw database row (snake_case) to an EdgeDevice entity (camelCase).
-   * Only maps fields needed for provisioning operations.
-   */
-  private mapRowToEdgeDevice(row: Record<string, any>): EdgeDevice {
-    const device = new EdgeDevice();
-    device.id = row['id'];
-    device.tenantId = row['tenant_id'];
-    device.deviceCode = row['device_code'];
-    device.deviceName = row['device_name'];
-    device.deviceModel = row['device_model'];
-    device.serialNumber = row['serial_number'];
-    device.description = row['description'];
-    device.siteId = row['site_id'];
-    device.lifecycleState = row['lifecycle_state'];
-    device.provisioningToken = row['provisioning_token'];
-    device.tokenExpiresAt = row['token_expires_at'] ? new Date(row['token_expires_at']) : undefined;
-    device.tokenUsedAt = row['token_used_at'] ? new Date(row['token_used_at']) : null;
-    device.mqttClientId = row['mqtt_client_id'];
-    device.mqttPasswordHash = row['mqtt_password_hash'];
-    device.fingerprint = row['fingerprint'];
-    device.agentVersion = row['agent_version'];
-    device.isOnline = row['is_online'];
-    device.lastSeenAt = row['last_seen_at'] ? new Date(row['last_seen_at']) : undefined;
-    device.config = row['config'];
-    device.securityLevel = row['security_level'];
-    device.createdBy = row['created_by'];
-    device.createdAt = new Date(row['created_at']);
-    device.updatedAt = new Date(row['updated_at']);
-    return device;
+    return this.deviceDirectory.findDevice(column, value);
   }
 
   // ============================================

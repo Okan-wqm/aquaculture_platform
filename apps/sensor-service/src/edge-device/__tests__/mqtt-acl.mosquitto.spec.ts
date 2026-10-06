@@ -3,14 +3,12 @@ import { pbkdf2Sync, randomBytes } from 'node:crypto';
 import { AddressInfo } from 'node:net';
 
 import { ConfigService } from '@nestjs/config';
-import type { DataSource, Repository } from 'typeorm';
 import mqtt from 'mqtt';
-import { collaborator, stubMember } from '@aquaculture/testing';
+import { collaborator } from '@aquaculture/testing';
 
 import { bootMosquittoContainer, type MqttHarness } from '@platform/mqtt-test-harness';
 
 import { DeviceDirectoryService } from '../device-directory.service';
-import { EdgeDevice } from '../entities/edge-device.entity';
 import { MqttAuthService } from '../mqtt-auth.service';
 import { SENSOR_SERVICE_SUBSCRIPTION_FILTERS } from '../../ingestion/mqtt-listener.service';
 
@@ -37,18 +35,6 @@ function mosquittoHash(password: string): string {
 }
 
 function makeAuthService(): MqttAuthService {
-  const repo = collaborator<Repository<EdgeDevice>>(
-    {
-      findOne: jest.fn(),
-      find: jest.fn(),
-      save: jest.fn(),
-    },
-    'Repository<EdgeDevice>',
-  );
-  const ds = collaborator<DataSource>(
-    { query: stubMember<DataSource['query']>(jest.fn().mockResolvedValue([])) },
-    'DataSource',
-  );
   const cfg = new ConfigService({
     NODE_ENV: 'production',
     MQTT_AUTH_MODE: 'http',
@@ -56,6 +42,7 @@ function makeAuthService(): MqttAuthService {
     MQTT_AUTH_SECRET: SECRET,
   });
   const directory = {
+    findDevice: jest.fn().mockResolvedValue(null),
     lookupTenantId: jest.fn().mockResolvedValue(null),
     backfill: jest.fn().mockResolvedValue(undefined),
     upsert: jest.fn().mockResolvedValue(undefined),
@@ -65,7 +52,7 @@ function makeAuthService(): MqttAuthService {
     directory,
     'DeviceDirectoryService',
   );
-  return new MqttAuthService(cfg, repo, ds, directoryCollaborator);
+  return new MqttAuthService(cfg, directoryCollaborator);
 }
 
 /** Minimal stand-in for MqttAuthController's three go-auth endpoints. */

@@ -3,14 +3,19 @@
  * closed in production. Starting the weak file-mode backend has to be an
  * explicit, audited operator decision, never a silent default.
  */
+import { ConfigService } from '@nestjs/config';
+import { collaborator } from '@aquaculture/testing';
+
+import { DeviceDirectoryService } from '../device-directory.service';
 import { MqttAuthService } from '../mqtt-auth.service';
 
-const buildConfig = (env: Record<string, string>) => ({
-  get: (key: string, fallback?: unknown): unknown => env[key] ?? fallback,
-});
-
+// File-mode startup never resolves a device, so the directory double defines
+// nothing: touching it would throw and name the missing member.
 const buildService = (env: Record<string, string>): MqttAuthService =>
-  new MqttAuthService(buildConfig(env) as never, {} as never, {} as never, {} as never);
+  new MqttAuthService(
+    new ConfigService(env),
+    collaborator<DeviceDirectoryService>({}, 'DeviceDirectoryService'),
+  );
 
 describe('MqttAuthService legacy file mode guard (SENSOR-LOW-008)', () => {
   it('refuses to start in production with file mode and no explicit opt-in', async () => {

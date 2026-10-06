@@ -1,5 +1,14 @@
+import {
+  listActiveTenantSchemaIdentities,
+  runInSourceRead,
+  runInTenantRead,
+  runInTenantTransaction,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
+
+import { EdgeDevice } from './entities/edge-device.entity';
 
 /** Public identifier columns the directory can resolve a tenant by. */
 export type DirectoryLookupColumn = 'device_code' | 'mqtt_client_id' | 'id';
@@ -35,6 +44,16 @@ export class DeviceDirectoryService {
     id: 'device_id',
   };
 
+  // The EdgeDevice property a given lookup column maps to.
+  private static readonly ENTITY_PROPERTY: Record<
+    DirectoryLookupColumn,
+    'deviceCode' | 'mqttClientId' | 'id'
+  > = {
+    device_code: 'deviceCode',
+    mqtt_client_id: 'mqttClientId',
+    id: 'id',
+  };
+
   constructor(private readonly dataSource: DataSource) {}
 
   /**
@@ -44,11 +63,59 @@ export class DeviceDirectoryService {
    */
   async lookupTenantId(column: DirectoryLookupColumn, value: string): Promise<string | null> {
     const dirColumn = DeviceDirectoryService.COLUMN_MAP[column];
-    const rows: { tenant_id: string }[] = await this.dataSource.query(
-      `SELECT tenant_id FROM sensor.edge_device_directory WHERE "${dirColumn}" = $1 LIMIT 1`,
-      [value],
-    );
+    // SENSOR-CRITICAL-143: the directory carries the tenant-isolation policy
+    // (FORCED), and this lookup is cross-tenant by design — it is how an
+    // unauthenticated MQTT CONNECT or a provisioning call FINDS its tenant. A
+    // plain pooled read runs with no tenant and bypass 'off', so it matched
+    // nothing and every edge device was refused. runInSourceRead is the
+    // sanctioned, transaction-local cross-tenant read of a source-schema table.
+    const rows = (await runInSourceRead(this.dataSource, 'sensor', (qr) =>
+      qr.query(`SELECT tenant_id FROM edge_device_directory WHERE "${dirColumn}" = $1 LIMIT 1`, [
+        value,
+      ]),
+    )) as Array<{ tenant_id: string }>;
     return rows[0]?.tenant_id ?? null;
+  }
+
+  /**
+   * Resolve a device by a public identifier with no tenant context — the MQTT
+   * CONNECT / ACL hook and the public provisioning endpoints (SENSOR-CRITICAL-143).
+   *
+   * The directory names the tenant (runInSourceRead); the row is then read
+   * inside THAT tenant's boundary. On a directory miss every active tenant is
+   * read inside its own boundary — never one cross-schema UNION, which FORCE
+   * RLS on the deny-by-default pool answers with zero rows — and a hit
+   * backfills the directory.
+   */
+  async findDevice(column: DirectoryLookupColumn, value: string): Promise<EdgeDevice | null> {
+    const property = DeviceDirectoryService.ENTITY_PROPERTY[column];
+    const readIn = (tenantId: string): Promise<EdgeDevice | null> =>
+      runInTenantRead(this.dataSource, 'sensor', tenantId, (qr) =>
+        tenantManagerRepo(qr.manager, EdgeDevice).findOne({ where: { [property]: value } }),
+      );
+
+    const tenantId = await this.lookupTenantId(column, value);
+    if (tenantId) {
+      const device = await readIn(tenantId);
+      if (device) {
+        return device;
+      }
+      // Stale directory entry (device moved / deleted): fall through.
+    }
+
+    for (const identity of await listActiveTenantSchemaIdentities(this.dataSource)) {
+      const device = await readIn(identity.tenantId);
+      if (device) {
+        await this.backfill({
+          deviceId: device.id,
+          deviceCode: device.deviceCode,
+          mqttClientId: device.mqttClientId ?? null,
+          tenantId: device.tenantId,
+        });
+        return device;
+      }
+    }
+    return null;
   }
 
   /**
@@ -78,7 +145,12 @@ export class DeviceDirectoryService {
    */
   async backfill(entry: DeviceDirectoryEntry): Promise<void> {
     try {
-      await this.upsert(entry);
+      // The auth path that resolves a device has no request tenant; the write
+      // runs inside the device's own tenant boundary so the policy's
+      // WITH CHECK (tenant_id = current tenant) admits it.
+      await runInTenantTransaction(this.dataSource, 'sensor', entry.tenantId, (qr) =>
+        this.upsert(entry, qr.manager),
+      );
     } catch (error) {
       this.logger.warn(
         `Directory backfill failed for device ${entry.deviceId}: ${(error as Error).message}`,

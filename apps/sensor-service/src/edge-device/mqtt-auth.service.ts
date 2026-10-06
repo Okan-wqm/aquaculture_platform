@@ -5,12 +5,9 @@ import { promisify } from 'util';
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 
 import { DeviceDirectoryService } from './device-directory.service';
-import { EdgeDevice } from './entities/edge-device.entity';
+import type { EdgeDevice } from './entities/edge-device.entity';
 
 const execFileAsync = promisify(execFile);
 
@@ -78,9 +75,6 @@ export class MqttAuthService implements OnModuleInit {
 
   constructor(
     private readonly configService: ConfigService,
-    @InjectRepository(EdgeDevice)
-    private readonly deviceRepository: Repository<EdgeDevice>,
-    private readonly dataSource: DataSource,
     private readonly deviceDirectory: DeviceDirectoryService,
   ) {
     // SENSOR-LOW-008: default to the DB-backed HTTP backend. File mode hashes
@@ -445,12 +439,11 @@ export class MqttAuthService implements OnModuleInit {
   /**
    * Resolve a device by a public identifier without tenant context.
    *
-   * SENSOR-MEDIUM-004: consult the O(1) sensor.edge_device_directory first and,
-   * on a hit, issue a single targeted query against the owning tenant's
-   * edge_devices. Only a directory miss (or a stale entry) falls back to the
-   * O(number-of-tenants) UNION-ALL scan, which then backfills the directory so
-   * the next lookup is O(1). This removes the per-request cross-schema fan-out
-   * that the un-rate-limited MQTT-auth path could be driven into as a DoS.
+   * SENSOR-MEDIUM-004: DeviceDirectoryService.findDevice consults the O(1)
+   * sensor.edge_device_directory first and reads the owning tenant only; a
+   * miss falls back to a per-tenant scan that backfills the directory. The
+   * negative cache here bounds a flood of unknown identifiers on the
+   * un-rate-limited MQTT-auth path.
    */
   private async findDeviceAcrossSchemas(
     column: 'mqtt_client_id' | 'id',
@@ -469,28 +462,11 @@ export class MqttAuthService implements OnModuleInit {
       this.negativeLookupCache.delete(negativeKey);
     }
 
-    const tenantId = await this.deviceDirectory.lookupTenantId(column, value);
-    if (tenantId) {
-      const schema = getTenantSchemaName(tenantId);
-      const rows = await this.dataSource.query(
-        `SELECT * FROM "${schema}".edge_devices WHERE "${column}" = $1 LIMIT 1`,
-        [value],
-      );
-      if (rows && rows.length > 0) {
-        return this.mapRowToEdgeDevice(rows[0]);
-      }
-      // Directory pointed at a tenant that no longer holds the row (moved /
-      // deleted): fall through to the authoritative scan.
-    }
-
-    const device = await this.scanDeviceAcrossSchemas(column, value);
+    // SENSOR-CRITICAL-143: directory → owning tenant's boundary, or a
+    // per-tenant bounded scan; never an unscoped pooled read, which FORCE RLS
+    // answers with zero rows (every edge CONNECT and ACL check was refused).
+    const device = await this.deviceDirectory.findDevice(column, value);
     if (device) {
-      await this.deviceDirectory.backfill({
-        deviceId: device.id,
-        deviceCode: device.deviceCode,
-        mqttClientId: device.mqttClientId ?? null,
-        tenantId: device.tenantId,
-      });
       return device;
     }
 
@@ -504,53 +480,6 @@ export class MqttAuthService implements OnModuleInit {
     }
     this.negativeLookupCache.set(negativeKey, now + this.NEGATIVE_LOOKUP_CACHE_TTL_MS);
     return null;
-  }
-
-  /**
-   * Authoritative fallback: UNION-ALL scan of edge_devices across every tenant
-   * schema. Used only when the directory misses.
-   */
-  private async scanDeviceAcrossSchemas(
-    column: 'mqtt_client_id' | 'id',
-    value: string,
-  ): Promise<EdgeDevice | null> {
-    const schemas: { schema_name: string }[] = await this.dataSource.query(
-      `SELECT schema_name FROM information_schema.schemata WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'`,
-    );
-
-    if (schemas.length === 0) {
-      return null;
-    }
-
-    const unionParts = schemas.map(
-      (s) => `SELECT * FROM "${s.schema_name}".edge_devices WHERE "${column}" = $1`,
-    );
-    const sql = `(${unionParts.join(' UNION ALL ')}) LIMIT 1`;
-
-    const rows = await this.dataSource.query(sql, [value]);
-
-    if (!rows || rows.length === 0) {
-      return null;
-    }
-
-    return this.mapRowToEdgeDevice(rows[0]);
-  }
-
-  /**
-   * Map a raw database row (snake_case) to an EdgeDevice entity (camelCase).
-   */
-  private mapRowToEdgeDevice(row: Record<string, any>): EdgeDevice {
-    const device = new EdgeDevice();
-    device.id = row['id'];
-    device.tenantId = row['tenant_id'];
-    device.deviceCode = row['device_code'];
-    device.deviceName = row['device_name'];
-    device.lifecycleState = row['lifecycle_state'];
-    device.mqttClientId = row['mqtt_client_id'];
-    device.mqttPasswordHash = row['mqtt_password_hash'];
-    device.isOnline = row['is_online'];
-    device.lastSeenAt = row['last_seen_at'] ? new Date(row['last_seen_at']) : undefined;
-    return device;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

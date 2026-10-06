@@ -16,6 +16,12 @@
  *   - Frontend `VfdChangeSetStatus` member names are a SUBSET of the backend
  *     enum (the FE must not send a status the BE can't accept; missing FE
  *     members are allowed but flagged so verified/cancelled render).
+ *   - Every member's VALUE equals its NAME (SENSOR-HIGH-140). GraphQL
+ *     serializes a registered enum by member name; the backend's lowercase
+ *     TypeScript values never cross the wire. A frontend mirror carrying the
+ *     lowercase value passes the name-subset check above while every
+ *     variable it sends fails coercion — exactly how the add-device wizard
+ *     broke.
  *
  * # When this spec fails
  *
@@ -42,6 +48,20 @@ function enumMembers(file: string, enumName: string): string[] {
   return members;
 }
 
+/** `[name, value]` of each `NAME = 'value'` member of an `export enum <Name>`. */
+function enumEntries(file: string, enumName: string): Array<[string, string]> {
+  const src = readFileSync(file, 'utf8');
+  const re = new RegExp(`export enum ${enumName}\\s*\\{([\\s\\S]*?)\\}`, 'm');
+  const body = re.exec(src)?.[1];
+  if (!body) throw new Error(`enum ${enumName} not found in ${file}`);
+  const entries: Array<[string, string]> = [];
+  for (const line of body.split('\n')) {
+    const m = /^\s*([A-Z0-9_]+)\s*=\s*'([^']*)'/.exec(line);
+    if (m) entries.push([m[1]!, m[2]!]);
+  }
+  return entries;
+}
+
 const FE_REGISTRATION = path.join(
   REPO_ROOT,
   'web/modules/sensor-module/src/types/registration.types.ts',
@@ -66,6 +86,18 @@ describe('Sensor FE/BE enum parity (SENSOR-HIGH-028)', () => {
     const extra = fe.filter((m) => !be.has(m));
     expect(extra).toEqual([]);
   });
+
+  it.each([
+    ['SensorType', 'FE_REGISTRATION'],
+    ['VfdChangeSetStatus', 'FE_VFD_TYPES'],
+  ] as const)(
+    'frontend %s values are the GraphQL wire names (SENSOR-HIGH-140)',
+    (enumName, file) => {
+      const fe = enumEntries(file === 'FE_REGISTRATION' ? FE_REGISTRATION : FE_VFD_TYPES, enumName);
+      expect(fe.length).toBeGreaterThan(0);
+      expect(fe.filter(([name, value]) => name !== value)).toEqual([]);
+    },
+  );
 
   it('frontend VfdChangeSetStatus is a subset of backend VfdChangeSetStatus', () => {
     const fe = enumMembers(FE_VFD_TYPES, 'VfdChangeSetStatus');

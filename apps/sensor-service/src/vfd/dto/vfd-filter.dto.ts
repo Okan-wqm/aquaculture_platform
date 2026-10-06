@@ -1,14 +1,15 @@
 import { InputType, Field, Int, ObjectType, ID } from '@nestjs/graphql';
 import {
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsObject,
   IsOptional,
   IsString,
-  IsEnum,
   IsUUID,
-  IsInt,
-  IsIn,
-  Min,
   Max,
   MaxLength,
+  Min,
 } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
@@ -325,6 +326,7 @@ export class TestVfdConnectionInputDto {
   protocol!: VfdProtocol;
 
   @Field(() => GraphQLJSON)
+  @IsObject()
   configuration!: Record<string, unknown>;
 
   @Field(() => String, { nullable: true })

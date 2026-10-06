@@ -18,9 +18,8 @@ import {
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In, LessThan } from 'typeorm';
 import {
-  listTenantSchemas,
-  pinTenantSchemaTransactionSearchPath,
-  pinTenantTransactionSearchPath,
+  listActiveTenantSchemaIdentities,
+  runInTenantTransaction,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
@@ -126,29 +125,16 @@ export class AutomationService {
 
   // ============================================
   /**
-   * Execute a callback with a dedicated transaction whose search_path is pinned
-   * to the correct tenant schema.
+   * Execute a callback inside the tenant's transaction boundary: tenant
+   * search_path AND the RLS tenant GUC, asserted before `fn` runs. Pinning
+   * search_path alone reads zero rows under FORCE RLS whenever the caller has
+   * no request context — MQTT deploy acks, scheduled jobs (SENSOR-MEDIUM-136).
    */
   private async withTenantSchema<T>(
     tenantId: string,
     fn: (manager: EntityManager) => Promise<T>,
   ): Promise<T> {
-    const qr = this.dataSource.createQueryRunner();
-    await qr.connect();
-    await qr.startTransaction();
-    try {
-      await pinTenantTransactionSearchPath(qr, 'sensor', tenantId);
-      const result = await fn(qr.manager);
-      await qr.commitTransaction();
-      return result;
-    } catch (error) {
-      if (qr.isTransactionActive) {
-        await qr.rollbackTransaction();
-      }
-      throw error;
-    } finally {
-      await qr.release();
-    }
+    return runInTenantTransaction(this.dataSource, 'sensor', tenantId, (qr) => fn(qr.manager));
   }
 
   // ============================================
@@ -857,12 +843,7 @@ export class AutomationService {
     programId: string,
     variables: SyncVariableInput[],
   ): Promise<SyncProgramVariablesResult> {
-    const qr = this.dataSource.createQueryRunner();
-    await qr.connect();
-    await qr.startTransaction();
-
-    try {
-      await pinTenantTransactionSearchPath(qr, 'sensor', tenantId);
+    return runInTenantTransaction(this.dataSource, 'sensor', tenantId, async (qr) => {
       const manager = qr.manager;
 
       // Verify program exists and belongs to tenant
@@ -961,17 +942,8 @@ export class AutomationService {
         }
       }
 
-      await qr.commitTransaction();
-
       return { added, removed, updated, unchanged };
-    } catch (error) {
-      if (qr.isTransactionActive) {
-        await qr.rollbackTransaction();
-      }
-      throw error;
-    } finally {
-      await qr.release();
-    }
+    });
   }
 
   // ============================================
@@ -2786,9 +2758,12 @@ export class AutomationService {
   async checkDeployTimeout(): Promise<void> {
     const cutoff = new Date(Date.now() - AutomationService.DEPLOY_TIMEOUT_MS);
 
-    let schemas: string[];
+    // SENSOR-MEDIUM-136: each tenant is read and written inside its own RLS
+    // boundary. Pinning search_path per schema alone found zero DEPLOYING
+    // programs under FORCE RLS, so a stuck deploy was never reverted.
+    let tenants: Awaited<ReturnType<typeof listActiveTenantSchemaIdentities>>;
     try {
-      schemas = await listTenantSchemas(this.dataSource);
+      tenants = await listActiveTenantSchemaIdentities(this.dataSource);
     } catch (error) {
       this.logger.error(
         `Deploy timeout check failed to fetch tenant schemas: ${(error as Error).message}`,
@@ -2796,31 +2771,25 @@ export class AutomationService {
       return;
     }
 
-    for (const schemaName of schemas) {
-      const qr = this.dataSource.createQueryRunner();
+    for (const { tenantId, schemaName } of tenants) {
       try {
-        await qr.connect();
-        await qr.startTransaction();
-        await pinTenantSchemaTransactionSearchPath(qr, 'sensor', schemaName);
+        await runInTenantTransaction(this.dataSource, 'sensor', tenantId, async (qr) => {
+          const timedOutPrograms = await qr.manager.find(AutomationProgram, {
+            where: {
+              status: ProgramStatus.DEPLOYING,
+              deployedAt: LessThan(cutoff),
+            },
+          });
 
-        const timedOutPrograms = await qr.manager.find(AutomationProgram, {
-          where: {
-            status: ProgramStatus.DEPLOYING,
-            deployedAt: LessThan(cutoff),
-          },
-        });
+          if (timedOutPrograms.length === 0) {
+            return;
+          }
 
-        if (timedOutPrograms.length === 0) {
-          await qr.commitTransaction();
-          continue;
-        }
+          this.logger.warn(
+            `Found ${timedOutPrograms.length} program(s) stuck in DEPLOYING in ${schemaName}, reverting to APPROVED`,
+          );
 
-        this.logger.warn(
-          `Found ${timedOutPrograms.length} program(s) stuck in DEPLOYING in ${schemaName}, reverting to APPROVED`,
-        );
-
-        for (const program of timedOutPrograms) {
-          try {
+          for (const program of timedOutPrograms) {
             // Revert program to APPROVED (deployable) state
             program.status = ProgramStatus.APPROVED;
             await qr.manager.save(program);
@@ -2842,22 +2811,12 @@ export class AutomationService {
                 `Program ${program.programCode} (${program.id}) deployment timed out in ${schemaName}, reverted to APPROVED`,
               );
             }
-          } catch (error) {
-            this.logger.error(
-              `Failed to revert timed-out program ${program.id} in ${schemaName}: ${(error as Error).message}`,
-            );
           }
-        }
-        await qr.commitTransaction();
+        });
       } catch (error) {
-        if (qr.isTransactionActive) {
-          await qr.rollbackTransaction();
-        }
         this.logger.error(
           `Deploy timeout check failed for ${schemaName}: ${(error as Error).message}`,
         );
-      } finally {
-        await qr.release();
       }
     }
   }

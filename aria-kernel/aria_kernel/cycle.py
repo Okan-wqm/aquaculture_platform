@@ -1527,6 +1527,10 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
     scan_result["implementation_reconciliation"] = reconcile_recorded_implementations(
         base_dir=context.base_dir,
         reader=reader,
+        # ARIA-HIGH-363 — the checkout holds the finding store (through
+        # repo_state_root) and the detector a merged plan's finding is
+        # rechecked with.
+        workspace_root=context.workspace_root,
     )
     return scan_result
 

@@ -48,12 +48,14 @@ Invariants:
 - I-V10.5-7-01 — CLI imports select_v9_implementation_runner from
   cycle_phases and passes its return value as v9_implementation_runner
   kwarg to run_autonomy_orchestrator.
-- I-V10.5-7-02 — orchestrator source contains
-  v9_implementation_runner.run( call site.
-- I-V10.5-7-03 — orchestrator source has the .run() call site
-  positioned AFTER memory_hook_recorded transition and BEFORE
-  specialist_review_started transition (per the docstring contract
-  in cycle_phases/implementer.py:7-8).
+- I-V10.5-7-02 — the orchestrator hands the injected runner to
+  converged_delivery.deliver_converged_plan (converging cycle) and to
+  redeliver_stranded_converged_plans (every cycle); runner.run( has
+  exactly one call site, inside converged_delivery (ARIA-HIGH-362).
+- I-V10.5-7-03 — the converging offer sits AFTER the
+  memory_hook_recorded transition and BEFORE specialist_review_started
+  (per the docstring contract in cycle_phases/implementer.py:7-8); the
+  re-offer sweep runs before plan adoption.
 - I-V10.5-7-04 — select_v9_implementation_runner factory correctly
   maps profile → runner variant (autonomous → Autonomous, strict →
   Strict, observe/standard/frozen → NoOp).
@@ -109,70 +111,59 @@ class V9RunnerWiredInvariants(unittest.TestCase):
         )
 
     def test_i_v10_5_7_02_orchestrator_invokes_run(self):
-        """The orchestrator source must contain
-        v9_implementation_runner.run( call site.
+        """The orchestrator offers the converged plan to the runner, and the
+        runner has exactly ONE call site.
 
         F-027 root cause part 2 was the orchestrator declaring the
-        parameter but never invoking .run(). The fix adds the explicit
-        invocation between memory_hook_recorded and
-        specialist_review_started transitions.
+        parameter but never invoking .run(). ARIA-HIGH-362 moved the call
+        into `converged_delivery.deliver_converged_plan`, which both the
+        converging cycle and the per-cycle re-offer sweep use: a second
+        `.run(` anywhere would be a second delivery path with its own idea
+        of what counts as an attempt.
         """
-        from aria_kernel import autonomy_orchestrator
+        from aria_kernel import autonomy_orchestrator, converged_delivery
         src = inspect.getsource(autonomy_orchestrator)
         self.assertIn(
-            "v9_implementation_runner.run(",
+            "deliver_converged_plan(\n                        runner=v9_implementation_runner,",
             src,
-            (
-                "I-V10.5-7-02: autonomy_orchestrator.py must invoke "
-                "v9_implementation_runner.run(...). Dropping this call "
-                "recreates F-027 — CONVERGED plans never produce "
-                "implementation_requested events; aria-implementer "
-                "subprocess never spawns."
-            ),
+            "I-V10.5-7-02: the converging cycle must hand the injected runner "
+            "to converged_delivery.deliver_converged_plan; without it CONVERGED "
+            "plans never produce implementation_requested events (F-027).",
         )
+        self.assertIn(
+            "redeliver_stranded_converged_plans(\n                    runner=v9_implementation_runner,",
+            src,
+            "ARIA-HIGH-362: every cycle must re-offer the plans an earlier "
+            "cycle left CONVERGED, with the same injected runner.",
+        )
+        self.assertNotIn("v9_implementation_runner.run(", src)
+        delivery = inspect.getsource(converged_delivery)
+        self.assertEqual(delivery.count("runner.run("), 1)
+        sweep = inspect.getsource(converged_delivery.redeliver_stranded_converged_plans)
+        self.assertIn("deliver_converged_plan(", sweep)
 
     def test_i_v10_5_7_03_run_site_positioned_between_memory_hook_and_specialist_review(self):
-        """The .run() call site must appear AFTER the
-        memory_hook_recorded transition emit AND BEFORE the
-        specialist_review_started transition emit.
-
-        Per cycle_phases/implementer.py:7-8 docstring contract:
-          "CONVERGED → V9 implementation phase → specialist_review"
-        Placing the V9 phase outside this window (e.g. before
-        memory_hook or after specialist_review) breaks the documented
-        cycle ordering.
+        """The converging offer must appear AFTER the memory_hook_recorded
+        transition and BEFORE the specialist_review_started transition
+        (cycle_phases/implementer.py: "CONVERGED -> V9 implementation phase
+        -> specialist_review"); the re-offer sweep runs before plan adoption,
+        so the plan a cycle converges is offered by its converging call only.
         """
         from aria_kernel import autonomy_orchestrator
         src = inspect.getsource(autonomy_orchestrator)
         memory_idx = src.find('phase="memory_hook_recorded"')
-        run_idx = src.find("v9_implementation_runner.run(")
+        run_idx = src.find("cycle_summary[\"v9_implementation\"] = deliver_converged_plan(")
         specialist_idx = src.find('phase="specialist_review_started"')
-        self.assertGreater(memory_idx, 0)
-        self.assertGreater(run_idx, 0)
-        self.assertGreater(specialist_idx, 0)
-        self.assertLess(
-            memory_idx, run_idx,
-            (
-                "I-V10.5-7-03: v9_implementation_runner.run() must "
-                "appear AFTER the memory_hook_recorded phase transition. "
-                "Per the V10 memory pillar ordering (autonomy_orchestrator "
-                "comment line ~1182), MemoryHook fires per CONVERGED "
-                "cycle BEFORE specialist_review; V9 belongs in the "
-                "same window, after memory."
-            ),
-        )
-        self.assertLess(
-            run_idx, specialist_idx,
-            (
-                "I-V10.5-7-03: v9_implementation_runner.run() must "
-                "appear BEFORE the specialist_review_started phase "
-                "transition. Per cycle_phases/implementer.py docstring: "
-                "'CONVERGED → V9 implementation phase → specialist_review'. "
-                "Inverting the order would let specialist_review run on "
-                "the converged plan without seeing the V9 result's "
-                "specialist_review_signal."
-            ),
-        )
+        sweep_idx = src.find("redeliver_stranded_converged_plans(\n")
+        adopt_idx = src.find("resume_candidate_plan_id(base_dir=root)")
+        for index in (memory_idx, run_idx, specialist_idx, sweep_idx, adopt_idx):
+            self.assertGreater(index, 0)
+        self.assertLess(memory_idx, run_idx,
+                        "I-V10.5-7-03: the V9 offer belongs after the memory hook")
+        self.assertLess(run_idx, specialist_idx,
+                        "I-V10.5-7-03: the V9 offer belongs before specialist review")
+        self.assertLess(sweep_idx, adopt_idx,
+                        "ARIA-HIGH-362: the sweep runs before this cycle adopts a plan")
 
     def test_i_v10_5_7_04_factory_maps_profile_to_variant(self):
         """select_v9_implementation_runner maps profile to variant BY

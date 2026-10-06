@@ -826,6 +826,8 @@ def record_finding_status_change(
     reason: str,
     actor: str,
     base_dir: str | Path | None = None,
+    closes_in_commit: str | None = None,
+    evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """E21-c (ORPHAN-693) — operator status transitions become event rows.
 
@@ -833,10 +835,28 @@ def record_finding_status_change(
     reach IN_PROGRESS / SUPPRESSED / WITHDRAWN through replay — a state
     machine whose states were unreachable. Transitions validate against
     STATUS_TRANSITIONS at append time; the fold trusts the ledger.
+
+    ARIA-HIGH-363 — a RESOLVED transition may carry ``closes_in_commit``
+    (the commit that fixed it) and ``evidence`` (why the closer believes
+    it), which the fold surfaces as ``closes_in_commit`` and
+    ``resolution_evidence``. The merge reconciler
+    (``finding_closure``) is their producer: it closes a finding whose
+    detector no longer reproduces it at the merge commit, through this same
+    transition path rather than a second closing event. On any other
+    target status the two fields are refused — they assert a fix.
     """
     repo_path = Path(repo_root).resolve()
     if to_status not in STATUSES:
         raise GovernanceError(f"invalid status: {to_status}")
+    if (closes_in_commit is not None or evidence is not None) and to_status != "RESOLVED":
+        raise GovernanceError(
+            f"finding_status_change_resolution_fields: closes_in_commit/evidence assert a fix "
+            f"and ride only a RESOLVED transition, not {to_status}"
+        )
+    if closes_in_commit is not None and (not isinstance(closes_in_commit, str) or not closes_in_commit.strip()):
+        raise GovernanceError("finding_status_change_closes_in_commit_invalid")
+    if evidence is not None and not isinstance(evidence, dict):
+        raise GovernanceError("finding_status_change_evidence_must_be_object")
     if not isinstance(reason, str) or not reason.strip():
         raise GovernanceError("finding_status_change_reason_required")
     if not isinstance(actor, str) or not actor.strip():
@@ -863,6 +883,10 @@ def record_finding_status_change(
         "actor": actor,
         "recorded_at": _utc_now(),
     }
+    if closes_in_commit is not None:
+        event_row["closes_in_commit"] = closes_in_commit
+    if evidence is not None:
+        event_row["evidence"] = evidence
     return _append_finding_event(
         repo_path, event_row,
         governance_kind="finding_status_changed",
@@ -871,6 +895,7 @@ def record_finding_status_change(
             "from_status": current,
             "to_status": to_status,
             "actor": actor,
+            **({"closes_in_commit": closes_in_commit} if closes_in_commit is not None else {}),
         },
         base_dir=base_dir,
     )
@@ -941,6 +966,11 @@ def _replay_findings(repo_root: Path) -> dict[str, dict[str, Any]]:
             doc = dict(record)
             doc["source_event_id"] = event.get("event_id")
             doc["source_ledger_hash"] = source_ledger_hash
+            # ARIA-HIGH-363 (review B1) — the commit the finding was minted
+            # against, from the mint event every finding already has. The
+            # merge closure reads it to close only findings that predate the
+            # merge, never a regression minted after it.
+            doc["minted_at_sha"] = event.get("target_sha")
             findings[finding_id] = doc
             continue
         # Every non-mint event references a finding the ledger has already
@@ -976,4 +1006,9 @@ def _replay_findings(repo_root: Path) -> dict[str, dict[str, Any]]:
             doc["status"] = event.get("to_status")
             doc["status_reason"] = event.get("reason")
             doc["status_actor"] = event.get("actor")
+            # ARIA-HIGH-363 — present only on a RESOLVED transition (append-time rule).
+            if event.get("closes_in_commit") is not None:
+                doc["closes_in_commit"] = event.get("closes_in_commit")
+            if event.get("evidence") is not None:
+                doc["resolution_evidence"] = event.get("evidence")
     return findings

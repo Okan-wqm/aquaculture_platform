@@ -39,7 +39,7 @@ bytes = { workspace = true }
 # Config + serde.
 serde = { workspace = true }
 serde_json = { workspace = true }
-toml = "0.8"
+toml = "1.1"
 
 # Identity + time.
 uuid = { workspace = true }

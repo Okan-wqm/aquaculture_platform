@@ -74,6 +74,17 @@ EVENT_TYPES = {
     # coverage_gap risks into cross_review_risks_by_round[N]. The
     # payload shape is a one-way door like every event here.
     "coverage_computed",
+    # ARIA-HIGH-362 — a CONVERGED plan's delivery attempts, recorded on the
+    # plan's own ledger. An ANNOTATION like coverage_computed: the reducer
+    # appends to state["implementation_delivery_attempts"] and never changes
+    # state["state"]; its only legal state is CONVERGED. Before it, a
+    # converged plan got exactly one offer to the V9 runner — the cycle that
+    # converged it — and a refusal, a staging error or a runner exception in
+    # that cycle left it CONVERGED (terminal) with nothing that would ever
+    # offer it again. The attempt count bounds the re-offers
+    # (`converged_delivery`), so it lives where it cannot be lost or reset:
+    # the signed plan ledger, idempotent per (plan, attempt).
+    "implementation_delivery_attempted",
 }
 TERMINAL_STATES = {
     "CONVERGED",
@@ -1273,6 +1284,58 @@ def request_implementation(
     )
 
 
+def record_implementation_delivery_attempt(
+    *,
+    plan_id: str,
+    attempt: int,
+    cycle_id: str,
+    profile: str,
+    runner_class: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-362 — claim delivery attempt ``attempt`` of a CONVERGED plan.
+
+    Written BEFORE the runner is called, so an attempt the process does not
+    survive still counts: the bound is on offers made, read back from this
+    ledger, never on an in-memory counter.
+
+    Idempotent per (plan, attempt): the key is the attempt number alone, so
+    two offers racing for the same number append ONE event and the loser is
+    told ``idempotent=True`` — the caller treats that as "attempt N is
+    someone else's" and does not run. The validator also refuses a number
+    that is not the next one, so attempts are dense and their count is the
+    length of the fold's list.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(cycle_id, "cycle_id")
+    _require_non_empty(profile, "profile")
+    _require_non_empty(runner_class, "runner_class")
+
+    def _validate(state: dict[str, Any]) -> None:
+        _require_state(state, {"CONVERGED"}, "record implementation delivery attempt")
+        expected = len(state.get("implementation_delivery_attempts") or []) + 1
+        if attempt != expected:
+            raise GovernanceError(
+                f"implementation_delivery_attempt_out_of_order: plan {plan_id!r} "
+                f"has {expected - 1} attempt(s); the next is {expected}, not {attempt}"
+            )
+
+    return _mutate(
+        plan_id=plan_id,
+        command_name="implementation-delivery-attempt",
+        canonical_payload={"attempt": attempt},
+        event_type="implementation_delivery_attempted",
+        payload={
+            "attempt": attempt,
+            "cycle_id": cycle_id,
+            "profile": profile,
+            "runner_class": runner_class,
+        },
+        base_dir=base_dir,
+        validator=_validate,
+    )
+
+
 def record_implementation_started(
     *,
     plan_id: str,
@@ -1883,6 +1946,7 @@ def _initial_state(plan_id: str) -> dict[str, Any]:
         "cross_review_risks_by_round": {},
         "resolved_review_risk_ids": [],
         "coverage_by_round": {},
+        "implementation_delivery_attempts": [],
         "terminal_state": None,
     }
 
@@ -2064,6 +2128,17 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
     elif event_type == "plan_evaluated":
         state["state"] = payload["terminal_state"]
         state["terminal_state"] = payload["terminal_state"]
+    elif event_type == "implementation_delivery_attempted":
+        # ARIA-HIGH-362 — annotation; legal only while the plan rests in
+        # CONVERGED, the one state a delivery can be offered from.
+        if state.get("state") != "CONVERGED":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_delivery_attempted expected=CONVERGED"
+            )
+        state.setdefault("implementation_delivery_attempts", []).append({
+            **payload, "recorded_at": event.get("recorded_at"),
+        })
     elif event_type == "plan_abandoned":
         state["state"] = "ABANDONED"
         state["terminal_state"] = "ABANDONED"
@@ -2785,6 +2860,12 @@ def _validate_event(event: dict[str, Any]) -> None:
         for field in ("risks_rollup_summary", "gate_decisions", "reason_codes"):
             if field not in payload:
                 raise GovernanceError(f"plan_evaluated missing {field}")
+    elif event_type == "implementation_delivery_attempted":
+        attempt = payload.get("attempt")
+        if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt <= 0:
+            raise GovernanceError("implementation_delivery_attempted attempt must be a positive integer")
+        for field in ("cycle_id", "profile", "runner_class"):
+            _require_non_empty(payload.get(field), field)
     elif event_type == "plan_abandoned":
         _require_non_empty(payload.get("reason"), "reason")
         _require_non_empty(payload.get("abandoned_from_state"), "abandoned_from_state")

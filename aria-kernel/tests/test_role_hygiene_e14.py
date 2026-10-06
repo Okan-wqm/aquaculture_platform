@@ -145,6 +145,28 @@ class GoldsetCurationMinterTest(_ToolsDirTest):
         self.assertEqual(requests[0]["target_agent"], GOLDSET_CURATOR_AGENT)
         self.assertEqual(requests[0]["target_sha"], "a" * 40)
 
+    def test_the_curator_is_handed_the_corpus_and_its_repo_evidence_never_the_ledger(self) -> None:
+        # ARIA-HIGH-354 — the envelope cited the state-store proposals ledger,
+        # which the curator's checkout does not hold and the submit law refuses.
+        for index, verdict in ((1, "true_positive"), (2, "false_positive")):
+            record_operator_feedback(
+                tool_id="tool-a", run_id=f"run-{index}", finding_id=f"F-{index}", verdict=verdict,
+                severity="medium", note=f"operator label {index}",
+                evidence_refs=[f"apps/hr-service/src/leave/leave.service.ts:{index}"], base_dir=self.tools,
+            )
+        propose_goldsets_for_labelled_tools(
+            cycle_id="cyc-1", base_dir=self.tools, target_true_positives=1,
+            target_known_false_positives=1, target_sha="a" * 40,
+        )
+        [request] = self._requests(GOLDSET_CURATION_ROLE)
+        self.assertEqual(request["evidence_refs"][1:], [
+            "apps/hr-service/src/leave/leave.service.ts:1",
+            "apps/hr-service/src/leave/leave.service.ts:2",
+        ])
+        self.assertFalse([ref for ref in request["evidence_refs"] if "goldsets/" in ref])
+        self.assertIn('"finding_id": "F-1"', request["suggested_prompt"])
+        self.assertIn('"verdict": "false_positive"', request["suggested_prompt"])
+
     def test_a_blocked_proposal_mints_nothing(self) -> None:
         # A curator asked to draft from a corpus that is still short can only
         # repeat the blocker the ledger already states, at LLM cost.

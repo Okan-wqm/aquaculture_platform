@@ -80,11 +80,24 @@ Options considered and rejected:
    2026-10-02 (ARIA-LOW-280) per program ruling 15; the first text kept the pins in a kernel tuple.
    A fix's journey pin (`<project>/src/__journeys__/…`) needs no entry: it lies under its own
    project's closure root (decision 2).
+9. **What a plan consumes is citable, not writable.** The bound limits where a plan writes. It
+   does not limit what a planner may read and cite.
+   - `impact_graph.plan_downstream_impact` also records the projects the changed ones import
+     directly (`upstream_projects`, `upstream_project_roots`). The admission record (schema
+     version 3) stores their roots that are not under a closure root as `dependency_roots`.
+   - Every planning-round envelope carries `evidence_scope` (`<root>/**` per dependency root),
+     derived by the mint from the plan's record, and the response law admits a citation inside it.
+   - Decisions 3 and 4 never read it, so a body naming such a path is still refused.
+   - A version 1 or 2 record has no dependency roots, and its envelopes carry no evidence scope.
+   - Amended 2026-10-06 (ARIA-HIGH-357). Without it, F-007's planners could not cite the
+     generated `LeaveRequestStatus` in `web/shared-ui`, which the hr-module change consumes. The
+     challenger imported the backend entity instead, and cross_review flagged that import (CR-005).
 
 ## Consequences
 
 - A plan admitted on a surface can revise and implement a fix in that surface's project and in
-  every project that depends on it, and nowhere else.
+  every project that depends on it, and nowhere else. It can cite the projects its own project
+  imports directly (decision 9), and it cannot write to them.
 - The coverage gate and the bound can disagree: an event consumer or entity-migration coupling the
   witness finds outside the project closure is reachable only through a coverage waiver the
   completeness critic adjudicates, or through a subject pin.

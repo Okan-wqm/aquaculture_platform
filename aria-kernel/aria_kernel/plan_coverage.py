@@ -26,6 +26,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
+from .evidence_validator import coverage_manifest_pointer
 from .plan_convergence import affected_surface_paths as _affected_surface_paths
 from .tool_registry import ensure_tools_dir, utc_now
 
@@ -76,7 +77,10 @@ def build_synthetic_risk(node: dict[str, Any], *, round_number: int, closure_man
             "entry {node, reason} the completeness critic can adjudicate"
         ),
         "affected_files": [closure_manifest_path],
-        "evidence_refs": [f"{closure_manifest_path}:1"],
+        # ARIA-HIGH-354 — the manifest is a state-store record, not a repo
+        # file; agents read this risk and cite its refs, so it names the
+        # manifest the way the evidence law admits one.
+        "evidence_refs": [coverage_manifest_pointer(closure_manifest_path)],
     }
 
 

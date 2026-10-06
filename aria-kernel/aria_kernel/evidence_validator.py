@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -328,13 +330,42 @@ def _parse_agent_ref(ref: str) -> tuple[str, int | None] | None:
 from .canonical_path import _canonical_evidence_path  # noqa: F401
 
 
+# ARIA-HIGH-354 — the closure manifest a coverage round writes lives in the
+# state store (`<tools>/coverage/<plan>-r<N>.json`), and the kernel handed it
+# to the completeness critic as a repo-shaped evidence ref. The critic cited
+# it, the repo law found no such file, the result was refused and the F-007
+# plan went HUMAN_REQUIRED (`convergence_envelope_dead:completeness_critique`,
+# 2026-10-05). The manifest is a kernel record bound by the hash the coverage
+# event carries, so the kernel names it to agents with this pointer, and an
+# agent may cite it only when the envelope it answers carries it.
+COVERAGE_MANIFEST_POINTER_PREFIX = "coverage-manifest:"
+_COVERAGE_MANIFEST_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*-r[1-9][0-9]*\.json$")
+
+
+def coverage_manifest_pointer(closure_manifest_path: str) -> str:
+    """The agent-citable name of a coverage round's closure manifest."""
+    name = Path(str(closure_manifest_path)).name
+    if not _COVERAGE_MANIFEST_NAME_RE.match(name):
+        raise GovernanceError(f"coverage_manifest_name_invalid: {name!r}")
+    return f"{COVERAGE_MANIFEST_POINTER_PREFIX}{name}"
+
+
+def _is_coverage_manifest_pointer(ref: str) -> bool:
+    return ref.startswith(COVERAGE_MANIFEST_POINTER_PREFIX) and bool(
+        _COVERAGE_MANIFEST_NAME_RE.match(ref[len(COVERAGE_MANIFEST_POINTER_PREFIX):])
+    )
+
+
 def _is_ledger_pointer_ref(ref: str) -> bool:
     """Z2 (ORPHAN-708 follow-through) — THE single definition of a kernel
     ledger pointer. First live panel drain showed three law layers each
     discovering the pointer separately: malformed passed (Z0 fix), then
     repo-verified and allowed-scope each rejected the same ref. Every
     layer now asks this one question; the load-bearing verification of
-    what the pointer NAMES stays at fold time."""
+    what the pointer NAMES stays at fold time (a human-required record) or
+    at the envelope that minted it (a coverage manifest, ARIA-HIGH-354)."""
+    if _is_coverage_manifest_pointer(ref):
+        return True
     return ref.startswith("human-required:") and len(ref) > len("human-required:")
 
 
@@ -354,6 +385,38 @@ ARBITRATION_ROLES: frozenset[str] = frozenset({
     "consensus_arbitration",
     "human_required_adjudication",
 })
+
+
+def state_store_record_refs(refs: Iterable[Any], *, store_root: str | Path) -> list[str]:
+    """The refs among ``refs`` that name a file inside the state store.
+
+    ARIA-HIGH-354 — the mint-side half of the agent evidence law. An agent
+    answers with the refs its envelope hands it, and the submit law judges
+    each one against the repository (or, for ``ARBITRATION_ROLES``, against
+    the results ledger). A store record handed out as a path can only be
+    refused at the submit, after the paid run: the closure manifest was, and
+    the F-007 plan died on it. Store-relative refs are spelled from the
+    store root's parent (``<tools>/coverage/<plan>-r1.json``), so that is
+    where they resolve.
+    """
+    store = Path(store_root).resolve()
+    named: list[str] = []
+    for ref in refs:
+        if not isinstance(ref, str) or _is_ledger_pointer_ref(ref):
+            continue
+        parsed = _parse_agent_ref(ref)
+        if parsed is None:
+            continue
+        candidate = Path(parsed[0])
+        if not candidate.is_absolute():
+            candidate = store.parent / candidate
+        try:
+            resolved = candidate.resolve()
+        except (OSError, RuntimeError):
+            continue
+        if resolved.is_file() and store in resolved.parents:
+            named.append(ref)
+    return named
 
 
 def _artifact_results_ledger(artifact: Path) -> Path | None:
@@ -710,13 +773,22 @@ def validate_agent_response_evidence(
         if "allowed_scope" not in request:
             errors.append({"code": "evidence_request_missing_allowed_scope"})
         else:
-            allowed_globs = list(request.get("allowed_scope") or [])
+            # ARIA-HIGH-357 — a planning-round envelope's read-only evidence
+            # scope (ADR-0021 D9) is citable, never writable.
+            allowed_globs = [*(request.get("allowed_scope") or []), *(request.get("evidence_scope") or [])]
             allowed_request_refs = {
                 (_parse_agent_ref(r) or ("", None))[0]
                 for r in (request.get("evidence_refs") or [])
                 if isinstance(r, str)
             }
+            request_refs = {r for r in (request.get("evidence_refs") or []) if isinstance(r, str)}
             for path in checked:
+                if _is_coverage_manifest_pointer(path) and path not in request_refs:
+                    # ARIA-HIGH-354 — the manifest's bytes are bound by the
+                    # envelope that names it; a pointer the envelope does not
+                    # carry names a manifest nobody handed this agent.
+                    errors.append({"code": "agent_evidence_pointer_unbound", "ref": path})
+                    continue
                 if _is_ledger_pointer_ref(path):
                     continue  # Z2 — pointer identity is bound at mint, not by glob
                 if allow_kernel_artifacts and _kernel_artifact_verdict(path, root)[0]:

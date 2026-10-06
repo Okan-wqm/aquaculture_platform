@@ -62,10 +62,6 @@ import { useActiveProcesses } from '../../hooks/useProcess';
 
 interface GridStackDashboardProps {
   className?: string;
-  /** Legacy prop - layout is now managed internally via useDashboardLayout */
-  initialLayout?: DashboardLayout;
-  /** Legacy prop - layout changes are now persisted internally */
-  onLayoutChange?: (layout: DashboardLayout) => void;
 }
 
 // ============================================================================

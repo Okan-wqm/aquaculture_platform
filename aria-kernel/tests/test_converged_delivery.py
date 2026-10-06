@@ -526,3 +526,32 @@ class OrchestratorWiringTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OperatorWithdrawConvergedTests(unittest.TestCase):
+    """ARIA-HIGH-362 (review M3) — the guarded default refuses a CONVERGED
+    plan; the operator CLI names the state it withdraws from, and only then
+    does the transition run (inside the plan lock, as for every caller)."""
+
+    # The converged fixture only; inheriting the class would re-run its tests.
+    setUp = ConvergedDeliveryTests.setUp
+    tearDown = ConvergedDeliveryTests.tearDown
+    _state = ConvergedDeliveryTests._state
+
+    def _cli(self, *extra: str) -> int:
+        from aria_kernel.cli import main
+
+        return main(["plan", "force-human-required", "--tools-dir", str(self.tools), "--plan-id", PLAN,
+                     "--round-number", "1", "--reason-code", "operator_withdrawn", *extra])
+
+    def test_the_cli_refuses_a_converged_plan_unless_the_operator_names_it(self) -> None:
+        with self.assertRaises(GovernanceError):
+            self._cli()
+        self.assertEqual(self._state()["state"], "CONVERGED")
+        self.assertEqual(self._cli("--from-state", "CONVERGED"), 0)
+        self.assertEqual(self._state()["state"], "HUMAN_REQUIRED")
+
+    def test_a_named_state_the_plan_is_not_in_is_refused(self) -> None:
+        with self.assertRaises(GovernanceError):
+            self._cli("--from-state", "IMPLEMENTATION_REQUESTED")
+        self.assertEqual(self._state()["state"], "CONVERGED")

@@ -236,6 +236,9 @@ class SeederThrottleTests(_Store):
         self.assertTrue(cycle_guard.admit_finding_opener(self.fx.tools, "seed_drift_findings", census).admitted)
         drift = {
             "drift_class": "enum-drift", "concept": "leave_status", "cross_service": True,
+            # A mintable drift (seeder: severity + classification, else
+            # unclassified_drift), so the refusal under test is the throttle's.
+            "severity": "HIGH", "classification": "ts_value_not_in_db",
             "missing_in_ts": ["ARCHIVED"], "missing_in_sql": [],
             "ts": {"ref": f"{GROUNDED_FILE}:1", "name": "LeaveStatus", "values": ["A"]},
             "sql": {"ref": "apps/hr-service/src/leave/leave.entity.ts:1", "name": "leave_status", "values": ["A", "B"]},

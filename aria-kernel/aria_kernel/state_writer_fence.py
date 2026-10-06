@@ -72,14 +72,24 @@ def _renew(store: "StateStore", view: WriterLeaseView, *, now: datetime) -> Writ
         "heartbeat_at": _iso(stamp),
         "expires_at": _iso(stamp + timedelta(seconds=extend)),
     })
-    if not _push_record(
+    pushed = _push_record(
         store.repo_root,
         remote=store.remote,
         branch=writer_lease_branch(store.branch),
         parent=view.tip,
         record=view_record(view, renewed),
         message=f"chore(aria-state-lease): renew epoch {renewed.epoch} until {renewed.expires_at}",
-    ):
+    )
+    if not pushed:
+        after = read_writer_lease(store.repo_root, remote=store.remote, state_branch=store.branch)
+        if after.tip == view.tip:
+            # ARIA-HIGH-350 — nobody moved the lease: the server refused the
+            # write itself (permission, ruleset, transport), in git's words.
+            raise StateStoreError(
+                "state_publish_write_denied: the lease renewal push was refused while "
+                f"{writer_lease_branch(store.branch)} did not move; git said: "
+                f"{pushed.detail or '<nothing>'}"
+            )
         raise StateWriterLeaseLost(
             f"the renewal of lease {view.lease.lease_id} was rejected: another writer moved "
             f"{writer_lease_branch(store.branch)}"

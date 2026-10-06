@@ -4,6 +4,7 @@ import {
   getTenantSchemaName,
   listActiveTenantSchemaIdentities,
   runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
 } from '@aquaculture/backend-common/database';
 import {
   createStandardPaginatedResult,
@@ -834,7 +835,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       try {
         const result: unknown = await runInTenantTransaction(
           this.dataSource,
-          'sensor',
+          SENSOR_SOURCE_SCHEMA,
           tenantId,
           (qr) =>
             qr.query(

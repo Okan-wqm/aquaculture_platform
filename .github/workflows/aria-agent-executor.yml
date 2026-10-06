@@ -275,7 +275,7 @@ jobs:
               # the state branch over the repository remote. Kept separate from
               # `github_artifact` because they are different credentials with
               # different blast radii.
-              network_policy=["github_artifact", "github_git"],
+              network_policy=["github_api", "github_artifact", "github_git"],
               network_enforcement_evidence=(
                   "state restore/publish limited to the aria/state branch over "
                   "the repository remote; artifact upload limited to the "

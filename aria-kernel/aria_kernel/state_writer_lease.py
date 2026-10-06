@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import contextlib
 import getpass
+import re
 import hashlib
 import json
 import math
@@ -73,6 +74,13 @@ from typing import Any, Callable
 
 from .autonomous_host_lease import RemoteCasLease, build_remote_cas_lease
 from .ledger import canonical_json
+from .state_writer_lease_runs import (
+    RunStatus,
+    RunStatusReader,
+    RunStatusUnavailable,
+    github_run_attempt_status,
+    reap_decision,
+)
 from .state_store import (
     COLD_PUSH_ATTEMPTS,
     COMMITTER_EMAIL,
@@ -136,7 +144,9 @@ _MAX_UNCHANGED_PUSH_FAILURES = 3
 class StateWriterLeaseBlocked(StateStoreRefusal):
     """Another writer holds the lease, and the bounded wait ran out."""
 
-    def __init__(self, view: "WriterLeaseView", *, waited_seconds: float) -> None:
+    def __init__(
+        self, view: "WriterLeaseView", *, waited_seconds: float, not_reaped: str | None = None,
+    ) -> None:
         holder = view.lease
         super().__init__(
             "state_writer_lease_held: aria/state is being written by "
@@ -145,9 +155,11 @@ class StateWriterLeaseBlocked(StateStoreRefusal):
             f"{holder.epoch if holder else '-'}) until "
             f"{holder.expires_at if holder else '-'}; waited {waited_seconds:.0f}s "
             "and yielded before restoring anything"
+            + (f"; not reaped: {not_reaped}" if not_reaped else "")
         )
         self.view = view
         self.waited_seconds = waited_seconds
+        self.not_reaped = not_reaped
 
 
 class StateWriterLeaseLost(StateStoreRefusal):
@@ -286,6 +298,9 @@ class WriterLeaseView:
     released: bool = False
     released_by: str | None = None
     release_reason: str | None = None
+    # ARIA-HIGH-350 — the predecessor this lease took over because its run
+    # attempt had concluded: lease id, owner, run, attempt, conclusion.
+    reaped: dict[str, Any] | None = None
 
     def is_held(self, *, now: datetime | None = None) -> bool:
         if self.lease is None or self.released:
@@ -319,6 +334,7 @@ class WriterLeaseView:
             "released": self.released,
             "released_by": self.released_by,
             "release_reason": self.release_reason,
+            "reaped": self.reaped,
         }
 
 
@@ -378,6 +394,7 @@ def _parse_record(raw: bytes, *, tip: str) -> WriterLeaseView:
         released=payload.get("released") is True,
         released_by=text("released_by"),
         release_reason=text("release_reason"),
+        reaped=payload.get("reaped") if isinstance(payload.get("reaped"), dict) else None,
     )
 
 
@@ -448,6 +465,21 @@ def lease_commit(
     ).strip()
 
 
+@dataclass(frozen=True)
+class PushResult:
+    """A lease push's outcome, with git's own words when it was refused.
+
+    ARIA-HIGH-350 — `False` alone made a hook that could not run, an auth
+    failure and a lost race all read "refused"; the stderr tells them apart.
+    """
+
+    accepted: bool
+    detail: str = ""
+
+    def __bool__(self) -> bool:
+        return self.accepted
+
+
 def _push_record(
     root: Path,
     *,
@@ -456,13 +488,16 @@ def _push_record(
     parent: str | None,
     record: dict[str, Any],
     message: str,
-) -> bool:
+) -> PushResult:
     """Commit ``record`` on ``parent`` and push it fast-forward-only, never
-    forced. ``False`` is a rejected push: the caller re-reads and decides."""
+    forced. A refused push carries git's stderr; the caller re-reads and
+    decides. No hook runs: every store git call is hook-free
+    (`state_store._run_git_bytes_bounded`)."""
     commit = lease_commit(root, parent=parent, record=record, message=message)
-    return _lease_git_run(
+    proc = _lease_git_run(
         root, ("push", remote, f"{commit}:refs/heads/{branch}"), step=PUBLISH_PUSH_STEP,
-    ).returncode == 0
+    )
+    return PushResult(proc.returncode == 0, " ".join(proc.stderr.split())[:400])
 
 
 def _state_tip(root: Path, *, remote: str, state_branch: str) -> str:
@@ -485,6 +520,7 @@ def lease_record(
     released_by: str | None = None,
     release_reason: str | None = None,
     repaired: bool = False,
+    reaped: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "schema": LEASE_SCHEMA,
@@ -496,6 +532,7 @@ def lease_record(
         "released_by": released_by,
         "release_reason": release_reason,
         "repaired": repaired,
+        "reaped": reaped,
     }
 
 
@@ -507,8 +544,27 @@ def view_record(view: WriterLeaseView, lease: RemoteCasLease, **overrides: Any) 
         run_id=view.run_id,
         ttl_minutes=view.ttl_minutes,
         secret_sha256=view.secret_sha256,
-        **overrides,
+        **{"reaped": view.reaped, **overrides},
     )
+
+
+def _default_run_status(run_id: str, attempt: str) -> RunStatus:
+    """The Actions API, looked up through this module at call time."""
+    return github_run_attempt_status(run_id, attempt)
+
+
+def _run_liveness(view: WriterLeaseView) -> str:
+    """What GitHub says about the holder's run, in words for the record."""
+    assert view.lease is not None
+    decision = reap_decision(
+        owner=view.lease.owner,
+        run_id=view.run_id,
+        lease_id=view.lease.lease_id,
+        run_status=_default_run_status,
+    )
+    if decision.concluded or not re.match(r"^run \d+ attempt \d+ is ", decision.reason):
+        return decision.reason
+    return f"{decision.reason} (not concluded)"
 
 
 def acquire_writer_lease(
@@ -525,6 +581,7 @@ def acquire_writer_lease(
     sleep: Callable[[float], None] = time.sleep,
     now: Callable[[], datetime] = _utc_now,
     persist_token: Callable[[str], None] | None = None,
+    run_status: RunStatusReader | None = None,
 ) -> HeldWriterLease:
     """Take the aria/state writer lease, waiting at most ``wait_seconds``.
 
@@ -539,6 +596,11 @@ def acquire_writer_lease(
     would make it the lease's, so a process that dies after the push still
     leaves the capability its release step needs (no identity fallback).
     ``owner`` is for tests; a lane is always named by ``writer_identity``.
+
+    ARIA-HIGH-350 — a held lease whose holder is a GitHub run attempt that
+    has CONCLUDED (``run_status``, by default the Actions API) is reaped: the
+    takeover is an ordinary CAS push whose record names the predecessor, its
+    run and its conclusion. No answer about the run is no reap.
     """
     if not 1 <= int(ttl_minutes) <= MAX_TTL_MINUTES:
         raise StateStoreError(
@@ -553,14 +615,26 @@ def acquire_writer_lease(
     branch = writer_lease_branch(state_branch)
     started = monotonic()
     unchanged_failures = 0
+    last_refusal = ""
     while True:
         view = read_writer_lease(root, remote=remote, state_branch=state_branch)
+        reaped: dict[str, Any] | None = None
         if view.is_held(now=now()):
-            waited = monotonic() - started
-            if waited >= wait_seconds:
-                raise StateWriterLeaseBlocked(view, waited_seconds=waited)
-            sleep(min(poll_seconds, max(wait_seconds - waited, 0.001)))
-            continue
+            assert view.lease is not None
+            decision = reap_decision(
+                owner=view.lease.owner,
+                run_id=view.run_id,
+                lease_id=view.lease.lease_id,
+                run_status=run_status or _default_run_status,
+            )
+            if decision.concluded:
+                reaped = decision.record
+            else:
+                waited = monotonic() - started
+                if waited >= wait_seconds:
+                    raise StateWriterLeaseBlocked(view, waited_seconds=waited, not_reaped=decision.reason)
+                sleep(min(poll_seconds, max(wait_seconds - waited, 0.001)))
+                continue
         token = secrets.token_hex(32)
         if persist_token is not None:
             persist_token(token)
@@ -571,16 +645,22 @@ def acquire_writer_lease(
             head_sha=_state_tip(root, remote=remote, state_branch=state_branch),
             ttl_minutes=int(ttl_minutes),
         )
-        if _push_record(
+        reaped_note = (
+            f" (reaped run {reaped['run_id']} attempt {reaped['run_attempt']}: {reaped['conclusion']})"
+            if reaped else ""
+        )
+        pushed = _push_record(
             root,
             remote=remote,
             branch=branch,
             parent=view.tip,
             record=lease_record(
                 lease, run_id=run, ttl_minutes=int(ttl_minutes), secret_sha256=token_digest(token),
+                reaped=reaped,
             ),
-            message=f"chore(aria-state-lease): {holder} epoch {lease.epoch} until {lease.expires_at}",
-        ):
+            message=f"chore(aria-state-lease): {holder} epoch {lease.epoch} until {lease.expires_at}{reaped_note}",
+        )
+        if pushed:
             return HeldWriterLease(
                 lease_id=lease.lease_id,
                 epoch=lease.epoch,
@@ -593,13 +673,14 @@ def acquire_writer_lease(
                 waited_seconds=monotonic() - started,
                 predecessor=view.as_json() if view.lease else {},
             )
+        last_refusal = pushed.detail
         after = read_writer_lease(root, remote=remote, state_branch=state_branch)
         if after.tip == view.tip:
             unchanged_failures += 1
             if unchanged_failures >= _MAX_UNCHANGED_PUSH_FAILURES:
                 raise StateStoreError(
                     f"state_writer_lease_push_failed: {branch} did not move and refused "
-                    f"{unchanged_failures} pushes; the remote is not accepting writes"
+                    f"{unchanged_failures} pushes; git said: {last_refusal or '<nothing>'}"
                 )
 
 
@@ -623,7 +704,7 @@ def _release_once(
     branch: str,
     released_by: str,
     reason: str,
-) -> bool:
+) -> PushResult:
     assert view.lease is not None
     stamp = _iso(_utc_now())
     released = RemoteCasLease(**{**asdict(view.lease), "heartbeat_at": stamp, "expires_at": stamp})
@@ -657,6 +738,7 @@ def release_writer_lease(
     root = Path(repo_root)
     branch = writer_lease_branch(state_branch)
     releaser, _run = writer_identity(root)
+    last_refusal = ""
     for _attempt in range(_MAX_UNCHANGED_PUSH_FAILURES):
         view = read_writer_lease(root, remote=remote, state_branch=state_branch)
         if view.lease is None:
@@ -668,10 +750,14 @@ def release_writer_lease(
                 return {"released": False, "reason": "token_not_current", "current": view.as_json()}
             reason = "holder released"
         elif force_foreign_reason:
-            reason = f"force-foreign: {force_foreign_reason}"
+            # ARIA-HIGH-350 — the record states what GitHub said about the
+            # holder's run, so an override of a live run is visible as one.
+            reason = f"force-foreign: {force_foreign_reason}; {_run_liveness(view)}"
         else:
             return {"released": False, "reason": "no_token", "current": view.as_json()}
-        if _release_once(root, view, remote=remote, branch=branch, released_by=releaser, reason=reason):
+        pushed = _release_once(root, view, remote=remote, branch=branch, released_by=releaser, reason=reason)
+        last_refusal = pushed.detail
+        if pushed:
             return {
                 "released": True,
                 "lease_id": view.lease.lease_id,
@@ -682,7 +768,8 @@ def release_writer_lease(
             }
     raise StateStoreError(
         f"state_writer_lease_release_failed: {branch} refused {_MAX_UNCHANGED_PUSH_FAILURES} "
-        "release pushes; the lease expires at its recorded bound"
+        f"release pushes; git said: {last_refusal or '<nothing>'}; the lease expires at its "
+        "recorded bound"
     )
 
 
@@ -742,18 +829,23 @@ def repair_writer_lease(
         release_reason=f"repair: {reason.strip()}",
         repaired=True,
     )
-    if not _push_record(
+    pushed = _push_record(
         root, remote=remote, branch=branch, parent=tip, record=record,
         message=f"chore(aria-state-lease): repair by {repairer} ({reason.strip()})",
-    ):
+    )
+    if not pushed:
         raise StateStoreError(
-            f"state_writer_lease_repair_rejected: {branch} moved while repairing; read it again"
+            f"state_writer_lease_repair_rejected: {branch} refused the repair push; "
+            f"git said: {pushed.detail or '<nothing>'}"
         )
     return {"repaired": True, "replaced_tip": tip, "repaired_by": repairer, "reason": reason.strip()}
 
 
 __all__ = [
     "LEASED_PUBLISH_SECONDS",
+    "PushResult",
+    "RunStatusUnavailable",
+    "github_run_attempt_status",
     "LEASE_SCHEMA",
     "MAX_TTL_MINUTES",
     "PUBLISH_MARGIN_MINUTES",

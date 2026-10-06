@@ -245,6 +245,7 @@ def mint_candidates(
     never hand-written around the gate.
     """
     _kernel_on_path()
+    from aria_kernel.cycle_guard import OpenerAdmission, admit_finding_opener, backlog_census
     from aria_kernel.finding import _evidence_chain_id, emit_finding, fold_findings
     from aria_kernel.finding_subject import finding_subject_key
     from aria_kernel.tool_registry import GovernanceError
@@ -264,6 +265,7 @@ def mint_candidates(
     minted: list[dict[str, Any]] = []
     already: list[str] = []
     unmintable: list[dict[str, str]] = []
+    admission: OpenerAdmission | None = None
     for drift in candidates:
         evidences = drift_evidences(drift)
         concept = str(drift.get("concept") or "unknown")
@@ -276,6 +278,14 @@ def mint_candidates(
         chain = _evidence_chain_id([{"ref": e["ref"], "summary": e.get("summary", "")} for e in evidences])
         if (subject in held) if subject is not None else (chain in held_chains):
             already.append(concept)
+            continue
+        # Wall #7 — the seeder opens findings, so under backlog pressure it
+        # runs at the openers' rate: asked once, at the first NEW drift. A
+        # held run mints nothing; the scan finds the same drift next run.
+        if admission is None:
+            admission = admit_finding_opener(base_dir, "seed_drift_findings", backlog_census(repo_root))
+        if not admission.admitted:
+            unmintable.append({"concept": concept, "reason": "opener_throttled:" + ",".join(admission.reasons)})
             continue
         summary = (
             f"{drift['drift_class']}: '{concept}' {drift['classification']} across "

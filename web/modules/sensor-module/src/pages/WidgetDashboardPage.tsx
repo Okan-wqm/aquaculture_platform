@@ -2,71 +2,21 @@
  * Widget Dashboard Page
  *
  * Customizable dashboard with drag-and-drop widgets for sensor data visualization.
- * Uses GridStack for responsive grid layout.
+ * Uses GridStack for responsive grid layout. Layouts persist per user in the
+ * sensor-service dashboard_layouts table through useDashboardLayout inside
+ * GridStackDashboard — the page itself holds no layout state.
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, LayoutGrid, Activity, Settings } from 'lucide-react';
-import { useAuth, tenantScopedStorageKey, Spinner } from '@aquaculture/shared-ui';
-import { GridStackDashboard, DashboardLayout } from '../components/dashboard/GridStackDashboard';
-
-// ============================================================================
-// Types
-// ============================================================================
+import { GridStackDashboard } from '../components/dashboard/GridStackDashboard';
 
 // ============================================================================
 // Widget Dashboard Page
 // ============================================================================
 
 const WidgetDashboardPage: React.FC = () => {
-  const { tenantId } = useAuth();
-  // null when no tenant is resolved → the dashboard degrades to its in-memory
-  // default and never reads/writes a shared 'default' bucket (cross-tenant bleed).
-  const storageKey = useMemo(
-    () => tenantScopedStorageKey('sensor-dashboard-layout', tenantId),
-    [tenantId],
-  );
-
-  const [initialLayout, setInitialLayout] = useState<DashboardLayout | undefined>(undefined);
-  const [layoutLoaded, setLayoutLoaded] = useState(false);
-
-  // Load saved layout from localStorage
-  useEffect(() => {
-    if (!storageKey) {
-      setLayoutLoaded(true);
-      return;
-    }
-    try {
-      const savedLayout = localStorage.getItem(storageKey);
-      if (savedLayout) {
-        const parsed = JSON.parse(savedLayout) as DashboardLayout;
-        setInitialLayout(parsed);
-      }
-    } catch (error) {
-      console.error('Failed to load dashboard layout:', error);
-    }
-    setLayoutLoaded(true);
-  }, [storageKey]);
-
-  // Handle layout changes
-  const handleLayoutChange = (layout: DashboardLayout) => {
-    if (!storageKey) return;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(layout));
-    } catch (error) {
-      console.error('Failed to save dashboard layout:', error);
-    }
-  };
-
-  if (!layoutLoaded) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-800">
-        <Spinner size="lg" />
-      </div>
-    );
-  }
-
   return (
     <div className="h-screen flex flex-col bg-gray-100 dark:bg-gray-800">
       {/* Header */}
@@ -117,7 +67,7 @@ const WidgetDashboardPage: React.FC = () => {
 
       {/* Main Content - GridStack Dashboard */}
       <div className="flex-1 overflow-hidden">
-        <GridStackDashboard initialLayout={initialLayout} onLayoutChange={handleLayoutChange} />
+        <GridStackDashboard />
       </div>
     </div>
   );

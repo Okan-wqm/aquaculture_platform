@@ -1,0 +1,2646 @@
+{
+  "calibrated_weights": {
+    "belief_revalidation": {
+      "base": 40.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 40.0
+    },
+    "belief_stale": {
+      "base": 60.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 60.0
+    },
+    "contradiction": {
+      "base": 70.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 70.0
+    },
+    "discovery_incomplete": {
+      "base": 70.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 70.0
+    },
+    "evidence_gone": {
+      "base": 80.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 80.0
+    },
+    "migration_surface_repeat": {
+      "base": 30.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 30.0
+    },
+    "own_pr_ci": {
+      "base": 90.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 90.0
+    },
+    "pipeline_stalled": {
+      "base": 100.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 100.0
+    },
+    "post_merge_ci": {
+      "base": 95.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 95.0
+    },
+    "repo_pr_health": {
+      "base": 20.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 20.0
+    },
+    "runtime_signal": {
+      "base": 85.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 85.0
+    },
+    "shadow_raw_delta": {
+      "base": 50.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 50.0
+    },
+    "tool_quarantine": {
+      "base": 90.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 90.0
+    },
+    "uncertainty_repeat": {
+      "base": 55.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 55.0
+    }
+  },
+  "cycle_id": "cyc-20261006T213909Z-auto",
+  "generated_at": "2026-10-06T21:51:21+00:00",
+  "pressures": [
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [
+        "typeorm-entity-schema-adapter"
+      ],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "schema_drift",
+      "evidence": [
+        "apps/ai-service/src/database/migrations/1800000000000-Baseline.ts",
+        "apps/ai-service/src/database/migrations/1800100000000-CreateAiOutbox.ts",
+        "apps/ai-service/src/database/migrations/1801000000000-EnsureAiTenantErasureProofLedger.ts",
+        "apps/ai-service/src/database/migrations/1802000000000-AddByokTenantAiCredentials.ts",
+        "apps/ai-service/src/database/migrations/1802100000000-CreateConversationTurns.ts"
+      ],
+      "pressure_id": "pressure:migration-surface-repeat:repetition",
+      "reason": "repository has repeated TypeORM migration surfaces",
+      "recommended_action": "continue TypeORM schema drift checks",
+      "schema_version": 1,
+      "score": 100.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 290,
+        "recency_decay": 1.0,
+        "source_weight": 30.0
+      },
+      "severity": "medium",
+      "source": "migration_surface_repeat",
+      "tool_id": null,
+      "type": "REPETITION"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "knowledge-graph/pressure-source-effectiveness.jsonl:f_finding"
+      ],
+      "pressure_id": "pressure:pipeline-stalled:funnel-convergence-f-finding",
+      "reason": "funnel stalled at convergence: 10 arrived from f_finding, 0 left",
+      "recommended_action": "diagnose why convergence converts nothing from f_finding \u2014 this pressure is about ARIA's own machinery, and every other pressure waits behind it",
+      "schema_version": 1,
+      "score": 100.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 10,
+        "recency_decay": 1.0,
+        "source_weight": 100.0
+      },
+      "severity": "critical",
+      "source": "pipeline_stalled",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "knowledge-graph/pressure-source-effectiveness.jsonl:failing_ci"
+      ],
+      "pressure_id": "pressure:pipeline-stalled:funnel-convergence-failing-ci",
+      "reason": "funnel stalled at convergence: 12 arrived from failing_ci, 0 left",
+      "recommended_action": "diagnose why convergence converts nothing from failing_ci \u2014 this pressure is about ARIA's own machinery, and every other pressure waits behind it",
+      "schema_version": 1,
+      "score": 100.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 12,
+        "recency_decay": 1.0,
+        "source_weight": 100.0
+      },
+      "severity": "critical",
+      "source": "pipeline_stalled",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1671:2f6378c52a93884b64c95f29e518fc7595f1f6d3"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1671",
+      "reason": "main went RED after ARIA's merge of PR #1671 (2f6378c52a93884b64c95f29e518fc7595f1f6d3): CI - Affected, Database WAL Archive Freshness, Nightly Fuzz - ST Parser (sens-api-gateway), Scheduled Workflow Watchdog, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1679:f2778c904e3ccf33c29aa39891becdcc2170f370"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1679",
+      "reason": "main went RED after ARIA's merge of PR #1679 (f2778c904e3ccf33c29aa39891becdcc2170f370): ARIA State Maintenance, CI - Affected, Database WAL Archive Freshness, Scheduled Workflow Watchdog, aria-kernel, aria-merge-runner, aria-merge-runner, aria-merge-runner, aria-merge-runner, aria-merge-runner, aria-merge-runner, aria-merge-runner, aria-merge-runner, aria-merge-runner, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1681:28bdc9d71bfb8f8b5efc4548854cb5d730183013"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1681",
+      "reason": "main went RED after ARIA's merge of PR #1681 (28bdc9d71bfb8f8b5efc4548854cb5d730183013): CI - Affected, Deploy Capacity Maintenance, aria-kernel, aria-merge-runner, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1682:9125ae99dcc03f0b7a2f87e669511f7ff3c7f76b"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1682",
+      "reason": "main went RED after ARIA's merge of PR #1682 (9125ae99dcc03f0b7a2f87e669511f7ff3c7f76b): CI - Affected, Database WAL Archive Freshness, Scheduled Workflow Watchdog, aria-kernel, aria-merge-runner, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1684:62fb94b6662bb15ccfb308885e2e3b4816f16ca5"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1684",
+      "reason": "main went RED after ARIA's merge of PR #1684 (62fb94b6662bb15ccfb308885e2e3b4816f16ca5): ARIA External Watchdog, ARIA State Maintenance, CI - Affected, Database WAL Archive Freshness, Database WAL Archive Freshness, Database WAL Archive Freshness, Database WAL Archive Freshness, Database WAL Archive Freshness, Nightly Fuzz - ST Parser (sens-api-gateway), Scheduled Workflow Watchdog, Scheduled Workflow Watchdog, Scheduled Workflow Watchdog, Scheduled Workflow Watchdog, Scheduled Workflow Watchdog, aria-daily-report, aria-kernel, aria-merge-runner, aria-merge-runner, aria-merge-runner, aria-merge-runner, aria-merge-runner, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1688:dae95efb3c53d2e4acb40a422065079dd636a636"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1688",
+      "reason": "main went RED after ARIA's merge of PR #1688 (dae95efb3c53d2e4acb40a422065079dd636a636): CI - Affected, Database WAL Archive Freshness, aria-kernel, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1694:c22f2c068b7e007163e4385f4e90fb58dd02014d"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1694",
+      "reason": "main went RED after ARIA's merge of PR #1694 (c22f2c068b7e007163e4385f4e90fb58dd02014d): CI - Affected, Database WAL Archive Freshness, Deploy Capacity Maintenance, aria-daily-report, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1701:e0391eaabcf652c056a5988131a3bd22d7ad9dbf"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1701",
+      "reason": "main went RED after ARIA's merge of PR #1701 (e0391eaabcf652c056a5988131a3bd22d7ad9dbf): ARIA External Watchdog, CI - Affected, Scheduled Workflow Watchdog, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1706:c5ed40bbf83793dc6883620e548b332cb46526ca"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1706",
+      "reason": "main went RED after ARIA's merge of PR #1706 (c5ed40bbf83793dc6883620e548b332cb46526ca): CI - Affected, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1709:8083cb15e86cfc641f538a4a0e89321e888317bc"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1709",
+      "reason": "main went RED after ARIA's merge of PR #1709 (8083cb15e86cfc641f538a4a0e89321e888317bc): ARIA External Watchdog, CI - Affected, Database WAL Archive Freshness, Scheduled Workflow Watchdog, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1712:44983f55dec09afd63fb8fd125e49ada01a7b35e"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1712",
+      "reason": "main went RED after ARIA's merge of PR #1712 (44983f55dec09afd63fb8fd125e49ada01a7b35e): CI - Affected, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1715:8b6adb3fff3697c29f15dcf3e43ebbfaccf091a2"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1715",
+      "reason": "main went RED after ARIA's merge of PR #1715 (8b6adb3fff3697c29f15dcf3e43ebbfaccf091a2): CI - Affected, Database WAL Archive Freshness, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1716:37b4f43d371a73dd3a0b30639daf972352b39ff7"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1716",
+      "reason": "main went RED after ARIA's merge of PR #1716 (37b4f43d371a73dd3a0b30639daf972352b39ff7): CI - Affected, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1717:d3adb0f89879eeb9c430f7ffc4ab3b3c6075cd86"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1717",
+      "reason": "main went RED after ARIA's merge of PR #1717 (d3adb0f89879eeb9c430f7ffc4ab3b3c6075cd86): CI - Affected, Scheduled Workflow Watchdog, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1724:f2b958b6694cf4edcba8ed27d651c98bd7d6ed8f"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1724",
+      "reason": "main went RED after ARIA's merge of PR #1724 (f2b958b6694cf4edcba8ed27d651c98bd7d6ed8f): Scheduled Workflow Watchdog, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1727:b39068f7b6d996799a62f6cc5bde9f9027dc6803"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1727",
+      "reason": "main went RED after ARIA's merge of PR #1727 (b39068f7b6d996799a62f6cc5bde9f9027dc6803): CI - Affected, Database WAL Archive Freshness, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1735:cd1c8c0e454c1147929cd5f7ee9eeb7c0157d28c"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1735",
+      "reason": "main went RED after ARIA's merge of PR #1735 (cd1c8c0e454c1147929cd5f7ee9eeb7c0157d28c): ARIA External Watchdog, CI - Affected, Database WAL Archive Freshness, Database WAL Archive Freshness, Scheduled Workflow Watchdog, Scheduled Workflow Watchdog, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1742:9128135a08ff8c45fcc56c7b2c6a3a9691ae0e7f"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1742",
+      "reason": "main went RED after ARIA's merge of PR #1742 (9128135a08ff8c45fcc56c7b2c6a3a9691ae0e7f): CI - Affected, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1746:4ce31871d325957a7a6964be45c160733f07b6aa"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1746",
+      "reason": "main went RED after ARIA's merge of PR #1746 (4ce31871d325957a7a6964be45c160733f07b6aa): CI - Affected, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1748:c1d183969d91ea6d093c28898d7cc915c03ce3bb"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1748",
+      "reason": "main went RED after ARIA's merge of PR #1748 (c1d183969d91ea6d093c28898d7cc915c03ce3bb): CI - Affected, Database WAL Archive Freshness, Scheduled Workflow Watchdog, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1750:81f39a9120ab619025bca0ae61b1ec2857633972"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1750",
+      "reason": "main went RED after ARIA's merge of PR #1750 (81f39a9120ab619025bca0ae61b1ec2857633972): CI - Affected, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1751:405f2ecac52390973520ea69b58bc417c840956b"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1751",
+      "reason": "main went RED after ARIA's merge of PR #1751 (405f2ecac52390973520ea69b58bc417c840956b): CI - Affected, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1752:de689a87d0db0843e20584f2d7223fb047072978"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1752",
+      "reason": "main went RED after ARIA's merge of PR #1752 (de689a87d0db0843e20584f2d7223fb047072978): CI - Affected, Database WAL Archive Freshness, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1757:ed2132ce0018c55647cdbc47319a2820481ad0eb"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1757",
+      "reason": "main went RED after ARIA's merge of PR #1757 (ed2132ce0018c55647cdbc47319a2820481ad0eb): CI - Affected, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1761:ecebb66426e5c804dd1b7f12c0f6f13fda34db9c"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1761",
+      "reason": "main went RED after ARIA's merge of PR #1761 (ecebb66426e5c804dd1b7f12c0f6f13fda34db9c): CI - Affected, Scheduled Workflow Watchdog, aria-kernel, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1763:88391705838cc6036dc1a9a7f8173af6c937f608"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1763",
+      "reason": "main went RED after ARIA's merge of PR #1763 (88391705838cc6036dc1a9a7f8173af6c937f608): CI - Affected, Database WAL Archive Freshness, Database WAL Archive Freshness, Scheduled Workflow Watchdog, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1764:b08685831d1eff8a136086ad7f5e10d7f61b6722"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1764",
+      "reason": "main went RED after ARIA's merge of PR #1764 (b08685831d1eff8a136086ad7f5e10d7f61b6722): CI - Affected, aria-auto-cycle, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1765:8cc79053bb0f8fc1133896fe438ef0171550797c"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1765",
+      "reason": "main went RED after ARIA's merge of PR #1765 (8cc79053bb0f8fc1133896fe438ef0171550797c): CI - Affected, Deploy Capacity Maintenance, Scheduled Workflow Watchdog, aria-kernel, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1767:2b970055eb1f96a69ce5b8cdaf1518ba79bed619"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1767",
+      "reason": "main went RED after ARIA's merge of PR #1767 (2b970055eb1f96a69ce5b8cdaf1518ba79bed619): CI - Affected, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1768:6da03252d28ea94a0ecd47d2347087ebf841fe61"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1768",
+      "reason": "main went RED after ARIA's merge of PR #1768 (6da03252d28ea94a0ecd47d2347087ebf841fe61): CI - Affected, CI - Full, Database WAL Archive Freshness, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1772:68cea85248103840a33a69327e27b1e41c80d1a2"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1772",
+      "reason": "main went RED after ARIA's merge of PR #1772 (68cea85248103840a33a69327e27b1e41c80d1a2): Security - Trivy, aria-agent-executor, aria-auto-cycle, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1774:5b716a095fbd6d9cee91595d6c72d04f40e968c5"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1774",
+      "reason": "main went RED after ARIA's merge of PR #1774 (5b716a095fbd6d9cee91595d6c72d04f40e968c5): aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1775:6c3ea2a65e0ba29bd2c790992c50cc8fd40cbb10"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1775",
+      "reason": "main went RED after ARIA's merge of PR #1775 (6c3ea2a65e0ba29bd2c790992c50cc8fd40cbb10): Deploy Capacity Maintenance, Scheduled Workflow Watchdog, aria-kernel, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1777:bb13c2e8f3393fcd67d3a440535e4dccd4dbccd5"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1777",
+      "reason": "main went RED after ARIA's merge of PR #1777 (bb13c2e8f3393fcd67d3a440535e4dccd4dbccd5): ARIA External Watchdog, Database WAL Archive Freshness, aria-agent-executor, aria-auto-cycle, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1781:6904705093705699d45662a315d336f1aa1f26f5"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1781",
+      "reason": "main went RED after ARIA's merge of PR #1781 (6904705093705699d45662a315d336f1aa1f26f5): Database WAL Archive Freshness, Scheduled Workflow Watchdog, aria-agent-executor, aria-auto-cycle, aria-auto-cycle, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1782:990291050639a30e3a53635e1489d45543ad1dc0"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1782",
+      "reason": "main went RED after ARIA's merge of PR #1782 (990291050639a30e3a53635e1489d45543ad1dc0): aria-agent-executor, aria-auto-cycle, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1784:ef4f81a555554d5a6e218dd66ac4fc457176aa9b"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1784",
+      "reason": "main went RED after ARIA's merge of PR #1784 (ef4f81a555554d5a6e218dd66ac4fc457176aa9b): Database WAL Archive Freshness, Scheduled Workflow Watchdog, aria-agent-executor, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1788:53c6737d3136d2c5d9b819d48656fd65c3faf041"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1788",
+      "reason": "main went RED after ARIA's merge of PR #1788 (53c6737d3136d2c5d9b819d48656fd65c3faf041): aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1789:484dc54d3d4d138be8be7b1b493039e5a92cc224"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1789",
+      "reason": "main went RED after ARIA's merge of PR #1789 (484dc54d3d4d138be8be7b1b493039e5a92cc224): aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1790:55d07114abc43392c9d5e4d08d4099f91e36c4eb"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1790",
+      "reason": "main went RED after ARIA's merge of PR #1790 (55d07114abc43392c9d5e4d08d4099f91e36c4eb): Database WAL Archive Freshness, aria-kernel, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1793:beb2d408d99fac30548c162e88f558c96f2fcb15"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1793",
+      "reason": "main went RED after ARIA's merge of PR #1793 (beb2d408d99fac30548c162e88f558c96f2fcb15): Database WAL Archive Freshness, Database WAL Archive Freshness, Database WAL Archive Freshness, Database WAL Archive Freshness, Database WAL Archive Freshness, Scheduled Workflow Watchdog, Scheduled Workflow Watchdog, Scheduled Workflow Watchdog, Scheduled Workflow Watchdog, Scheduled Workflow Watchdog, aria-auto-cycle, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1799:243579f212fda6ad66905a429694e6554f0ec51a"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1799",
+      "reason": "main went RED after ARIA's merge of PR #1799 (243579f212fda6ad66905a429694e6554f0ec51a): CI - Affected, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1806:cfec957a350c473fc16b361b199ced2762fb772c"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1806",
+      "reason": "main went RED after ARIA's merge of PR #1806 (cfec957a350c473fc16b361b199ced2762fb772c): ARIA External Watchdog, CI - Affected, Database WAL Archive Freshness, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1810:55bd817a703b63f2966b465c43e0e60676aceb37"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1810",
+      "reason": "main went RED after ARIA's merge of PR #1810 (55bd817a703b63f2966b465c43e0e60676aceb37): CI - Affected, Scheduled Workflow Watchdog, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1812:03410af8b0e39064d807f2ef9f424b545d06b4af"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1812",
+      "reason": "main went RED after ARIA's merge of PR #1812 (03410af8b0e39064d807f2ef9f424b545d06b4af): CI - Affected, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1816:f2d2b6aba7cf2b2770c34fc28839581acace88cb"
+      ],
+      "pressure_id": "pressure:post-merge-ci:post-merge-1816",
+      "reason": "main went RED after ARIA's merge of PR #1816 (f2d2b6aba7cf2b2770c34fc28839581acace88cb): Scheduled Workflow Watchdog, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim, aria-readiness-claim",
+      "recommended_action": "read the failing main-branch run's log, root-cause it, and author a fix-forward change; a red main after our own merge is the highest-priority debt this repository can carry",
+      "schema_version": 1,
+      "score": 95.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 95.0
+      },
+      "severity": "critical",
+      "source": "post_merge_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1335:HEAD"
+      ],
+      "pressure_id": "pressure:own-pr-ci:pr-1335",
+      "reason": "ARIA's own PR #1335 (automation/finding-state-sweep) is RED in CI: Quality Gates",
+      "recommended_action": "read the failing check's log, fix forward on the same branch, and let the merge gate re-evaluate \u2014 a red own-PR is paid-for work the gate is silently blocking",
+      "schema_version": 1,
+      "score": 90.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 90.0
+      },
+      "severity": "high",
+      "source": "own_pr_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1707:HEAD"
+      ],
+      "pressure_id": "pressure:own-pr-ci:pr-1707",
+      "reason": "ARIA's own PR #1707 (automation/aria-daily-report-2026-10-01) is RED in CI: Closes Footer Check, Quality Gates",
+      "recommended_action": "read the failing check's log, fix forward on the same branch, and let the merge gate re-evaluate \u2014 a red own-PR is paid-for work the gate is silently blocking",
+      "schema_version": 1,
+      "score": 90.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 90.0
+      },
+      "severity": "high",
+      "source": "own_pr_ci",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1022:fix/production-host-control-plane"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1022",
+      "reason": "third-party PR #1022 (fix/production-host-control-plane, author Okan-wqm) is RED in CI: CI - Affected, CI - Affected, CI - Affected, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1035:claude/admin-contracts-codegen"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1035",
+      "reason": "third-party PR #1035 (claude/admin-contracts-codegen, author Okan-wqm) is RED in CI: Database Migration Check, Database Migration Check, Database Migration Check",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1040:chore/capability-integration-control-plane"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1040",
+      "reason": "third-party PR #1040 (chore/capability-integration-control-plane, author Okan-wqm) is RED in CI: Apollo Supergraph Validate, CI - Affected, CI - Affected, CI - Affected, CI - Full, CI - Full, CI - Full, Closes Footer Check, Database Migration Check, GraphQL Codegen Up-To-Date, Quality Gates, Quality Gates, Security - Gitleaks",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1064:chore/source-inventory-byte-idempotence"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1064",
+      "reason": "third-party PR #1064 (chore/source-inventory-byte-idempotence, author Okan-wqm) is RED in CI: aria-merge-authority",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1107:feature/aquamobil-v4-redesign"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1107",
+      "reason": "third-party PR #1107 (feature/aquamobil-v4-redesign, author Okan-wqm) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Full, CI - Full, CI - Full",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1129:dependabot/npm_and_yarn/types/hapi__catbox-12.1.0"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1129",
+      "reason": "third-party PR #1129 (dependabot/npm_and_yarn/types/hapi__catbox-12.1.0, author app/dependabot) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Full, CI - Full, CI - Full, Closes Footer Check, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1130:dependabot/npm_and_yarn/nx/workspace-23.1.1"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1130",
+      "reason": "third-party PR #1130 (dependabot/npm_and_yarn/nx/workspace-23.1.1, author app/dependabot) is RED in CI: CI - Full, CI - Full, Closes Footer Check, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1131:dependabot/npm_and_yarn/nx/node-23.1.1"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1131",
+      "reason": "third-party PR #1131 (dependabot/npm_and_yarn/nx/node-23.1.1, author app/dependabot) is RED in CI: CI - Full, CI - Full, Closes Footer Check, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1132:dependabot/npm_and_yarn/vite-plugin-dts-5.0.3"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1132",
+      "reason": "third-party PR #1132 (dependabot/npm_and_yarn/vite-plugin-dts-5.0.3, author app/dependabot) is RED in CI: CI - Full, CI - Full, Closes Footer Check, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1251:fix/farm-critical-241-rollback-provenance"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1251",
+      "reason": "third-party PR #1251 (fix/farm-critical-241-rollback-provenance, author Okan-wqm) is RED in CI: CI - Affected, CI - Affected, CI - Affected",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1260:dependabot/cargo/cargo-minor-patch-71ecb2b680"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1260",
+      "reason": "third-party PR #1260 (dependabot/cargo/cargo-minor-patch-71ecb2b680, author app/dependabot) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Full, CI - Full, CI - Full, CI - Full",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1261:dependabot/github_actions/actions-minor-patch-7a6a67aebb"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1261",
+      "reason": "third-party PR #1261 (dependabot/github_actions/actions-minor-patch-7a6a67aebb, author app/dependabot) is RED in CI: Rust CI, Rust CI, Rust CI, SENS API Gateway CI, SENS API Gateway CI",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1264:dependabot/github_actions/dtolnay/rust-toolchain-6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1264",
+      "reason": "third-party PR #1264 (dependabot/github_actions/dtolnay/rust-toolchain-6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772, author app/dependabot) is RED in CI: Rust CI, Rust CI, Rust CI, SENS API Gateway CI, SENS API Gateway CI",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1265:dependabot/npm_and_yarn/npm-minor-patch-c4c0316aee"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1265",
+      "reason": "third-party PR #1265 (dependabot/npm_and_yarn/npm-minor-patch-c4c0316aee, author app/dependabot) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Full, CI - Full, CI - Full, CI - Full, CI - Full, CI - Full, CI - Full, Closes Footer Check, Dependency Review, Performance Benchmark, Quality Gates, Quality Gates, aria-merge-authority",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1298:dependabot/github_actions/actions-minor-patch-2b28a81cc5"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1298",
+      "reason": "third-party PR #1298 (dependabot/github_actions/actions-minor-patch-2b28a81cc5, author app/dependabot) is RED in CI: Rust CI, Rust CI, Rust CI, SENS API Gateway CI, SENS API Gateway CI",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1420:claude/platform-eksiklikler-bug-fix-0jj9jg"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1420",
+      "reason": "third-party PR #1420 (claude/platform-eksiklikler-bug-fix-0jj9jg, author Okan-wqm) is RED in CI: Database Migration Check",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1435:dependabot/npm_and_yarn/npm_and_yarn-64b78cd343"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1435",
+      "reason": "third-party PR #1435 (dependabot/npm_and_yarn/npm_and_yarn-64b78cd343, author app/dependabot) is RED in CI: Closes Footer Check, Quality Gates, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1436:dependabot/npm_and_yarn/npm_and_yarn-cb16c1d07c"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1436",
+      "reason": "third-party PR #1436 (dependabot/npm_and_yarn/npm_and_yarn-cb16c1d07c, author app/dependabot) is RED in CI: CI - Affected, CI - Affected, CI - Affected, Closes Footer Check, Dependency Review, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1438:dependabot/cargo/toml-1.1.2spec-1.1.0"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1438",
+      "reason": "third-party PR #1438 (dependabot/cargo/toml-1.1.2spec-1.1.0, author app/dependabot) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1439:dependabot/cargo/async-nats-0.50.0"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1439",
+      "reason": "third-party PR #1439 (dependabot/cargo/async-nats-0.50.0, author app/dependabot) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1440:dependabot/npm_and_yarn/npm_and_yarn-3611a360ee"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1440",
+      "reason": "third-party PR #1440 (dependabot/npm_and_yarn/npm_and_yarn-3611a360ee, author app/dependabot) is RED in CI: Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1441:dependabot/cargo/opentelemetry-0.32.0"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1441",
+      "reason": "third-party PR #1441 (dependabot/cargo/opentelemetry-0.32.0, author app/dependabot) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1442:dependabot/npm_and_yarn/npm_and_yarn-8d7994f178"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1442",
+      "reason": "third-party PR #1442 (dependabot/npm_and_yarn/npm_and_yarn-8d7994f178, author app/dependabot) is RED in CI: Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1444:dependabot/npm_and_yarn/npm_and_yarn-6ad9f0f3e5"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1444",
+      "reason": "third-party PR #1444 (dependabot/npm_and_yarn/npm_and_yarn-6ad9f0f3e5, author app/dependabot) is RED in CI: Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1446:dependabot/github_actions/actions/download-artifact-8.0.1"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1446",
+      "reason": "third-party PR #1446 (dependabot/github_actions/actions/download-artifact-8.0.1, author app/dependabot) is RED in CI: Quality Gates, aria-kernel, aria-kernel, aria-merge-authority",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1447:dependabot/github_actions/treosh/lighthouse-ci-action-12.6.2"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1447",
+      "reason": "third-party PR #1447 (dependabot/github_actions/treosh/lighthouse-ci-action-12.6.2, author app/dependabot) is RED in CI: Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1448:dependabot/github_actions/dot-github/actions/docker-build-push/docker/build-push-action-7.3.0"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1448",
+      "reason": "third-party PR #1448 (dependabot/github_actions/dot-github/actions/docker-build-push/docker/build-push-action-7.3.0, author app/dependabot) is RED in CI: Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1449:dependabot/github_actions/dot-github/actions/setup-aria-kernel/actions/setup-python-7.0.0"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1449",
+      "reason": "third-party PR #1449 (dependabot/github_actions/dot-github/actions/setup-aria-kernel/actions/setup-python-7.0.0, author app/dependabot) is RED in CI: Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1563:f0-g/security-preflight"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1563",
+      "reason": "third-party PR #1563 (f0-g/security-preflight, author Okan-wqm) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Affected, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1564:p0/cost-attribution-repair"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1564",
+      "reason": "third-party PR #1564 (p0/cost-attribution-repair, author Okan-wqm) is RED in CI: Closes Footer Check, Quality Gates, aria-kernel",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1629:claude/wonderful-archimedes-msrlg9"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1629",
+      "reason": "third-party PR #1629 (claude/wonderful-archimedes-msrlg9, author Okan-wqm) is RED in CI: Closes Footer Check",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1658:feat/boot-path-smoke-request-reply-leg"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1658",
+      "reason": "third-party PR #1658 (feat/boot-path-smoke-request-reply-leg, author Okan-wqm) is RED in CI: Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1675:claude/aria-documentation-update-vm7wyl"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1675",
+      "reason": "third-party PR #1675 (claude/aria-documentation-update-vm7wyl, author Okan-wqm) is RED in CI: CI - Affected, CI - Affected",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1685:dependabot/npm_and_yarn/e2e/e2e-minor-patch-c949458160"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1685",
+      "reason": "third-party PR #1685 (dependabot/npm_and_yarn/e2e/e2e-minor-patch-c949458160, author app/dependabot) is RED in CI: Closes Footer Check, Quality Gates, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1686:dependabot/cargo/cargo-minor-patch-8d729ea68f"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1686",
+      "reason": "third-party PR #1686 (dependabot/cargo/cargo-minor-patch-8d729ea68f, author app/dependabot) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, Rust CI, Rust CI, Rust CI, Rust CI, Rust CI, Rust CI",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1699:security/ai-tenant-boundary"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1699",
+      "reason": "third-party PR #1699 (security/ai-tenant-boundary, author Okan-wqm) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, Database Migration Check, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1733:fix/aria-closable-backlog-cap"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1733",
+      "reason": "third-party PR #1733 (fix/aria-closable-backlog-cap, author Okan-wqm) is RED in CI: aria-kernel, aria-kernel",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1736:fix/land-farmsetup-fixes"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1736",
+      "reason": "third-party PR #1736 (fix/land-farmsetup-fixes, author Okan-wqm) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Affected, Database Migration Check, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1737:feat/land-suderra-web"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1737",
+      "reason": "third-party PR #1737 (feat/land-suderra-web, author Okan-wqm) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1738:fix/aria-agent-eval-real-mode"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1738",
+      "reason": "third-party PR #1738 (fix/aria-agent-eval-real-mode, author Okan-wqm) is RED in CI: Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1739:fix/aria-tool-output-content-addressed"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1739",
+      "reason": "third-party PR #1739 (fix/aria-tool-output-content-addressed, author Okan-wqm) is RED in CI: Quality Gates, aria-kernel, aria-kernel, aria-kernel",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1743:fix/close-fixed-criticals"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1743",
+      "reason": "third-party PR #1743 (fix/close-fixed-criticals, author Okan-wqm) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, aria-kernel, aria-kernel, aria-kernel, aria-kernel, aria-kernel, aria-kernel, aria-kernel, aria-kernel, aria-kernel",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1755:fix/aria-agents-work-in-english"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1755",
+      "reason": "third-party PR #1755 (fix/aria-agents-work-in-english, author Okan-wqm) is RED in CI: aria-kernel, aria-kernel",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1766:fix/aria-judgment-precision"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1766",
+      "reason": "third-party PR #1766 (fix/aria-judgment-precision, author Okan-wqm) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1770:feat/aria-kernel-budget-gate"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1770",
+      "reason": "third-party PR #1770 (feat/aria-kernel-budget-gate, author Okan-wqm) is RED in CI: CI - Affected, CI - Affected, CI - Affected, aria-kernel, aria-kernel",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1779:fix/aria-state-single-writer"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1779",
+      "reason": "third-party PR #1779 (fix/aria-state-single-writer, author Okan-wqm) is RED in CI: aria-kernel, aria-kernel",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-1791:fix/aria-lease-live-defects"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-1791",
+      "reason": "third-party PR #1791 (fix/aria-lease-live-defects, author Okan-wqm) is RED in CI: aria-kernel, aria-kernel, aria-kernel",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-871:claude/plc-linux-gateway-setup-ud1t3l"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-871",
+      "reason": "third-party PR #871 (claude/plc-linux-gateway-setup-ud1t3l, author Okan-wqm) is RED in CI: Quality Gates",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20261006T213909Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "pr-935:claude/sens-api-gateway-review-jecjy2"
+      ],
+      "pressure_id": "pressure:repo-pr-health:repo-pr-935",
+      "reason": "third-party PR #935 (claude/sens-api-gateway-review-jecjy2, author Okan-wqm) is RED in CI: CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Affected, CI - Edge Agent (sens-api-gateway), CI - Full, CI - Full, CI - Full, CI - Full, Closes Footer Check, Database Migration Check, Database Migration Check, Quality Gates, SENS API Gateway CI, SENS API Gateway CI, SENS API Gateway CI, SENS API Gateway CI, SENS API Gateway CI, SENS API Gateway CI, aria-kernel, aria-merge-authority, backup-manifest-invariant",
+      "recommended_action": "OBSERVE ONLY \u2014 surface in the nightly report; ARIA holds no review or merge authority over third-party PRs until the E23 gate opens",
+      "schema_version": 1,
+      "score": 20.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 1,
+        "recency_decay": 1.0,
+        "source_weight": 20.0
+      },
+      "severity": "low",
+      "source": "repo_pr_health",
+      "tool_id": null,
+      "type": "UNKNOWN"
+    }
+  ],
+  "schema_version": 1,
+  "summary": {
+    "contradiction": 0,
+    "repetition": 1,
+    "unknown": 99
+  }
+}

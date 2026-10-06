@@ -66,6 +66,9 @@ REDELIVERIES_PER_CYCLE: int = 1
 AUTHORITY_ABSENT_CYCLES: int = 7
 DELIVERY_EXHAUSTED_REASON: str = "implementation_delivery_exhausted"
 AUTHORITY_ABSENT_REASON: str = "implementation_authority_absent"
+# The same surfacing when the uncounted cycles were not all for missing
+# authority (a lane that keeps leaving its tree dirty, review of #1813).
+DELIVERY_WITHHELD_REASON: str = "implementation_delivery_withheld"
 HUMAN_REQUIRED_CONTEXT_KIND: str = "converged_plan_delivery"
 UNCOUNTED_GOVERNANCE_KIND: str = "converged_delivery_uncounted"
 ORIGIN_CONVERGED: str = "converged_this_cycle"
@@ -297,6 +300,7 @@ def _uncounted_rows(governance: list[dict[str, Any]], plan_id: str) -> list[dict
 
 def note_uncounted_cycle(
     plan_id: str, *, cycle_id: str, base_dir: Path, governance: list[dict[str, Any]] | None = None,
+    reason: str = WITHHELD_NO_AUTHORITY,
 ) -> dict[str, Any]:
     """Record one cycle whose runner could not deliver ``plan_id``; surface a long run of them.
 
@@ -321,31 +325,63 @@ def note_uncounted_cycle(
     if not any(row.get("cycle_id") == cycle_id for row in rows):
         append_tools_governance(
             base_dir, UNCOUNTED_GOVERNANCE_KIND,
-            {"plan_id": plan_id, "cycle_id": cycle_id, "reason": WITHHELD_NO_AUTHORITY,
+            {"plan_id": plan_id, "cycle_id": cycle_id, "reason": reason,
              "counted_attempts": counted},
         )
-        rows.append({"plan_id": plan_id, "cycle_id": cycle_id, "counted_attempts": counted})
-    run = sorted({row.get("cycle_id") for row in rows if row.get("counted_attempts") == counted})
+        rows.append({"plan_id": plan_id, "cycle_id": cycle_id, "reason": reason, "counted_attempts": counted})
+    current = [row for row in rows if row.get("counted_attempts") == counted]
+    run = sorted({row.get("cycle_id") for row in current})
     if len(run) < AUTHORITY_ABSENT_CYCLES:
         return {"plan_id": plan_id, "uncounted_cycles": len(run), "surfaced": False}
+    # Rows written before reasons were recorded are the no-authority case,
+    # the only one that wrote rows then.
+    reasons = sorted({str(row.get("reason") or WITHHELD_NO_AUTHORITY) for row in current})
+    reason_code = AUTHORITY_ABSENT_REASON if reasons == [WITHHELD_NO_AUTHORITY] else DELIVERY_WITHHELD_REASON
     record_human_required(
         request_id=request_id,
         severity="MEDIUM",
         reason=(
-            f"{AUTHORITY_ABSENT_REASON}: CONVERGED plan {plan_id} could not be offered to an "
-            f"implementation runner in {len(run)} cycles; the lane's runner cannot deliver. "
-            f"The plan stays CONVERGED and is delivered when the authority returns"
+            f"{reason_code}: CONVERGED plan {plan_id} could not be offered to an "
+            f"implementation runner in {len(run)} cycles ({', '.join(reasons)}). "
+            f"The plan stays CONVERGED and is offered again once the cause clears"
         ),
         context={
             "kind": HUMAN_REQUIRED_CONTEXT_KIND,
             "plan_id": plan_id,
-            "reason_code": AUTHORITY_ABSENT_REASON,
+            "reason_code": reason_code,
+            "withheld_reasons": reasons,
             "uncounted_cycles": run,
             "finding_id": "ARIA-HIGH-362",
         },
         base_dir=base_dir,
     )
     return {"plan_id": plan_id, "uncounted_cycles": len(run), "surfaced": True}
+
+
+def _note_uncounted_guarded(
+    plan_id: str, *, cycle_id: str, base_dir: Path, reason: str,
+    governance: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """``note_uncounted_cycle`` for the cycle's own call sites: bookkeeping
+    that must not end the cycle. A lock timeout or ledger fault here used to
+    escape the sweep (run before plan adoption) and the converging call alike,
+    and with the run of uncounted cycles persisted, the same fault recurred
+    every night. The fault is a governance row instead (review of #1813)."""
+    from .ledger import LedgerIntegrityError
+    from .tool_registry import GovernanceError, append_tools_governance
+
+    try:
+        return note_uncounted_cycle(plan_id, cycle_id=cycle_id, base_dir=base_dir,
+                                    governance=governance, reason=reason)
+    except (GovernanceError, LedgerIntegrityError, OSError) as exc:
+        append_tools_governance(
+            base_dir, "converged_delivery_uncounted_unrecorded",
+            {"cycle_id": cycle_id, "plan_id": plan_id, "reason": reason,
+             "error_class": type(exc).__name__, "error_message": str(exc)[:500]},
+            bypass_profile_gate=True,
+        )
+        return {"plan_id": plan_id, "status": "unrecorded", "surfaced": False,
+                "error_class": type(exc).__name__}
 
 
 def deliver_converged_plan(
@@ -395,7 +431,15 @@ def deliver_converged_plan(
             return _withheld(plan_id, origin, WITHHELD_ATTEMPT_UNRECORDED,
                              error_class=type(exc).__name__)
         if withheld is not None:
-            return _withheld(plan_id, origin, withheld)
+            summary = _withheld(plan_id, origin, withheld)
+            if withheld == WITHHELD_WORKSPACE_DIRTY:
+                # Uncounted, because the tree is the lane's state rather than the
+                # plan's. It is still not silent: a lane that keeps leaving its tree
+                # dirty surfaces like one without authority.
+                summary["delivery"]["uncounted"] = _note_uncounted_guarded(
+                    plan_id, cycle_id=cycle_id, base_dir=base_dir, reason=WITHHELD_WORKSPACE_DIRTY,
+                )
+            return summary
     delivery: dict[str, Any] = {"plan_id": plan_id, "origin": origin, "attempt": attempt, "withheld": None}
     AutonomyStateReducer.transition(
         base_dir, cycle_id=cycle_id, phase="v9_implementation_phase_started",
@@ -448,23 +492,27 @@ def deliver_converged_plan(
     if attempt is None:
         # Bookkeeping for the M4 surfacing; like the attempt record, a ledger
         # fault here must not block specialist review of this cycle's plan.
-        try:
-            delivery["uncounted"] = note_uncounted_cycle(plan_id, cycle_id=cycle_id, base_dir=base_dir)
-        except (GovernanceError, LedgerIntegrityError, OSError) as exc:
-            append_tools_governance(
-                base_dir, "converged_delivery_uncounted_unrecorded",
-                {"cycle_id": cycle_id, "plan_id": plan_id, "error_class": type(exc).__name__,
-                 "error_message": str(exc)[:500]},
-                bypass_profile_gate=True,
-            )
-            delivery["uncounted"] = {"plan_id": plan_id, "status": "unrecorded",
-                                     "error_class": type(exc).__name__}
+        delivery["uncounted"] = _note_uncounted_guarded(
+            plan_id, cycle_id=cycle_id, base_dir=base_dir, reason=WITHHELD_NO_AUTHORITY,
+        )
         return summary
     if summary["rejection_class"] == STAGING_PROFILE_REFUSED:
-        void_implementation_delivery_attempt(
-            plan_id=plan_id, attempt=attempt, reason=VOID_PROFILE_REFUSED, base_dir=base_dir,
-        )
-        delivery["voided"] = VOID_PROFILE_REFUSED
+        try:
+            void_implementation_delivery_attempt(
+                plan_id=plan_id, attempt=attempt, reason=VOID_PROFILE_REFUSED, base_dir=base_dir,
+            )
+            delivery["voided"] = VOID_PROFILE_REFUSED
+        except (GovernanceError, LedgerIntegrityError, OSError) as exc:
+            # The attempt stays counted: the conservative side of the bound.
+            # A fault (or a plan that moved under the void) must not skip this
+            # cycle's specialist review.
+            append_tools_governance(
+                base_dir, "converged_delivery_void_unrecorded",
+                {"cycle_id": cycle_id, "plan_id": plan_id, "attempt": attempt,
+                 "error_class": type(exc).__name__, "error_message": str(exc)[:500]},
+                bypass_profile_gate=True,
+            )
+            delivery["void_error_class"] = type(exc).__name__
         return summary
     try:
         delivery["escalation"] = escalate_exhausted_plan(
@@ -523,7 +571,8 @@ def redeliver_stranded_converged_plans(
             continue
         if not report["authority"]:
             report["withheld"][plan_id] = WITHHELD_NO_AUTHORITY
-            note = note_uncounted_cycle(plan_id, cycle_id=cycle_id, base_dir=base_dir, governance=governance)
+            note = _note_uncounted_guarded(plan_id, cycle_id=cycle_id, base_dir=base_dir,
+                                           reason=WITHHELD_NO_AUTHORITY, governance=governance)
             if note["surfaced"]:
                 report["surfaced"].append(plan_id)
             continue

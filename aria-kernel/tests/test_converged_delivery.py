@@ -20,6 +20,7 @@ from aria_kernel import apply_engine, cross_review_bridge
 from aria_kernel.converged_delivery import (
     AUTHORITY_ABSENT_CYCLES,
     AUTHORITY_ABSENT_REASON,
+    DELIVERY_WITHHELD_REASON,
     WITHHELD_WORKSPACE_DIRTY,
     authority_absent_request_id,
     escalate_exhausted_plan,
@@ -43,6 +44,7 @@ from aria_kernel.cycle_phases.implementer import (
     V9ImplementationResult,
 )
 from aria_kernel.human_required import list_human_required
+from aria_kernel.ledger import load_jsonl
 from aria_kernel.plan_convergence import (
     PlanStateRefused,
     counted_delivery_attempts,
@@ -427,6 +429,46 @@ class ReviewCorrectionTests(unittest.TestCase):
         # Surfaced, not ended: the authority may return.
         self.assertEqual(self._state()["state"], "CONVERGED")
         self.assertEqual(self._sweep(_DispatchingRunner(), cycle_id="cyc-back")["offered"][0]["attempt"], 1)
+
+
+    # Review of #1813 ---------------------------------------------------
+    def test_a_ledger_fault_while_noting_an_uncounted_cycle_never_ends_the_cycle(self) -> None:
+        from aria_kernel import converged_delivery
+
+        with patch.object(converged_delivery, "note_uncounted_cycle", side_effect=OSError("fixture disk")):
+            report = self._sweep(NoOpV9ImplementationRunner(), cycle_id="cyc-1", profile="standard")
+            outcome = self._deliver(NoOpV9ImplementationRunner(), cycle_id="cyc-2", profile="standard")
+        self.assertEqual(report["withheld"], {PLAN: WITHHELD_NO_AUTHORITY})
+        self.assertEqual(outcome["delivery"]["uncounted"]["status"], "unrecorded")
+        kinds = [row.get("kind") or row.get("event") for row in load_jsonl(self.tools / "governance.jsonl")]
+        self.assertGreaterEqual(kinds.count("converged_delivery_uncounted_unrecorded"), 2)
+
+    def test_a_void_that_cannot_be_written_keeps_the_attempt_counted_and_the_cycle_alive(self) -> None:
+        from aria_kernel import plan_convergence
+        from aria_kernel.runtime_profile import ProfileActionRefused
+
+        with patch.object(apply_engine, "stage_converged_plan_for_pr",
+                          side_effect=ProfileActionRefused("profile_violation: fixture demotion")), \
+                patch.object(plan_convergence, "void_implementation_delivery_attempt",
+                             side_effect=GovernanceError("fixture: plan moved")):
+            outcome = self._deliver(AutonomousV9ImplementationRunner(), cycle_id="cyc-1", profile="strict")
+        self.assertEqual(outcome["rejection_class"], "staging_profile_refused")
+        self.assertEqual(outcome["delivery"]["void_error_class"], "GovernanceError")
+        self.assertEqual(len(counted_delivery_attempts(self._state())), 1)
+
+    def test_a_lane_that_keeps_its_tree_dirty_is_surfaced_not_silent(self) -> None:
+        subprocess.run(["git", "init", "-q"], cwd=self.workspace, check=True)
+        (self.workspace / "left-by-a-baseline.txt").write_text("x\n", encoding="utf-8")
+        for night in range(1, AUTHORITY_ABSENT_CYCLES + 1):
+            outcome = self._deliver(_DispatchingRunner(), cycle_id=f"cyc-{night}", profile="strict")
+            self.assertEqual(outcome["delivery"]["withheld"], WITHHELD_WORKSPACE_DIRTY)
+        self.assertTrue(outcome["delivery"]["uncounted"]["surfaced"])
+        record = next(row for row in list_human_required(base_dir=self.tools)
+                      if row["request_id"] == authority_absent_request_id(PLAN))
+        self.assertEqual(record["context"]["reason_code"], DELIVERY_WITHHELD_REASON)
+        self.assertEqual(record["context"]["withheld_reasons"], [WITHHELD_WORKSPACE_DIRTY])
+        self.assertEqual(self._state()["state"], "CONVERGED")
+        self.assertEqual(self._state()["implementation_delivery_attempts"], [])
 
 
 class SweepBoundTests(unittest.TestCase):

@@ -104,3 +104,9 @@ Tests: `test_converged_delivery.py` now has 16, all passing. The 7 new tests cov
 - a missing operator record is repaired;
 - seven no-authority cycles surface the plan without a transition, and a returning runner still
   gets attempt 1.
+
+## Second review of #1813
+
+- **Unguarded bookkeeping writes.** `note_uncounted_cycle` at the sweep, and `void_implementation_delivery_attempt`, had no guard. A lock timeout, `OSError` or `LedgerIntegrityError` there ended the cycle before plan adoption, and recurred every night. Every cycle call site now goes through `_note_uncounted_guarded`, and a failed void keeps the attempt counted. Each fault is written as a governance row.
+- **Silent dirty-tree withhold.** The dirty-tree withhold was not recorded anywhere. It is now noted as an uncounted cycle with reason `workspace_dirty`. A long run surfaces as `implementation_delivery_withheld` with the reasons listed, and the plan stays CONVERGED.
+- **Tests.** Three new tests fail on the previous head and pass here.

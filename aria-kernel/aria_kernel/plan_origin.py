@@ -240,7 +240,10 @@ def carry_started_origin(plan_content: Any, state: Any) -> Any:
 REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE = "revision_scope_exceeds_admission_closure"
 ADMISSION_SCOPE_MISSING = "admission_scope_missing"
 # 2 adds ``pin_policy``; a version-1 record predates the committed policy.
-ADMISSION_SCOPE_SCHEMA_VERSION = 2
+# 3 adds ``dependency_roots`` (ADR-0021 D9, ARIA-HIGH-357): the roots of the
+# projects the admitted surfaces import, which a planning-round agent may cite
+# and no body may write.
+ADMISSION_SCOPE_SCHEMA_VERSION = 3
 _ADMISSION_SCOPE_LIST_FIELDS = ("admitted_surfaces", "closure_projects", "closure_roots", "policy_pins")
 
 # CB-5 / program ruling 15 (ARIA-LOW-280) — subject pins are committed policy
@@ -379,6 +382,12 @@ def compute_admission_scope(
     impact = plan_downstream_impact(changed_files=admitted, workspace_root=workspace_root, base_dir=base_dir)
     projects = sorted({*impact["changed_projects"], *impact["downstream_projects"]})
     roots = sorted({root for root in map(_bound_path, impact["project_roots"].values()) if root})
+    # ADR-0021 D9 — read-only: a dependency root under a closure root is
+    # already writable, so only the rest is recorded.
+    dependency_roots = sorted({
+        root for root in map(_bound_path, (impact.get("upstream_project_roots") or {}).values())
+        if root and not any(root == entry or root.startswith(entry + "/") for entry in roots)
+    })
     policy = load_subject_pin_policy(workspace_root)
     if policy.refused is not None:
         # A refused policy is a standing fact of its commit, disclosed once.
@@ -392,6 +401,7 @@ def compute_admission_scope(
         "admitted_surfaces": admitted,
         "closure_projects": projects,
         "closure_roots": roots,
+        "dependency_roots": dependency_roots,
         "policy_pins": sorted({p for pin in policy.pins if pin.subject in subjects for p in pin.paths}),
         "pin_policy": policy.record(),
         "graph_source": impact["graph_source"],
@@ -404,8 +414,17 @@ def compute_admission_scope(
 def validate_admission_scope(scope: Any, plan_content: Any) -> None:
     """Refuse an ``admission_scope`` record that is not the shape the kernel computes."""
     version = scope.get("schema_version") if isinstance(scope, dict) else None
-    if type(version) is not int or version not in (1, ADMISSION_SCOPE_SCHEMA_VERSION):
-        raise GovernanceError(f"admission_scope must be a schema_version 1 or {ADMISSION_SCOPE_SCHEMA_VERSION} object")
+    if type(version) is not int or version not in (1, 2, ADMISSION_SCOPE_SCHEMA_VERSION):
+        raise GovernanceError(f"admission_scope must be a schema_version 1 to {ADMISSION_SCOPE_SCHEMA_VERSION} object")
+    # A dependency root is read-only context (D9): v3 records it, an earlier
+    # record never does, and nothing reads it as a place a body may write.
+    if version >= 3:
+        dependency_roots = scope.get("dependency_roots")
+        if (not isinstance(dependency_roots, list)
+                or any(not isinstance(item, str) or _bound_path(item) != item for item in dependency_roots)):
+            raise GovernanceError("admission_scope.dependency_roots must be an array of canonical repository paths")
+    elif "dependency_roots" in scope:
+        raise GovernanceError(f"admission_scope v{version} predates dependency_roots")
     record = scope.get("pin_policy")
     if version == 1:
         # Recorded when the only policy was the kernel's empty tuple: no pins, no policy record.

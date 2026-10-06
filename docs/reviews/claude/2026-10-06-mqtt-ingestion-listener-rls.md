@@ -17,7 +17,7 @@ Live facts (2026-10-06 ~10:30Z):
 - The running image (`34db380f9`) has no diff against `origin/main` in
   `apps/sensor-service/src/ingestion/`.
 
-## SENSOR-HIGH-137 — the listener reloads the topic-resolved sensor outside the tenant RLS boundary
+## SENSOR-HIGH-137 — listener reloads the resolved sensor outside the tenant RLS boundary
 
 SENSOR-HIGH-119 moved `SensorTopicCacheService` onto `runInTenantRead`, and its
 Postgres spec proved the cache resolves a topic under FORCE RLS. The next hop
@@ -39,7 +39,7 @@ tenant-scoped repository; a resolved-but-unloadable sensor is an error that
 evicts the mapping; the flush groups by tenant inside `runInTenantTransaction`;
 the legacy resolver is deleted and the topic cache is a required dependency.
 
-## SENSOR-MEDIUM-136 — sensor-service scheduled jobs and automation helpers pin search_path without the RLS tenant GUC
+## SENSOR-MEDIUM-136 — scheduled jobs and automation helpers pin search_path without the RLS GUC
 
 The same defect class, outside ingestion. `EdgeDeviceService.markStaleDevicesOffline`
 and `AutomationService.checkDeployTimeout` iterate tenant schemas with

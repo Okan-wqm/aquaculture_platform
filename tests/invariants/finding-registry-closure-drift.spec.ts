@@ -53,7 +53,7 @@
  * reconcile lane catches up, and the derivation cannot quietly stop being run.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -63,6 +63,7 @@ import {
   loadRegistryForInspection,
   type MergedClosure,
 } from '../../tools/gates/finding-registry';
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 
 type RegistryEntries = ReturnType<typeof loadRegistryForInspection>;
 
@@ -121,7 +122,7 @@ function inheritedRegistry(baseRef: string): RegistryEntries | null {
     writeFileSync(file, text, 'utf8');
     return loadRegistryForInspection(file);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeFixtureTree(dir);
   }
 }
 

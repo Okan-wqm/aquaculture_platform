@@ -2,8 +2,8 @@ import { createHash, randomUUID } from 'crypto';
 
 import {
   getTenantSchemaName,
-  listTenantSchemas,
-  pinTenantSchemaTransactionSearchPath,
+  listActiveTenantSchemaIdentities,
+  runInTenantTransaction,
 } from '@aquaculture/backend-common/database';
 import {
   createStandardPaginatedResult,
@@ -817,9 +817,12 @@ export class EdgeDeviceService implements OnModuleDestroy {
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
     let totalAffected = 0;
 
-    let schemas: string[];
+    // SENSOR-MEDIUM-136: each tenant's UPDATE runs inside that tenant's RLS
+    // boundary. With search_path pinned alone the statement matched zero rows
+    // under FORCE RLS, so a dead edge device was never marked offline.
+    let tenants: Awaited<ReturnType<typeof listActiveTenantSchemaIdentities>>;
     try {
-      schemas = await listTenantSchemas(this.dataSource);
+      tenants = await listActiveTenantSchemaIdentities(this.dataSource);
     } catch (err) {
       this.logger.error(
         `Failed to fetch tenant schemas for stale-device check: ${(err as Error).message}`,
@@ -827,26 +830,31 @@ export class EdgeDeviceService implements OnModuleDestroy {
       return 0;
     }
 
-    for (const schemaName of schemas) {
-      const qr = this.dataSource.createQueryRunner();
+    for (const { tenantId, schemaName } of tenants) {
       try {
-        await qr.connect();
-        await qr.startTransaction();
-        await pinTenantSchemaTransactionSearchPath(qr, 'sensor', schemaName);
-
-        const result: unknown = await qr.query(
-          `UPDATE edge_devices
-           SET is_online = false,
-               lifecycle_state = $1
-           WHERE is_online = true
-             AND last_seen_at < $2
-             AND lifecycle_state NOT IN ($3, $4)`,
-          [
-            DeviceLifecycleState.OFFLINE,
-            cutoff.toISOString(),
-            DeviceLifecycleState.DECOMMISSIONED,
-            DeviceLifecycleState.MAINTENANCE,
-          ],
+        const result: unknown = await runInTenantTransaction(
+          this.dataSource,
+          'sensor',
+          tenantId,
+          (qr) =>
+            qr.query(
+              `UPDATE edge_devices
+               SET is_online = false,
+                   lifecycle_state = $1
+               WHERE is_online = true
+                 AND last_seen_at < $2
+                 AND lifecycle_state NOT IN ($3, $4)`,
+              [
+                DeviceLifecycleState.OFFLINE,
+                cutoff.toISOString(),
+                DeviceLifecycleState.DECOMMISSIONED,
+                DeviceLifecycleState.MAINTENANCE,
+              ],
+              // Structured result: a raw UPDATE answers `[rows, count]`,
+              // which queryAffectedRows cannot read — the job always
+              // reported 0 devices even when it changed rows.
+              true,
+            ),
         );
 
         const affected = EdgeDeviceService.queryAffectedRows(result);
@@ -854,16 +862,10 @@ export class EdgeDeviceService implements OnModuleDestroy {
           this.logger.log(`Marked ${affected} devices as offline in ${schemaName}`);
           totalAffected += affected;
         }
-        await qr.commitTransaction();
       } catch (err) {
-        if (qr.isTransactionActive) {
-          await qr.rollbackTransaction().catch(() => undefined);
-        }
         this.logger.error(
           `Failed stale-device check for ${schemaName}: ${(err as Error).message}`,
         );
-      } finally {
-        await qr.release();
       }
     }
 

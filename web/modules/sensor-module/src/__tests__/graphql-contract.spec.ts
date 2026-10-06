@@ -47,7 +47,18 @@ const GET_LATEST_READINGS_QUERY = documentFromSource(
   'GET_LATEST_READINGS_QUERY',
 );
 
+const CHANNEL_LATEST_VALUES_QUERY = documentFromSource(
+  'graphql/channelReadings.ts',
+  'CHANNEL_LATEST_VALUES_QUERY',
+);
+const CHANNEL_SERIES_QUERY = documentFromSource(
+  'graphql/channelReadings.ts',
+  'CHANNEL_SERIES_QUERY',
+);
+
 const documents: Array<[string, string]> = [
+  ['channelReadings.CHANNEL_LATEST_VALUES_QUERY', CHANNEL_LATEST_VALUES_QUERY],
+  ['channelReadings.CHANNEL_SERIES_QUERY', CHANNEL_SERIES_QUERY],
   ['useSensorRegistration.GET_SENSOR_QUERY', GET_SENSOR_QUERY],
   ['sensorRegistrationApi.GET_SENSOR', GET_SENSOR],
   ['useWidgetData.GET_SENSOR_INFO_QUERY', GET_SENSOR_INFO_QUERY],

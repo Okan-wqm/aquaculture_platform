@@ -1890,6 +1890,12 @@ export type Channel = {
   updatedAt: Scalars['DateTime']['output'];
 };
 
+/** A channel value's position against the channel's own alert thresholds */
+export type ChannelAlertLevel =
+  | 'CRITICAL'
+  | 'NORMAL'
+  | 'WARNING';
+
 /** Data type of the channel value */
 export type ChannelDataType =
   | 'BOOLEAN'
@@ -1935,6 +1941,21 @@ export type ChannelFilterInput = {
   offset?: Scalars['Int']['input'];
 };
 
+export type ChannelLatestValue = {
+  alertLevel?: Maybe<ChannelAlertLevel>;
+  channelId: Scalars['ID']['output'];
+  channelKey: Scalars['String']['output'];
+  displayLabel: Scalars['String']['output'];
+  displayOrder: Scalars['Int']['output'];
+  precision?: Maybe<Scalars['Int']['output']>;
+  qualityCode?: Maybe<Scalars['Int']['output']>;
+  sensorId: Scalars['ID']['output'];
+  time?: Maybe<Scalars['DateTime']['output']>;
+  unit?: Maybe<Scalars['String']['output']>;
+  unitSymbol?: Maybe<Scalars['String']['output']>;
+  value?: Maybe<Scalars['Float']['output']>;
+};
+
 export type ChannelMember = {
   channelId: Scalars['String']['output'];
   id: Scalars['ID']['output'];
@@ -1967,6 +1988,28 @@ export type ChannelSensorInfo = {
   id: Scalars['ID']['output'];
   name: Scalars['String']['output'];
   type?: Maybe<Scalars['String']['output']>;
+};
+
+export type ChannelSeries = {
+  channelId: Scalars['ID']['output'];
+  channelKey: Scalars['String']['output'];
+  points: Array<ChannelSeriesPoint>;
+};
+
+export type ChannelSeriesPoint = {
+  avg: Scalars['Float']['output'];
+  bucket: Scalars['DateTime']['output'];
+  count: Scalars['Int']['output'];
+  max?: Maybe<Scalars['Float']['output']>;
+  min?: Maybe<Scalars['Float']['output']>;
+};
+
+export type ChannelSeriesResponse = {
+  channels: Array<ChannelSeries>;
+  endTime: Scalars['DateTime']['output'];
+  interval: Scalars['String']['output'];
+  sensorId: Scalars['ID']['output'];
+  startTime: Scalars['DateTime']['output'];
 };
 
 export type ChannelType =
@@ -15363,6 +15406,10 @@ export type Query = {
   /** Get a channel by ID */
   channel: Channel;
   channelEligibleUsers: Array<PublicUserProfile>;
+  /** Each enabled channel of the given sensors with its last-known value (≤100 sensors) */
+  channelLatestValues: Array<ChannelLatestValue>;
+  /** Bucketed history of every enabled channel of one sensor over a time range */
+  channelSeries: ChannelSeriesResponse;
   checkLeaveOverlap: LeaveOverlapResult;
   chemical?: Maybe<ChemicalResponse>;
   chemicalSuppliers: Array<SupplierResponse>;
@@ -16194,6 +16241,19 @@ export type QueryCertificationsForWorkAreaArgs = {
 
 export type QueryChannelArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryChannelLatestValuesArgs = {
+  sensorIds: Array<Scalars['ID']['input']>;
+};
+
+
+export type QueryChannelSeriesArgs = {
+  endTime: Scalars['DateTime']['input'];
+  interval?: InputMaybe<AggregationInterval>;
+  sensorId: Scalars['ID']['input'];
+  startTime: Scalars['DateTime']['input'];
 };
 
 

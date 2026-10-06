@@ -3,6 +3,7 @@ import { Modal, colors, Button, Input } from '@aquaculture/shared-ui';
 import {
   ChildSensorConfig,
   SensorType,
+  sensorTypeFromKey,
   AlertThresholds,
   ChannelDisplaySettings,
 } from '../../types/registration.types';
@@ -125,10 +126,11 @@ export function ChildSensorFormModal({
     }
     const selected = typeDefinitions.find((t) => t.id === selectedId);
     if (selected) {
-      const legacyType = Object.values(SensorType).includes(selected.typeKey as SensorType)
-        ? (selected.typeKey as SensorType)
-        : SensorType.MULTI_PARAMETER;
-      setFormData((prev) => ({ ...prev, typeDefinitionId: selected.id, type: legacyType }));
+      setFormData((prev) => ({
+        ...prev,
+        typeDefinitionId: selected.id,
+        type: sensorTypeFromKey(selected.typeKey),
+      }));
     }
   };
 

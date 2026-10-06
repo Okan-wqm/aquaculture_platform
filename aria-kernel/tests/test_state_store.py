@@ -3015,7 +3015,7 @@ class LearnedConventionContinuity(StateStoreTestCase):
                 raise OSError("fixture promotion append unavailable")
 
             with mock.patch.object(knowledge_graph, "_append_row_locked", side_effect=fail_promotion) as append:
-                first = reconcile_recorded_implementations(base_dir=tools, reader=MergedReader())
+                first = reconcile_recorded_implementations(base_dir=tools, workspace_root=Path(tools).parent, reader=MergedReader())
             append.assert_called_once()
             self.assertEqual([row["plan_id"] for row in first["merged"]], [plan_id])
             self.assertEqual(first["promotions"][0]["status"], "retryable_error")
@@ -3063,7 +3063,7 @@ class LearnedConventionContinuity(StateStoreTestCase):
                     raise AssertionError("persisted merge retry must not query a PR")
 
             restored_conventions = restored_tools / learning_paths["kg_conventions"]
-            recovery = reconcile_recorded_implementations(base_dir=restored_tools, reader=OfflineReader())
+            recovery = reconcile_recorded_implementations(base_dir=restored_tools, workspace_root=Path(restored_tools).parent, reader=OfflineReader())
             verified_id = f"{hypothesis_id}-verified"
             self.assertEqual(recovery["merged"], [])
             self.assertEqual(recovery["checked"], 0)
@@ -3077,7 +3077,7 @@ class LearnedConventionContinuity(StateStoreTestCase):
             )
             self.assertEqual(rows[1]["supersedes_pattern_id"], hypothesis_id)
             promoted_bytes = restored_conventions.read_bytes()
-            again = reconcile_recorded_implementations(base_dir=restored_tools, reader=OfflineReader())
+            again = reconcile_recorded_implementations(base_dir=restored_tools, workspace_root=Path(restored_tools).parent, reader=OfflineReader())
             self.assertEqual(again["merged"], [])
             self.assertEqual(again["promotions"], [
                 {"plan_id": plan_id, "status": "already_verified", "pattern_id": verified_id},

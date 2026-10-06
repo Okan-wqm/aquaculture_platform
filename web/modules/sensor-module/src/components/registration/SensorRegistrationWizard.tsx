@@ -16,7 +16,7 @@ import {
   ParentDeviceInfo,
   ChildSensorConfig,
   RegisterParentWithChildrenInput,
-  RegisterChildSensorInput,
+  toRegisterChildInput,
   ParameterCatalog,
   inferChildSensorConfig,
   SensorType,
@@ -243,24 +243,7 @@ export function SensorRegistrationWizard({
         equipmentId: parentDeviceInfo.equipmentId,
         location: parentDeviceInfo.location,
       },
-      children: selectedChildren.map(
-        (c): RegisterChildSensorInput => ({
-          name: c.name,
-          type: c.type,
-          // SENSOR-MEDIUM-071: carry the per-child custom type-definition so the
-          // backend bootstraps its default channels in the registration transaction.
-          typeDefinitionId: c.typeDefinitionId,
-          dataPath: c.dataPath,
-          unit: c.unit,
-          minValue: c.minValue,
-          maxValue: c.maxValue,
-          calibrationEnabled: c.calibrationEnabled,
-          calibrationMultiplier: c.calibrationMultiplier,
-          calibrationOffset: c.calibrationOffset,
-          alertThresholds: c.alertThresholds,
-          displaySettings: c.displaySettings,
-        }),
-      ),
+      children: selectedChildren.map(toRegisterChildInput),
       skipConnectionTest: !connectionTestResult?.success,
     };
 

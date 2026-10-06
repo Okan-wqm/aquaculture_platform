@@ -8,8 +8,8 @@ import { render, screen } from '@testing-library/react';
 import { colors } from '@aquaculture/shared-ui';
 
 const seriesMock = vi.fn();
-vi.mock('../../../hooks/useAggregatedMultiSeries', () => ({
-  useAggregatedMultiSeries: (...args: unknown[]) => seriesMock(...args),
+vi.mock('../../../hooks/useChannelReadings', () => ({
+  useChannelSeries: (...args: unknown[]) => seriesMock(...args),
 }));
 
 vi.mock('../TrendChart', () => ({
@@ -40,14 +40,30 @@ function mockSeries(loading = false, error: string | null = null, hasData = true
   seriesMock.mockReturnValue({
     loading,
     error,
-    series: hasData
-      ? {
-          temperature: [{ timestamp: 1_000, value: 22.5 }],
-          ph: [{ timestamp: 1_000, value: 7.4 }],
-          dissolved_oxygen: [],
-        }
-      : { temperature: [], ph: [], dissolved_oxygen: [] },
-    refetch: () => undefined,
+    // channelSeries shape: one entry per channel, points keyed by bucket.
+    series: {
+      sensorId: 'sensor-1',
+      interval: '15 minutes',
+      startTime: '1970-01-01T00:00:00.000Z',
+      endTime: '1970-01-02T00:00:00.000Z',
+      channels: [
+        {
+          channelId: 'c-temperature',
+          channelKey: 'temperature',
+          points: hasData
+            ? [{ bucket: '1970-01-01T00:00:01.000Z', avg: 22.5, min: 22, max: 23, count: 4 }]
+            : [],
+        },
+        {
+          channelId: 'c-ph',
+          channelKey: 'ph',
+          points: hasData
+            ? [{ bucket: '1970-01-01T00:00:01.000Z', avg: 7.4, min: 7.3, max: 7.5, count: 4 }]
+            : [],
+        },
+        { channelId: 'c-do', channelKey: 'dissolved_oxygen', points: [] },
+      ],
+    },
   });
 }
 

@@ -400,34 +400,33 @@ def _profile_permits_pr_open(context: PhaseContext) -> bool:
     return context.profile in ACTION_PERMISSIONS["pr_open"]
 
 
-def _backlog_below_cap(context: PhaseContext) -> bool:
-    """E25-a (ORPHAN-710) — work-minting phases pause at the backlog ceiling.
+def _finding_opener_admitted(context: PhaseContext, opener: str) -> bool:
+    """E25-a (ORPHAN-710) rhythm rule, wall #7 form: openers slow under pressure, never stop.
 
-    The operator's rhythm directive: findings ARIA opened and has not
-    finished must be worked BEFORE new ones are discovered — a system that
-    mints faster than it resolves drowns itself. The count is the SAME
-    counter the emptiness guard reads (cycle_guard._open_finding_count,
-    OPEN + IN_PROGRESS); the ceiling is policy (rhythm.backlog_cap). An
-    unmet precondition produces a recorded skip naming
-    ``backlog_below_cap`` — the sıfır-vs-yok discipline X3 established
-    makes the pause visible, never silent.
+    E25-a paused these phases at 25 OPEN/IN_PROGRESS findings whoever could
+    close them, so operator-only findings froze discovery. The decision is
+    ``cycle_guard.admit_finding_opener`` over this cycle's census; a held
+    phase is the recorded skip ``precondition_unmet:<name>``.
     """
-    from .cycle_guard import _open_finding_count
-    from .genesis_policy import rhythm_policy
+    from .cycle_guard import admit_finding_opener
 
-    cap = int(rhythm_policy(context.workspace_root).get("backlog_cap") or 25)
-    return _open_finding_count(Path(context.workspace_root)) < cap
+    return admit_finding_opener(
+        context.base_dir, opener, context.result("finding_backlog"), now=context.cycle_started_at,
+    ).admitted
 
 
 ALWAYS = PhasePrecondition("always", _always)
 WRITES_PERMITTED = PhasePrecondition("writes_permitted", _writes_permitted)
-BACKLOG_BELOW_CAP = PhasePrecondition("backlog_below_cap", _backlog_below_cap)
-# Composite member for phases that already demand writes: a phase declares
+WATCHDOG_OPENER_ADMITTED = PhasePrecondition(
+    "finding_opener_admitted:watchdog_sweep",
+    lambda context: _finding_opener_admitted(context, "watchdog_sweep"),
+)
+# Composite member for a phase that already demands writes: a phase declares
 # ONE precondition, and the closed set is identity-compared, so the
 # combination is itself a reviewed member rather than an inline lambda.
-WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP = PhasePrecondition(
-    "writes_permitted+backlog_below_cap",
-    lambda context: _writes_permitted(context) and _backlog_below_cap(context),
+WRITES_PERMITTED_AND_EXPERIMENT_OPENER_ADMITTED = PhasePrecondition(
+    "writes_permitted+finding_opener_admitted:experiment_author",
+    lambda context: _writes_permitted(context) and _finding_opener_admitted(context, "experiment_author"),
 )
 REFLECTION_NOT_DEFERRED = PhasePrecondition("reflection_not_deferred", _reflection_not_deferred)
 PLAN_ID_PRESENT = PhasePrecondition("plan_id_present", _plan_id_present)
@@ -448,9 +447,9 @@ CYCLE_PRECONDITIONS: tuple[PhasePrecondition, ...] = (
     REFLECTION_NOT_DEFERRED,
     PLAN_ID_PRESENT,
     PROFILE_PERMITS_PR_OPEN,
-    # E25-a (ORPHAN-710) — the rhythm gate and its writes-composite.
-    BACKLOG_BELOW_CAP,
-    WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP,
+    # E25-a (ORPHAN-710), wall #7 — the opener rate gates.
+    WATCHDOG_OPENER_ADMITTED,
+    WRITES_PERMITTED_AND_EXPERIMENT_OPENER_ADMITTED,
 )
 
 
@@ -1183,6 +1182,17 @@ def _phase_watchdog(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+def _phase_finding_backlog(context: PhaseContext) -> dict[str, Any]:
+    """Wall #7 — one backlog census per cycle; every opener gate reads this
+    payload and the cycle state records it. Overdue operator-only findings
+    are escalated once each (not on a shadow cycle, which writes nothing)."""
+    from .cycle_guard import backlog_census, escalate_operator_only
+
+    census = backlog_census(context.workspace_root, now=context.cycle_started_at)
+    census["escalated"] = [] if context.shadow_only else escalate_operator_only(context.base_dir, census)
+    return census
+
+
 def _phase_product_fitness(context: PhaseContext) -> dict[str, Any]:
     """G-1 — measure the product against the operator's stated threshold.
 
@@ -1829,6 +1839,11 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         append_tools_governance(context.base_dir, "calibration_gate", {"schema_version": 1, "cycle_id": context.cycle_id, **_gate})
     except (OSError, ValueError, TypeError):
         pass
+    from .cycle_guard import admit_finding_opener
+
+    fanout_gate = admit_finding_opener(
+        context.base_dir, "judgment_fanout", context.result("finding_backlog"), now=context.cycle_started_at,
+    )
     sampled = 0
     fanned_out = 0
     mint_skipped_backlog = 0
@@ -1839,31 +1854,35 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         tool_id = str(tool.get("tool_id") or "")
         if not tool_id:
             continue
-        try:
-            sample = generate_judgment_sample(
-                tool_id=tool_id,
-                sample_size=sample_size,
-                strategy="stratified_by_uncertainty",
-                cycle_id=context.cycle_id,
-                base_dir=context.base_dir,
-            )
-            sampled += len(sample.get("items") or [])
-            fanout = dispatch_judges_for_sample(
-                sample=sample, base_dir=context.base_dir, target_sha=target_sha,
-                # E17-b — the same workspace target_sha was resolved from. The
-                # mint needs it to quote the cited lines into the envelope; a
-                # judge lane that dispatches two judges per finding is exactly
-                # where paying for the same file read twice is worst.
-                repo_root=context.workspace_root,
-                max_pending_per_role=max_pending_per_role,
-            )
-            fanned_out += len(fanout.get("minted") or [])
-            mint_skipped_backlog += sum(
-                1 for s in fanout.get("skipped") or []
-                if s.get("reason") == "mint_skipped_backlog"
-            )
-        except GovernanceError as exc:
-            blocked.append({"tool_id": tool_id, "step": "sample_or_fanout", "reason": str(exc)[:200]})
+        # Wall #7 — the judge fan-out is where ai_consensus findings start, so it
+        # runs at the opener rate under backlog pressure; judging what was
+        # already fanned out (consensus, arbiters, promotion) never pauses.
+        if fanout_gate.admitted:
+            try:
+                sample = generate_judgment_sample(
+                    tool_id=tool_id,
+                    sample_size=sample_size,
+                    strategy="stratified_by_uncertainty",
+                    cycle_id=context.cycle_id,
+                    base_dir=context.base_dir,
+                )
+                sampled += len(sample.get("items") or [])
+                fanout = dispatch_judges_for_sample(
+                    sample=sample, base_dir=context.base_dir, target_sha=target_sha,
+                    # E17-b — the same workspace target_sha was resolved from. The
+                    # mint needs it to quote the cited lines into the envelope; a
+                    # judge lane that dispatches two judges per finding is exactly
+                    # where paying for the same file read twice is worst.
+                    repo_root=context.workspace_root,
+                    max_pending_per_role=max_pending_per_role,
+                )
+                fanned_out += len(fanout.get("minted") or [])
+                mint_skipped_backlog += sum(
+                    1 for s in fanout.get("skipped") or []
+                    if s.get("reason") == "mint_skipped_backlog"
+                )
+            except GovernanceError as exc:
+                blocked.append({"tool_id": tool_id, "step": "sample_or_fanout", "reason": str(exc)[:200]})
         try:
             # Kalibre Zekâ Z2c — the conformal floor, derived per tool from
             # correct-consensus confidences. Judge weights come from the
@@ -1969,6 +1988,7 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         "sampled_findings": sampled,
         "judge_requests_minted": fanned_out,
         "mint_skipped_backlog": mint_skipped_backlog,
+        "fanout_throttled": list(fanout_gate.reasons) if not fanout_gate.admitted else None,
         "consensus_rows": consensus_rows,
         "arbiter_requests_minted": arbiter_requests,
         "promoted_findings": promotion_summary.get("promoted_count", 0),
@@ -3219,14 +3239,22 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     # class (emits findings through the dedup'd emitter, takes no claim/
     # tool/PR action); standard lane only, and a sweep failure must never
     # cost the night.
+    # Wall #7 — the backlog census, once per cycle and BEFORE every finding
+    # opener: closable / operator-only / undecided, the closure SLO, and the
+    # once-per-finding escalation of overdue operator-only findings. A crash
+    # is a failed outcome row; the openers then run at the shipped rate.
+    CyclePhase(
+        "finding_backlog", "discovery", _phase_finding_backlog,
+        on_error="record_and_continue", state_key="finding_backlog",
+        absent=lambda: None,
+    ),
     CyclePhase(
         "watchdog_sweep", "discovery", _phase_watchdog,
-        # E25-a — a finding-EMITTING phase pauses at the backlog ceiling.
-        # The plan named the discovery-class trio (discovery, watchdog_sweep,
-        # experiment_author); "discovery" itself is deliberately NOT gated —
+        # E25-a, wall #7 — a finding-EMITTING phase runs at a rate under
+        # backlog pressure. "discovery" itself is deliberately NOT gated —
         # its payload is the comprehension the rest of the cycle propagates
-        # on, and pausing understanding is not what the rhythm rule means.
-        precondition=BACKLOG_BELOW_CAP,
+        # on, and slowing understanding is not what the rhythm rule means.
+        precondition=WATCHDOG_OPENER_ADMITTED,
         on_error="record_and_continue", state_key="watchdog_sweep",
         modes=frozenset({"standard"}),
     ),
@@ -3396,10 +3424,10 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     # bench organ.
     CyclePhase(
         "experiment_author", "post_tool", _phase_experiment_author,
-        # E25-a — authoring mints new bench work; at the ceiling the bench
-        # keeps RUNNING what exists (experiment_night stays ungated) while
-        # authoring pauses.
-        precondition=WRITES_PERMITTED_AND_BACKLOG_BELOW_CAP,
+        # E25-a, wall #7 — authoring mints new bench work; under pressure the
+        # bench keeps RUNNING what exists (experiment_night stays ungated)
+        # while authoring runs at the throttled rate.
+        precondition=WRITES_PERMITTED_AND_EXPERIMENT_OPENER_ADMITTED,
         on_error="record_and_continue",
         state_key="experiment_author",
     ),

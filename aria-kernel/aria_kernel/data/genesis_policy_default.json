@@ -86,7 +86,11 @@
   "materialization_requires_acknowledge": true,
   "max_requests_per_cycle": 5,
   "rhythm": {
-    "backlog_cap": 25
+    "_doc": "Wall #7 (2026-10-03) \u2014 backlog_cap bounds the CLOSABLE backlog: findings ARIA's own plan lane could close (finding_grounding.closure_blocker is None) plus findings the runner could not judge. Operator-only findings never count; they are escalated once on governance at operator_escalation_age_days. The closure SLO compares closable findings opened inside closure_slo_window_days with the findings closed inside it. Either pressure throttles a finding opener to one admission per opener_throttle_interval_hours (a rate, never a freeze; event finding_opener_throttled). Bounds: genesis_policy.RHYTHM_BOUNDS; a value outside them is refused by name.",
+    "backlog_cap": 25,
+    "closure_slo_window_days": 7,
+    "opener_throttle_interval_hours": 24.0,
+    "operator_escalation_age_days": 14
   },
   "schema_version": 1,
   "service_auditor_threshold": 25,

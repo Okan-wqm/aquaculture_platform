@@ -20,8 +20,9 @@ one of which stops the chain:
 * a MINIMUM INTERVAL since the last cycle STARTED — the chain can never
   run cycles closer together than a human would schedule them, however
   fast the drain gets;
-* the E25-a BACKLOG CEILING — the same counter the minting phases pause
-  on, so a night that is already behind does not open more work;
+* the E25-a BACKLOG CEILING — the closable-backlog count the finding
+  openers are throttled on (wall #7: ``cycle_guard.backlog_census``), so a
+  night that is already behind does not open more work;
 * an EMPTY drain — if the executor found nothing to do, another cycle
   has nothing to feed it.
 """

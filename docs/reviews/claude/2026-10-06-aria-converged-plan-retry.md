@@ -10,11 +10,18 @@ called in one place only: the cycle whose drainer returned `converged`
 (`autonomy_orchestrator.py`, the `v9_implementation_runner.run(` call between the memory hook and
 specialist review). Whatever that call produced was final:
 
-| What the converging cycle hit                                                                                     | Result row                                                       | What happened to the plan |
-| ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------- |
-| profile `standard` (NoOp runner)                                                                                  | `IMPLEMENTATION_REQUEST_REFUSED`, `no_op_v9_runner`              | CONVERGED forever         |
-| staging raises (dirty workspace `validation.py:205`, no `architectural_tier`, unregistered recipe `apply_engine`) | `implementation_staging_governance_error` governance row         | CONVERGED forever         |
-| any runner fault                                                                                                  | `runner_exception:<class>`, `v9_implementation_phase_failed` row | CONVERGED forever         |
+| What the converging cycle hit
+| Result row | What happened to the plan |
+| ------------------------------------------------------------------------------------------------
+----------------- | ---------------------------------------------------------------- |
+------------------------- |
+| profile `standard` (NoOp runner)
+| `IMPLEMENTATION_REQUEST_REFUSED`, `no_op_v9_runner` | CONVERGED forever |
+| staging raises (dirty workspace `validation.py:205`, no `architectural_tier`, unregistered
+recipe `apply_engine`) | `implementation_staging_governance_error` governance row |
+CONVERGED forever |
+| any runner fault
+| `runner_exception:<class>`, `v9_implementation_phase_failed` row | CONVERGED forever |
 
 No reader consumed any of those rows. A plan the whole primary/challenger/cross-review debate had
 agreed on was implemented only if the night it converged could also deliver it.
@@ -83,7 +90,8 @@ An independent review found four defects in the first cut. They are fixed in the
   transition now comes first, under the lock, and the operator record follows it. A record the
   process did not live to write is repaired by the next sweep.
 - **M4 — a permanent `standard` ceiling hid stranded plans.** Each cycle whose runner cannot
-  deliver writes one `converged_delivery_uncounted` row per plan, carrying the counted-attempt total.
+  deliver writes one `converged_delivery_uncounted` row per plan, carrying the counted-attempt
+  total.
   After `AUTHORITY_ABSENT_CYCLES` (7) such cycles since the last counted attempt, the operator
   record `converged-delivery-no-authority-<plan>.json` is written with reason
   `implementation_authority_absent`. The plan is not transitioned.
@@ -107,6 +115,12 @@ Tests: `test_converged_delivery.py` now has 16, all passing. The 7 new tests cov
 
 ## Second review of #1813
 
-- **Unguarded bookkeeping writes.** `note_uncounted_cycle` at the sweep, and `void_implementation_delivery_attempt`, had no guard. A lock timeout, `OSError` or `LedgerIntegrityError` there ended the cycle before plan adoption, and recurred every night. Every cycle call site now goes through `_note_uncounted_guarded`, and a failed void keeps the attempt counted. Each fault is written as a governance row.
-- **Silent dirty-tree withhold.** The dirty-tree withhold was not recorded anywhere. It is now noted as an uncounted cycle with reason `workspace_dirty`. A long run surfaces as `implementation_delivery_withheld` with the reasons listed, and the plan stays CONVERGED.
+- **Unguarded bookkeeping writes.** `note_uncounted_cycle` at the sweep, and
+  `void_implementation_delivery_attempt`, had no guard. A lock timeout, `OSError` or
+  `LedgerIntegrityError` there ended the cycle before plan adoption, and recurred every night.
+  Every cycle call site now goes through `_note_uncounted_guarded`, and a failed void keeps the
+  attempt counted. Each fault is written as a governance row.
+- **Silent dirty-tree withhold.** The dirty-tree withhold was not recorded anywhere. It is now
+  noted as an uncounted cycle with reason `workspace_dirty`. A long run surfaces as
+  `implementation_delivery_withheld` with the reasons listed, and the plan stays CONVERGED.
 - **Tests.** Three new tests fail on the previous head and pass here.

@@ -2004,13 +2004,11 @@ def list_agent_invocation_requests(
     on the value.
 
     Post-§B.4 the ``state`` filter routes through
-    ``derive_request_state(request_id, base_dir)`` which IS the SSoT
-    for derived state (PENDING / REQUEUED / CLAIMED / SUBMITTED /
+    ``derive_request_states(base_dir)``, the batch form of the SSoT for
+    derived state (PENDING / REQUEUED / CLAIMED / SUBMITTED /
     ACCEPTED / REJECTED / STALE / HUMAN_REQUIRED / CANCELLED /
-    ACCEPTED_PENDING_BRIDGE etc.). The derived state is cached per
-    request_id within the call so a single list() invocation pays
-    the derive cost at most once per row even when other filters
-    overlap.
+    ACCEPTED_PENDING_BRIDGE etc.): one ledger load per call, whatever
+    the row count (ARIA-HIGH-358).
 
     Case normalisation: ``derive_request_state`` returns uppercase
     state names (``"CLAIMED"``). Caller-supplied ``state`` is
@@ -2019,22 +2017,13 @@ def list_agent_invocation_requests(
     """
     rows = load_segments(ensure_tools_dir(base_dir), "agent_invocation_requests")
     if state is not None:
-        # Plan 026R §B.4 — per-call derived-state cache. A single list()
-        # call may iterate many rows; only derive each request_id's
-        # current state once.
+        # Plan 026R §B.4 + ARIA-HIGH-358 — every row's state from ONE
+        # ledger load; the per-row form reloaded three ledgers per row.
         normalised = state.upper()
-        derive_cache: dict[str, str] = {}
-
-        def _derive(rid: str) -> str:
-            if rid not in derive_cache:
-                derive_cache[rid] = derive_request_state(
-                    request_id=rid, base_dir=base_dir,
-                )
-            return derive_cache[rid]
-
+        states = derive_request_states(base_dir=base_dir)
         rows = [
             row for row in rows
-            if _derive(str(row.get("request_id"))) == normalised
+            if states[str(row.get("request_id"))] == normalised
         ]
     if convergence_id is not None:
         rows = [row for row in rows if row.get("convergence_id") == convergence_id]

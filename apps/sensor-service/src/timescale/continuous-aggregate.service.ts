@@ -8,6 +8,7 @@ import {
   SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS,
   validateTenantSchemaName,
 } from '@aquaculture/backend-common/database';
+import { metricTier } from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -301,9 +302,14 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
     ]);
   }
 
-  /** Lower-tier retention horizons (ms) a manual refresh may never cross. */
+  /**
+   * Lower-tier retention horizons (ms) a manual refresh may never cross, from
+   * the tier policy. metrics_1hour is built from metrics_1min; metrics_1day
+   * from metrics_1hour, which keeps longer — but its own minute lineage is
+   * what caps a recompute, so both are bounded by the minute tier.
+   */
   private static readonly REFRESH_HORIZONS: Readonly<Record<string, number>> = {
-    metrics_1hour: 365 * 24 * 60 * 60 * 1000, // metrics_1min is retained 1 year
-    metrics_1day: 365 * 24 * 60 * 60 * 1000, // metrics_1hour keeps 5 years, but its 1min lineage caps us
+    [metricTier('hour').table]: metricTier('minute').retention.ms,
+    [metricTier('day').table]: metricTier('minute').retention.ms,
   };
 }

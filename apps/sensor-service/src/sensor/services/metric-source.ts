@@ -7,6 +7,12 @@
  * rollups the same way — one rule, not two copies that drift.
  */
 
+import {
+  AS_OF_LOOKBACK as AS_OF_LOOKBACK_POLICY,
+  metricTier,
+  type MetricTierName,
+  tierForWindow,
+} from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
 import { Logger } from '@nestjs/common';
 import { QueryRunner } from 'typeorm';
 
@@ -30,7 +36,7 @@ import { QueryRunner } from 'typeorm';
  * and long-dead channels. It is one constant used by all four projections, so
  * the freshness contract cannot drift between them.
  */
-export const AS_OF_LOOKBACK = '7 days';
+export const AS_OF_LOOKBACK = AS_OF_LOOKBACK_POLICY.sql;
 
 /** Parse a pg driver value (numeric columns arrive as strings, counts as numbers). */
 export function toNumberOrUndefined(value: string | number | null | undefined): number | undefined {
@@ -57,16 +63,19 @@ export interface MetricSource {
 // are safe to interpolate into the aggregation SQL. They are UNQUALIFIED so the
 // tenant search_path resolves them inside the reading tenant's own schema: both
 // the hypertable and its rollups are per-tenant.
+// The table names come from the tier policy (the one owner of which store
+// holds which resolution); the column shape is this read model's.
 export const RAW_METRIC_SOURCE: MetricSource = {
-  table: 'sensor_metrics',
+  table: metricTier('raw').table,
   timeColumn: 'time',
   weighted: false,
 };
-export const METRIC_ROLLUP_SOURCES: Readonly<Record<'minute' | 'hour' | 'day', MetricSource>> = {
-  minute: { table: 'metrics_1min', timeColumn: 'bucket', weighted: true },
-  hour: { table: 'metrics_1hour', timeColumn: 'bucket', weighted: true },
-  day: { table: 'metrics_1day', timeColumn: 'bucket', weighted: true },
-};
+export const METRIC_ROLLUP_SOURCES: Readonly<Record<Exclude<MetricTierName, 'raw'>, MetricSource>> =
+  {
+    minute: { table: metricTier('minute').table, timeColumn: 'bucket', weighted: true },
+    hour: { table: metricTier('hour').table, timeColumn: 'bucket', weighted: true },
+    day: { table: metricTier('day').table, timeColumn: 'bucket', weighted: true },
+  };
 
 /**
  * Pick the metric source by range so a month-long chart reads a pre-rolled
@@ -75,11 +84,8 @@ export const METRIC_ROLLUP_SOURCES: Readonly<Record<'minute' | 'hour' | 'day', M
  * rollup for finer granularity than it stores.
  */
 export function selectMetricSource(startTime: Date, endTime: Date): MetricSource {
-  const hours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
-  if (hours <= 1) return RAW_METRIC_SOURCE;
-  if (hours <= 24) return METRIC_ROLLUP_SOURCES.minute;
-  if (hours <= 720) return METRIC_ROLLUP_SOURCES.hour;
-  return METRIC_ROLLUP_SOURCES.day;
+  const { tier } = tierForWindow(endTime.getTime() - startTime.getTime());
+  return tier === 'raw' ? RAW_METRIC_SOURCE : METRIC_ROLLUP_SOURCES[tier];
 }
 
 /**

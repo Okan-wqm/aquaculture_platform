@@ -1,3 +1,4 @@
+import type { AggregationIntervalSql } from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
 import { ObjectType, Field, Float, Int, registerEnumType } from '@nestjs/graphql';
 
 /**
@@ -12,6 +13,21 @@ export enum AggregationInterval {
   ONE_DAY = '1 day',
   ONE_WEEK = '1 week',
 }
+
+/**
+ * The GraphQL enum is a TypeScript enum (registerEnumType needs one); its
+ * values must be exactly the tier policy's interval whitelist. Both directions
+ * are checked at compile time, so adding a width to one side without the
+ * other does not build.
+ */
+type ExactlyTrue<T extends true> = T;
+export type AggregationIntervalMatchesPolicy = ExactlyTrue<
+  [`${AggregationInterval}`] extends [AggregationIntervalSql]
+    ? [AggregationIntervalSql] extends [`${AggregationInterval}`]
+      ? true
+      : false
+    : false
+>;
 
 registerEnumType(AggregationInterval, {
   name: 'AggregationInterval',

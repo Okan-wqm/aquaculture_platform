@@ -20,6 +20,10 @@ import {
   sensorReadingAnchorSql,
   type SensorReadingAnchor,
 } from '@aquaculture/backend-common/sensor';
+import {
+  displayIntervalFor,
+  MAX_SERIES_RANGE_MS,
+} from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { parameterForChannelKey, type SensorReadingParameter } from '@platform/event-contracts';
@@ -57,10 +61,6 @@ const SENSOR_SCHEMA = 'sensor';
  */
 export type AggregationInterval = SafeAggregationInterval;
 
-/**
- * Maximum allowed query time range (365 days)
- */
-const MAX_QUERY_RANGE_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
  * Maximum results limit
@@ -77,16 +77,8 @@ const DEFAULT_RESULTS_LIMIT = 1000;
  * Target: 50-200 data points for optimal visualization
  */
 export function getOptimalInterval(startTime: Date, endTime: Date): AggregationInterval {
-  const durationMs = endTime.getTime() - startTime.getTime();
-  const hours = durationMs / (1000 * 60 * 60);
-
-  if (hours <= 1) return '1 minute'; // 60 points max
-  if (hours <= 6) return '5 minutes'; // 72 points max
-  if (hours <= 24) return '15 minutes'; // 96 points max
-  if (hours <= 72) return '1 hour'; // 72 points max
-  if (hours <= 168) return '4 hours'; // 42 points max
-  if (hours <= 720) return '1 day'; // 30 points max
-  return '1 week'; // 52 points max for year
+  // The ladder lives in the tier policy; its values are the interval whitelist.
+  return displayIntervalFor(endTime.getTime() - startTime.getTime());
 }
 
 
@@ -313,7 +305,7 @@ export class SensorQueryService {
     const { startTime: validStart, endTime: validEnd } = validateDateRange(
       startTime,
       endTime,
-      MAX_QUERY_RANGE_MS,
+      MAX_SERIES_RANGE_MS,
     );
     const validLimit = validateLimit(limit, MAX_RESULTS_LIMIT);
 
@@ -393,7 +385,7 @@ export class SensorQueryService {
     const { startTime: validStart, endTime: validEnd } = validateDateRange(
       startTime,
       endTime,
-      MAX_QUERY_RANGE_MS,
+      MAX_SERIES_RANGE_MS,
     );
 
     // Auto-select optimal interval if not provided

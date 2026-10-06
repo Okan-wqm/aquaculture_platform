@@ -10,6 +10,7 @@
  */
 
 import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { MAX_SERIES_RANGE_MS } from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In, QueryRunner } from 'typeorm';
@@ -41,8 +42,6 @@ import { getOptimalInterval } from './sensor-query.service';
 const SENSOR_SCHEMA = 'sensor';
 /** Same batch cap as latestReadingsBatch. */
 const MAX_SENSORS_PER_BATCH = 100;
-/** Same range cap as aggregatedReadings. */
-const MAX_QUERY_RANGE_MS = 365 * 24 * 60 * 60 * 1000;
 
 const ALERT_LEVELS: Readonly<Record<'normal' | 'warning' | 'critical', ChannelAlertLevel>> = {
   normal: ChannelAlertLevel.NORMAL,
@@ -154,7 +153,7 @@ export class ChannelReadingQueryService {
     const { startTime: validStart, endTime: validEnd } = validateDateRange(
       startTime,
       endTime,
-      MAX_QUERY_RANGE_MS,
+      MAX_SERIES_RANGE_MS,
     );
     const effectiveInterval = interval
       ? validateAggregationInterval(interval)

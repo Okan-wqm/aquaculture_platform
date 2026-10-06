@@ -1,3 +1,5 @@
+import { metricTier } from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
+
 /**
  * Canonical per-tenant sensor continuous-aggregate definition.
  *
@@ -8,10 +10,18 @@
  * drifting while production runtime services remain DDL-free.
  */
 
+// Windows, offsets and retention come from the sensor-reading tier policy —
+// the same table the series queries choose their store from — so a change to
+// how long a tier keeps data reaches the DDL and the reads together.
+const RAW_TIER = metricTier('raw');
+const MINUTE_TIER = metricTier('minute');
+const HOUR_TIER = metricTier('hour');
+const DAY_TIER = metricTier('day');
+
 export const SENSOR_CONTINUOUS_AGGREGATE_NAMES = [
-  'metrics_1min',
-  'metrics_1hour',
-  'metrics_1day',
+  MINUTE_TIER.table,
+  HOUR_TIER.table,
+  DAY_TIER.table,
 ] as const;
 
 export type SensorContinuousAggregateName = (typeof SENSOR_CONTINUOUS_AGGREGATE_NAMES)[number];
@@ -44,10 +54,10 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
       label: 'create metrics_1min',
       phase: 'definition',
       sql: `
-        CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1min
+        CREATE MATERIALIZED VIEW IF NOT EXISTS ${MINUTE_TIER.table}
         WITH (timescaledb.continuous) AS
         SELECT
-          time_bucket('1 minute', time) AS bucket,
+          time_bucket('${MINUTE_TIER.bucket.sql}', time) AS bucket,
           tenant_id, sensor_id, channel_id, tank_id,
           AVG(value) AS avg_value,
           MIN(value) AS min_value,
@@ -58,42 +68,42 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
           COUNT(*) AS sample_count,
           COUNT(*) FILTER (WHERE quality_code >= 192) AS good_count,
           COUNT(*) FILTER (WHERE quality_code < 192) AS bad_count
-        FROM sensor_metrics
+        FROM ${RAW_TIER.table}
         GROUP BY bucket, tenant_id, sensor_id, channel_id, tank_id
         WITH NO DATA`,
     },
     {
       label: 'metrics_1min real-time',
       phase: 'definition',
-      sql: `ALTER MATERIALIZED VIEW metrics_1min SET (timescaledb.materialized_only = false)`,
+      sql: `ALTER MATERIALIZED VIEW ${MINUTE_TIER.table} SET (timescaledb.materialized_only = false)`,
     },
     {
       label: 'metrics_1min remove stale refresh policy',
       phase: 'maintenance',
-      sql: `SELECT remove_continuous_aggregate_policy('metrics_1min', if_exists => TRUE)`,
+      sql: `SELECT remove_continuous_aggregate_policy('${MINUTE_TIER.table}', if_exists => TRUE)`,
     },
     {
       label: 'metrics_1min refresh policy',
       phase: 'maintenance',
-      sql: `SELECT add_continuous_aggregate_policy('metrics_1min',
-        start_offset => INTERVAL '24 hours',
-        end_offset => INTERVAL '1 minute',
-        schedule_interval => INTERVAL '1 minute',
+      sql: `SELECT add_continuous_aggregate_policy('${MINUTE_TIER.table}',
+        start_offset => INTERVAL '${MINUTE_TIER.refresh.startOffset.sql}',
+        end_offset => INTERVAL '${MINUTE_TIER.refresh.endOffset.sql}',
+        schedule_interval => INTERVAL '${MINUTE_TIER.refresh.schedule.sql}',
         if_not_exists => TRUE)`,
     },
     {
       label: 'metrics_1min retention',
       phase: 'maintenance',
-      sql: `SELECT add_retention_policy('metrics_1min', INTERVAL '1 year', if_not_exists => TRUE)`,
+      sql: `SELECT add_retention_policy('${MINUTE_TIER.table}', INTERVAL '${MINUTE_TIER.retention.sql}', if_not_exists => TRUE)`,
     },
     {
       label: 'create metrics_1hour',
       phase: 'definition',
       sql: `
-        CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1hour
+        CREATE MATERIALIZED VIEW IF NOT EXISTS ${HOUR_TIER.table}
         WITH (timescaledb.continuous) AS
         SELECT
-          time_bucket('1 hour', bucket) AS bucket,
+          time_bucket('${HOUR_TIER.bucket.sql}', bucket) AS bucket,
           tenant_id, sensor_id, channel_id, tank_id,
           AVG(avg_value) AS avg_value,
           MIN(min_value) AS min_value,
@@ -110,42 +120,42 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
           SUM(good_count) AS good_count,
           SUM(bad_count) AS bad_count,
           (SUM(good_count)::FLOAT / NULLIF(SUM(sample_count), 0) * 100) AS quality_pct
-        FROM metrics_1min
-        GROUP BY time_bucket('1 hour', bucket), tenant_id, sensor_id, channel_id, tank_id
+        FROM ${MINUTE_TIER.table}
+        GROUP BY time_bucket('${HOUR_TIER.bucket.sql}', bucket), tenant_id, sensor_id, channel_id, tank_id
         WITH NO DATA`,
     },
     {
       label: 'metrics_1hour real-time',
       phase: 'definition',
-      sql: `ALTER MATERIALIZED VIEW metrics_1hour SET (timescaledb.materialized_only = false)`,
+      sql: `ALTER MATERIALIZED VIEW ${HOUR_TIER.table} SET (timescaledb.materialized_only = false)`,
     },
     {
       label: 'metrics_1hour remove stale refresh policy',
       phase: 'maintenance',
-      sql: `SELECT remove_continuous_aggregate_policy('metrics_1hour', if_exists => TRUE)`,
+      sql: `SELECT remove_continuous_aggregate_policy('${HOUR_TIER.table}', if_exists => TRUE)`,
     },
     {
       label: 'metrics_1hour refresh policy',
       phase: 'maintenance',
-      sql: `SELECT add_continuous_aggregate_policy('metrics_1hour',
-        start_offset => INTERVAL '7 days',
-        end_offset => INTERVAL '1 hour',
-        schedule_interval => INTERVAL '1 hour',
+      sql: `SELECT add_continuous_aggregate_policy('${HOUR_TIER.table}',
+        start_offset => INTERVAL '${HOUR_TIER.refresh.startOffset.sql}',
+        end_offset => INTERVAL '${HOUR_TIER.refresh.endOffset.sql}',
+        schedule_interval => INTERVAL '${HOUR_TIER.refresh.schedule.sql}',
         if_not_exists => TRUE)`,
     },
     {
       label: 'metrics_1hour retention',
       phase: 'maintenance',
-      sql: `SELECT add_retention_policy('metrics_1hour', INTERVAL '5 years', if_not_exists => TRUE)`,
+      sql: `SELECT add_retention_policy('${HOUR_TIER.table}', INTERVAL '${HOUR_TIER.retention.sql}', if_not_exists => TRUE)`,
     },
     {
       label: 'create metrics_1day',
       phase: 'definition',
       sql: `
-        CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_1day
+        CREATE MATERIALIZED VIEW IF NOT EXISTS ${DAY_TIER.table}
         WITH (timescaledb.continuous) AS
         SELECT
-          time_bucket('1 day', bucket) AS bucket,
+          time_bucket('${DAY_TIER.bucket.sql}', bucket) AS bucket,
           tenant_id, sensor_id, channel_id, tank_id,
           AVG(avg_value) AS avg_value,
           MIN(min_value) AS min_value,
@@ -162,47 +172,47 @@ export const SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS: readonly SensorContinuousAg
           SUM(good_count) AS good_count,
           SUM(bad_count) AS bad_count,
           (SUM(good_count)::FLOAT / NULLIF(SUM(sample_count), 0) * 100) AS quality_pct
-        FROM metrics_1hour
-        GROUP BY time_bucket('1 day', bucket), tenant_id, sensor_id, channel_id, tank_id
+        FROM ${HOUR_TIER.table}
+        GROUP BY time_bucket('${DAY_TIER.bucket.sql}', bucket), tenant_id, sensor_id, channel_id, tank_id
         WITH NO DATA`,
     },
     {
       label: 'metrics_1day real-time',
       phase: 'definition',
-      sql: `ALTER MATERIALIZED VIEW metrics_1day SET (timescaledb.materialized_only = false)`,
+      sql: `ALTER MATERIALIZED VIEW ${DAY_TIER.table} SET (timescaledb.materialized_only = false)`,
     },
     {
       label: 'metrics_1day remove stale refresh policy',
       phase: 'maintenance',
-      sql: `SELECT remove_continuous_aggregate_policy('metrics_1day', if_exists => TRUE)`,
+      sql: `SELECT remove_continuous_aggregate_policy('${DAY_TIER.table}', if_exists => TRUE)`,
     },
     {
       label: 'metrics_1day refresh policy',
       phase: 'maintenance',
-      sql: `SELECT add_continuous_aggregate_policy('metrics_1day',
-        start_offset => INTERVAL '30 days',
-        end_offset => INTERVAL '1 day',
-        schedule_interval => INTERVAL '1 day',
+      sql: `SELECT add_continuous_aggregate_policy('${DAY_TIER.table}',
+        start_offset => INTERVAL '${DAY_TIER.refresh.startOffset.sql}',
+        end_offset => INTERVAL '${DAY_TIER.refresh.endOffset.sql}',
+        schedule_interval => INTERVAL '${DAY_TIER.refresh.schedule.sql}',
         if_not_exists => TRUE)`,
     },
     {
       label: 'metrics_1min sensor index',
       phase: 'maintenance',
-      sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1min_sensor_bucket" ON metrics_1min (sensor_id, bucket DESC)`,
+      sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1min_sensor_bucket" ON ${MINUTE_TIER.table} (sensor_id, bucket DESC)`,
     },
     {
       label: 'metrics_1min channel index',
       phase: 'maintenance',
-      sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1min_channel_bucket" ON metrics_1min (channel_id, bucket DESC)`,
+      sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1min_channel_bucket" ON ${MINUTE_TIER.table} (channel_id, bucket DESC)`,
     },
     {
       label: 'metrics_1hour sensor index',
       phase: 'maintenance',
-      sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1hour_sensor_bucket" ON metrics_1hour (sensor_id, bucket DESC)`,
+      sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1hour_sensor_bucket" ON ${HOUR_TIER.table} (sensor_id, bucket DESC)`,
     },
     {
       label: 'metrics_1day sensor index',
       phase: 'maintenance',
-      sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1day_sensor_bucket" ON metrics_1day (sensor_id, bucket DESC)`,
+      sql: `CREATE INDEX IF NOT EXISTS "IDX_metrics_1day_sensor_bucket" ON ${DAY_TIER.table} (sensor_id, bucket DESC)`,
     },
   ];

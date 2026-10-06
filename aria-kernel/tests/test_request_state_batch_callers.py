@@ -49,6 +49,8 @@ _FIXTURE_REQUESTS = 6
 BOUNDED_PER_REQUEST_SITES: dict[tuple[str, str], str] = {
     ("aria-kernel/aria_kernel/agent_invocations.py", "claim_request"):
         "one request: the claim being taken",
+    ("aria-kernel/aria_kernel/converged_delivery.py", "live_implementation_request_ids"):
+        "only the implementation requests of one plan (convergence_id + role filter) are derived",
     ("aria-kernel/aria_kernel/autonomy_orchestrator.py", "_drain_next_cycle_queue"):
         "one request per pending queue item; the queue is capped by ARIA_NEXT_CYCLE_QUEUE_DEPTH",
     ("aria-kernel/aria_kernel/human_required_adjudication.py", "fold_adjudication"):

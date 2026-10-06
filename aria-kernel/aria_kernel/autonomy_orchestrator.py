@@ -1759,6 +1759,22 @@ def run_autonomy_orchestrator(
                     exit_reason = "bridge_replay_required"
                     break
 
+                # ARIA-HIGH-362 — CONVERGED plans an earlier cycle offered and
+                # left CONVERGED are offered again, through the same entry the
+                # converging call uses, BEFORE this cycle adopts or synthesizes
+                # a plan: the plan this cycle converges is offered once, by its
+                # own converging call. Attempts are counted on each plan's
+                # ledger; a plan whose bound is spent is escalated here.
+                from .converged_delivery import redeliver_stranded_converged_plans
+
+                cycle_summary["converged_redelivery"] = redeliver_stranded_converged_plans(
+                    runner=v9_implementation_runner,
+                    cycle_id=cycle_id,
+                    base_dir=root,
+                    workspace_root=Path(workspace_root) if workspace_root else root,
+                    profile=str(profile_snapshot or "standard"),
+                )
+
                 # E2/F9 — plan identity is DECOUPLED from the cycle id.
                 # Adopt the newest mid-convergence plan (last night's
                 # envelopes answered into it stay OWNED); start fresh only
@@ -2324,75 +2340,35 @@ def run_autonomy_orchestrator(
                     # every profile that holds it. The third, `Strict`, refused
                     # under a profile the table grants `pr_create` and is
                     # deleted.
-                    AutonomyStateReducer.transition(
-                        root,
+                    #
+                    # ARIA-HIGH-362 — the offer goes through
+                    # `converged_delivery.deliver_converged_plan`, the ONE call
+                    # site of the runner. The same entry is what the sweep at
+                    # the start of every later cycle uses for a plan this call
+                    # left CONVERGED (a NoOp refusal, a staging error, a runner
+                    # exception), so this cycle is the plan's first offer, not
+                    # its only one. Under a profile holding `pr_create` the offer
+                    # is a counted attempt on the plan's own ledger; the bound
+                    # and the HUMAN_REQUIRED escalation live with it.
+                    from .converged_delivery import ORIGIN_CONVERGED, deliver_converged_plan
+
+                    cycle_summary["v9_implementation"] = deliver_converged_plan(
+                        runner=v9_implementation_runner,
                         cycle_id=cycle_id,
-                        phase="v9_implementation_phase_started",
-                        status="ok",
-                        profile=profile_snapshot,
-                        details={
-                            "plan_id": convergence_result.get("plan_id"),
-                            "runner_class": type(v9_implementation_runner).__name__,
+                        plan_id=str(
+                            convergence_result.get("plan_id") or active_plan_id
+                        ),
+                        workspace_root=Path(workspace_root) if workspace_root else root,
+                        base_dir=root,
+                        cross_review_summary={
+                            "revision_id": convergence_result.get("convergence_id")
+                            or convergence_result.get("plan_id"),
+                            "rounds_count": convergence_result.get("rounds_count"),
+                            "request_ids": convergence_result.get("request_ids", []),
                         },
+                        profile=str(profile_snapshot or "standard"),
+                        origin=ORIGIN_CONVERGED,
                     )
-                    try:
-                        v9_result = v9_implementation_runner.run(
-                            cycle_id=cycle_id,
-                            plan_id=str(
-                                convergence_result.get("plan_id") or active_plan_id
-                            ),
-                            workspace_root=Path(workspace_root) if workspace_root else root,
-                            base_dir=root,
-                            cross_review_summary={
-                                "revision_id": convergence_result.get("convergence_id")
-                                or convergence_result.get("plan_id"),
-                                "rounds_count": convergence_result.get("rounds_count"),
-                                "request_ids": convergence_result.get("request_ids", []),
-                            },
-                            profile=str(profile_snapshot or "standard"),
-                        )
-                        cycle_summary["v9_implementation"] = {
-                            "terminal_state": v9_result.terminal_state,
-                            "pr_url": v9_result.pr_url,
-                            "rejection_class": v9_result.rejection_class,
-                            "specialist_review_signal": v9_result.specialist_review_signal,
-                        }
-                        AutonomyStateReducer.transition(
-                            root,
-                            cycle_id=cycle_id,
-                            phase="v9_implementation_phase_resolved",
-                            status=str(v9_result.terminal_state),
-                            profile=profile_snapshot,
-                            details={
-                                "specialist_review_signal": v9_result.specialist_review_signal,
-                                "pr_url": v9_result.pr_url,
-                                "rejection_class": v9_result.rejection_class,
-                            },
-                        )
-                    except Exception as _v9_exc:
-                        # Best-effort: a V9 phase failure must not block
-                        # specialist_review + worker_drainer. The failure
-                        # surfaces via governance event for operator
-                        # visibility, and the orchestrator falls back to
-                        # review_converged_plan signal (the V8 default).
-                        cycle_summary["v9_implementation"] = {
-                            "terminal_state": "IMPLEMENTATION_REQUEST_REFUSED",
-                            "pr_url": None,
-                            "rejection_class": f"runner_exception:{type(_v9_exc).__name__}",
-                            "specialist_review_signal": "review_converged_plan",
-                        }
-                        try:
-                            append_tools_governance(
-                                root, "v9_implementation_phase_failed",
-                                {
-                                    "cycle_id": cycle_id,
-                                    "plan_id": convergence_result.get("plan_id"),
-                                    "error_class": type(_v9_exc).__name__,
-                                },
-                                bypass_profile_gate=True,
-                            )
-                        except Exception as audit_exc:
-                            cycle_summary["v9_implementation"]["audit_error_class"] = type(audit_exc).__name__
 
                 # Plan ARIA-V6 §2c V6.1 Phase 6.1 — Gate C Lane-A
                 # specialist dispatch. Inserted between Gate A's

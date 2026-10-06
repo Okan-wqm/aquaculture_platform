@@ -3,7 +3,15 @@ import { Resolver, Query, Mutation, Args, ID, Int, InputType, Field } from '@nes
 import { Roles, Role, Tenant, CurrentUser } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { GraphQLJSON } from 'graphql-scalars';
-import { IsNotEmpty, IsOptional, IsString, IsArray, IsBoolean, IsInt } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsNotEmpty,
+  IsObject,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 import { VfdAutomationRule } from '../entities/vfd-automation-rule.entity';
 import { VfdParameterAuditLog } from '../entities/vfd-parameter-audit-log.entity';
@@ -24,6 +32,7 @@ export class CreateAutomationRuleInput {
   description?: string;
 
   @Field(() => GraphQLJSON)
+  @IsObject()
   triggerCondition!: Record<string, unknown>;
 
   @Field(() => [String])
@@ -31,6 +40,8 @@ export class CreateAutomationRuleInput {
   targetVfdDeviceIds!: string[];
 
   @Field(() => GraphQLJSON)
+  @IsArray()
+  @IsObject({ each: true })
   parameterChanges!: Record<string, unknown>[];
 
   @Field({ defaultValue: true })

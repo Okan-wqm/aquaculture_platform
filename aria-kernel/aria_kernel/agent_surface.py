@@ -225,7 +225,10 @@ TERMINAL_REQUEST_STATES: FrozenSet[str] = frozenset({
 # is one of these: the second night's measurement showed a challenger_plan
 # round and consumed autonomy queue items permanently blocked by their own
 # dead envelopes. ACCEPTED/REJECTED stay out — they are verdicts about the
-# WORK and their consumers handle them through result folds, never re-mints.
+# WORK and their consumers handle them through result folds. The one
+# exception is a planning-round step, whose refused answer gets a successor
+# carrying the refusal (`step_request.successor_eligible_states`,
+# ARIA-HIGH-355); a planning step also treats STALE as live, the reaper's.
 REMINT_ELIGIBLE_DEAD_STATES: FrozenSet[str] = frozenset({
     "HUMAN_REQUIRED",
     "ANCHOR_STALE",

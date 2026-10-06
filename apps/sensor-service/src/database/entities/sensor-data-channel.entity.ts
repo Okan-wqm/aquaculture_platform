@@ -55,13 +55,15 @@ registerEnumType(DiscoverySource, {
  * Alert threshold configuration interface
  */
 export interface AlertThresholdConfig {
+  // A side with no bound is stored as JSON null (e.g. ammonia has no low
+  // bound), so the type admits null and every comparison must exclude it.
   warning?: {
-    low?: number;
-    high?: number;
+    low?: number | null;
+    high?: number | null;
   };
   critical?: {
-    low?: number;
-    high?: number;
+    low?: number | null;
+    high?: number | null;
   };
   hysteresis?: number;
   deadbandSeconds?: number;
@@ -457,15 +459,18 @@ export class SensorDataChannel {
     const { warning, critical } = this.alertThresholds;
 
     // Check critical first
+    // `!= null` excludes the stored-null "no bound" side: `value < null`
+    // coerces null to 0 and flagged any negative reading (e.g. a slightly
+    // negative ammonia offset) as critical.
     if (critical) {
-      if (critical.low !== undefined && value < critical.low) return 'critical';
-      if (critical.high !== undefined && value > critical.high) return 'critical';
+      if (critical.low != null && value < critical.low) return 'critical';
+      if (critical.high != null && value > critical.high) return 'critical';
     }
 
     // Check warning
     if (warning) {
-      if (warning.low !== undefined && value < warning.low) return 'warning';
-      if (warning.high !== undefined && value > warning.high) return 'warning';
+      if (warning.low != null && value < warning.low) return 'warning';
+      if (warning.high != null && value > warning.high) return 'warning';
     }
 
     return 'normal';

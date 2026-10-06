@@ -212,9 +212,70 @@ input DisplaySettingsInput {
   decimalPlaces: Float
 }
 
+# Channel-generic reads (SENSOR-HIGH-138), copied from the emitted sensor SDL.
+enum ChannelAlertLevel {
+  NORMAL
+  WARNING
+  CRITICAL
+}
+
+type ChannelLatestValue {
+  sensorId: ID!
+  channelId: ID!
+  channelKey: String!
+  displayLabel: String!
+  unit: String
+  unitSymbol: String
+  displayOrder: Int!
+  precision: Int
+  value: Float
+  time: DateTime
+  qualityCode: Int
+  alertLevel: ChannelAlertLevel
+}
+
+type ChannelSeriesPoint {
+  bucket: DateTime!
+  avg: Float!
+  min: Float
+  max: Float
+  count: Int!
+}
+
+type ChannelSeries {
+  channelId: ID!
+  channelKey: String!
+  points: [ChannelSeriesPoint!]!
+}
+
+type ChannelSeriesResponse {
+  sensorId: ID!
+  interval: String!
+  startTime: DateTime!
+  endTime: DateTime!
+  channels: [ChannelSeries!]!
+}
+
+enum AggregationInterval {
+  ONE_MINUTE
+  FIVE_MINUTES
+  FIFTEEN_MINUTES
+  ONE_HOUR
+  FOUR_HOURS
+  ONE_DAY
+  ONE_WEEK
+}
+
 type Query {
   sensor(id: ID!): RegisteredSensorType
   dataChannelsBySensor(sensorId: ID!): [DataChannelType!]!
+  channelLatestValues(sensorIds: [ID!]!): [ChannelLatestValue!]!
+  channelSeries(
+    sensorId: ID!
+    startTime: DateTime!
+    endTime: DateTime!
+    interval: AggregationInterval
+  ): ChannelSeriesResponse!
 }
 
 scalar DateTime

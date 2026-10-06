@@ -50,6 +50,13 @@ from collections.abc import Mapping, Sequence
 from . import command_policy as _command_policy
 from typing import Any, Callable, Mapping
 
+from .dependency_tree import (
+    DEPENDENCY_TREE_DIRNAME,
+    TOOL_CACHE_DIRNAMES,
+    dependency_mounts,
+    installed_checkout,
+    prepare_dependency_mountpoints,
+)
 from .git_containment import GitContainment
 from .hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET
 from .mcp_broker import MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET
@@ -670,6 +677,28 @@ _SANDBOX_NETWORK_FILES: tuple[str, ...] = (
     "/etc/nsswitch.conf",
 )
 
+# ARIA-HIGH-361 — loopback names WITHOUT the network. `--unshare-net` leaves
+# the namespace its own loopback, but with no /etc/hosts `localhost` did not
+# resolve: vitest's startup died `getaddrinfo EAI_AGAIN localhost` inside
+# the validation sandbox, so no web test could run there. Naming loopback is
+# not a network permission. The kernel ships a hosts file that names only
+# loopback, and an nsswitch that consults only it, rather than the host's
+# files, which carry the host's own names and resolver.
+_SANDBOX_LOOPBACK_FILES: tuple[tuple[Path, str], ...] = tuple(
+    (Path(__file__).resolve().parent / "data" / "sandbox_etc" / name, f"/etc/{name}")
+    for name in ("hosts", "nsswitch.conf")
+)
+
+
+def _loopback_name_binds() -> list[str]:
+    """The no-network spawn's name files: the wrapper and the probe both use
+    this, so the probe cannot pass on a host where the wrapper would abort
+    on a missing bind source (ORPHAN-MEDIUM-452)."""
+    flags: list[str] = []
+    for source, target in _SANDBOX_LOOPBACK_FILES:
+        flags.extend(["--ro-bind", str(source), target])
+    return flags
+
 
 def _system_ro_binds() -> list[str]:
     """`--ro-bind` flags for the system paths that exist on THIS host.
@@ -725,6 +754,7 @@ def _bwrap_probe_argv() -> list[str]:
         "--proc", "/proc",
         "--dev", "/dev",
         *SANDBOX_TMP_MOUNT,
+        *_loopback_name_binds(),
         "--unshare-net",
         *VALIDATION_SANDBOX_CONTAINMENT_FLAGS,
         *(flag for flag in MANAGED_SPAWN_ISOLATION_FLAGS if flag not in VALIDATION_SANDBOX_CONTAINMENT_FLAGS),
@@ -959,7 +989,12 @@ def scope_directories(workspace: Path, write_scope: Sequence[str]) -> list[Path]
 # (`nx affected …`) could not start. The nearest ancestor `node_modules`
 # outside the workspace is bound read-only, so the walk inside answers what
 # the gate proved outside.
-DEPENDENCY_TREE_DIRNAME = "node_modules"
+#
+# ARIA-HIGH-361 — and mounted again INSIDE the workspace, root and nested
+# workspace trees at their own relative paths (`dependency_tree`): bound only
+# at the checkout's path, the workspace links resolved into the checkout's
+# hidden `libs/`/`tools/`, nested installs were missing, and
+# `<cwd>/node_modules/.bin/tsc` did not exist.
 
 
 def _is_socket(path: Path) -> bool:
@@ -997,11 +1032,20 @@ def kernel_root_ro_binds(workspace: Path) -> list[str]:
 
 
 def _dependency_tree_binds(workspace: Path) -> list[str]:
-    for ancestor in workspace.parents:
-        candidate = ancestor / DEPENDENCY_TREE_DIRNAME
-        if candidate.is_dir():
-            return ["--ro-bind", str(candidate), str(candidate)]
-    return []
+    checkout = installed_checkout(workspace)
+    if checkout is None:
+        return []
+    tree = checkout / DEPENDENCY_TREE_DIRNAME
+    flags = ["--ro-bind", str(tree), str(tree)]
+    try:
+        prepare_dependency_mountpoints(workspace)
+    except OSError as exc:
+        raise SandboxUnavailable(f"dependency_mountpoint_unavailable:{exc.filename}:{type(exc).__name__}") from exc
+    for mount in dependency_mounts(workspace):
+        flags.extend(["--ro-bind", str(mount.source), str(mount.mountpoint)])
+        for name in TOOL_CACHE_DIRNAMES:
+            flags.extend(["--tmpfs", str(mount.mountpoint / name)])
+    return flags
 
 
 def _workspace_binds(workspace: Path, write_scope: Sequence[str] | None) -> list[str]:
@@ -1211,6 +1255,7 @@ def _sandbox_argv(
             if Path(network_file).exists():
                 wrap.extend(["--ro-bind", network_file, network_file])
     else:
+        wrap.extend(_loopback_name_binds())
         wrap.append("--unshare-net")
     wrap.append("--")
     return wrap + list(argv)

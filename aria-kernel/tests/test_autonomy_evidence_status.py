@@ -1674,10 +1674,13 @@ def alias_factory(root):
                     f"{KERNEL}independence_check.py",
                     "consumer",
                 ),
+                # ARIA-HIGH-355 — one step's request disposition (wait, read,
+                # succeed, stop) for the drainer and the round controller; it
+                # routes the plan's next mint, never accepts the executor's work.
                 (
                     "executor",
                     "agent_invocation_results",
-                    f"{KERNEL}plan_round_controller.py",
+                    f"{KERNEL}step_request.py",
                     "consumer",
                 ),
                 (

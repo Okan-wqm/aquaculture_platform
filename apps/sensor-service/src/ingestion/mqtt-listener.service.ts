@@ -7,7 +7,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { IEventBus } from '@platform/event-bus';
 import {
@@ -17,7 +17,7 @@ import {
   type EventId,
   type PersistedReadingMetric,
 } from '@platform/event-contracts';
-import { Repository, DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 
 /**
  * SECURITY: UUID constant for system-level operations.
@@ -48,8 +48,7 @@ import { EdgeDevice } from '../edge-device/entities/edge-device.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 import {
-  listTenantSchemas,
-  pinTenantSchemaTransactionSearchPath,
+  runInTenantRead,
   runInTenantTransaction,
   tenantManagerRepo,
   TenantScopedRepository,
@@ -61,7 +60,7 @@ import { ErasedTenantTombstoneService } from '../compliance/erasure/erased-tenan
 import { VfdEdgeProvisioningService } from '../vfd/services/vfd-edge-provisioning.service';
 import { VfdEdgeReadService } from '../vfd/services/vfd-edge-read.service';
 import { VfdEdgeWriteService } from '../vfd/services/vfd-edge-write.service';
-import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
+import { SensorTopicCacheService } from './sensor-topic-cache.service';
 import { SensorMetricWriterService } from './sensor-metric-writer.service';
 
 /**
@@ -102,17 +101,6 @@ export const LEGACY_EDGE_SUBSCRIPTION_FILTERS: readonly string[] = [
   'edge/+/response', // Command response from device (legacy singular)
   'edge/+/responses', // Command response from device (plural - Edge Agent v2.0+)
 ];
-
-/**
- * MQTT Topic Pattern for tenant-aware sensor data
- * Format: sensors/{tenantId}/{sensorId}/data
- * or: sensors/{tenantId}/{location}/+
- */
-interface ParsedTopic {
-  tenantId: string;
-  sensorId?: string;
-  location?: string;
-}
 
 /**
  * Edge device payload types
@@ -253,15 +241,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private readonly ioConfigCache = new Map<string, { configs: DeviceIoConfig[]; expiry: number }>();
   private readonly DEVICE_CACHE_TTL_MS = 30_000; // 30 seconds
 
-  // lastSeenAt debounce: sensorId -> last flush timestamp
-  private readonly lastSeenPending = new Map<string, Date>();
+  // lastSeenAt debounce: sensorId -> owning tenantId. The flush writes each
+  // tenant's sensors inside that tenant's RLS context (SENSOR-HIGH-137), so
+  // the owner travels with the id.
+  private readonly lastSeenPending = new Map<string, string>();
   private lastSeenFlushTimer: ReturnType<typeof setInterval> | null = null;
   private readonly LAST_SEEN_FLUSH_INTERVAL_MS = 30_000; // 30 seconds
-
-  // Negative cache for topics that resolve to no sensor (HIGH-005 back-pressure)
-  // Prevents the 150+ query legacy fallback from running repeatedly for unknown topics
-  private readonly topicNegativeCache = new Map<string, number>(); // topic -> expiresAt
-  private readonly NEGATIVE_CACHE_TTL_MS = 30_000; // 30 seconds
 
   // Legacy edge/ topic support (D04 SEC-M01)
   // Set LEGACY_EDGE_TOPICS_ENABLED=false to disable legacy edge/{deviceCode}/... topics
@@ -274,8 +259,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly configService: ConfigService,
-    @InjectRepository(Sensor)
-    private readonly sensorRepository: Repository<Sensor>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly metricWriter: SensorMetricWriterService,
@@ -285,9 +268,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(EdgeDeviceService)
     private readonly edgeDeviceService: EdgeDeviceService | null,
-    @Optional()
-    @Inject(SensorTopicCacheService)
-    private readonly sensorTopicCache: SensorTopicCacheService | null,
+    // SENSOR-HIGH-137: the topic cache is the ONLY topic→sensor resolver. The
+    // former "legacy" cross-schema fallback ran when this was null and read
+    // tenant schemas with search_path alone, which FORCE RLS answers with zero
+    // rows — a second, silently blind resolution path. Required, not optional.
+    private readonly sensorTopicCache: SensorTopicCacheService,
     @Optional()
     @Inject(MqttClientService)
     private readonly mqttClient: MqttClientService | null,
@@ -511,11 +496,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      // Parse topic to extract identifiers
-      const parsedTopic = this.parseTopic(topic);
-
-      // Try to find sensor by topic pattern
-      const sensor = await this.findSensorByTopic(topic, parsedTopic);
+      // Resolve the owning sensor (tenant-scoped reload, SENSOR-HIGH-137)
+      const sensor = await this.findSensorByTopic(topic);
 
       if (!sensor) {
         this.logger.debug(`No sensor found for topic: ${topic}`);
@@ -554,7 +536,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       });
 
       // Debounce lastSeenAt update (flushed every 30 seconds)
-      this.lastSeenPending.set(sensor.id, now);
+      this.lastSeenPending.set(sensor.id, sensor.tenantId);
 
       // Publish real-time event for WebSocket clients, projected from the rows
       // saveReading persisted (SENSOR-CRITICAL-111). `data` is passed on only
@@ -1918,265 +1900,42 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Parse MQTT topic to extract identifiers
-   */
-  private parseTopic(topic: string): ParsedTopic | null {
-    const parts = topic.split('/');
-
-    // Pattern: sensors/{tenantId}/{sensorId}/data
-    if (parts[0] === 'sensors' && parts.length >= 3 && parts[1] && parts[2]) {
-      return {
-        tenantId: parts[1],
-        sensorId: parts[2],
-        location: parts.slice(2, -1).join('/'),
-      };
-    }
-
-    // Pattern: aquaculture/{tenantId}/sensors/{sensorId}
-    if (
-      parts[0] === 'aquaculture' &&
-      parts[2] === 'sensors' &&
-      parts.length >= 4 &&
-      parts[1] &&
-      parts[3]
-    ) {
-      return {
-        tenantId: parts[1],
-        sensorId: parts[3],
-      };
-    }
-
-    // Pattern: {farm}/{pool}/{sensor-type} — no tenantId extractable
-    if (parts.length >= 3) {
-      this.logger.warn(`Cannot extract tenantId from topic: ${topic}`);
-      return null; // Caller will skip — tenantId is required for multi-tenant isolation
-    }
-
-    return null;
-  }
-
-  /**
-   * Find sensor by topic pattern - uses Redis cache for O(1) lookups
+   * Resolve the sensor that owns an MQTT topic.
    *
-   * PERFORMANCE OPTIMIZATION:
-   * Previously this method searched ALL tenant schemas for EVERY MQTT message,
-   * resulting in 150+ queries per message (1.5M queries/sec at 10K msg/sec).
-   *
-   * Now uses a multi-level cache:
-   * 1. Local in-memory cache (1 minute TTL)
-   * 2. Redis cache (1 hour TTL)
-   * 3. Database fallback with cache population
+   * SensorTopicCacheService maps topic → {tenantId, sensorId} (local cache →
+   * Redis → per-tenant runInTenantRead scan). The full entity is then reloaded
+   * inside the OWNING tenant's read boundary: tenant schemas carry FORCE RLS
+   * and the pool is deny-by-default outside a tenant context, so a reload with
+   * only search_path pinned sees zero rows (SENSOR-HIGH-137 — every MQTT
+   * reading was dropped at debug level from 2026-09-19 23:55Z).
    */
-  private async findSensorByTopic(
-    topic: string,
-    parsed: ParsedTopic | null,
-  ): Promise<Sensor | null> {
+  private async findSensorByTopic(topic: string): Promise<Sensor | null> {
     try {
-      // Use cache service if available (preferred path)
-      if (this.sensorTopicCache) {
-        const cachedInfo = await this.sensorTopicCache.getSensorByTopic(topic);
-
-        if (cachedInfo) {
-          // Load full sensor entity from the correct schema
-          return await this.loadSensorFromCache(cachedInfo);
-        }
-
-        // Cache returned null - sensor not found
+      const cachedInfo = await this.sensorTopicCache.getSensorByTopic(topic);
+      if (!cachedInfo) {
         return null;
       }
 
-      // Fallback: Legacy cross-schema search (only if cache service unavailable)
-      return await this.findSensorByTopicLegacy(topic, parsed);
+      const sensor = await runInTenantRead(this.dataSource, 'sensor', cachedInfo.tenantId, (qr) =>
+        tenantManagerRepo(qr.manager, Sensor).findOne({ where: { id: cachedInfo.id } }),
+      );
+
+      if (!sensor) {
+        // The resolver named a sensor its own tenant cannot read back: a stale
+        // cache entry (sensor deleted) or a broken read boundary. Either way
+        // readings are being lost, so this is an error, not a debug line —
+        // and the stale mapping is evicted so the next message re-resolves.
+        this.logger.error(
+          `Topic ${topic} resolved to sensor ${cachedInfo.id} (tenant ${cachedInfo.tenantId}) ` +
+            'but the tenant-scoped reload returned no row — reading dropped, topic mapping evicted',
+        );
+        await this.sensorTopicCache.invalidateSensor(cachedInfo.id, cachedInfo.tenantId);
+      }
+      return sensor;
     } catch (error) {
       this.logger.error(`Error in sensor lookup for topic ${topic}: ${(error as Error).message}`);
       return null;
     }
-  }
-
-  /**
-   * Load full sensor entity from cached info.
-   * Uses a dedicated read transaction so tenant search_path is scoped
-   * and never leaks back to the pool (HIGH-001).
-   */
-  private async loadSensorFromCache(cachedInfo: CachedSensorInfo): Promise<Sensor | null> {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
-      await queryRunner.query('SET TRANSACTION READ ONLY');
-      await pinTenantSchemaTransactionSearchPath(queryRunner, 'sensor', cachedInfo.schemaName);
-      const sensor = await queryRunner.manager.findOne(Sensor, {
-        where: { id: cachedInfo.id },
-      });
-      await queryRunner.commitTransaction();
-      return sensor;
-    } catch (error) {
-      if (queryRunner.isTransactionActive) {
-        await queryRunner.rollbackTransaction();
-      }
-      this.logger.error(
-        `Error loading sensor ${cachedInfo.id} from cache: ${(error as Error).message}`,
-      );
-      return null;
-    } finally {
-      await queryRunner.release();
-    }
-  }
-
-  /**
-   * Legacy cross-schema sensor lookup - used when cache service is unavailable
-   * This is the original slow implementation for backward compatibility.
-   *
-   * HIGH-005: Negative cache prevents 150+ queries per message when Redis is unavailable.
-   * Unknown topics are cached for 30 seconds and immediately return null without DB queries.
-   */
-  private async findSensorByTopicLegacy(
-    topic: string,
-    parsed: ParsedTopic | null,
-  ): Promise<Sensor | null> {
-    // Check negative cache before issuing any DB queries
-    const negativeCacheExpiry = this.topicNegativeCache.get(topic);
-    if (negativeCacheExpiry && negativeCacheExpiry > Date.now()) {
-      return null;
-    }
-
-    try {
-      // Get all tenant schemas through the shared canonical validator.
-      const tenantSchemas = await listTenantSchemas(this.dataSource);
-
-      // Search in each tenant schema using a dedicated QueryRunner so the
-      // transaction-local search_path is scoped to a single connection and never
-      // leaks back to the pool under concurrent MQTT messages (HIGH-001).
-      for (const schemaName of tenantSchemas) {
-        const queryRunner = this.dataSource.createQueryRunner();
-        await queryRunner.connect();
-        await queryRunner.startTransaction();
-        try {
-          await queryRunner.query('SET TRANSACTION READ ONLY');
-          await pinTenantSchemaTransactionSearchPath(queryRunner, 'sensor', schemaName);
-
-          // Check if sensors table exists in this schema
-          const tableCheck: Array<{ '1': number }> = await queryRunner.query(
-            `
-            SELECT 1 FROM information_schema.tables
-            WHERE table_schema = $1 AND table_name = 'sensors'
-          `,
-            [schemaName],
-          );
-
-          if (tableCheck.length === 0) {
-            await queryRunner.commitTransaction();
-            continue; // Skip schemas without sensors table
-          }
-
-          // Cross-tenant scan: this loop iterates through every tenant
-          // schema searching for an MQTT-topic match. tenantManagerRepo
-          // cannot be used because tenantId is not fixed — the whole
-          // point of the scan is to FIND which tenant owns the topic.
-          // The search_path pin above isolates the query to the current
-          // schema in the loop; each iteration is a tenant-scoped
-          // lookup by construction.
-          // eslint-disable-next-line no-restricted-syntax -- cross-tenant topic-registry scan
-          const sensorByTopic = await queryRunner.manager
-            .getRepository(Sensor)
-            .createQueryBuilder('sensor')
-            .where(`sensor."protocol_configuration"->>'topic' = :topic`, { topic })
-            .getOne();
-
-          if (sensorByTopic) {
-            this.logger.debug(
-              `Found sensor ${sensorByTopic.id} in schema ${schemaName} for topic ${topic}`,
-            );
-            await queryRunner.commitTransaction();
-            return sensorByTopic;
-          }
-
-          // Try wildcard match — same cross-tenant scan rationale as above.
-          // eslint-disable-next-line no-restricted-syntax -- cross-tenant topic-registry scan
-          const sensorsWithWildcard = await queryRunner.manager
-            .getRepository(Sensor)
-            .createQueryBuilder('sensor')
-            .where(`sensor."protocol_configuration"->>'topic' LIKE '%#%'`)
-            .orWhere(`sensor."protocol_configuration"->>'topic' LIKE '%+%'`)
-            .getMany();
-
-          for (const sensor of sensorsWithWildcard) {
-            const configTopic = sensor.protocolConfiguration?.['topic'] as string;
-            if (configTopic && this.topicMatches(configTopic, topic)) {
-              this.logger.debug(
-                `Found sensor ${sensor.id} in schema ${schemaName} via wildcard for topic ${topic}`,
-              );
-              await queryRunner.commitTransaction();
-              return sensor;
-            }
-          }
-
-          // Try by sensor ID from topic
-          if (parsed?.sensorId) {
-            const sensorById = await queryRunner.manager.findOne(Sensor, {
-              where: { id: parsed.sensorId },
-            });
-            if (sensorById) {
-              await queryRunner.commitTransaction();
-              return sensorById;
-            }
-
-            // Try by serial number
-            const sensorBySerial = await queryRunner.manager.findOne(Sensor, {
-              where: { serialNumber: parsed.sensorId },
-            });
-            if (sensorBySerial) {
-              await queryRunner.commitTransaction();
-              return sensorBySerial;
-            }
-          }
-          await queryRunner.commitTransaction();
-        } catch (schemaError) {
-          if (queryRunner.isTransactionActive) {
-            await queryRunner.rollbackTransaction();
-          }
-          // Skip this schema if there's an error
-          this.logger.debug(
-            `Error searching in schema ${schemaName}: ${(schemaError as Error).message}`,
-          );
-          continue;
-        } finally {
-          await queryRunner.release();
-        }
-      }
-
-      // No sensor found in any schema — populate negative cache to prevent re-querying
-      this.topicNegativeCache.set(topic, Date.now() + this.NEGATIVE_CACHE_TTL_MS);
-      this.logger.warn(
-        `No sensor found for topic ${topic} (cached negative for ${this.NEGATIVE_CACHE_TTL_MS / 1000}s)`,
-      );
-      return null;
-    } catch (error) {
-      this.logger.error(`Error in cross-schema sensor lookup: ${(error as Error).message}`);
-      return null;
-    }
-  }
-
-  /**
-   * Check if topic matches pattern (supports + and # wildcards)
-   */
-  private topicMatches(pattern: string, topic: string): boolean {
-    const patternParts = pattern.split('/');
-    const topicParts = topic.split('/');
-
-    for (let i = 0; i < patternParts.length; i++) {
-      if (patternParts[i] === '#') {
-        return true; // # matches everything remaining
-      }
-      if (patternParts[i] === '+') {
-        continue; // + matches one level
-      }
-      if (i >= topicParts.length || patternParts[i] !== topicParts[i]) {
-        return false;
-      }
-    }
-
-    return patternParts.length === topicParts.length;
   }
 
   /**
@@ -2335,32 +2094,37 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Flush all pending lastSeenAt updates in a single batch
+   * Flush pending lastSeenAt updates — one statement per owning tenant, each
+   * inside that tenant's RLS boundary. A tenant-agnostic UPDATE through the
+   * pool matches zero rows under FORCE RLS (SENSOR-HIGH-137), which is why
+   * sensors that were ingesting still showed last_seen_at = NULL.
    */
   private async flushLastSeenUpdates(): Promise<void> {
     if (this.lastSeenPending.size === 0) return;
 
-    const entries = Array.from(this.lastSeenPending.entries());
+    const byTenant = new Map<string, string[]>();
+    for (const [sensorId, tenantId] of this.lastSeenPending) {
+      byTenant.set(tenantId, [...(byTenant.get(tenantId) ?? []), sensorId]);
+    }
     this.lastSeenPending.clear();
 
-    try {
-      // Batch update using a single query with CASE
-      const ids = entries.map(([id]) => id);
-      await this.sensorRepository
-        .createQueryBuilder()
-        .update()
-        .set({
-          lastSeenAt: () => 'NOW()',
-          status: SensorStatus.ACTIVE,
-        })
-        .where('id IN (:...ids)', { ids })
-        .execute();
-
-      this.logger.debug(`Flushed lastSeenAt for ${ids.length} sensors`);
-    } catch (error) {
-      this.logger.error(
-        `Failed to flush lastSeenAt: ${error instanceof Error ? error.message : String(error)}`,
-      );
+    const seenAt = new Date();
+    for (const [tenantId, ids] of byTenant) {
+      try {
+        await runInTenantTransaction(this.dataSource, 'sensor', tenantId, (qr) =>
+          tenantManagerRepo(qr.manager, Sensor).update(
+            { id: In(ids) },
+            { lastSeenAt: seenAt, status: SensorStatus.ACTIVE },
+          ),
+        );
+        this.logger.debug(`Flushed lastSeenAt for ${ids.length} sensors of tenant ${tenantId}`);
+      } catch (error) {
+        this.logger.error(
+          `Failed to flush lastSeenAt for tenant ${tenantId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
   }
 

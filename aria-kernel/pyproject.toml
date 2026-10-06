@@ -37,4 +37,4 @@ aria-kernel = "aria_kernel.cli:main"
 python_files = ["*test*.py"]
 
 [tool.setuptools.package-data]
-aria_kernel = ["data/*.json"]
+aria_kernel = ["data/*.json", "data/sandbox_etc/*"]

@@ -27,9 +27,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .agent_invocations import derive_request_state
+from .agent_invocations import derive_request_states
 from .ledger import load_declared_jsonl, load_segments
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import ensure_tools_dir, utc_now
 
 
 # Plan 016 baseline counters (9). Plan 020 adds 4 (Phase 6 ×2 + Phase 9
@@ -76,20 +76,13 @@ def _governance_kinds(tools_root: Path) -> list[str]:
 
 
 def _claim_active_count(tools_root: Path) -> int:
-    """Count requests whose derived state is CLAIMED or RUNNING right now."""
-    requests = load_segments(tools_root, "agent_invocation_requests")
-    active = 0
-    for req in requests:
-        rid = req.get("request_id")
-        if not rid:
-            continue
-        try:
-            state = derive_request_state(request_id=rid, base_dir=tools_root)
-        except GovernanceError:
-            continue
-        if state in {"CLAIMED", "RUNNING"}:
-            active += 1
-    return active
+    """Count requests whose derived state is CLAIMED or RUNNING right now.
+
+    ARIA-HIGH-358 — one ledger load: the per-request form held the daily
+    report's render for ~28 min on 2026-10-06 (1,866 rows at 0.96 s).
+    """
+    states = derive_request_states(base_dir=tools_root)
+    return sum(1 for state in states.values() if state in {"CLAIMED", "RUNNING"})
 
 
 def _impact_unknown_count(tools_root: Path) -> int:

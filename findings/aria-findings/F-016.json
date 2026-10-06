@@ -1,0 +1,54 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "Adapter rule 'tenant_raw_query_missing_tenant_predicate' of tenant-scoping-adapter is quarantined: 3/3 ground-truth verdicts are false positives \u2014 the matcher, not the code it flags, is the defect",
+  "claim_type": "wrong_code",
+  "closes_in_commit": null,
+  "created_at": "2026-10-06T05:11:46Z",
+  "evidence_chain_id": "chain_ed178a5edfc7d843",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "tools/aria-adapters/tenant-scoping-adapter.ts",
+        "content_hash": "sha256:fe5383e9a8aeede7467afe4b79826e69cce5e88b52459153d4f07d6108f2460a",
+        "envelope_hash": "sha256:e5a7b90680a4dc79c11c973510f42e282b380821c14cc6732ffb5b3c41f3a949",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": null,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "beb2d408d99fac30548c162e88f558c96f2fcb15",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "tools/aria-adapters/tenant-scoping-adapter.ts"
+    }
+  ],
+  "facts": [
+    "finding_fingerprint=rule-defect:tenant-scoping-adapter:tenant_raw_query_missing_tenant_predicate",
+    "judged=3",
+    "false_positive=3"
+  ],
+  "finding_id": "F-016",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": null,
+  "originating_skill": "ai_consensus:judgment_pipeline",
+  "recommendation": null,
+  "related_specialized_agent_domains": [
+    "ai-safety-auditor"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "tools/aria-adapters/tenant-scoping-adapter.ts"
+    ]
+  },
+  "service": null,
+  "services": [],
+  "severity": "MEDIUM",
+  "source_event_id": "finding:F-016:emitted",
+  "source_ledger_hash": "sha256:7241b6324c66fed060580ede69f6544144fb26788984ae107cd6fa25bf08286c",
+  "status": "OPEN"
+}

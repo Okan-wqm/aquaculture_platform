@@ -179,10 +179,22 @@
       "source_event_id": "finding:F-015:emitted",
       "source_ledger_hash": "sha256:173bb612c7be043cdf52feaafcc986b43fcc43261b6a365b7999ae278bfc4968",
       "status": "OPEN"
+    },
+    {
+      "claim_summary": "Adapter rule 'tenant_raw_query_missing_tenant_predicate' of tenant-scoping-adapter is quarantined: 3/3 ground-truth verdicts are false positives \u2014 the matcher, not the code it flags, is the defect",
+      "claim_type": "wrong_code",
+      "created_at": "2026-10-06T05:11:46Z",
+      "evidence_chain_id": "chain_ed178a5edfc7d843",
+      "finding_id": "F-016",
+      "path": "F-016.json",
+      "severity": "MEDIUM",
+      "source_event_id": "finding:F-016:emitted",
+      "source_ledger_hash": "sha256:7241b6324c66fed060580ede69f6544144fb26788984ae107cd6fa25bf08286c",
+      "status": "OPEN"
     }
   ],
-  "generated_at": "2026-10-04T07:30:07Z",
+  "generated_at": "2026-10-06T05:11:46Z",
   "schema_version": 2,
   "source_ledger": "aria-findings/finding-events.jsonl",
-  "source_ledger_tip_hash": "sha256:173bb612c7be043cdf52feaafcc986b43fcc43261b6a365b7999ae278bfc4968"
+  "source_ledger_tip_hash": "sha256:7241b6324c66fed060580ede69f6544144fb26788984ae107cd6fa25bf08286c"
 }

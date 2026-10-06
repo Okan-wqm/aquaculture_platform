@@ -5,9 +5,11 @@ import { SensorDataChannel } from '../database/entities/sensor-data-channel.enti
 import { Sensor } from '../database/entities/sensor.entity';
 import { SensorMetricWriterModule } from '../ingestion/sensor-metric-writer.module';
 
+import { ChannelReadingResolver } from './resolvers/channel-reading.resolver';
 import { SensorResolver } from './resolvers/sensor.resolver';
 import { SensorReadingResolver } from './resolvers/sensor-reading.resolver';
 import { CalibrationService } from './services/calibration.service';
+import { ChannelReadingQueryService } from './services/channel-reading-query.service';
 import { DataQualityService } from './services/data-quality.service';
 import { ReadingMapperRegistry } from './services/reading-mapper.service';
 import { SensorIngestionService } from './services/sensor-ingestion.service';
@@ -27,6 +29,7 @@ import { SensorQueryService } from './services/sensor-query.service';
  * - DataQualityService: Data validation and quality scoring
  * - SensorIngestionService: High-throughput ingestion with resilience
  * - SensorQueryService: Optimized TimescaleDB queries
+ * - ChannelReadingQueryService: channel-generic latest values and series
  */
 @Module({
   imports: [
@@ -46,10 +49,14 @@ import { SensorQueryService } from './services/sensor-query.service';
     // stubs. See sensor-reading.resolver.ts docblock for tenant-isolation
     // discipline notes.
     SensorReadingResolver,
+    // Channel-generic reads (SENSOR-HIGH-138): latest value + bucketed
+    // history per sensor_data_channels row, for any channel key.
+    ChannelReadingResolver,
 
     // Core Services
     SensorIngestionService,
     SensorQueryService,
+    ChannelReadingQueryService,
 
     // Support Services (SOLID - Single Responsibility)
     CalibrationService,

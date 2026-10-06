@@ -160,8 +160,8 @@ describe('MQTT-auth negative-result cache bounds unknown-username floods (SENSOR
 
   it('also bounds the unauthenticated verifyDeviceCredentials (CONNECT) path', async () => {
     const { auth, findDevice } = service();
-    await auth.verifyDeviceCredentials('edge-flooder', 'pw');
-    await auth.verifyDeviceCredentials('edge-flooder', 'pw');
+    await auth.verifyDeviceCredentials('edge-flooder', 'pw', 'edge-flooder');
+    await auth.verifyDeviceCredentials('edge-flooder', 'pw', 'edge-flooder');
     expect(findDevice).toHaveBeenCalledTimes(1);
   });
 });

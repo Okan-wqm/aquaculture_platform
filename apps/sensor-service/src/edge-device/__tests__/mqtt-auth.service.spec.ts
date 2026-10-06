@@ -128,9 +128,32 @@ describe('MqttAuthService', () => {
       const { service, directory } = createService();
       stubFindDevice(directory, device);
 
-      const result = await service.verifyDeviceCredentials(MQTT_CLIENT, password);
+      const result = await service.verifyDeviceCredentials(
+        MQTT_CLIENT,
+        password,
+        `${MQTT_CLIENT}-DEV01`,
+      );
       expect(result).toBe(true);
     });
+
+    it.each([
+      ['the ingestion listener', 'aqua-sensor-service-main'],
+      ['another gateway', 'edge-otherdev-RPI-01'],
+      ['a missing client ID', undefined],
+    ])(
+      'rejects valid credentials under %s client ID (SENSOR-HIGH-144)',
+      async (_label, clientId) => {
+        const password = 'my-secret-password';
+        const device = makeDevice({ mqttPasswordHash: hashPassword(password) });
+        const { service, directory } = createService();
+        stubFindDevice(directory, device);
+
+        await expect(
+          service.verifyDeviceCredentials(MQTT_CLIENT, password, clientId),
+        ).resolves.toBe(false);
+        expect(directory.findDevice).not.toHaveBeenCalled();
+      },
+    );
 
     it('should reject invalid password', async () => {
       const hash = hashPassword('correct-password');
@@ -138,7 +161,11 @@ describe('MqttAuthService', () => {
       const { service, directory } = createService();
       stubFindDevice(directory, device);
 
-      const result = await service.verifyDeviceCredentials(MQTT_CLIENT, 'wrong-password');
+      const result = await service.verifyDeviceCredentials(
+        MQTT_CLIENT,
+        'wrong-password',
+        `${MQTT_CLIENT}-DEV01`,
+      );
       expect(result).toBe(false);
     });
 
@@ -146,7 +173,11 @@ describe('MqttAuthService', () => {
       const { service, directory } = createService();
       stubFindDevice(directory, null);
 
-      const result = await service.verifyDeviceCredentials('nonexistent-device', 'any');
+      const result = await service.verifyDeviceCredentials(
+        'nonexistent-device',
+        'any',
+        'nonexistent-device',
+      );
       expect(result).toBe(false);
     });
 
@@ -160,7 +191,11 @@ describe('MqttAuthService', () => {
       const { service, directory } = createService();
       stubFindDevice(directory, device);
 
-      const result = await service.verifyDeviceCredentials(MQTT_CLIENT, password);
+      const result = await service.verifyDeviceCredentials(
+        MQTT_CLIENT,
+        password,
+        `${MQTT_CLIENT}-DEV01`,
+      );
       expect(result).toBe(false);
     });
 
@@ -174,7 +209,11 @@ describe('MqttAuthService', () => {
       const { service, directory } = createService();
       stubFindDevice(directory, device);
 
-      const result = await service.verifyDeviceCredentials(MQTT_CLIENT, password);
+      const result = await service.verifyDeviceCredentials(
+        MQTT_CLIENT,
+        password,
+        `${MQTT_CLIENT}-DEV01`,
+      );
       expect(result).toBe(false);
     });
 
@@ -183,7 +222,11 @@ describe('MqttAuthService', () => {
       const { service, directory } = createService();
       stubFindDevice(directory, device);
 
-      const result = await service.verifyDeviceCredentials(MQTT_CLIENT, 'any');
+      const result = await service.verifyDeviceCredentials(
+        MQTT_CLIENT,
+        'any',
+        `${MQTT_CLIENT}-DEV01`,
+      );
       expect(result).toBe(false);
     });
 
@@ -194,7 +237,11 @@ describe('MqttAuthService', () => {
         configOverrides: { MQTT_BACKEND_SERVICE_HASH: serviceHash },
       });
 
-      const result = await service.verifyDeviceCredentials('backend_service', servicePassword);
+      const result = await service.verifyDeviceCredentials(
+        'backend_service',
+        servicePassword,
+        'aqua-backend-01',
+      );
       expect(result).toBe(true);
     });
 
@@ -204,7 +251,11 @@ describe('MqttAuthService', () => {
         configOverrides: { MQTT_BACKEND_SERVICE_HASH: serviceHash },
       });
 
-      const result = await service.verifyDeviceCredentials('backend_service', 'wrong');
+      const result = await service.verifyDeviceCredentials(
+        'backend_service',
+        'wrong',
+        'aqua-backend-01',
+      );
       expect(result).toBe(false);
     });
   });

@@ -82,6 +82,7 @@ function startAuthBackend(service: MqttAuthService): Promise<{ server: Server; p
             await service.verifyDeviceCredentials(
               String(body.username ?? ''),
               String(body.password ?? ''),
+              typeof body.clientid === 'string' ? body.clientid : undefined,
             ),
           );
         } else if (req.url === '/mqtt/superuser') {

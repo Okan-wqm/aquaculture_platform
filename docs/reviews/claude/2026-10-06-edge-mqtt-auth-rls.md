@@ -34,3 +34,19 @@ device's `runInTenantTransaction`. The three provisioning writes run in
 schemas and on `sensor`) authenticates a gateway, rejects a wrong password,
 grants only its own tenant's topic and resolves + backfills on a directory
 miss. Against the previous code all three auth cases fail.
+
+## SENSOR-HIGH-144 — a device can take over another session's client ID
+
+Raised by the edge-expert review of ADR-047. `/mqtt/auth` receives the client
+ID but never compared it with the username. Mosquitto evicts the existing
+session on a duplicate client ID, so any authenticated device could connect as
+`aqua-sensor-service-main` and knock the ingestion listener (persistent
+session) off the broker, or evict another gateway. Unreachable while
+SENSOR-CRITICAL-143 refused every device; reachable the moment it is fixed.
+
+Fix: a device principal must connect under its username or
+`<username>-<suffix>` (the edge gateway derives `<username>-<deviceCode>`,
+`sens-api-gateway/src/mqtt.rs`); a missing or foreign client ID is refused.
+Service accounts are unchanged. `mqtt-acl.mosquitto.spec.ts` (real broker +
+go-auth) passes locally with `MQTT_ACL_E2E=1`; no workflow sets that flag, so
+the spec does not run in CI.

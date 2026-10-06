@@ -121,14 +121,18 @@ export class MqttAuthController {
   ): Promise<string> {
     this.validateMosquittoSecret(headers);
 
-    const { username, password } = body;
+    const { username, password, clientid } = body;
 
     if (!username || !password) {
       this.logger.debug('MQTT auth rejected: missing credentials');
       throw new MqttAuthDeniedException();
     }
 
-    const isValid = await this.mqttAuthService.verifyDeviceCredentials(username, password);
+    const isValid = await this.mqttAuthService.verifyDeviceCredentials(
+      username,
+      password,
+      clientid,
+    );
 
     if (!isValid) {
       this.logger.debug(`MQTT auth rejected for user: ${username}`);

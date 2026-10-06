@@ -140,11 +140,25 @@ export class MqttAuthService implements OnModuleInit {
    *
    * Checks service accounts first, then device credentials in DB.
    */
-  async verifyDeviceCredentials(username: string, password: string): Promise<boolean> {
+  async verifyDeviceCredentials(
+    username: string,
+    password: string,
+    clientId: string | undefined,
+  ): Promise<boolean> {
     // Check service accounts first
     const serviceHash = this.serviceAccounts.get(username);
     if (serviceHash) {
       return this.verifyPassword(password, serviceHash);
+    }
+
+    // SENSOR-HIGH-144: a device may only connect under a client ID derived from
+    // its own username (the edge gateway uses `${username}-${deviceCode}`).
+    // Mosquitto evicts the existing session on a duplicate client ID, so without
+    // this any authenticated device could connect as `aqua-sensor-service-main`
+    // and knock the ingestion listener off the broker, or evict another gateway.
+    if (!MqttAuthService.isOwnClientId(username, clientId)) {
+      this.logger.warn(`MQTT auth rejected for ${username}: client ID is not derived from it`);
+      return false;
     }
 
     // Look up device by mqttClientId across all tenant schemas
@@ -170,6 +184,11 @@ export class MqttAuthService implements OnModuleInit {
       this.logger.debug(`MQTT auth: password mismatch for ${username} (state=${device.lifecycleState})`);
     }
     return valid;
+  }
+
+  /** True when `clientId` is the username itself or `${username}-<suffix>`. */
+  private static isOwnClientId(username: string, clientId: string | undefined): boolean {
+    return clientId === username || (clientId?.startsWith(`${username}-`) ?? false);
   }
 
   /**

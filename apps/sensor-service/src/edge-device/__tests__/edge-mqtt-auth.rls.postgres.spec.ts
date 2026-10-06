@@ -167,11 +167,22 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
   });
 
   it('authenticates an edge gateway at CONNECT (was: refused, zero rows)', async () => {
-    await expect(auth.verifyDeviceCredentials(CLIENT_ID, PASSWORD)).resolves.toBe(true);
+    await expect(
+      auth.verifyDeviceCredentials(CLIENT_ID, PASSWORD, `${CLIENT_ID}-POND-01`),
+    ).resolves.toBe(true);
   });
 
   it('still rejects a wrong password', async () => {
-    await expect(auth.verifyDeviceCredentials(CLIENT_ID, 'not-the-secret')).resolves.toBe(false);
+    await expect(
+      auth.verifyDeviceCredentials(CLIENT_ID, 'not-the-secret', `${CLIENT_ID}-POND-01`),
+    ).resolves.toBe(false);
+  });
+
+  it('refuses the right password under a client ID that is not derived from the username (SENSOR-HIGH-144)', async () => {
+    await expect(
+      auth.verifyDeviceCredentials(CLIENT_ID, PASSWORD, 'aqua-sensor-service-main'),
+    ).resolves.toBe(false);
+    await expect(auth.verifyDeviceCredentials(CLIENT_ID, PASSWORD, undefined)).resolves.toBe(false);
   });
 
   it('grants the gateway its own tenant topic and nothing in another tenant', async () => {

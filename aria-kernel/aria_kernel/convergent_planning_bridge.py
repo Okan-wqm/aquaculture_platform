@@ -86,6 +86,7 @@ def issue_challenger_envelope(
     context_repo_root: str | Path | None = None,
     cycle_id: str | None = None,
     context_source_paths: list[str] | None = None,
+    remint_of: str | None = None,
 ) -> dict[str, Any]:
     """Issue the challenger planner envelope for a given convergence round.
 
@@ -125,4 +126,6 @@ def issue_challenger_envelope(
         # converge, rendered from this store — the rule and the refusal
         # read the same function.
         plan_contract=render_plan_contract(base_dir),
+        # ARIA-HIGH-355 — the step's dead or refused request this one replaces.
+        remint_of=remint_of,
     )

@@ -711,9 +711,12 @@ def pending_arbitration_group_ids(
     two authorities on one question, which is the duplicate the role hygiene
     pass exists to remove.
     """
-    from .agent_invocations import derive_request_state, list_agent_invocation_requests
+    from .agent_invocations import derive_request_states, list_agent_invocation_requests
     from .agent_surface import TERMINAL_REQUEST_STATES
 
+    # ARIA-HIGH-358 — one ledger load for every arbiter request, however
+    # many the role accumulates.
+    states = derive_request_states(base_dir=base_dir)
     pending: set[str] = set()
     for row in list_agent_invocation_requests(
         base_dir=base_dir, role=CONSENSUS_ARBITRATION_ROLE,
@@ -722,6 +725,6 @@ def pending_arbitration_group_ids(
         request_id = str(row.get("request_id") or "")
         if not group or not request_id:
             continue
-        if derive_request_state(request_id=request_id, base_dir=base_dir) not in TERMINAL_REQUEST_STATES:
+        if states[request_id] not in TERMINAL_REQUEST_STATES:
             pending.add(group)
     return pending

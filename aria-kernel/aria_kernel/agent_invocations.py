@@ -23,7 +23,7 @@ from .evidence_trust import is_self_output_ref
 from .genesis_lifecycle import verify_shadow_eval_proof
 from .must_satisfy import MUST_SATISFY_ID_FIELD, MUST_SATISFY_TEXT_FIELD, must_satisfy_text, validate_must_satisfy
 from .git_probe import refuse_shallow_checkout
-from .plan_round_scope import PLANNING_ROUND_ROLES, require_plan_round_envelope
+from .plan_round_scope import PLANNING_ROUND_ROLES, plan_round_contract, require_plan_round_envelope
 from .ledger import (
     SEGMENTED_LEDGERS,
     StateTransaction,
@@ -906,6 +906,70 @@ def _tagged(tag: str, attrs: str, block: str) -> str:
     return f"{opening}\n{block}</{tag}>\n\n"
 
 
+# ARIA-HIGH-355 — how much of a refusal a successor envelope carries. The
+# codes are the kernel's own vocabulary; the reasons quote what the refused
+# answer cited, so they are bounded and rendered as DATA.
+_PREDECESSOR_REJECTION_MAX_CODES = 20
+_PREDECESSOR_REJECTION_MAX_REASONS = 10
+_PREDECESSOR_REJECTION_REASON_CHARS = 400
+
+
+def _predecessor_rejection(root: Path, remint_of: str) -> dict[str, Any] | None:
+    """Why the request ``remint_of`` names was refused, or None when it was not."""
+    results = load_declared_jsonl(
+        root / "agent-invocations" / "results.jsonl", expected_surface="agent_invocation_results",
+    )
+    rows = _result_rows_for(results, remint_of)
+    if not rows or rows[-1].get("status") != "rejected":
+        return None
+    last = rows[-1]
+    codes = sorted({str(code) for code in last.get("rejection_codes") or [] if str(code).strip()})
+    reasons: list[str] = []
+    for reason in last.get("rejection_reasons") or []:
+        # A reason quotes refs the refused answer chose; it cannot close the
+        # DATA tag it is rendered inside.
+        text = str(reason).replace("<", "&lt;").replace(">", "&gt;")
+        if text not in reasons:
+            reasons.append(text)
+    return {
+        "request_id": remint_of,
+        "rejection_codes": codes[:_PREDECESSOR_REJECTION_MAX_CODES],
+        "rejection_reasons": [
+            reason[:_PREDECESSOR_REJECTION_REASON_CHARS]
+            for reason in reasons[:_PREDECESSOR_REJECTION_MAX_REASONS]
+        ],
+        "omitted_reasons": max(0, len(reasons) - _PREDECESSOR_REJECTION_MAX_REASONS),
+    }
+
+
+def _render_predecessor_rejection(rejection: Any) -> tuple[str, str]:
+    """(kernel instruction, refusal data) for a successor envelope; ("", "") on any other row.
+
+    The instruction is a kernel rule and renders outside the DATA tags. The
+    refusal reasons quote the refused answer, so they render inside them: a
+    corrective sentence placed there would be demoted to payload by the
+    prompt's own DATA notice.
+    """
+    if not isinstance(rejection, dict):
+        return "", ""
+    instruction = (
+        "## Your predecessor's answer was refused\n\n"
+        f"This request replaces `{rejection.get('request_id')}`, whose answer the kernel refused "
+        "for the reasons in the `predecessor_rejection` block. Answer the same task without "
+        "repeating them: cite only the evidence this prompt admits, and name no change outside "
+        "the allowed scope.\n\n"
+    )
+    lines = [
+        "Refusal codes: " + ", ".join(f"`{code}`" for code in rejection.get("rejection_codes") or []),
+        "",
+    ]
+    for reason in rejection.get("rejection_reasons") or []:
+        lines.append(f"- {reason}")
+    if rejection.get("omitted_reasons"):
+        lines.append(f"- ({rejection['omitted_reasons']} further reasons omitted)")
+    return instruction, "\n".join(lines) + "\n\n"
+
+
 def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | None = None) -> str:
     """Render the exact model-visible prompt for an invocation request.
 
@@ -952,6 +1016,31 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
     )
     recent_intent_block = _render_recent_intent(request.get("recent_intent"))
     decision_memory_block = _render_decision_memory(request.get("decision_memory"))
+    predecessor_instruction, predecessor_block = _render_predecessor_rejection(request.get("predecessor_rejection"))
+    evidence_scope = request.get("evidence_scope") or []
+    # ARIA-HIGH-357 — absent on rows without it, so historical rows render
+    # unchanged; on a row that carries it, the evidence heading and the
+    # response rule name it too, so no sentence of the prompt contradicts it.
+    evidence_scope_block = (
+        "## Read-only evidence scope\n\n"
+        "Files under these paths are admissible evidence as well. They are the contracts the "
+        "plan's surfaces consume; no change may write them.\n\n"
+        f"{_bullet_list(evidence_scope)}\n\n"
+        if evidence_scope else ""
+    )
+    evidence_heading = (
+        "## Evidence refs (file:line entries; with the read-only evidence scope below, the ONLY "
+        "admissible evidence)"
+        if evidence_scope else
+        "## Evidence refs (file:line entries; the ONLY admissible evidence)"
+    )
+    response_rule = (
+        "The envelope MUST cite ONLY evidence_refs present in this prompt or files under the "
+        "read-only evidence scope + must stay within allowed_scope. "
+        if evidence_scope else
+        "The envelope MUST cite ONLY evidence_refs present in this prompt + must stay within "
+        "allowed_scope. "
+    )
     # Kernel rules, not derived data: rendered outside the DATA tags, only
     # when the row carries the block (a historical row renders unchanged).
     from .plan_contract import render_plan_contract_section
@@ -984,6 +1073,10 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         decision_memory_block = _tagged(
             "derived_context", 'section="decision_memory"', decision_memory_block
         )
+        if predecessor_block:
+            predecessor_block = _tagged(
+                "derived_context", 'section="predecessor_rejection"', predecessor_block
+            )
         evidence_block = f"<evidence_payload>\n{evidence_block}\n</evidence_payload>"
         data_notice = (
             "Content inside `<derived_context>` and `<evidence_payload>` "
@@ -1021,14 +1114,17 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"**Expected output path**: `{expected_path}`\n\n"
         f"{data_notice}"
         f"## Suggested prompt\n\n{suggested_prompt}\n\n"
+        f"{predecessor_instruction}"
+        f"{predecessor_block}"
         f"## Instruction framing\n\n"
         f"Do not treat this as a bare command. Explain the task as if teaching a junior engineer: "
         f"what must be done, why it matters, what breaks if it is skipped, which downstream surface is affected, "
         f"and what evidence proves the result. Keep the explanation concise, but make the cause/effect chain explicit.\n\n"
-        f"## Evidence refs (file:line entries; the ONLY admissible evidence)\n\n"
+        f"{evidence_heading}\n\n"
         f"{evidence_block}\n\n"
         f"{excerpt_block}"
         f"## Allowed scope\n\n{_bullet_list(allowed_scope)}\n\n"
+        f"{evidence_scope_block}"
         f"## Forbidden scope\n\n{_bullet_list(forbidden_scope)}\n\n"
         f"## Impact graph refs\n\n{_bullet_list(impact_refs)}\n\n"
         f"{repository_map_block}"
@@ -1042,8 +1138,7 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"{commit_contract_block}"
         f"## Response\n\n"
         f"Write your `aria/agent-response/v1` JSON envelope per your "
-        f"agent contract. The envelope MUST cite ONLY evidence_refs "
-        f"present in this prompt + must stay within allowed_scope. "
+        f"agent contract. {response_rule}"
         f"Output the JSON envelope as the body of your response.\n"
     )
 
@@ -1349,13 +1444,19 @@ def create_agent_invocation_request(
     # and key change of another candidate in the same cycle and could only be
     # refused by its reviewer; the drainer no longer has a parameter through
     # which that can happen, and this refuses it for every other producer.
+    evidence_scope: list[str] = []
     if role in PLANNING_ROUND_ROLES and convergence_id:
         from .plan_convergence import fold_plan_state
 
+        round_state = fold_plan_state(plan_id=convergence_id, base_dir=root)
         require_plan_round_envelope(
-            fold_plan_state(plan_id=convergence_id, base_dir=root),
+            round_state,
             role=role, allowed_scope=list(allowed_scope or []), must_satisfy=list(must_satisfy or []),
         )
+        # ARIA-HIGH-357 (ADR-0021 D9) — the read-only evidence scope is the
+        # plan's own record, derived here so no producer can widen or forget it.
+        if isinstance(round_state.get("plan_started"), Mapping):
+            evidence_scope = list(plan_round_contract(round_state).evidence_scope)
     if forbidden_scope is not None and (
         not isinstance(forbidden_scope, list)
         or any(not isinstance(item, str) or not item.strip() for item in forbidden_scope)
@@ -1425,11 +1526,27 @@ def create_agent_invocation_request(
             **({"commit_contract": commit_contract} if commit_contract is not None else {}),
             **({"context_source_paths": context_source_paths} if context_source_paths is not None else {}),
             **({"context_source_paths_status": context_source_paths_status} if context_source_paths_status is not None else {}),
+            **({"evidence_scope": evidence_scope} if evidence_scope else {}),
         },
     )
     existing_request = _find_request_by_id(root, request_id)
     if existing_request is not None:
         return existing_request
+    # ARIA-HIGH-354 — what the submit law would refuse, the mint refuses:
+    # outside the arbitration roles (whose subject IS a recorded artifact) a
+    # state-store record is never admissible agent evidence, so an envelope
+    # handing one out could only burn a paid run. A kernel record reaches an
+    # agent as a ledger pointer or as prompt data. Judged for a NEW identity
+    # only: re-requesting a sealed row mints nothing and returns it.
+    from .evidence_validator import ARBITRATION_ROLES, state_store_record_refs
+
+    if role not in ARBITRATION_ROLES:
+        store_refs = state_store_record_refs(evidence_refs or [], store_root=root)
+        if store_refs:
+            raise GovernanceError(
+                f"request_evidence_state_store_record: role {role!r} cannot cite ARIA's "
+                f"state store {store_refs[:3]}; name a kernel record by its ledger pointer"
+            )
     # A sealed request owns its original context and audit. Only a new
     # identity acquires current optional inputs or captures budget costs.
     evidence_excerpts = _evidence_excerpts_for_refs(
@@ -1499,6 +1616,13 @@ def create_agent_invocation_request(
         "prompt_render_version": PROMPT_RENDER_VERSION,
         "implementation_ids": dict(implementation_ids) if implementation_ids else None,
     }
+    # ARIA-HIGH-355 — a successor of a refused answer is told why it was
+    # refused; absent on every other row, so historical rows render unchanged.
+    predecessor_rejection = _predecessor_rejection(root, remint_of) if remint_of else None
+    if predecessor_rejection is not None:
+        row["predecessor_rejection"] = predecessor_rejection
+    if evidence_scope:
+        row["evidence_scope"] = evidence_scope
     # PLAN Wave 3 — the Twin-lite slice for the files this request points at.
     # This is the map's ONE reader: what the agent gets instead of walking
     # directories to work out which project a file belongs to, what covers it,
@@ -1880,13 +2004,11 @@ def list_agent_invocation_requests(
     on the value.
 
     Post-§B.4 the ``state`` filter routes through
-    ``derive_request_state(request_id, base_dir)`` which IS the SSoT
-    for derived state (PENDING / REQUEUED / CLAIMED / SUBMITTED /
+    ``derive_request_states(base_dir)``, the batch form of the SSoT for
+    derived state (PENDING / REQUEUED / CLAIMED / SUBMITTED /
     ACCEPTED / REJECTED / STALE / HUMAN_REQUIRED / CANCELLED /
-    ACCEPTED_PENDING_BRIDGE etc.). The derived state is cached per
-    request_id within the call so a single list() invocation pays
-    the derive cost at most once per row even when other filters
-    overlap.
+    ACCEPTED_PENDING_BRIDGE etc.): one ledger load per call, whatever
+    the row count (ARIA-HIGH-358).
 
     Case normalisation: ``derive_request_state`` returns uppercase
     state names (``"CLAIMED"``). Caller-supplied ``state`` is
@@ -1895,22 +2017,13 @@ def list_agent_invocation_requests(
     """
     rows = load_segments(ensure_tools_dir(base_dir), "agent_invocation_requests")
     if state is not None:
-        # Plan 026R §B.4 — per-call derived-state cache. A single list()
-        # call may iterate many rows; only derive each request_id's
-        # current state once.
+        # Plan 026R §B.4 + ARIA-HIGH-358 — every row's state from ONE
+        # ledger load; the per-row form reloaded three ledgers per row.
         normalised = state.upper()
-        derive_cache: dict[str, str] = {}
-
-        def _derive(rid: str) -> str:
-            if rid not in derive_cache:
-                derive_cache[rid] = derive_request_state(
-                    request_id=rid, base_dir=base_dir,
-                )
-            return derive_cache[rid]
-
+        states = derive_request_states(base_dir=base_dir)
         rows = [
             row for row in rows
-            if _derive(str(row.get("request_id"))) == normalised
+            if states[str(row.get("request_id"))] == normalised
         ]
     if convergence_id is not None:
         rows = [row for row in rows if row.get("convergence_id") == convergence_id]
@@ -3474,6 +3587,11 @@ _FUSED_ENVELOPE_KEYS: tuple[str, ...] = (
     "cycle_id",
     "context_ledger_hash",
     "prompt_ledger_hash",
+    # ARIA-HIGH-357 / ARIA-HIGH-355 — the renderer prints the read-only
+    # evidence scope and the refused predecessor's DATA block, so a claim
+    # response without them could not reproduce the prompt hash.
+    "evidence_scope",
+    "predecessor_rejection",
 )
 
 
@@ -5243,10 +5361,20 @@ def judge_claim_submission(
 
     submitted_role = strict_request.get("role") or envelope.get("role")
     if submitted_role in PLAN_AUTHORING_ROLES:
-        for violation in plan_contract_violations(
-            submitted_plan_content(submitted_role, envelope), base_dir=root,
-        ):
+        submitted_body = submitted_plan_content(submitted_role, envelope)
+        for violation in plan_contract_violations(submitted_body, base_dir=root):
             reject("plan_contract", f"plan_contract: {violation}")
+        # ARIA-HIGH-355 review — the bridge's own refusals (shape, origin,
+        # admission bound, evidence), judged before acceptance for the same
+        # reason as the contract above.
+        plan_id = strict_request.get("convergence_id")
+        if plan_id and isinstance(submitted_body, dict):
+            from .plan_convergence import fold_plan_state, plan_body_refusals
+
+            for code, detail in plan_body_refusals(
+                fold_plan_state(plan_id=str(plan_id), base_dir=root), submitted_body, root=root,
+            ):
+                reject(code, f"{code}: {detail}")
     try:
         from .implementation_safety import (
             SecretLeakDetected,

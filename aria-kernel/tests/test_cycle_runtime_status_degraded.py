@@ -222,6 +222,9 @@ class OrchestratorTests(unittest.TestCase):
         )
 
         v9_runner = Mock()
+        # ARIA-HIGH-362 — a fixture runner that cannot deliver: its offer is
+        # uncounted, so the plan's attempt ledger is not consulted.
+        v9_runner.delivers_implementation = False
         v9_runner.run.return_value = Mock(
             terminal_state="IMPLEMENTATION_SKIPPED", pr_url=None,
             rejection_class="fixture_v9_runner", specialist_review_signal=None,

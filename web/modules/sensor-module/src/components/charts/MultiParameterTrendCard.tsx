@@ -1,5 +1,5 @@
 /**
- * Multi-parameter trend card (PR-6).
+ * Multi-parameter trend card (PR-6; channel-generic since SENSOR-HIGH-138).
  *
  * Renders every channel of one sensor on a single uPlot chart via
  * TrendChart's custom mode: one series per parameter, dual y-axes (unit
@@ -9,7 +9,7 @@
 import { useMemo } from 'react';
 
 import { TrendChart } from './TrendChart';
-import { useAggregatedMultiSeries } from '../../hooks/useAggregatedMultiSeries';
+import { useChannelSeries } from '../../hooks/useChannelReadings';
 import type {
   ChartLine,
   ChartLineZone,
@@ -80,8 +80,7 @@ export function MultiParameterTrendCard({
   rangeMs = 24 * 60 * 60 * 1000,
   title,
 }: MultiParameterTrendCardProps) {
-  const channelKeys = useMemo(() => channels.map((c) => c.channelKey), [channels]);
-  const { series, loading, error } = useAggregatedMultiSeries(sensorId, channelKeys, rangeMs);
+  const { series, loading, error } = useChannelSeries(sensorId, rangeMs);
 
   const lines: ChartLine[] = useMemo(
     () =>
@@ -101,15 +100,19 @@ export function MultiParameterTrendCard({
     [channels, sensorId],
   );
 
+  // Series come back keyed by channel; the chart lines are keyed by channelKey.
   const customData = useMemo(() => {
     const mapped: Record<string, HistoricalDataPoint[]> = {};
-    for (const [key, points] of Object.entries(series)) {
-      mapped[key] = points.map((point) => ({ timestamp: point.timestamp, value: point.value }));
+    for (const channel of series?.channels ?? []) {
+      mapped[channel.channelKey] = channel.points.map((point) => ({
+        timestamp: new Date(point.bucket).getTime(),
+        value: point.avg,
+      }));
     }
     return mapped;
   }, [series]);
 
-  const hasAnyData = Object.values(series).some((points) => points.length > 0);
+  const hasAnyData = Object.values(customData).some((points) => points.length > 0);
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">

@@ -74,6 +74,23 @@ EVENT_TYPES = {
     # coverage_gap risks into cross_review_risks_by_round[N]. The
     # payload shape is a one-way door like every event here.
     "coverage_computed",
+    # ARIA-HIGH-362 — a CONVERGED plan's delivery attempts, recorded on the
+    # plan's own ledger. An ANNOTATION like coverage_computed: the reducer
+    # appends to state["implementation_delivery_attempts"] and never changes
+    # state["state"]; its only legal state is CONVERGED. Before it, a
+    # converged plan got exactly one offer to the V9 runner — the cycle that
+    # converged it — and a refusal, a staging error or a runner exception in
+    # that cycle left it CONVERGED (terminal) with nothing that would ever
+    # offer it again. The attempt count bounds the re-offers
+    # (`converged_delivery`), so it lives where it cannot be lost or reset:
+    # the signed plan ledger, idempotent per (plan, attempt).
+    "implementation_delivery_attempted",
+    # ARIA-HIGH-362 (review M5) — an attempt the runner reported as refused
+    # by the PROFILE at staging (a mid-cycle demotion) is weather, not the
+    # plan's failure. The attempt row stays (it was made, and the record of
+    # it is signed history); this annotation marks it uncounted. Legal only
+    # in CONVERGED, once per attempt.
+    "implementation_delivery_attempt_voided",
 }
 TERMINAL_STATES = {
     "CONVERGED",
@@ -632,7 +649,66 @@ def _validate_submitted_plan(
     except AdmissionScopeExceeded as exc:
         record_admission_scope_refusal(root, plan_id=state.get("plan_id"), stage="plan_submission", error=exc)
         raise
+    evidence_refusals = plan_body_evidence_refusals(state, body, root=root)
+    if evidence_refusals:
+        raise GovernanceError("; ".join(f"{code}: {ref}" for code, ref in evidence_refusals))
     require_plan_contract(body, base_dir=root)
+
+
+PLAN_EVIDENCE_STATE_STORE_RECORD = "plan_evidence_state_store_record"
+PLAN_EVIDENCE_POINTER_UNBOUND = "plan_evidence_pointer_unbound"
+
+
+def plan_body_evidence_refusals(state: dict[str, Any], body: dict[str, Any], *, root: Path) -> list[tuple[str, str]]:
+    """Every ``evidence_refs`` entry of a body that no later envelope may carry.
+
+    ARIA-HIGH-354 — a body's refs become the refs of every later planning
+    envelope of the plan (``_planning_source_context``), and the request mint
+    refuses a state-store record. A body citing one would make every later
+    mint for the plan raise. A coverage pointer is admitted only for a round
+    this plan has measured; any other names a manifest nobody handed it.
+    """
+    from .evidence_validator import _is_coverage_manifest_pointer, state_store_record_refs
+
+    refs = [ref for ref in body.get("evidence_refs") or [] if isinstance(ref, str)]
+    measured = set(_reviewed_coverage_pointers(state))
+    return [
+        *((PLAN_EVIDENCE_STATE_STORE_RECORD, ref) for ref in state_store_record_refs(refs, store_root=root)),
+        *((PLAN_EVIDENCE_POINTER_UNBOUND, ref) for ref in refs
+          if _is_coverage_manifest_pointer(ref) and ref not in measured),
+    ]
+
+
+def plan_body_refusals(state: dict[str, Any], body: Any, *, root: Path) -> list[tuple[str, str]]:
+    """The bridge's deterministic refusals of ``body``, as (code, detail), judged before acceptance.
+
+    ARIA-HIGH-355 review — ``submit_claim_result`` judged only the plan
+    contract before accepting a planner's answer; the bridge then judged the
+    shape, the origin, the admission bound (ADR-0021) and the evidence. A body
+    the bridge refuses after acceptance leaves the request
+    ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL, an outcome no successor can
+    change, so the plan died. Judged here, the same body is REJECTED and the
+    step's successor carries the reasons (``predecessor_rejection``). The
+    bridge keeps every check as the last line.
+    """
+    from .plan_origin import (
+        REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE, admission_scope_for_plan, body_paths,
+        paths_outside_admission_scope, require_origin_unchanged,
+    )
+
+    if not isinstance(body, dict):
+        return []
+    try:
+        _validate_plan_content(body)
+        require_origin_unchanged(state, body)
+    except GovernanceError as exc:
+        return [("plan_body_invalid", str(exc))]
+    scope = admission_scope_for_plan(state)
+    outside = paths_outside_admission_scope(scope, body_paths(body)) if scope is not None else []
+    return [
+        *((REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE, path) for path in outside),
+        *plan_body_evidence_refusals(state, body, root=root),
+    ]
 
 
 def record_coverage(
@@ -1070,6 +1146,14 @@ def _stall_cause(
     return {"cause": cause, **envelope, "request_id": newest.get("request_id"), "role": newest.get("role")}
 
 
+class PlanStateRefused(GovernanceError):
+    """ARIA-HIGH-362 (review M3) — a guarded transition found the plan in another state.
+
+    Typed so a caller that raced a concurrent writer can tell "the plan moved
+    on" from every other refusal without reading a message.
+    """
+
+
 FORCED_MAX_ROUNDS_REASON = "max_rounds_reached"
 FORCED_ESCALATION_GATE = "forced_escalation"
 
@@ -1080,8 +1164,19 @@ def force_plan_human_required(
     round_number: int,
     reason_codes: list[str],
     active_gap_count: int = 0,
+    from_states: frozenset[str] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Escalate a plan to HUMAN_REQUIRED from a state the caller names.
+
+    ARIA-HIGH-362 (review M3) — the from-state is checked INSIDE the plan
+    lock, against the fold taken under it. It used to check only that the
+    plan had started, so a caller that read CONVERGED, then lost a race to a
+    mint, would overwrite IMPLEMENTATION_REQUESTED (or any terminal) with
+    HUMAN_REQUIRED. ``from_states`` None means the forced-escalation
+    callers' own case: a plan still mid-convergence (neither terminal nor in
+    the implementation phase).
+    """
     _validate_id(plan_id, "plan_id")
     if not isinstance(round_number, int) or round_number <= 0:
         raise GovernanceError("round_number must be a positive integer")
@@ -1112,6 +1207,15 @@ def force_plan_human_required(
             return _event_result(existing, idempotent=True)
         state = fold_plan_state(plan_id=plan_id, base_dir=root)
         _require_started(state, "force human required")
+        current = state.get("state")
+        allowed = (current in from_states) if from_states is not None else (
+            current not in TERMINAL_STATES and current not in _IMPLEMENTATION_PHASE_STATES
+        )
+        if not allowed:
+            raise PlanStateRefused(
+                f"force_human_required_from_state_refused: plan {plan_id!r} is {current!r}; "
+                f"expected {sorted(from_states) if from_states is not None else 'mid-convergence'}"
+            )
         event = _append_event(root=root, plan_id=plan_id, event_type="plan_evaluated", payload=payload, idempotency_key=key)
         return _event_result(event, idempotent=False)
 
@@ -1211,6 +1315,99 @@ def request_implementation(
             _require_state(state, {"CONVERGED"}, "request implementation"),
             _require_coverage_for_implementation(state),
         ),
+    )
+
+
+def record_implementation_delivery_attempt(
+    *,
+    plan_id: str,
+    attempt: int,
+    cycle_id: str,
+    profile: str,
+    runner_class: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-362 — claim delivery attempt ``attempt`` of a CONVERGED plan.
+
+    Written BEFORE the runner is called, so an attempt the process does not
+    survive still counts: the bound is on offers made, read back from this
+    ledger, never on an in-memory counter.
+
+    Idempotent per (plan, attempt): the key is the attempt number alone, so
+    two offers racing for the same number append ONE event and the loser is
+    told ``idempotent=True`` — the caller treats that as "attempt N is
+    someone else's" and does not run. The validator also refuses a number
+    that is not the next one, so attempts are dense and their count is the
+    length of the fold's list.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(cycle_id, "cycle_id")
+    _require_non_empty(profile, "profile")
+    _require_non_empty(runner_class, "runner_class")
+
+    def _validate(state: dict[str, Any]) -> None:
+        _require_state(state, {"CONVERGED"}, "record implementation delivery attempt")
+        expected = len(state.get("implementation_delivery_attempts") or []) + 1
+        if attempt != expected:
+            raise GovernanceError(
+                f"implementation_delivery_attempt_out_of_order: plan {plan_id!r} "
+                f"has {expected - 1} attempt(s); the next is {expected}, not {attempt}"
+            )
+
+    return _mutate(
+        plan_id=plan_id,
+        command_name="implementation-delivery-attempt",
+        canonical_payload={"attempt": attempt},
+        event_type="implementation_delivery_attempted",
+        payload={
+            "attempt": attempt,
+            "cycle_id": cycle_id,
+            "profile": profile,
+            "runner_class": runner_class,
+        },
+        base_dir=base_dir,
+        validator=_validate,
+    )
+
+
+def counted_delivery_attempts(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """ARIA-HIGH-362 — the delivery attempts that count against the bound (not voided)."""
+    return [row for row in state.get("implementation_delivery_attempts") or [] if not row.get("voided")]
+
+
+def void_implementation_delivery_attempt(
+    *,
+    plan_id: str,
+    attempt: int,
+    reason: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-362 (review M5) — mark attempt ``attempt`` uncounted, once.
+
+    The producer is the delivery entry, for a staging step the PROFILE
+    refused: the lane lost its authority between the cycle's start and the
+    staging call, which says nothing about the plan.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(reason, "reason")
+
+    def _validate(state: dict[str, Any]) -> None:
+        _require_state(state, {"CONVERGED"}, "void implementation delivery attempt")
+        if not any(row.get("attempt") == attempt and not row.get("voided")
+                   for row in state.get("implementation_delivery_attempts") or []):
+            raise GovernanceError(
+                f"implementation_delivery_attempt_not_voidable: plan {plan_id!r} has no "
+                f"unvoided attempt {attempt}"
+            )
+
+    return _mutate(
+        plan_id=plan_id,
+        command_name="implementation-delivery-attempt-void",
+        canonical_payload={"attempt": attempt},
+        event_type="implementation_delivery_attempt_voided",
+        payload={"attempt": attempt, "reason": reason},
+        base_dir=base_dir,
+        validator=_validate,
     )
 
 
@@ -1824,6 +2021,7 @@ def _initial_state(plan_id: str) -> dict[str, Any]:
         "cross_review_risks_by_round": {},
         "resolved_review_risk_ids": [],
         "coverage_by_round": {},
+        "implementation_delivery_attempts": [],
         "terminal_state": None,
     }
 
@@ -2005,6 +2203,31 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
     elif event_type == "plan_evaluated":
         state["state"] = payload["terminal_state"]
         state["terminal_state"] = payload["terminal_state"]
+    elif event_type == "implementation_delivery_attempted":
+        # ARIA-HIGH-362 — annotation; legal only while the plan rests in
+        # CONVERGED, the one state a delivery can be offered from.
+        if state.get("state") != "CONVERGED":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_delivery_attempted expected=CONVERGED"
+            )
+        state.setdefault("implementation_delivery_attempts", []).append({
+            **payload, "recorded_at": event.get("recorded_at"),
+        })
+    elif event_type == "implementation_delivery_attempt_voided":
+        if state.get("state") != "CONVERGED":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_delivery_attempt_voided expected=CONVERGED"
+            )
+        attempts = state.get("implementation_delivery_attempts") or []
+        target = next((row for row in attempts if row.get("attempt") == payload["attempt"]), None)
+        if target is None or target.get("voided"):
+            raise GovernanceError(
+                f"implementation_delivery_attempt_voided: attempt {payload['attempt']} "
+                f"is not an unvoided attempt of plan {state.get('plan_id')!r}"
+            )
+        target["voided"] = payload["reason"]
     elif event_type == "plan_abandoned":
         state["state"] = "ABANDONED"
         state["terminal_state"] = "ABANDONED"
@@ -2726,6 +2949,17 @@ def _validate_event(event: dict[str, Any]) -> None:
         for field in ("risks_rollup_summary", "gate_decisions", "reason_codes"):
             if field not in payload:
                 raise GovernanceError(f"plan_evaluated missing {field}")
+    elif event_type == "implementation_delivery_attempted":
+        attempt = payload.get("attempt")
+        if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt <= 0:
+            raise GovernanceError("implementation_delivery_attempted attempt must be a positive integer")
+        for field in ("cycle_id", "profile", "runner_class"):
+            _require_non_empty(payload.get(field), field)
+    elif event_type == "implementation_delivery_attempt_voided":
+        attempt = payload.get("attempt")
+        if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt <= 0:
+            raise GovernanceError("implementation_delivery_attempt_voided attempt must be a positive integer")
+        _require_non_empty(payload.get("reason"), "reason")
     elif event_type == "plan_abandoned":
         _require_non_empty(payload.get("reason"), "reason")
         _require_non_empty(payload.get("abandoned_from_state"), "abandoned_from_state")
@@ -3344,15 +3578,39 @@ def _planning_source_context(state: dict[str, Any], fallback_refs: list[str]) ->
     never use a previous seed's refs and label them current. This helper
     derives retrieval inputs only, not write scope or planner proposals.
     """
+    pointers = _reviewed_coverage_pointers(state)
     try:
         body = plan_body_from_state(state)
     except GovernanceError:
-        return list(fallback_refs), None, None
+        return _with_pointers(list(fallback_refs), pointers), None, None
     refs = body["plan_content"].get("evidence_refs")
     paths = affected_surface_paths(body["plan_content"].get("affected_surfaces", []))
     if not isinstance(refs, list) or not refs or any(not isinstance(ref, str) or not ref.strip() for ref in refs):
         refs = fallback_refs
-    return list(refs), body["content_hash"], paths or None
+    return _with_pointers(list(refs), pointers), body["content_hash"], paths or None
+
+
+def _reviewed_coverage_pointers(state: dict[str, Any]) -> list[str]:
+    """The citable pointer of every coverage manifest recorded for this plan.
+
+    ARIA-HIGH-354 — a round's coverage gaps reach the next round's planners
+    as synthetic risks that cite the manifest by its pointer, and the
+    response law admits a pointer only when the answered envelope carries it.
+    Every planning envelope of the plan therefore carries the pointers of
+    the rounds already measured, oldest first.
+    """
+    from .evidence_validator import coverage_manifest_pointer
+
+    rounds = state.get("coverage_by_round") or {}
+    return [
+        coverage_manifest_pointer(str(rounds[number]["closure_manifest_path"]))
+        for number in sorted(rounds, key=int)
+        if isinstance(rounds[number], dict) and rounds[number].get("closure_manifest_path")
+    ]
+
+
+def _with_pointers(refs: list[str], pointers: list[str]) -> list[str]:
+    return [*refs, *(pointer for pointer in pointers if pointer not in refs)]
 
 
 def _coerce_plan_body(candidate: Any) -> dict[str, Any] | None:

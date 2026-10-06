@@ -10,6 +10,7 @@ again. These tests drive real plans through the real ledger; only the runner
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,6 +18,11 @@ from unittest.mock import patch
 
 from aria_kernel import apply_engine, cross_review_bridge
 from aria_kernel.converged_delivery import (
+    AUTHORITY_ABSENT_CYCLES,
+    AUTHORITY_ABSENT_REASON,
+    WITHHELD_WORKSPACE_DIRTY,
+    authority_absent_request_id,
+    escalate_exhausted_plan,
     DELIVERY_EXHAUSTED_REASON,
     HUMAN_REQUIRED_CONTEXT_KIND,
     MAX_DELIVERY_ATTEMPTS,
@@ -38,6 +44,9 @@ from aria_kernel.cycle_phases.implementer import (
 )
 from aria_kernel.human_required import list_human_required
 from aria_kernel.plan_convergence import (
+    PlanStateRefused,
+    counted_delivery_attempts,
+    force_plan_human_required,
     fold_plan_state,
     record_implementation_delivery_attempt,
     request_implementation,
@@ -55,6 +64,8 @@ PLAN = "plan-362"
 
 class _DispatchingRunner:
     """What the real runner does on success: the mint IS the transition."""
+
+    delivers_implementation = True
 
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -75,6 +86,8 @@ class _DispatchingRunner:
 
 
 class _RaisingRunner:
+
+    delivers_implementation = True
     def __init__(self) -> None:
         self.calls: list[str] = []
 
@@ -280,6 +293,140 @@ class ConvergedDeliveryTests(unittest.TestCase):
         direct = self._deliver(runner, cycle_id="cyc-1", profile="strict")
         self.assertEqual(direct["delivery"]["withheld"], WITHHELD_REQUEST_LIVE)
         self.assertEqual(runner.calls, [])
+
+
+class ReviewCorrectionTests(unittest.TestCase):
+    """The independent review's M3-M6 against the same real plan ledger."""
+
+    setUp = ConvergedDeliveryTests.setUp
+    tearDown = ConvergedDeliveryTests.tearDown
+    _state = ConvergedDeliveryTests._state
+    _deliver = ConvergedDeliveryTests._deliver
+    _sweep = ConvergedDeliveryTests._sweep
+
+    def _spend(self, count: int = MAX_DELIVERY_ATTEMPTS) -> None:
+        for attempt in range(1, count + 1):
+            record_implementation_delivery_attempt(
+                plan_id=PLAN, attempt=attempt, cycle_id=f"cyc-spent-{attempt}", profile="strict",
+                runner_class="AutonomousV9ImplementationRunner", base_dir=self.tools,
+            )
+
+    def _live_request(self) -> None:
+        with patch.object(cross_review_bridge, "request_implementation",
+                          side_effect=RuntimeError("process died after the request row")):
+            with self.assertRaises(RuntimeError):
+                cross_review_bridge.issue_implementation_envelope(
+                    plan_id=PLAN, cross_review_revision_id="cr-1",
+                    cross_review_summary_text="{}", proposal_id="proposal-362",
+                    change_id="chg-362", branch="aria-impl-0123456789abcdef",
+                    base_sha="0" * 40, base_dir=self.tools, cycle_id="cyc-0",
+                )
+
+    def _records(self) -> list[str]:
+        return [row["request_id"] for row in list_human_required(base_dir=self.tools)]
+
+    # M5 ----------------------------------------------------------------
+    def test_a_runner_that_cannot_deliver_is_never_counted_whatever_the_profile_string(self) -> None:
+        outcome = self._deliver(NoOpV9ImplementationRunner(), cycle_id="cyc-1", profile="strict")
+        self.assertEqual(outcome["rejection_class"], "no_op_v9_runner")
+        self.assertIsNone(outcome["delivery"]["attempt"])
+        self.assertEqual(self._state()["implementation_delivery_attempts"], [])
+
+    def test_a_profile_refusal_at_staging_voids_the_attempt(self) -> None:
+        from aria_kernel.runtime_profile import ProfileActionRefused
+
+        with patch.object(apply_engine, "stage_converged_plan_for_pr",
+                          side_effect=ProfileActionRefused("profile_violation: fixture demotion")):
+            outcome = self._deliver(AutonomousV9ImplementationRunner(), cycle_id="cyc-1", profile="strict")
+        self.assertEqual(outcome["rejection_class"], "staging_profile_refused")
+        self.assertEqual(outcome["delivery"]["voided"], "profile_refused_at_staging")
+        state = self._state()
+        self.assertEqual(state["state"], "CONVERGED")
+        self.assertEqual(state["implementation_delivery_attempts"][0]["voided"], "profile_refused_at_staging")
+        self.assertEqual(counted_delivery_attempts(state), [])
+        runner = _DispatchingRunner()
+        self.assertEqual(self._sweep(runner, cycle_id="cyc-2")["offered"][0]["attempt"], 2)
+        # Two attempts on the ledger, one of them counted.
+        self.assertEqual([row["attempt"] for row in self._state()["implementation_delivery_attempts"]], [1, 2])
+        self.assertEqual([row["attempt"] for row in counted_delivery_attempts(self._state())], [2])
+        self.assertEqual(self._state()["state"], "IMPLEMENTATION_REQUESTED")
+
+    # M6 ----------------------------------------------------------------
+    def test_a_dirty_tree_withholds_the_offer_uncounted(self) -> None:
+        subprocess.run(["git", "init", "-q"], cwd=self.workspace, check=True)
+        (self.workspace / "baseline-artefact.txt").write_text("left by a baseline run\n", encoding="utf-8")
+        runner = _DispatchingRunner()
+        outcome = self._deliver(runner, cycle_id="cyc-1", profile="strict")
+        self.assertEqual(outcome["delivery"]["withheld"], WITHHELD_WORKSPACE_DIRTY)
+        self.assertEqual(runner.calls, [])
+        self.assertEqual(self._state()["implementation_delivery_attempts"], [])
+
+    # M3 ----------------------------------------------------------------
+    def test_no_escalation_while_an_implementation_request_is_live(self) -> None:
+        self._spend()
+        self._live_request()
+        report = self._sweep(_DispatchingRunner(), cycle_id="cyc-9")
+        self.assertEqual(report["withheld"], {PLAN: WITHHELD_REQUEST_LIVE})
+        self.assertEqual(report["escalated"], [])
+        self.assertEqual(self._state()["state"], "CONVERGED")
+        self.assertNotIn(human_required_request_id(PLAN), self._records())
+
+    def test_the_human_required_write_is_guarded_against_a_concurrent_mint(self) -> None:
+        from aria_kernel import plan_convergence
+
+        self._spend()
+        stale = self._state()
+        _DispatchingRunner().run(cycle_id="cyc-mint", plan_id=PLAN, workspace_root=self.workspace,
+                                 base_dir=self.tools, cross_review_summary={}, profile="strict")
+        self.assertEqual(self._state()["state"], "IMPLEMENTATION_REQUESTED")
+        real = plan_convergence.fold_plan_state
+        reads: list[int] = []
+
+        def stale_first(**kwargs):
+            reads.append(1)
+            return stale if len(reads) == 1 else real(**kwargs)
+
+        with patch.object(plan_convergence, "fold_plan_state", side_effect=stale_first):
+            outcome = escalate_exhausted_plan(PLAN, base_dir=self.tools)
+        self.assertEqual(outcome["status"], "not_converged")
+        self.assertEqual(self._state()["state"], "IMPLEMENTATION_REQUESTED")
+        self.assertNotIn(human_required_request_id(PLAN), self._records())
+        with self.assertRaises(PlanStateRefused):
+            force_plan_human_required(plan_id=PLAN, round_number=1, reason_codes=["fixture"],
+                                      from_states=frozenset({"CONVERGED"}), base_dir=self.tools)
+
+    def test_a_missing_operator_record_after_the_transition_is_repaired(self) -> None:
+        from aria_kernel import human_required
+
+        self._spend()
+        with patch.object(human_required, "record_human_required", side_effect=OSError("disk full")):
+            report = self._sweep(_DispatchingRunner(), cycle_id="cyc-9")
+        self.assertEqual(report["escalated"][0]["status"], "escalation_failed")
+        self.assertEqual(self._state()["state"], "HUMAN_REQUIRED")
+        self.assertNotIn(human_required_request_id(PLAN), self._records())
+        repaired = self._sweep(_DispatchingRunner(), cycle_id="cyc-10")
+        self.assertEqual(repaired["repaired"], [PLAN])
+        self.assertIn(human_required_request_id(PLAN), self._records())
+
+    # M4 ----------------------------------------------------------------
+    def test_a_long_run_without_authority_is_surfaced_without_a_transition(self) -> None:
+        noop = NoOpV9ImplementationRunner()
+        for night in range(1, AUTHORITY_ABSENT_CYCLES):
+            report = self._sweep(noop, cycle_id=f"cyc-{night}", profile="standard")
+            self.assertEqual(report["surfaced"], [])
+        self.assertNotIn(authority_absent_request_id(PLAN), self._records())
+        # The same cycle noted twice is one cycle.
+        self._sweep(noop, cycle_id=f"cyc-{AUTHORITY_ABSENT_CYCLES - 1}", profile="standard")
+        self.assertNotIn(authority_absent_request_id(PLAN), self._records())
+        last = self._sweep(noop, cycle_id=f"cyc-{AUTHORITY_ABSENT_CYCLES}", profile="standard")
+        self.assertEqual(last["surfaced"], [PLAN])
+        record = next(row for row in list_human_required(base_dir=self.tools)
+                      if row["request_id"] == authority_absent_request_id(PLAN))
+        self.assertEqual(record["context"]["reason_code"], AUTHORITY_ABSENT_REASON)
+        self.assertEqual(len(record["context"]["uncounted_cycles"]), AUTHORITY_ABSENT_CYCLES)
+        # Surfaced, not ended: the authority may return.
+        self.assertEqual(self._state()["state"], "CONVERGED")
+        self.assertEqual(self._sweep(_DispatchingRunner(), cycle_id="cyc-back")["offered"][0]["attempt"], 1)
 
 
 class SweepBoundTests(unittest.TestCase):

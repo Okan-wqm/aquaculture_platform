@@ -85,6 +85,12 @@ EVENT_TYPES = {
     # (`converged_delivery`), so it lives where it cannot be lost or reset:
     # the signed plan ledger, idempotent per (plan, attempt).
     "implementation_delivery_attempted",
+    # ARIA-HIGH-362 (review M5) — an attempt the runner reported as refused
+    # by the PROFILE at staging (a mid-cycle demotion) is weather, not the
+    # plan's failure. The attempt row stays (it was made, and the record of
+    # it is signed history); this annotation marks it uncounted. Legal only
+    # in CONVERGED, once per attempt.
+    "implementation_delivery_attempt_voided",
 }
 TERMINAL_STATES = {
     "CONVERGED",
@@ -1140,6 +1146,14 @@ def _stall_cause(
     return {"cause": cause, **envelope, "request_id": newest.get("request_id"), "role": newest.get("role")}
 
 
+class PlanStateRefused(GovernanceError):
+    """ARIA-HIGH-362 (review M3) — a guarded transition found the plan in another state.
+
+    Typed so a caller that raced a concurrent writer can tell "the plan moved
+    on" from every other refusal without reading a message.
+    """
+
+
 FORCED_MAX_ROUNDS_REASON = "max_rounds_reached"
 FORCED_ESCALATION_GATE = "forced_escalation"
 
@@ -1150,8 +1164,19 @@ def force_plan_human_required(
     round_number: int,
     reason_codes: list[str],
     active_gap_count: int = 0,
+    from_states: frozenset[str] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Escalate a plan to HUMAN_REQUIRED from a state the caller names.
+
+    ARIA-HIGH-362 (review M3) — the from-state is checked INSIDE the plan
+    lock, against the fold taken under it. It used to check only that the
+    plan had started, so a caller that read CONVERGED, then lost a race to a
+    mint, would overwrite IMPLEMENTATION_REQUESTED (or any terminal) with
+    HUMAN_REQUIRED. ``from_states`` None means the forced-escalation
+    callers' own case: a plan still mid-convergence (neither terminal nor in
+    the implementation phase).
+    """
     _validate_id(plan_id, "plan_id")
     if not isinstance(round_number, int) or round_number <= 0:
         raise GovernanceError("round_number must be a positive integer")
@@ -1182,6 +1207,15 @@ def force_plan_human_required(
             return _event_result(existing, idempotent=True)
         state = fold_plan_state(plan_id=plan_id, base_dir=root)
         _require_started(state, "force human required")
+        current = state.get("state")
+        allowed = (current in from_states) if from_states is not None else (
+            current not in TERMINAL_STATES and current not in _IMPLEMENTATION_PHASE_STATES
+        )
+        if not allowed:
+            raise PlanStateRefused(
+                f"force_human_required_from_state_refused: plan {plan_id!r} is {current!r}; "
+                f"expected {sorted(from_states) if from_states is not None else 'mid-convergence'}"
+            )
         event = _append_event(root=root, plan_id=plan_id, event_type="plan_evaluated", payload=payload, idempotency_key=key)
         return _event_result(event, idempotent=False)
 
@@ -1331,6 +1365,47 @@ def record_implementation_delivery_attempt(
             "profile": profile,
             "runner_class": runner_class,
         },
+        base_dir=base_dir,
+        validator=_validate,
+    )
+
+
+def counted_delivery_attempts(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """ARIA-HIGH-362 — the delivery attempts that count against the bound (not voided)."""
+    return [row for row in state.get("implementation_delivery_attempts") or [] if not row.get("voided")]
+
+
+def void_implementation_delivery_attempt(
+    *,
+    plan_id: str,
+    attempt: int,
+    reason: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-362 (review M5) — mark attempt ``attempt`` uncounted, once.
+
+    The producer is the delivery entry, for a staging step the PROFILE
+    refused: the lane lost its authority between the cycle's start and the
+    staging call, which says nothing about the plan.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(reason, "reason")
+
+    def _validate(state: dict[str, Any]) -> None:
+        _require_state(state, {"CONVERGED"}, "void implementation delivery attempt")
+        if not any(row.get("attempt") == attempt and not row.get("voided")
+                   for row in state.get("implementation_delivery_attempts") or []):
+            raise GovernanceError(
+                f"implementation_delivery_attempt_not_voidable: plan {plan_id!r} has no "
+                f"unvoided attempt {attempt}"
+            )
+
+    return _mutate(
+        plan_id=plan_id,
+        command_name="implementation-delivery-attempt-void",
+        canonical_payload={"attempt": attempt},
+        event_type="implementation_delivery_attempt_voided",
+        payload={"attempt": attempt, "reason": reason},
         base_dir=base_dir,
         validator=_validate,
     )
@@ -2139,6 +2214,20 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         state.setdefault("implementation_delivery_attempts", []).append({
             **payload, "recorded_at": event.get("recorded_at"),
         })
+    elif event_type == "implementation_delivery_attempt_voided":
+        if state.get("state") != "CONVERGED":
+            raise GovernanceError(
+                f"invalid_transition: from={state.get('state')} "
+                f"event=implementation_delivery_attempt_voided expected=CONVERGED"
+            )
+        attempts = state.get("implementation_delivery_attempts") or []
+        target = next((row for row in attempts if row.get("attempt") == payload["attempt"]), None)
+        if target is None or target.get("voided"):
+            raise GovernanceError(
+                f"implementation_delivery_attempt_voided: attempt {payload['attempt']} "
+                f"is not an unvoided attempt of plan {state.get('plan_id')!r}"
+            )
+        target["voided"] = payload["reason"]
     elif event_type == "plan_abandoned":
         state["state"] = "ABANDONED"
         state["terminal_state"] = "ABANDONED"
@@ -2866,6 +2955,11 @@ def _validate_event(event: dict[str, Any]) -> None:
             raise GovernanceError("implementation_delivery_attempted attempt must be a positive integer")
         for field in ("cycle_id", "profile", "runner_class"):
             _require_non_empty(payload.get(field), field)
+    elif event_type == "implementation_delivery_attempt_voided":
+        attempt = payload.get("attempt")
+        if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt <= 0:
+            raise GovernanceError("implementation_delivery_attempt_voided attempt must be a positive integer")
+        _require_non_empty(payload.get("reason"), "reason")
     elif event_type == "plan_abandoned":
         _require_non_empty(payload.get("reason"), "reason")
         _require_non_empty(payload.get("abandoned_from_state"), "abandoned_from_state")

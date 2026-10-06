@@ -64,3 +64,43 @@ Tests (`aria-kernel/tests/test_converged_delivery.py`, 9):
 The wiring pin `tests/invariants/v10/test_phase_v10_5_phase_7_v9_runner_wired.py` now pins the
 seam: one `runner.run(` in `converged_delivery`, the converging offer between the memory hook and
 specialist review, and the sweep before plan adoption.
+
+## Review corrections (2026-10-06, PR #1813)
+
+An independent review found four defects in the first cut. They are fixed in the same PR:
+
+- **M5 — attempts were counted from the profile string.** An attempt now counts only when the
+  runner that runs declares it can deliver. This is the class attribute `delivers_implementation`:
+  `True` on `AutonomousV9ImplementationRunner`, `False` on the NoOp. A staging step refused by the
+  _profile_ is a mid-cycle demotion, and it is weather. `enforce_profile_for_action` now raises the
+  typed `runtime_profile.ProfileActionRefused` (still a `GovernanceError`). The runner returns
+  `staging_profile_refused`. The delivery entry voids that attempt with the new annotation
+  `implementation_delivery_attempt_voided`; the row stays and is not counted.
+- **M3 — escalation raced a mint and ignored live requests.** `force_plan_human_required` takes
+  `from_states` and checks it inside the plan lock. The default is mid-convergence only, so no
+  caller can overwrite a terminal or implementation-phase plan, and a refusal raises the typed
+  `PlanStateRefused`. Escalation is skipped while an implementation request is live. The plan
+  transition now comes first, under the lock, and the operator record follows it. A record the
+  process did not live to write is repaired by the next sweep.
+- **M4 — a permanent `standard` ceiling hid stranded plans.** Each cycle whose runner cannot
+  deliver writes one `converged_delivery_uncounted` row per plan, carrying the counted-attempt total.
+  After `AUTHORITY_ABSENT_CYCLES` (7) such cycles since the last counted attempt, the operator
+  record `converged-delivery-no-authority-<plan>.json` is written with reason
+  `implementation_authority_absent`. The plan is not transitioned.
+- **M6 — a dirty tree.** Yes, the sweep's staging baseline can leave the tree dirty. It runs the
+  plan's suite unsandboxed in the cycle checkout, and `validation._dirty_worktree` counts every
+  untracked, non-ignored file. Before this fix that dirt made this cycle's converging plan fail
+  staging and spent one of its attempts. Now an offer into a dirty tree is withheld uncounted
+  (`workspace_dirty`) before the attempt is recorded, through the new public
+  `validation.worktree_is_dirty`. The plan is re-offered by a later cycle on a clean checkout.
+
+Tests: `test_converged_delivery.py` now has 16, all passing. The 7 new tests cover:
+
+- a runner that cannot deliver is never counted under `strict`;
+- a profile refusal at staging voids the attempt and the next offer counts;
+- a dirty tree withholds the offer uncounted;
+- no escalation while a request is live;
+- a stale read cannot overwrite a concurrent mint (`PlanStateRefused`);
+- a missing operator record is repaired;
+- seven no-authority cycles surface the plan without a transition, and a returning runner still
+  gets attempt 1.

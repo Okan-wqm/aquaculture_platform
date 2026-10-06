@@ -16,41 +16,61 @@ WHAT. One function offers a converged plan to the runner,
 :func:`deliver_converged_plan`, and both callers use it: the converging cycle
 (origin ``converged_this_cycle``) and a sweep at the start of every later
 cycle (:func:`redeliver_stranded_converged_plans`, origin
-``stranded_redelivery``). An offer under a profile that holds implementation
-authority (``pr_create`` in ``runtime_profile.ACTION_PERMISSIONS``, the same
-cell ``select_v9_implementation_runner`` reads) first records
-``implementation_delivery_attempted`` on the plan's own ledger, so the count is
-durable, idempotent per (plan, attempt) and survives a process that dies inside
-the runner. A plan is not offered while an implementation request for it is
-live, after it left CONVERGED, or twice in one cycle. After
-``MAX_DELIVERY_ATTEMPTS`` counted offers that left it CONVERGED, the plan is
-escalated: an operator record in ``human-required/`` (the surface the daily
-report and ``aria-kernel human-required list`` show) and the plan's own
-``HUMAN_REQUIRED`` terminal with reason code ``implementation_delivery_exhausted``.
+``stranded_redelivery``).
 
-An offer under a profile WITHOUT that authority is not counted. The NoOp's
-refusal says nothing about the plan — it says the night could not deliver —
-so a ``standard`` lane neither spends a plan's attempts nor escalates it; the
-sweep reports it as ``no_implementation_authority`` and the first night that
-can deliver gets the full bound.
+* **What counts.** An offer is a counted attempt only when the runner that runs
+  declares it can deliver (``delivers_implementation``, review M5 — the
+  runner's own class, never the cycle's profile string). The attempt is
+  recorded as ``implementation_delivery_attempted`` on the plan's own ledger
+  BEFORE the call, so the count survives a process killed inside the runner,
+  idempotent per (plan, attempt). A staging step the PROFILE refused (a
+  mid-cycle demotion, ``STAGING_PROFILE_REFUSED``) voids the attempt: weather,
+  not the plan.
+* **What is withheld, uncounted.** A plan that left CONVERGED; one with a live
+  implementation request (the mint appends the request before the plan
+  transition); one offered once this cycle; and an offer into a DIRTY tree
+  (review M6): the sweep's baseline can leave an untracked artefact behind,
+  and staging refuses a dirty tree for every plan alike, so the dirt is the
+  lane's state and must not spend the converging plan's attempt.
+* **The bound.** After ``MAX_DELIVERY_ATTEMPTS`` counted attempts the plan
+  moves, under the plan lock and only from CONVERGED with no live request
+  (review M3), to ``HUMAN_REQUIRED`` with reason code
+  ``implementation_delivery_exhausted``, and the operator record
+  ``human-required/converged-delivery-exhausted-<plan>.json`` is written. A
+  plan whose transition landed but whose record did not is repaired by the
+  next sweep.
+* **No authority, for long.** A lane whose runner cannot deliver (a permanent
+  ``standard`` ceiling) never spends a plan's attempts, so on its own it would
+  never surface the plan. After ``AUTHORITY_ABSENT_CYCLES`` such cycles since
+  the plan's last counted attempt, the operator record
+  ``converged-delivery-no-authority-<plan>.json`` (reason
+  ``implementation_authority_absent``) is written. The plan is NOT
+  transitioned: the authority may come back.
 """
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
+from .ledger import load_jsonl
+
 # Three offers by a lane that could deliver. One refusal can be the weather
-# (a dirty checkout, a red baseline); three in a row on three cycles is the
-# plan, and a person has to look at it.
+# (a red baseline); three in a row on three cycles is the plan, and a person
+# has to look at it.
 MAX_DELIVERY_ATTEMPTS: int = 3
 # Staging runs the plan's validation suite as its baseline, so one re-offer
 # per cycle keeps a backlog of stranded plans from turning one cycle into N
 # baseline runs. Escalations are not bounded: they run no suite.
 REDELIVERIES_PER_CYCLE: int = 1
+# A week of nightly cycles in which no runner could deliver the plan.
+AUTHORITY_ABSENT_CYCLES: int = 7
 DELIVERY_EXHAUSTED_REASON: str = "implementation_delivery_exhausted"
+AUTHORITY_ABSENT_REASON: str = "implementation_authority_absent"
 HUMAN_REQUIRED_CONTEXT_KIND: str = "converged_plan_delivery"
+UNCOUNTED_GOVERNANCE_KIND: str = "converged_delivery_uncounted"
 ORIGIN_CONVERGED: str = "converged_this_cycle"
 ORIGIN_REDELIVERY: str = "stranded_redelivery"
+VOID_PROFILE_REFUSED: str = "profile_refused_at_staging"
 
 # Why an offer was not made. Named so the cycle summary and the tests read the
 # same strings.
@@ -62,18 +82,19 @@ WITHHELD_ATTEMPT_TAKEN: str = "attempt_claimed_elsewhere"
 WITHHELD_ATTEMPT_UNRECORDED: str = "attempt_unrecorded"
 WITHHELD_NO_AUTHORITY: str = "no_implementation_authority"
 WITHHELD_CYCLE_BOUND: str = "per_cycle_bound"
-
-
-def holds_implementation_authority(profile: str) -> bool:
-    """True when ``profile`` may finish an implementation (``pr_create``)."""
-    from . import runtime_profile
-    from .cycle_phases.implementer import IMPLEMENTATION_ACTION_KIND
-
-    return profile in runtime_profile.ACTION_PERMISSIONS[IMPLEMENTATION_ACTION_KIND]
+WITHHELD_WORKSPACE_DIRTY: str = "workspace_dirty"
 
 
 def human_required_request_id(plan_id: str) -> str:
     return f"converged-delivery-exhausted-{plan_id}"
+
+
+def authority_absent_request_id(plan_id: str) -> str:
+    return f"converged-delivery-no-authority-{plan_id}"
+
+
+def _record_exists(base_dir: Path, request_id: str) -> bool:
+    return (base_dir / "human-required" / f"{request_id}.json").exists()
 
 
 def live_implementation_request_ids(plan_id: str, *, base_dir: Path) -> list[str]:
@@ -100,24 +121,36 @@ def live_implementation_request_ids(plan_id: str, *, base_dir: Path) -> list[str
     return live
 
 
-def converged_plan_ids(*, base_dir: Path) -> list[str]:
-    """Plans that fold to CONVERGED, oldest convergence first (one ledger pass)."""
+def _plan_ledger_scan(base_dir: Path) -> tuple[list[str], list[str]]:
+    """(CONVERGED plans oldest convergence first, plans ended by exhaustion) — one ledger pass."""
     from .ledger import load_declared_jsonl
     from .plan_convergence import events_path, fold_plan_state
 
     path = events_path(base_dir)
     if not path.exists():
-        return []
+        return [], []
     converged_at: dict[str, str] = {}
+    exhausted: set[str] = set()
     for event in load_declared_jsonl(path, expected_surface="plan_convergence_events"):
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
-        if event.get("event_type") == "plan_evaluated" and payload.get("terminal_state") == "CONVERGED":
-            converged_at[str(event.get("plan_id"))] = str(event.get("recorded_at") or "")
+        if event.get("event_type") != "plan_evaluated":
+            continue
+        plan_id = str(event.get("plan_id"))
+        if payload.get("terminal_state") == "CONVERGED":
+            converged_at[plan_id] = str(event.get("recorded_at") or "")
+        elif DELIVERY_EXHAUSTED_REASON in (payload.get("reason_codes") or []):
+            exhausted.add(plan_id)
     ordered = sorted(converged_at, key=lambda plan_id: (converged_at[plan_id], plan_id))
-    return [
+    converged = [
         plan_id for plan_id in ordered
         if fold_plan_state(plan_id=plan_id, base_dir=base_dir).get("state") == "CONVERGED"
     ]
+    return converged, sorted(exhausted)
+
+
+def converged_plan_ids(*, base_dir: Path) -> list[str]:
+    """Plans that fold to CONVERGED, oldest convergence first (one ledger pass)."""
+    return _plan_ledger_scan(base_dir)[0]
 
 
 def _withheld(plan_id: str, origin: str, reason: str, **extra: Any) -> dict[str, Any]:
@@ -132,58 +165,59 @@ def _withheld(plan_id: str, origin: str, reason: str, **extra: Any) -> dict[str,
 
 
 def _claim_attempt(
-    *, plan_id: str, cycle_id: str, profile: str, runner_class: str, base_dir: Path,
-) -> tuple[int | None, str | None, dict[str, Any]]:
+    *, plan_id: str, cycle_id: str, profile: str, runner_class: str,
+    workspace_root: Path, base_dir: Path,
+) -> tuple[int | None, str | None]:
     """(attempt number, None) when this offer may run, else (None, reason)."""
-    from .plan_convergence import fold_plan_state, record_implementation_delivery_attempt
+    from .plan_convergence import (
+        counted_delivery_attempts,
+        fold_plan_state,
+        record_implementation_delivery_attempt,
+    )
+    from .validation import worktree_is_dirty
 
     state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
     if state.get("state") != "CONVERGED":
-        return None, WITHHELD_NOT_CONVERGED, state
+        return None, WITHHELD_NOT_CONVERGED
     attempts = state.get("implementation_delivery_attempts") or []
     if any(row.get("cycle_id") == cycle_id for row in attempts):
-        return None, WITHHELD_OFFERED_THIS_CYCLE, state
-    if len(attempts) >= MAX_DELIVERY_ATTEMPTS:
-        return None, WITHHELD_EXHAUSTED, state
+        return None, WITHHELD_OFFERED_THIS_CYCLE
+    if len(counted_delivery_attempts(state)) >= MAX_DELIVERY_ATTEMPTS:
+        return None, WITHHELD_EXHAUSTED
     if live_implementation_request_ids(plan_id, base_dir=base_dir):
-        return None, WITHHELD_REQUEST_LIVE, state
+        return None, WITHHELD_REQUEST_LIVE
+    if worktree_is_dirty(workspace_root):
+        return None, WITHHELD_WORKSPACE_DIRTY
     attempt = len(attempts) + 1
     claimed = record_implementation_delivery_attempt(
         plan_id=plan_id, attempt=attempt, cycle_id=cycle_id,
         profile=profile, runner_class=runner_class, base_dir=base_dir,
     )
     if claimed["idempotent"]:
-        return None, WITHHELD_ATTEMPT_TAKEN, state
-    return attempt, None, state
+        return None, WITHHELD_ATTEMPT_TAKEN
+    return attempt, None
 
 
-def escalate_exhausted_plan(
-    plan_id: str, *, base_dir: Path, last_rejection_class: str | None = None,
-) -> dict[str, Any]:
-    """Hand a plan whose attempts are spent to the operator, then end it.
-
-    The operator record is written FIRST: a plan ended without one would be a
-    HUMAN_REQUIRED nobody is told about, while a record without the plan
-    transition is retried by the next sweep (both writes are idempotent).
-    """
-    from .human_required import record_human_required
-    from .plan_convergence import fold_plan_state, force_plan_human_required
-
-    state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-    if state.get("state") != "CONVERGED":
-        return {"plan_id": plan_id, "status": "not_converged", "state": state.get("state")}
-    attempts = [
-        {key: row.get(key) for key in ("attempt", "cycle_id", "profile", "runner_class", "recorded_at")}
+def _attempt_summaries(state: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {key: row.get(key) for key in ("attempt", "cycle_id", "profile", "runner_class", "recorded_at", "voided")}
         for row in state.get("implementation_delivery_attempts") or []
     ]
+
+
+def _record_exhaustion(plan_id: str, *, base_dir: Path, last_rejection_class: str | None) -> str:
+    from .human_required import record_human_required
+    from .plan_convergence import fold_plan_state
+
     request_id = human_required_request_id(plan_id)
+    attempts = _attempt_summaries(fold_plan_state(plan_id=plan_id, base_dir=base_dir))
     record_human_required(
         request_id=request_id,
         severity="HIGH",
         reason=(
-            f"{DELIVERY_EXHAUSTED_REASON}: CONVERGED plan {plan_id} was offered to the "
-            f"implementation runner {len(attempts)} times by a lane that could deliver "
-            f"it and is still CONVERGED; re-stage it or abandon it"
+            f"{DELIVERY_EXHAUSTED_REASON}: CONVERGED plan {plan_id} was offered to an "
+            f"implementation runner that could deliver it {MAX_DELIVERY_ATTEMPTS} times and "
+            f"stayed CONVERGED; it is now HUMAN_REQUIRED. Re-stage it or abandon it"
         ),
         context={
             "kind": HUMAN_REQUIRED_CONTEXT_KIND,
@@ -195,14 +229,51 @@ def escalate_exhausted_plan(
         },
         base_dir=base_dir,
     )
-    force_plan_human_required(
-        plan_id=plan_id,
-        round_number=max(1, int(state.get("current_round") or 1)),
-        reason_codes=[DELIVERY_EXHAUSTED_REASON],
-        base_dir=base_dir,
+    return request_id
+
+
+def escalate_exhausted_plan(
+    plan_id: str, *, base_dir: Path, last_rejection_class: str | None = None,
+) -> dict[str, Any]:
+    """End a plan whose counted attempts are spent, then tell the operator.
+
+    Not while an implementation request for it is live (review M3): that
+    request is still the plan's delivery. The CONVERGED check and the
+    HUMAN_REQUIRED write are one step under the plan lock
+    (``force_plan_human_required(from_states={"CONVERGED"})``), so a mint
+    that lands between this function's read and its write is never
+    overwritten. The operator record follows the transition; a record the
+    process did not live to write is written by the next sweep
+    (:func:`redeliver_stranded_converged_plans`).
+    """
+    from .plan_convergence import (
+        PlanStateRefused,
+        counted_delivery_attempts,
+        fold_plan_state,
+        force_plan_human_required,
     )
+
+    state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+    if state.get("state") != "CONVERGED":
+        return {"plan_id": plan_id, "status": WITHHELD_NOT_CONVERGED, "state": state.get("state")}
+    if len(counted_delivery_attempts(state)) < MAX_DELIVERY_ATTEMPTS:
+        return {"plan_id": plan_id, "status": "attempts_remaining"}
+    if live_implementation_request_ids(plan_id, base_dir=base_dir):
+        return {"plan_id": plan_id, "status": WITHHELD_REQUEST_LIVE}
+    try:
+        force_plan_human_required(
+            plan_id=plan_id,
+            round_number=max(1, int(state.get("current_round") or 1)),
+            reason_codes=[DELIVERY_EXHAUSTED_REASON],
+            from_states=frozenset({"CONVERGED"}),
+            base_dir=base_dir,
+        )
+    except PlanStateRefused:
+        latest = fold_plan_state(plan_id=plan_id, base_dir=base_dir).get("state")
+        return {"plan_id": plan_id, "status": WITHHELD_NOT_CONVERGED, "state": latest}
+    request_id = _record_exhaustion(plan_id, base_dir=base_dir, last_rejection_class=last_rejection_class)
     return {"plan_id": plan_id, "status": "escalated", "request_id": request_id,
-            "attempts": len(attempts)}
+            "attempts": len(counted_delivery_attempts(state))}
 
 
 def _record_escalation_failure(base_dir: Path, plan_id: str, exc: Exception) -> dict[str, Any]:
@@ -214,6 +285,67 @@ def _record_escalation_failure(base_dir: Path, plan_id: str, exc: Exception) -> 
         bypass_profile_gate=True,
     )
     return {"plan_id": plan_id, "status": "escalation_failed", "error_class": type(exc).__name__}
+
+
+def _uncounted_rows(governance: list[dict[str, Any]], plan_id: str) -> list[dict[str, Any]]:
+    return [
+        row["details"] for row in governance
+        if row.get("kind") == UNCOUNTED_GOVERNANCE_KIND
+        and isinstance(row.get("details"), dict) and row["details"].get("plan_id") == plan_id
+    ]
+
+
+def note_uncounted_cycle(
+    plan_id: str, *, cycle_id: str, base_dir: Path, governance: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Record one cycle whose runner could not deliver ``plan_id``; surface a long run of them.
+
+    The row carries the plan's counted-attempt total at the time, so "since
+    the last counted attempt" is the rows with the current total — no clock
+    comparison. Once per (plan, cycle). Surfacing is an operator record
+    only; the plan stays CONVERGED.
+    """
+    from .human_required import record_human_required
+    from .plan_convergence import counted_delivery_attempts, fold_plan_state
+    from .tool_registry import append_tools_governance
+
+    request_id = authority_absent_request_id(plan_id)
+    if _record_exists(base_dir, request_id):
+        # Surfaced once; the record is the operator's from here.
+        return {"plan_id": plan_id, "uncounted_cycles": None, "surfaced": True}
+    rows = _uncounted_rows(
+        governance if governance is not None else load_jsonl(base_dir / "governance.jsonl"), plan_id,
+    )
+    state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+    counted = len(counted_delivery_attempts(state))
+    if not any(row.get("cycle_id") == cycle_id for row in rows):
+        append_tools_governance(
+            base_dir, UNCOUNTED_GOVERNANCE_KIND,
+            {"plan_id": plan_id, "cycle_id": cycle_id, "reason": WITHHELD_NO_AUTHORITY,
+             "counted_attempts": counted},
+        )
+        rows.append({"plan_id": plan_id, "cycle_id": cycle_id, "counted_attempts": counted})
+    run = sorted({row.get("cycle_id") for row in rows if row.get("counted_attempts") == counted})
+    if len(run) < AUTHORITY_ABSENT_CYCLES:
+        return {"plan_id": plan_id, "uncounted_cycles": len(run), "surfaced": False}
+    record_human_required(
+        request_id=request_id,
+        severity="MEDIUM",
+        reason=(
+            f"{AUTHORITY_ABSENT_REASON}: CONVERGED plan {plan_id} could not be offered to an "
+            f"implementation runner in {len(run)} cycles; the lane's runner cannot deliver. "
+            f"The plan stays CONVERGED and is delivered when the authority returns"
+        ),
+        context={
+            "kind": HUMAN_REQUIRED_CONTEXT_KIND,
+            "plan_id": plan_id,
+            "reason_code": AUTHORITY_ABSENT_REASON,
+            "uncounted_cycles": run,
+            "finding_id": "ARIA-HIGH-362",
+        },
+        base_dir=base_dir,
+    )
+    return {"plan_id": plan_id, "uncounted_cycles": len(run), "surfaced": True}
 
 
 def deliver_converged_plan(
@@ -237,18 +369,18 @@ def deliver_converged_plan(
     review; the fault is a governance row and the attempt stays counted.
     """
     from .autonomy_state import AutonomyStateReducer
-    from .tool_registry import append_tools_governance
-
+    from .cycle_phases.implementer import STAGING_PROFILE_REFUSED
     from .ledger import LedgerIntegrityError
-    from .tool_registry import GovernanceError
+    from .plan_convergence import void_implementation_delivery_attempt
+    from .tool_registry import GovernanceError, append_tools_governance
 
     runner_class = type(runner).__name__
     attempt: int | None = None
-    if holds_implementation_authority(profile):
+    if runner.delivers_implementation:
         try:
-            attempt, withheld, _state = _claim_attempt(
-                plan_id=plan_id, cycle_id=cycle_id, profile=profile,
-                runner_class=runner_class, base_dir=base_dir,
+            attempt, withheld = _claim_attempt(
+                plan_id=plan_id, cycle_id=cycle_id, profile=profile, runner_class=runner_class,
+                workspace_root=workspace_root, base_dir=base_dir,
             )
         except (GovernanceError, LedgerIntegrityError, OSError) as exc:
             # The attempt could not be recorded, so no offer is made: an
@@ -264,7 +396,7 @@ def deliver_converged_plan(
                              error_class=type(exc).__name__)
         if withheld is not None:
             return _withheld(plan_id, origin, withheld)
-    delivery = {"plan_id": plan_id, "origin": origin, "attempt": attempt, "withheld": None}
+    delivery: dict[str, Any] = {"plan_id": plan_id, "origin": origin, "attempt": attempt, "withheld": None}
     AutonomyStateReducer.transition(
         base_dir, cycle_id=cycle_id, phase="v9_implementation_phase_started",
         status="ok", profile=profile,
@@ -313,13 +445,33 @@ def deliver_converged_plan(
         except Exception as audit_exc:
             summary["audit_error_class"] = type(audit_exc).__name__
     summary["delivery"] = delivery
-    if attempt is not None and attempt >= MAX_DELIVERY_ATTEMPTS:
+    if attempt is None:
+        # Bookkeeping for the M4 surfacing; like the attempt record, a ledger
+        # fault here must not block specialist review of this cycle's plan.
         try:
-            delivery["escalation"] = escalate_exhausted_plan(
-                plan_id, base_dir=base_dir, last_rejection_class=summary["rejection_class"],
+            delivery["uncounted"] = note_uncounted_cycle(plan_id, cycle_id=cycle_id, base_dir=base_dir)
+        except (GovernanceError, LedgerIntegrityError, OSError) as exc:
+            append_tools_governance(
+                base_dir, "converged_delivery_uncounted_unrecorded",
+                {"cycle_id": cycle_id, "plan_id": plan_id, "error_class": type(exc).__name__,
+                 "error_message": str(exc)[:500]},
+                bypass_profile_gate=True,
             )
-        except Exception as exc:
-            delivery["escalation"] = _record_escalation_failure(base_dir, plan_id, exc)
+            delivery["uncounted"] = {"plan_id": plan_id, "status": "unrecorded",
+                                     "error_class": type(exc).__name__}
+        return summary
+    if summary["rejection_class"] == STAGING_PROFILE_REFUSED:
+        void_implementation_delivery_attempt(
+            plan_id=plan_id, attempt=attempt, reason=VOID_PROFILE_REFUSED, base_dir=base_dir,
+        )
+        delivery["voided"] = VOID_PROFILE_REFUSED
+        return summary
+    try:
+        delivery["escalation"] = escalate_exhausted_plan(
+            plan_id, base_dir=base_dir, last_rejection_class=summary["rejection_class"],
+        )
+    except Exception as exc:
+        delivery["escalation"] = _record_escalation_failure(base_dir, plan_id, exc)
     return summary
 
 
@@ -335,28 +487,45 @@ def redeliver_stranded_converged_plans(
 
     Runs before this cycle adopts or synthesizes a plan, so the plan this
     cycle converges is offered by the converging call and never also by the
-    sweep. Every exhausted plan is escalated; at most
-    ``REDELIVERIES_PER_CYCLE`` plans are offered; a plan withheld for any
-    other reason is reported with that reason.
+    sweep. Exhausted plans are escalated (never while a request is live); at
+    most ``REDELIVERIES_PER_CYCLE`` plans are offered; under a runner that
+    cannot deliver, each stranded plan's uncounted cycle is noted; plans
+    ended by exhaustion whose operator record is missing get it.
     """
-    from .plan_convergence import fold_plan_state
+    from .plan_convergence import counted_delivery_attempts, fold_plan_state
 
     report: dict[str, Any] = {
-        "stranded": [], "offered": [], "escalated": [], "withheld": {},
-        "authority": holds_implementation_authority(profile),
+        "stranded": [], "offered": [], "escalated": [], "withheld": {}, "surfaced": [],
+        "repaired": [], "authority": bool(runner.delivers_implementation),
     }
-    for plan_id in converged_plan_ids(base_dir=base_dir):
-        report["stranded"].append(plan_id)
-        state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-        attempts = state.get("implementation_delivery_attempts") or []
-        if len(attempts) >= MAX_DELIVERY_ATTEMPTS:
+    converged, exhausted = _plan_ledger_scan(base_dir)
+    for plan_id in exhausted:
+        if not _record_exists(base_dir, human_required_request_id(plan_id)):
             try:
-                report["escalated"].append(escalate_exhausted_plan(plan_id, base_dir=base_dir))
+                _record_exhaustion(plan_id, base_dir=base_dir, last_rejection_class=None)
+                report["repaired"].append(plan_id)
             except Exception as exc:
                 report["escalated"].append(_record_escalation_failure(base_dir, plan_id, exc))
+    # Read once per sweep, and only when uncounted cycles will be noted.
+    governance = load_jsonl(base_dir / "governance.jsonl") if converged and not report["authority"] else None
+    for plan_id in converged:
+        report["stranded"].append(plan_id)
+        state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+        if len(counted_delivery_attempts(state)) >= MAX_DELIVERY_ATTEMPTS:
+            try:
+                outcome = escalate_exhausted_plan(plan_id, base_dir=base_dir)
+            except Exception as exc:
+                outcome = _record_escalation_failure(base_dir, plan_id, exc)
+            if outcome.get("status") == WITHHELD_REQUEST_LIVE:
+                report["withheld"][plan_id] = WITHHELD_REQUEST_LIVE
+            else:
+                report["escalated"].append(outcome)
             continue
         if not report["authority"]:
             report["withheld"][plan_id] = WITHHELD_NO_AUTHORITY
+            note = note_uncounted_cycle(plan_id, cycle_id=cycle_id, base_dir=base_dir, governance=governance)
+            if note["surfaced"]:
+                report["surfaced"].append(plan_id)
             continue
         if len(report["offered"]) >= REDELIVERIES_PER_CYCLE:
             report["withheld"][plan_id] = WITHHELD_CYCLE_BOUND
@@ -382,17 +551,20 @@ def redeliver_stranded_converged_plans(
 
 
 __all__ = [
+    "AUTHORITY_ABSENT_CYCLES",
+    "AUTHORITY_ABSENT_REASON",
     "DELIVERY_EXHAUSTED_REASON",
     "HUMAN_REQUIRED_CONTEXT_KIND",
     "MAX_DELIVERY_ATTEMPTS",
     "ORIGIN_CONVERGED",
     "ORIGIN_REDELIVERY",
     "REDELIVERIES_PER_CYCLE",
+    "authority_absent_request_id",
     "converged_plan_ids",
     "deliver_converged_plan",
     "escalate_exhausted_plan",
-    "holds_implementation_authority",
     "human_required_request_id",
     "live_implementation_request_ids",
+    "note_uncounted_cycle",
     "redeliver_stranded_converged_plans",
 ]

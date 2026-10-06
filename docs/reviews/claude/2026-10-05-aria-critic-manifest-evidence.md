@@ -204,3 +204,55 @@ Fix:
 Not done here: the F-007 plan stays HUMAN_REQUIRED. Its stale reference (`LeavesPage.tsx:355`; the
 options now sit at `:382-396`) is corrected in the new operator request that restarts it after
 this merges.
+
+## Review of #1797 (2026-10-06)
+
+An independent read-only review of the diff found that the first version still left gaps. All of
+them are fixed in this PR.
+
+- **Round 2 could not cite its own risks (354).** A synthetic coverage risk cites its manifest by
+  pointer, but the round-2 planner envelopes carried only the plan body's refs. A planner citing
+  the risk was refused (`agent_evidence_pointer_unbound`). The risk also listed the store path in
+  `affected_files`.
+  - `plan_convergence._planning_source_context` now adds the pointer of every measured round to
+    each later planning envelope. This is the one source the drainer, the cross-review bridge and
+    the round controller share. The critic puts its own round's pointer first, once.
+  - A synthetic risk lists no repository file, because a closure node names a project.
+- **A body the bridge refuses was accepted first (355).** The submit judgment checked only the
+  plan contract. The bridge then checked shape, origin, the admission bound and evidence. A body
+  failing those after acceptance became `ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL`, an outcome no
+  successor can change.
+  - `plan_convergence.plan_body_refusals` now runs those checks before acceptance, so the answer
+    is REJECTED and its successor carries the reasons.
+  - A body's `evidence_refs` may not cite a state-store record (`plan_evidence_state_store_record`)
+    or a coverage pointer for a round the plan never measured (`plan_evidence_pointer_unbound`).
+    The bridge refuses both as its last line. Before this, a store ref in a body made every later
+    mint for the plan raise, and the plan stalled until the 72 h rule abandoned it.
+- **The prompt contradicted its new blocks.** The predecessor's corrective sentence sat inside the
+  `<derived_context>` DATA tags, which the prompt itself says are never instructions. The evidence
+  heading and the response rule also said "ONLY evidence_refs" while the evidence scope admitted
+  more.
+  - The instruction now renders outside the tags; only the refusal reasons stay inside.
+  - On a row that carries an evidence scope, the heading and the response rule name it.
+  - Rows without one render exactly as before, so their prompt hashes still verify.
+- **Two "live" states that nothing ends.**
+  - `EXTERNAL_OUTAGE` has no wired reaper. It now gets a successor, like a queue death.
+  - `SUBMITTED`, a legacy partial result, is an outcome.
+  - Neither keeps a step waiting until the stall rule fires.
+- **Goldset and sealed rows.**
+  - A gold item's own store reference, such as a judge's recorded artifact, stays in the corpus
+    data but is not handed out as a citation. The corpus renders inside a `derived_context` tag.
+  - The mint guard now runs after the idempotency lookup, so re-requesting a sealed row returns
+    it instead of raising.
+- The drainer's `_live_request_id` had no callers left. It is removed, and its ARIA-HIGH-086 test
+  now pins the same property through `step_request_disposition`.
+
+Not changed; disclosed:
+
+- **Deploy and rollback.** A kernel older than this PR reads admission scope versions 1–2 only. A
+  plan started under this PR records version 3, so if this PR is reverted after such a plan
+  exists, that plan fails to fold and is lost. Deploys need no extra step: a plan is started by a
+  cycle that holds the writer lease, and the next job checks out the merged code.
+- The drainer and the CLI round controller read a step's disposition without a lock of their own.
+  Both minting a successor at once would need both on the same store at the same moment, which
+  the writer lease prevents.

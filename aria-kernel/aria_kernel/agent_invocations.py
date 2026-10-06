@@ -942,16 +942,24 @@ def _predecessor_rejection(root: Path, remint_of: str) -> dict[str, Any] | None:
     }
 
 
-def _render_predecessor_rejection(rejection: Any) -> str:
+def _render_predecessor_rejection(rejection: Any) -> tuple[str, str]:
+    """(kernel instruction, refusal data) for a successor envelope; ("", "") on any other row.
+
+    The instruction is a kernel rule and renders outside the DATA tags. The
+    refusal reasons quote the refused answer, so they render inside them: a
+    corrective sentence placed there would be demoted to payload by the
+    prompt's own DATA notice.
+    """
     if not isinstance(rejection, dict):
-        return ""
+        return "", ""
+    instruction = (
+        "## Your predecessor's answer was refused\n\n"
+        f"This request replaces `{rejection.get('request_id')}`, whose answer the kernel refused "
+        "for the reasons in the `predecessor_rejection` block. Answer the same task without "
+        "repeating them: cite only the evidence this prompt admits, and name no change outside "
+        "the allowed scope.\n\n"
+    )
     lines = [
-        "## Your predecessor's answer was refused",
-        "",
-        f"This request replaces `{rejection.get('request_id')}`, whose answer the kernel refused. "
-        "Answer the same task, and do not repeat what was refused: cite only the evidence refs "
-        "listed in this prompt and stay inside the allowed scope.",
-        "",
         "Refusal codes: " + ", ".join(f"`{code}`" for code in rejection.get("rejection_codes") or []),
         "",
     ]
@@ -959,7 +967,7 @@ def _render_predecessor_rejection(rejection: Any) -> str:
         lines.append(f"- {reason}")
     if rejection.get("omitted_reasons"):
         lines.append(f"- ({rejection['omitted_reasons']} further reasons omitted)")
-    return "\n".join(lines) + "\n\n"
+    return instruction, "\n".join(lines) + "\n\n"
 
 
 def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | None = None) -> str:
@@ -1008,15 +1016,30 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
     )
     recent_intent_block = _render_recent_intent(request.get("recent_intent"))
     decision_memory_block = _render_decision_memory(request.get("decision_memory"))
-    predecessor_block = _render_predecessor_rejection(request.get("predecessor_rejection"))
+    predecessor_instruction, predecessor_block = _render_predecessor_rejection(request.get("predecessor_rejection"))
     evidence_scope = request.get("evidence_scope") or []
-    # ARIA-HIGH-357 — absent on rows without it, so historical rows render unchanged.
+    # ARIA-HIGH-357 — absent on rows without it, so historical rows render
+    # unchanged; on a row that carries it, the evidence heading and the
+    # response rule name it too, so no sentence of the prompt contradicts it.
     evidence_scope_block = (
         "## Read-only evidence scope\n\n"
-        "You may also cite files under these paths as evidence. They are the contracts the "
+        "Files under these paths are admissible evidence as well. They are the contracts the "
         "plan's surfaces consume; no change may write them.\n\n"
         f"{_bullet_list(evidence_scope)}\n\n"
         if evidence_scope else ""
+    )
+    evidence_heading = (
+        "## Evidence refs (file:line entries; with the read-only evidence scope below, the ONLY "
+        "admissible evidence)"
+        if evidence_scope else
+        "## Evidence refs (file:line entries; the ONLY admissible evidence)"
+    )
+    response_rule = (
+        "The envelope MUST cite ONLY evidence_refs present in this prompt or files under the "
+        "read-only evidence scope + must stay within allowed_scope. "
+        if evidence_scope else
+        "The envelope MUST cite ONLY evidence_refs present in this prompt + must stay within "
+        "allowed_scope. "
     )
     # Kernel rules, not derived data: rendered outside the DATA tags, only
     # when the row carries the block (a historical row renders unchanged).
@@ -1091,12 +1114,13 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"**Expected output path**: `{expected_path}`\n\n"
         f"{data_notice}"
         f"## Suggested prompt\n\n{suggested_prompt}\n\n"
+        f"{predecessor_instruction}"
         f"{predecessor_block}"
         f"## Instruction framing\n\n"
         f"Do not treat this as a bare command. Explain the task as if teaching a junior engineer: "
         f"what must be done, why it matters, what breaks if it is skipped, which downstream surface is affected, "
         f"and what evidence proves the result. Keep the explanation concise, but make the cause/effect chain explicit.\n\n"
-        f"## Evidence refs (file:line entries; the ONLY admissible evidence)\n\n"
+        f"{evidence_heading}\n\n"
         f"{evidence_block}\n\n"
         f"{excerpt_block}"
         f"## Allowed scope\n\n{_bullet_list(allowed_scope)}\n\n"
@@ -1114,8 +1138,7 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"{commit_contract_block}"
         f"## Response\n\n"
         f"Write your `aria/agent-response/v1` JSON envelope per your "
-        f"agent contract. The envelope MUST cite ONLY evidence_refs "
-        f"present in this prompt + must stay within allowed_scope. "
+        f"agent contract. {response_rule}"
         f"Output the JSON envelope as the body of your response.\n"
     )
 
@@ -1453,20 +1476,6 @@ def create_agent_invocation_request(
                 raise GovernanceError(
                     "create_agent_invocation_request_evidence_refs_must_be_list_of_strings"
                 )
-        # ARIA-HIGH-354 — what the submit law would refuse, the mint refuses:
-        # outside the arbitration roles (whose subject IS a recorded artifact)
-        # a state-store record is never admissible agent evidence, so an
-        # envelope handing one out could only burn a paid run. A kernel
-        # record reaches an agent as a ledger pointer or as prompt data.
-        from .evidence_validator import ARBITRATION_ROLES, state_store_record_refs
-
-        if role not in ARBITRATION_ROLES:
-            store_refs = state_store_record_refs(evidence_refs, store_root=root)
-            if store_refs:
-                raise GovernanceError(
-                    f"request_evidence_state_store_record: role {role!r} cannot cite ARIA's "
-                    f"state store {store_refs[:3]}; name a kernel record by its ledger pointer"
-                )
     # Retrieval hints are distinct from evidence and authorization. Existing
     # callers omit this field and retain their original identity recipe.
     context_source_paths_status = None
@@ -1523,6 +1532,21 @@ def create_agent_invocation_request(
     existing_request = _find_request_by_id(root, request_id)
     if existing_request is not None:
         return existing_request
+    # ARIA-HIGH-354 — what the submit law would refuse, the mint refuses:
+    # outside the arbitration roles (whose subject IS a recorded artifact) a
+    # state-store record is never admissible agent evidence, so an envelope
+    # handing one out could only burn a paid run. A kernel record reaches an
+    # agent as a ledger pointer or as prompt data. Judged for a NEW identity
+    # only: re-requesting a sealed row mints nothing and returns it.
+    from .evidence_validator import ARBITRATION_ROLES, state_store_record_refs
+
+    if role not in ARBITRATION_ROLES:
+        store_refs = state_store_record_refs(evidence_refs or [], store_root=root)
+        if store_refs:
+            raise GovernanceError(
+                f"request_evidence_state_store_record: role {role!r} cannot cite ARIA's "
+                f"state store {store_refs[:3]}; name a kernel record by its ledger pointer"
+            )
     # A sealed request owns its original context and audit. Only a new
     # identity acquires current optional inputs or captures budget costs.
     evidence_excerpts = _evidence_excerpts_for_refs(
@@ -5348,10 +5372,20 @@ def judge_claim_submission(
 
     submitted_role = strict_request.get("role") or envelope.get("role")
     if submitted_role in PLAN_AUTHORING_ROLES:
-        for violation in plan_contract_violations(
-            submitted_plan_content(submitted_role, envelope), base_dir=root,
-        ):
+        submitted_body = submitted_plan_content(submitted_role, envelope)
+        for violation in plan_contract_violations(submitted_body, base_dir=root):
             reject("plan_contract", f"plan_contract: {violation}")
+        # ARIA-HIGH-355 review — the bridge's own refusals (shape, origin,
+        # admission bound, evidence), judged before acceptance for the same
+        # reason as the contract above.
+        plan_id = strict_request.get("convergence_id")
+        if plan_id and isinstance(submitted_body, dict):
+            from .plan_convergence import fold_plan_state, plan_body_refusals
+
+            for code, detail in plan_body_refusals(
+                fold_plan_state(plan_id=str(plan_id), base_dir=root), submitted_body, root=root,
+            ):
+                reject(code, f"{code}: {detail}")
     try:
         from .implementation_safety import (
             SecretLeakDetected,

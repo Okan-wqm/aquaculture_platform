@@ -632,7 +632,66 @@ def _validate_submitted_plan(
     except AdmissionScopeExceeded as exc:
         record_admission_scope_refusal(root, plan_id=state.get("plan_id"), stage="plan_submission", error=exc)
         raise
+    evidence_refusals = plan_body_evidence_refusals(state, body, root=root)
+    if evidence_refusals:
+        raise GovernanceError("; ".join(f"{code}: {ref}" for code, ref in evidence_refusals))
     require_plan_contract(body, base_dir=root)
+
+
+PLAN_EVIDENCE_STATE_STORE_RECORD = "plan_evidence_state_store_record"
+PLAN_EVIDENCE_POINTER_UNBOUND = "plan_evidence_pointer_unbound"
+
+
+def plan_body_evidence_refusals(state: dict[str, Any], body: dict[str, Any], *, root: Path) -> list[tuple[str, str]]:
+    """Every ``evidence_refs`` entry of a body that no later envelope may carry.
+
+    ARIA-HIGH-354 — a body's refs become the refs of every later planning
+    envelope of the plan (``_planning_source_context``), and the request mint
+    refuses a state-store record. A body citing one would make every later
+    mint for the plan raise. A coverage pointer is admitted only for a round
+    this plan has measured; any other names a manifest nobody handed it.
+    """
+    from .evidence_validator import _is_coverage_manifest_pointer, state_store_record_refs
+
+    refs = [ref for ref in body.get("evidence_refs") or [] if isinstance(ref, str)]
+    measured = set(_reviewed_coverage_pointers(state))
+    return [
+        *((PLAN_EVIDENCE_STATE_STORE_RECORD, ref) for ref in state_store_record_refs(refs, store_root=root)),
+        *((PLAN_EVIDENCE_POINTER_UNBOUND, ref) for ref in refs
+          if _is_coverage_manifest_pointer(ref) and ref not in measured),
+    ]
+
+
+def plan_body_refusals(state: dict[str, Any], body: Any, *, root: Path) -> list[tuple[str, str]]:
+    """The bridge's deterministic refusals of ``body``, as (code, detail), judged before acceptance.
+
+    ARIA-HIGH-355 review — ``submit_claim_result`` judged only the plan
+    contract before accepting a planner's answer; the bridge then judged the
+    shape, the origin, the admission bound (ADR-0021) and the evidence. A body
+    the bridge refuses after acceptance leaves the request
+    ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL, an outcome no successor can
+    change, so the plan died. Judged here, the same body is REJECTED and the
+    step's successor carries the reasons (``predecessor_rejection``). The
+    bridge keeps every check as the last line.
+    """
+    from .plan_origin import (
+        REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE, admission_scope_for_plan, body_paths,
+        paths_outside_admission_scope, require_origin_unchanged,
+    )
+
+    if not isinstance(body, dict):
+        return []
+    try:
+        _validate_plan_content(body)
+        require_origin_unchanged(state, body)
+    except GovernanceError as exc:
+        return [("plan_body_invalid", str(exc))]
+    scope = admission_scope_for_plan(state)
+    outside = paths_outside_admission_scope(scope, body_paths(body)) if scope is not None else []
+    return [
+        *((REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE, path) for path in outside),
+        *plan_body_evidence_refusals(state, body, root=root),
+    ]
 
 
 def record_coverage(
@@ -3344,15 +3403,39 @@ def _planning_source_context(state: dict[str, Any], fallback_refs: list[str]) ->
     never use a previous seed's refs and label them current. This helper
     derives retrieval inputs only, not write scope or planner proposals.
     """
+    pointers = _reviewed_coverage_pointers(state)
     try:
         body = plan_body_from_state(state)
     except GovernanceError:
-        return list(fallback_refs), None, None
+        return _with_pointers(list(fallback_refs), pointers), None, None
     refs = body["plan_content"].get("evidence_refs")
     paths = affected_surface_paths(body["plan_content"].get("affected_surfaces", []))
     if not isinstance(refs, list) or not refs or any(not isinstance(ref, str) or not ref.strip() for ref in refs):
         refs = fallback_refs
-    return list(refs), body["content_hash"], paths or None
+    return _with_pointers(list(refs), pointers), body["content_hash"], paths or None
+
+
+def _reviewed_coverage_pointers(state: dict[str, Any]) -> list[str]:
+    """The citable pointer of every coverage manifest recorded for this plan.
+
+    ARIA-HIGH-354 — a round's coverage gaps reach the next round's planners
+    as synthetic risks that cite the manifest by its pointer, and the
+    response law admits a pointer only when the answered envelope carries it.
+    Every planning envelope of the plan therefore carries the pointers of
+    the rounds already measured, oldest first.
+    """
+    from .evidence_validator import coverage_manifest_pointer
+
+    rounds = state.get("coverage_by_round") or {}
+    return [
+        coverage_manifest_pointer(str(rounds[number]["closure_manifest_path"]))
+        for number in sorted(rounds, key=int)
+        if isinstance(rounds[number], dict) and rounds[number].get("closure_manifest_path")
+    ]
+
+
+def _with_pointers(refs: list[str], pointers: list[str]) -> list[str]:
+    return [*refs, *(pointer for pointer in pointers if pointer not in refs)]
 
 
 def _coerce_plan_body(candidate: Any) -> dict[str, Any] | None:

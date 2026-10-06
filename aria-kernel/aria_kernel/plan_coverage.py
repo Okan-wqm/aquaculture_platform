@@ -76,10 +76,12 @@ def build_synthetic_risk(node: dict[str, Any], *, round_number: int, closure_man
             "Widen affected_surfaces to address the node, or add a coverage.waivers "
             "entry {node, reason} the completeness critic can adjudicate"
         ),
-        "affected_files": [closure_manifest_path],
         # ARIA-HIGH-354 — the manifest is a state-store record, not a repo
-        # file; agents read this risk and cite its refs, so it names the
-        # manifest the way the evidence law admits one.
+        # file, and a closure node names a project, not a file: the risk
+        # lists no repository file, and cites the manifest by the pointer
+        # every later planning envelope of this plan carries
+        # (`plan_convergence._reviewed_coverage_pointers`).
+        "affected_files": [],
         "evidence_refs": [coverage_manifest_pointer(closure_manifest_path)],
     }
 

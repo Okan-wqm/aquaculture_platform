@@ -486,7 +486,9 @@ def issue_completeness_critic_envelope(
         suggested_prompt=suggested,
         must_satisfy=must_satisfy,
         allowed_scope=allowed_scope,
-        evidence_refs=[manifest_pointer, *evidence_refs],
+        # The plan's refs already carry every measured round's pointer
+        # (`_planning_source_context`); this round's leads, once.
+        evidence_refs=[manifest_pointer, *(ref for ref in evidence_refs if ref != manifest_pointer)],
         convergence_id=plan_id,
         round_number=round_number,
         base_dir=base_dir,

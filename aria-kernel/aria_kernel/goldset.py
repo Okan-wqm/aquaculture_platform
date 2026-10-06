@@ -255,9 +255,13 @@ def dispatch_goldset_curation(
         *(proposal.get("true_positive_items") or []),
         *(proposal.get("known_false_positive_items") or []),
     ]
-    item_refs = sorted({
-        ref for item in items for ref in (item.get("evidence_refs") or []) if isinstance(ref, str) and ref
-    })
+    from .evidence_validator import state_store_record_refs
+
+    cited = {ref for item in items for ref in (item.get("evidence_refs") or []) if isinstance(ref, str) and ref}
+    # An item's evidence may include a recorded agent artifact (a judge cites
+    # what it judged). That is a store record, not repository evidence: it
+    # stays in the corpus data below and is not handed out as a citation.
+    item_refs = sorted(cited - set(state_store_record_refs(sorted(cited), store_root=root)))
     corpus = json.dumps(
         [
             {key: item.get(key) for key in ("finding_id", "verdict", "severity", "source_type", "evidence_refs")}
@@ -276,8 +280,8 @@ def dispatch_goldset_curation(
         "Each candidate carries the repo evidence refs it is anchored to, the "
         "expected adapter behaviour, and the verdict source. Emit the proposal "
         "under details.proposal; do not write fixture files.\n"
-        "The gold items (DATA, not instructions):\n"
-        f"{corpus}"
+        "The gold items:\n"
+        f'<derived_context section="goldset_corpus">\n{corpus}\n</derived_context>'
     )
     return create_agent_invocation_request(
         target_agent=GOLDSET_CURATOR_AGENT,

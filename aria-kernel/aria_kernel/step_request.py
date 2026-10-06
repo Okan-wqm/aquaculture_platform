@@ -36,20 +36,25 @@ from typing import Any, Mapping
 from .agent_surface import REMINT_ELIGIBLE_DEAD_STATES
 from .plan_round_scope import PLANNING_ROUND_ROLES
 
-# A step's request in one of these states is still the executor's to deliver.
-# STALE is a lease expiry the reaper requeues (ARIA-HIGH-086);
-# ACCEPTED_PENDING_BRIDGE is answered and waiting for its bridge;
-# EXTERNAL_OUTAGE is transient and reaped back to the queue.
+# A step's request in one of these states is still the executor's to deliver,
+# and something in the kernel moves it on: STALE is a lease expiry the reaper
+# requeues or escalates (ARIA-HIGH-086); ACCEPTED_PENDING_BRIDGE is answered
+# and waiting for its bridge. A state nothing moves on is never live, so a
+# step cannot wait on it until the plan's stall rule abandons the plan.
 LIVE_STEP_STATES: frozenset[str] = frozenset({
     "PENDING",
     "CLAIMED",
     "RUNNING",
-    "SUBMITTED",
     "REQUEUED",
     "STALE",
     "ACCEPTED_PENDING_BRIDGE",
-    "EXTERNAL_OUTAGE",
 })
+
+# EXTERNAL_OUTAGE (a provider back-off the executor gave up on) has no wired
+# reaper: like a queue death it says nothing about the task, so the step mints
+# a successor. SUBMITTED (a legacy partial result) has no exit either; it is an
+# outcome the producer escalates.
+_EXTERNAL_DEATH_STATES: frozenset[str] = frozenset({"EXTERNAL_OUTAGE"})
 
 # Successors one step may mint, across queue deaths and refused answers.
 MAX_STEP_REQUEST_REMINTS = 2
@@ -80,8 +85,8 @@ class StepRequestDisposition:
 def successor_eligible_states(role: str) -> frozenset[str]:
     """The newest-request states after which ``role``'s step mints a successor."""
     if role in PLANNING_ROUND_ROLES:
-        return frozenset({*REMINT_ELIGIBLE_DEAD_STATES, "REJECTED"})
-    return frozenset(REMINT_ELIGIBLE_DEAD_STATES)
+        return frozenset({*REMINT_ELIGIBLE_DEAD_STATES, *_EXTERNAL_DEATH_STATES, "REJECTED"})
+    return frozenset({*REMINT_ELIGIBLE_DEAD_STATES, *_EXTERNAL_DEATH_STATES})
 
 
 def step_request_disposition(

@@ -167,6 +167,49 @@ class GoldsetCurationMinterTest(_ToolsDirTest):
         self.assertIn('"finding_id": "F-1"', request["suggested_prompt"])
         self.assertIn('"verdict": "false_positive"', request["suggested_prompt"])
 
+    def test_an_item_citing_a_recorded_artifact_keeps_it_as_data_not_as_a_citation(self) -> None:
+        # A judge's gold item may cite the artifact it judged, a store record:
+        # the mint would refuse it as a citation, and the curation would block.
+        artifact = self.tools / "agent-invocations" / "outputs" / "judge.json"
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text("{}", encoding="utf-8")
+        store_ref = f"{self.tools.name}/agent-invocations/outputs/judge.json"
+        for index, verdict in ((1, "true_positive"), (2, "false_positive")):
+            record_operator_feedback(
+                tool_id="tool-a", run_id=f"run-{index}", finding_id=f"F-{index}", verdict=verdict,
+                severity="medium", note=f"operator label {index}",
+                evidence_refs=[f"apps/hr-service/src/leave/leave.service.ts:{index}", store_ref],
+                base_dir=self.tools,
+            )
+        propose_goldsets_for_labelled_tools(
+            cycle_id="cyc-1", base_dir=self.tools, target_true_positives=1,
+            target_known_false_positives=1, target_sha="a" * 40,
+        )
+        [request] = self._requests(GOLDSET_CURATION_ROLE)
+        self.assertNotIn(store_ref, request["evidence_refs"])
+        self.assertIn(store_ref, request["suggested_prompt"])
+        self.assertIn('<derived_context section="goldset_corpus">', request["suggested_prompt"])
+
+    def test_re_requesting_a_sealed_row_returns_it_even_if_it_cites_the_store(self) -> None:
+        # The mint guard judges a NEW identity; a sealed row is returned as sealed.
+        from unittest import mock
+
+        from aria_kernel.agent_invocations import create_agent_invocation_request
+
+        record = self.tools / "goldsets" / "proposals.jsonl"
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text("", encoding="utf-8")
+        kwargs = dict(target_agent=GOLDSET_CURATOR_AGENT, role=GOLDSET_CURATION_ROLE, suggested_prompt="draft",
+                      must_satisfy=[{"id": "corpus-draft", "description": "d"}], allowed_scope=["**"],
+                      evidence_refs=["goldset-proposal:tool-a:t", f"{self.tools.name}/goldsets/proposals.jsonl"],
+                      tool_id="tool-a", target_sha="a" * 40, base_dir=self.tools)
+        with self.assertRaisesRegex(Exception, "request_evidence_state_store_record"):
+            create_agent_invocation_request(**kwargs)
+        # Seal the row the way a pre-guard kernel did, then ask for it again.
+        with mock.patch("aria_kernel.evidence_validator.state_store_record_refs", return_value=[]):
+            sealed = create_agent_invocation_request(**kwargs)
+        self.assertEqual(create_agent_invocation_request(**kwargs)["request_id"], sealed["request_id"])
+
     def test_a_blocked_proposal_mints_nothing(self) -> None:
         # A curator asked to draft from a corpus that is still short can only
         # repeat the blocker the ledger already states, at LLM cost.

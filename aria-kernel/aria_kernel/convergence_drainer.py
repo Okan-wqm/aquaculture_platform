@@ -85,7 +85,7 @@ from .plan_coverage import (
     parse_critic_adjudication,
 )
 from .plan_round_scope import plan_round_contract
-from .step_request import LIVE_STEP_STATES, StepRequestDisposition, step_request_disposition
+from .step_request import StepRequestDisposition, step_request_disposition
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 # Plan ARIA-V10.4 Phase 3.H.2 — the convergence drainer mints
@@ -488,41 +488,6 @@ def _requests_for_step(
         and row.get("role") == role
         and row.get("round_number") == round_number
     ]
-
-
-def _live_request_id(
-    base_dir: str | Path,
-    *,
-    convergence_id: str,
-    role: str,
-    round_number: int,
-) -> str | None:
-    """A request the executor can still deliver.
-
-    Pending, claimed, requeued — and STALE: a claim whose lease expired
-    without a result is the reaper's to requeue (or to escalate once the
-    requeue budget is spent), not the drainer's to bury. Trial nine
-    (2026-09-12, ARIA-HIGH-086): the hook claimed the round-3 cross-review
-    and its spawn died before the executor started; the lease expired; the
-    next drainer step ran before the reaper, saw STALE, raised
-    _EnvelopeDead and forced the plan to HUMAN_REQUIRED for a harness fault
-    the reaper would have requeued for free.
-    """
-    from .agent_invocations import derive_request_state
-
-    for row in _requests_for_step(
-        base_dir, convergence_id=convergence_id, role=role, round_number=round_number,
-    ):
-        request_id = str(row.get("request_id") or "")
-        if not request_id:
-            continue
-        try:
-            state = derive_request_state(request_id=request_id, base_dir=base_dir)
-        except Exception:
-            continue
-        if state in LIVE_STEP_STATES:
-            return request_id
-    return None
 
 
 class _EnvelopeDead(Exception):

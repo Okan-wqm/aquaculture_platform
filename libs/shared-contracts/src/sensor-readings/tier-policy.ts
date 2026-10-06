@@ -52,6 +52,12 @@ export const AGGREGATION_INTERVAL_SQL: readonly AggregationIntervalSql[] =
 export const MAX_SERIES_RANGE_MS = YEAR_MS;
 
 /**
+ * The statement timeout a history read runs under: a year-long, many-channel
+ * request must fail fast rather than hold a pooled connection.
+ */
+export const SERIES_QUERY_TIMEOUT: PolicyDuration = { sql: '5s', ms: 5_000 };
+
+/**
  * How far back an as-of ("latest value") projection looks. A bound keeps the
  * read chunk-pruned and lets a long-dead channel drop out instead of having
  * its last value presented as current.
@@ -168,4 +174,72 @@ export function tierForWindow(windowMs: number): MetricTier {
   // The last tier answers an unbounded window, so a tier always matches; the
   // fallback names that tier rather than inventing a default.
   return METRIC_TIERS.find((candidate) => windowMs <= candidate.maxWindowMs) ?? metricTier('day');
+}
+
+/** The most points one channel's series can carry under this policy. */
+export const MAX_POINTS_PER_CHANNEL = 2_000;
+
+/** What a series read will actually do: the store and the bucket width. */
+export interface SeriesReadPlan {
+  readonly tier: MetricTier;
+  readonly interval: AggregationIntervalSql;
+}
+
+function intervalForMs(ms: number): (typeof AGGREGATION_INTERVALS)[number] {
+  // The narrowest whitelisted width at least `ms` wide; the widest otherwise.
+  return (
+    AGGREGATION_INTERVALS.find((interval) => interval.ms >= ms) ??
+    AGGREGATION_INTERVALS[AGGREGATION_INTERVALS.length - 1] ??
+    AGGREGATION_INTERVALS[0]
+  );
+}
+
+/**
+ * Choose the store and bucket width for a series over [startMs, endMs] read
+ * at `nowMs`, optionally at a requested width. One rule for every series
+ * read, so the response can say truthfully what it returns:
+ *
+ * 1. Start from the finest store that answers a window this long.
+ * 2. Move coarser while the store no longer retains data as old as the
+ *    window's start — a one-hour chart from two years ago reads the hourly
+ *    rollup, not an emptied minute tier.
+ * 3. The width is the requested one (or the display ladder's for the
+ *    window), but never finer than the store's native bucket: a store cannot
+ *    be read finer than it keeps.
+ * 4. A requested width at least as coarse as a coarser store's bucket reads
+ *    that store instead — the same answer from fewer rows.
+ */
+export function planSeriesRead(params: {
+  readonly startMs: number;
+  readonly endMs: number;
+  readonly nowMs: number;
+  readonly requestedIntervalMs?: number;
+}): SeriesReadPlan {
+  const windowMs = params.endMs - params.startMs;
+  const baseIndex = METRIC_TIERS.indexOf(tierForWindow(windowMs));
+
+  let tierIndex = baseIndex;
+  for (; tierIndex < METRIC_TIERS.length - 1; tierIndex++) {
+    const { retention } = METRIC_TIERS[tierIndex] ?? metricTier('day');
+    if (retention === null || params.startMs >= params.nowMs - retention.ms) break;
+  }
+
+  const displayMs =
+    AGGREGATION_INTERVALS.find((interval) => interval.sql === displayIntervalFor(windowMs))?.ms ??
+    0;
+  const wantedMs = params.requestedIntervalMs ?? displayMs;
+  const floorMs = METRIC_TIERS[tierIndex]?.bucket?.ms ?? 0;
+  const interval = intervalForMs(Math.max(wantedMs, floorMs));
+
+  // Rule 4: the coarsest store whose own bucket still fits a width the
+  // caller asked for. The default path keeps the window's store, so a chart
+  // that asks for nothing reads exactly what it always read.
+  if (params.requestedIntervalMs !== undefined) {
+    for (let coarser = tierIndex + 1; coarser < METRIC_TIERS.length; coarser++) {
+      const bucket = METRIC_TIERS[coarser]?.bucket;
+      if (bucket && bucket.ms <= interval.ms) tierIndex = coarser;
+    }
+  }
+
+  return { tier: METRIC_TIERS[tierIndex] ?? metricTier('day'), interval: interval.sql };
 }

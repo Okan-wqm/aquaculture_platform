@@ -4,9 +4,11 @@ import {
   AS_OF_LOOKBACK,
   DISPLAY_INTERVAL_LADDER,
   displayIntervalFor,
+  MAX_POINTS_PER_CHANNEL,
   MAX_SERIES_RANGE_MS,
   METRIC_TIERS,
   metricTier,
+  planSeriesRead,
   tierForWindow,
 } from '../sensor-readings/tier-policy';
 
@@ -114,5 +116,87 @@ describe('sensor-reading tier policy', () => {
     for (const tier of METRIC_TIERS) {
       expect(metricTier(tier.tier)).toBe(tier);
     }
+  });
+
+  describe('planSeriesRead', () => {
+    const NOW = Date.UTC(2026, 9, 7, 12, 0, 0);
+    const ladderProbes = DISPLAY_INTERVAL_LADDER.flatMap(({ maxWindowMs }) =>
+      Number.isFinite(maxWindowMs) ? [maxWindowMs, maxWindowMs + 1] : [],
+    ).concat([MAX_SERIES_RANGE_MS]);
+
+    it('reads a recent window exactly as before: the window store at the display width', () => {
+      for (const windowMs of ladderProbes) {
+        const plan = planSeriesRead({ startMs: NOW - windowMs, endMs: NOW, nowMs: NOW });
+        expect([windowMs, plan.tier.table, plan.interval]).toEqual([
+          windowMs,
+          tierForWindow(windowMs).table,
+          displayIntervalFor(windowMs),
+        ]);
+      }
+    });
+
+    it('moves to a coarser store when the window starts before the store keeps data', () => {
+      const twoYearsAgo = NOW - 2 * 365 * DAY;
+      const plan = planSeriesRead({
+        startMs: twoYearsAgo,
+        endMs: twoYearsAgo + 6 * HOUR,
+        nowMs: NOW,
+      });
+      // metrics_1min keeps one year; the hourly rollup still holds that day.
+      expect([plan.tier.table, plan.interval]).toEqual(['metrics_1hour', '1 hour']);
+
+      const sixYearsAgo = NOW - 6 * 365 * DAY;
+      const ancient = planSeriesRead({
+        startMs: sixYearsAgo,
+        endMs: sixYearsAgo + 2 * DAY,
+        nowMs: NOW,
+      });
+      expect([ancient.tier.table, ancient.interval]).toEqual(['metrics_1day', '1 day']);
+    });
+
+    it('never reads a store finer than it keeps, and says so in the interval', () => {
+      const plan = planSeriesRead({
+        startMs: NOW - 20 * DAY,
+        endMs: NOW,
+        nowMs: NOW,
+        requestedIntervalMs: MINUTE,
+      });
+      expect([plan.tier.table, plan.interval]).toEqual(['metrics_1hour', '1 hour']);
+    });
+
+    it('reads a coarser store when the caller asks for a coarser width', () => {
+      const plan = planSeriesRead({
+        startMs: NOW - 7 * DAY,
+        endMs: NOW,
+        nowMs: NOW,
+        requestedIntervalMs: DAY,
+      });
+      expect([plan.tier.table, plan.interval]).toEqual(['metrics_1day', '1 day']);
+    });
+
+    it(`bounds every series at ${MAX_POINTS_PER_CHANNEL} points per channel`, () => {
+      const windows = ladderProbes.concat([MINUTE, 90 * DAY]);
+      const requests: Array<number | undefined> = [
+        undefined,
+        ...AGGREGATION_INTERVALS.map((interval) => interval.ms),
+      ];
+      for (const windowMs of windows) {
+        for (const requestedIntervalMs of requests) {
+          const plan = planSeriesRead({
+            startMs: NOW - windowMs,
+            endMs: NOW,
+            nowMs: NOW,
+            ...(requestedIntervalMs === undefined ? {} : { requestedIntervalMs }),
+          });
+          const width = AGGREGATION_INTERVALS.find((interval) => interval.sql === plan.interval);
+          const points = Math.ceil(windowMs / (width?.ms ?? 1));
+          expect([windowMs, requestedIntervalMs, points <= MAX_POINTS_PER_CHANNEL]).toEqual([
+            windowMs,
+            requestedIntervalMs,
+            true,
+          ]);
+        }
+      }
+    });
   });
 });

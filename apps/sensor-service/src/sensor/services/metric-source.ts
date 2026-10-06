@@ -8,13 +8,17 @@
  */
 
 import {
+  AGGREGATION_INTERVALS,
+  type AggregationIntervalSql,
   AS_OF_LOOKBACK as AS_OF_LOOKBACK_POLICY,
   metricTier,
   type MetricTierName,
-  tierForWindow,
+  planSeriesRead,
 } from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
 import { Logger } from '@nestjs/common';
 import { QueryRunner } from 'typeorm';
+
+import { QualityCodes } from '../../database/entities/sensor-metric.entity';
 
 /**
  * How far back an as-of projection looks for a channel's last-known value.
@@ -77,15 +81,67 @@ export const METRIC_ROLLUP_SOURCES: Readonly<Record<Exclude<MetricTierName, 'raw
     day: { table: metricTier('day').table, timeColumn: 'bucket', weighted: true },
   };
 
+/** What one series read does: the store, the bucket width it returns, the window. */
+export interface MetricReadPlan {
+  readonly source: MetricSource;
+  readonly interval: AggregationIntervalSql;
+  readonly windowStart: Date;
+}
+
+/** Native bucket width (ms) of each rollup source; raw rows have none. */
+const SOURCE_BUCKET_MS = new Map<MetricSource, number>([
+  [METRIC_ROLLUP_SOURCES.minute, metricTier('minute').bucket.ms],
+  [METRIC_ROLLUP_SOURCES.hour, metricTier('hour').bucket.ms],
+  [METRIC_ROLLUP_SOURCES.day, metricTier('day').bucket.ms],
+]);
+
+/** The tier a resolved source belongs to — what a response reports as its store. */
+export function tierOfSource(source: MetricSource): MetricTierName {
+  if (source === METRIC_ROLLUP_SOURCES.minute) return 'minute';
+  if (source === METRIC_ROLLUP_SOURCES.hour) return 'hour';
+  if (source === METRIC_ROLLUP_SOURCES.day) return 'day';
+  return 'raw';
+}
+
 /**
- * Pick the metric source by range so a month-long chart reads a pre-rolled
- * continuous aggregate instead of scanning raw rows. The auto-selected display interval (getOptimalInterval)
- * is always ≥ the chosen source's native bucket, so re-bucketing never asks a
- * rollup for finer granularity than it stores.
+ * Lower bound on `source`'s time column for a plan: a rollup bucket that
+ * starts before the window but overlaps it still carries the window's first
+ * rows. Taken from the source actually read — resolveExistingSource may have
+ * fallen back to raw rows, which need no widening.
  */
-export function selectMetricSource(startTime: Date, endTime: Date): MetricSource {
-  const { tier } = tierForWindow(endTime.getTime() - startTime.getTime());
-  return tier === 'raw' ? RAW_METRIC_SOURCE : METRIC_ROLLUP_SOURCES[tier];
+export function scanStart(plan: MetricReadPlan, source: MetricSource): Date {
+  const bucketMs = SOURCE_BUCKET_MS.get(source) ?? 0;
+  return bucketMs === 0 ? plan.windowStart : new Date(plan.windowStart.getTime() - bucketMs + 1);
+}
+
+/**
+ * Plan a series read through the tier policy (planSeriesRead) — the one rule
+ * every series query follows, so the store, the width it reports and the
+ * window it scans can never disagree. The width is never finer than the
+ * store's bucket, and a window older than a store's retention reads a
+ * coarser store.
+ */
+export function planMetricRead(
+  startTime: Date,
+  endTime: Date,
+  requestedInterval?: AggregationIntervalSql,
+  now: Date = new Date(),
+): MetricReadPlan {
+  const requestedIntervalMs = AGGREGATION_INTERVALS.find(
+    (interval) => interval.sql === requestedInterval,
+  )?.ms;
+  const plan = planSeriesRead({
+    startMs: startTime.getTime(),
+    endMs: endTime.getTime(),
+    nowMs: now.getTime(),
+    ...(requestedIntervalMs === undefined ? {} : { requestedIntervalMs }),
+  });
+  const { tier } = plan.tier;
+  return {
+    source: tier === 'raw' ? RAW_METRIC_SOURCE : METRIC_ROLLUP_SOURCES[tier],
+    interval: plan.interval,
+    windowStart: startTime,
+  };
 }
 
 /**
@@ -131,6 +187,7 @@ export function bucketAggregateExpressions(source: MetricSource): {
   min: string;
   max: string;
   count: string;
+  badCount: string;
 } {
   return source.weighted
     ? {
@@ -138,6 +195,14 @@ export function bucketAggregateExpressions(source: MetricSource): {
         min: 'MIN(s.min_value)',
         max: 'MAX(s.max_value)',
         count: 'SUM(s.sample_count)',
+        badCount: 'SUM(s.bad_count)',
       }
-    : { avg: 'AVG(s.value)', min: 'MIN(s.value)', max: 'MAX(s.value)', count: 'COUNT(*)' };
+    : {
+        avg: 'AVG(s.value)',
+        min: 'MIN(s.value)',
+        max: 'MAX(s.value)',
+        count: 'COUNT(*)',
+        // Below GOOD is "bad" — the same split the rollups store as bad_count.
+        badCount: `COUNT(*) FILTER (WHERE s.quality_code < ${QualityCodes.GOOD})`,
+      };
 }

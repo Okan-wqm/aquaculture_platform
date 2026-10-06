@@ -20,10 +20,7 @@ import {
   sensorReadingAnchorSql,
   type SensorReadingAnchor,
 } from '@aquaculture/backend-common/sensor';
-import {
-  displayIntervalFor,
-  MAX_SERIES_RANGE_MS,
-} from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
+import { MAX_SERIES_RANGE_MS } from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { parameterForChannelKey, type SensorReadingParameter } from '@platform/event-contracts';
@@ -38,8 +35,9 @@ import { DataQualityService } from './data-quality.service';
 import {
   AS_OF_LOOKBACK,
   bucketAggregateExpressions,
+  planMetricRead,
   resolveExistingSource,
-  selectMetricSource,
+  scanStart,
   toNumberOrUndefined,
 } from './metric-source';
 import {
@@ -48,7 +46,6 @@ import {
   validateAggregationInterval,
   validateDateRange,
   validateLimit,
-  ALLOWED_AGGREGATION_INTERVALS,
   SafeAggregationInterval,
 } from '../validation/input-sanitizer';
 
@@ -71,16 +68,6 @@ const MAX_RESULTS_LIMIT = 10000;
  * Default results limit
  */
 const DEFAULT_RESULTS_LIMIT = 1000;
-
-/**
- * Determine optimal aggregation interval based on time range
- * Target: 50-200 data points for optimal visualization
- */
-export function getOptimalInterval(startTime: Date, endTime: Date): AggregationInterval {
-  // The ladder lives in the tier policy; its values are the interval whitelist.
-  return displayIntervalFor(endTime.getTime() - startTime.getTime());
-}
-
 
 /**
  * The five parameters the AggregatedReading DTO carries min/max for; the rest
@@ -388,16 +375,10 @@ export class SensorQueryService {
       MAX_SERIES_RANGE_MS,
     );
 
-    // Auto-select optimal interval if not provided
-    const effectiveInterval = interval
-      ? validateAggregationInterval(interval)
-      : getOptimalInterval(validStart, validEnd);
-
-    if (!effectiveInterval) {
-      throw new BadRequestException(
-        `Invalid interval. Allowed values: ${ALLOWED_AGGREGATION_INTERVALS.join(', ')}`,
-      );
-    }
+    // One plan for store, width and scanned window (tier policy): the width
+    // reported back is the width actually read, never finer than the store.
+    const plan = planMetricRead(validStart, validEnd, validateAggregationInterval(interval));
+    const effectiveInterval = plan.interval;
 
     // SENSOR-MEDIUM-066/068: aggregate over the converged channel-keyed
     // sensor_metrics store instead of extracting from the sensor_readings JSONB.
@@ -418,15 +399,11 @@ export class SensorQueryService {
       SENSOR_SCHEMA,
       validTenantId,
       async (qr) => {
-        const source = await resolveExistingSource(
-          qr,
-          selectMetricSource(validStart, validEnd),
-          this.logger,
-        );
+        const source = await resolveExistingSource(qr, plan.source, this.logger);
         const agg = bucketAggregateExpressions(source);
 
         // sensor/tenant/time filters are parameterized; the table + time column
-        // come from the fixed selectMetricSource whitelist (never user input).
+        // come from the fixed tier-policy whitelist (never user input).
         // The channel JOIN carries the tenant filter too, so a mis-set
         // search_path cannot silently widen the read.
         const aggregated = (await qr.query(
@@ -442,10 +419,10 @@ export class SensorQueryService {
            WHERE s.sensor_id = $2
              AND s.tenant_id = $3
              AND s.${source.timeColumn} >= $4
-             AND s.${source.timeColumn} <= $5
+             AND s.${source.timeColumn} < $5
            GROUP BY bucket, c.channel_key
            ORDER BY bucket ASC`,
-          [effectiveInterval, validSensorId, validTenantId, validStart, validEnd],
+          [effectiveInterval, validSensorId, validTenantId, scanStart(plan, source), validEnd],
         )) as Array<{
           bucket: string;
           channel_key: string;

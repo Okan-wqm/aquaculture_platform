@@ -4,7 +4,11 @@ import { Tenant } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 
 import { AggregationInterval } from '../dto/aggregated-reading.dto';
-import { ChannelLatestValue, ChannelSeriesResponse } from '../dto/channel-reading.dto';
+import {
+  ChannelDataBounds,
+  ChannelLatestValue,
+  ChannelSeriesResponse,
+} from '../dto/channel-reading.dto';
 import { ChannelReadingQueryService } from '../services/channel-reading-query.service';
 
 /**
@@ -42,5 +46,17 @@ export class ChannelReadingResolver {
     interval?: AggregationInterval,
   ): Promise<ChannelSeriesResponse> {
     return this.channelReadings.getSeries(sensorId, tenantId, startTime, endTime, interval);
+  }
+
+  @Query(() => [ChannelDataBounds], {
+    name: 'channelDataBounds',
+    description:
+      "The first and last stored sample of each channel of the given sensors (≤100) — where a sensor's history starts and ends",
+  })
+  async channelDataBounds(
+    @Args('sensorIds', { type: () => [ID] }) sensorIds: string[],
+    @Tenant() tenantId: string,
+  ): Promise<ChannelDataBounds[]> {
+    return this.channelReadings.getDataBounds(sensorIds, tenantId);
   }
 }

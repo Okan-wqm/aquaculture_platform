@@ -29,6 +29,15 @@ export type AggregationIntervalMatchesPolicy = ExactlyTrue<
     : false
 >;
 
+/** The GraphQL enum member for a policy interval (values are identical). */
+export function aggregationIntervalOf(sql: AggregationIntervalSql): AggregationInterval {
+  const member = Object.values(AggregationInterval).find((value) => value === sql);
+  if (member === undefined) {
+    throw new Error(`AggregationInterval has no member for ${sql}`);
+  }
+  return member;
+}
+
 registerEnumType(AggregationInterval, {
   name: 'AggregationInterval',
   description: 'Time bucket interval for data aggregation',

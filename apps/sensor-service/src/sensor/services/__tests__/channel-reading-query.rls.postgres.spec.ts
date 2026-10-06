@@ -13,7 +13,8 @@ import { SensorMetric } from '../../../database/entities/sensor-metric.entity';
 import { SensorProtocol } from '../../../database/entities/sensor-protocol.entity';
 import { SensorTypeDefinition } from '../../../database/entities/sensor-type-definition.entity';
 import { Sensor } from '../../../database/entities/sensor.entity';
-import { ChannelAlertLevel } from '../../dto/channel-reading.dto';
+import { AggregationInterval } from '../../dto/aggregated-reading.dto';
+import { ChannelAlertLevel, MetricSourceTier } from '../../dto/channel-reading.dto';
 import { ChannelReadingQueryService } from '../channel-reading-query.service';
 
 /**
@@ -82,6 +83,8 @@ describe('ChannelReadingQueryService under FORCE RLS (SENSOR-HIGH-138)', () => {
   let runtime: DataSource | undefined;
   let service: ChannelReadingQueryService;
   const sensorIds: Record<string, string> = {};
+  const channelIds: Record<string, Record<string, string>> = {};
+  const channelIdsOf = (tenantId: string): Record<string, string> => channelIds[tenantId] ?? {};
   const now = Date.now();
 
   beforeAll(async () => {
@@ -134,6 +137,7 @@ describe('ChannelReadingQueryService under FORCE RLS (SENSOR-HIGH-138)', () => {
             order + 1,
           ],
         );
+        channelIds[tenantId] = { ...channelIdsOf(tenantId), [channel.key]: row.id };
         // Oldest value first, 10 minutes apart; the last one is 2 minutes old.
         for (const [index, value] of channel.values.entries()) {
           const time = new Date(now - (channel.values.length - index) * 10 * 60_000 + 8 * 60_000);
@@ -269,6 +273,74 @@ describe('ChannelReadingQueryService under FORCE RLS (SENSOR-HIGH-138)', () => {
       ammonia: [0.11, -0.02],
       conductivity: [41_200, 41_350],
       turbidity: [],
+      // Disabled since: its history is still part of the record.
+      orp: [210],
     });
+  });
+
+  it('says which store and width it read, in which zone, and marks disabled channels', async () => {
+    const response = await service.getSeries(
+      sensorIds[TENANT_A]!,
+      TENANT_A,
+      new Date(now - 60 * 60_000),
+      new Date(now),
+    );
+
+    expect({
+      resolution: response.resolution,
+      sourceTier: response.sourceTier,
+      bucketTimeZone: response.bucketTimeZone,
+      maxRangeSeconds: response.maxRangeSeconds,
+    }).toEqual({
+      resolution: AggregationInterval.ONE_MINUTE,
+      sourceTier: MetricSourceTier.RAW,
+      bucketTimeZone: 'UTC',
+      maxRangeSeconds: 365 * 24 * 60 * 60,
+    });
+    const enabled = Object.fromEntries(
+      response.channels.map((channel) => [channel.channelKey, channel.enabled]),
+    );
+    expect(enabled['orp']).toBe(false);
+    expect(enabled['temperature']).toBe(true);
+    const temperature = response.channels.find((channel) => channel.channelKey === 'temperature');
+    expect(temperature?.unit).toBe('°C');
+    expect(temperature?.points.map((point) => point.badCount)).toEqual([0, 0]);
+  });
+
+  it('reports the stretches without data as gaps, one bucket wide or more', async () => {
+    const start = new Date(now - 60 * 60_000);
+    const end = new Date(now);
+    const response = await service.getSeries(sensorIds[TENANT_A]!, TENANT_A, start, end);
+
+    const turbidity = response.channels.find((channel) => channel.channelKey === 'turbidity');
+    expect(turbidity?.gaps).toEqual([{ start, end }]);
+
+    const temperature = response.channels.find((channel) => channel.channelKey === 'temperature');
+    const [first, second] = temperature?.points ?? [];
+    // Before the first sample, and between the two samples ten minutes apart.
+    expect(temperature?.gaps[0]?.start).toEqual(start);
+    expect(temperature?.gaps).toContainEqual({
+      start: new Date((first?.bucket.getTime() ?? 0) + 60_000),
+      end: second?.bucket,
+    });
+  });
+
+  it("finds where each channel's history starts and ends, within the tenant only", async () => {
+    const bounds = await service.getDataBounds([sensorIds[TENANT_A]!], TENANT_A);
+    const temperature = bounds.find(
+      (row) => row.channelId === channelIdsOf(TENANT_A)['temperature'],
+    );
+    expect(temperature?.firstSampleAt).toBeInstanceOf(Date);
+    expect(temperature?.lastSampleAt).toBeInstanceOf(Date);
+    expect(temperature!.lastSampleAt!.getTime()).toBeGreaterThan(
+      temperature!.firstSampleAt!.getTime(),
+    );
+    const turbidity = bounds.find((row) => row.channelId === channelIdsOf(TENANT_A)['turbidity']);
+    expect(turbidity).toEqual(
+      expect.objectContaining({ firstSampleAt: undefined, lastSampleAt: undefined }),
+    );
+
+    // Tenant B's sensor id asked for under tenant A: nothing.
+    expect(await service.getDataBounds([sensorIds[TENANT_B]!], TENANT_A)).toEqual([]);
   });
 });

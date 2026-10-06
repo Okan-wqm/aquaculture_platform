@@ -966,6 +966,11 @@ def _replay_findings(repo_root: Path) -> dict[str, dict[str, Any]]:
             doc = dict(record)
             doc["source_event_id"] = event.get("event_id")
             doc["source_ledger_hash"] = source_ledger_hash
+            # ARIA-HIGH-363 (review B1) — the commit the finding was minted
+            # against, from the mint event every finding already has. The
+            # merge closure reads it to close only findings that predate the
+            # merge, never a regression minted after it.
+            doc["minted_at_sha"] = event.get("target_sha")
             findings[finding_id] = doc
             continue
         # Every non-mint event references a finding the ledger has already

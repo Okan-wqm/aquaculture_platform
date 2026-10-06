@@ -87,3 +87,40 @@ Tests (`aria-kernel/tests/test_finding_closure_on_merge.py`):
   unmintable drift does not reproduce.
 
 22 tests, all passing.
+
+## Review corrections (2026-10-06, PR #1813)
+
+An independent review found one blocker and three defects in the first cut. They are fixed in the
+same PR:
+
+- **B1 (blocker) — an old merge closed later regressions.** The reconciler re-ran every merged
+  plan's closure each cycle against every open finding of the subject, with no time bound. So when
+  the subject came back, the regression the seeder minted was closed the same night with the old
+  merge's evidence, and RESOLVED is terminal, so it could never be planned. Two fixes:
+  - (a) Only findings minted against a tree _without_ the merge can be closed by it
+    (`finding_closure.existed_before_merge`). This uses the mint commit (`minted_at_sha`, now read
+    from each finding's existing mint event) and `git merge-base --is-ancestor`. When git cannot
+    place a commit it falls back to mint stamp ≤ merge stamp, and if neither can be read the
+    finding is not closed.
+  - (b) A closure pass is done once per merge. Every final outcome writes
+    `finding_merge_closure_completed` and the plan is skipped afterwards. The final outcomes are
+    closed, reproduces, no detector, nothing that predates the merge, and unverifiable exhausted.
+- **M1 — the merge tree's scanner was judged by HEAD's judge.** `run_fresh_scan` now always runs
+  the scanner that ships with the seeder (`SCANNER`) against the tree. `judge_subject` returns
+  `unverifiable` for any drift class when the document lacks a section, a section is not a list, or
+  a drift's sides are not `{ref, name}` objects (`scan_shape_fault`).
+- **M2 — dedupe was lost when no subject is derivable.** Such a drift falls back to its evidence
+  chain id, held by any recorded finding, as before.
+- **M6 — unbounded rechecks.** `unverifiable` is retried at most `MAX_UNVERIFIABLE_RECHECKS` (5)
+  times per (plan, reason). After that `closure_unverifiable_exhausted` is recorded once and the
+  findings stay open.
+
+Tests: `test_finding_closure_on_merge.py` now has 27, all passing. The new ones cover:
+
+- the B1 regression scenario: revert, re-mint, reconcile, and a direct call with no completion
+  record all leave the regression OPEN and admissible;
+- completion skips;
+- bounded unverifiable rechecks;
+- the scan-shape fault for both drift classes;
+- the seeder's own scanner;
+- the evidence-chain fallback.

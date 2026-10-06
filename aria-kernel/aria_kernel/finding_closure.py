@@ -20,9 +20,21 @@ path ``finding.STATUS_TRANSITIONS`` admits) with the merge commit as
 every other open finding with the same subject key
 (``finding_subject``) citing the same evidence. ``reproduces`` is recorded
 once and the findings stay open. ``unverifiable`` (no wire, revision not
-present) is recorded once per reason and retried by the next cycle; a
-finding whose origin has no registered detector is recorded and left open —
-an unverified merge is not a fix.
+present, a scan document the judge does not read) is retried by later cycles,
+at most ``MAX_UNVERIFIABLE_RECHECKS`` times per reason, then recorded as
+``closure_unverifiable_exhausted`` with the findings left open; a finding
+whose origin has no registered detector is recorded and left open — an
+unverified merge is not a fix.
+
+Review B1 (2026-10-06): the pass is ONCE per merge, and it reaches only
+findings that existed at the merge. Without both, a plan merged long ago was
+re-run every cycle against every open finding of its subject, so a regression
+the seeder minted after the merge (the subject came back) was closed with the
+old merge's evidence the same night — RESOLVED is terminal, so the
+regression could never be planned. A final outcome writes
+``finding_merge_closure_completed`` and the reconciler skips the plan from
+then on; :func:`existed_before_merge` keeps any finding minted at a commit
+that already contains the merge out of the group.
 """
 from __future__ import annotations
 
@@ -40,13 +52,19 @@ from .finding import (
 )
 from .finding_subject import DRIFT_ORIGIN, drift_class_of, finding_subject_key
 from .ledger import load_jsonl
-from .tool_registry import append_tools_governance_once, ensure_tools_dir
+from .tool_registry import append_tools_governance, ensure_tools_dir, parse_utc_stamp
 
 VERDICT_ABSENT = "absent"
 VERDICT_REPRODUCES = "reproduces"
 VERDICT_UNVERIFIABLE = "unverifiable"
 CLOSURE_ACTOR = "aria-kernel:implementation_reconciler"
 RECHECK_GOVERNANCE_KIND = "finding_merge_recheck"
+COMPLETION_GOVERNANCE_KIND = "finding_merge_closure_completed"
+UNVERIFIABLE_EXHAUSTED_KIND = "closure_unverifiable_exhausted"
+# A merge whose detector could not judge it five times for the same reason
+# (no wire, revision missing, scanner shape) will not be judged by the sixth;
+# the finding stays open and the operator sees why.
+MAX_UNVERIFIABLE_RECHECKS = 5
 # The finding states a merged fix moves to RESOLVED. SUPPRESSED is an
 # operator decision about the finding and is left to the operator.
 CLOSABLE_STATUSES = frozenset({"OPEN", "IN_PROGRESS"})
@@ -112,15 +130,49 @@ def default_detectors() -> dict[str, FindingDetector]:
     return {DRIFT_ORIGIN: DriftSubjectDetector()}
 
 
-def _recorded_reproduction(base_dir: Path, *, finding_id: str, plan_id: str, merge_sha: str) -> bool:
-    """A ``reproduces`` verdict for this merge is final: the revision cannot change."""
-    for row in load_jsonl(ensure_tools_dir(base_dir) / "governance.jsonl"):
-        details = row.get("details") if row.get("kind") == RECHECK_GOVERNANCE_KIND else None
-        if isinstance(details, dict) and details.get("verdict") == VERDICT_REPRODUCES and (
-            details.get("finding_id"), details.get("plan_id"), details.get("merge_sha"),
-        ) == (finding_id, plan_id, merge_sha):
-            return True
-    return False
+def _rows(history: list[dict[str, Any]], kind: str, plan_id: str, merge_sha: str) -> list[dict[str, Any]]:
+    return [
+        row["details"] for row in history
+        if row.get("kind") == kind and isinstance(row.get("details"), dict)
+        and (row["details"].get("plan_id"), row["details"].get("merge_sha")) == (plan_id, merge_sha)
+    ]
+
+
+def closure_completed(history: list[dict[str, Any]], *, plan_id: str, merge_sha: str) -> bool:
+    """True when this merge's closure pass reached a final outcome (review B1(b))."""
+    return bool(_rows(history, COMPLETION_GOVERNANCE_KIND, plan_id, merge_sha))
+
+
+def _git_contains(repo_root: Path, *, ancestor: str, descendant: str) -> bool | None:
+    """Is ``ancestor`` reachable from ``descendant``? None when git cannot say (unknown object)."""
+    completed = subprocess.run(
+        ["git", "-C", str(repo_root), "merge-base", "--is-ancestor", ancestor, descendant],
+        capture_output=True, text=True,
+    )
+    return {0: True, 1: False}.get(completed.returncode)
+
+
+def existed_before_merge(
+    record: Mapping[str, Any], *, merge_sha: str, merged_at: Any, repo_root: Path,
+) -> bool:
+    """Was this finding minted against a tree WITHOUT the merge? (review B1(a))
+
+    A merge can only have fixed what existed when it landed. A finding minted
+    at a commit that already contains the merge is a regression the merge did
+    not fix — closing it with the merge's evidence is a false RESOLVED, and
+    the subject would never be planned again. The mint commit
+    (``minted_at_sha``, from the mint event) decides; when git cannot place
+    one of the two commits, the mint stamp against the merge stamp does; when
+    neither is readable the finding is not closed.
+    """
+    minted_at_sha = record.get("minted_at_sha")
+    if isinstance(minted_at_sha, str) and minted_at_sha and merge_sha:
+        contains = _git_contains(repo_root, ancestor=merge_sha, descendant=minted_at_sha)
+        if contains is not None:
+            return not contains
+    created = parse_utc_stamp(record.get("created_at")) if isinstance(record.get("created_at"), str) else None
+    merged = parse_utc_stamp(merged_at) if isinstance(merged_at, str) else None
+    return created is not None and merged is not None and created <= merged
 
 
 def _resolve(repo_root: Path, finding_id: str, *, status: str, reason: str, merge_sha: str,
@@ -144,8 +196,17 @@ def close_merged_plan_finding(
     repo_root: Path,
     base_dir: Path,
     detectors: Mapping[str, FindingDetector],
+    history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Close the finding a merged plan was planned from, if its detector agrees."""
+    """Close the finding a merged plan was planned from, if its detector agrees.
+
+    One pass per merge (review B1(b)): a final outcome — closed, reproduces,
+    no detector, nothing left that predates the merge, or ``unverifiable``
+    ``MAX_UNVERIFIABLE_RECHECKS`` times for one reason (review M6) — writes
+    ``finding_merge_closure_completed`` and the plan is skipped from then
+    on. ``history`` is the governance rows the caller read once for all
+    merged plans.
+    """
     from .plan_origin import started_origin_finding_id
 
     finding_id = started_origin_finding_id(state)
@@ -154,6 +215,11 @@ def close_merged_plan_finding(
         return {**out, "status": "no_f_finding"}
     implementation = state.get("implementation") or {}
     merge_sha = str(implementation.get("merge_sha") or "")
+    merged_at = implementation.get("merged_at")
+    rows = history if history is not None else load_jsonl(ensure_tools_dir(base_dir) / "governance.jsonl")
+    out["merge_sha"] = merge_sha
+    if closure_completed(rows, plan_id=plan_id, merge_sha=merge_sha):
+        return {**out, "status": "completed_earlier"}
     findings = fold_findings(repo_root)
     if findings is None:
         return {**out, "status": "finding_store_unavailable"}
@@ -165,37 +231,58 @@ def close_merged_plan_finding(
         other for other, candidate in findings.items()
         if subject is not None and other != finding_id and finding_subject_key(candidate) == subject
     )
-    targets = [fid for fid in group if findings[fid].get("status") in CLOSABLE_STATUSES]
-    out.update(subject_key=subject, merge_sha=merge_sha)
-    if not targets:
-        return {**out, "status": "already_closed"}
+    targets = [
+        fid for fid in group
+        if findings[fid].get("status") in CLOSABLE_STATUSES
+        and existed_before_merge(findings[fid], merge_sha=merge_sha, merged_at=merged_at, repo_root=repo_root)
+    ]
+    out["subject_key"] = subject
     origin = str(record.get("originating_skill") or "")
-    detector = detectors.get(origin)
     disclosure = {"finding_id": finding_id, "plan_id": plan_id, "merge_sha": merge_sha,
                   "subject_key": subject, "originating_skill": origin}
-    claim_keys = ("finding_id", "plan_id", "merge_sha", "verdict", "reason")
+
+    def complete(outcome: str, **extra: Any) -> dict[str, Any]:
+        append_tools_governance(base_dir, COMPLETION_GOVERNANCE_KIND, {**disclosure, "outcome": outcome})
+        return {**out, "status": outcome, **extra}
+
+    if not targets:
+        return complete("already_closed")
+    detector = detectors.get(origin)
     if detector is None:
-        append_tools_governance_once(
+        append_tools_governance(
             base_dir, RECHECK_GOVERNANCE_KIND,
             {**disclosure, "verdict": VERDICT_UNVERIFIABLE, "reason": "detector_unregistered"},
-            claim_keys=claim_keys,
         )
-        return {**out, "status": "detector_unregistered"}
-    if _recorded_reproduction(base_dir, finding_id=finding_id, plan_id=plan_id, merge_sha=merge_sha):
-        return {**out, "status": VERDICT_REPRODUCES, "recorded": True}
+        return complete("detector_unregistered")
     verdict = detector.recheck(record, merge_sha=merge_sha, workspace_root=repo_root)
-    if verdict.get("verdict") != VERDICT_ABSENT:
-        append_tools_governance_once(
+    if verdict.get("verdict") == VERDICT_REPRODUCES:
+        append_tools_governance(
             base_dir, RECHECK_GOVERNANCE_KIND,
-            {**disclosure, "verdict": verdict.get("verdict"), "reason": verdict.get("reason"),
+            {**disclosure, "verdict": VERDICT_REPRODUCES, "reason": verdict.get("reason"),
              "matches": verdict.get("matches") or []},
-            claim_keys=claim_keys,
         )
-        return {**out, "status": str(verdict.get("verdict")), "reason": verdict.get("reason")}
+        return complete(VERDICT_REPRODUCES)
+    if verdict.get("verdict") != VERDICT_ABSENT:
+        reason = str(verdict.get("reason") or "unknown")
+        tried = sum(
+            1 for row in _rows(rows, RECHECK_GOVERNANCE_KIND, plan_id, merge_sha)
+            if row.get("verdict") == VERDICT_UNVERIFIABLE and row.get("reason") == reason
+        ) + 1
+        append_tools_governance(
+            base_dir, RECHECK_GOVERNANCE_KIND,
+            {**disclosure, "verdict": VERDICT_UNVERIFIABLE, "reason": reason, "try": tried},
+        )
+        if tried < MAX_UNVERIFIABLE_RECHECKS:
+            return {**out, "status": VERDICT_UNVERIFIABLE, "reason": reason, "try": tried}
+        append_tools_governance(
+            base_dir, UNVERIFIABLE_EXHAUSTED_KIND,
+            {**disclosure, "reason": reason, "tries": tried, "left_open": targets},
+        )
+        return complete(UNVERIFIABLE_EXHAUSTED_KIND, reason=reason)
     evidence = {
         "plan_id": plan_id,
         "merge_sha": merge_sha,
-        "merged_at": implementation.get("merged_at"),
+        "merged_at": merged_at,
         "pr_url": implementation.get("pr_url"),
         "detector": origin,
         "subject_key": subject,
@@ -209,11 +296,16 @@ def close_merged_plan_finding(
     for fid in targets:
         _resolve(repo_root, fid, status=str(findings[fid].get("status")), reason=reason,
                  merge_sha=merge_sha, evidence=evidence, base_dir=base_dir)
-    return {**out, "status": "closed", "closed": targets}
+    return complete("closed", closed=targets)
 
 
 __all__ = [
     "CLOSABLE_STATUSES",
+    "COMPLETION_GOVERNANCE_KIND",
+    "MAX_UNVERIFIABLE_RECHECKS",
+    "UNVERIFIABLE_EXHAUSTED_KIND",
+    "closure_completed",
+    "existed_before_merge",
     "CLOSURE_ACTOR",
     "DriftSubjectDetector",
     "FindingDetector",

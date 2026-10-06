@@ -33,7 +33,7 @@ from .plan_convergence import (
     fold_plan_state,
     record_implementation_merged,
 )
-from .ledger import LedgerIntegrityError, state_transaction
+from .ledger import LedgerIntegrityError, load_jsonl, state_transaction
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 _PR_NUMBER_RE = re.compile(r"/pull/(\d+)")
@@ -106,13 +106,13 @@ def _reconcile_promotion(plan_id: str, root: Path) -> dict[str, Any]:
 
 def _close_finding(
     plan_id: str, state: dict[str, Any], root: Path, workspace_root: Path,
-    detectors: Mapping[str, FindingDetector],
+    detectors: Mapping[str, FindingDetector], history: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """One merged plan's finding closure; a failed write is reported and retried next cycle."""
     try:
         return close_merged_plan_finding(
             plan_id=plan_id, state=state, repo_root=workspace_root,
-            base_dir=root, detectors=detectors,
+            base_dir=root, detectors=detectors, history=history,
         )
     except (GovernanceError, LedgerIntegrityError, OSError) as exc:
         return {"plan_id": plan_id, "status": "closure_error",
@@ -139,6 +139,12 @@ def reconcile_recorded_implementations(
     checkout = Path(workspace_root)
     finding_detectors = default_detectors() if detectors is None else detectors
     states = _implementation_states(root)
+    # ARIA-HIGH-363 (review B1(b)) — read once: every merged plan's closure
+    # pass checks its completion and its unverifiable tries against it, and a
+    # completed pass is skipped without folding the finding store.
+    history = load_jsonl(root / "governance.jsonl") if any(
+        state.get("state") in {"IMPLEMENTATION_MERGED", "IMPLEMENTATION_RECORDED"} for state in states.values()
+    ) else []
     result: dict[str, Any] = {
         "status": "reconciled", "merged": [], "checked": 0,
         "promotions": [], "merge_errors": [], "finding_closures": [],
@@ -147,7 +153,7 @@ def reconcile_recorded_implementations(
         if state.get("state") == "IMPLEMENTATION_MERGED":
             result["promotions"].append(_reconcile_promotion(plan_id, root))
             result["finding_closures"].append(
-                _close_finding(plan_id, state, root, checkout, finding_detectors),
+                _close_finding(plan_id, state, root, checkout, finding_detectors, history),
             )
 
     # Local recovery above does not depend on credentials or network health.
@@ -196,7 +202,7 @@ def reconcile_recorded_implementations(
             result["merged"].append({"plan_id": plan_id, "pr_number": pr_number, "merge_sha": merge_sha})
         result["promotions"].append(_reconcile_promotion(plan_id, root))
         result["finding_closures"].append(_close_finding(
-            plan_id, fold_plan_state(plan_id=plan_id, base_dir=root), root, checkout, finding_detectors,
+            plan_id, fold_plan_state(plan_id=plan_id, base_dir=root), root, checkout, finding_detectors, history,
         ))
 
     return result

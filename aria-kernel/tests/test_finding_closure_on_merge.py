@@ -23,6 +23,9 @@ from aria_kernel import finding_grounding as fg
 from aria_kernel.finding import fold_findings, record_finding_status_change
 from aria_kernel.finding_closure import (
     CLOSURE_ACTOR,
+    COMPLETION_GOVERNANCE_KIND,
+    MAX_UNVERIFIABLE_RECHECKS,
+    UNVERIFIABLE_EXHAUSTED_KIND,
     RECHECK_GOVERNANCE_KIND,
     close_merged_plan_finding,
 )
@@ -154,15 +157,41 @@ class _Store(unittest.TestCase):
         self.assertEqual(fold_plan_state(plan_id=plan_id, base_dir=self.tools)["state"], "IMPLEMENTATION_RECORDED")
         return {"plan_id": plan_id}
 
-    def reconcile(self, detector) -> dict:
+    def merge(self, text: str = "export const fixed = 1;\n") -> str:
+        """The fix lands: a real commit on main, after every finding minted so far."""
+        self.merge_sha = self.fx.commit_files({UI_FILE: text}, "fix(hr-module): leave filter")
+        return self.merge_sha
+
+    def reader(self) -> "_MergedAt":
+        return _MergedAt(self.merge_sha)
+
+    def reconcile(self, detector, detectors: dict | None = None) -> dict:
         return reconcile_recorded_implementations(
-            base_dir=self.tools, reader=MergedPRReader(), workspace_root=self.repo,
-            detectors={"seed:drift-scan": detector},
+            base_dir=self.tools, reader=self.reader(), workspace_root=self.repo,
+            detectors={"seed:drift-scan": detector} if detectors is None else detectors,
         )
+
+    def completions(self) -> list[dict]:
+        return [row["details"] for row in load_jsonl(self.tools / "governance.jsonl")
+                if row.get("kind") == COMPLETION_GOVERNANCE_KIND]
 
     def recheck_rows(self) -> list[dict]:
         return [row["details"] for row in load_jsonl(self.tools / "governance.jsonl")
                 if row.get("kind") == RECHECK_GOVERNANCE_KIND]
+
+
+class _MergedAt(MergedPRReader):
+    """GitHub's answer for PR 4242: merged at ``merge_sha``, just now."""
+
+    def __init__(self, merge_sha: str) -> None:
+        self.merge_sha = merge_sha
+
+    def pr_merge_state(self, pr_number: int) -> dict:
+        from datetime import datetime, timezone
+
+        assert pr_number == 4242
+        return {"state": "MERGED", "mergeCommit": {"oid": self.merge_sha},
+                "mergedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
 class _Detector:
@@ -200,6 +229,16 @@ class SeederDedupeTests(_Store):
         second = self.mint(_leave_drift(389))
         self.assertNotEqual(first, second)
 
+    def test_a_drift_without_a_subject_falls_back_to_the_evidence_chain(self) -> None:
+        # Both sides one file and one name: no subject is derivable.
+        drift = _leave_drift(346)
+        drift["source"] = {**drift["ui"]}
+        evidences = seeder.drift_evidences(drift)
+        self.assertIsNone(seeder.drift_subject_key(drift, evidences))
+        first, _, _ = seeder.mint_candidates(self.repo, [drift], base_dir=self.tools)
+        again, already, _ = seeder.mint_candidates(self.repo, [drift], base_dir=self.tools)
+        self.assertEqual((len(first), again, already), (1, [], ["leaverequest"]))
+
     def test_a_suppressed_subject_is_still_held(self) -> None:
         first = self.mint(_leave_drift(346))
         record_finding_status_change(self.repo, finding_id=first, to_status="SUPPRESSED",
@@ -217,6 +256,7 @@ class ClosureOnMergeTests(_Store):
         self.duplicate = self._legacy_duplicate(389)
         self.unrelated = self.mint(_leave_drift(12, ui_file=OTHER_UI_FILE))
         self.merged_plan(self.primary)
+        self.merge()
 
     def _legacy_duplicate(self, line: int) -> str:
         from aria_kernel.finding import emit_finding
@@ -238,25 +278,26 @@ class ClosureOnMergeTests(_Store):
         )
         detector = _Detector("absent")
         result = self.reconcile(detector)
-        self.assertEqual(result["merged"][0]["merge_sha"], MERGE_SHA)
+        self.assertEqual(result["merged"][0]["merge_sha"], self.merge_sha)
         closure = result["finding_closures"][0]
         self.assertEqual(closure["status"], "closed")
         self.assertEqual(closure["closed"], sorted([self.primary, self.duplicate]))
-        self.assertEqual(detector.calls, [MERGE_SHA])
+        self.assertEqual(detector.calls, [self.merge_sha])
         findings = fold_findings(self.repo)
         for finding_id in (self.primary, self.duplicate):
             record = findings[finding_id]
             self.assertEqual(record["status"], "RESOLVED")
-            self.assertEqual(record["closes_in_commit"], MERGE_SHA)
+            self.assertEqual(record["closes_in_commit"], self.merge_sha)
             self.assertEqual(record["status_actor"], CLOSURE_ACTOR)
             self.assertEqual(record["resolution_evidence"]["plan_id"], "plan-363")
             self.assertEqual(record["resolution_evidence"]["primary_finding_id"], self.primary)
             self.assertEqual(record["resolution_evidence"]["recheck"]["verdict"], "absent")
         self.assertEqual(findings[self.unrelated]["status"], "OPEN")
-        # Replay is idempotent: nothing left to close, the detector is not asked again.
+        # The pass is complete: later cycles skip the plan, the detector is not asked again.
+        self.assertEqual([row["outcome"] for row in self.completions()], ["closed"])
         again = self.reconcile(detector)
-        self.assertEqual(again["finding_closures"][0]["status"], "already_closed")
-        self.assertEqual(detector.calls, [MERGE_SHA])
+        self.assertEqual(again["finding_closures"][0]["status"], "completed_earlier")
+        self.assertEqual(detector.calls, [self.merge_sha])
 
     def test_a_subject_that_still_reproduces_stays_open_and_is_recorded_once(self) -> None:
         detector = _Detector("reproduces")
@@ -267,25 +308,62 @@ class ClosureOnMergeTests(_Store):
         self.assertEqual([row["verdict"] for row in self.recheck_rows()], ["reproduces"])
         # The merged revision cannot change, so the verdict is final.
         again = self.reconcile(detector)
-        self.assertEqual(again["finding_closures"][0], {**again["finding_closures"][0], "status": "reproduces", "recorded": True})
-        self.assertEqual(detector.calls, [MERGE_SHA])
+        self.assertEqual(again["finding_closures"][0]["status"], "completed_earlier")
+        self.assertEqual(detector.calls, [self.merge_sha])
         self.assertEqual(len(self.recheck_rows()), 1)
 
     def test_an_unverifiable_recheck_is_retried_and_closes_once_it_can_judge(self) -> None:
         detector = _Detector("unverifiable", "unverifiable", "absent")
         self.assertEqual(self.reconcile(detector)["finding_closures"][0]["status"], "unverifiable")
         self.assertEqual(self.reconcile(detector)["finding_closures"][0]["status"], "unverifiable")
-        self.assertEqual(len(self.recheck_rows()), 1, "the same unverifiable reason is disclosed once")
+        self.assertEqual([row["try"] for row in self.recheck_rows()], [1, 2])
         self.assertEqual(self.status(self.primary), "OPEN")
         self.assertEqual(self.reconcile(detector)["finding_closures"][0]["status"], "closed")
         self.assertEqual(len(detector.calls), 3)
 
     def test_an_origin_without_a_detector_is_never_closed_unverified(self) -> None:
-        result = reconcile_recorded_implementations(
-            base_dir=self.tools, reader=MergedPRReader(), workspace_root=self.repo, detectors={},
-        )
+        result = self.reconcile(None, detectors={})
         self.assertEqual(result["finding_closures"][0]["status"], "detector_unregistered")
         self.assertEqual(self.status(self.primary), "OPEN")
+        self.assertEqual(self.reconcile(None, detectors={})["finding_closures"][0]["status"], "completed_earlier")
+
+    def test_unverifiable_rechecks_are_bounded_and_leave_the_finding_open(self) -> None:
+        detector = _Detector("unverifiable")
+        statuses = [self.reconcile(detector)["finding_closures"][0]["status"]
+                    for _ in range(MAX_UNVERIFIABLE_RECHECKS + 2)]
+        self.assertEqual(statuses, ["unverifiable"] * (MAX_UNVERIFIABLE_RECHECKS - 1)
+                         + [UNVERIFIABLE_EXHAUSTED_KIND, "completed_earlier", "completed_earlier"])
+        self.assertEqual(len(detector.calls), MAX_UNVERIFIABLE_RECHECKS)
+        exhausted = [row["details"] for row in load_jsonl(self.tools / "governance.jsonl")
+                     if row.get("kind") == UNVERIFIABLE_EXHAUSTED_KIND]
+        self.assertEqual(len(exhausted), 1)
+        self.assertEqual(self.status(self.primary), "OPEN")
+
+    def test_a_regression_after_the_merge_is_never_closed_by_it(self) -> None:
+        """Review B1: P closes S at M; S comes back; the seeder mints F'; P must not close F'."""
+        self.reconcile(_Detector("absent"))
+        self.assertEqual(self.status(self.primary), "RESOLVED")
+        # The drift comes back in a later commit (here a revert of the fix).
+        self.fx.commit_files({UI_FILE: "".join(f"export const row{n} = {n};\n" for n in range(1, 401))},
+                             "revert: leave filter")
+        regression = self.mint(_leave_drift(389))
+        self.assertNotIn(regression, (self.primary, self.duplicate))
+        detector = _Detector("absent")
+        result = self.reconcile(detector)
+        self.assertEqual(result["finding_closures"][0]["status"], "completed_earlier")
+        self.assertEqual(self.status(regression), "OPEN")
+        self.assertEqual(detector.calls, [])
+        # Even with no completion record, the merge cannot reach a finding minted after it.
+        state = fold_plan_state(plan_id="plan-363", base_dir=self.tools)
+        direct = close_merged_plan_finding(plan_id="plan-363", state=state, repo_root=self.repo,
+                                           base_dir=self.tools, detectors={"seed:drift-scan": detector},
+                                           history=[])
+        self.assertEqual(direct["status"], "already_closed")
+        self.assertEqual(self.status(regression), "OPEN")
+        self.assertEqual(detector.calls, [])
+        # And it is plannable: the regression is OPEN for the aging-F source.
+        context = fg.load_grounding_context(self.repo, tools_root=self.tools)
+        self.assertNotEqual(fg.admit_finding(context, regression).reason, fg.FINDING_NOT_OPEN)
 
     def test_fixed_duplicates_are_not_re_planned(self) -> None:
         before = fg.load_grounding_context(self.repo, tools_root=self.tools)
@@ -325,7 +403,7 @@ class ClosureOnMergeTests(_Store):
 
     def _merged_state(self) -> dict:
         state = fold_plan_state(plan_id="plan-363", base_dir=self.tools)
-        state["implementation"]["merge_sha"] = MERGE_SHA
+        state["implementation"]["merge_sha"] = self.merge_sha
         return state
 
     def test_closes_in_commit_is_refused_on_any_transition_but_resolved(self) -> None:
@@ -358,6 +436,17 @@ class JudgeSubjectTests(unittest.TestCase):
         blind = seeder.judge_subject(self._doc([], wire="unavailable"), subject_key=self.subject,
                                      drift_class="ui_option_drift")
         self.assertEqual((blind["verdict"], blind["reason"]), ("unverifiable", "wire_unavailable:fixture"))
+
+    def test_a_document_shape_the_judge_does_not_read_is_unverifiable_for_every_class(self) -> None:
+        renamed = {"wire": {"status": "ok"}, "drifts": [], "frontend_dropdown_drifts": []}
+        for drift_class in ("enum_drift", "ui_option_drift"):
+            verdict = seeder.judge_subject(renamed, subject_key=self.subject, drift_class=drift_class)
+            self.assertEqual((verdict["verdict"], verdict["reason"]),
+                             ("unverifiable", "scan_section_missing:drifts_above_threshold"))
+        reshaped = self._doc([{**_leave_drift(389), "ui": f"{UI_FILE}:389"}])
+        verdict = seeder.judge_subject(reshaped, subject_key=self.subject, drift_class="enum_drift")
+        self.assertEqual((verdict["verdict"], verdict["reason"]),
+                         ("unverifiable", "scan_side_shape:frontend_dropdown_drifts"))
 
     def test_an_unmintable_drift_does_not_reproduce(self) -> None:
         unclassified = {**_leave_drift(389), "classification": None}
@@ -430,6 +519,23 @@ class RecheckAtRevisionTests(unittest.TestCase):
         self.assertEqual(self._supergraph_seen(merge), ["/lane/supergraph.graphql"])
         self._commit({"schema/a.graphql": "type A { a: Int, b: Int }\n"}, "schema change after the merge")
         self.assertEqual(self._supergraph_seen(merge), [None])
+
+    def test_the_scanner_is_the_seeder_s_own_not_the_scanned_tree_s(self) -> None:
+        ran: list[str] = []
+
+        def run(cmd, **kwargs):
+            ran.append(cmd[1])
+            out = Path(kwargs["cwd"]) / cmd[cmd.index("--out-dir") + 1]
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "MECHANICAL_DRIFTS.json").write_text(json.dumps(
+                {"drifts_above_threshold": [], "frontend_dropdown_drifts": [], "wire": {"status": "ok"}}),
+                encoding="utf-8")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with mock.patch.object(seeder.subprocess, "run", side_effect=run):
+            seeder.run_fresh_scan(self.repo)
+        self.assertEqual(ran, [str(seeder.SCANNER)])
+        self.assertFalse((self.repo / "tools").exists(), "the scanned tree carries no scanner of its own")
 
     def test_an_unknown_revision_is_unverifiable(self) -> None:
         verdict = seeder.recheck_subject(self.repo, subject_key="subject_x", drift_class="enum_drift",

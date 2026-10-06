@@ -48,13 +48,21 @@ CANDIDATE_TOOL_UI = "event-contracts-adapter"
 MINTABLE_SEVERITIES = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
 
 
+# ARIA-HIGH-363 (review M1) — the scanner is the one that ships with THIS
+# seeder, never the copy inside the tree being scanned. A recheck scans a merge
+# commit's tree; that tree's own poc.py may write a different document shape,
+# and this module's judge would read a renamed or missing section as "no
+# drift". One scanner, one judge, one revision of both.
+SCANNER = Path(__file__).resolve().parent / "poc.py"
+
+
 def run_fresh_scan(repo_root: Path, supergraph: str | None = None) -> dict[str, Any]:
-    """Run the PoC mechanical scanner at HEAD and return its drift doc."""
+    """Run this seeder's PoC mechanical scanner over ``repo_root`` and return its drift doc."""
     with tempfile.TemporaryDirectory(dir=repo_root) as tmp:
         out_rel = Path(tmp).name
         cmd = [
             sys.executable,
-            str(repo_root / "tools" / "aria-poc" / "poc.py"),
+            str(SCANNER),
             "--workspace-root", str(repo_root),
             "--out-dir", out_rel,
             "--skip-nx-graph",
@@ -237,17 +245,22 @@ def mint_candidates(
     never hand-written around the gate.
     """
     _kernel_on_path()
-    from aria_kernel.finding import emit_finding, fold_findings
+    from aria_kernel.finding import _evidence_chain_id, emit_finding, fold_findings
     from aria_kernel.finding_subject import finding_subject_key
     from aria_kernel.tool_registry import GovernanceError
 
+    recorded = fold_findings(repo_root) or {}
     held = {
         key for key in (
             finding_subject_key(record)
-            for record in (fold_findings(repo_root) or {}).values()
+            for record in recorded.values()
             if record.get("status") != "RESOLVED"
         ) if key is not None
     }
+    # Review M2 — a drift with no derivable subject (e.g. both sides one file
+    # and one name) still has the identity it always had: its evidence chain.
+    # Held by any recorded finding, as before ARIA-HIGH-363.
+    held_chains = {str(record.get("evidence_chain_id")) for record in recorded.values()}
     minted: list[dict[str, Any]] = []
     already: list[str] = []
     unmintable: list[dict[str, str]] = []
@@ -260,7 +273,8 @@ def mint_candidates(
             continue
         severity = str(drift.get("severity"))
         subject = drift_subject_key(drift, evidences)
-        if subject is not None and subject in held:
+        chain = _evidence_chain_id([{"ref": e["ref"], "summary": e.get("summary", "")} for e in evidences])
+        if (subject in held) if subject is not None else (chain in held_chains):
             already.append(concept)
             continue
         summary = (
@@ -289,6 +303,7 @@ def mint_candidates(
             continue
         if subject is not None:
             held.add(subject)
+        held_chains.add(chain)
         minted.append(record)
     return minted, already, unmintable
 
@@ -303,12 +318,47 @@ VERDICT_UNVERIFIABLE = "unverifiable"
 WIRE_JUDGED_DRIFT_CLASSES = frozenset({"ui_option_drift"})
 
 
+# The document sections the judge reads, and the side keys a drift carries.
+SCAN_SECTIONS = ("drifts_above_threshold", "frontend_dropdown_drifts")
+SIDE_KEYS = ("ts", "sql", "ui", "source")
+
+
+def scan_shape_fault(drifts_doc: Any) -> str | None:
+    """Why this scan document cannot be judged, or None (review M1).
+
+    A missing section, a non-list section, a drift that is not an object or a
+    drift whose sides are not ``{ref, name}`` objects means the scanner wrote a
+    shape this judge does not read. "No match" in such a document is not
+    evidence of absence.
+    """
+    if not isinstance(drifts_doc, dict):
+        return "scan_doc_not_an_object"
+    for section in SCAN_SECTIONS:
+        if not isinstance(drifts_doc.get(section), list):
+            return f"scan_section_missing:{section}"
+        for drift in drifts_doc[section]:
+            if not isinstance(drift, dict):
+                return f"scan_drift_not_an_object:{section}"
+            sides = [drift.get(key) for key in SIDE_KEYS if key in drift]
+            if len(sides) < 2 or not all(
+                isinstance(side, dict) and isinstance(side.get("ref"), str) and isinstance(side.get("name"), str)
+                for side in sides
+            ):
+                return f"scan_side_shape:{section}"
+    return None
+
+
 def judge_subject(drifts_doc: dict[str, Any], *, subject_key: str, drift_class: str) -> dict[str, Any]:
     """Does this scan reproduce the subject? The seeder's own selection, unlimited.
 
     A drift reproduces the subject when the seeder would mint it (or count it
-    already recorded) at this revision: mintable, and the same subject key.
+    already recorded) at this revision: mintable, and the same subject key. A
+    document whose shape this judge does not read is unverifiable for every
+    drift class, never absent.
     """
+    fault = scan_shape_fault(drifts_doc)
+    if fault is not None:
+        return {"verdict": VERDICT_UNVERIFIABLE, "reason": fault, "matches": [], "wire": None}
     ranked = select_candidates(drifts_doc, limit=len(drifts_doc.get("drifts_above_threshold") or [])
                                + len(drifts_doc.get("frontend_dropdown_drifts") or []))
     matches: list[str] = []

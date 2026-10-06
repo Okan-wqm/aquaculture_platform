@@ -106,14 +106,36 @@ export function driftAdded(
 }
 
 /**
- * The registry the base ref carries, in a pull request; null on a push.
- * GitHub sets `GITHUB_BASE_REF` only for pull_request events.
+ * The commit the tree under test was built on: `merge-base HEAD <baseRef>`.
+ *
+ * Not the base ref's tip. GitHub builds `refs/pull/N/merge` against the base
+ * as it was when the PR was last pushed, while `fetch-depth: 0` fetches the
+ * base as it is when the job starts. If the reconcile PR merges in between,
+ * the tip has RESOLVED what the tree under test still has OPEN, and inherited
+ * drift reads as drift the PR added (#1801's own run: SENSOR-MEDIUM-136 after
+ * #1806). The fork point is the base this tree actually inherited from; on a
+ * local branch it is the branch point, and on main it is HEAD itself.
+ */
+function inheritedBaseCommit(baseRef: string): string {
+  return execFileSync('git', ['-C', REPO_ROOT, 'merge-base', 'HEAD', baseRef], {
+    encoding: 'utf8',
+  }).trim();
+}
+
+/**
+ * The registry the tree under test inherited, in a pull request; null on a
+ * push. GitHub sets `GITHUB_BASE_REF` only for pull_request events.
  */
 function inheritedRegistry(baseRef: string): RegistryEntries | null {
   if (!process.env.GITHUB_BASE_REF) return null;
   const text = execFileSync(
     'git',
-    ['-C', REPO_ROOT, 'show', `${baseRef}:docs/reviews/_registry/findings.jsonl`],
+    [
+      '-C',
+      REPO_ROOT,
+      'show',
+      `${inheritedBaseCommit(baseRef)}:docs/reviews/_registry/findings.jsonl`,
+    ],
     { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
   );
   const dir = mkdtempSync(path.join(os.tmpdir(), 'closure-drift-base-'));

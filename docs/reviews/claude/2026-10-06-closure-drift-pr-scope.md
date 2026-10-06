@@ -34,3 +34,11 @@ cases:
 - A PR that reopens a RESOLVED finding fails.
 - Drift inherited from the base passes.
 - A push counts all drift.
+
+Amendment (2026-10-06, #1801's own CI): the inherited registry was read from the base ref's tip.
+GitHub builds `refs/pull/N/merge` against the base as of the last push, but `fetch-depth: 0`
+fetches the base as of job start. #1806 (the reconcile PR) merged in between, so the tip had
+SENSOR-MEDIUM-136/137 RESOLVED while the tree under test still had them OPEN, and the inherited
+drift read as added. The inherited registry now comes from `merge-base HEAD <baseRef>`, the commit
+the tree was actually built on. Reproduced on a detached `cf1fd1bf7` with `origin/main` at
+`cfec957a3`: the old spec fails with exactly those two lines, and the new spec passes 3/3.

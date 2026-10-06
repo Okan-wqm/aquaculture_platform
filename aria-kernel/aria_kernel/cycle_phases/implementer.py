@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol
 
 if TYPE_CHECKING:  # pragma: no cover
     pass
@@ -102,6 +102,13 @@ class V9ImplementationResult:
     specialist_review_signal: SpecialistReviewSignal
 
 
+# ARIA-HIGH-362 (review M5) — the rejection class of a staging step the
+# PROFILE refused (``runtime_profile.ProfileActionRefused``). The delivery
+# entry voids the attempt it counted for it: a mid-cycle demotion is the
+# lane's weather, not the plan's failure.
+STAGING_PROFILE_REFUSED: str = "staging_profile_refused"
+
+
 class V9ImplementationRunner(Protocol):
     """Plan ARIA-V3.1-0 — injection-seam contract for V9 impl phase.
 
@@ -125,7 +132,15 @@ class V9ImplementationRunner(Protocol):
     ledger, keyed by ``plan_id``, hash-verified against the revision that
     converged — which is the only reading of "the CONVERGED plan" that a
     caller cannot get wrong.
+
+    ARIA-HIGH-362 (review M5) — ``delivers_implementation`` is the runner's
+    own declaration that a call can deliver (stage + mint). The delivery
+    entry counts an attempt against a plan only for a runner that declares
+    it: a NoOp's refusal is the lane's, never the plan's, whatever profile
+    string the cycle was started with.
     """
+
+    delivers_implementation: ClassVar[bool]
 
     def run(
         self,
@@ -144,6 +159,8 @@ class NoOpV9ImplementationRunner:
     """Plan ARIA-V3.1-0 — default. Refuses implementation cleanly so
     the orchestrator's V8 pre-implementation behavior is preserved
     exactly when injection is absent."""
+
+    delivers_implementation: ClassVar[bool] = False
 
     def run(
         self,
@@ -215,6 +232,8 @@ class AutonomousV9ImplementationRunner:
     GovernanceError handler.
     """
 
+    delivers_implementation: ClassVar[bool] = True
+
     def run(
         self,
         *,
@@ -229,6 +248,7 @@ class AutonomousV9ImplementationRunner:
         from ..apply_engine import stage_converged_plan_for_pr
         from ..bridge_exceptions import BridgeContractViolation
         from ..cross_review_bridge import issue_implementation_envelope
+        from ..runtime_profile import ProfileActionRefused
         from ..tool_registry import GovernanceError, append_tools_governance
         import json as _json
 
@@ -242,6 +262,23 @@ class AutonomousV9ImplementationRunner:
                 plan_id=plan_id,
                 workspace_root=workspace_root,
                 base_dir=base_dir,
+            )
+        except ProfileActionRefused as exc:
+            # The lane's authority ended between the cycle start and this
+            # call; nothing was staged and nothing about the plan was learned.
+            append_tools_governance(
+                base_dir, "implementation_staging_profile_refused",
+                {
+                    "plan_id": plan_id,
+                    "cycle_id": cycle_id,
+                    "error_message": str(exc)[:1000],
+                },
+            )
+            return V9ImplementationResult(
+                terminal_state="IMPLEMENTATION_REQUEST_REFUSED",
+                pr_url=None,
+                rejection_class=STAGING_PROFILE_REFUSED,
+                specialist_review_signal="review_converged_plan",
             )
         except GovernanceError as exc:
             append_tools_governance(
@@ -391,6 +428,7 @@ def select_v9_implementation_runner(*, profile: str) -> V9ImplementationRunner:
 
 __all__ = [
     "IMPLEMENTATION_ACTION_KIND",
+    "STAGING_PROFILE_REFUSED",
     "AutonomousV9ImplementationRunner",
     "NoOpV9ImplementationRunner",
     "SpecialistReviewSignal",

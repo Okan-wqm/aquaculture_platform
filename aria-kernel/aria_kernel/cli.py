@@ -1910,6 +1910,11 @@ def build_parser() -> argparse.ArgumentParser:
     plan_force.add_argument("--plan-id", required=True)
     plan_force.add_argument("--round-number", type=int, required=True)
     plan_force.add_argument("--reason-code", action="append", required=True)
+    # ARIA-HIGH-362 (review M3) — the guarded transition refuses a terminal or
+    # implementation-phase plan unless the caller names the state it expects.
+    # The operator names it here (e.g. withdrawing a CONVERGED plan it will
+    # not have implemented); the check still runs inside the plan lock.
+    plan_force.add_argument("--from-state", action="append", default=None)
     plan_status_parser = add_subparser(plan_sub, "status")
     plan_status_parser.add_argument("--plan-id", required=True)
 
@@ -5080,7 +5085,13 @@ def _main(argv: list[str] | None = None) -> int:
                 mission_id=args.mission_id,
             )
         elif args.plan_command == "force-human-required":
-            result = force_plan_human_required(plan_id=args.plan_id, round_number=args.round_number, reason_codes=args.reason_code, base_dir=args.tools_dir)
+            result = force_plan_human_required(
+                plan_id=args.plan_id,
+                round_number=args.round_number,
+                reason_codes=args.reason_code,
+                from_states=frozenset(args.from_state) if args.from_state else None,
+                base_dir=args.tools_dir,
+            )
         elif args.plan_command == "status":
             result = plan_status(plan_id=args.plan_id, base_dir=args.tools_dir)
         else:

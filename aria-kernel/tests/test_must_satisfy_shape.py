@@ -493,6 +493,7 @@ class ConvergedPlanWithBannedWordsStillMintsTests(unittest.TestCase):
         row = issue_completeness_critic_envelope(
             plan_id="plan-104-banned-words", round_number=1,
             closure_manifest_text="{}", closure_manifest_hash="sha256:" + "0" * 64,
+            closure_manifest_path="tools/coverage/plan-104-banned-words-r1.json",
             waivers=[{"node_id": self.path, "reason": self.waiver_reason}],
             evidence_refs=["plan:plan-104-banned-words"], allowed_scope=[self.path],
             base_dir=self.tools,

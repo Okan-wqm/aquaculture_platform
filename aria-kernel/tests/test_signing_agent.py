@@ -162,9 +162,18 @@ class SigningAgentTests(unittest.TestCase):
         self.assertTrue((temp_root / "aria-sa-files000" / "cycle-key").exists())
 
     def test_the_key_expires_from_the_agent_at_the_lifetime(self) -> None:
-        with hold_signing_agent(self.key, expected_fingerprint=self.fingerprint, lifetime_seconds=1) as agent:
-            self.assertEqual(agent.lifetime_seconds, 1)
-            self.assertEqual(self._listed(agent.socket_path), [self.fingerprint])
+        # ARIA-MEDIUM-359 — the key's clock starts when the holder adds it,
+        # which is after `started`. A listing taken before `started +
+        # lifetime` therefore lies inside the key's life and must show it.
+        # A listing taken later, as on a loaded CI runner (suite (3) of
+        # #1786 / run 37247153756), proves nothing about presence. The
+        # unconditional check raced a 1 s lifetime and lost there.
+        started = time.monotonic()
+        with hold_signing_agent(self.key, expected_fingerprint=self.fingerprint, lifetime_seconds=2) as agent:
+            self.assertEqual(agent.lifetime_seconds, 2)
+            listed = self._listed(agent.socket_path)
+            if time.monotonic() - started < agent.lifetime_seconds:
+                self.assertEqual(listed, [self.fingerprint])
             deadline = time.monotonic() + 5.0
             while self._listed(agent.socket_path) and time.monotonic() < deadline:
                 time.sleep(0.1)

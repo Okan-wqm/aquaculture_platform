@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .agent_invocations import _request_event_count, derive_request_state
+from .agent_invocations import _request_event_count, derive_request_states
 from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl, load_segments
 from .notify import NOTIFY_WORST_CASE_SECONDS, notify_best_effort
 from .strict_jsonl_reader import read_strict_jsonl
@@ -494,27 +494,31 @@ def sweep_lease_lifecycle_for_human_required(
     """
     root = ensure_tools_dir(base_dir)
     requests = load_segments(root, "agent_invocation_requests")
+    # ARIA-HIGH-358 — one ledger load for every request's state. The
+    # per-request form reloaded the request, claim and result ledgers for
+    # each row (1,866 rows at 0.96 s on 2026-10-06), so this sweep held
+    # every cycle for ~30 min. Recording a human-required file below
+    # writes no request ledger, so the states stay current for both passes.
+    states = derive_request_states(base_dir=root)
     created: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    claims: list[dict[str, Any]] | None = None
     for request in requests:
         rid = request.get("request_id")
         if not rid:
             continue
-        try:
-            state = derive_request_state(request_id=rid, base_dir=root)
-        except GovernanceError:
-            continue
-        if state != "HUMAN_REQUIRED":
+        if states[rid] != "HUMAN_REQUIRED":
             continue
         existing = _human_required_path(root, rid)
         if existing.exists():
             skipped.append({"request_id": rid, "reason": "already_recorded"})
             continue
         # Look up the requeue count to surface in the reason text.
-        claims = load_declared_jsonl(
-            root / "agent-invocations" / "claims.jsonl",
-            expected_surface="agent_invocation_claims",
-        )
+        if claims is None:
+            claims = load_declared_jsonl(
+                root / "agent-invocations" / "claims.jsonl",
+                expected_surface="agent_invocation_claims",
+            )
         requeue_count = _request_event_count(claims, rid, "requeued")
         record = record_human_required(
             request_id=rid,
@@ -560,11 +564,7 @@ def sweep_lease_lifecycle_for_human_required(
         if rid in remint_successors:
             skipped.append({"request_id": rid, "reason": "remint_successor_exists"})
             continue
-        try:
-            state = derive_request_state(request_id=rid, base_dir=root)
-        except GovernanceError:
-            continue
-        if state != "ANCHOR_STALE":
+        if states[rid] != "ANCHOR_STALE":
             continue
         existing = _human_required_path(root, rid)
         if existing.exists():

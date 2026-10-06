@@ -85,26 +85,23 @@ type ChannelDisplaySettingsType {
   chartConfig: JSON
 }
 
+# Copied from the emitted sensor SDL: GraphQL enum members are the NAMES.
 enum SensorType {
-  temperature
-  ph
-  dissolved_oxygen
-  salinity
-  ammonia
-  nitrite
-  nitrate
-  turbidity
-  water_level
-  flow_rate
-  pressure
-  humidity
-  air_temperature
-  light_intensity
-  co2
-  orp
-  conductivity
-  multi_parameter
-  custom
+  TEMPERATURE
+  PH
+  DISSOLVED_OXYGEN
+  SALINITY
+  AMMONIA
+  NITRITE
+  NITRATE
+  TURBIDITY
+  WATER_LEVEL
+  MULTI_PARAMETER
+  FLOW_RATE
+  CONDUCTIVITY
+  ORP
+  CHLORINE
+  CO2
 }
 
 enum SensorRegistrationStatus {
@@ -154,6 +151,65 @@ type RegisteredSensorType {
   dataChannels: [DataChannelType!]
   createdAt: DateTime!
   updatedAt: DateTime!
+}
+
+# Registration inputs (SENSOR-HIGH-140), copied from the emitted sensor SDL.
+input RegisterParentWithChildrenInput {
+  parent: RegisterParentDeviceInput!
+  children: [RegisterChildSensorInput!]!
+  skipConnectionTest: Boolean = false
+}
+
+input RegisterParentDeviceInput {
+  name: String!
+  protocolCode: String!
+  protocolConfiguration: JSON!
+  manufacturer: String
+  model: String
+  serialNumber: String
+  description: String
+  farmId: ID
+  pondId: ID
+  tankId: ID
+  siteId: ID
+  departmentId: ID
+  systemId: ID
+  equipmentId: ID
+  location: String
+  metadata: JSON
+}
+
+input RegisterChildSensorInput {
+  name: String!
+  type: SensorType!
+  typeDefinitionId: ID
+  dataPath: String!
+  unit: String
+  minValue: Float
+  maxValue: Float
+  calibrationEnabled: Boolean = false
+  calibrationMultiplier: Float = 1
+  calibrationOffset: Float = 0
+  alertThresholds: SensorAlertThresholdsInput
+  displaySettings: DisplaySettingsInput
+}
+
+input SensorAlertThresholdsInput {
+  warning: AlertThresholdRangeInput
+  critical: AlertThresholdRangeInput
+}
+
+input AlertThresholdRangeInput {
+  low: Float
+  high: Float
+}
+
+input DisplaySettingsInput {
+  showOnDashboard: Boolean = true
+  widgetType: String
+  color: String
+  sortOrder: Float
+  decimalPlaces: Float
 }
 
 type Query {

@@ -7,7 +7,22 @@ import {
   ObjectType,
   ID,
 } from '@nestjs/graphql';
-import { IsUUID, IsBoolean, IsOptional, IsString, IsHexadecimal, Length, IsEnum, Matches, Min, Max } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsHexadecimal,
+  IsInt,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  Matches,
+  Max,
+  Min,
+} from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import {
@@ -34,24 +49,35 @@ export { DeviceLifecycleState, DeviceModel };
 @InputType()
 export class RegisterEdgeDeviceInput {
   @Field({ nullable: true })
+  @IsOptional()
+  @IsUUID()
   siteId?: string;
 
   @Field()
+  @IsString()
   deviceCode!: string;
 
   @Field()
+  @IsString()
   deviceName!: string;
 
   @Field(() => DeviceModel)
+  @IsEnum(DeviceModel)
   deviceModel!: DeviceModel;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   serialNumber?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   description?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   timezone?: string;
 }
 
@@ -61,27 +87,44 @@ export class RegisterEdgeDeviceInput {
 @InputType()
 export class UpdateEdgeDeviceInput {
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   deviceName?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   description?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsUUID()
   siteId?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   timezone?: string;
 
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
   scanRateMs?: number;
 
   @Field(() => GraphQLJSON, { nullable: true })
+  @IsOptional()
+  @IsObject()
   config?: Record<string, unknown>;
 
   @Field(() => GraphQLJSON, { nullable: true })
+  @IsOptional()
+  @IsObject()
   capabilities?: Record<string, boolean>;
 
   @Field(() => [String], { nullable: true })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   tags?: string[];
 }
 
@@ -91,69 +134,108 @@ export class UpdateEdgeDeviceInput {
 @InputType()
 export class AddIoConfigInput {
   @Field()
+  @IsString()
   tagName!: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   description?: string;
 
   @Field(() => IoType)
+  @IsEnum(IoType)
   ioType!: IoType;
 
   @Field(() => IoDataType)
+  @IsEnum(IoDataType)
   dataType!: IoDataType;
 
   @Field(() => Int)
+  @IsInt()
   moduleAddress!: number;
 
   @Field(() => Int)
+  @IsInt()
   channel!: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   rawMin?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   rawMax?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   engMin?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   engMax?: number;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   engUnit?: string;
 
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
   modbusFunction?: number;
 
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
   modbusSlaveId?: number;
 
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
   modbusRegister?: number;
 
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
   gpioPin?: number;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   gpioMode?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   busType?: string;
 
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
   i2cBus?: number;
 
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
   i2cAddress?: number;
 
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
   spiBus?: number;
 
   @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
   spiCs?: number;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   uartPort?: string;
 
   @Field({ nullable: true })
@@ -162,21 +244,33 @@ export class AddIoConfigInput {
   driverType?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
   invertValue?: boolean;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   alarmHH?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   alarmH?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   alarmL?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   alarmLL?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   deadband?: number;
 }
 
@@ -186,42 +280,68 @@ export class AddIoConfigInput {
 @InputType()
 export class UpdateIoConfigInput {
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   description?: string;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   rawMin?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   rawMax?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   engMin?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   engMax?: number;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   engUnit?: string;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
   invertValue?: boolean;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   alarmHH?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   alarmH?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   alarmL?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   alarmLL?: number;
 
   @Field(() => Float, { nullable: true })
+  @IsOptional()
+  @IsNumber()
   deadband?: number;
 
   @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
   isActive?: boolean;
 }
 

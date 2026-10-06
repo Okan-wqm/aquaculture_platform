@@ -247,6 +247,29 @@ def dispatch_goldset_curation(
         return None
     true_positive_count = proposal.get("true_positive_count")
     known_false_positive_count = proposal.get("known_false_positive_count")
+    # ARIA-HIGH-354 — the curator is handed the corpus itself and the
+    # repository evidence its items cite: refs it can read and the submit law
+    # admits. The proposals ledger lives in the state store, which the agent's
+    # checkout does not hold, so citing it named a file nobody could open.
+    items = [
+        *(proposal.get("true_positive_items") or []),
+        *(proposal.get("known_false_positive_items") or []),
+    ]
+    from .evidence_validator import state_store_record_refs
+
+    cited = {ref for item in items for ref in (item.get("evidence_refs") or []) if isinstance(ref, str) and ref}
+    # An item's evidence may include a recorded agent artifact (a judge cites
+    # what it judged). That is a store record, not repository evidence: it
+    # stays in the corpus data below and is not handed out as a citation.
+    item_refs = sorted(cited - set(state_store_record_refs(sorted(cited), store_root=root)))
+    corpus = json.dumps(
+        [
+            {key: item.get(key) for key in ("finding_id", "verdict", "severity", "source_type", "evidence_refs")}
+            for item in items
+        ],
+        indent=2,
+        sort_keys=True,
+    )
     prompt = (
         "Draft the semantic regression fixture candidates for this tool's "
         "confirmed gold corpus.\n"
@@ -256,7 +279,9 @@ def dispatch_goldset_curation(
         f"confirmed_known_false_positives: {known_false_positive_count}\n"
         "Each candidate carries the repo evidence refs it is anchored to, the "
         "expected adapter behaviour, and the verdict source. Emit the proposal "
-        "under details.proposal; do not write fixture files."
+        "under details.proposal; do not write fixture files.\n"
+        "The gold items:\n"
+        f'<derived_context section="goldset_corpus">\n{corpus}\n</derived_context>'
     )
     return create_agent_invocation_request(
         target_agent=GOLDSET_CURATOR_AGENT,
@@ -271,7 +296,7 @@ def dispatch_goldset_curation(
             ),
         }],
         allowed_scope=["**"],
-        evidence_refs=[subject, "aria-tools/goldsets/proposals.jsonl"],
+        evidence_refs=[subject, *item_refs],
         tool_id=tool_id,
         cycle_id=cycle_id,
         target_sha=target_sha,

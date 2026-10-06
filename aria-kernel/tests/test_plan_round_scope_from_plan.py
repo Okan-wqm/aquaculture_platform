@@ -39,6 +39,7 @@ from aria_kernel.agent_invocations import create_agent_invocation_request
 from aria_kernel.autonomy_orchestrator import run_autonomy_orchestrator
 from aria_kernel.convergence_drainer import ConvergenceRunner, run_convergence_drainer
 from aria_kernel.convergent_planning_bridge import start_convergent_plan_drafted_by_primary
+from aria_kernel.evidence_validator import coverage_manifest_pointer
 from aria_kernel.ledger import load_segments
 from aria_kernel.must_satisfy import key_change_obligation
 from aria_kernel.plan_coverage import environment_unable_payload
@@ -197,7 +198,14 @@ class _TwoCandidateCycle(unittest.TestCase):
                          [change["id"] for change in self.f_plan["key_changes"]])
         self.assertEqual([item["paths"] for item in key_changes],
                          [change["paths"] for change in self.f_plan["key_changes"]])
-        self.assertEqual(row["evidence_refs"], self.f_plan["evidence_refs"])
+        # ARIA-HIGH-354 review — the plan's refs, then the pointer of every
+        # round the plan has measured, so a planner can cite the synthetic
+        # coverage risks it is handed.
+        measured = fold_plan_state(plan_id=PLAN_ID, base_dir=self.tools).get("coverage_by_round") or {}
+        pointers = [coverage_manifest_pointer(str(measured[number]["closure_manifest_path"]))
+                    for number in sorted(measured) if number < int(row.get("round_number") or 0)
+                    or row.get("role") == "completeness_critique"]
+        self.assertEqual(row["evidence_refs"], [*self.f_plan["evidence_refs"], *pointers])
 
 
 class CrossReviewOfTheAdoptedPlan(_TwoCandidateCycle):

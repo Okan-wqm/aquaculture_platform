@@ -110,7 +110,9 @@ def _body(seed: dict, surfaces: list[str], **extra: object) -> dict:
                 key_changes=[{"id": "kc-1", "description": "fix the drift", "paths": surfaces}], **extra)
 
 
-class RevisionScopeBoundTests(unittest.TestCase):
+class _ScopeBoundFixture(unittest.TestCase):
+    """The four-project workspace and the plan moves the bound is tested through."""
+
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-scope-bound-")
         self.addCleanup(self.tmp.cleanup)
@@ -165,6 +167,8 @@ class RevisionScopeBoundTests(unittest.TestCase):
     def _scope(self, plan_id: str) -> dict:
         return fold_plan_state(plan_id=plan_id, base_dir=self.tools)["plan_started"]["admission_scope"]
 
+
+class RevisionScopeBoundTests(_ScopeBoundFixture):
     def test_a_revision_adding_a_surface_inside_the_closure_passes(self) -> None:
         plan_id = self._start(_seed(self.root, "f_finding", "F-007", [SHARED]))
         self._critiqued(plan_id)

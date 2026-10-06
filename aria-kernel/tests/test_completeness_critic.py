@@ -140,12 +140,14 @@ class CriticEnvelopeTests(unittest.TestCase):
         with self.assertRaisesRegex(GovernanceError, "waivers"):
             issue_completeness_critic_envelope(
                 plan_id="plan-1", round_number=1, closure_manifest_text="{}",
+                closure_manifest_path=MANIFEST,
                 closure_manifest_hash="sha256:" + "1" * 64, waivers=[],
                 evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["aria-tools/**"],
             )
         with self.assertRaisesRegex(GovernanceError, "closure_manifest_hash"):
             issue_completeness_critic_envelope(
                 plan_id="plan-1", round_number=1, closure_manifest_text="{}",
+                closure_manifest_path=MANIFEST,
                 closure_manifest_hash="not-a-hash",
                 waivers=[{"node_id": "project:x", "reason": "r"}],
                 evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["aria-tools/**"],
@@ -157,8 +159,13 @@ class CriticEnvelopeTests(unittest.TestCase):
             closure_manifest_text='{"closure": {}}',
             waivers_text='[{"node_id": "project:x"}]',
             closure_manifest_hash="sha256:" + "1" * 64,
+            closure_manifest_pointer="coverage-manifest:plan-1-r2.json",
         )
         self.assertIn("<untrusted_closure_manifest", prompt)
+        # ARIA-HIGH-354 — the critic is told the one way to cite the manifest,
+        # and is no longer sent to verify a file the repository does not hold.
+        self.assertIn("`coverage-manifest:plan-1-r2.json`", prompt)
+        self.assertNotIn("on disk", prompt)
         self.assertIn("<untrusted_waivers>", prompt)
         self.assertIn("REJECTED by the kernel", prompt)
         self.assertIn("details.waiver_adjudication", prompt.replace("`", ""))

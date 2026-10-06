@@ -85,6 +85,7 @@ from .plan_coverage import (
     parse_critic_adjudication,
 )
 from .plan_round_scope import plan_round_contract
+from .step_request import StepRequestDisposition, step_request_disposition
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 # Plan ARIA-V10.4 Phase 3.H.2 — the convergence drainer mints
@@ -489,47 +490,17 @@ def _requests_for_step(
     ]
 
 
-def _live_request_id(
-    base_dir: str | Path,
-    *,
-    convergence_id: str,
-    role: str,
-    round_number: int,
-) -> str | None:
-    """A request the executor can still deliver.
-
-    Pending, claimed, requeued — and STALE: a claim whose lease expired
-    without a result is the reaper's to requeue (or to escalate once the
-    requeue budget is spent), not the drainer's to bury. Trial nine
-    (2026-09-12, ARIA-HIGH-086): the hook claimed the round-3 cross-review
-    and its spawn died before the executor started; the lease expired; the
-    next drainer step ran before the reaper, saw STALE, raised
-    _EnvelopeDead and forced the plan to HUMAN_REQUIRED for a harness fault
-    the reaper would have requeued for free.
-    """
-    from .agent_invocations import derive_request_state
-
-    for row in _requests_for_step(
-        base_dir, convergence_id=convergence_id, role=role, round_number=round_number,
-    ):
-        request_id = str(row.get("request_id") or "")
-        if not request_id:
-            continue
-        try:
-            state = derive_request_state(request_id=request_id, base_dir=base_dir)
-        except Exception:
-            continue
-        if state in {"PENDING", "CLAIMED", "REQUEUED", "STALE"}:
-            return request_id
-    return None
-
-
 class _EnvelopeDead(Exception):
-    """Raised when a step's envelope died at the request layer."""
+    """Raised when a step can neither wait for nor replace its request.
 
-    def __init__(self, role: str) -> None:
+    ``disposition`` says which (``step_request.StepRequestDisposition``): an
+    outcome no successor can change, or a successor budget already spent.
+    """
+
+    def __init__(self, role: str, disposition: StepRequestDisposition | None = None) -> None:
         super().__init__(role)
         self.role = role
+        self.disposition = disposition
 
 
 def run_convergence_drainer(
@@ -649,29 +620,53 @@ def run_convergence_drainer(
             },
         )
 
-    def _ensure_envelope(role: str, round_n: int, mint: Any) -> str | None:
-        """Idempotent envelope guarantee for one step.
+    def _step_disposition(role: str, round_n: int) -> StepRequestDisposition:
+        return step_request_disposition(
+            _requests_for_step(base_dir, convergence_id=convergence_id, role=role, round_number=round_n),
+            role=role, base_dir=base_dir,
+        )
 
-        Returns the live request id (existing or freshly minted). Raises
-        _EnvelopeDead when a prior request exists but is no longer
-        deliverable — its Y1 request-layer budget is already spent, and
-        the idempotent bridge mint could only fold back onto it.
-        """
-        live = _live_request_id(
-            base_dir, convergence_id=convergence_id, role=role, round_number=round_n,
-        )
-        if live:
-            return live
-        prior = _requests_for_step(
-            base_dir, convergence_id=convergence_id, role=role, round_number=round_n,
-        )
-        if prior:
-            raise _EnvelopeDead(role)
-        request = mint()
+    def _mint_step(role: str, round_n: int, mint: Any, remint_of: str | None,
+                   disposition: StepRequestDisposition | None = None) -> str | None:
+        request = mint(remint_of)
         request_id = request.get("request_id")
         if request_id:
             request_ids.append(str(request_id))
+        if remint_of is not None and disposition is not None:
+            append_tools_governance(
+                root,
+                "convergence_envelope_reminted",
+                {
+                    "plan_id": plan_id,
+                    "cycle_id": cycle_id,
+                    "round_number": round_n,
+                    "role": role,
+                    "remint_of": remint_of,
+                    "remint_of_state": disposition.state,
+                    "request_id": request_id,
+                    "remints_so_far": disposition.remints_so_far + 1,
+                },
+            )
         return str(request_id) if request_id else None
+
+    def _ensure_envelope(role: str, round_n: int, mint: Any | None) -> str | None:
+        """Idempotent envelope guarantee for one step (``step_request``).
+
+        Returns the live request id, or a freshly minted one: the first, or a
+        successor of a request that died of queue mechanics or whose answer
+        was refused (ARIA-HIGH-355), within the step's successor budget.
+        ``mint(remint_of)`` builds the envelope; ``None`` means this state
+        cannot rebuild it. Raises _EnvelopeDead for an outcome no successor
+        can change, or once the budget is spent.
+        """
+        disposition = _step_disposition(role, round_n)
+        if disposition.kind == "live":
+            return disposition.request_id
+        if disposition.kind == "absent" and mint is not None:
+            return _mint_step(role, round_n, mint, None)
+        if disposition.kind == "remint" and mint is not None:
+            return _mint_step(role, round_n, mint, disposition.request_id, disposition)
+        raise _EnvelopeDead(role, disposition)
 
     def _plan_texts_from_state(cur: dict[str, Any]) -> tuple[str, bool, str, str, bool]:
         """(primary_text, primary_real, challenger_revision_id,
@@ -875,32 +870,46 @@ def run_convergence_drainer(
                         if manifest_file.exists()
                         else "(closure manifest unavailable)"
                     )
-                    critic_request_id = _ensure_envelope(
-                        _STEP_ROLE_CRITIC,
-                        round_n,
-                        lambda: issue_completeness_critic_envelope(
+                    def mint_critic(remint_of: str | None) -> dict[str, Any]:
+                        return issue_completeness_critic_envelope(
                             plan_id=plan_id,
                             round_number=round_n,
                             closure_manifest_text=manifest_text,
                             closure_manifest_hash=str(payload.get("closure_manifest_hash")),
                             waivers=list(payload.get("waived", [])),
-                            evidence_refs=[str(payload.get("closure_manifest_path")), *current_refs],
+                            closure_manifest_path=str(payload.get("closure_manifest_path")),
+                            evidence_refs=list(current_refs),
                             allowed_scope=allowed_scope,
                             base_dir=base_dir,
                             target_sha=target_sha,
-                        ),
-                    )
-                    adjudication = (
-                        _read_critic_result_once(critic_request_id)
-                        if critic_request_id
-                        else None
-                    )
-                    if adjudication is None and critic_request_id and _live_request_id(
-                        base_dir, convergence_id=convergence_id,
-                        role=_STEP_ROLE_CRITIC, round_number=round_n,
-                    ):
+                            remint_of=remint_of,
+                        )
+
+                    # ARIA-HIGH-355 — the critic is annotation-only: its
+                    # answer is READ here, never bridged into plan state, so
+                    # an answered critic is the normal case, not a dead
+                    # envelope. A refused or dead request gets a successor
+                    # within the step's budget; past it, the waivers stay
+                    # unadjudicated and fail closed to gaps (the
+                    # `adjudicate_waivers` contract), which the round's
+                    # revision then answers.
+                    disposition = _step_disposition(_STEP_ROLE_CRITIC, round_n)
+                    if disposition.kind in {"absent", "remint"}:
+                        remint_of = disposition.request_id if disposition.kind == "remint" else None
+                        critic_request_id = _mint_step(
+                            _STEP_ROLE_CRITIC, round_n, mint_critic, remint_of, disposition,
+                        )
                         _advanced("await_completeness_critic", critic_request_id, round_n)
                         return "waiting"
+                    critic_request_id = disposition.request_id
+                    if disposition.kind == "live":
+                        _advanced("await_completeness_critic", critic_request_id, round_n)
+                        return "waiting"
+                    adjudication = (
+                        _read_critic_result_once(critic_request_id)
+                        if critic_request_id and disposition.state == "ACCEPTED"
+                        else None
+                    )
                     payload = adjudicate_waivers(
                         payload=payload,
                         adjudication=adjudication,
@@ -915,6 +924,8 @@ def run_convergence_drainer(
                             "cycle_id": cycle_id,
                             "round_number": round_n,
                             "critic_request_id": critic_request_id,
+                            "critic_request_state": disposition.state,
+                            "critic_disposition": disposition.kind,
                             **(payload.get("witness") or {}).get("waiver_adjudication", {}),
                             "verdict_after": payload.get("verdict"),
                         },
@@ -1049,7 +1060,7 @@ def run_convergence_drainer(
             request_id = _ensure_envelope(
                 _STEP_ROLE_CHALLENGER,
                 1,
-                lambda: issue_challenger_envelope(
+                lambda remint_of: issue_challenger_envelope(
                     plan_id=plan_id,
                     round_number=1,
                     must_satisfy=[*started_contract.must_satisfy, *coverage_carry, *spine_carry],
@@ -1061,6 +1072,7 @@ def run_convergence_drainer(
                     target_sha=target_sha,
                     context_repo_root=workspace_root,
                     cycle_id=cycle_id,
+                    remint_of=remint_of,
                 ),
             )
             _advanced("plan_started_and_challenger_minted", request_id, 1)
@@ -1071,7 +1083,7 @@ def run_convergence_drainer(
             request_id = _ensure_envelope(
                 _STEP_ROLE_CHALLENGER,
                 current_round,
-                lambda: issue_challenger_envelope(
+                lambda remint_of: issue_challenger_envelope(
                     plan_id=plan_id,
                     round_number=current_round,
                     must_satisfy=effective_must_satisfy,
@@ -1083,6 +1095,7 @@ def run_convergence_drainer(
                     target_sha=target_sha,
                     context_repo_root=workspace_root,
                     cycle_id=cycle_id,
+                    remint_of=remint_of,
                 ),
             )
             _advanced("await_challenger", request_id, current_round)
@@ -1092,7 +1105,7 @@ def run_convergence_drainer(
             request_id = _ensure_envelope(
                 _STEP_ROLE_CHALLENGER,
                 current_round,
-                lambda: issue_challenger_envelope(
+                lambda remint_of: issue_challenger_envelope(
                     plan_id=plan_id,
                     round_number=current_round,
                     must_satisfy=effective_must_satisfy,
@@ -1104,6 +1117,7 @@ def run_convergence_drainer(
                     target_sha=target_sha,
                     context_repo_root=workspace_root,
                     cycle_id=cycle_id,
+                    remint_of=remint_of,
                 ),
             )
             _advanced("await_challenger_for_revision", request_id, current_round)
@@ -1123,7 +1137,7 @@ def run_convergence_drainer(
                 request_id = _ensure_envelope(
                     _STEP_ROLE_CROSS_REVIEW,
                     current_round,
-                    lambda: issue_cross_review_envelope(
+                    lambda remint_of: issue_cross_review_envelope(
                         plan_id=plan_id,
                         round_number=current_round,
                         primary_revision_id=str(primary_revision_id),
@@ -1139,6 +1153,7 @@ def run_convergence_drainer(
                         target_sha=target_sha,
                         context_repo_root=workspace_root,
                         cycle_id=cycle_id,
+                        remint_of=remint_of,
                     ),
                 )
             except Exception as mint_exc:
@@ -1160,13 +1175,9 @@ def run_convergence_drainer(
 
         if plan_state == "CROSS_REVIEW_REQUESTED":
             # Envelope minted on an earlier cycle; executor owns delivery.
-            request_id = _ensure_envelope(
-                _STEP_ROLE_CROSS_REVIEW,
-                current_round,
-                lambda: (_ for _ in ()).throw(
-                    GovernanceError("cross_review re-mint requires CHALLENGER_DRAFTED texts")
-                ),
-            )
+            # The bridge recorded the review tasks, so the request was
+            # answered; a successor here would review a round already opened.
+            request_id = _ensure_envelope(_STEP_ROLE_CROSS_REVIEW, current_round, None)
             _advanced("await_cross_review", request_id, current_round)
             return _result("in_progress", rounds=current_round)
 
@@ -1228,7 +1239,7 @@ def run_convergence_drainer(
                 request_id = _ensure_envelope(
                     _STEP_ROLE_PRIMARY,
                     next_round,
-                    lambda: issue_primary_envelope(
+                    lambda remint_of: issue_primary_envelope(
                         plan_id=plan_id,
                         round_number=next_round,
                         must_satisfy=[*base_ms, *coverage_carry, *spine_carry, *contract_carry],
@@ -1240,6 +1251,7 @@ def run_convergence_drainer(
                         target_sha=target_sha,
                         context_repo_root=workspace_root,
                         cycle_id=cycle_id,
+                        remint_of=remint_of,
                     ),
                 )
             except BridgeContractViolation:
@@ -1273,6 +1285,12 @@ def run_convergence_drainer(
                 "cycle_id": cycle_id,
                 "round_number": current_round,
                 "role": dead.role,
+                **({
+                    "disposition": dead.disposition.kind,
+                    "request_id": dead.disposition.request_id,
+                    "request_state": dead.disposition.state,
+                    "remints_so_far": dead.disposition.remints_so_far,
+                } if dead.disposition is not None else {}),
             },
         )
         return _terminal_result(

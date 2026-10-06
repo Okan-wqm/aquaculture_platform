@@ -6107,6 +6107,12 @@ def _parse_snapshot(blob: str, source: str) -> dict[str, Any]:
     return snapshot
 
 
+# `-c core.hooksPath=/dev/null` before every subcommand: git finds no hook
+# directory, so no client-side hook (pre-push, pre-commit, post-checkout, …)
+# can run for a store operation, whatever the repository configures.
+_HOOK_FREE_GIT_CONFIG: tuple[str, ...] = ("-c", "core.hooksPath=/dev/null")
+
+
 def _run_git_bytes_bounded(
     cwd: Path,
     args: tuple[str, ...],
@@ -6156,7 +6162,14 @@ def _run_git_bytes_bounded(
             )
     try:
         process = subprocess.Popen(
-            ["git", "-C", str(cwd), *args],
+            # ARIA-HIGH-350 — HOOK-FREE BY CONSTRUCTION. Every git call the
+            # store makes touches data refs (aria/state, -cold, -lease) or the
+            # store worktree, never code, so no repository hook may run: the
+            # live writer lease's pushes ran from the checkout root and died
+            # in husky's pre-push (`ts-node: not found`) on the operator lane.
+            # The code gates are untouched — they guard code branches, which
+            # this runner never pushes.
+            ["git", "-C", str(cwd), *_HOOK_FREE_GIT_CONFIG, *args],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

@@ -363,7 +363,7 @@ jobs:
               # remote. Declared rather than folded into `github_artifact`,
               # because they are different credentials with different blast
               # radii and a reviewer must be able to see the git one.
-              network_policy=["github_artifact", "github_git"],
+              network_policy=["github_api", "github_artifact", "github_git"],
               network_enforcement_evidence=(
                   "state restore/publish limited to the aria/state branch over "
                   "the repository remote; artifact upload limited to the "
@@ -743,7 +743,7 @@ jobs:
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=allowed,
               path_allowlist=allowed,
-              network_policy=["github_artifact", "github_git"],
+              network_policy=["github_api", "github_artifact", "github_git"],
               network_enforcement_evidence=(
                   "state restore/publish limited to the aria/state branch over "
                   "the repository remote; artifact upload limited to the "

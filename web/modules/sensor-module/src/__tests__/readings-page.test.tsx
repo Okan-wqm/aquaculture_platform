@@ -1,0 +1,122 @@
+/**
+ * /sensor/readings renders stored channel values (SENSOR-HIGH-138).
+ *
+ * Regression: the page generated Math.random() values per sensor TYPE, so a
+ * five-channel water-quality sonde of type "temperature" showed one invented
+ * temperature. Here the page must show every enabled channel of the sensor
+ * with exactly the value the backend returned.
+ */
+import React from 'react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+import type { ChannelLatestValue } from '../graphql/channelReadings';
+import type { RegisteredSensor } from '../hooks/useSensorList';
+
+const SENSOR: RegisteredSensor = {
+  id: 'f0b8b1a6-df19-42de-ba9a-8523c949ea65',
+  name: 'Codex Su Sıcaklığı Simülatörü',
+  type: 'temperature',
+  protocolCode: 'MQTT',
+  protocolConfiguration: { topic: 'sensors/codex-test/water-temp-01' },
+  registrationStatus: 'draft',
+  tenantId: '7f6b08ab-90e2-46d3-a260-cb985f1fd897',
+  createdAt: '',
+  updatedAt: '',
+};
+
+function channel(
+  channelKey: string,
+  displayLabel: string,
+  value: number,
+  unit: string,
+  precision: number,
+  alertLevel: ChannelLatestValue['alertLevel'] = 'NORMAL',
+): ChannelLatestValue {
+  return {
+    sensorId: SENSOR.id,
+    channelId: `ch-${channelKey}`,
+    channelKey,
+    displayLabel,
+    unit,
+    unitSymbol: unit,
+    displayOrder: 1,
+    precision,
+    value,
+    time: new Date(Date.now() - 10_000).toISOString(),
+    qualityCode: 192,
+    alertLevel,
+  };
+}
+
+const CHANNELS: ChannelLatestValue[] = [
+  channel('temperature', 'Su Sıcaklığı', 24.2, '°C', 1),
+  channel('ph', 'pH', 7.34, 'pH', 2),
+  channel('dissolved_oxygen', 'Çözünmüş Oksijen', 5.86, 'mg/L', 2),
+  channel('salinity', 'Tuzluluk', 19.9, '‰', 1),
+  channel('ammonia', 'Amonyak (NH3-N)', 0.114, 'mg/L', 3, 'WARNING'),
+];
+
+const latestHook = vi.fn();
+
+vi.mock('../hooks/useSensorList', () => ({
+  useSensorList: () => ({ sensors: [SENSOR], loading: false, error: null, refetch: vi.fn() }),
+}));
+vi.mock('../hooks/useChannelReadings', () => ({
+  useChannelLatestValues: (...args: unknown[]) => latestHook(...args),
+  useChannelSeries: () => ({ series: null, loading: false, error: null }),
+}));
+vi.mock('../components/charts/TrendChart', () => ({ TrendChart: () => null }));
+
+import ReadingsPage from '../pages/ReadingsPage';
+
+describe('ReadingsPage', () => {
+  beforeEach(() => {
+    latestHook.mockReturnValue({
+      bySensor: new Map([[SENSOR.id, CHANNELS]]),
+      loading: false,
+      error: null,
+      fetchedAt: Date.now(),
+      refetch: vi.fn(),
+    });
+  });
+
+  it('shows every channel of the sensor with the stored value, not one random temperature', () => {
+    const random = vi.spyOn(Math, 'random');
+    render(<ReadingsPage />);
+
+    for (const [key, text] of [
+      ['temperature', '24,2'],
+      ['ph', '7,34'],
+      ['dissolved_oxygen', '5,86'],
+      ['salinity', '19,9'],
+      ['ammonia', '0,114'],
+    ] as const) {
+      expect(
+        within(screen.getByTestId(`channel-tile-${key}`)).getByText(text, { exact: false }),
+      ).toBeTruthy();
+    }
+    expect(screen.getByText('Veri akıyor')).toBeTruthy();
+    expect(within(screen.getByTestId('channel-tile-ammonia')).getByText('Uyarı')).toBeTruthy();
+    expect(random).not.toHaveBeenCalled();
+    random.mockRestore();
+  });
+
+  it('asks only for the sensors that own channels and refreshes every 30 s', () => {
+    render(<ReadingsPage />);
+    expect(latestHook).toHaveBeenLastCalledWith([SENSOR.id], 30_000);
+  });
+
+  it('stops polling when switched to manual', () => {
+    render(<ReadingsPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Otomatik (30s)' }));
+    expect(latestHook).toHaveBeenLastCalledWith([SENSOR.id], false);
+  });
+
+  it('filters the tiles by parameter', () => {
+    render(<ReadingsPage />);
+    fireEvent.change(screen.getByLabelText('Parametre'), { target: { value: 'ph' } });
+    expect(screen.getByTestId('channel-tile-ph')).toBeTruthy();
+    expect(screen.queryByTestId('channel-tile-temperature')).toBeNull();
+  });
+});

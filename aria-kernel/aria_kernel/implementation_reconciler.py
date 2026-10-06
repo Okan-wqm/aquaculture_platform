@@ -11,6 +11,13 @@ Merge and learning completion are separate. Persisted terminal merges remain
 eligible for convention reconciliation even when the remote reader is offline.
 The existing ledgers are the retry source; a merge is never reopened or repeated.
 
+ARIA-HIGH-363 — the same retry source closes the finding a merged plan was
+planned from (``finding_closure``): this reconciler marked the plan merged
+and left its finding, and every duplicate of it, OPEN for the aging-F source
+to plan again. The finding store and the detector's checkout are the cycle's
+``workspace_root``, so it is a required argument: a reconciler that cannot
+reach the finding store is the defect, not a mode.
+
 Small on purpose — operator preference: files stay short.
 """
 from __future__ import annotations
@@ -18,14 +25,15 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
+from .finding_closure import FindingDetector, close_merged_plan_finding, default_detectors
 from .plan_convergence import (
     events_path,
     fold_plan_state,
     record_implementation_merged,
 )
-from .ledger import LedgerIntegrityError, state_transaction
+from .ledger import LedgerIntegrityError, load_jsonl, state_transaction
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 _PR_NUMBER_RE = re.compile(r"/pull/(\d+)")
@@ -96,27 +104,57 @@ def _reconcile_promotion(plan_id: str, root: Path) -> dict[str, Any]:
     }
 
 
+def _close_finding(
+    plan_id: str, state: dict[str, Any], root: Path, workspace_root: Path,
+    detectors: Mapping[str, FindingDetector], history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """One merged plan's finding closure; a failed write is reported and retried next cycle."""
+    try:
+        return close_merged_plan_finding(
+            plan_id=plan_id, state=state, repo_root=workspace_root,
+            base_dir=root, detectors=detectors, history=history,
+        )
+    except (GovernanceError, LedgerIntegrityError, OSError) as exc:
+        return {"plan_id": plan_id, "status": "closure_error",
+                "error_type": type(exc).__name__, "reason": str(exc)[:500]}
+
+
 def reconcile_recorded_implementations(
     *,
     base_dir: str | Path | None,
     reader: Any,
+    workspace_root: str | Path,
     base_branch: str = "main",
+    detectors: Mapping[str, FindingDetector] | None = None,
 ) -> dict[str, Any]:
     """Observe new merges and resume learning from durable merge evidence.
 
     ``merged`` and ``checked`` describe this call's new merge events and remote
     checks. ``promotions`` independently reports learning progress or failure.
     Existing merge-backed convention status is not a measured-gain verdict.
+    ``finding_closures`` reports, per merged plan, whether its source finding
+    (and its subject's duplicates) were closed, and if not, why.
     """
     root = ensure_tools_dir(base_dir)
+    checkout = Path(workspace_root)
+    finding_detectors = default_detectors() if detectors is None else detectors
     states = _implementation_states(root)
+    # ARIA-HIGH-363 (review B1(b)) — read once: every merged plan's closure
+    # pass checks its completion and its unverifiable tries against it, and a
+    # completed pass is skipped without folding the finding store.
+    history = load_jsonl(root / "governance.jsonl") if any(
+        state.get("state") in {"IMPLEMENTATION_MERGED", "IMPLEMENTATION_RECORDED"} for state in states.values()
+    ) else []
     result: dict[str, Any] = {
         "status": "reconciled", "merged": [], "checked": 0,
-        "promotions": [], "merge_errors": [],
+        "promotions": [], "merge_errors": [], "finding_closures": [],
     }
     for plan_id, state in states.items():
         if state.get("state") == "IMPLEMENTATION_MERGED":
             result["promotions"].append(_reconcile_promotion(plan_id, root))
+            result["finding_closures"].append(
+                _close_finding(plan_id, state, root, checkout, finding_detectors, history),
+            )
 
     # Local recovery above does not depend on credentials or network health.
     # Neither this call nor pr_merge_state below runs inside a state lock.
@@ -163,5 +201,8 @@ def reconcile_recorded_implementations(
         if event["event_appended"]:
             result["merged"].append({"plan_id": plan_id, "pr_number": pr_number, "merge_sha": merge_sha})
         result["promotions"].append(_reconcile_promotion(plan_id, root))
+        result["finding_closures"].append(_close_finding(
+            plan_id, fold_plan_state(plan_id=plan_id, base_dir=root), root, checkout, finding_detectors, history,
+        ))
 
     return result

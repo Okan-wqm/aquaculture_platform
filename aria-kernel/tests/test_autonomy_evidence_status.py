@@ -1511,6 +1511,11 @@ def alias_factory(root):
             # it reads the verdict, it cannot render one.
             ("executor", f"{KERNEL}mission_dispatch.py", "consumer"):
                 "mission dispatch reads request state to skip an in-flight mission; it cannot accept a result",
+            # ARIA-HIGH-362 — the converged-plan delivery derives a plan's
+            # implementation request state to withhold a second mint while one
+            # is live; it reads the verdict, it cannot render one.
+            ("executor", f"{KERNEL}converged_delivery.py", "consumer"):
+                "converged delivery reads request state to withhold a second mint; it cannot accept a result",
             ("finding_funnel", f"{KERNEL}belief_escalation.py", "consumer"):
                 "belief escalation observes feedback for a separate belief lane",
             ("finding_funnel", f"{KERNEL}calibration.py", "consumer"):

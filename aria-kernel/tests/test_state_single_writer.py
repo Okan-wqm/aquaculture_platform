@@ -65,14 +65,44 @@ REPO_ROOT = KERNEL_ROOT.parent
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 
 
+# The fixture's environment keeps exactly the hermetic git configuration
+# (`tests/_helpers/hermetic_git`) and nothing else git reads from outside.
+_HERMETIC_GIT_VARS = ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM")
+
+
+class GitFixtureError(subprocess.CalledProcessError):
+    """A fixture git command failed — with what git said, not just the code.
+
+    CI on PR #1791 failed with only `exit status 128` from a helper fetch;
+    the fatal line that named the cause was captured and dropped.
+    """
+
+    def __str__(self) -> str:
+        argv = " ".join(str(part) for part in self.cmd[3:])
+        return f"git {argv} exited {self.returncode}: {(self.stderr or '').strip()[:2000]}"
+
+
 def _git(cwd: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(cwd), *args],
+    """The fixture's own git: hermetic environment, and no hooks.
+
+    The hook-free `-c` mirrors the kernel's own runner (ARIA-HIGH-350): a
+    fixture that arms failing hooks to test the kernel must not trip them
+    in its own setup and assertions (`reference-transaction` aborts any
+    fetch that moves a remote-tracking ref).
+    """
+    argv = ["git", "-C", str(cwd), "-c", "core.hooksPath=/dev/null", *args]
+    proc = subprocess.run(
+        argv,
         capture_output=True,
         text=True,
-        check=True,
-        env={key: value for key, value in os.environ.items() if not key.startswith("GIT_DIR")},
-    ).stdout
+        env={
+            key: value for key, value in os.environ.items()
+            if not key.startswith("GIT_") or key in _HERMETIC_GIT_VARS
+        },
+    )
+    if proc.returncode != 0:
+        raise GitFixtureError(proc.returncode, argv, proc.stdout, proc.stderr)
+    return proc.stdout
 
 
 class _TwoWriters(unittest.TestCase):
@@ -84,15 +114,21 @@ class _TwoWriters(unittest.TestCase):
         self.base = Path(self._tmp.name)
         # A spec once rewrote the shared .git/config from inside a hook: no
         # GIT_* location variable reaches any git this fixture spawns.
-        stripped = {
-            key: value for key, value in os.environ.items()
-            if key.startswith("GIT_") and not key.startswith("GIT_CONFIG_")
-        }
         patcher = mock.patch.dict(os.environ, {}, clear=False)
         patcher.start()
         self.addCleanup(patcher.stop)
-        for key in stripped:
+        # Hermetic, whatever the runner exports: no inherited GIT_* variable
+        # (a location, a GIT_CONFIG_COUNT credential header, a namespace) and
+        # a fixed HOME, so neither ~/.gitconfig nor a user hooksPath can
+        # reach a fixture; the global/system config is the suite's own.
+        for key in [key for key in os.environ if key.startswith("GIT_")]:
             os.environ.pop(key, None)
+        from tests._helpers.hermetic_git import apply_hermetic_git_env
+
+        apply_hermetic_git_env()
+        home = self.base / "home"
+        home.mkdir()
+        os.environ["HOME"] = str(home)
         os.environ.pop(WRITER_LEASE_TOKEN_ENV, None)
         # Hermetic identities: a CI runner exports GITHUB_RUN_ID and friends,
         # which would give both fixture writers ONE identity. Every writer in
@@ -100,6 +136,19 @@ class _TwoWriters(unittest.TestCase):
         # tested on purpose (`CiShapedIdentities`), never inherited.
         for key in [key for key in os.environ if key.startswith("GITHUB_")]:
             os.environ.pop(key, None)
+        os.environ.pop("GH_TOKEN", None)
+        # ARIA-HIGH-350 — the reaper asks the Actions API about a held gha:
+        # lease. A fixture never reaches the network: it answers "no
+        # answer" (no reap) unless a test supplies its own fake runs.
+        from aria_kernel import state_writer_lease as lease_module
+        from aria_kernel.state_writer_lease_runs import RunStatusUnavailable
+
+        def no_actions_api(run_id: str, attempt: str):
+            raise RunStatusUnavailable("fixture: no Actions API")
+
+        api = mock.patch.object(lease_module, "github_run_attempt_status", side_effect=no_actions_api)
+        api.start()
+        self.addCleanup(api.stop)
 
         self.remote = self.base / "remote.git"
         self.remote.mkdir()

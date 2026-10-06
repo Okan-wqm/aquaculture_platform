@@ -31,6 +31,10 @@ permissions:
   # append a commit descending from that branch's tip, which is exactly what
   # publishing is.
   contents: write
+  # ARIA-HIGH-350 — the writer-lease acquire asks the Actions API whether a
+  # held gha: lease's run attempt has concluded (run-liveness reaping); the
+  # job token needs read access to runs to answer, and gives nothing else.
+  actions: read
 
 concurrency:
   # ORPHAN-MEDIUM-770 — this lane publishes the shared aria/state ledger
@@ -89,7 +93,7 @@ jobs:
               # credentials with different blast radii, and a reviewer has to
               # be able to see the git one. The eval itself still reaches no
               # third-party network — the fixtures remain local.
-              network_policy=["github_artifact", "github_git"],
+              network_policy=["github_api", "github_artifact", "github_git"],
               network_enforcement_evidence=(
                   "the observation reads the restored ledgers only; network reach "
                   "is the aria/state fetch+push over the repository remote"

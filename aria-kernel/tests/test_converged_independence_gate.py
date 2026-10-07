@@ -163,20 +163,25 @@ class SelfAgreementIsNeverDelivered(_ReviewedCase):
         self.assertIn(CROSS_REVIEW_SELF_AGREEMENT_REASON, UNATTRIBUTABLE_FAILURE_MODES)
 
 
+def _write_legacy_convergence(case: "_ReviewedCase") -> None:
+    """A CONVERGED evaluation as written before the gate: no independence decision."""
+    with _plan_lock(case.tools):
+        _append_event(
+            root=case.tools, plan_id="plan-1", event_type="plan_evaluated",
+            payload={"round_number": 1, "terminal_state": "CONVERGED",
+                     "risks_rollup_summary": {}, "gate_decisions": [], "reason_codes": []},
+            idempotency_key=_idempotency_key("plan-1", "evaluate", {"round_number": 1}),
+        )
+    case.assertEqual(case.state(), "CONVERGED")
+
+
 class LegacyConvergedPlan(_ReviewedCase):
     """A plan CONVERGED before the gate existed: its evaluation has no
     independence decision."""
 
     def setUp(self) -> None:
         super().setUp()
-        with _plan_lock(self.tools):
-            _append_event(
-                root=self.tools, plan_id="plan-1", event_type="plan_evaluated",
-                payload={"round_number": 1, "terminal_state": "CONVERGED",
-                         "risks_rollup_summary": {}, "gate_decisions": [], "reason_codes": []},
-                idempotency_key=_idempotency_key("plan-1", "evaluate", {"round_number": 1}),
-            )
-        self.assertEqual(self.state(), "CONVERGED")
+        _write_legacy_convergence(self)
 
     def test_the_sweep_judges_it_once_before_offering_and_moves_a_failure(self) -> None:
         runner = _runner()
@@ -233,3 +238,100 @@ class RefusedDispatchRecordIsDisclosedOnce(_ReviewedCase):
                 round_dispatches(plan_id="plan-1", round_number=1, state=state, base_dir=self.tools)
         # One per refused role (primary, challenger, cross review), never per read.
         self.assertEqual(self.governance_kinds().count(ROUND_DISPATCH_REFUSED_KIND), 3)
+
+
+class SecondReviewParkedItems(_ReviewedCase):
+    """ARIA-HIGH-375 second review — the sweep cannot be ended by the
+    migration, and every parked plan has exactly one live operator item."""
+
+    def items(self) -> dict[str, dict]:
+        import json
+
+        folder = self.tools / "human-required"
+        return {path.stem: json.loads(path.read_text(encoding="utf-8"))
+                for path in folder.glob("*.json")} if folder.is_dir() else {}
+
+    def test_a_store_fault_in_the_migration_is_a_row_and_the_plan_is_not_offered(self) -> None:
+        from aria_kernel.converged_delivery import (
+            INDEPENDENCE_MIGRATION_FAILED_KIND,
+            WITHHELD_INDEPENDENCE_UNJUDGED,
+        )
+        from aria_kernel.tool_registry import GovernanceError
+
+        self.cycle_step(_CLEAN)
+        runner = _runner()
+        with mock.patch("aria_kernel.converged_delivery.withhold_ungated_self_agreement",
+                        side_effect=GovernanceError("plan lock timeout")):
+            report = self.sweep(runner)
+        runner.run.assert_not_called()
+        self.assertEqual(report["withheld"], {"plan-1": WITHHELD_INDEPENDENCE_UNJUDGED})
+        self.assertIn(INDEPENDENCE_MIGRATION_FAILED_KIND, self.governance_kinds())
+
+    def test_the_sweep_writes_the_missing_item_once_and_resolves_it_when_the_plan_leaves(self) -> None:
+        from aria_kernel.plan_convergence import abandon_plan
+
+        # The drainer parks the plan; nothing wrote its item (a fault between
+        # the transition and the item, or a writer that predates the item).
+        self.cycle_step(_ECHO)
+        self.assertEqual(self.operator_items(), [])
+        self.sweep(_runner(), _ECHO)
+        self.sweep(_runner(), _ECHO)
+        self.assertEqual(self.operator_items(), [parked_plan_request_id("plan-1")])
+        self.assertEqual(self.items()[parked_plan_request_id("plan-1")]["status"], "open")
+        abandon_plan(plan_id="plan-1", reason="operator: superseded", base_dir=self.tools)
+        report = self.sweep(_runner(), _ECHO)
+        self.assertEqual(report["parked"]["resolved"], [parked_plan_request_id("plan-1")])
+        item = self.items()[parked_plan_request_id("plan-1")]
+        self.assertEqual((item["status"], item["resolved_by"]), ("resolved", "kernel"))
+        self.assertEqual(self.sweep(_runner(), _ECHO)["parked"]["resolved"], [])
+
+    def test_a_plan_the_operator_parked_is_recorded_already_resolved(self) -> None:
+        from aria_kernel.plan_convergence import force_plan_human_required
+
+        force_plan_human_required(plan_id="plan-1", round_number=1,
+                                  reason_codes=["operator_withdrawn"], base_dir=self.tools)
+        self.sweep(_runner())
+        item = self.items()[parked_plan_request_id("plan-1")]
+        self.assertEqual((item["status"], item["kernel_disposition"]["disposition"]),
+                         ("resolved", "parked_by_operator"))
+
+    def test_a_re_parked_plan_gets_a_fresh_item_never_the_old_resolved_one(self) -> None:
+        from aria_kernel.convergence_outcome import record_parked_plan
+        from aria_kernel.human_required import resolve_human_required
+
+        self.cycle_step(_ECHO)
+        first = record_parked_plan(plan_id="plan-1", base_dir=self.tools, verdict="v", origin="test")
+        resolve_human_required(request_id=first["request_id"], resolution_note="re-staged",
+                               base_dir=self.tools)
+        # A second parking of the same plan (a re-opened plan escalating again).
+        with _plan_lock(self.tools):
+            _append_event(
+                root=self.tools, plan_id="plan-1", event_type="plan_evaluated",
+                payload={"round_number": 2, "terminal_state": "HUMAN_REQUIRED",
+                         "risks_rollup_summary": {}, "gate_decisions": [],
+                         "reason_codes": ["max_rounds_reached"]},
+                idempotency_key=_idempotency_key("plan-1", "evaluate", {"round_number": 2}),
+            )
+        second = record_parked_plan(plan_id="plan-1", base_dir=self.tools, verdict="v", origin="test")
+        self.assertEqual(second["request_id"], parked_plan_request_id("plan-1", 2))
+        self.assertEqual(second["request_id"], "plan-human-required-plan-1-2")
+        self.assertEqual(second["status"], "open")
+        self.assertEqual(self.items()[first["request_id"]]["status"], "resolved")
+
+
+class MigratedConvergenceIsNotTheDraftersSuccess(_ReviewedCase):
+    def setUp(self) -> None:
+        super().setUp()
+        _write_legacy_convergence(self)
+
+    def test_the_escalation_supersedes_the_converged_credit(self) -> None:
+        from aria_kernel.agent_eval import _performance_episodes
+
+        self.sweep(_runner(), _ECHO)
+        episodes = _performance_episodes(load_jsonl(events_path(self.tools)), {})
+        drafter = [row for row in episodes if row["role"] == "drafter" and row["plan_id"] == "plan-1"]
+        converged = [row for row in drafter if row["outcome"] == "converged"]
+        escalated = [row for row in drafter if row["outcome"] == "escalated"]
+        self.assertEqual(len(converged), 1)
+        self.assertEqual(escalated[-1]["supersedes"], converged[0]["episode_id"])
+        self.assertFalse(escalated[-1]["attributable"])

@@ -151,3 +151,42 @@ plus three LOW items. Each is fixed on this branch.
   - The executor id is `executor-<run_id>-<attempt>`.
   - `round_dispatch_record_refused` is written once per (plan, round, role, reason), through
     `append_tools_governance_once`.
+
+## Second review corrections
+
+The second review of PR #1831 found two MEDIUM and two LOW items. All are fixed here
+(ARIA-HIGH-375); one LOW is not, with its reason below.
+
+- **MEDIUM-A: the migration could end the cycle, and a parked plan could lose its item.**
+  - The sweep's `withhold_ungated_self_agreement` call is now guarded like the other sweep steps.
+    A `GovernanceError`, `LedgerIntegrityError` or `OSError` becomes a
+    `converged_independence_migration_failed` row. The plan is withheld as
+    `independence_unjudged`, because its independence is what is unknown, and the cycle goes on.
+    This is the class #1813 closed for the uncounted note. The migration's governance row now
+    passes `bypass_profile_gate=True`, as the other kernel bookkeeping does.
+  - The transition and the item are separate writes: in the cycle, in the executor
+    (`executor_convergence`) and in the migration. A fault between them used to leave a
+    HUMAN_REQUIRED plan that no scan would look at again.
+    `convergence_outcome.reconcile_parked_plans` is now the single place the invariant holds. It
+    runs at the end of every sweep, plan by plan, with faults as rows. Every HUMAN_REQUIRED plan
+    gets its item, idempotently and keyed by the plan.
+- **MEDIUM-B: a parked item was never resolved.** The same reconcile resolves, through
+  `write_kernel_disposition`, every item of a plan that left HUMAN_REQUIRED (abandoned, or moved
+  on by an operator). The disposition is `plan_left_human_required`, and resolution happens no
+  later than the next cycle.
+  - A re-parked plan gets a fresh item: `plan-human-required-<id>-2` for its second parking,
+    following the #1828 suffix pattern. The item counts the plan's HUMAN_REQUIRED evaluations, so
+    `record_human_required` never hands back an earlier, resolved record as the open one.
+  - A plan the operator parked himself (reason codes `operator_*`, e.g. `operator_withdrawn`) is
+    recorded already resolved (`parked_by_operator`), not handed back to the person who decided.
+- **LOW, done: credit for a withdrawn convergence.** `agent_eval` no longer credits the drafter
+  with a converged success that the migration withdrew. The self-agreement escalation supersedes
+  that episode.
+- **LOW, not done: a pass marker per plan and gate epoch.** A legacy plan that passes is still
+  re-judged each sweep. The judgment is read-only and idempotent. The live store holds zero
+  CONVERGED plans without the gate (2026-10-07). A marker would need a new declared state
+  surface.
+
+Tests: 5 new tests in `test_converged_independence_gate.py` covering the guard, the
+repair/resolve cycle, operator parking, re-parking and the superseded credit. All 5 fail on the
+pre-fix head.

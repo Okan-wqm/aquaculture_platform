@@ -100,6 +100,7 @@ def record_funnel(
         append_tools_governance(
             tools_dir, FUNNEL_UNATTRIBUTED_KIND,
             {"cycle_id": cycle_id, "plan_id": plan_id, "counter": counter},
+            bypass_profile_gate=True,
         )
         return "unattributed"
     try:

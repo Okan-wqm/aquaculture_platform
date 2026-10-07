@@ -94,6 +94,8 @@ WITHHELD_WORKSPACE_DIRTY: str = "workspace_dirty"
 # HUMAN_REQUIRED, never offered.
 WITHHELD_NOT_INDEPENDENT: str = "convergence_not_independent"
 INDEPENDENCE_MIGRATED_KIND: str = "converged_independence_migrated"
+INDEPENDENCE_MIGRATION_FAILED_KIND: str = "converged_independence_migration_failed"
+WITHHELD_INDEPENDENCE_UNJUDGED: str = "independence_unjudged"
 
 
 def human_required_request_id(plan_id: str) -> str:
@@ -219,6 +221,7 @@ def withhold_ungated_self_agreement(plan_id: str, *, base_dir: Path) -> bool:
     append_tools_governance(
         base_dir, INDEPENDENCE_MIGRATED_KIND,
         {"plan_id": plan_id, "round_number": round_number, "violation_reasons": violations},
+        bypass_profile_gate=True,
     )
     record_parked_plan(plan_id=plan_id, base_dir=base_dir, verdict="cross_review_self_agreement",
                        origin="converged_delivery")
@@ -612,7 +615,9 @@ def redeliver_stranded_converged_plans(
     cannot deliver, each stranded plan's uncounted cycle is noted; plans
     ended by exhaustion whose operator record is missing get it.
     """
+    from .ledger import LedgerIntegrityError
     from .plan_convergence import counted_delivery_attempts, fold_plan_state
+    from .tool_registry import GovernanceError, append_tools_governance
 
     report: dict[str, Any] = {
         "stranded": [], "offered": [], "escalated": [], "withheld": {}, "surfaced": [],
@@ -634,7 +639,23 @@ def redeliver_stranded_converged_plans(
         # or escalated, and under every lane, including one without
         # authority: a plan converged before the independence gate is judged
         # by it once.
-        if withhold_ungated_self_agreement(plan_id, base_dir=base_dir):
+        try:
+            not_independent = withhold_ungated_self_agreement(plan_id, base_dir=base_dir)
+        except (GovernanceError, LedgerIntegrityError, OSError) as exc:
+            # A store fault while judging or moving one plan is a row, never
+            # the end of the cycle (the class #1813 closed for the uncounted
+            # note). An unjudged plan is not offered either: its independence
+            # is exactly what is unknown. The parked-item repair below covers
+            # a move that landed without its item.
+            append_tools_governance(
+                base_dir, INDEPENDENCE_MIGRATION_FAILED_KIND,
+                {"cycle_id": cycle_id, "plan_id": plan_id, "error_class": type(exc).__name__,
+                 "error_message": str(exc)[:500]},
+                bypass_profile_gate=True,
+            )
+            report["withheld"][plan_id] = WITHHELD_INDEPENDENCE_UNJUDGED
+            continue
+        if not_independent:
             report["independence_failed"].append(plan_id)
             continue
         report["stranded"].append(plan_id)
@@ -676,6 +697,13 @@ def redeliver_stranded_converged_plans(
         report["offered"].append({"plan_id": plan_id, **{
             key: outcome.get(key) for key in ("terminal_state", "rejection_class")
         }, "attempt": outcome["delivery"]["attempt"]})
+    # ARIA-HIGH-375 (second review) — every HUMAN_REQUIRED plan has its one
+    # operator item, and a plan that left HUMAN_REQUIRED has its item
+    # resolved: the single place that guarantees it, after this sweep's own
+    # parkings. Faults are rows inside it, plan by plan.
+    from .convergence_outcome import reconcile_parked_plans
+
+    report["parked"] = reconcile_parked_plans(base_dir=base_dir)
     return report
 
 

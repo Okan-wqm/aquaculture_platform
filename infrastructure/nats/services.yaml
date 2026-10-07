@@ -152,6 +152,7 @@ services:
   - request.farm.getHarvestOverview
   - request.farm.getFeedingOverview
   - request.farm.validateSiteAssignment
+  - request.farm.resolveTimeZones
   - _INBOXFARMMARINECFG.>
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
@@ -227,6 +228,7 @@ services:
   - events.*.SensorServiceTenantDataErasureFailed
   - events.*.SensorServiceTenantErasureBlocked
   - request.ai.sensor.detectChannels
+  - request.farm.resolveTimeZones
   - st.language.>
   - events.platform.schema-migration.>
   - events.security.events.>

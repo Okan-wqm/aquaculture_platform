@@ -25,6 +25,7 @@ import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { FeedingClockService } from '../services/feeding-clock.service';
+import { SiteTimeZoneService } from '../../localization/services/site-time-zone.service';
 import { FeedingJobRunService } from '../services/feeding-job-run.service';
 import { realFinalizationService } from './helpers/meal-finalization-double';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
@@ -64,7 +65,9 @@ function makeHarness(options: TickHarnessOptions) {
     stub<ProtocolFeedForecastService>({ refreshTenant: jest.fn() }),
     recalcService,
     realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
-    stub<FeedingClockService>({
+    stub<FeedingClockService>({}),
+    stub<FeedingJobRunService>({ claim, settle }),
+    stub<SiteTimeZoneService>({
       tenantZones: jest.fn().mockResolvedValue(
         new Map([
           [OSLO_TENANT, 'Europe/Oslo'],
@@ -72,7 +75,6 @@ function makeHarness(options: TickHarnessOptions) {
         ]),
       ),
     }),
-    stub<FeedingJobRunService>({ claim, settle }),
   );
 
   // Keşif ve iş yürütücüleri servis dışında pinlenir (tick'in KARARINI test

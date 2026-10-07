@@ -1,4 +1,4 @@
-import { metricTier } from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
+import { metricTier } from '@aquaculture/shared-contracts';
 
 /**
  * Canonical per-tenant sensor continuous-aggregate definition.

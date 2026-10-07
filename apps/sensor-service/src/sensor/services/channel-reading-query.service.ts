@@ -10,7 +10,7 @@
  */
 
 import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { MAX_SERIES_RANGE_MS } from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
+import { MAX_SERIES_RANGE_MS } from '@aquaculture/shared-contracts';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In, QueryRunner } from 'typeorm';

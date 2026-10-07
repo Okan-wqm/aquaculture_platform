@@ -103,3 +103,25 @@ export type {
   AiSpecialtyDefinition,
   AiPersonaCatalogueEntry,
 } from './ai/persona-catalogue';
+
+// ── Sensor-reading tier policy (SENSOR-MEDIUM-149) ──
+// How far back a reading may be asked for, which store answers it at what
+// width, and how long each store keeps it — read by the series queries and
+// the rollup DDL alike.
+export {
+  AGGREGATION_INTERVALS,
+  AGGREGATION_INTERVAL_SQL,
+  MAX_SERIES_RANGE_MS,
+  AS_OF_LOOKBACK,
+  DISPLAY_INTERVAL_LADDER,
+  displayIntervalFor,
+  METRIC_TIERS,
+  metricTier,
+  tierForWindow,
+} from './sensor-readings/tier-policy';
+export type {
+  PolicyDuration,
+  AggregationIntervalSql,
+  MetricTierName,
+  MetricTier,
+} from './sensor-readings/tier-policy';

@@ -23,7 +23,7 @@ import {
 import {
   displayIntervalFor,
   MAX_SERIES_RANGE_MS,
-} from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
+} from '@aquaculture/shared-contracts';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { parameterForChannelKey, type SensorReadingParameter } from '@platform/event-contracts';

@@ -7,7 +7,7 @@
 import {
   AGGREGATION_INTERVAL_SQL,
   type AggregationIntervalSql,
-} from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
+} from '@aquaculture/shared-contracts';
 import { BadRequestException } from '@nestjs/common';
 
 /**

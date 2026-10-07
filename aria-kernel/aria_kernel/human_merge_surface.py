@@ -31,6 +31,7 @@ from typing import Any
 from .human_required import (
     HUMAN_MERGE_PR_KIND,
     RESOLVED_BY_GITHUB_OBSERVATION,
+    human_required_record_exists,
     list_human_required,
     record_human_required,
     refresh_open_record_context,
@@ -43,8 +44,21 @@ HUMAN_MERGE_SEVERITY = "MEDIUM"
 TERMINAL_STATES = frozenset({"MERGED", "CLOSED"})
 
 
-def human_merge_request_id(pr_number: int) -> str:
-    return f"human-merge-pr-{pr_number}"
+def human_merge_request_id(pr_number: int, *, base_dir: str | Path | None = None) -> str:
+    """The id of the PR's NEXT record: ``human-merge-pr-<n>``, then ``-2``, ``-3``…
+
+    Review LOW — a PR closed (record resolved) and reopened needs a new
+    open record; ``record_human_required`` returns an existing record as it
+    is, resolved included, so a reopened PR was never surfaced again. Each
+    episode is its own record; at most one is open per PR at a time.
+    """
+    first = f"human-merge-pr-{pr_number}"
+    if base_dir is None or not human_required_record_exists(first, base_dir=base_dir):
+        return first
+    episode = 2
+    while human_required_record_exists(f"{first}-{episode}", base_dir=base_dir):
+        episode += 1
+    return f"{first}-{episode}"
 
 
 def self_merge_refusals(opened: dict[str, Any], live: dict[str, Any], *, base_dir: str | Path | None) -> list[str]:
@@ -76,7 +90,7 @@ def self_merge_refusals(opened: dict[str, Any], live: dict[str, Any], *, base_di
     merge_state = str(live.get("mergeStateStatus") or "").upper()
     if merge_state == "DIRTY":
         reasons.append("conflicts_with_base")
-    elif merge_state == "BEHIND":
+    elif merge_state == "BEHIND" or (merge_state == "BLOCKED" and (live.get("behindBy") or 0) > 0):
         reasons.append("behind_base_under_strict_protection")
     return reasons
 
@@ -116,7 +130,8 @@ def surface_human_merge_prs(*, cycle_id: str, base_dir: str | Path | None, reade
         live = reader.pr_delivery_state(number)
         if live is None:
             continue
-        request_id = human_merge_request_id(number)
+        record = open_records.get(number)
+        request_id = str(record["request_id"]) if record else human_merge_request_id(number, base_dir=root)
         state = str(live.get("state") or "").upper()
         try:
             if state in TERMINAL_STATES:

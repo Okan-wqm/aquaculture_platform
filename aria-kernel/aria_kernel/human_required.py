@@ -95,6 +95,11 @@ def open_human_required_record(request_id: str, *, base_dir: str | Path | None =
     return record
 
 
+def human_required_record_exists(request_id: str, *, base_dir: str | Path | None = None) -> bool:
+    """Whether ANY record (open or resolved) carries ``request_id``."""
+    return _human_required_path(ensure_tools_dir(base_dir), request_id).exists()
+
+
 def _resolve_severity(severity: str | None) -> str:
     if isinstance(severity, str):
         upper = severity.strip().upper()

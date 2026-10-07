@@ -186,6 +186,7 @@ from .delivery_credentials import (
     DeliveryCredentialError,
     hold_delivery_credentials,
 )
+from .github_writes import INSTALLATION_TOKEN_CLASS, credential_class
 from .git_containment import (
     KERNEL_GIT_NO_HOOKS_ARGS,
     QUARANTINE_PUBLICATION_WORST_CASE_SECONDS,
@@ -897,7 +898,8 @@ def deliver_implementation(
 
     # 3c. ARIA-HIGH-371 — the PR open's checks, live perimeter included,
     #     with no external effect: a refusal here pushes nothing, so no
-    #     orphan branch is left on the remote for the requeue to collide on.
+    #     branch reaches GitHub without a PR. The local branch is kept for
+    #     the HUMAN_REQUIRED escalation every request-class refusal gets.
     try:
         prepared_pr = prepare_pr_open(
             proposal_id=proposal_id, workspace_root=workspace, base_dir=base_dir,
@@ -905,6 +907,13 @@ def deliver_implementation(
         )
     except GovernanceErrorType as exc:
         raise ImplementationDeliveryRefusal(PRE_PR_OPEN_STAGE, f"pre_pr_open_refused:{str(exc)[:300]}") from exc
+    # Review M1 — the perimeter judged the branch's head at that instant;
+    # the change ledger, the push intent and the push itself name
+    # `branch_tip_sha`. A ref that moved in between is not what was judged.
+    if prepared_pr.head_sha != branch_tip_sha:
+        raise ImplementationDeliveryRefusal(
+            PRE_PR_OPEN_STAGE, f"branch_moved_since_publication:judged={prepared_pr.head_sha}:tip={branch_tip_sha}",
+        )
 
     # 4. The credential, minted HERE (round 6): the hold brackets exactly
     #    the push and the PR opener — the window the lease is asked to
@@ -921,15 +930,27 @@ def deliver_implementation(
         except DeliveryCredentialError as exc:
             raise ImplementationDeliveryRefusal(CREDENTIAL_STAGE, f"credential_unavailable:{str(exc)[:300]}") from exc
         credential_environment: dict[str, str] = dict(credential.env) if credential is not None else {}
+        # Review H1 — the PR create runs only on an installation token
+        # (ARIA-CRITICAL-246, `require_installation_credential`). A lease in
+        # `pat_fallback` mode carries a user token: pushing with it and then
+        # being refused at the create left a branch on GitHub with no PR.
+        # The same classification, decided here, before the push.
+        create_class = credential_class({**os.environ, **credential_environment})
+        if create_class != INSTALLATION_TOKEN_CLASS:
+            raise ImplementationDeliveryRefusal(
+                CREDENTIAL_STAGE, f"credential_not_installation_token:{create_class}",
+            )
 
-        # 5. The push, with the credential on this ONE subprocess.
+        # 5. The push, with the credential on this ONE subprocess, of the
+        #    commit the perimeter judged (review M1: by object id, never by
+        #    whatever the ref names at push time).
         push_env = {**git_env, **credential_environment}
         intent = record_intent(
             request_id=request_id, effect_kind="git_push", target=f"{_PUSH_REMOTE}/{branch}",
             intended_postcondition={"branch": branch, "remote": _PUSH_REMOTE, "head_sha": branch_tip_sha, "proposal_id": proposal_id},
             base_dir=base_dir,
         )
-        pushed = _git(["push", _PUSH_REMOTE, f"refs/heads/{branch}:refs/heads/{branch}"], cwd=workspace, env=push_env)
+        pushed = _git(["push", _PUSH_REMOTE, f"{branch_tip_sha}:refs/heads/{branch}"], cwd=workspace, env=push_env)
         if pushed.returncode != 0:
             record_receipt(
                 operation_id=str(intent["operation_id"]), request_id=request_id,

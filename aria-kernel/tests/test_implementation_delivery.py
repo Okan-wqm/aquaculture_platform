@@ -1352,7 +1352,7 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
     def _install_executable(self, name: str, body: str) -> None:
         self._install_hook(self.fixture_bin / name, body)
 
-    def _minter(self, *, horizon_seconds: int):
+    def _minter(self, *, horizon_seconds: int, token: str = "ghs_fixture_delivery_token"):
         from datetime import datetime, timedelta, timezone
 
         from aria_kernel.gh_token_factory import InstallationTokenLease
@@ -1360,7 +1360,7 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
         def mint(*, cycle_id, workspace_root, ttl_seconds, token_dir, **_ignored):  # noqa: ANN001 — the factory's shape
             now = datetime.now(timezone.utc)
             token_file = Path(token_dir) / f"{cycle_id}.token"
-            token_file.write_text("ghs_fixture_delivery_token", encoding="utf-8")
+            token_file.write_text(token, encoding="utf-8")
             token_file.chmod(0o600)
             expiry = (now + timedelta(seconds=horizon_seconds)).isoformat()
             self.mints.append({"time": now.timestamp(), "ttl_seconds": ttl_seconds, "provider_expiry": expiry})
@@ -1380,10 +1380,10 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
 
         return revoke
 
-    def _deliver(self, *, horizon_seconds: int):
+    def _deliver(self, *, horizon_seconds: int, token: str = "ghs_fixture_delivery_token"):
         from aria_kernel import delivery_credentials as dcred
 
-        with mock.patch.object(dcred, "mint_installation_token", self._minter(horizon_seconds=horizon_seconds)), \
+        with mock.patch.object(dcred, "mint_installation_token", self._minter(horizon_seconds=horizon_seconds, token=token)), \
                 mock.patch.object(dcred, "revoke_installation_token", self._revoker()):
             return deliver_implementation(
                 request_id=self.request["request_id"], claim_id=self.claim["claim_id"], agent_id=self.claim["agent_id"],
@@ -1530,6 +1530,47 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
         self.assertIn("commit_contract_honoured:commit_contract_violated", refused.exception.reason)
         self.assertNotIn(refused.exception.stage, delivery.HOST_STAGES, "a refused commit is the request's")
         self.assertFalse((self.tools / "pr-lifecycle.jsonl").exists())
+
+    def test_a_user_token_lease_is_refused_before_the_push(self) -> None:
+        # Review H1 (ARIA-HIGH-371) — in `pat_fallback` mode the lease is a
+        # user token. The PR create runs only on an installation token, so
+        # the push used to land and the create be refused: a branch on
+        # GitHub with no PR. The class is decided before the push now.
+        with self.assertRaises(ImplementationDeliveryRefusal) as refused:
+            self._deliver(horizon_seconds=3600, token="ghp_" + "F" * 36)
+        self.assertEqual(self._log(self.push_log), [], "a user-token lease pushed the branch")
+        self.assertEqual(self._log(self.gh_log), [])
+        self.assertEqual(_git(["show-ref", f"refs/heads/{self.ids['branch']}"], cwd=self.remote, check=False).returncode, 1)
+        self.assertEqual((refused.exception.stage, refused.exception.reason),
+                         (delivery.CREDENTIAL_STAGE, "credential_not_installation_token:personal_access_token"))
+        self.assertEqual(len(self.revokes), 1, "the refused lease is still revoked")
+
+    def test_a_branch_that_moved_after_the_tip_was_judged_is_refused_before_the_push(self) -> None:
+        # Review M1 (ARIA-HIGH-371) — the push named the REF, so it sent
+        # whatever the branch pointed at by then. A commit landing between
+        # the tip's identity/gate and the perimeter is refused by name, and
+        # the push sends the judged object id.
+        from aria_kernel import pr_manager
+
+        real_prepare = pr_manager.prepare_pr_open
+        contract = self.request["commit_contract"]
+        message = f"{contract['commit_types'][0]}(farm-service): one more\n\nWHY: moved.\n" + (
+            f"\n{contract['trailer']}\n" if contract["trailer"] else ""
+        )
+
+        def moved_then_prepare(**kwargs):  # noqa: ANN003 - the opener's keyword shape
+            _commit_signed_with(self.repo, self.kernel_key, message=message, path=self.source,
+                                body="export const sampleIntervalMs = 15000;\n")
+            return real_prepare(**kwargs)
+
+        with mock.patch.object(pr_manager, "prepare_pr_open", side_effect=moved_then_prepare):
+            with self.assertRaises(ImplementationDeliveryRefusal) as refused:
+                self._deliver(horizon_seconds=3600)
+        self.assertEqual(self._log(self.push_log), [], "the moved branch was pushed")
+        self.assertEqual(self._log(self.gh_log), [])
+        self.assertEqual(self.mints, [])
+        self.assertEqual(refused.exception.stage, "pre_pr_open")
+        self.assertTrue(refused.exception.reason.startswith("branch_moved_since_publication:"), refused.exception.reason)
 
     def test_a_patch_that_carries_a_secret_shaped_string_is_refused_before_the_suite_the_mint_and_the_push(self) -> None:
         # ARIA-HIGH-124 (round 6) — the branch's WHOLE diff is scanned by

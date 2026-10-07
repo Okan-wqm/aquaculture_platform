@@ -81,8 +81,11 @@ class BranchUpdateGrant:
     external_writes: bool = True
 
 
+_REQUEST_PREFIX = "pr-branch-update:"
+
+
 def update_request_id(pr_number: int) -> str:
-    return f"pr-branch-update:{pr_number}"
+    return f"{_REQUEST_PREFIX}{pr_number}"
 
 
 def _attempted(request_id: str, *, base_dir: str | Path | None) -> dict[str, dict[str, Any]]:
@@ -95,30 +98,73 @@ def _attempted(request_id: str, *, base_dir: str | Path | None) -> dict[str, dic
         return {}
     rows = [row for row in load_declared_jsonl(path, expected_surface=EXTERNAL_EFFECTS_SURFACE)
             if row.get("request_id") == request_id]
-    intents = {str(row["operation_id"]): {"intent": row, "receipt": None} for row in rows if row.get("event") == "intent"}
+    # The operation id is the idempotency key of the (pr, head, base) triple,
+    # so a retried triple appends a new intent under the same id: rows are
+    # paired in ledger order, each receipt answering the latest intent.
+    intents: dict[str, dict[str, Any]] = {}
     for row in rows:
-        if row.get("event") == "receipt" and str(row.get("operation_id")) in intents:
-            intents[str(row["operation_id"])]["receipt"] = row
+        operation_id = str(row.get("operation_id"))
+        if row.get("event") == "intent":
+            intents[operation_id] = {"intent": row, "receipt": None}
+        elif row.get("event") == "receipt" and operation_id in intents:
+            intents[operation_id]["receipt"] = row
     return intents
 
 
-def _answer_unreceipted(
-    request_id: str, live_head: str, *, base_dir: str | Path | None,
-) -> None:
+def _answer_unreceipted(request_id: str, live: dict[str, Any], *, base_dir: str | Path | None) -> None:
     """An intent a killed or timed-out pass left without a receipt is answered
-    from the PR's head now: it moved (the update landed) or it did not."""
+    from the PR as GitHub shows it now: its head moved (the update landed) or
+    it did not — for a PR that has since closed too (review LOW), so no
+    intent stays unanswered for recovery to chase."""
     from .recovery import record_receipt
 
+    live_head = str(live.get("headRefOid") or "")
     for operation_id, entry in _attempted(request_id, base_dir=base_dir).items():
         if entry["receipt"] is not None:
             continue
         expected = str((entry["intent"].get("intended_postcondition") or {}).get("expected_head_sha") or "")
-        landed = bool(expected) and live_head != expected
+        landed = bool(expected) and bool(live_head) and live_head != expected
         record_receipt(
             operation_id=operation_id, request_id=request_id,
-            observed={"head_sha": live_head, "answered_from": "pr_head", "landed": landed},
+            observed={"head_sha": live_head, "state": str(live.get("state") or ""),
+                      "answered_from": "pr_head", "landed": landed},
             status="confirmed" if landed else "absent", base_dir=base_dir,
         )
+
+
+def _prs_with_unanswered_intents(*, base_dir: str | Path | None) -> set[int]:
+    """PR numbers whose update intent has no receipt, read in one pass."""
+    from .ledger import load_declared_jsonl
+    from .recovery import EXTERNAL_EFFECTS_RELPATH, EXTERNAL_EFFECTS_SURFACE
+
+    path = ensure_tools_dir(base_dir).joinpath(*EXTERNAL_EFFECTS_RELPATH)
+    if not path.exists():
+        return set()
+    rows = [row for row in load_declared_jsonl(path, expected_surface=EXTERNAL_EFFECTS_SURFACE)
+            if str(row.get("request_id") or "").startswith(_REQUEST_PREFIX)]
+    answered = {str(row.get("operation_id")) for row in rows if row.get("event") == "receipt"}
+    numbers: set[int] = set()
+    for row in rows:
+        number = (row.get("intended_postcondition") or {}).get("pr_number")
+        if row.get("event") == "intent" and str(row.get("operation_id")) not in answered and type(number) is int:
+            numbers.add(number)
+    return numbers
+
+
+def _is_behind(live: dict[str, Any]) -> bool:
+    """GitHub's verdict that the head lacks base commits.
+
+    ``mergeStateStatus`` is ONE value: a PR both behind and blocked by a
+    branch-protection rule (a required review) reads ``BLOCKED`` (review
+    LOW). The reader then adds ``behindBy`` from the compare API, so that
+    case is still an update, while ``BLOCKED`` with nothing to merge in
+    is not.
+    """
+    merge_state = str(live.get("mergeStateStatus") or "").upper()
+    behind_by = live.get("behindBy")
+    return merge_state == BEHIND or (
+        merge_state == "BLOCKED" and type(behind_by) is int and behind_by > 0
+    )
 
 
 def _candidate(live: dict[str, Any] | None) -> tuple[str | None, str]:
@@ -133,7 +179,7 @@ def _candidate(live: dict[str, Any] | None) -> tuple[str | None, str]:
     if re.fullmatch(ARIA_IMPL_BRANCH_FRAGMENT, branch) is None:
         return None, "not_an_aria_implementation_branch"
     merge_state = str(live.get("mergeStateStatus") or "").upper()
-    if merge_state != BEHIND:
+    if not _is_behind(live):
         return None, f"merge_state:{merge_state or 'unknown'}"
     ci = ci_summary(live.get("statusCheckRollup"))
     if ci["state"] != CI_GREEN:
@@ -142,6 +188,26 @@ def _candidate(live: dict[str, Any] | None) -> tuple[str | None, str]:
     if re.fullmatch(r"[0-9a-f]{40}", head) is None:
         return None, "head_sha_unreadable"
     return head, ""
+
+
+def already_requested(*, pr_number: int, head_sha: str, base_sha: str, base_dir: str | Path | None) -> bool:
+    """Whether the triple's latest request is still unanswered or was accepted.
+
+    Review M3 — any intent used to block its triple forever, so a crash
+    before the call (answered ``absent``) or a ``failed`` receipt (a 5xx, a
+    rate limit) left that PR behind until main moved. Only an accepted or
+    still-unanswered request blocks a repeat; a failed or absent one is
+    retried, inside the per-cycle cap.
+    """
+    from .recovery import idempotency_key
+
+    intended = {"pr_number": pr_number, "expected_head_sha": head_sha, "base_sha": base_sha}
+    key = idempotency_key(effect_kind=EFFECT_KIND, target=f"pr#{pr_number}", intended=intended)
+    entry = _attempted(update_request_id(pr_number), base_dir=base_dir).get(f"{EFFECT_KIND}:{key}")
+    if entry is None:
+        return False
+    receipt = entry["receipt"]
+    return receipt is None or receipt.get("status") == "confirmed"
 
 
 def update_behind_aria_prs(
@@ -161,7 +227,7 @@ def update_behind_aria_prs(
         hold_delivery_credentials,
     )
     from .github_writes import run_gh_write
-    from .recovery import idempotency_key, record_intent, record_receipt
+    from .recovery import record_intent, record_receipt
     from .runtime_profile import ACTION_PERMISSIONS
 
     if profile not in ACTION_PERMISSIONS["pr_open"]:
@@ -174,19 +240,22 @@ def update_behind_aria_prs(
                           if type(row.get("number")) is int and row["number"] in opened)
     queue: list[tuple[int, str, str]] = []
     skipped: list[dict[str, Any]] = []
+    # Intents left unanswered on PRs no longer open are answered too.
+    for number in sorted(_prs_with_unanswered_intents(base_dir=base_dir) - set(open_numbers)):
+        closed = reader.pr_delivery_state(number)
+        if closed is not None:
+            _answer_unreceipted(update_request_id(number), closed, base_dir=base_dir)
     for number in open_numbers:
         live = reader.pr_delivery_state(number)
         if live is not None:
-            _answer_unreceipted(update_request_id(number), str(live.get("headRefOid") or ""), base_dir=base_dir)
+            _answer_unreceipted(update_request_id(number), live, base_dir=base_dir)
         head, why = _candidate(live)
         if head is None:
             skipped.append({"pr_number": number, "reason": why})
             continue
         assert live is not None
         base = str(live.get("baseRefOid") or "")
-        intended = {"pr_number": number, "expected_head_sha": head, "base_sha": base}
-        key = idempotency_key(effect_kind=EFFECT_KIND, target=f"pr#{number}", intended=intended)
-        if f"{EFFECT_KIND}:{key}" in _attempted(update_request_id(number), base_dir=base_dir):
+        if already_requested(pr_number=number, head_sha=head, base_sha=base, base_dir=base_dir):
             skipped.append({"pr_number": number, "reason": "already_requested_for_this_head_and_base"})
             continue
         queue.append((number, head, base))
@@ -219,6 +288,14 @@ def update_behind_aria_prs(
                      "-f", f"expected_head_sha={head}"],
                     env=environment, cwd=workspace_root, timeout=GH_UPDATE_BRANCH_TIMEOUT_SECONDS, runner=runner,
                 )
+            except OSError as exc:
+                # Review LOW — `gh` missing or not executable: a failed
+                # request by name, never an exception that aborts the phase
+                # before the human-merge surface runs.
+                record_receipt(operation_id=str(intent["operation_id"]), request_id=request_id,
+                               observed={"os_error": type(exc).__name__}, status="failed", base_dir=base_dir)
+                requested.append({"pr_number": number, "head_sha": head, "outcome": f"os_error:{type(exc).__name__}"})
+                continue
             except subprocess.TimeoutExpired:
                 # Unknown outcome: no receipt; the next pass answers it from the head.
                 requested.append({"pr_number": number, "head_sha": head, "outcome": "timed_out"})
@@ -247,6 +324,7 @@ __all__ = [
     "GH_UPDATE_BRANCH_TIMEOUT_SECONDS",
     "MAX_UPDATES_PER_CYCLE",
     "UPDATE_REQUESTED_EVENT",
+    "already_requested",
     "update_behind_aria_prs",
     "update_request_id",
 ]

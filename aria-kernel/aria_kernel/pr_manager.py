@@ -242,12 +242,17 @@ class PreparedPrOpen:
     (``commit_contract_honoured``, ``pr_body_templating``, the secret scan,
     ...) is the step that can refuse. A commit refused there — F-015's
     contract admits only ``refactor``/``test``/``chore`` subjects without a
-    trailer (``plan_origin.commit_contract_for_plan``) — left a pushed
-    ``aria-impl-*`` branch with no PR, and no code path deletes one: the
-    next attempt collided on it (``implementation_branch_exists``). The
-    checks are now a value the delivery holds BEFORE it mints the push
+    trailer (``plan_origin.commit_contract_for_plan``) — left the branch
+    PUBLISHED on GitHub with no PR, unreviewed content no code path deletes.
+    The checks are now a value the delivery holds BEFORE it mints the push
     credential (``prepare_pr_open``); the create (``open_prepared_pr``) can
     only be called with one, and refuses when the branch moved since.
+
+    The LOCAL branch stays on a refusal, deliberately (review M2): every
+    request-class refusal is escalated to HUMAN_REQUIRED and its requeue is
+    refused ``implementation_branch_exists`` by design (``git_containment``:
+    "an operator decides"); the refused commits are the evidence that
+    person reads. 371 removes the remote orphan, not that decision.
     """
 
     proposal_id: str

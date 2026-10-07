@@ -87,7 +87,7 @@ class _Store(unittest.TestCase):
                                 {"change_id": "chg-7", "commit_sha": DELIVERED}, expected_surface="change_committed")
 
 
-class BranchUpdateTests(_Store):
+class _UpdateHarness(_Store):
     def setUp(self) -> None:
         super().setUp()
         self._opened(human_merge=True, lane="L2")
@@ -109,6 +109,8 @@ class BranchUpdateTests(_Store):
             profile=profile, credential_hold=self._hold, runner=self._runner,
         )
 
+
+class BranchUpdateTests(_UpdateHarness):
     def test_a_behind_green_aria_pr_is_updated_once_per_head_and_base(self) -> None:
         first = self._update(_live())
         self.assertEqual([row["outcome"] for row in first["requested"]], ["accepted"], first)
@@ -147,6 +149,93 @@ class BranchUpdateTests(_Store):
         result = self._update(_live(), profile="standard")
         self.assertEqual(result["status"], "skipped")
         self.assertEqual(self.calls, [])
+
+
+class BranchUpdateRecoveryTests(_UpdateHarness):
+    """Review M3 + LOWs — retries, crash and timeout answers, the cycle cap."""
+
+    def _failing_runner(self, argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        self.calls.append({"argv": argv})
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr="gh: HTTP 502 Bad Gateway")
+
+    def test_a_failed_request_is_retried_and_an_accepted_one_is_not(self) -> None:
+        first = update_behind_aria_prs(cycle_id="c1", base_dir=self.tools, workspace_root=self.root,
+                                       reader=FakeReader(_live()), profile="strict", credential_hold=self._hold,
+                                       runner=self._failing_runner)
+        self.assertTrue(first["requested"][0]["outcome"].startswith("failed:gh: HTTP 502"), first)
+        self.assertEqual(self._update(_live())["requested"][0]["outcome"], "accepted")
+        self.assertEqual(self._update(_live())["requested"], [])
+        self.assertEqual(len(self.calls), 2)
+
+    def test_a_crash_before_the_call_and_a_timeout_are_answered_then_retried(self) -> None:
+        from aria_kernel.pr_branch_update import update_request_id
+        from aria_kernel.recovery import record_intent
+
+        record_intent(request_id=update_request_id(7), effect_kind="gh_api_write", target="pr#7",
+                      intended_postcondition={"pr_number": 7, "expected_head_sha": HEAD, "base_sha": MAIN},
+                      base_dir=self.tools)
+        self.assertEqual(self._update(_live())["requested"][0]["outcome"], "accepted")
+
+        def timing_out(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            raise subprocess.TimeoutExpired(argv, 60)
+
+        moved_base = _live(baseRefOid="e" * 40)
+        timed = update_behind_aria_prs(cycle_id="c2", base_dir=self.tools, workspace_root=self.root,
+                                       reader=FakeReader(moved_base), profile="strict", credential_hold=self._hold,
+                                       runner=timing_out)
+        self.assertEqual(timed["requested"][0]["outcome"], "timed_out")
+        # Unanswered: not repeated while the outcome is unknown… answered
+        # `absent` from the unmoved head on the next pass, and retried.
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self._update(moved_base)["requested"][0]["outcome"], "accepted")
+        self.assertEqual(len(self.calls), 2)
+
+    def test_an_intent_left_on_a_closed_pr_is_answered(self) -> None:
+        from aria_kernel.pr_branch_update import _prs_with_unanswered_intents, update_request_id
+        from aria_kernel.recovery import record_intent
+
+        record_intent(request_id=update_request_id(7), effect_kind="gh_api_write", target="pr#7",
+                      intended_postcondition={"pr_number": 7, "expected_head_sha": HEAD, "base_sha": MAIN},
+                      base_dir=self.tools)
+        self._update(_live(state="CLOSED"))
+        self.assertEqual(_prs_with_unanswered_intents(base_dir=self.tools), set())
+        self.assertEqual(self.calls, [])
+
+    def test_a_missing_gh_is_a_named_failure_not_an_exception(self) -> None:
+        def no_gh(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            raise FileNotFoundError("gh")
+
+        result = update_behind_aria_prs(cycle_id="c1", base_dir=self.tools, workspace_root=self.root,
+                                        reader=FakeReader(_live()), profile="strict", credential_hold=self._hold,
+                                        runner=no_gh)
+        self.assertEqual(result["requested"][0]["outcome"], "os_error:FileNotFoundError")
+
+    def test_blocked_and_behind_is_updated_blocked_alone_is_not(self) -> None:
+        self.assertEqual(self._update(_live(mergeStateStatus="BLOCKED"))["skipped"],
+                         [{"pr_number": 7, "reason": "merge_state:BLOCKED"}])
+        self.assertEqual(self._update(_live(mergeStateStatus="BLOCKED", behindBy=3))["requested"][0]["outcome"],
+                         "accepted")
+
+    def test_a_cycle_requests_at_most_the_cap(self) -> None:
+        from aria_kernel.pr_branch_update import MAX_UPDATES_PER_CYCLE
+
+        numbers = list(range(20, 26))
+        for number in numbers:
+            record_pr_lifecycle({"number": number, "base_branch": "main", "head_sha": HEAD, "change_id": f"c{number}",
+                                 "changed_files": []}, event="opened", base_dir=self.tools)
+
+        class Many(FakeReader):
+            def list_own_prs(self) -> list[dict[str, Any]]:
+                return [{"number": number, "headRefName": BRANCH} for number in numbers]
+
+            def pr_delivery_state(self, pr_number: int) -> dict[str, Any] | None:
+                return _live(number=pr_number)
+
+        result = update_behind_aria_prs(cycle_id="cap", base_dir=self.tools, workspace_root=self.root,
+                                        reader=Many(None), profile="strict", credential_hold=self._hold,
+                                        runner=self._runner)
+        self.assertEqual(len(result["requested"]), MAX_UPDATES_PER_CYCLE)
+        self.assertEqual(len(self.calls), MAX_UPDATES_PER_CYCLE)
 
 
 class HumanMergeSurfaceTests(_Store):
@@ -190,6 +279,33 @@ class HumanMergeSurfaceTests(_Store):
         self.assertIn(f"head_is_not_the_delivered_commit:head={'d' * 12}:delivered={'a' * 12}:ARIA-HIGH-374", why)
         surface_human_merge_prs(cycle_id="cyc-373b", base_dir=self.tools, reader=FakeReader(_live(state="CLOSED")))
         self.assertEqual(self._records(), [])
+
+
+class ReviewLowTests(_Store):
+    def test_github_observation_cannot_resolve_another_kind(self) -> None:
+        from aria_kernel.human_required import record_human_required, resolve_human_required
+        from aria_kernel.tool_registry import GovernanceError
+
+        record_human_required(request_id="AIR-x", reason="a judgment", context={"kind": "executor_escalation"},
+                              base_dir=self.tools)
+        with self.assertRaisesRegex(GovernanceError, "github_observation_cannot_resolve_kind"):
+            resolve_human_required(request_id="AIR-x", resolution_note="n", resolved_by="github_observation",
+                                   base_dir=self.tools)
+
+    def test_the_cli_offers_no_github_observation_resolver(self) -> None:
+        from aria_kernel.cli import build_parser
+
+        with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
+            build_parser().parse_args(["human-required", "resolve", "--request-id", "x", "--resolution-note", "n",
+                                       "--resolved-by", "github_observation"])
+
+    def test_a_reopened_pr_is_surfaced_again(self) -> None:
+        self._opened(human_merge=True, lane="L2")
+        surface_human_merge_prs(cycle_id="a", base_dir=self.tools, reader=FakeReader(_live()))
+        surface_human_merge_prs(cycle_id="b", base_dir=self.tools, reader=FakeReader(_live(state="CLOSED")))
+        surface_human_merge_prs(cycle_id="c", base_dir=self.tools, reader=FakeReader(_live()))
+        open_items = [row["request_id"] for row in list_human_required(base_dir=self.tools)]
+        self.assertEqual(open_items, ["human-merge-pr-7-2"])
 
 
 class CycleWiringTests(unittest.TestCase):

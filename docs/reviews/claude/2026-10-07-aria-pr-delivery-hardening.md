@@ -169,3 +169,38 @@ with a purity proof (`git merge-tree` of the recorded `(head, base)` equals the 
 This touches the triple gate, the native merge context and the implementation join in
 `merge_authority.py` and `auto_merge.py`, so it is a merge-authority change in its own right.
 Tracked here: owner claude, deadline 2026-10-14.
+
+## Review corrections
+
+An independent review of #1828 found one HIGH, three MEDIUM and six LOW issues. All of them are
+fixed in this branch.
+
+- **H1 (ARIA-HIGH-371): a user-token lease pushed, and then the create was refused.** The PR
+  create runs only on an installation token (`require_installation_credential`). The delivery now
+  classifies the lease's environment (`credential_class`) before the push. A `pat_fallback` lease
+  is refused at the `credential` stage as `credential_not_installation_token:<class>`, with nothing
+  pushed.
+- **M1 (ARIA-HIGH-371): the push named the ref, not the judged commit.** The delivery now refuses
+  `branch_moved_since_publication` when the head that `prepare_pr_open` judged is not
+  `branch_tip_sha`. The push sends `<branch_tip_sha>:refs/heads/<branch>`.
+- **M2 (ARIA-HIGH-371): the rationale overstated the fix.** The local branch is kept on purpose.
+  Every request-class refusal is escalated to HUMAN_REQUIRED. The requeue's
+  `implementation_branch_exists` refusal is the existing design ("an operator decides"), and the
+  refused commits are the evidence that person reads. 371 removes the remote branch with no PR.
+  The comments in `pr_manager` and `implementation_delivery` now say exactly that.
+- **M3 (ARIA-HIGH-372): any intent blocked its triple forever.** Rows are now paired in ledger
+  order, because a retried triple reuses its operation id. Only an accepted or still-unanswered
+  request blocks a repeat. A `failed` or `absent` one is retried, within the per-cycle cap.
+- **LOW:**
+  - Intents on PRs that have since closed are answered.
+  - An `OSError` from `gh` becomes a named failure and no longer aborts the phase.
+  - A reopened PR gets a new episode record (`human-merge-pr-<n>-2`).
+  - `reflection` uses `HUMAN_MERGE_PR_KIND`.
+  - `BLOCKED` with `behindBy > 0` (read from the compare API) is updated, and is named
+    `behind_base_under_strict_protection`.
+  - The CLI's `human-required resolve` has no `--resolved-by` option, so `github_observation`
+    stays kernel-only. A test pins this.
+
+Proof on the 371–373 head (`992067a5c`): 8 of the 11 new tests fail. The three that pass there pin
+behaviour that already held: the cycle cap, `github_observation` refused for other kinds, and the
+CLI.

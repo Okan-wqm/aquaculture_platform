@@ -361,7 +361,9 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
             tiers[tier] = tiers.get(tier, 0) + 1
     # ARIA-HIGH-373 — the five-most-urgent cut above would hide a human-merge
     # PR behind older escalations; those are listed in full, in their section.
-    human_merge = [item for item in items if (item.get("context") or {}).get("kind") == "human_merge_pr"]
+    from .human_required import HUMAN_MERGE_PR_KIND
+
+    human_merge = [item for item in items if (item.get("context") or {}).get("kind") == HUMAN_MERGE_PR_KIND]
     return {"open": len(items), "breaching_sla": breaching, "items": items[:5], "tiers": tiers,
             "human_merge": human_merge}
 

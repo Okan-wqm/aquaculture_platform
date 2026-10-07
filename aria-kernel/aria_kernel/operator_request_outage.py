@@ -38,7 +38,10 @@ def surface_outage_expired_request(base_dir: str | Path, row: dict[str, Any], *,
     authored, expires = parse_utc(row.get("authored_at")), parse_utc(row.get("expires_at"))
     if authored is None or expires is None:
         return None
-    covered = provider_clock(base_dir).covered(authored, min(expires, now), None)
+    from .provider_clock import planning_heads
+
+    # Review HIGH-2: the providers a request's plan would run on, never "any".
+    covered = provider_clock(base_dir).covered_any(authored, min(expires, now), planning_heads())
     if covered.total_seconds() <= 0:
         return None
     signal_id = f"operator-request-expired-{row.get('id')}"

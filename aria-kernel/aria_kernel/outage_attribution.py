@@ -10,9 +10,10 @@ on the abandonment's stall record (ARIA-MEDIUM-291 writes it; ``harness``
 covers every provider-class release reason, ``provider_unreachable:`` and
 ``lease_expired_during_provider_outage:`` included), and, for the failure
 modes that mean "nobody answered", whether the plan's last wait overlapped a
-provider outage on the ledger (``provider_clock``). Any provider: a cool-off
-skipped wrongly costs one extra plan of a finding, one applied wrongly costs a
-week of the finding the outage already delayed.
+outage of any provider heading a planning role (``provider_clock``, scoped
+per review HIGH-2 so an off-ladder provider's open outage freezes nothing). A
+cool-off skipped wrongly costs one extra plan of a finding, one applied
+wrongly costs a week of the finding the outage already delayed.
 
 The learner side of the same rule is ARIA-HIGH-370's
 ``failure_attribution`` (lane fix/aria-learning-actuator): it attributes a
@@ -61,7 +62,9 @@ def failure_is_lane_fault(
             return True
     if failure_mode_of(event) not in NO_ANSWER_FAILURE_MODES or waited_since is None or at is None:
         return False
-    return clock.covered(waited_since, at, None).total_seconds() > 0
+    from .provider_clock import planning_heads
+
+    return clock.covered_any(waited_since, at, planning_heads()).total_seconds() > 0
 
 
 __all__ = ["NO_ANSWER_FAILURE_MODES", "failure_is_lane_fault", "failure_mode_of"]

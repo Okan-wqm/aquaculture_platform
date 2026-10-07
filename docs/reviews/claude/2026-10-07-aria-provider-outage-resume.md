@@ -167,3 +167,32 @@ the provider out", which needs restore evidence that a cooldown's `until` does n
   cannot pause a clock. Its logged-out session is detected at admission (`codex_logged_out`).
 - The worker dispatch hook keeps releasing a cooled claim as `provider_quota_unavailable:<provider>`
   on the dispatch ledger. That reason is harness-class for every kind, so nothing is charged.
+
+## Review corrections (PR #1835)
+
+- **HIGH-1 (ARIA-HIGH-365).** The head-provider pause did not check that the outage caused the
+  stall. With Anthropic out and Z.ai serving rung 2, a plan whose request was answered and then
+  escalated (`agent_refused`) kept a near-zero available age and was re-adopted every cycle. The
+  `provider_clock` claim that a serving rung resets the clocks was wrong. `outage_causality` now
+  gates every pause: an outage pauses a timer only for a request whose last cause is in the
+  `harness` fault domain or that never left PENDING/REQUEUED. A request answered and refused is
+  held to the wall clock. `resume_candidate_plan_id` and `decide_orphan_reap` (new required
+  `awaits_provider`) both apply it.
+- **HIGH-2 (ARIA-HIGH-366).** The readers that asked about "any provider" (watchdog, finding
+  cool-off, operator-request expiry) now ask about the heads of the planning roles (`covered_any`
+  over `planning_heads()`); `None` is gone from the clock API. A provider on no configured routing
+  ladder never holds an outage open for a clock (`routed_providers`). The operator resolving an
+  outage item writes `provider_restored` with seam `operator_attested`. A kernel re-probe is not
+  added: the native admission already re-probes a cooled provider when its back-off ends, and a
+  logged-in answer closes a `logged_out` outage.
+- **MEDIUM-1 (ARIA-HIGH-366).** `extract_unreachable` reads stderr and the CLI's `is_error` result
+  event only, never assistant text.
+- **MEDIUM-2 (ARIA-HIGH-366).** The judge batch records `provider_restored` on a served call and
+  `zai_unreachable` on a transport failure.
+- **MEDIUM-3 (ARIA-HIGH-367).** A lease expiry is waived only when the outage was standing at the
+  expiry or covered `LEASE_OUTAGE_MIN_SHARE` (half) of the lease; a short blip is still charged.
+- **MEDIUM-4 (ARIA-HIGH-367).** `plan_request_closure` treats `human_required` as unheld, so a
+  healed escalation in an ABANDONED plan is closed.
+- **LOW.** `ARIA-MIMARI-SEMALARI.md`, ADR-0001 (`docs/recommendations/architectural-arbiter/`)
+  and `docs/aria/v10-4-closure-report.md` mark the reaper and the `EXTERNAL_OUTAGE` state as
+  deleted by ARIA-HIGH-366.

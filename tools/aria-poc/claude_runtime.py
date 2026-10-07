@@ -1612,9 +1612,7 @@ def run_claude_exec(
             returncode=proc.returncode, stderr=proc.stderr, events=events,
             final_message=final_message,
         ),
-        unreachable=extract_unreachable(
-            returncode=proc.returncode, stderr=proc.stderr, final_message=final_message,
-        ),
+        unreachable=extract_unreachable(returncode=proc.returncode, stderr=proc.stderr, events=events),
     )
     # ARIA-HIGH-002 — stamp the typed classification on the result itself so
     # downstream consumers (drains, evidence surfaces) read one vocabulary
@@ -1853,11 +1851,24 @@ UNREACHABLE_MARKERS: tuple[str, ...] = (
 )
 
 
-def extract_unreachable(*, returncode: int, stderr: str, final_message: str) -> dict[str, Any] | None:
-    """Name a vendor-did-not-serve failure, or return None (detection only)."""
+def extract_unreachable(
+    *, returncode: int, stderr: str, events: tuple[dict[str, Any], ...],
+) -> dict[str, Any] | None:
+    """Name a vendor-did-not-serve failure, or return None (detection only).
+
+    Read from the CLI's ERROR channel only — stderr and the terminal
+    ``result`` event the CLI marks ``is_error`` — never from assistant text
+    (PR #1835 review MEDIUM-1): an implementer reporting "ECONNREFUSED
+    127.0.0.1:5432" about the code under test and then exiting nonzero would
+    otherwise cool Anthropic fleet-wide and loop uncharged.
+    """
     if returncode == 0:
         return None
-    blob = f"{stderr}\n{final_message}".lower()
+    channel = [stderr or ""]
+    for event in events:
+        if event.get("type") == "result" and event.get("is_error") is True:
+            channel.extend(str(event.get(key) or "") for key in ("result", "error"))
+    blob = "\n".join(channel).lower()
     marker = next((m for m in UNREACHABLE_MARKERS if m in blob), None)
     if marker is None:
         return None

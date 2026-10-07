@@ -140,11 +140,13 @@ class AVendorThatDoesNotServeIsAnUnreachableOutage(unittest.TestCase):
         from claude_runtime import ClaudeRunResult, extract_unreachable, run_with_model_fallback
 
         stderr = str(result.get("stderr", ""))
+        events = tuple(result.get("events", ()))
         completed = ClaudeRunResult(
-            returncode=int(result.get("returncode", 1)), stdout="", stderr=stderr, final_message="", usage=None,
-            events=(), credit_exhaustion=result.get("credit_exhaustion"),
+            returncode=int(result.get("returncode", 1)), stdout="", stderr=stderr,
+            final_message=str(result.get("final_message", "")), usage=None,
+            events=events, credit_exhaustion=result.get("credit_exhaustion"),
             unreachable=extract_unreachable(returncode=int(result.get("returncode", 1)), stderr=stderr,
-                                            final_message=""),
+                                            events=events),
         )
         return run_with_model_fallback(run=lambda model, effort: completed, model="opus", failover=None,
                                        effort="high", write_capable=False)
@@ -161,6 +163,19 @@ class AVendorThatDoesNotServeIsAnUnreachableOutage(unittest.TestCase):
             self._run(stderr="API Error: 429 quota exceeded",
                       credit_exhaustion={"signature": "claude_credit_error", "matched_marker": "quota exceeded"})
         self.assertEqual(type(caught.exception).__name__, "ClaudeCreditExhausted")
+
+    def test_the_agents_own_words_are_never_read_as_an_outage(self) -> None:
+        """Review MEDIUM-1: an implementer reporting a refused DB port is not the vendor refusing."""
+        said = "the test DB is down: connect ECONNREFUSED 127.0.0.1:5432"
+        events = ({"type": "assistant", "message": {"content": [{"type": "text", "text": said}]}},
+                  {"type": "result", "is_error": False, "result": said})
+        self.assertEqual(self._run(returncode=1, final_message=said, events=events).returncode, 1)
+
+    def test_the_clis_error_result_is_read(self) -> None:
+        events = ({"type": "result", "is_error": True, "result": "API Error (Connection error.)"},)
+        with self.assertRaises(Exception) as caught:
+            self._run(returncode=1, events=events)
+        self.assertEqual(type(caught.exception).__name__, "ClaudeProviderUnreachable")
 
     def test_a_clean_run_mentioning_rate_limits_is_not_an_outage(self) -> None:
         self.assertEqual(self._run(returncode=0, stderr="rate_limit_error").returncode, 0)
@@ -222,6 +237,65 @@ class TheWatchdogDoesNotCallAnOutageAStall(_Store):
         now = _T0 + timedelta(hours=6)
         self.assertEqual(detect_stall(rows, [], now=now, clock=provider_clock(self.tools)), [])
         self.assertEqual(len(detect_stall(rows, [], now=now, clock=ProviderClock(()))), 1)
+
+
+class ANeverSpawnedProviderFreezesNothing(_Store):
+    """Review HIGH-2: an outage nothing spawns against again must not pause every reader."""
+
+    def _codex_logged_out(self) -> None:
+        from aria_kernel.provider_outage_seams import observe_native_admission
+
+        observe_native_admission(self.tools, request_id="AIR-1", cooldown_seconds=900, observations=[
+            {"provider": "openai", "model": "gpt", "status_reason": "cli_reported_not_logged_in",
+             "auth_observation": "unavailable", "decision": "unavailable"}])
+
+    def test_the_watchdog_still_reports_a_stall(self) -> None:
+        from datetime import datetime as _dt
+
+        from aria_kernel.aria_watchdog import detect_stall
+        from aria_kernel.provider_clock import provider_clock
+
+        self._codex_logged_out()  # opened now, never restored: OpenAI heads no planning role
+        now = _dt.now(timezone.utc)
+        rows = [{"plan_id": "plan-X", "kind": "challenger_drafted", "ts": (now - timedelta(hours=6)).isoformat()}]
+        self.assertEqual(len(detect_stall(rows, [], now=now, clock=provider_clock(self.tools))), 1)
+
+    def test_the_finding_cool_off_still_applies(self) -> None:
+        from datetime import datetime as _dt
+
+        from aria_kernel.outage_attribution import failure_is_lane_fault
+        from aria_kernel.provider_clock import provider_clock
+
+        self._codex_logged_out()
+        now = _dt.now(timezone.utc)
+        event = {"event_type": "plan_evaluated",
+                 "payload": {"terminal_state": "HUMAN_REQUIRED", "reason_codes": ["pending_tasks_present"]}}
+        self.assertFalse(failure_is_lane_fault(event, waited_since=now - timedelta(days=3), at=now,
+                                               clock=provider_clock(self.tools)))
+
+    def test_an_off_ladder_providers_outage_pauses_no_clock(self) -> None:
+        from unittest.mock import patch
+
+        from aria_kernel import provider_clock as clock_module
+
+        self.cool(_T0)
+        clock = clock_module.provider_clock(self.tools)
+        later = _T0 + timedelta(hours=5)
+        with patch.object(clock_module, "routed_providers", return_value=frozenset({"zai"})):
+            self.assertEqual(clock.available_age(_T0, later, frozenset({"anthropic"})), timedelta(hours=5))
+        self.assertEqual(clock.available_age(_T0, later, frozenset({"anthropic"})), timedelta(0))
+
+    def test_the_operator_resolving_the_item_closes_the_outage(self) -> None:
+        from aria_kernel.human_required import resolve_human_required
+        from aria_kernel.provider_outage_ledger import open_outages
+
+        self.cool(_T0)
+        signal = self.items()[0]["request_id"]
+        resolve_human_required(request_id=signal, resolution_note="re-logged in on the runner",
+                               base_dir=self.tools, now=_T0 + timedelta(hours=2))
+        self.assertEqual(open_outages(self.tools), ())
+        restored = self.kinds("provider_restored")
+        self.assertEqual((restored[-1]["seam"], restored[-1]["closed_kinds"]), ("operator_attested", ["auth"]))
 
 
 class TheDailyReportShowsTheInterval(_Store):

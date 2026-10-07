@@ -247,9 +247,9 @@ def detect_stall(
     The age is PROVIDER-AVAILABLE time (ARIA-HIGH-366, ``clock``): a plan
     that stopped only because a provider was in an open outage is not a
     stall, and turning every such plan into a MEDIUM finding buried the one
-    signal that matters (the outage's own HUMAN_REQUIRED item). Any
-    provider's outage pauses it — a finding raised late is still raised,
-    while a finding raised for an outage is noise.
+    signal that matters (the outage's own HUMAN_REQUIRED item). An outage
+    of ANY provider heading a planning role pauses it — a finding raised
+    late is still raised, while a finding raised for an outage is noise.
 
     SKIPs:
     - Cycles in legitimate terminal states (HUMAN_REQUIRED, CONVERGED) —
@@ -300,6 +300,9 @@ def detect_stall(
             plan_terminal_state[plan_id] = state
 
     threshold_delta = timedelta(seconds=threshold_seconds)
+    from .provider_clock import planning_heads
+
+    heads = planning_heads()
 
     for plan_id, last_event in plan_last_event.items():
         if plan_id in seen_plan_ids:
@@ -310,7 +313,11 @@ def detect_stall(
             continue
         if now - last_ts < threshold_delta:
             continue
-        age = clock.available_age(last_ts, now, None)
+
+        # Review HIGH-2: scoped to the providers heading the planning roles,
+        # never "any provider": an outage of a provider no plan routes to
+        # would otherwise silence every stall finding until it is restored.
+        age = (now - last_ts) - clock.covered_any(last_ts, now, heads)
         if age < threshold_delta:
             continue
         # Skip terminal states

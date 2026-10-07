@@ -19,10 +19,24 @@ them configured, which no ledger row records (``provider_not_configured`` and
 ``cli_unavailable`` are admission-time host facts, never outages). Measured on
 the production store: every B1/B3 death above had the head out and no rung
 serving. Counting the rungs as available would keep the clock running through
-exactly those outages. Pausing on the head alone errs the other way only when a
-rung DID serve — and a serving rung writes plan and claim events, so the stall
-and TTL bounds are never reached by that work anyway. Pausing is the safe error;
-running is the one that kills work.
+exactly those outages.
+
+Pausing on the head alone is wrong when a rung DID serve the work, and a
+serving rung does not reset any of these clocks (the plan-stall stamp is the
+plan ledger's, not the claim ledger's — PR #1835 review HIGH-1). So the head
+pause is gated on causality by the callers (``outage_causality``): a timer
+pauses only for work still WAITING on a provider — a stall whose cause is in
+the harness fault domain, or a request that never left PENDING/REQUEUED. A
+request a rung answered and that then died for its own reason (an
+``agent_refused`` escalation) is measured on the wall clock.
+
+WHICH outages count at all (review HIGH-2). Only a provider on a configured
+routing ladder holds an outage open for a clock: an outage of a provider no
+role routes to is never restored by a spawn (nothing spawns it) and would
+freeze every reader that asks about it. Readers name their providers
+explicitly — the heads of the roles whose work they measure — with
+``every`` (all must be out: the timers) or ``any`` (one is enough: the
+observers that only decline to blame, the watchdog and the cool-off).
 
 The bound on pausing is ``provider_outage_ledger.escalate_prolonged_outages``: an
 outage open 30 days is put to the operator, never answered by a timer.
@@ -60,6 +74,22 @@ def role_head_providers(roles: Iterable[str]) -> frozenset[str]:
             if ladder:
                 heads.add(ladder[0])
     return frozenset(heads)
+
+
+def routed_providers() -> frozenset[str]:
+    """Every provider some configured routing ladder names (suspended ones removed)."""
+    from .runtime_profiles import load_provider_routing
+
+    routing = load_provider_routing()
+    return frozenset(p for ladder in routing.ladders.values() for p in ladder
+                     if p not in routing.suspended_providers)
+
+
+def planning_heads() -> frozenset[str]:
+    """The providers heading the planning-round roles: whose outage can leave a plan unanswered."""
+    from .plan_round_scope import PLANNING_ROUND_ROLES
+
+    return role_head_providers(PLANNING_ROUND_ROLES)
 
 
 def _merge(spans: list[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
@@ -108,43 +138,50 @@ class ProviderClock:
             self._intervals = outage_intervals(self._base_dir)
         return self._intervals
 
-    def _down(self, providers: frozenset[str] | None, until: datetime) -> list[tuple[datetime, datetime]]:
-        """Spans in which every provider in ``providers`` (None: any provider) was in outage."""
-        per: dict[str, list[tuple[datetime, datetime]]] = {}
-        for i in self.intervals:
-            if providers is None or i.provider in providers:
-                per.setdefault(i.provider, []).append((i.opened_at, i.closed_at or until))
-        if providers is None:
-            return _merge([span for spans in per.values() for span in spans])
-        if not providers or set(per) != set(providers):
+    def _spans(self, provider: str, until: datetime) -> list[tuple[datetime, datetime]]:
+        return _merge([(i.opened_at, i.closed_at or until) for i in self.intervals
+                       if i.provider == provider and i.provider in routed_providers()])
+
+    def _down(self, providers: frozenset[str], until: datetime, *, every: bool) -> list[tuple[datetime, datetime]]:
+        """Spans in which every (``every``) or any provider in ``providers`` was in outage."""
+        if not providers:
             return []
-        result = _merge(per[next(iter(providers))])
-        for provider in providers:
-            result = _intersect(result, _merge(per[provider]))
+        spans = [self._spans(provider, until) for provider in sorted(providers)]
+        if not every:
+            return _merge([span for provider_spans in spans for span in provider_spans])
+        result = spans[0]
+        for provider_spans in spans[1:]:
+            result = _intersect(result, provider_spans)
         return result
 
-    def covered(self, start: datetime, end: datetime, providers: frozenset[str] | None) -> timedelta:
-        """How much of ``[start, end]`` the providers spent in outage."""
+    def _covered(self, start: datetime, end: datetime, providers: frozenset[str], *, every: bool) -> timedelta:
         total = timedelta(0)
-        for span_start, span_end in self._down(providers, end):
+        for span_start, span_end in self._down(providers, end, every=every):
             lo, hi = max(span_start, start), min(span_end, end)
             if lo < hi:
                 total += hi - lo
         return total
 
-    def overlapping(self, start: datetime, end: datetime,
-                    providers: frozenset[str] | None) -> list[OutageInterval]:
-        """The outage intervals of ``providers`` (None: any) that overlap ``[start, end]``, by opening."""
-        return sorted((i for i in self.intervals if (providers is None or i.provider in providers)
+    def covered(self, start: datetime, end: datetime, providers: frozenset[str]) -> timedelta:
+        """How much of ``[start, end]`` EVERY provider in ``providers`` spent in outage."""
+        return self._covered(start, end, providers, every=True)
+
+    def covered_any(self, start: datetime, end: datetime, providers: frozenset[str]) -> timedelta:
+        """How much of ``[start, end]`` ANY provider in ``providers`` spent in outage."""
+        return self._covered(start, end, providers, every=False)
+
+    def overlapping(self, start: datetime, end: datetime, providers: frozenset[str]) -> list[OutageInterval]:
+        """The outage intervals of ``providers`` that overlap ``[start, end]``, by opening."""
+        return sorted((i for i in self.intervals if i.provider in providers and i.provider in routed_providers()
                        and i.opened_at < end and (i.closed_at is None or i.closed_at > start)),
                       key=lambda i: i.opened_at)
 
-    def available_age(self, since: datetime, now: datetime, providers: frozenset[str] | None) -> timedelta:
-        """``now - since`` minus the outage time of ``providers`` (all of them; None: any one)."""
+    def available_age(self, since: datetime, now: datetime, providers: frozenset[str]) -> timedelta:
+        """``now - since`` minus the time every provider in ``providers`` was out."""
         return (now - since) - self.covered(since, now, providers)
 
-    def outage_active(self, providers: frozenset[str] | None, now: datetime) -> bool:
-        return any(start <= now < end for start, end in self._down(providers, now + timedelta(seconds=1)))
+    def outage_active(self, providers: frozenset[str], now: datetime) -> bool:
+        return any(start <= now < end for start, end in self._down(providers, now + timedelta(seconds=1), every=True))
 
 
 def provider_clock(base_dir: str | Path | None) -> ProviderClock:
@@ -166,6 +203,6 @@ def provider_available_age(
 
 
 __all__ = [
-    "ProviderClock", "provider_available_age", "provider_clock",
-    "role_head_providers",
+    "ProviderClock", "planning_heads", "provider_available_age", "provider_clock",
+    "role_head_providers", "routed_providers",
 ]

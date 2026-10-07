@@ -25,7 +25,9 @@ WHAT. An outage is an interval per ``(provider, kind)``:
 * ``provider_restored`` — written by :func:`record_provider_restored` on
   POSITIVE evidence only: a spawn that ran to completion closes every kind; an
   admission that found the session logged in closes ``logged_out`` (the one
-  kind an admission can see). The cooldown's ``until`` is NOT a restore: a
+  kind an admission can see), or the operator resolving the outage's item
+  (``operator_attested``, review HIGH-2: a provider nothing spawns again must
+  not hold a clock open forever). The cooldown's ``until`` is NOT a restore: a
   quota reset the vendor promised, or a back-off that ran out, says when to
   probe, and a nightly lane probes up to a day later. Counting that gap as
   "available" is how the clock would kill work again, so an outage stays open

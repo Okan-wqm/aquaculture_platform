@@ -5,6 +5,7 @@
  * Uses WebSocket for live data, GraphQL for initial load and history.
  */
 
+import { presetDurationMs } from '@aquaculture/shared-contracts';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { WidgetConfig, TimeRange, SensorMetric, SENSOR_METRICS, SelectedChannel } from '../components/dashboard/types';
 import { useSensorSocket, SensorReading as SocketSensorReading } from './useSensorSocket';
@@ -195,18 +196,6 @@ export const GET_SENSOR_INFO_QUERY = `
 // Utilities
 // ============================================================================
 
-// Time range to milliseconds
-function getTimeRangeMs(timeRange: TimeRange): number {
-  const ranges: Record<TimeRange, number> = {
-    live: 5 * 60 * 1000, // 5 minutes for live
-    '1h': 60 * 60 * 1000,
-    '6h': 6 * 60 * 60 * 1000,
-    '24h': 24 * 60 * 60 * 1000,
-    '7d': 7 * 24 * 60 * 60 * 1000,
-    '30d': 30 * 24 * 60 * 60 * 1000,
-  };
-  return ranges[timeRange] || ranges['1h'];
-}
 
 // Extract value from readings based on selected metric
 function extractValueByMetric(
@@ -638,7 +627,7 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
 
     try {
       const endTime = new Date();
-      const startTime = new Date(endTime.getTime() - getTimeRangeMs(config.timeRange));
+      const startTime = new Date(endTime.getTime() - presetDurationMs(config.timeRange));
       const allHistory: HistoryPoint[] = [];
 
       if (hasSelectedChannels) {

@@ -10,6 +10,7 @@ import { SensorResolver } from './resolvers/sensor.resolver';
 import { SensorReadingResolver } from './resolvers/sensor-reading.resolver';
 import { CalibrationService } from './services/calibration.service';
 import { ChannelReadingQueryService } from './services/channel-reading-query.service';
+import { SeriesTimeZoneService } from './services/series-time-zone.service';
 import { DataQualityService } from './services/data-quality.service';
 import { ReadingMapperRegistry } from './services/reading-mapper.service';
 import { SensorIngestionService } from './services/sensor-ingestion.service';
@@ -57,6 +58,7 @@ import { SensorQueryService } from './services/sensor-query.service';
     SensorIngestionService,
     SensorQueryService,
     ChannelReadingQueryService,
+    SeriesTimeZoneService,
 
     // Support Services (SOLID - Single Responsibility)
     CalibrationService,
@@ -71,5 +73,4 @@ import { SensorQueryService } from './services/sensor-query.service';
     ReadingMapperRegistry,
   ],
 })
- 
 export class SensorModule {}

@@ -78,6 +78,7 @@ import {
   FeedingClockService,
 } from '../../feeding-protocol/services/feeding-clock.service';
 import { FeedingCronV2Service } from '../../feeding-protocol/services/feeding-cron-v2.service';
+import { SiteTimeZoneService } from '../../localization/services/site-time-zone.service';
 import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 import { FeedingJobRunService } from '../../feeding-protocol/services/feeding-job-run.service';
 import { MealPlanGeneratorService } from '../../feeding-protocol/services/meal-plan-generator.service';
@@ -229,6 +230,7 @@ describe('DAILY rollup reconciliation — real Postgres', () => {
       realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
       collaborator<FeedingClockService>({}, 'FeedingClockService'),
       collaborator<FeedingJobRunService>({}, 'FeedingJobRunService'),
+      collaborator<SiteTimeZoneService>({}, 'SiteTimeZoneService'),
     );
   });
 

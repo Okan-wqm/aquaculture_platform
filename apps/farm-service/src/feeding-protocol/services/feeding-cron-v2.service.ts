@@ -90,7 +90,8 @@ import {
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
 import { calendarDayIn, isMealOverdue, MEAL_OVERDUE_GRACE_MINUTES } from './meal-schedule.util';
 import { FeedingClock, FeedingClockService } from './feeding-clock.service';
-import { DEFAULT_TENANT_TIMEZONE } from '../entities/tenant-localization.entity';
+import { DEFAULT_TENANT_TIMEZONE } from '../../localization/entities/tenant-localization.entity';
+import { SiteTimeZoneService } from '../../localization/services/site-time-zone.service';
 import { FeedingJobRunService } from './feeding-job-run.service';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
 import { ProtocolFeedForecastService } from './protocol-feed-forecast.service';
@@ -270,6 +271,8 @@ export class FeedingCronV2Service {
     private readonly clock: FeedingClockService,
     // "Yerel günde tam bir kez" claim'i (W5).
     private readonly jobRuns: FeedingJobRunService,
+    // Zon hiyerarşisinin (site → tenant → UTC) tek sahibi; sensör grafikleri de buradan okur.
+    private readonly siteTimeZones: SiteTimeZoneService,
   ) {}
 
   // ==========================================================================
@@ -286,7 +289,7 @@ export class FeedingCronV2Service {
   async hourlyTick(): Promise<void> {
     const at = new Date();
     const tenants = await this.feedingTenants();
-    const zones = await this.clock.tenantZones(tenants);
+    const zones = await this.siteTimeZones.tenantZones(tenants);
     for (const tenantId of tenants) {
       const clock = FeedingClockService.clockIn(zones.get(tenantId) ?? DEFAULT_TENANT_TIMEZONE, at);
       for (const job of FEEDING_JOB_SCHEDULE) {
@@ -460,7 +463,7 @@ export class FeedingCronV2Service {
     status: ProtocolAssignmentStatus,
     visit: (ctx: AssignmentPlanContext) => Promise<void>,
   ): Promise<void> {
-    const zones = await this.clock.siteZones(manager, tenantId);
+    const zones = await this.siteTimeZones.siteZones(manager, tenantId);
 
     for (let page = 0; ; page++) {
       const assignments = await manager.find(ProtocolAssignment, {

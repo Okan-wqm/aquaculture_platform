@@ -33,8 +33,6 @@ export { SearchInput } from './Form/SearchInput';
 export type { SearchInputProps } from './Form/SearchInput';
 export { DatePicker } from './Form/DatePicker';
 export type { DatePickerProps } from './Form/DatePicker';
-export { DateRangePicker } from './Form/DateRangePicker';
-export type { DateRangePickerProps, DateRange } from './Form/DateRangePicker';
 export { FileUpload } from './Form/FileUpload';
 export type { FileUploadProps, UploadedFile } from './Form/FileUpload';
 export { NumberInput } from './Form/NumberInput';

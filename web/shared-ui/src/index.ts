@@ -192,6 +192,9 @@ export {
 
 export { I18nProvider, useI18n } from './i18n';
 export type { I18nProviderProps, I18nContextValue, SupportedLocale, MessageKey } from './i18n';
+
+// Time-range words (durations and parsing live in @aquaculture/shared-contracts).
+export * from './time-range';
 export {
   SUPPORTED_LOCALES,
   DEFAULT_LOCALE,

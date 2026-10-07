@@ -23,8 +23,9 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useRealtimeData } from '../../hooks/useRealtimeData';
 import { useTrendData, type TrendTimeRange } from '../../hooks/useTrendData';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, useI18n } from '@aquaculture/shared-ui';
 import { ChartToolbar } from './ChartToolbar';
+import { type LineBreaks, toUPlotData } from './trendChartData';
 import type {
   ChartViewMode,
   ChartLine,
@@ -53,10 +54,21 @@ export interface TrendChartProps {
   className?: string;
   /** Realtime mode: rolling window width in minutes. Default 10. */
   realtimeWindowMinutes?: number;
-  /** History mode: initial preset or custom range. */
+  /** History mode: initial preset; a fixed window is chosen in the toolbar. */
   initialRange?: ChartTimeRange;
   /** Custom mode: pre-fetched series data keyed by tagId. */
   customData?: Record<string, HistoricalDataPoint[]>;
+  /**
+   * IANA zone the time axis is drawn in (a site's zone). Without it uPlot
+   * draws the browser's zone, which is not the site's.
+   */
+  timeZone?: string;
+  /**
+   * Custom mode: per line (by tagId), the instants (ms) where its data stops —
+   * the series' reported gaps. Lines listed here are drawn through other
+   * lines' timestamps and broken only at these instants.
+   */
+  breaks?: LineBreaks;
 }
 
 /* ------------------------------------------------------------------ */
@@ -82,9 +94,33 @@ function buildSeries(line: ChartLine, zones: ChartLineZone[] | undefined): uPlot
     points:
       line.interpolation === 'scatter'
         ? { show: true, size: 6, fill: line.color }
-        : { show: false },
+        : line.showIsolatedPoints
+          ? { show: true, size: 5, fill: line.color, filter: isolatedPointIndices }
+          : { show: false },
   };
 }
+
+/**
+ * The indices of values with no value on either side: a lone bucket between
+ * two gaps, which a line cannot draw. uPlot draws a point only at these.
+ */
+const isolatedPointIndices: uPlot.Series.Points.Filter = (u, seriesIdx) => {
+  const values = u.data[seriesIdx] ?? [];
+  const isolated: number[] = [];
+  // The nearest defined neighbour on each side: `undefined` is another line's
+  // timestamp, drawn through; `null` is a break.
+  const neighbour = (from: number, step: 1 | -1): number | null | undefined => {
+    for (let index = from + step; index >= 0 && index < values.length; index += step) {
+      if (values[index] !== undefined) return values[index];
+    }
+    return null;
+  };
+  for (let index = 0; index < values.length; index++) {
+    if (values[index] == null) continue;
+    if (neighbour(index, -1) == null && neighbour(index, 1) == null) isolated.push(index);
+  }
+  return isolated;
+};
 
 function buildPathBuilder(interpolation: LineInterpolation): uPlot.Series['paths'] | undefined {
   switch (interpolation) {
@@ -207,46 +243,6 @@ function buildAxes(lines: ChartLine[], opts: Partial<ChartOptions>): uPlot.Axis[
   return [xAxis, ...yAxes];
 }
 
-/**
- * Convert HistoricalDataPoint arrays into the flat uPlot data format.
- * uPlot expects [timestamps, series1Values, series2Values, …]
- * where each array has the same length and timestamps are ascending.
- */
-function toUPlotData(
-  lines: ChartLine[],
-  data: Record<string, HistoricalDataPoint[]>,
-): uPlot.AlignedData {
-  if (lines.length === 0) return [[], ...lines.map(() => [])];
-
-  // Collect and sort all unique timestamps
-  const tsSet = new Set<number>();
-  for (const line of lines) {
-    const pts = data[line.tagId] ?? [];
-    for (const pt of pts) tsSet.add(pt.timestamp / 1000); // uPlot uses seconds
-  }
-
-  const timestamps = [...tsSet].sort((a, b) => a - b);
-  if (timestamps.length === 0) return [[], ...lines.map(() => [])];
-
-  const tsIndex = new Map<number, number>();
-  timestamps.forEach((t, i) => tsIndex.set(t, i));
-
-  const series: (number | null)[][] = lines.map((line) => {
-    const row: (number | null)[] = new Array(timestamps.length).fill(null);
-    const pts = data[line.tagId] ?? [];
-    for (const pt of pts) {
-      const ts = pt.timestamp / 1000;
-      const idx = tsIndex.get(ts);
-      if (idx == null) continue;
-      const v = typeof pt.value === 'number' ? pt.value : parseFloat(String(pt.value));
-      row[idx] = isNaN(v) ? null : v;
-    }
-    return row;
-  });
-
-  return [timestamps as number[], ...series] as uPlot.AlignedData;
-}
-
 /* ------------------------------------------------------------------ */
 /*  Tooltip plugin                                                      */
 /* ------------------------------------------------------------------ */
@@ -255,6 +251,8 @@ interface TooltipState {
   left: number;
   top: number;
   visible: boolean;
+  /** The instant under the cursor, in the chart's zone. */
+  time?: string;
   values: Array<{ label: string; color: string; value: string }>;
 }
 
@@ -262,6 +260,7 @@ function buildTooltipPlugin(
   lines: ChartLine[],
   decimalsPrecision: number,
   setTooltip: React.Dispatch<React.SetStateAction<TooltipState>>,
+  format: { readonly time: Intl.DateTimeFormat; readonly number: Intl.NumberFormat },
 ): uPlot.Plugin {
   return {
     hooks: {
@@ -274,11 +273,13 @@ function buildTooltipPlugin(
 
         const values: TooltipState['values'] = lines.map((line, i) => {
           const raw = u.data[i + 1]?.[idx];
-          const formatted = raw == null ? '—' : raw.toFixed(decimalsPrecision);
+          const formatted = raw == null ? '—' : format.number.format(raw);
           return { label: line.label, color: line.color, value: formatted };
         });
+        const seconds = u.data[0]?.[idx];
+        const time = seconds == null ? undefined : format.time.format(seconds * 1000);
 
-        setTooltip({ left, top, visible: true, values });
+        setTooltip({ left, top, visible: true, time, values });
       },
     },
   };
@@ -399,7 +400,10 @@ export const TrendChart: React.FC<TrendChartProps> = ({
   realtimeWindowMinutes = DEFAULT_REALTIME_WINDOW_MINUTES,
   initialRange = 'last1h',
   customData,
+  timeZone,
+  breaks,
 }) => {
+  const { locale } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
 
@@ -409,9 +413,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
   const pendingRealtimeRef = useRef(false);
 
   // History/custom time range state
-  const [historyRange, setHistoryRange] = useState<TrendTimeRange>(
-    (initialRange === 'custom' ? 'last1h' : initialRange) as TrendTimeRange,
-  );
+  const [historyRange, setHistoryRange] = useState<TrendTimeRange>(initialRange);
   const [autoRefreshMs, setAutoRefreshMs] = useState<number | undefined>(undefined);
 
   // Tooltip state
@@ -440,7 +442,17 @@ export const TrendChart: React.FC<TrendChartProps> = ({
       const decimalsPrecision = options.decimalsPrecision ?? 2;
 
       const plugins: uPlot.Plugin[] = [
-        buildTooltipPlugin(lines, decimalsPrecision, setTooltip),
+        buildTooltipPlugin(lines, decimalsPrecision, setTooltip, {
+          time: new Intl.DateTimeFormat(locale, {
+            ...(timeZone === undefined ? {} : { timeZone }),
+            dateStyle: 'short',
+            timeStyle: 'short',
+          }),
+          number: new Intl.NumberFormat(locale, {
+            minimumFractionDigits: decimalsPrecision,
+            maximumFractionDigits: decimalsPrecision,
+          }),
+        }),
         buildTouchPlugin(),
       ];
 
@@ -475,6 +487,9 @@ export const TrendChart: React.FC<TrendChartProps> = ({
         },
         scales: buildScales(options),
         axes: buildAxes(lines, options),
+        ...(timeZone === undefined
+          ? {}
+          : { tzDate: (seconds: number) => uPlot.tzDate(new Date(seconds * 1000), timeZone) }),
         series: [
           {}, // x-axis placeholder
           ...lines.map((line) => buildSeries(line, line.zones)),
@@ -482,7 +497,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
       };
     },
 
-    [lines, options],
+    [lines, options, timeZone, locale],
   );
 
   /* ---- Create / recreate uPlot on mount and option changes ---- */
@@ -536,9 +551,9 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     if (!u) return;
 
     const source = mode === 'custom' ? (customData ?? {}) : historyResult.data;
-    const uData = toUPlotData(lines, source);
+    const uData = toUPlotData(lines, source, mode === 'custom' ? breaks : undefined);
     u.setData(uData);
-  }, [mode, historyResult.data, customData, lines]);
+  }, [mode, historyResult.data, customData, lines, breaks]);
 
   /* ---- Realtime buffer management ---- */
 
@@ -683,6 +698,11 @@ export const TrendChart: React.FC<TrendChartProps> = ({
             className="pointer-events-none absolute z-10 rounded border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-900/90 px-2 py-1.5 shadow-md text-xs backdrop-blur-sm"
             style={{ left: tooltip.left + 12, top: tooltip.top - 8 }}
           >
+            {tooltip.time && (
+              <div className="mb-0.5 font-medium text-gray-700 dark:text-gray-300">
+                {tooltip.time}
+              </div>
+            )}
             {tooltip.values.map((v) => (
               <div key={v.label} className="flex items-center gap-1.5">
                 <span

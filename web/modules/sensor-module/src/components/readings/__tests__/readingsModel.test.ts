@@ -10,7 +10,9 @@ import {
   freshness,
   lastReportedAt,
   latestValuesCsv,
+  rangeEndingAt,
   readingOwners,
+  seriesCsv,
 } from '../readingsModel';
 
 const NOW = Date.parse('2026-10-06T10:32:17.000Z');
@@ -96,7 +98,7 @@ describe('readingsModel', () => {
     ]);
   });
 
-  it('exports one CSV row per channel with full-precision values', () => {
+  it('exports one CSV row per channel, full precision, in the Turkish spreadsheet format', () => {
     const csv = latestValuesCsv(
       [sensor({})],
       new Map([
@@ -115,11 +117,99 @@ describe('readingsModel', () => {
           ],
         ],
       ]),
+      'tr',
     );
     expect(csv.split('\n')).toEqual([
       'Cihaz;Kanal;Anahtar;Değer;Birim;Zaman;Durum',
-      'Codex Su Sıcaklığı Simülatörü;Su Sıcaklığı;temperature;24.1;°C;2026-10-06T10:32:07.803Z;Normal',
-      'Codex Su Sıcaklığı Simülatörü;"Amonyak; NH3";ammonia;0.1137;mg/L;2026-10-06T10:32:07.803Z;Uyarı',
+      'Codex Su Sıcaklığı Simülatörü;Su Sıcaklığı;temperature;24,1;°C;2026-10-06T10:32:07.803Z;Normal',
+      'Codex Su Sıcaklığı Simülatörü;"Amonyak; NH3";ammonia;0,1137;mg/L;2026-10-06T10:32:07.803Z;Uyarı',
     ]);
+  });
+
+  it('writes text that a spreadsheet would run as a formula as text, but keeps numbers numbers', () => {
+    const csv = latestValuesCsv(
+      [sensor({ name: '=HYPERLINK("http://x","click")' })],
+      new Map([['s-1', [channel({ displayLabel: '@SUM(A1)', unit: '-1', value: -0.02 })]]]),
+      'en',
+    );
+    const row = csv.split('\n')[1] ?? '';
+    expect(row.startsWith(`"'=HYPERLINK(""http://x"",""click"")"`)).toBe(true);
+    expect(row).toContain(",'@SUM(A1),");
+    // A negative reading stays a number; an English spreadsheet reads ',' and '.'.
+    expect(row).toContain(',-0.02,');
+  });
+});
+
+describe('rangeEndingAt', () => {
+  it('keeps the length of the range shown and ends with the last sample minute', () => {
+    const last = Date.parse('2026-09-19T14:02:30Z');
+    expect(rangeEndingAt(last, { kind: 'relative', preset: '7d' }, NOW)).toEqual({
+      kind: 'absolute',
+      startMs: Date.parse('2026-09-12T14:03:00Z'),
+      endMs: Date.parse('2026-09-19T14:03:00Z'),
+    });
+    const fixed = { kind: 'absolute', startMs: 0, endMs: 6 * 3_600_000 } as const;
+    expect(rangeEndingAt(last, fixed, NOW)).toEqual({
+      kind: 'absolute',
+      startMs: Date.parse('2026-09-19T08:03:00Z'),
+      endMs: Date.parse('2026-09-19T14:03:00Z'),
+    });
+  });
+});
+
+describe('seriesCsv', () => {
+  it('writes each bucket with its UTC instant and its time in the series zone', () => {
+    const csv = seriesCsv(
+      {
+        sensorId: 's-1',
+        interval: '1 hour',
+        resolution: 'ONE_HOUR',
+        sourceTier: 'HOUR',
+        bucketTimeZone: 'Europe/Istanbul',
+        displayTimeZone: 'Europe/Istanbul',
+        displayTimeZoneSource: 'SITE',
+        maxRangeSeconds: 31_536_000,
+        startTime: '2026-09-16T00:00:00Z',
+        endTime: '2026-09-17T00:00:00Z',
+        channels: [
+          {
+            channelId: 'c-1',
+            channelKey: 'temperature',
+            displayLabel: 'Su Sıcaklığı',
+            unit: '°C',
+            unitSymbol: '°C',
+            precision: 1,
+            enabled: true,
+            gaps: [],
+            points: [
+              {
+                bucket: '2026-09-16T21:00:00.000Z',
+                avg: 24.1,
+                min: 24,
+                max: 24.3,
+                count: 60,
+                badCount: 2,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        bucketUtc: 'UTC',
+        bucketLocal: 'Yerel',
+        channel: 'Kanal',
+        unit: 'Birim',
+        avg: 'Ort',
+        min: 'Min',
+        max: 'Maks',
+        count: 'Örnek',
+        badCount: 'Düşük',
+      },
+      'tr',
+    );
+    const [header, row] = csv.split('\n');
+    expect(header).toBe('UTC;Yerel;Kanal;Birim;Ort;Min;Maks;Örnek;Düşük');
+    // 21:00 UTC is midnight of the next day in Istanbul (UTC+3).
+    expect(row).toBe('2026-09-16T21:00:00.000Z;17.09.2026 00:00;Su Sıcaklığı;°C;24,1;24;24,3;60;2');
   });
 });

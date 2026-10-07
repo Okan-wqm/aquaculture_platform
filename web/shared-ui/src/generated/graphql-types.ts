@@ -1896,6 +1896,13 @@ export type ChannelAlertLevel =
   | 'NORMAL'
   | 'WARNING';
 
+export type ChannelDataBounds = {
+  channelId: Scalars['ID']['output'];
+  firstSampleAt?: Maybe<Scalars['DateTime']['output']>;
+  lastSampleAt?: Maybe<Scalars['DateTime']['output']>;
+  sensorId: Scalars['ID']['output'];
+};
+
 /** Data type of the channel value */
 export type ChannelDataType =
   | 'BOOLEAN'
@@ -1993,11 +2000,18 @@ export type ChannelSensorInfo = {
 export type ChannelSeries = {
   channelId: Scalars['ID']['output'];
   channelKey: Scalars['String']['output'];
+  displayLabel: Scalars['String']['output'];
+  enabled: Scalars['Boolean']['output'];
+  gaps: Array<TimeWindow>;
   points: Array<ChannelSeriesPoint>;
+  precision?: Maybe<Scalars['Int']['output']>;
+  unit?: Maybe<Scalars['String']['output']>;
+  unitSymbol?: Maybe<Scalars['String']['output']>;
 };
 
 export type ChannelSeriesPoint = {
   avg: Scalars['Float']['output'];
+  badCount: Scalars['Int']['output'];
   bucket: Scalars['DateTime']['output'];
   count: Scalars['Int']['output'];
   max?: Maybe<Scalars['Float']['output']>;
@@ -2005,10 +2019,17 @@ export type ChannelSeriesPoint = {
 };
 
 export type ChannelSeriesResponse = {
+  bucketTimeZone: Scalars['String']['output'];
   channels: Array<ChannelSeries>;
+  displayTimeZone: Scalars['String']['output'];
+  displayTimeZoneSource: SeriesTimeZoneSource;
   endTime: Scalars['DateTime']['output'];
+  /** @deprecated Use resolution */
   interval: Scalars['String']['output'];
+  maxRangeSeconds: Scalars['Int']['output'];
+  resolution: AggregationInterval;
   sensorId: Scalars['ID']['output'];
+  sourceTier: MetricSourceTier;
   startTime: Scalars['DateTime']['output'];
 };
 
@@ -9271,6 +9292,13 @@ export type MessageReceipt = {
   userId: Scalars['String']['output'];
 };
 
+/** The store a series was read from: raw rows or a rollup tier */
+export type MetricSourceTier =
+  | 'DAY'
+  | 'HOUR'
+  | 'MINUTE'
+  | 'RAW';
+
 export type MfaStepUpInput = {
   /** TOTP code or recovery code */
   code: Scalars['String']['input'];
@@ -15405,6 +15433,8 @@ export type Query = {
   certificationsForWorkArea: Array<CertificationType>;
   /** Get a channel by ID */
   channel: Channel;
+  /** The first and last stored sample of each channel of the given sensors (≤100) — where a sensor's history starts and ends */
+  channelDataBounds: Array<ChannelDataBounds>;
   channelEligibleUsers: Array<PublicUserProfile>;
   /** Each enabled channel of the given sensors with its last-known value (≤100 sensors) */
   channelLatestValues: Array<ChannelLatestValue>;
@@ -15787,6 +15817,8 @@ export type Query = {
   sensorsByProtocol: Array<RegisteredSensorType>;
   /** Weekly aggregate sentiment trends per channel (TENANT_ADMIN only) */
   sentimentTrends: Array<SentimentTrendType>;
+  /** The zone a page of these sensors' charts is shown and picked in (≤1000): their shared site zone, else the tenant's */
+  seriesDisplayTimeZone: SeriesDisplayTimeZone;
   shift: Shift;
   shifts: ShiftConnection;
   /** Semantic similarity search across messages */
@@ -16241,6 +16273,11 @@ export type QueryCertificationsForWorkAreaArgs = {
 
 export type QueryChannelArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryChannelDataBoundsArgs = {
+  sensorIds: Array<Scalars['ID']['input']>;
 };
 
 
@@ -17573,6 +17610,11 @@ export type QuerySensorsByProtocolArgs = {
 
 export type QuerySentimentTrendsArgs = {
   input: SentimentTrendsInput;
+};
+
+
+export type QuerySeriesDisplayTimeZoneArgs = {
+  sensorIds: Array<Scalars['ID']['input']>;
 };
 
 
@@ -20008,6 +20050,17 @@ export type SentimentTrendsInput = {
   weeks?: Scalars['Int']['input'];
 };
 
+export type SeriesDisplayTimeZone = {
+  displayTimeZone: Scalars['String']['output'];
+  source: SeriesTimeZoneSource;
+};
+
+/** Where a series display time zone came from */
+export type SeriesTimeZoneSource =
+  | 'SITE'
+  | 'TENANT'
+  | 'UNAVAILABLE';
+
 export type SetChecklistItemInput = {
   /** Stable client command UUID generated before first submission */
   clientCommandId?: InputMaybe<Scalars['String']['input']>;
@@ -22346,6 +22399,11 @@ export type TicketStatus =
   | 'OPEN'
   | 'RESOLVED'
   | 'WAITING_CUSTOMER';
+
+export type TimeWindow = {
+  end: Scalars['DateTime']['output'];
+  start: Scalars['DateTime']['output'];
+};
 
 /** Type of timeline event */
 export type TimelineEventType =

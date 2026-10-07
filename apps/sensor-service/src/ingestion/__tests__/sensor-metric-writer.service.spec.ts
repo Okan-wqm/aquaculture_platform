@@ -1,4 +1,9 @@
-import { DataSource, EntityManager } from 'typeorm';
+import { TenantContextError } from '@aquaculture/backend-common/database';
+import {
+  createTenantBoundManager,
+  createTenantSessionDataSource,
+  type TenantSession,
+} from '@platform/testing';
 
 import { SensorMetricInput } from '../../database/entities/sensor-metric.entity';
 import { SensorMetricWriterService } from '../sensor-metric-writer.service';
@@ -20,23 +25,13 @@ const TENANT_B = '44444444-4444-4444-8444-444444444444';
 const SCHEMA_A = 'tenant_3333333333334333';
 const SCHEMA_B = 'tenant_4444444444444444';
 
-// The writer only uses the single-argument transaction overload; narrowing
-// the mock's type here avoids faking TypeORM's full overload pair.
-type TransactionalDataSource = Partial<Omit<DataSource, 'transaction'>> & {
-  transaction<T>(fn: (manager: EntityManager) => Promise<T>): Promise<T>;
-};
-
-function createService(): { service: SensorMetricWriterService; query: jest.Mock } {
-  const query = jest.fn().mockResolvedValue(undefined);
-  // Single-connection fake: the transaction callback sees the SAME query mock,
-  // so SQL/param assertions cover the SET LOCAL + INSERT sequence.
-  const transaction = async <T>(fn: (manager: EntityManager) => Promise<T>): Promise<T> => {
-    const manager: Partial<EntityManager> = { query };
-    return fn(manager as EntityManager);
-  };
-  const dataSource: TransactionalDataSource = { query, transaction };
-  const service = new SensorMetricWriterService(dataSource as DataSource);
-  return { service, query };
+function createService(): {
+  service: SensorMetricWriterService;
+  query: jest.Mock;
+  session: TenantSession;
+} {
+  const { mockDataSource, session, domainQuery } = createTenantSessionDataSource();
+  return { service: new SensorMetricWriterService(mockDataSource), query: domainQuery, session };
 }
 
 function createMetric(overrides: Partial<SensorMetricInput> = {}): SensorMetricInput {
@@ -101,6 +96,31 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
   });
 
   describe('writeImmediate', () => {
+    it("runs each tenant batch inside that tenant's RLS binding (SENSOR-HIGH-145)", async () => {
+      const { service, query, session } = createService();
+      const boundAtInsert: Array<{ rowTenant: unknown; tenant: string; bypass: string }> = [];
+      query.mockImplementation((sql: string, params?: unknown[]) => {
+        if (String(sql).startsWith('INSERT')) {
+          boundAtInsert.push({
+            rowTenant: params?.[3],
+            tenant: session.tenant,
+            bypass: session.bypass,
+          });
+        }
+        return Promise.resolve(undefined);
+      });
+
+      await service.writeImmediate([
+        createMetric({ tenantId: TENANT_A }),
+        createMetric({ tenantId: TENANT_B }),
+      ]);
+
+      expect(boundAtInsert).toEqual([
+        { rowTenant: TENANT_A, tenant: TENANT_A, bypass: 'off' },
+        { rowTenant: TENANT_B, tenant: TENANT_B, bypass: 'off' },
+      ]);
+    });
+
     it("writes into the row's OWN tenant schema via the service connection", async () => {
       const { service, query } = createService();
       await service.writeImmediate([createMetric()]);
@@ -169,23 +189,44 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
   describe('writeManaged', () => {
     it('writes on the caller transaction manager, into the tenant schema', async () => {
       const { service, query } = createService();
-      const managerQuery = jest.fn().mockResolvedValue(undefined);
-      const manager: Partial<EntityManager> = { query: managerQuery };
-      await service.writeManaged([createMetric()], manager as EntityManager);
-      expect(managerQuery).toHaveBeenCalledTimes(1);
+      const insert = jest.fn().mockResolvedValue(undefined);
+      await service.writeManaged([createMetric()], createTenantBoundManager(TENANT_A, insert));
+      expect(insert).toHaveBeenCalledTimes(1);
       expect(query).not.toHaveBeenCalled();
-      const [sql] = managerQuery.mock.calls[0]!;
+      const [sql] = insert.mock.calls[0]!;
       expect(sql).toContain(`INSERT INTO "${SCHEMA_A}".sensor_metrics`);
     });
 
     it('propagates a failure so the caller transaction rolls back (SENSOR-CRITICAL-001)', async () => {
       const { service } = createService();
-      const managerQuery = jest.fn().mockRejectedValue(new Error('deadlock detected'));
-      const manager: Partial<EntityManager> = { query: managerQuery };
+      const insert = jest.fn().mockRejectedValue(new Error('deadlock detected'));
 
       await expect(
-        service.writeManaged([createMetric()], manager as EntityManager),
+        service.writeManaged([createMetric()], createTenantBoundManager(TENANT_A, insert)),
       ).rejects.toThrow('deadlock detected');
+    });
+
+    it('refuses a caller transaction bound to no tenant, before sending a row (SENSOR-HIGH-145)', async () => {
+      const { service } = createService();
+      const insert = jest.fn().mockResolvedValue(undefined);
+
+      await expect(
+        service.writeManaged([createMetric()], createTenantBoundManager(null, insert)),
+      ).rejects.toBeInstanceOf(TenantContextError);
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it("refuses rows of a tenant the caller's transaction is not bound to", async () => {
+      const { service } = createService();
+      const insert = jest.fn().mockResolvedValue(undefined);
+
+      await expect(
+        service.writeManaged(
+          [createMetric({ tenantId: TENANT_B })],
+          createTenantBoundManager(TENANT_A, insert),
+        ),
+      ).rejects.toBeInstanceOf(TenantContextError);
+      expect(insert).not.toHaveBeenCalled();
     });
   });
 

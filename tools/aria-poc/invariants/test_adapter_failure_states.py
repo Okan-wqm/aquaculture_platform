@@ -18,7 +18,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-_POC = Path(__file__).resolve().parent
+# ARIA-MEDIUM-377 — under invariants/ so CI discovers it; the adapters it
+# loads are one directory up.
+_POC = Path(__file__).resolve().parents[1]
 
 
 def _load(name: str, path: Path):

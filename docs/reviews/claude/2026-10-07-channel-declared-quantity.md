@@ -106,7 +106,8 @@ Proof:
 - The registry spec:
   - quantity ids are pinned append-only and ≤32 characters, because they are
     persisted;
-  - alternates keep the key's reading parameter. Mutation check: putting % saturation back on `do` fails it.
+  - alternates keep the key's reading parameter. Mutation check: putting
+    % saturation back on `do` fails it.
   - conversions (°F, K, mS/cm, m, mg/L→µg/L).
 - `add-channel-quantity-declarations.migration.postgres.spec.ts` on real
   Postgres: the column and ledger, idempotence, a skipped schema, down.

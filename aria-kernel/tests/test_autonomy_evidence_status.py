@@ -1497,6 +1497,11 @@ def alias_factory(root):
             # is live; it reads the verdict, it cannot render one.
             ("executor", f"{KERNEL}converged_delivery.py", "consumer"):
                 "converged delivery reads request state to withhold a second mint; it cannot accept a result",
+            # ARIA-HIGH-367 — closing an ABANDONED plan's queue derives request
+            # state to leave held claims alone; it reads the verdict, it
+            # cannot render one.
+            ("executor", f"{KERNEL}plan_request_closure.py", "consumer"):
+                "plan closure reads request state to cancel only unheld requests; it cannot accept a result",
             ("finding_funnel", f"{KERNEL}belief_escalation.py", "consumer"):
                 "belief escalation observes feedback for a separate belief lane",
             ("finding_funnel", f"{KERNEL}calibration.py", "consumer"):

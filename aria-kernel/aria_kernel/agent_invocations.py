@@ -2627,6 +2627,9 @@ HARNESS_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
     # `anchor_expiry_cause.anchor_expiry_reason_in_outage`; pinned equal to
     # its `ANCHOR_EXPIRED_IN_OUTAGE_PREFIX` by test_provider_outage_timers.
     "anchor_expired_during_provider_outage:",
+    # ARIA-HIGH-367 — ``lease_expired_during_provider_outage:<provider>``:
+    # the lease ran out inside an open outage of the role's provider (M1).
+    "lease_expired_during_provider_outage:",
     # Typed-judgment plan Phase 4b — the batch child's ONE call failed for
     # every request it served: the vendor's or the host's state.
     "judge_batch_call_failed:",
@@ -2819,6 +2822,33 @@ def _latest_claim_row(rows: list[dict[str, Any]], request_id: str) -> dict[str, 
     return candidates[best_idx] if best_idx >= 0 else None
 
 
+def _escalation_stands(claims: list[dict[str, Any]], request_id: str) -> bool:
+    """Whether the request's ``human_required`` claim rows still escalate it.
+
+    ARIA-HIGH-367 (M2). This check used to be ``any(human_required row)``,
+    returned before the latest-claim fold, so the re-derivation in that fold's
+    ``human_required`` arm (written for exactly the rows below) could never
+    run: a request escalated when its releases were counted under an older,
+    wrong fault table stayed HUMAN_REQUIRED forever. Measured on the
+    production store: AIR-aria-autonomy-planner-eb17609b38b1 (three
+    ``claude_cli_exit_1`` releases, 2026-08-06..08) and
+    AIR-aria-autonomy-planner-228f33e15113 (three
+    ``prompt_hash_binding_mismatch``) — every release harness-class today.
+
+    An escalation STANDS when any of its rows names a cause that is not the
+    harness's (a deliberate executor escalation — branch collision, the
+    agent's refusal — an operator act, or a charged release), or when the
+    request-fault count still exceeds the ceiling. Only an escalation built
+    entirely from releases the harness owns is re-derived (and so healed).
+    """
+    rows = [row for row in claims if row.get("event") == "human_required" and row.get("request_id") == request_id]
+    if not rows:
+        return False
+    if any(not _is_harness_fault_reason(str(row.get("reason") or "")) for row in rows):
+        return True
+    return _request_fault_requeue_count(claims, request_id) > DEFAULT_MAX_REQUEUES
+
+
 def derive_request_state(
     *,
     request_id: str,
@@ -2904,7 +2934,7 @@ def derive_request_state(
     control = _control if _control is not None else effective_control(root)
     if control.is_cancelled(request_id):
         return CANCELLED_BY_OPERATOR_STATE
-    if any(row.get("event") == "human_required" and row.get("request_id") == request_id for row in claims):
+    if _escalation_stands(claims, request_id):
         return "HUMAN_REQUIRED"
 
     # A durable prepared journal owns a commit-pending operation. Its lease
@@ -2942,6 +2972,11 @@ def derive_request_state(
         if requeues > DEFAULT_MAX_REQUEUES:
             return "HUMAN_REQUIRED"
         return "REQUEUED" if requeues > 0 else "PENDING"
+    if event == "plan_closed":
+        # ARIA-HIGH-367 (H4) — the request's plan was ABANDONED while it sat
+        # unclaimed (`plan_request_closure`): terminal, never claimed again,
+        # so recovered quota is not spent answering into a closed plan.
+        return "CANCELLED"
     if event == "anchor_stale":
         # ORPHAN-MEDIUM-492 — terminal. The git evaluation happened at the
         # selection boundary (next_pending_request); this function stays a
@@ -3451,10 +3486,15 @@ def sweep_expired_anchors(
     `derive_request_state` skips terminal requests, so a second sweep finds
     nothing.
     """
+    from .plan_request_closure import close_abandoned_plan_requests
     from .provider_clock import provider_clock
 
     root = ensure_tools_dir(base_dir)
     reference = now or _utc_now_dt()
+    # ARIA-HIGH-367 (H4) — before the backlog is counted, the queue of every
+    # ABANDONED plan is closed (including plans abandoned before the closure
+    # existed): those requests are not work, and the mint gate must not count them.
+    close_abandoned_plan_requests(root, now=reference)
     max_age_seconds = _anchor_max_age_seconds(root)
     clock = provider_clock(root)
     swept = 0
@@ -6600,6 +6640,25 @@ def _verified_evidence_target_sha(
     return verified
 
 
+def _lease_expiry_reason(
+    clock: "ProviderClock", claimed_at: datetime | None, expires: datetime, role: str,
+) -> str:
+    """``lease_expired``, or the harness-class reason when an outage ate the lease.
+
+    ARIA-HIGH-367 (M1). An expired lease was charged to the request
+    (``lease_expired`` is request-class: "the agent hung"), and three of them
+    escalate it. A lease that ran out while the provider its role is routed to
+    was in an open outage — a job killed in a network loss, a spawn that
+    waited on a vendor that was not serving — says nothing about the request.
+    """
+    from .provider_clock import role_head_providers
+
+    providers = role_head_providers([role]) if role else frozenset()
+    if claimed_at is None or not providers or clock.covered(claimed_at, expires, providers).total_seconds() <= 0:
+        return "lease_expired"
+    return f"lease_expired_during_provider_outage:{'+'.join(sorted(providers))}"
+
+
 def reap_stale_claims(
     *,
     base_dir: str | Path | None = None,
@@ -6627,6 +6686,9 @@ def reap_stale_claims(
         "requeued": [],
         "human_required": [],
     }
+    # ARIA-HIGH-367 (M1) — read only when some lease has actually expired.
+    lease_clock: "ProviderClock | None" = None
+    request_roles: dict[str, str] = {}
     for cid in candidate_ids:
         governance_details: dict[str, Any] | None = None
         with state_transaction([claims_path, results_path]) as transaction:
@@ -6667,6 +6729,16 @@ def reap_stale_claims(
                 continue
             request_id = str(claim_event.get("request_id") or "")
             agent_id = claim_event.get("agent_id")
+            if lease_clock is None:
+                from .provider_clock import provider_clock
+
+                lease_clock = provider_clock(root)
+                request_roles = {str(row.get("request_id")): str(row.get("role") or "")
+                                 for row in load_segments(root, "agent_invocation_requests")}
+            reason = _lease_expiry_reason(
+                lease_clock, _parse_iso(claim_event.get("claimed_at")), expires,
+                request_roles.get(request_id, ""),
+            )
             stale_row = {
                 "schema_version": 1,
                 "event": "stale",
@@ -6681,8 +6753,11 @@ def reap_stale_claims(
                 stale_row,
                 expected_surface="agent_invocation_claims",
             )
-            requeue_count = (
-                _request_fault_requeue_count(locked_claims, request_id) + 1
+            # The SAME counting rule as derivation and release (ARIA-MEDIUM-225):
+            # a lease that ran out inside a provider outage is not charged.
+            requeue_count = _request_fault_requeue_count(
+                [*locked_claims, {"request_id": request_id, "event": "requeued", "reason": reason}],
+                request_id,
             )
             kind = (
                 "requeued"
@@ -6696,7 +6771,7 @@ def reap_stale_claims(
                 "request_id": request_id,
                 "at": _iso(ts),
                 "requeue_count": requeue_count,
-                "reason": "lease_expired",
+                "reason": reason,
             }
             transaction.append_declared_jsonl(
                 claims_path,
@@ -6709,7 +6784,7 @@ def reap_stale_claims(
                 "claim_id": cid,
                 "request_id": request_id,
                 "requeue_count": requeue_count,
-                "reason": "lease_expired",
+                "reason": reason,
                 "kind": kind,
             }
         if governance_details is None:

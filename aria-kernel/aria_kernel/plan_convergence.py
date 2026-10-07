@@ -1275,7 +1275,12 @@ def abandon_plan(
         if existing:
             return _event_result(existing, idempotent=True)
         event = _append_event(root=root, plan_id=plan_id, event_type="plan_abandoned", payload=payload, idempotency_key=key)
-        return _event_result(event, idempotent=False)
+    # ARIA-HIGH-367 (H4) — the plan's unclaimed requests close with it, outside
+    # the plan lock (the claims ledger has its own transaction).
+    from .plan_request_closure import close_abandoned_plan_requests
+
+    close_abandoned_plan_requests(root, plan_ids=[plan_id])
+    return _event_result(event, idempotent=False)
 
 
 # =============================================================================

@@ -226,6 +226,16 @@ export class SensorDataChannel {
   @Column({ name: 'unit_symbol', length: 10, nullable: true })
   unitSymbol?: string;
 
+  /**
+   * The measured quantity an operator declared for this channel (a registry
+   * quantity id), or null when the key's own meaning stands. Needed where the
+   * key does not say which quantity it reports — `ammonia`/`nh3` (TAN, NH3-N or
+   * NH4-N) or a vendor key. Written only through `declareChannelQuantity`.
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ name: 'declared_quantity', type: 'varchar', length: 32, nullable: true })
+  declaredQuantity?: string | null;
+
   // === Physical & Operational Bounds ===
 
   @Field(() => Float, { nullable: true })

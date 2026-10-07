@@ -4316,6 +4316,9 @@ export type DataChannelType = {
   createdAt: Scalars['DateTime']['output'];
   dataPath?: Maybe<Scalars['String']['output']>;
   dataType: ChannelDataType;
+  declarableQuantities: Array<Scalars['String']['output']>;
+  /** The measured quantity an operator declared, when the key does not say */
+  declaredQuantity?: Maybe<Scalars['String']['output']>;
   description?: Maybe<Scalars['String']['output']>;
   discoveredAt?: Maybe<Scalars['DateTime']['output']>;
   discoverySource?: Maybe<DiscoverySource>;
@@ -4328,6 +4331,8 @@ export type DataChannelType = {
   maxValue?: Maybe<Scalars['Float']['output']>;
   minValue?: Maybe<Scalars['Float']['output']>;
   nextCalibrationDue?: Maybe<Scalars['DateTime']['output']>;
+  quantity?: Maybe<Scalars['String']['output']>;
+  quantityFamily?: Maybe<Scalars['String']['output']>;
   sampleValue?: Maybe<Scalars['JSON']['output']>;
   sensor?: Maybe<ChannelSensorInfo>;
   sensorId: Scalars['ID']['output'];
@@ -4371,6 +4376,12 @@ export type DaySummary = {
   leaveCount: Scalars['Int']['output'];
   offCount: Scalars['Int']['output'];
   workingCount: Scalars['Int']['output'];
+};
+
+export type DeclareChannelQuantityInput = {
+  channelId: Scalars['ID']['input'];
+  quantity?: InputMaybe<Scalars['String']['input']>;
+  unit?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type DeductionsBreakdown = {
@@ -9632,6 +9643,7 @@ export type Mutation = {
   deactivateTenantUser: User;
   deactivateVfdDevice: VfdDevice;
   deactivateWorkArea: WorkArea;
+  declareChannelQuantity: DataChannelType;
   decommissionEdgeDevice: EdgeDevice;
   deferGoal: Goal;
   deleteAlertRule: Scalars['Boolean']['output'];
@@ -11270,6 +11282,11 @@ export type MutationDeactivateVfdDeviceArgs = {
 
 export type MutationDeactivateWorkAreaArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeclareChannelQuantityArgs = {
+  input: DeclareChannelQuantityInput;
 };
 
 
@@ -19801,6 +19818,7 @@ export type SensorDataChannel = {
   createdAt: Scalars['DateTime']['output'];
   dataPath?: Maybe<Scalars['String']['output']>;
   dataType: ChannelDataType;
+  declaredQuantity?: Maybe<Scalars['String']['output']>;
   description?: Maybe<Scalars['String']['output']>;
   discoveredAt?: Maybe<Scalars['DateTime']['output']>;
   discoverySource?: Maybe<DiscoverySource>;

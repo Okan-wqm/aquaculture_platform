@@ -1,7 +1,8 @@
 import { Logger, UseGuards } from '@nestjs/common';
-import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Float } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Float, ResolveField, Parent } from '@nestjs/graphql';
 import { Tenant, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { declarableQuantities } from '@aquaculture/shared-contracts';
 
 import { SensorDataChannel, ChannelDataType } from '../../database/entities/sensor-data-channel.entity';
 import { SensorType } from '../../database/entities/sensor.entity';
@@ -11,6 +12,7 @@ import {
   DiscoveryResultType,
   CreateDataChannelInput,
   UpdateDataChannelInput,
+  DeclareChannelQuantityInput,
   DiscoverChannelsInput,
   SaveDiscoveredChannelsInput,
   ReorderChannelsInput,
@@ -19,6 +21,7 @@ import {
 } from '../dto/data-channel.dto';
 import { ChannelDiscoveryService } from '../services/channel-discovery.service';
 import { ChannelManagementService, CreateChannelInput } from '../services/channel-management.service';
+import { channelQuantity } from '../services/channel-quantity';
 
 /**
  * SENSOR-MEDIUM-065: one entry of the aquaculture parameter catalog, served from
@@ -186,6 +189,44 @@ export class ChannelResolver {
       isEnabled: input.isEnabled,
       displayOrder: input.displayOrder,
     });
+  }
+
+  /**
+   * Declare which measured quantity a channel reports (or clear it with null).
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
+  @Mutation(() => DataChannelType, { name: 'declareChannelQuantity' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async declareChannelQuantity(
+    @Args('input') input: DeclareChannelQuantityInput,
+    @Tenant() tenantId: string,
+  ): Promise<SensorDataChannel> {
+    return this.managementService.declareQuantity(
+      input.channelId,
+      tenantId,
+      input.quantity ?? null,
+      input.unit,
+    );
+  }
+
+  // === Fields ===
+
+  /** The measured quantity the channel reports: declared, else named by its key; null if unknown. */
+  @ResolveField(() => String, { name: 'quantity', nullable: true })
+  quantity(@Parent() channel: DataChannelType): string | null {
+    return channelQuantity(channel.channelKey, channel.declaredQuantity).quantity;
+  }
+
+  /** The quantities an operator may declare for this channel: the key's alternates or family members. */
+  @ResolveField(() => [String], { name: 'declarableQuantities' })
+  declarableQuantities(@Parent() channel: DataChannelType): string[] {
+    return [...declarableQuantities(channel.channelKey)];
+  }
+
+  /** The family the key names without saying which member (e.g. ammonia); null otherwise. */
+  @ResolveField(() => String, { name: 'quantityFamily', nullable: true })
+  quantityFamily(@Parent() channel: DataChannelType): string | null {
+    return channelQuantity(channel.channelKey, channel.declaredQuantity).family;
   }
 
   /**

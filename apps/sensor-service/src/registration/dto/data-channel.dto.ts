@@ -189,6 +189,33 @@ export class CreateDataChannelInput {
   sampleValue?: unknown;
 }
 
+/**
+ * Declare which measured quantity a channel reports (a registry quantity id),
+ * or clear the declaration with null so the key's own meaning stands.
+ */
+@InputType()
+export class DeclareChannelQuantityInput {
+  @Field(() => ID)
+  @IsUUID()
+  channelId!: string;
+
+  @Field(() => String, { nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  quantity?: string | null;
+
+  /**
+   * The channel's unit in the same write, for a declaration that changes it
+   * (an optode's `do` declared as % saturation reads in %, not mg/L).
+   */
+  @Field(() => String, { nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  unit?: string;
+}
+
 @InputType()
 export class UpdateDataChannelInput {
   @Field(() => ID)
@@ -450,6 +477,12 @@ export class DataChannelType {
 
   @Field({ nullable: true })
   unit?: string;
+
+  @Field(() => String, {
+    nullable: true,
+    description: 'The measured quantity an operator declared, when the key does not say',
+  })
+  declaredQuantity?: string | null;
 
   @Field({ nullable: true })
   dataPath?: string;

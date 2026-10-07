@@ -15,6 +15,7 @@ import {
 } from '../../database/entities/sensor-data-channel.entity';
 
 import { DiscoveredChannel } from './channel-discovery.service';
+import { declarationConflict } from './channel-quantity';
 
 /**
  * Input for creating a data channel
@@ -143,6 +144,15 @@ export class ChannelManagementService {
       throw new NotFoundException(`Channel with ID '${channelId}' not found`);
     }
 
+    // A declared quantity fixes the unit family: a unit change must stay a
+    // spelling of the declared quantity's unit.
+    if (input.unit !== undefined && channel.declaredQuantity) {
+      const conflict = declarationConflict(channel.channelKey, channel.declaredQuantity, input.unit);
+      if (conflict !== null) {
+        throw new BadRequestException(conflict);
+      }
+    }
+
     // Apply updates
     if (input.displayLabel !== undefined) channel.displayLabel = input.displayLabel;
     if (input.description !== undefined) channel.description = input.description;
@@ -160,6 +170,38 @@ export class ChannelManagementService {
     const saved = await this.channelRepository.save(channel);
     this.logger.log(`Updated channel ${saved.channelKey} (${channelId})`);
 
+    return saved;
+  }
+
+  /**
+   * Declare which measured quantity a channel reports, or clear the
+   * declaration (null) so the key's own meaning stands, optionally setting the
+   * channel's unit in the same write. Refused when the quantity is unknown, is
+   * not one the key allows, or the (new) unit is not a unit of it.
+   */
+  async declareQuantity(
+    channelId: string,
+    tenantId: string,
+    quantity: string | null,
+    unit?: string,
+  ): Promise<SensorDataChannel> {
+    const channel = await this.channelRepository.findOne({
+      where: { id: channelId, tenantId },
+    });
+    if (!channel) {
+      throw new NotFoundException(`Channel with ID '${channelId}' not found`);
+    }
+    const nextUnit = unit ?? channel.unit;
+    if (quantity !== null) {
+      const conflict = declarationConflict(channel.channelKey, quantity, nextUnit);
+      if (conflict !== null) {
+        throw new BadRequestException(conflict);
+      }
+    }
+    channel.declaredQuantity = quantity;
+    channel.unit = nextUnit;
+    const saved = await this.channelRepository.save(channel);
+    this.logger.log(`Declared quantity ${quantity ?? 'none'} on channel ${saved.channelKey} (${channelId})`);
     return saved;
   }
 

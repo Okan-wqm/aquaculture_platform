@@ -2053,7 +2053,7 @@ Before committing to months of kernel work, the operator runs this PoC to answer
 need ARIA?"**
 
 This PoC is **implemented** at `tools/aria-poc/poc.py` with stdlib tests at
-`tools/aria-poc/test_poc.py` (no LLM, no API). All other content in this document remains
+`tools/aria-poc/invariants/test_poc.py` (no LLM, no API). All other content in this document remains
 unimplemented contracts.
 
 ### How to run
@@ -2157,7 +2157,7 @@ Phase 0 ships: Memory + redactor + budget observer + kill switch + integrity has
 ### Files committed
 
 - `tools/aria-poc/poc.py` — implementation
-- `tools/aria-poc/test_poc.py` — stdlib unit tests
+- `tools/aria-poc/invariants/test_poc.py` — stdlib unit tests
 - `tools/aria-poc/README.md` — how-to
 - `.claude/commands/aria-poc.md` — Claude Code slash command wrapper
 - `.gitignore` — adds `.aria-poc/` exclusion

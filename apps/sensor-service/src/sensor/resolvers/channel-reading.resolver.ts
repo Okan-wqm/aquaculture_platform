@@ -10,6 +10,12 @@ import {
   ChannelLatestValue,
   ChannelSeriesResponse,
 } from '../dto/channel-reading.dto';
+import {
+  SensorChannelDescriptionType,
+  SensorChannelKeyInput,
+  toDescriptionType,
+} from '../dto/channel-description.dto';
+import { ChannelDescriptionService } from '../services/channel-description.service';
 import { ChannelReadingQueryService } from '../services/channel-reading-query.service';
 
 /**
@@ -20,7 +26,23 @@ import { ChannelReadingQueryService } from '../services/channel-reading-query.se
 @Resolver(() => ChannelLatestValue)
 @UseGuards(TenantGuard)
 export class ChannelReadingResolver {
-  constructor(private readonly channelReadings: ChannelReadingQueryService) {}
+  constructor(
+    private readonly channelReadings: ChannelReadingQueryService,
+    private readonly channelDescriptions: ChannelDescriptionService,
+  ) {}
+
+  @Query(() => [SensorChannelDescriptionType], {
+    name: 'channelsByKey',
+    description:
+      'What each (sensorId, channelKey) is now (≤100): presence, sensor location, quantity, unit, last value — disabled channels included',
+  })
+  async channelsByKey(
+    @Args('keys', { type: () => [SensorChannelKeyInput] }) keys: SensorChannelKeyInput[],
+    @Tenant() tenantId: string,
+  ): Promise<SensorChannelDescriptionType[]> {
+    const descriptions = await this.channelDescriptions.describe(tenantId, keys);
+    return descriptions.map(toDescriptionType);
+  }
 
   @Query(() => [ChannelLatestValue], {
     name: 'channelLatestValues',

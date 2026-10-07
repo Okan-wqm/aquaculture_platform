@@ -1991,6 +1991,12 @@ export type ChannelPage = {
   total: Scalars['Int']['output'];
 };
 
+/** Whether a (sensorId, channelKey) names a live channel, or what is missing */
+export type ChannelPresence =
+  | 'FOUND'
+  | 'NO_CHANNEL'
+  | 'NO_SENSOR';
+
 /** Immutable record of one change to a channel’s declared quantity */
 export type ChannelQuantityDeclaration = {
   channelId: Scalars['ID']['output'];
@@ -15482,6 +15488,8 @@ export type Query = {
   channelQuantityDeclarations: Array<ChannelQuantityDeclaration>;
   /** Bucketed history of every enabled channel of one sensor over a time range */
   channelSeries: ChannelSeriesResponse;
+  /** What each (sensorId, channelKey) is now (≤100): presence, sensor location, quantity, unit, last value — disabled channels included */
+  channelsByKey: Array<SensorChannelDescriptionType>;
   checkLeaveOverlap: LeaveOverlapResult;
   chemical?: Maybe<ChemicalResponse>;
   chemicalSuppliers: Array<SupplierResponse>;
@@ -16339,6 +16347,11 @@ export type QueryChannelSeriesArgs = {
   interval?: InputMaybe<AggregationInterval>;
   sensorId: Scalars['ID']['input'];
   startTime: Scalars['DateTime']['input'];
+};
+
+
+export type QueryChannelsByKeyArgs = {
+  keys: Array<SensorChannelKeyInput>;
 };
 
 
@@ -19829,6 +19842,31 @@ export type SensorAlertThresholdsInput = {
 export type SensorAlertThresholdsType = {
   critical?: Maybe<AlertThresholdRangeType>;
   warning?: Maybe<AlertThresholdRangeType>;
+};
+
+export type SensorChannelDescriptionType = {
+  calibrationDueAt?: Maybe<Scalars['DateTime']['output']>;
+  channelId?: Maybe<Scalars['ID']['output']>;
+  channelKey: Scalars['String']['output'];
+  enabled?: Maybe<Scalars['Boolean']['output']>;
+  latestAt?: Maybe<Scalars['DateTime']['output']>;
+  latestQualityCode?: Maybe<Scalars['Int']['output']>;
+  latestValue?: Maybe<Scalars['Float']['output']>;
+  presence: ChannelPresence;
+  /** Effective measured quantity */
+  quantity?: Maybe<Scalars['String']['output']>;
+  quantityFamily?: Maybe<Scalars['String']['output']>;
+  sensorActive?: Maybe<Scalars['Boolean']['output']>;
+  sensorId: Scalars['ID']['output'];
+  siteId?: Maybe<Scalars['ID']['output']>;
+  systemId?: Maybe<Scalars['ID']['output']>;
+  tankId?: Maybe<Scalars['ID']['output']>;
+  unit?: Maybe<Scalars['String']['output']>;
+};
+
+export type SensorChannelKeyInput = {
+  channelKey: Scalars['String']['input'];
+  sensorId: Scalars['ID']['input'];
 };
 
 export type SensorConnectionStatusType = {

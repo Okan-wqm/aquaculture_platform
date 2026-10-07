@@ -50,6 +50,7 @@ import { withTenantContext } from '@aquaculture/backend-common/context';
 import {
   runInTenantRead,
   runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
   tenantManagerRepo,
   TenantScopedRepository,
 } from '@aquaculture/backend-common/database';
@@ -1916,8 +1917,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         return null;
       }
 
-      const sensor = await runInTenantRead(this.dataSource, 'sensor', cachedInfo.tenantId, (qr) =>
-        tenantManagerRepo(qr.manager, Sensor).findOne({ where: { id: cachedInfo.id } }),
+      const sensor = await runInTenantRead(
+        this.dataSource,
+        SENSOR_SOURCE_SCHEMA,
+        cachedInfo.tenantId,
+        (qr) => tenantManagerRepo(qr.manager, Sensor).findOne({ where: { id: cachedInfo.id } }),
       );
 
       if (!sensor) {
@@ -1992,7 +1996,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   ): Promise<PersistedReadingMetric[]> {
     return runInTenantTransaction(
       this.dataSource,
-      'sensor',
+      SENSOR_SOURCE_SCHEMA,
       sensor.tenantId,
       async (queryRunner) => {
         const now = new Date();
@@ -2111,7 +2115,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     const seenAt = new Date();
     for (const [tenantId, ids] of byTenant) {
       try {
-        await runInTenantTransaction(this.dataSource, 'sensor', tenantId, (qr) =>
+        await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
           tenantManagerRepo(qr.manager, Sensor).update(
             { id: In(ids) },
             { lastSeenAt: seenAt, status: SensorStatus.ACTIVE },

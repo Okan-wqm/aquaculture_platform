@@ -1,19 +1,37 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+  Inject,
+  Optional,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
+import {
+  listActiveTenantSchemaIdentities,
+  runInTenantRead,
+  runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
+import { InjectDataSource } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
 import {
   createBaseEvent,
   projectPersistedReadings,
   type PersistedReadingMetric,
 } from '@platform/event-contracts';
-import { Repository } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { Sensor, SensorStatus, SensorRegistrationStatus } from '../database/entities/sensor.entity';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
-import { ConnectionHandle, DataSubscription, SensorReadingData } from '../protocol/adapters/base-protocol.adapter';
+import {
+  ConnectionHandle,
+  DataSubscription,
+  SensorReadingData,
+} from '../protocol/adapters/base-protocol.adapter';
 import { MqttAdapter, MqttConfiguration } from '../protocol/adapters/iot/mqtt.adapter';
 import { SensorMetricWriterService } from './sensor-metric-writer.service';
 
@@ -31,6 +49,13 @@ interface ActiveConnection {
 /**
  * Data Ingestion Service
  * Manages active sensor connections and writes readings to database
+ *
+ * Every read and write of `sensors` / `sensor_data_channels` runs inside the
+ * owning tenant's RLS boundary (runInTenantRead / runInTenantTransaction):
+ * both tables are FORCE-RLS per tenant and this service runs outside any
+ * request, so a bare repository call matches no row (SENSOR-HIGH-148). The
+ * boot scan walks the active tenants through the platform mapping instead of
+ * one cross-tenant query.
  */
 @Injectable()
 export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
@@ -40,20 +65,22 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
   private isShuttingDown = false;
   private healthCheckInterval: NodeJS.Timeout | null = null;
 
-  // Channel lookup cache: sensorId -> { channels, expiresAt }
-  private readonly channelCache = new Map<string, { channels: SensorDataChannel[]; expiresAt: number }>();
+  // Channel lookup cache: sensorId -> { tenantId, channels, expiresAt }. The
+  // tenant is part of the entry so a hit is only ever served to its tenant.
+  private readonly channelCache = new Map<
+    string,
+    { tenantId: string; channels: SensorDataChannel[]; expiresAt: number }
+  >();
   private readonly CHANNEL_CACHE_TTL_MS = 60_000; // 60 seconds
 
-  // lastSeenAt debounce: sensorId -> pending timestamp
-  private readonly lastSeenPending = new Map<string, Date>();
+  // lastSeenAt debounce: sensorId -> its tenant (flushed per tenant)
+  private readonly lastSeenPending = new Map<string, string>();
   private lastSeenFlushTimer: ReturnType<typeof setInterval> | null = null;
   private readonly LAST_SEEN_FLUSH_INTERVAL_MS = 30_000; // 30 seconds
 
   constructor(
-    @InjectRepository(Sensor)
-    private readonly sensorRepository: Repository<Sensor>,
-    @InjectRepository(SensorDataChannel)
-    private readonly channelRepository: Repository<SensorDataChannel>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     private readonly metricWriter: SensorMetricWriterService,
     private readonly configService: ConfigService,
     @Optional()
@@ -94,11 +121,15 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     // Start lastSeenAt flush timer (debounce per-message updates)
     this.lastSeenFlushTimer = setInterval(() => {
       this.flushLastSeenUpdates().catch((err) => {
-        this.logger.error(`Failed to flush lastSeenAt updates: ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.error(
+          `Failed to flush lastSeenAt updates: ${err instanceof Error ? err.message : String(err)}`,
+        );
       });
     }, this.LAST_SEEN_FLUSH_INTERVAL_MS);
 
-    this.logger.log(`Data Ingestion Service initialized with ${this.activeConnections.size} active connections`);
+    this.logger.log(
+      `Data Ingestion Service initialized with ${this.activeConnections.size} active connections`,
+    );
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -127,30 +158,60 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
    */
   async startAllActiveSensors(): Promise<void> {
     try {
-      // Find all active sensors with MQTT protocol
-      const activeSensors = await this.sensorRepository
-        .createQueryBuilder('sensor')
-        .leftJoinAndSelect('sensor.protocol', 'protocol')
-        .where('sensor.registrationStatus = :status', { status: SensorRegistrationStatus.ACTIVE })
-        .andWhere('sensor.isActive = :isActive', { isActive: true })
-        .andWhere('sensor.isParentDevice = :isParent', { isParent: true })
-        .andWhere('protocol.code = :code', { code: 'MQTT' })
-        .getMany();
+      const tenants = await listActiveTenantSchemaIdentities(this.dataSource);
+      for (const { tenantId } of tenants) {
+        // Active MQTT parent sensors of this tenant, inside its boundary.
+        const activeSensors = await runInTenantRead(
+          this.dataSource,
+          SENSOR_SOURCE_SCHEMA,
+          tenantId,
+          (qr) =>
+            tenantManagerRepo(qr.manager, Sensor).find({
+              where: {
+                registrationStatus: SensorRegistrationStatus.ACTIVE,
+                isActive: true,
+                isParentDevice: true,
+                protocol: { code: 'MQTT' },
+              },
+              relations: ['protocol'],
+            }),
+        );
 
-      this.logger.log(`Found ${activeSensors.length} active MQTT parent sensors`);
+        this.logger.log(`Found ${activeSensors.length} active MQTT parent sensors in a tenant`);
 
-      for (const sensor of activeSensors) {
-        try {
-          await this.startSensorDataCollection(sensor);
-        } catch (error) {
-          this.logger.error(
-            `Failed to start data collection for sensor ${sensor.id}: ${(error as Error).message}`,
-          );
+        for (const sensor of activeSensors) {
+          try {
+            await this.startSensorDataCollection(sensor);
+          } catch (error) {
+            this.logger.error(
+              `Failed to start data collection for sensor ${sensor.id}: ${(error as Error).message}`,
+            );
+          }
         }
       }
     } catch (error) {
       this.logger.error(`Failed to start active sensors: ${(error as Error).message}`);
     }
+  }
+
+  /** Update one sensor row inside its tenant's boundary. */
+  private async updateSensor(
+    sensor: Pick<Sensor, 'id' | 'tenantId'>,
+    changes: Partial<Pick<Sensor, 'status' | 'lastSeenAt'>>,
+  ): Promise<void> {
+    await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, sensor.tenantId, (qr) =>
+      tenantManagerRepo(qr.manager, Sensor).update({ id: sensor.id }, changes),
+    );
+  }
+
+  /** Re-read a sensor (with its protocol) inside its tenant's boundary. */
+  private async reloadSensor(sensorId: string, tenantId: string): Promise<Sensor | null> {
+    return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
+      tenantManagerRepo(qr.manager, Sensor).findOne({
+        where: { id: sensorId },
+        relations: ['protocol'],
+      }),
+    );
   }
 
   /**
@@ -182,8 +243,12 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       // Subscribe to data
       const subscription = await this.mqttAdapter.subscribeToData(
         handle,
-        (data) => { void this.handleSensorData(sensor, data); },
-        (error) => { void this.handleSensorError(sensor, error); },
+        (data) => {
+          void this.handleSensorData(sensor, data);
+        },
+        (error) => {
+          void this.handleSensorError(sensor, error);
+        },
       );
 
       // Store active connection
@@ -195,19 +260,17 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       });
 
       // Update sensor status
-      await this.sensorRepository.update(sensor.id, {
+      await this.updateSensor(sensor, {
         status: SensorStatus.ACTIVE,
         lastSeenAt: new Date(),
       });
 
       this.logger.log(`Successfully connected to sensor ${sensor.id}`);
     } catch (error) {
-      this.logger.error(
-        `Failed to connect to sensor ${sensor.id}: ${(error as Error).message}`,
-      );
+      this.logger.error(`Failed to connect to sensor ${sensor.id}: ${(error as Error).message}`);
 
       // Update sensor status to error
-      await this.sensorRepository.update(sensor.id, {
+      await this.updateSensor(sensor, {
         status: SensorStatus.ERROR,
       });
 
@@ -236,9 +299,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
 
       this.logger.log(`Stopped data collection for sensor ${sensorId}`);
     } catch (error) {
-      this.logger.error(
-        `Error stopping sensor ${sensorId}: ${(error as Error).message}`,
-      );
+      this.logger.error(`Error stopping sensor ${sensorId}: ${(error as Error).message}`);
     }
   }
 
@@ -271,7 +332,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       const ingestionLatencyMs = now.getTime() - sourceTimestamp.getTime();
 
       // Get all channels for this sensor (cached — 60-second TTL)
-      const channels = await this.getChannelsCached(sensor.id);
+      const channels = await this.getChannelsCached(sensor.id, sensor.tenantId);
 
       // Collect metrics for batch insert
       const metrics: SensorMetricInput[] = [];
@@ -288,7 +349,8 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
         }
 
         // Convert to number
-        const numericRawValue = typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue));
+        const numericRawValue =
+          typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue));
         if (isNaN(numericRawValue)) {
           continue;
         }
@@ -384,7 +446,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
       }
 
       // Debounce lastSeenAt update — flushed in batch every 30 seconds
-      this.lastSeenPending.set(sensor.id, now);
+      this.lastSeenPending.set(sensor.id, sensor.tenantId);
 
       this.logger.debug(
         `Processed ${metrics.length} metrics from sensor ${sensor.id} (latency: ${ingestionLatencyMs}ms)`,
@@ -399,17 +461,23 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get channels for a sensor with 60-second in-memory cache
    */
-  private async getChannelsCached(sensorId: string): Promise<SensorDataChannel[]> {
+  private async getChannelsCached(
+    sensorId: string,
+    tenantId: string,
+  ): Promise<SensorDataChannel[]> {
     const cached = this.channelCache.get(sensorId);
-    if (cached && cached.expiresAt > Date.now()) {
+    if (cached && cached.tenantId === tenantId && cached.expiresAt > Date.now()) {
       return cached.channels;
     }
 
-    const channels = await this.channelRepository.find({
-      where: { sensorId, isEnabled: true },
-    });
+    const channels = await runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
+      tenantManagerRepo(qr.manager, SensorDataChannel).find({
+        where: { sensorId, isEnabled: true },
+      }),
+    );
 
     this.channelCache.set(sensorId, {
+      tenantId,
       channels,
       expiresAt: Date.now() + this.CHANNEL_CACHE_TTL_MS,
     });
@@ -418,25 +486,34 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Flush all pending lastSeenAt updates in a single batch query
+   * Flush all pending lastSeenAt updates: one statement per tenant, each
+   * inside that tenant's boundary.
    */
   private async flushLastSeenUpdates(): Promise<void> {
     if (this.lastSeenPending.size === 0) return;
 
-    const ids = Array.from(this.lastSeenPending.keys());
+    const byTenant = new Map<string, string[]>();
+    for (const [sensorId, tenantId] of this.lastSeenPending) {
+      const ids = byTenant.get(tenantId);
+      if (ids) ids.push(sensorId);
+      else byTenant.set(tenantId, [sensorId]);
+    }
     this.lastSeenPending.clear();
 
-    try {
-      await this.sensorRepository
-        .createQueryBuilder()
-        .update()
-        .set({ lastSeenAt: () => 'NOW()', status: SensorStatus.ACTIVE })
-        .where('id IN (:...ids)', { ids })
-        .execute();
-
-      this.logger.debug(`Flushed lastSeenAt for ${ids.length} sensors`);
-    } catch (error) {
-      this.logger.error(`Failed to flush lastSeenAt: ${error instanceof Error ? error.message : String(error)}`);
+    for (const [tenantId, ids] of byTenant) {
+      try {
+        await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
+          tenantManagerRepo(qr.manager, Sensor).update(
+            { id: In(ids) },
+            { lastSeenAt: new Date(), status: SensorStatus.ACTIVE },
+          ),
+        );
+        this.logger.debug(`Flushed lastSeenAt for ${ids.length} sensors`);
+      } catch (error) {
+        this.logger.error(
+          `Failed to flush lastSeenAt: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
   }
 
@@ -471,10 +548,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
           void (async () => {
             if (!this.isShuttingDown) {
               try {
-                const freshSensor = await this.sensorRepository.findOne({
-                  where: { id: sensor.id },
-                  relations: ['protocol'],
-                });
+                const freshSensor = await this.reloadSensor(sensor.id, sensor.tenantId);
                 if (freshSensor) {
                   await this.startSensorDataCollection(freshSensor);
                 }
@@ -540,15 +614,14 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
         await this.stopSensorDataCollection(sensorId);
 
         try {
-          const freshSensor = await this.sensorRepository.findOne({
-            where: { id: sensorId },
-            relations: ['protocol'],
-          });
+          const freshSensor = await this.reloadSensor(sensorId, connection.sensor.tenantId);
           if (freshSensor) {
             await this.startSensorDataCollection(freshSensor);
           }
         } catch (error) {
-          this.logger.error(`Health check reconnect failed for ${sensorId}: ${(error as Error).message}`);
+          this.logger.error(
+            `Health check reconnect failed for ${sensorId}: ${(error as Error).message}`,
+          );
         }
         continue;
       }
@@ -562,7 +635,7 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
           );
 
           // Update status to indicate potential issue
-          await this.sensorRepository.update(sensorId, {
+          await this.updateSensor(connection.sensor, {
             status: SensorStatus.OFFLINE,
           });
         }
@@ -573,7 +646,12 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get status of all active connections
    */
-  getActiveConnections(): { sensorId: string; name: string; lastReadingAt?: Date; errorCount: number }[] {
+  getActiveConnections(): {
+    sensorId: string;
+    name: string;
+    lastReadingAt?: Date;
+    errorCount: number;
+  }[] {
     return Array.from(this.activeConnections.entries()).map(([sensorId, conn]) => ({
       sensorId,
       name: conn.sensor.name,
@@ -585,11 +663,8 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
   /**
    * Manually trigger sensor connection start
    */
-  async startSensor(sensorId: string): Promise<void> {
-    const sensor = await this.sensorRepository.findOne({
-      where: { id: sensorId },
-      relations: ['protocol'],
-    });
+  async startSensor(sensorId: string, tenantId: string): Promise<void> {
+    const sensor = await this.reloadSensor(sensorId, tenantId);
 
     if (!sensor) {
       throw new Error(`Sensor ${sensorId} not found`);

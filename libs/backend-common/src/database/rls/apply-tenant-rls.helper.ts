@@ -147,6 +147,28 @@ export const DEFAULT_IDENTITY_TABLES = ['users', 'tenants'] as const;
 /** The single, canonical policy name. Stable across migrations so DROP IF EXISTS works. */
 export const TENANT_ISOLATION_POLICY_NAME = 'tenant_isolation_policy';
 
+/**
+ * The read path a TimescaleDB continuous aggregate's owner gets through its
+ * source hypertable's row security.
+ *
+ * The scheduler refreshes a rollup as the view's owner, with no
+ * `app.current_tenant`, and real-time rollup reads also run with the owner's
+ * rights. Under FORCE RLS the canonical tenant policy therefore hides every
+ * source row from the owner: each refresh materializes nothing and advances
+ * the watermark, so the loss is silent and permanent (SENSOR-HIGH-146,
+ * reproduced on the pinned timescaledb-ha image). `applyTenantRlsToSchema`
+ * installs this SELECT-only policy for exactly the roles that own an aggregate
+ * over the table, at the moment it arms RLS — never as a separate step that
+ * could lag behind.
+ *
+ * Scope: rollups are per tenant schema and a rollup owner is a dedicated,
+ * passwordless role whose only rights are those rollups. The schema boundary
+ * is the tenant boundary for rollups, as it already was for materialized
+ * rollup data; this policy does not let any application role see a row it
+ * could not see before.
+ */
+export const CONTINUOUS_AGGREGATE_OWNER_READ_POLICY_NAME = 'continuous_aggregate_owner_read';
+
 /** Session GUC keys. Public so callers (BypassRlsService, RlsConnectionBootstrap) can reuse. */
 export const RLS_TENANT_GUC = 'app.current_tenant';
 export const RLS_BYPASS_GUC = 'app.bypass_rls';
@@ -242,11 +264,7 @@ export function assertSafeIdentifier(identifier: string, label: string): void {
   }
 }
 
-export async function queryRows<T>(
-  qr: QueryRunner,
-  sql: string,
-  params?: unknown[],
-): Promise<T[]> {
+export async function queryRows<T>(qr: QueryRunner, sql: string, params?: unknown[]): Promise<T[]> {
   const result: unknown = await qr.query(sql, params);
   return Array.isArray(result) ? (result as T[]) : [];
 }
@@ -306,8 +324,7 @@ async function discoverTenantScopedTables(
   // columns. We filter on table_type = 'BASE TABLE' to skip views and
   // partitions, and on table_schema = $1 so the helper is schema-scoped (one
   // helper invocation never touches another schema).
-  const includeFilter =
-    includeTables.length > 0 ? `AND c.table_name = ANY($3::text[])` : '';
+  const includeFilter = includeTables.length > 0 ? `AND c.table_name = ANY($3::text[])` : '';
   const params: unknown[] =
     includeTables.length > 0
       ? [schema, [...tenantIdColumns], [...includeTables]]
@@ -380,11 +397,81 @@ async function discoverTenantScopedTables(
   }));
 }
 
-async function discoverTimescaleColumnstoreTables(
+interface TimescaleTableState {
+  /** Columnstore/compressed hypertables: RLS DDL is unsupported on them. */
+  readonly columnstoreTables: ReadonlySet<string>;
+  /** Source table → the roles owning a continuous aggregate over it. */
+  readonly aggregateOwnersByTable: ReadonlyMap<string, readonly string[]>;
+  /** Tables that already carry the owner read policy (to reconcile or drop). */
+  readonly tablesWithOwnerPolicy: ReadonlySet<string>;
+}
+
+const NO_TIMESCALE_STATE: TimescaleTableState = {
+  columnstoreTables: new Set(),
+  aggregateOwnersByTable: new Map(),
+  tablesWithOwnerPolicy: new Set(),
+};
+
+/**
+ * Make the table's owner read policy exactly `FOR SELECT TO <owners> USING
+ * (true)`, or absent when no aggregate reads the table. One DO statement, so
+ * it is atomic even on an autocommit connection: an existing correct policy is
+ * left untouched (no lock on the hot hypertable), and a replacement never
+ * leaves a window in which the owner reads nothing.
+ */
+async function reconcileContinuousAggregateOwnerPolicy(
+  qr: QueryRunner,
+  schema: string,
+  tableName: string,
+  owners: readonly string[],
+  hasPolicy: boolean,
+  logger: RlsHelperLogger,
+): Promise<void> {
+  const policy = CONTINUOUS_AGGREGATE_OWNER_READ_POLICY_NAME;
+  if (owners.length === 0) {
+    if (hasPolicy) {
+      await qr.query(`DROP POLICY IF EXISTS "${policy}" ON "${schema}"."${tableName}"`);
+      logger.log(`Owner read policy dropped on "${schema}"."${tableName}" (no aggregate left)`);
+    }
+    return;
+  }
+  for (const owner of owners) assertSafeIdentifier(owner, 'continuous aggregate owner');
+
+  const roleArray = `ARRAY[${owners.map((owner) => `'${owner}'`).join(', ')}]::name[]`;
+  const roleList = owners.map((owner) => `"${owner}"`).join(', ');
+  await qr.query(`
+    DO $owner_read$
+    DECLARE
+      current_policy record;
+    BEGIN
+      SELECT p.cmd, p.qual, p.permissive, p.roles INTO current_policy
+        FROM pg_policies p
+       WHERE p.schemaname = '${schema}'
+         AND p.tablename = '${tableName}'
+         AND p.policyname = '${policy}';
+      IF FOUND
+         AND current_policy.cmd = 'SELECT'
+         AND current_policy.qual = 'true'
+         AND current_policy.permissive = 'PERMISSIVE'
+         AND current_policy.roles @> ${roleArray}
+         AND current_policy.roles <@ ${roleArray} THEN
+        RETURN;
+      END IF;
+      IF FOUND THEN
+        DROP POLICY "${policy}" ON "${schema}"."${tableName}";
+      END IF;
+      CREATE POLICY "${policy}" ON "${schema}"."${tableName}"
+        AS PERMISSIVE FOR SELECT TO ${roleList} USING (true);
+    END
+    $owner_read$`);
+  logger.log(`Owner read policy ensured on "${schema}"."${tableName}" for ${owners.join(', ')}`);
+}
+
+async function discoverTimescaleTableState(
   qr: QueryRunner,
   schema: string,
   logger: RlsHelperLogger,
-): Promise<ReadonlySet<string>> {
+): Promise<TimescaleTableState> {
   assertSafeIdentifier(schema, 'schema');
 
   const metadataColumns = await queryRows<{ column_name: string }>(
@@ -409,9 +496,10 @@ async function discoverTimescaleColumnstoreTables(
   }
 
   if (predicates.length === 0) {
-    return new Set();
+    return NO_TIMESCALE_STATE;
   }
 
+  let columnstoreTables: ReadonlySet<string>;
   try {
     const rows = await queryRows<{ table_name: string }>(
       qr,
@@ -423,15 +511,59 @@ async function discoverTimescaleColumnstoreTables(
       `,
       [schema],
     );
-    return new Set(rows.map((row) => row.table_name));
+    columnstoreTables = new Set(rows.map((row) => row.table_name));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger.warn(
       `[apply-tenant-rls] Could not inspect TimescaleDB columnstore metadata ` +
         `for schema "${schema}"; continuing fail-closed: ${message}`,
     );
-    return new Set();
+    columnstoreTables = new Set();
   }
+
+  // The roles that own a continuous aggregate over each table, and the tables
+  // already carrying their read policy. Not wrapped like the probe above:
+  // an owner whose read path cannot be established must fail the hardening,
+  // not degrade to a rollup that silently materializes nothing.
+  const ownerRows = await queryRows<{
+    table_name: string;
+    owners: string[] | null;
+    has_policy: boolean;
+  }>(
+    qr,
+    `
+      SELECT t.table_name,
+             o.owners,
+             EXISTS (
+               SELECT 1 FROM pg_policies p
+                WHERE p.schemaname = $1
+                  AND p.tablename = t.table_name
+                  AND p.policyname = $2
+             ) AS has_policy
+        FROM (
+          SELECT hypertable_name::text AS table_name
+            FROM timescaledb_information.continuous_aggregates
+           WHERE hypertable_schema = $1
+          UNION
+          SELECT tablename::text FROM pg_policies
+           WHERE schemaname = $1 AND policyname = $2
+        ) t
+        LEFT JOIN LATERAL (
+          SELECT array_agg(DISTINCT c.view_owner::text ORDER BY c.view_owner::text) AS owners
+            FROM timescaledb_information.continuous_aggregates c
+           WHERE c.hypertable_schema = $1 AND c.hypertable_name = t.table_name
+        ) o ON true
+    `,
+    [schema, CONTINUOUS_AGGREGATE_OWNER_READ_POLICY_NAME],
+  );
+
+  return {
+    columnstoreTables,
+    aggregateOwnersByTable: new Map(ownerRows.map((row) => [row.table_name, row.owners ?? []])),
+    tablesWithOwnerPolicy: new Set(
+      ownerRows.filter((row) => row.has_policy).map((row) => row.table_name),
+    ),
+  };
 }
 
 /**
@@ -450,8 +582,7 @@ export async function applyTenantRlsToSchema(
 ): Promise<void> {
   assertDbMigrateDdlAuthority('applyTenantRlsToSchema');
 
-  const logger =
-    options.logger ?? new Logger('applyTenantRlsToSchema');
+  const logger = options.logger ?? new Logger('applyTenantRlsToSchema');
   const tenantIdColumns =
     options.tenantIdColumns && options.tenantIdColumns.length > 0
       ? options.tenantIdColumns
@@ -468,13 +599,13 @@ export async function applyTenantRlsToSchema(
   if (options.schemaOverride !== undefined) {
     schema = options.schemaOverride;
   } else {
-    const schemaRows = await queryRows<{ schema: string }>(
-      qr,
-      `SELECT current_schema() AS schema`,
-    );
+    const schemaRows = await queryRows<{ schema: string }>(qr, `SELECT current_schema() AS schema`);
     schema = schemaRows[0]?.schema ?? 'public';
   }
-  assertSafeIdentifier(schema, options.schemaOverride !== undefined ? 'schemaOverride' : 'current_schema');
+  assertSafeIdentifier(
+    schema,
+    options.schemaOverride !== undefined ? 'schemaOverride' : 'current_schema',
+  );
   const skipTimescaleColumnstoreTables =
     options.skipTimescaleColumnstoreTables ?? TENANT_SCHEMA_REGEX.test(schema);
 
@@ -502,9 +633,12 @@ export async function applyTenantRlsToSchema(
 
   logger.log(`Discovered ${tables.length} tenant-scoped tables in "${schema}"`);
 
-  const columnstoreTables = skipTimescaleColumnstoreTables
-    ? await discoverTimescaleColumnstoreTables(qr, schema, logger)
-    : new Set<string>();
+  // Per-tenant hypertables (and their rollups) live in tenant schemas, which
+  // is where TimescaleDB state is inspected.
+  const timescale = skipTimescaleColumnstoreTables
+    ? await discoverTimescaleTableState(qr, schema, logger)
+    : NO_TIMESCALE_STATE;
+  const columnstoreTables = timescale.columnstoreTables;
 
   let applied = 0;
   let skipped = 0;
@@ -527,16 +661,13 @@ export async function applyTenantRlsToSchema(
     await qr.query(
       `${SQL_ALTER_TABLE} "${schema}"."${tableName}" ENABLE ${SQL_ROW_LEVEL_SECURITY}`,
     );
-    await qr.query(
-      `${SQL_ALTER_TABLE} "${schema}"."${tableName}" FORCE ${SQL_ROW_LEVEL_SECURITY}`,
-    );
+    await qr.query(`${SQL_ALTER_TABLE} "${schema}"."${tableName}" FORCE ${SQL_ROW_LEVEL_SECURITY}`);
 
     // Step 2: drop any pre-existing policy with the canonical name. This is
     // what makes the helper a forward-migration tool — predicate changes
     // (like the NULLIF fix) are applied by simply re-running the helper.
     await qr.query(
-      `DROP POLICY IF EXISTS "${TENANT_ISOLATION_POLICY_NAME}" ` +
-        `ON "${schema}"."${tableName}"`,
+      `DROP POLICY IF EXISTS "${TENANT_ISOLATION_POLICY_NAME}" ` + `ON "${schema}"."${tableName}"`,
     );
 
     // Step 3: create the policy with the canonical bypass-aware predicate.
@@ -552,15 +683,23 @@ export async function applyTenantRlsToSchema(
         `WITH CHECK ${usingClause}`,
     );
 
-    logger.log(
-      `RLS armed on "${schema}"."${tableName}" (col: ${tenantColumn})`,
+    // Step 4: the read path of any continuous aggregate's owner, armed in
+    // the same pass so a rollup can never refresh against an RLS it cannot
+    // see through (SENSOR-HIGH-146).
+    await reconcileContinuousAggregateOwnerPolicy(
+      qr,
+      schema,
+      tableName,
+      timescale.aggregateOwnersByTable.get(tableName) ?? [],
+      timescale.tablesWithOwnerPolicy.has(tableName),
+      logger,
     );
+
+    logger.log(`RLS armed on "${schema}"."${tableName}" (col: ${tenantColumn})`);
     applied++;
   }
 
-  logger.log(
-    `Tenant RLS applied to ${applied} tables in schema "${schema}" (skipped: ${skipped})`,
-  );
+  logger.log(`Tenant RLS applied to ${applied} tables in schema "${schema}" (skipped: ${skipped})`);
 }
 
 /**
@@ -572,7 +711,10 @@ export async function applyTenantRlsToSchema(
  */
 export async function removeTenantRlsFromSchema(
   qr: QueryRunner,
-  options: Pick<ApplyTenantRlsOptions, 'tenantIdColumns' | 'excludeTables' | 'includeTables' | 'logger'> = {},
+  options: Pick<
+    ApplyTenantRlsOptions,
+    'tenantIdColumns' | 'excludeTables' | 'includeTables' | 'logger'
+  > = {},
 ): Promise<void> {
   assertDbMigrateDdlAuthority('removeTenantRlsFromSchema');
 
@@ -584,10 +726,7 @@ export async function removeTenantRlsFromSchema(
   const excludeTables = options.excludeTables ?? [];
   const includeTables = options.includeTables ?? [];
 
-  const schemaRows = await queryRows<{ schema: string }>(
-    qr,
-    `SELECT current_schema() AS schema`,
-  );
+  const schemaRows = await queryRows<{ schema: string }>(qr, `SELECT current_schema() AS schema`);
   const schema = schemaRows[0]?.schema ?? 'public';
   assertSafeIdentifier(schema, 'current_schema');
 
@@ -604,8 +743,7 @@ export async function removeTenantRlsFromSchema(
     assertSafeIdentifier(tableName, 'tableName');
 
     await qr.query(
-      `DROP POLICY IF EXISTS "${TENANT_ISOLATION_POLICY_NAME}" ` +
-        `ON "${schema}"."${tableName}"`,
+      `DROP POLICY IF EXISTS "${TENANT_ISOLATION_POLICY_NAME}" ` + `ON "${schema}"."${tableName}"`,
     );
 
     // NO FORCE first, then DISABLE. Order matters: DISABLE on a FORCEd table

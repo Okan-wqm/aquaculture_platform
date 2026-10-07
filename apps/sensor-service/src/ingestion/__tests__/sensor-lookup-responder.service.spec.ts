@@ -171,6 +171,9 @@ describe('SensorLookupResponderService', () => {
       // this) would fail here before reaching the Rust decoder.
       expect(reply).not.toContain('"farmId"');
       expect(reply).not.toContain('"pondId"');
+      // Both reads are bound to the requested tenant (SENSOR-HIGH-148).
+      expect(cache.getSensor).toHaveBeenCalledWith(SENSOR_ID, TENANT_ID);
+      expect(cache.getChannels).toHaveBeenCalledWith(SENSOR_ID, TENANT_ID);
     });
 
     it('responds with farmId + pondId when sensor has both bound', async () => {

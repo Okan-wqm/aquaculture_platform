@@ -28,7 +28,11 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { isValidUUID, runInTenantRead } from '@aquaculture/backend-common/database';
+import {
+  isValidUUID,
+  runInTenantRead,
+  SENSOR_SOURCE_SCHEMA,
+} from '@aquaculture/backend-common/database';
 import type { MealWindowEntry } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
@@ -135,7 +139,7 @@ export class FeedingWindowReadinessService {
 
     const rows = await runInTenantRead(
       this.dataSource,
-      'sensor',
+      SENSOR_SOURCE_SCHEMA,
       tenantId,
       async (queryRunner): Promise<OxygenRow[]> =>
         // `sensors.equipment_id` / `sensors.tank_id` are the two columns that

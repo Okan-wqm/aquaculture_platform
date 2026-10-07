@@ -59,6 +59,12 @@ PLAN_MINTED_PHASE = "cycle_runner_synthesized_plan"
 # The implication "state row ⇒ effectiveness row" therefore holds by
 # construction for exactly the rows that claim it.
 FUNNEL_RECORDED_DETAIL = "funnel_recorded"
+# ARIA-HIGH-368 — the pressure source the plan on that row was minted from.
+# A plan the executor converges is never seen by a cycle's converged branch,
+# so the executor credits the funnel itself, reading the source off the
+# plan's FIRST minted row (later rows for the same plan are adoptions under
+# other sources). One name for the writer and the reader.
+PLAN_PRESSURE_SOURCE_DETAIL = "pressure_source_type"
 
 
 # Phase transitions emitted by §F.1.

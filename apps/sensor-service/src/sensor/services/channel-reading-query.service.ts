@@ -9,7 +9,11 @@
  * metric-source.ts, the same rules the nine-parameter projection uses.
  */
 
-import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import {
+  runInTenantRead,
+  SENSOR_SOURCE_SCHEMA,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In, QueryRunner } from 'typeorm';
@@ -37,8 +41,6 @@ import {
 } from './metric-source';
 import { getOptimalInterval } from './sensor-query.service';
 
-/** The `sensor` source schema runInTenantRead pins alongside the tenant schema. */
-const SENSOR_SCHEMA = 'sensor';
 /** Same batch cap as latestReadingsBatch. */
 const MAX_SENSORS_PER_BATCH = 100;
 /** Same range cap as aggregatedReadings. */
@@ -92,7 +94,7 @@ export class ChannelReadingQueryService {
     const validTenantId = validateTenantId(tenantId);
     const validSensorIds = sensorIds.map((id) => validateSensorId(id));
 
-    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+    return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, validTenantId, async (qr) => {
       const channels = await this.enabledChannels(qr, validSensorIds);
       if (channels.length === 0) {
         return [];
@@ -167,7 +169,7 @@ export class ChannelReadingQueryService {
 
     const channels = await runInTenantRead(
       this.dataSource,
-      SENSOR_SCHEMA,
+      SENSOR_SOURCE_SCHEMA,
       validTenantId,
       async (qr) => {
         const enabled = await this.enabledChannels(qr, [validSensorId]);

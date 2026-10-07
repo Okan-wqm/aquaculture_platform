@@ -120,6 +120,7 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         f"{KERNEL}convergence_drainer.py",
         f"{KERNEL}evidence_validator.py",
         f"{KERNEL}plan_convergence.py",
+        f"{KERNEL}round_independence.py",
         f"{KERNEL}state_manifest.py",
         f"{KERNEL}budget.py",
         "tools/aria-poc/dispatch_failure.py",
@@ -280,6 +281,7 @@ EXPECTED_CONSUMERS = {
         f"{KERNEL}convergence_drainer.py", f"{KERNEL}evidence_validator.py",
         f"{KERNEL}genesis_lifecycle.py",
         f"{KERNEL}plan_convergence.py",
+        f"{KERNEL}round_independence.py",
         # Native runtime attempts read results to bind (budget.py) and to
         # reconcile (ci_executor.py) an attempt — decisions, not observations.
         f"{KERNEL}budget.py",
@@ -1194,25 +1196,6 @@ def overwrite_only(path):
         }
         self.assertEqual(observed, expected)
 
-    def test_external_outage_reaper_has_no_raw_open_writer(self) -> None:
-        repository = Path(__file__).resolve().parents[2]
-        relative = f"{KERNEL}external_outage_reaper.py"
-        tree = ast.parse(
-            (repository / relative).read_text(encoding="utf-8"),
-            filename=relative,
-        )
-        offenders = [
-            call.lineno
-            for call in ast.walk(tree)
-            if isinstance(call, ast.Call)
-            and _python_open_role(call) == "producer"
-        ]
-        self.assertEqual(
-            offenders,
-            [],
-            "declared claims ledger writes must use governed ledger primitives",
-        )
-
     def test_surface_scanner_derives_arbitrarily_named_joinpath_helpers(
         self,
     ) -> None:
@@ -1516,6 +1499,16 @@ def alias_factory(root):
             # is live; it reads the verdict, it cannot render one.
             ("executor", f"{KERNEL}converged_delivery.py", "consumer"):
                 "converged delivery reads request state to withhold a second mint; it cannot accept a result",
+            # ARIA-HIGH-367 — closing an ABANDONED plan's queue derives request
+            # state to leave held claims alone; it reads the verdict, it
+            # cannot render one.
+            # ARIA-HIGH-365 (PR #1835 review HIGH-1) — the outage-pause gate
+            # derives whether a request still waits on a provider; it reads
+            # the verdict, it cannot render one.
+            ("executor", f"{KERNEL}outage_causality.py", "consumer"):
+                "outage causality reads request state to gate a timer pause; it cannot accept a result",
+            ("executor", f"{KERNEL}plan_request_closure.py", "consumer"):
+                "plan closure reads request state to cancel only unheld requests; it cannot accept a result",
             ("finding_funnel", f"{KERNEL}belief_escalation.py", "consumer"):
                 "belief escalation observes feedback for a separate belief lane",
             ("finding_funnel", f"{KERNEL}calibration.py", "consumer"):
@@ -1532,6 +1525,12 @@ def alias_factory(root):
                 "judge calibration consumes samples for calibration statistics",
             ("finding_funnel", f"{KERNEL}judge_fanout.py", "consumer"):
                 "judge fanout selects samples but cannot authorize promotion",
+            # ARIA-HIGH-360 — the anchor-stale disposition reads settled
+            # fingerprints to decide whether an expired judge request's
+            # finding still needs that judge; it re-mints or drops a request,
+            # it cannot authorize promotion.
+            ("finding_funnel", f"{KERNEL}judge_subject_liveness.py", "consumer"):
+                "expired-judge liveness reads settled findings to re-ask a judge, never to promote",
             ("finding_funnel", f"{KERNEL}judge_replay.py", "consumer"):
                 "judge replay is a diagnostic comparison over prior rows",
             ("finding_funnel", f"{KERNEL}memory.py", "consumer"):
@@ -1729,12 +1728,6 @@ def alias_factory(root):
                     "executor",
                     "agent_invocation_results",
                     f"{KERNEL}cycle.py",
-                    "consumer",
-                ),
-                (
-                    "executor",
-                    "agent_invocation_results",
-                    f"{KERNEL}external_outage_reaper.py",
                     "consumer",
                 ),
             },

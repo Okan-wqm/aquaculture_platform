@@ -75,6 +75,7 @@ def advance_plan_rounds(
                     round_number=round_number,
                     reason_codes=["max_rounds_reached", "unresolved_material_risk"],
                     base_dir=root,
+                    forced_by="kernel:plan_round_controller",
                 )
                 actions.append({"kind": "human_required", "result": forced})
                 return _result(plan_id, fold_plan_state(plan_id=plan_id, base_dir=root), "human_required", actions)
@@ -149,7 +150,7 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
             },
             *contract.must_satisfy,
             # ARIA-HIGH-309 — the lessons recorded plans in this plan's scope teach.
-            *planner_lesson_obligations(base_dir=root, plan_id=plan_id),
+            *planner_lesson_obligations(base_dir=root, plan_id=plan_id, envelope_role=role),
         ],
         allowed_scope=list(contract.allowed_scope),
         evidence_refs=source_refs,

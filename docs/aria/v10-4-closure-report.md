@@ -285,7 +285,8 @@ Tier-1 audit per CLAUDE.md hierarchy: every fix in V10.4 is Tier-1 by classifica
 
 **V10.5 in-scope deliverables** (24h budget):
 - V10.4 closure doc (THIS DOCUMENT — Deliverable A)
-- F-023 API backoff (Phase 3 REVISED — retry-after-aware, EXTERNAL_OUTAGE state AFTER HUMAN_REQUIRED, reaper)
+- F-023 API backoff (Phase 3 REVISED — retry-after-aware, EXTERNAL_OUTAGE state AFTER
+  HUMAN_REQUIRED, reaper; superseded by ARIA-HIGH-366, which deleted the state and the reaper)
 - ARIA-Watchdog MVP (Phase 1 — 2 detectors: stall + bridge_warning_repeat; sanitizer + fcntl + SIGTERM-safe)
 - 3 ADRs (EXTERNAL_OUTAGE, ARIA-Watchdog governance, Self-Feed deferral)
 - Soak harness `measure_watchdog_fp_rate.py`

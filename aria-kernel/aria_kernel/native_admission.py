@@ -235,11 +235,15 @@ def _native_runtime_admission(
             )
         elif cooldown is not None:
             # ARIA-HIGH-290 — the row names which fact cooled the provider:
-            # a dead credential or an exhausted quota.
-            auth_cooled = cooldown["reason"] == EXHAUSTION_KIND_REASONS["auth"]
+            # a dead credential or an exhausted quota. ARIA-HIGH-366 — a
+            # logged-out session is a credential fact too; an unreachable
+            # vendor is neither (auth and quota both unknown).
+            auth_cooled = cooldown["reason"] in (EXHAUSTION_KIND_REASONS["auth"],
+                                                 EXHAUSTION_KIND_REASONS["logged_out"])
+            reachable = cooldown["reason"] != EXHAUSTION_KIND_REASONS["unreachable"]
             status = _RuntimeStatusObservation(
                 "unavailable" if auth_cooled else "unknown",
-                quota_observation="unknown" if auth_cooled else "unavailable",
+                quota_observation="unknown" if auth_cooled or not reachable else "unavailable",
                 reason=COOLDOWN_STATUS_REASON, decision=StatusDecision.UNAVAILABLE,
             )
         elif binary is not None and shutil.which(binary, path=search_path) is None:

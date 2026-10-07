@@ -105,11 +105,13 @@ class _Fixture(unittest.TestCase):
         return [row for row in _ingestion_rows(self.tools) if row["row_type"] == "request_refused"]
 
     def _bind_and_maybe_start(self, cycle_id: str, *, start: bool, plan_id: str = "plan-once") -> dict:
+        context = load_grounding_context(self.fx.repo)
         candidate = next(c for c in rank_candidate_sources(
             workspace_root=self.fx.repo, base_dir=self.tools, cycle_id=cycle_id,
+            findings=context.findings,
         ) if c["source_type"] == "operator_feedback")
         envelope = convert_candidate_to_plan_content(
-            candidate, admission=admit_candidate(candidate, load_grounding_context(self.fx.repo)),
+            candidate, admission=admit_candidate(candidate, context),
             ground=PlanEvidenceGround.of(self.fx.repo),
         ).envelope
         ingestion.bind_plan_synthesis(base_dir=self.tools, cycle_id=cycle_id,

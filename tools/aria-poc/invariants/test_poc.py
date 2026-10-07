@@ -14,7 +14,10 @@ import unittest
 from pathlib import Path
 
 
-POC_PATH = Path(__file__).with_name("poc.py")
+# ARIA-MEDIUM-377 — this module lives under invariants/ so the aria-kernel
+# workflow's `unittest discover tools/aria-poc/invariants` step runs it; the
+# PoC it tests is one directory up.
+POC_PATH = Path(__file__).resolve().parents[1] / "poc.py"
 SPEC = importlib.util.spec_from_file_location("aria_poc", POC_PATH)
 assert SPEC and SPEC.loader
 aria_poc = importlib.util.module_from_spec(SPEC)

@@ -28,6 +28,7 @@ from unittest import mock
 from aria_kernel.bridge_exceptions import BridgeContractViolation
 from aria_kernel.cross_review_bridge import issue_implementation_envelope
 from aria_kernel.finding_grounding import FindingAdmission
+from aria_kernel.finding_seed import FindingSeed
 from aria_kernel.impact_graph import plan_downstream_impact
 from aria_kernel.implementation_safety import implementation_allowed_scope
 from aria_kernel.ledger import load_declared_jsonl
@@ -99,8 +100,11 @@ def _seed(root: Path, source_type: str, finding_id: str, surfaces: list[str]) ->
                      "request": "Remediate at the root.", "priority": "P0"}
     else:
         candidate = {"source_type": source_type, "candidate_id": finding_id}
+    # ARIA-HIGH-369 — an F plan is built from the finding's seed (its refs at the anchor).
+    seed = FindingSeed(finding_id, None, evidence_refs=tuple(surfaces), affected_surfaces=tuple(surfaces))
     conversion = convert_candidate_to_plan_content(
-        candidate, admission=admission, ground=PlanEvidenceGround.of(root))
+        candidate, admission=admission, ground=PlanEvidenceGround.of(root),
+        seed=seed if source_type == "f_finding" else None)
     assert conversion.envelope is not None, conversion
     return conversion.envelope.content
 

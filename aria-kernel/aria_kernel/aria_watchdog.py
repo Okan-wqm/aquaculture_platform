@@ -28,11 +28,14 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from .file_lock import with_exclusive_lock
 from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding
+
+if TYPE_CHECKING:
+    from .provider_clock import ProviderClock
 
 
 # ─── Configuration constants (per ADR-0002) ──────────────────────────────
@@ -234,15 +237,23 @@ def detect_stall(
     autonomy_rows: list[dict[str, Any]],
     *,
     now: datetime,
+    clock: "ProviderClock",
     threshold_seconds: int = STALL_THRESHOLD_SECONDS,
-    skip_states: tuple[str, ...] = ("HUMAN_REQUIRED", "EXTERNAL_OUTAGE", "CONVERGED", "ABANDONED_BY_OPERATOR"),
+    skip_states: tuple[str, ...] = ("HUMAN_REQUIRED", "CONVERGED", "ABANDONED_BY_OPERATOR"),
     api_backoff_grace_seconds: int = 600,
 ) -> list[WatchdogFinding]:
     """Detect plan_ids with no state-machine event for >threshold_seconds.
 
+    The age is PROVIDER-AVAILABLE time (ARIA-HIGH-366, ``clock``): a plan
+    that stopped only because a provider was in an open outage is not a
+    stall, and turning every such plan into a MEDIUM finding buried the one
+    signal that matters (the outage's own HUMAN_REQUIRED item). An outage
+    of ANY provider heading a planning role pauses it — a finding raised
+    late is still raised, while a finding raised for an outage is noise.
+
     SKIPs:
-    - Cycles in legitimate terminal states (HUMAN_REQUIRED, EXTERNAL_OUTAGE,
-      CONVERGED) — these are not stalls (AISAFETY-HIGH-010 fix).
+    - Cycles in legitimate terminal states (HUMAN_REQUIRED, CONVERGED) —
+      these are not stalls (AISAFETY-HIGH-010 fix).
     - Cycles in active api_backoff_engaged within 600s (cross-phase with F-023;
       legitimate backoff sleep, not stall — PERF-MEDIUM-009 fix).
     """
@@ -289,6 +300,9 @@ def detect_stall(
             plan_terminal_state[plan_id] = state
 
     threshold_delta = timedelta(seconds=threshold_seconds)
+    from .provider_clock import planning_heads
+
+    heads = planning_heads()
 
     for plan_id, last_event in plan_last_event.items():
         if plan_id in seen_plan_ids:
@@ -297,7 +311,13 @@ def detect_stall(
         last_ts = _parse_iso(last_event.get("ts") or last_event.get("occurred_at"))
         if last_ts is None:
             continue
-        age = now - last_ts
+        if now - last_ts < threshold_delta:
+            continue
+
+        # Review HIGH-2: scoped to the providers heading the planning roles,
+        # never "any provider": an outage of a provider no plan routes to
+        # would otherwise silence every stall finding until it is restored.
+        age = (now - last_ts) - clock.covered_any(last_ts, now, heads)
         if age < threshold_delta:
             continue
         # Skip terminal states
@@ -701,7 +721,9 @@ def run_watchdog_sweep(
     ) if governance_rows else None
 
     candidates: list[WatchdogFinding] = []
-    candidates.extend(detect_stall(governance_rows, autonomy_rows, now=now))
+    from .provider_clock import provider_clock
+
+    candidates.extend(detect_stall(governance_rows, autonomy_rows, now=now, clock=provider_clock(tools_path)))
     candidates.extend(detect_repeated_bridge_warning(governance_rows, now=now))
 
     # E24-a (ORPHAN-711) — production telemetry joins the same sweep: pull

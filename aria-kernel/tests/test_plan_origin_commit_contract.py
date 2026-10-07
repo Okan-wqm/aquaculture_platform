@@ -286,7 +286,8 @@ class TheSynthesizerRecordsTheOriginTests(unittest.TestCase):
         import os
         from unittest import mock
 
-        from aria_kernel.finding_grounding import admit_candidate, load_grounding_context
+        from aria_kernel.finding_grounding import load_grounding_context
+        from aria_kernel.finding_seed import SubjectProbe, admit_and_seed
         from aria_kernel.plan_synthesizer import PlanEvidenceGround
         from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture
 
@@ -301,11 +302,12 @@ class TheSynthesizerRecordsTheOriginTests(unittest.TestCase):
                 "source_type": PlanCandidateSource.F_FINDING.value, "candidate_id": "F-099",
                 "mtime": 1.0, "title_hint": "Process F-099",
             }
+            # ARIA-HIGH-260 — the aging source is judged against the store's loop
+            # history; ARIA-HIGH-369 — and planned from its re-grounded seed.
+            admission, seeded = admit_and_seed(
+                candidate, load_grounding_context(fixture.repo, tools_root=fixture.tools), SubjectProbe({}))
             f_finding = convert_candidate_to_plan_content(
-                # ARIA-HIGH-260 — the aging source is judged against the store's loop history.
-                candidate, admission=admit_candidate(
-                    candidate, load_grounding_context(fixture.repo, tools_root=fixture.tools)),
-                ground=ground,
+                candidate, admission=admission, ground=ground, seed=seeded.seed,
             ).envelope
             orphan = convert_candidate_to_plan_content({
                 "source_type": PlanCandidateSource.ORPHAN_FINDING.value, "candidate_id": "ORPHAN-HIGH-104",

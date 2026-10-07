@@ -63,6 +63,7 @@ import { relative, resolve } from 'node:path';
 // farm-service-enterprise-guardrails.ts consume the same parser, so a
 // hunk-header edge case can no longer be fixed in one gate and stay
 // broken in another).
+import { isGatingExcuse, registeredFindingIds } from './banned-phrase-excuse';
 import {
   addedLinesByFile,
   collectMergeIntroducedLines,
@@ -70,7 +71,6 @@ import {
   mergeInProgressRef,
   stagedChangedFiles,
 } from './git-diff-ranges';
-import { isGatingExcuse, registeredFindingIds } from './banned-phrase-excuse';
 
 const REPO_ROOT = (() => {
   try {

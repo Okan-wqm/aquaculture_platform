@@ -20,7 +20,7 @@ import {
   sensorReadingAnchorSql,
   type SensorReadingAnchor,
 } from '@aquaculture/backend-common/sensor';
-import { MAX_SERIES_RANGE_MS } from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
+import { MAX_SERIES_RANGE_MS } from '@aquaculture/shared-contracts';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { parameterForChannelKey, type SensorReadingParameter } from '@platform/event-contracts';

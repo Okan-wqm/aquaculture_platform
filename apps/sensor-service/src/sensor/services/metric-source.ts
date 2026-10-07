@@ -14,7 +14,7 @@ import {
   metricTier,
   type MetricTierName,
   planSeriesRead,
-} from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
+} from '@aquaculture/shared-contracts';
 import { Logger } from '@nestjs/common';
 import { QueryRunner } from 'typeorm';
 

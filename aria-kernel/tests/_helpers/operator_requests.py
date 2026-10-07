@@ -226,9 +226,13 @@ class OperatorRequestFixture:
             "scope": {"files": []}, "facts": [], "recommendation": None,
             **(body or {}),
         }
+        # ARIA-HIGH-369 — stamped with the commit the mint verified against,
+        # as ``emit_finding`` stamps it: the plan seed re-reads each cited
+        # line there (``finding_seed``).
         append_declared_fixture(directory / "finding-events.jsonl", {
             "schema_version": 1, "event": "finding_emitted", "event_id": f"finding:{finding_id}:emitted",
-            "finding_id": finding_id, "record": record,
+            "finding_id": finding_id, "target_sha": git(self.repo, "rev-parse", "HEAD").strip(),
+            "record": record,
         }, expected_surface="repo_finding_events")
         if status != "OPEN":
             self.set_status(finding_id, status)

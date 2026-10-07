@@ -2805,7 +2805,7 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
     is the door that can ask.
     """
     from .adapter_fixture_contract import assert_fixture_backed
-    from .adapter_quarantine import apply_manifest_quarantine
+    from .adapter_quarantine import apply_manifest_quarantine, assert_manifest_quarantine_stands
 
     manifest_dir = Path(context.workspace_root) / "tools" / "aria-adapters"
     # The manifest's `status` is the tool's BIRTH status; after registration
@@ -2830,6 +2830,7 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             assert_fixture_backed(manifest, context.workspace_root)
+            assert_manifest_quarantine_stands(manifest, repo_root=context.workspace_root)
             live_status = live_status_by_id.get(str(manifest.get("tool_id")))
             if live_status is not None:
                 manifest = {**manifest, "status": live_status}

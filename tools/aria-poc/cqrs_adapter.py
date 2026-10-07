@@ -70,6 +70,11 @@ def _finding(rule: str, severity: str, rel: str, *, line: int | None, message: s
     }
     if line is not None:
         finding["line"] = line
+    # ARIA-MEDIUM-378 — both rules describe one defect, a controller that
+    # skips the service and bus layers; one subject per controller makes the
+    # two findings one subject (finding_subject.adapter_subject_key), so the
+    # defect is planned once and closed together.
+    finding["subject"] = f"cqrs-adapter:controller_layer_skip:{rel}"
     return finding
 
 

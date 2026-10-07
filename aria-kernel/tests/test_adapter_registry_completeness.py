@@ -33,13 +33,16 @@ import unittest
 from pathlib import Path
 
 from aria_kernel import cycle as cycle_mod
-from aria_kernel.adapter_quarantine import MANIFEST_QUARANTINE_PREFIX, validate_manifest_quarantine
+from aria_kernel.adapter_quarantine import (
+    MANIFEST_QUARANTINE_PREFIX,
+    quarantine_finding_refusal,
+    validate_manifest_quarantine,
+)
 from aria_kernel.registry_compiler import STUB_RUNNER_TOKENS, compile_registry
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, list_tools
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_DIR = REPO_ROOT / "tools" / "aria-adapters"
-REGISTRY = REPO_ROOT / "docs" / "reviews" / "_registry" / "findings.jsonl"
 
 
 def _manifests() -> list[dict]:
@@ -102,18 +105,34 @@ class CommittedAdaptersCompileAndRunTheirOwnCode(unittest.TestCase):
         ]
         self.assertEqual(undeclared, [])
 
-    def test_a_named_quarantine_cites_a_registered_finding(self) -> None:
-        registered = {
-            json.loads(line)["id"]
-            for line in REGISTRY.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        }
+    def test_a_named_quarantine_cites_an_unresolved_finding_about_that_tool(self) -> None:
         for manifest in self.manifests:
             if "quarantine" not in manifest:
                 continue
             with self.subTest(tool=manifest["tool_id"]):
                 block = validate_manifest_quarantine(manifest["quarantine"], tool_id=manifest["tool_id"])
-                self.assertIn(block["finding"], registered)
+                self.assertIsNone(
+                    quarantine_finding_refusal(block, tool_id=manifest["tool_id"], repo_root=REPO_ROOT),
+                )
+
+    def test_a_quarantine_on_a_resolved_or_foreign_finding_is_refused(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="aria-378-registry-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        registry = tmp / "docs" / "reviews" / "_registry" / "findings.jsonl"
+        registry.parent.mkdir(parents=True)
+        rows = [
+            {"id": "ARIA-MEDIUM-901", "state": "OPEN", "evidence": ["tools/aria-adapters/a-adapter.tool.json"]},
+            {"id": "ARIA-MEDIUM-902", "state": "RESOLVED", "evidence": ["tools/aria-adapters/a-adapter.tool.json"]},
+        ]
+        registry.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+        def refusal(finding: str, tool_id: str = "a-adapter") -> str | None:
+            return quarantine_finding_refusal({"finding": finding, "reason": "r"}, tool_id=tool_id, repo_root=tmp)
+
+        self.assertIsNone(refusal("ARIA-MEDIUM-901"))
+        self.assertIn("quarantine_finding_resolved", refusal("ARIA-MEDIUM-902") or "")
+        self.assertIn("quarantine_finding_not_about_tool", refusal("ARIA-MEDIUM-901", "b-adapter") or "")
+        self.assertIn("quarantine_finding_unknown", refusal("ARIA-MEDIUM-903") or "")
 
     def test_a_quarantine_without_a_finding_is_refused_at_the_gate(self) -> None:
         with self.assertRaises(GovernanceError):
@@ -158,6 +177,33 @@ class ManifestSyncRegistersEveryAdapter(unittest.TestCase):
             {tool_id: tool["status"] for tool_id, tool in registered.items()},
         )
 
+
+    def test_the_sync_refuses_a_quarantine_whose_finding_cannot_carry_it(self) -> None:
+        workspace = self.tmp / "repo"
+        manifests = workspace / "tools" / "aria-adapters"
+        manifests.mkdir(parents=True)
+        base = json.loads((MANIFEST_DIR / "cqrs-adapter.tool.json").read_text(encoding="utf-8"))
+        manifest = {
+            **base,
+            "tool_id": "stale-adapter",
+            "fixture_set": "tools/aria-adapters/fixtures/stale-adapter",
+            "quarantine": {"finding": "ARIA-MEDIUM-902", "reason": "closed long ago"},
+        }
+        (manifests / "stale-adapter.tool.json").write_text(json.dumps(manifest), encoding="utf-8")
+        cases = workspace / manifest["fixture_set"] / "cases"
+        cases.mkdir(parents=True)
+        (cases / "baseline.json").write_text(json.dumps({"input": {}, "expected": {"status": "ok"}}), encoding="utf-8")
+        registry = workspace / "docs" / "reviews" / "_registry" / "findings.jsonl"
+        registry.parent.mkdir(parents=True)
+        registry.write_text(json.dumps({
+            "id": "ARIA-MEDIUM-902", "state": "RESOLVED",
+            "evidence": ["tools/aria-adapters/stale-adapter.tool.json"],
+        }) + "\n", encoding="utf-8")
+        context = cycle_mod.build_phase_context(cycle_id="cyc-378-stale", workspace_root=workspace, base_dir=self.tools)
+        result = cycle_mod._phase_tool_manifest_sync(context)
+        self.assertEqual(result["synced_tool_ids"], [])
+        self.assertIn("quarantine_finding_resolved", result["refused"][0]["reason"])
+        self.assertEqual(list_tools(base_dir=self.tools), [])
 
 if __name__ == "__main__":
     unittest.main()

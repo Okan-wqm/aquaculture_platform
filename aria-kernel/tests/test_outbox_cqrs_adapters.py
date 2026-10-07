@@ -100,6 +100,25 @@ import { Repository } from 'typeorm';
         self.assertIn("controller_injects_repository_directly", rules)
         self.assertEqual(set(result["evidence_sources"]), {path.relative_to(self.repo).as_posix()})
 
+    def test_both_rules_on_one_controller_share_one_subject(self) -> None:
+        # ARIA-MEDIUM-378 (review M4) — one defect, two rules: the shared
+        # subject makes the two findings one subject for planning and closure.
+        path = self.repo / "apps" / "x-service" / "src" / "controllers" / "bad.controller.ts"
+        path.parent.mkdir(parents=True)
+        path.write_text("""
+import { Repository } from 'typeorm';
+class C {
+  constructor(@InjectRepository(X) private repo: Repository<X>) {}
+  async do() { return this.repo.findOne({}); }
+}
+""", encoding="utf-8")
+        findings = cqrs_scan(self.repo)["findings"]
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(
+            {f["subject"] for f in findings},
+            {"cqrs-adapter:controller_layer_skip:apps/x-service/src/controllers/bad.controller.ts"},
+        )
+
     def test_controller_with_command_bus_clean(self) -> None:
         path = self.repo / "apps" / "x-service" / "src" / "controllers" / "good.controller.ts"
         path.parent.mkdir(parents=True)

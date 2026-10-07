@@ -66,6 +66,22 @@ class BannedPhraseUnavailableTests(unittest.TestCase):
         self.assertEqual(body["status"], "unavailable")
 
 
+class BannedPhraseTimeoutTests(unittest.TestCase):
+    def test_a_gate_timeout_is_unavailable_not_a_crash(self) -> None:
+        import subprocess
+
+        root = Path(tempfile.mkdtemp(prefix="aria-banned-timeout-"))
+        self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
+        for rel in (banned.GATE_TS_NODE, banned.GATE_SCRIPT):
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text("", encoding="utf-8")
+        with mock.patch.object(banned.subprocess, "run",
+                               side_effect=subprocess.TimeoutExpired(cmd="ts-node", timeout=60)):
+            code, text = banned._invoke_banned_phrase_cli(root, mode="tree")
+        self.assertEqual(code, 124)
+        self.assertIn("timed out", text)
+
+
 class OutboxIncompleteTests(unittest.TestCase):
     def setUp(self) -> None:
         self.root = Path(tempfile.mkdtemp(prefix="aria-outbox-"))

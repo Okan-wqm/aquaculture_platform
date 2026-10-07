@@ -1,0 +1,44 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "capability_gap_key": "shadow_run:cqrs-adapter",
+    "capability_resolution": {
+      "decision": "request",
+      "row_id": "capability-resolution:2e9b6b0f11b19fe1bfcbcbe6"
+    },
+    "capability_resolution_ref": "capability-resolution:2e9b6b0f11b19fe1bfcbcbe6",
+    "cycle_id": "cyc-20261007T225133Z-auto",
+    "evidence_refs": [
+      "apps/admin-api-service/src/analytics/controllers/analytics.controller.ts",
+      "apps/admin-api-service/src/analytics/controllers/dto/reports.dto.ts",
+      "apps/admin-api-service/src/analytics/controllers/index.ts",
+      "apps/admin-api-service/src/analytics/controllers/reports.controller.ts",
+      "apps/admin-api-service/src/audit/audit.controller.ts",
+      "apps/admin-api-service/src/auth/password-reset.controller.ts",
+      "apps/admin-api-service/src/billing/billing.controller.ts",
+      "apps/admin-api-service/src/database-management/controllers/dto/explorer.dto.ts",
+      "apps/admin-api-service/src/database-management/controllers/dto/monitoring.dto.ts",
+      "apps/admin-api-service/src/database-management/controllers/explorer.controller.ts",
+      "apps/admin-api-service/src/database-management/controllers/migration.controller.ts",
+      "apps/admin-api-service/src/database-management/controllers/monitoring.controller.ts",
+      "apps/admin-api-service/src/database-management/controllers/schema.controller.ts",
+      "apps/admin-api-service/src/health/health.controller.ts",
+      "apps/admin-api-service/src/messaging/messaging-admin.controller.ts",
+      "apps/admin-api-service/src/metrics/system-metrics.controller.ts",
+      "apps/admin-api-service/src/modules/modules.controller.ts",
+      "apps/admin-api-service/src/security/controllers/activity-log.controller.ts",
+      "apps/admin-api-service/src/security/controllers/audit-trail.controller.ts",
+      "apps/admin-api-service/src/security/controllers/compliance.controller.ts"
+    ],
+    "gap_id": "gap-d082e48f715a",
+    "kind": "genesis_candidate",
+    "valid_cycles": 1
+  },
+  "reason": "capability gap 'shadow_run:cqrs-adapter' proposes agent genesis; panel adjudication required (resolver decision: request).",
+  "recorded_at": "2026-10-07T23:35:27Z",
+  "request_id": "genesis-b4705978981c021a",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-14T23:35:27Z",
+  "status": "open"
+}

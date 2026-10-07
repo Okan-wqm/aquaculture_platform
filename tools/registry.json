@@ -14,7 +14,7 @@
       "claim_types": [
         "harness_security"
       ],
-      "created_at": "2026-10-07T16:36:41+00:00",
+      "created_at": "2026-10-07T22:53:38+00:00",
       "declared_scope": [
         ".claude/agents/**/*.md",
         ".github/workflows/*.{yml,yaml}",
@@ -131,7 +131,7 @@
       "schema_version": 1,
       "status": "QUARANTINED",
       "tool_id": "agent-harness-security-adapter",
-      "updated_at": "2026-10-07T16:36:41+00:00",
+      "updated_at": "2026-10-07T22:53:38+00:00",
       "version": "1.0.0"
     },
     {
@@ -141,7 +141,7 @@
       "claim_types": [
         "event_contract"
       ],
-      "created_at": "2026-10-07T16:36:43+00:00",
+      "created_at": "2026-10-07T22:53:45+00:00",
       "declared_scope": [
         "libs/event-contracts/src/**/*.ts"
       ],
@@ -241,7 +241,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "event-contracts-adapter",
-      "updated_at": "2026-10-07T16:36:43+00:00",
+      "updated_at": "2026-10-07T22:53:45+00:00",
       "version": "1.0.0"
     },
     {
@@ -256,7 +256,7 @@
       "claim_types": [
         "security_boundary"
       ],
-      "created_at": "2026-10-07T16:36:45+00:00",
+      "created_at": "2026-10-07T22:53:48+00:00",
       "declared_scope": [
         "apps/**/*.ts",
         "libs/backend-common/src/**/*.ts",
@@ -369,7 +369,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "security-boundary-adapter",
-      "updated_at": "2026-10-07T16:36:45+00:00",
+      "updated_at": "2026-10-07T22:53:48+00:00",
       "version": "1.0.0"
     },
     {
@@ -381,7 +381,7 @@
       "claim_types": [
         "tenant_scoping"
       ],
-      "created_at": "2026-10-07T16:36:46+00:00",
+      "created_at": "2026-10-07T22:53:48+00:00",
       "declared_scope": [
         "apps/**/*.ts",
         "libs/**/*.ts",
@@ -474,7 +474,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "tenant-scoping-adapter",
-      "updated_at": "2026-10-07T16:36:46+00:00",
+      "updated_at": "2026-10-07T22:53:48+00:00",
       "version": "1.0.0"
     },
     {
@@ -493,7 +493,7 @@
       "claim_types": [
         "test_gap"
       ],
-      "created_at": "2026-10-07T16:36:46+00:00",
+      "created_at": "2026-10-07T22:53:49+00:00",
       "declared_scope": [
         "apps/**/*.{ts,tsx}",
         "libs/**/*.{ts,tsx}",
@@ -594,7 +594,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "test-gap-adapter",
-      "updated_at": "2026-10-07T16:36:46+00:00",
+      "updated_at": "2026-10-07T22:53:49+00:00",
       "version": "1.2.0"
     },
     {
@@ -605,7 +605,7 @@
       "claim_types": [
         "schema_drift"
       ],
-      "created_at": "2026-10-07T16:36:47+00:00",
+      "created_at": "2026-10-07T22:53:49+00:00",
       "declared_scope": [
         "apps/**/*.ts",
         "libs/backend-common/src/database/schema-manager.service.ts"
@@ -733,7 +733,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "typeorm-entity-schema-adapter",
-      "updated_at": "2026-10-07T16:36:47+00:00",
+      "updated_at": "2026-10-07T22:53:49+00:00",
       "version": "1.1.0"
     },
     {
@@ -746,7 +746,7 @@
       "claim_types": [
         "performance_budget"
       ],
-      "created_at": "2026-10-07T16:36:42+00:00",
+      "created_at": "2026-10-07T22:53:41+00:00",
       "declared_scope": [
         "web/**/*.{ts,tsx,js,json}"
       ],
@@ -826,7 +826,7 @@
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "bundle-budget-adapter",
-      "updated_at": "2026-10-07T16:36:42+00:00",
+      "updated_at": "2026-10-07T22:53:41+00:00",
       "version": "1.1.0"
     },
     {
@@ -836,7 +836,7 @@
       "claim_types": [
         "doc_staleness"
       ],
-      "created_at": "2026-10-07T16:36:42+00:00",
+      "created_at": "2026-10-07T22:53:43+00:00",
       "declared_scope": [
         "docs/**/*.md"
       ],
@@ -905,7 +905,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "doc-staleness-adapter",
-      "updated_at": "2026-10-07T16:36:42+00:00",
+      "updated_at": "2026-10-07T22:53:43+00:00",
       "version": "1.0.0"
     },
     {
@@ -917,7 +917,7 @@
       "claim_types": [
         "contract_parity"
       ],
-      "created_at": "2026-10-07T16:36:43+00:00",
+      "created_at": "2026-10-07T22:53:45+00:00",
       "declared_scope": [
         "apps/**/dto/**/*.ts",
         "web/**/*.{ts,tsx}"
@@ -990,7 +990,7 @@
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "fe-dto-parity-adapter",
-      "updated_at": "2026-10-07T16:36:43+00:00",
+      "updated_at": "2026-10-07T22:53:45+00:00",
       "version": "1.0.0"
     },
     {
@@ -1002,7 +1002,7 @@
       "claim_types": [
         "kernel_dead_wire"
       ],
-      "created_at": "2026-10-07T16:36:44+00:00",
+      "created_at": "2026-10-07T22:53:46+00:00",
       "declared_scope": [
         "aria-kernel/aria_kernel/**/*.py",
         "aria-kernel/aria_kernel/data/*.json"
@@ -1081,7 +1081,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "kernel-dead-wire-adapter",
-      "updated_at": "2026-10-07T16:36:44+00:00",
+      "updated_at": "2026-10-07T22:53:46+00:00",
       "version": "1.0.0"
     },
     {
@@ -1098,7 +1098,7 @@
       "claim_types": [
         "lint_rule"
       ],
-      "created_at": "2026-10-07T16:36:45+00:00",
+      "created_at": "2026-10-07T22:53:46+00:00",
       "declared_scope": [
         "apps/**/*.{ts,tsx}",
         "libs/**/*.{ts,tsx}",
@@ -1175,8 +1175,299 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "lint-rules-adapter",
-      "updated_at": "2026-10-07T16:36:45+00:00",
+      "updated_at": "2026-10-07T22:53:46+00:00",
       "version": "1.0.0"
+    },
+    {
+      "allowed_read_globs": [
+        "**"
+      ],
+      "claim_types": [
+        "banned_phrase"
+      ],
+      "created_at": "2026-10-07T22:53:39+00:00",
+      "declared_scope": [
+        "**"
+      ],
+      "default_input": {
+        "cycle_id": "banned-phrase-default"
+      },
+      "fixture_set": "tools/aria-adapters/fixtures/banned-phrase-adapter",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:82f19c404e96e87330409b4b4678fe624794022fa079012ea326a792c304b421",
+      "rules": {
+        "banned_phrase": {
+          "claim_type": "convention_inconsistency",
+          "defect_claim": "A tracked, non-exempt file uses a phrase CLAUDE.md bans as a gating excuse for an unfinished fix.",
+          "premises": [
+            "The cited line is prose or a code comment written by this repository, not a domain value, an identifier, a quoted rule list or third-party text.",
+            "The phrase on the cited line excuses leaving work unfinished, with no owner, deadline and tracked finding beside it."
+          ],
+          "severity_cap": "LOW"
+        }
+      },
+      "runner": {
+        "argv": [
+          "python3",
+          "banned_phrase_adapter.py"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 120000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "banned-phrase-adapter",
+      "updated_at": "2026-10-07T22:53:39+00:00",
+      "version": "1.0.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/**/controllers/**/*.ts",
+        "apps/**/*.controller.ts"
+      ],
+      "claim_types": [
+        "cqrs_layer_skip"
+      ],
+      "created_at": "2026-10-07T22:53:41+00:00",
+      "declared_scope": [
+        "apps/**/controllers/**/*.ts",
+        "apps/**/*.controller.ts"
+      ],
+      "default_input": {
+        "cycle_id": "cqrs-default"
+      },
+      "fixture_set": "tools/aria-adapters/fixtures/cqrs-adapter",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:baace4e95125aaf68c6f395339d88efcab7dc5438bb8aaf5cfb86a74ec75df50",
+      "rules": {
+        "controller_injects_repository_directly": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A controller injects a TypeORM repository, skipping the service and bus layers (CLAUDE.md layer rule 1).",
+          "premises": [
+            "The cited file is a NestJS controller that serves requests in production.",
+            "The cited line injects a TypeORM repository into the controller."
+          ],
+          "severity_cap": "HIGH"
+        },
+        "controller_skips_command_query_bus": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A controller calls a TypeORM repository method directly instead of going through the command or query bus (CLAUDE.md layer rule 1).",
+          "premises": [
+            "The cited file is a NestJS controller that serves requests in production.",
+            "The cited line calls a TypeORM repository, data source or entity manager method directly, and the controller does not route that operation through CommandBus or QueryBus."
+          ],
+          "severity_cap": "HIGH"
+        }
+      },
+      "runner": {
+        "argv": [
+          "python3",
+          "cqrs_adapter.py"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 60000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "cqrs-adapter",
+      "updated_at": "2026-10-07T22:53:41+00:00",
+      "version": "1.0.0"
+    },
+    {
+      "allowed_read_globs": [
+        "**/tsconfig*.json",
+        "tsconfig*.json",
+        "**/jest.config.*",
+        "jest.config.*"
+      ],
+      "claim_types": [
+        "dual_alias_drift"
+      ],
+      "created_at": "2026-10-07T22:53:43+00:00",
+      "declared_scope": [
+        "**/tsconfig*.json",
+        "tsconfig*.json",
+        "**/jest.config.*",
+        "jest.config.*"
+      ],
+      "default_input": {
+        "cycle_id": "dual-alias-default"
+      },
+      "fixture_set": "tools/aria-adapters/fixtures/dual-alias-adapter",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:57e728c6021265ce2f2903fbaf62a4a07dd94ba9c7111a40e61a973317107268",
+      "rules": {
+        "dual_alias_missing": {
+          "claim_type": "spine_drift",
+          "defect_claim": "A module-resolution surface maps one backend-common root alias and not the other.",
+          "premises": [
+            "The cited file is a module-resolution surface (tsconfig paths or jest moduleNameMapper) that a build, test or lint run uses.",
+            "The surface maps one backend-common root alias and has no mapping for the other."
+          ],
+          "severity_cap": "MEDIUM"
+        },
+        "dual_alias_target_drift": {
+          "claim_type": "spine_drift",
+          "defect_claim": "A module-resolution surface maps the two backend-common root aliases to different targets.",
+          "premises": [
+            "The cited file is a module-resolution surface that a build, test or lint run uses.",
+            "The two backend-common root aliases resolve to different files in it."
+          ],
+          "severity_cap": "HIGH"
+        }
+      },
+      "runner": {
+        "argv": [
+          "python3",
+          "dual_alias_adapter.py"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 60000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "dual-alias-adapter",
+      "updated_at": "2026-10-07T22:53:43+00:00",
+      "version": "1.0.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/*/src/**/*.ts"
+      ],
+      "claim_types": [
+        "outbox_emission"
+      ],
+      "created_at": "2026-10-07T22:53:46+00:00",
+      "declared_scope": [
+        "apps/*/src/**/*.ts"
+      ],
+      "default_input": {
+        "cycle_id": "outbox-default"
+      },
+      "fixture_set": "tools/aria-adapters/fixtures/outbox-adapter",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**"
+      ],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:4355a14bbc351c38edf29f5b238e712f29495e8bb4c99d9585347de9a9e9627d",
+      "rules": {
+        "domain_event_published_outside_outbox": {
+          "claim_type": "wrong_code",
+          "defect_claim": "A unit of work in a service that registers the outbox makes a durable write and then publishes the event with eventBus.publish instead of OutboxPublisher.enqueue, so the event and the write can diverge.",
+          "premises": [
+            "The finding's second evidence line is a durable write (a repository or entity-manager save, insert, update or delete) made in the same method, or in a same-class helper it calls, before the cited publish.",
+            "The cited publish announces that state change as a domain event other services act on, not telemetry or a log.",
+            "The service registers OutboxModule.forFeature, so OutboxPublisher.enqueue is available to this unit of work."
+          ],
+          "severity_cap": "HIGH"
+        }
+      },
+      "runner": {
+        "argv": [
+          "python3",
+          "outbox_adapter.py"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 60000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "outbox-adapter",
+      "updated_at": "2026-10-07T22:53:46+00:00",
+      "version": "2.0.0"
     }
   ]
 }

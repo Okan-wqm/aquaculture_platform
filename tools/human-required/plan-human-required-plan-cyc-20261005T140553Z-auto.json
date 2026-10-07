@@ -1,0 +1,29 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "ARIA-HIGH-368",
+    "kind": "plan_human_required",
+    "origin": "reconcile",
+    "plan_id": "plan-cyc-20261005T140553Z-auto",
+    "reason_codes": [
+      "operator_withdrawn"
+    ],
+    "round_number": 2,
+    "verdict": "human_required"
+  },
+  "kernel_disposition": {
+    "disposition": "parked_by_operator",
+    "finding_id": "ARIA-HIGH-375",
+    "reason": "the operator parked it (operator_withdrawn)"
+  },
+  "reason": "plan plan-cyc-20261005T140553Z-auto ended convergence HUMAN_REQUIRED (human_required: operator_withdrawn); it advances no further until an operator re-stages, revises or abandons it",
+  "recorded_at": "2026-10-07T23:48:11Z",
+  "request_id": "plan-human-required-plan-cyc-20261005T140553Z-auto",
+  "resolution_note": "kernel disposition parked_by_operator: the operator parked it (operator_withdrawn)",
+  "resolved_at": "2026-10-07T23:48:11Z",
+  "resolved_by": "kernel",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-10T23:48:11Z",
+  "status": "resolved"
+}

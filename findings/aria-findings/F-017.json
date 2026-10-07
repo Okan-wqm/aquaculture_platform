@@ -1,0 +1,140 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "security/detect-unsafe-regex at libs/backend-common/src/ai-safety/output-pii-scanner.service.ts:99 (tool lint-rules-adapter, finding lint-rules:security/detect-unsafe-regex:libs/backend-common/src/ai-safety/output-pii-scanner.service.ts:99:12, AI consensus confidence 0.815): The cited code has the defect the named lint rule describes.",
+  "claim_type": "wrong_code",
+  "closes_in_commit": null,
+  "created_at": "2026-10-07T23:33:25Z",
+  "evidence_chain_id": "chain_8394ebe76ec78d0a",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "libs/backend-common/src/ai-safety/output-pii-scanner.service.ts",
+        "content_hash": "sha256:ba7d78e976c56bfc89751dd2341bf7da42b4faa815fe2aed7e39ec14026c3a4c",
+        "envelope_hash": "sha256:30ad5e222ed73d77316a541ea23d8d875b78d292faaa3d4123776b7cde001715",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 99,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "6bac3e8599a4d8f805858610558479fc3d92e0f5",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "libs/backend-common/src/ai-safety/output-pii-scanner.service.ts:99"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "libs/backend-common/src/ai-safety/output-pii-scanner.service.ts",
+        "content_hash": "sha256:ba7d78e976c56bfc89751dd2341bf7da42b4faa815fe2aed7e39ec14026c3a4c",
+        "envelope_hash": "sha256:e9e64b95fc8886b04af87d9bb5fdd2eb3ef9fc54abda9bc41e4f0bf08092dc27",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 102,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "6bac3e8599a4d8f805858610558479fc3d92e0f5",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "libs/backend-common/src/ai-safety/output-pii-scanner.service.ts:102"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "libs/backend-common/src/ai-safety/output-pii-scanner.service.ts",
+        "content_hash": "sha256:ba7d78e976c56bfc89751dd2341bf7da42b4faa815fe2aed7e39ec14026c3a4c",
+        "envelope_hash": "sha256:6b13ba37ce628df5a0bbaf89d2d9a449ff0f9a7102fbf21ab887002366d72a60",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 103,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "6bac3e8599a4d8f805858610558479fc3d92e0f5",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "libs/backend-common/src/ai-safety/output-pii-scanner.service.ts:103"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "libs/backend-common/src/ai-safety/output-pii-scanner.service.ts",
+        "content_hash": "sha256:ba7d78e976c56bfc89751dd2341bf7da42b4faa815fe2aed7e39ec14026c3a4c",
+        "envelope_hash": "sha256:2443133b243c045fbd7e6980881b77e666fe5612daa7953f49fd1119424bfcb4",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 149,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "6bac3e8599a4d8f805858610558479fc3d92e0f5",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "libs/backend-common/src/ai-safety/output-pii-scanner.service.ts:149"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "libs/backend-common/src/ai-safety/output-pii-scanner.service.ts",
+        "content_hash": "sha256:ba7d78e976c56bfc89751dd2341bf7da42b4faa815fe2aed7e39ec14026c3a4c",
+        "envelope_hash": "sha256:cda61f83285e5b62b7ac862d964f434b07ba92d3c9fc9f6a08a9d32c0ea3ab8b",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 152,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "6bac3e8599a4d8f805858610558479fc3d92e0f5",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "libs/backend-common/src/ai-safety/output-pii-scanner.service.ts:152"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "libs/backend-common/src/ai-safety/output-pii-scanner.service.ts",
+        "content_hash": "sha256:ba7d78e976c56bfc89751dd2341bf7da42b4faa815fe2aed7e39ec14026c3a4c",
+        "envelope_hash": "sha256:b8a6e3c10220eeb0218361904127de8721e79f06ad52f932b43540586f6ef4fc",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 157,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "6bac3e8599a4d8f805858610558479fc3d92e0f5",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "libs/backend-common/src/ai-safety/output-pii-scanner.service.ts:157"
+    }
+  ],
+  "facts": [
+    "finding_fingerprint=finding:96697721ed08fce5d257dfaec2ac8276a557c403af1b882232c08e2fbf70741e",
+    "rule=security/detect-unsafe-regex",
+    "judgment_group_id=judge:lint-rules-adapter:finding:96697721ed08fce5d257dfaec2ac8276a557c403af1b882232c08e2fbf70741e",
+    "consensus_run_id=5758299e-a017-40ab-a9be-cb20db2bcd44"
+  ],
+  "finding_id": "F-017",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": "5758299e-a017-40ab-a9be-cb20db2bcd44",
+  "originating_skill": "ai_consensus:judgment_pipeline",
+  "recommendation": null,
+  "related_specialized_agent_domains": [],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "libs/backend-common/src/ai-safety/output-pii-scanner.service.ts"
+    ]
+  },
+  "service": "shared:backend-common",
+  "services": [
+    "shared:backend-common"
+  ],
+  "severity": "MEDIUM",
+  "source_event_id": "finding:F-017:emitted",
+  "source_ledger_hash": "sha256:74e27b7e1a9c610a2e18d2d5be2180935aca9c0c19cdae2fc489b979aaf763e1",
+  "status": "OPEN"
+}

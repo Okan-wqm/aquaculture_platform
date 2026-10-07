@@ -1,0 +1,36 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "capability_gap_key": "shadow_run:banned-phrase-adapter",
+    "capability_resolution": {
+      "decision": "request",
+      "row_id": "capability-resolution:277b62a2c22e37922834d969"
+    },
+    "capability_resolution_ref": "capability-resolution:277b62a2c22e37922834d969",
+    "cycle_id": "cyc-20261007T225133Z-auto",
+    "evidence_refs": [
+      ".github/ARCHITECTURE.md",
+      "apps/farm-service/src/events/listeners/low-stock-alert.listener.ts",
+      "apps/gateway-api/src/interceptors/cache-control.interceptor.ts",
+      "apps/gateway-api/src/services/http-pool.service.ts",
+      "docs/db/22-watchdog-team-review.md",
+      "docs/db/23-phase-2-hardening-rollout.md",
+      "docs/guides/vfd-user-guide.md",
+      "docs/security/l3-audit-remediation-2026-02.md",
+      "infrastructure/docker/Dockerfile.pg-backup",
+      "web/modules/hydroponics-module/src/types/modes.types.ts",
+      "web/modules/sensor-module/src/components/scada-builder/fuxa-bridge/catalog.ts",
+      "web/modules/sensor-module/src/engine/tags/useTagValue.ts"
+    ],
+    "gap_id": "gap-6672902ec1ce",
+    "kind": "genesis_candidate",
+    "valid_cycles": 1
+  },
+  "reason": "capability gap 'shadow_run:banned-phrase-adapter' proposes agent genesis; panel adjudication required (resolver decision: request).",
+  "recorded_at": "2026-10-07T23:35:22Z",
+  "request_id": "genesis-c9af2037f535eb5d",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-14T23:35:22Z",
+  "status": "open"
+}

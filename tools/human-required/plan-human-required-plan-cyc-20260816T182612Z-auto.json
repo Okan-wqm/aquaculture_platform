@@ -1,0 +1,21 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "ARIA-HIGH-368",
+    "kind": "plan_human_required",
+    "origin": "reconcile",
+    "plan_id": "plan-cyc-20260816T182612Z-auto",
+    "reason_codes": [
+      "convergence_envelope_dead:challenger_plan"
+    ],
+    "round_number": null,
+    "verdict": "human_required"
+  },
+  "reason": "plan plan-cyc-20260816T182612Z-auto ended convergence HUMAN_REQUIRED (human_required: convergence_envelope_dead:challenger_plan); it advances no further until an operator re-stages, revises or abandons it",
+  "recorded_at": "2026-10-07T23:47:54Z",
+  "request_id": "plan-human-required-plan-cyc-20260816T182612Z-auto",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-10T23:47:54Z",
+  "status": "open"
+}

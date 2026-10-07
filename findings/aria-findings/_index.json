@@ -191,10 +191,22 @@
       "source_event_id": "finding:F-016:emitted",
       "source_ledger_hash": "sha256:7241b6324c66fed060580ede69f6544144fb26788984ae107cd6fa25bf08286c",
       "status": "OPEN"
+    },
+    {
+      "claim_summary": "security/detect-unsafe-regex at libs/backend-common/src/ai-safety/output-pii-scanner.service.ts:99 (tool lint-rules-adapter, finding lint-rules:security/detect-unsafe-regex:libs/backend-common/src/ai-safety/output-pii-scanner.service.ts:99:12, AI consensus confidence 0.815): The cited code has the defect the named lint rule describes.",
+      "claim_type": "wrong_code",
+      "created_at": "2026-10-07T23:33:25Z",
+      "evidence_chain_id": "chain_8394ebe76ec78d0a",
+      "finding_id": "F-017",
+      "path": "F-017.json",
+      "severity": "MEDIUM",
+      "source_event_id": "finding:F-017:emitted",
+      "source_ledger_hash": "sha256:74e27b7e1a9c610a2e18d2d5be2180935aca9c0c19cdae2fc489b979aaf763e1",
+      "status": "OPEN"
     }
   ],
-  "generated_at": "2026-10-06T05:11:46Z",
+  "generated_at": "2026-10-07T23:33:25Z",
   "schema_version": 2,
   "source_ledger": "aria-findings/finding-events.jsonl",
-  "source_ledger_tip_hash": "sha256:7241b6324c66fed060580ede69f6544144fb26788984ae107cd6fa25bf08286c"
+  "source_ledger_tip_hash": "sha256:74e27b7e1a9c610a2e18d2d5be2180935aca9c0c19cdae2fc489b979aaf763e1"
 }

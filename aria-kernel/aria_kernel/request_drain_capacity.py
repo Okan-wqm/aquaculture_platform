@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .tool_registry import GovernanceError, bound_workspace_root, parse_utc_stamp
+from .tool_registry import bound_workspace_root, parse_utc_stamp
 
 POLICY_KEY = "request_admission"
 
@@ -55,13 +55,22 @@ REQUEST_ADMISSION_DEFAULTS: dict[str, float | int] = {
     # be measured: the door would deadlock itself. 32 is the per-role judge
     # ceiling the judgment pipeline already ran under (Y2, ORPHAN-704).
     "backlog_floor": 32,
+    # New plans started per cycle ahead of the budget, while the executor
+    # drains and a provider can run the challenger (request_admission
+    # SEED_QUOTA_PRODUCERS): panels and judges run earlier in the cycle and
+    # would otherwise take every unit of headroom, every night.
+    "plan_seeds_per_cycle": 1,
 }
 REQUEST_ADMISSION_BOUNDS: dict[str, tuple[type, float, float]] = {
     "backlog_days_of_drain": (float, 0.25, 7.0),
     "drain_window_days": (int, 1, 30),
     "executor_liveness_hours": (float, 6.0, 168.0),
-    "backlog_floor": (int, 0, 1000),
+    # Minimum 1: a floor of 0 with no measured drain is a budget of 0, and
+    # nothing discretionary could ever be minted to measure a drain with.
+    "backlog_floor": (int, 1, 1000),
+    "plan_seeds_per_cycle": (int, 1, 10),
 }
+POLICY_INVALID_KIND = "request_admission_policy_invalid"
 
 # The derived states the executor's selection takes (``next_pending_request``):
 # the backlog the budget bounds is what is still waiting to be claimed.
@@ -74,11 +83,21 @@ class AdmissionPolicy:
     drain_window_days: int
     executor_liveness_hours: float
     backlog_floor: int
+    plan_seeds_per_cycle: int
 
 
 def request_admission_policy(root: Path) -> AdmissionPolicy:
-    """The policy block, merged over the defaults and refused out of bounds."""
+    """The policy block, merged over the defaults; an out-of-bounds value falls back.
+
+    Review of #1833 (MEDIUM-6): refusing the whole block stopped every
+    discretionary mint under ``drain_capacity_unmeasurable`` for one bad
+    value, with nothing naming it. A value outside its bounds takes the
+    shipped default and is disclosed ONCE on governance per (key, value)
+    (``append_tools_governance_once``), so the operator sees what to fix and
+    the door keeps measuring.
+    """
     from .genesis_policy import load_policy
+    from .tool_registry import append_tools_governance_once
 
     block: dict[str, Any] = dict(REQUEST_ADMISSION_DEFAULTS)
     raw = load_policy(bound_workspace_root(root)).get(POLICY_KEY)
@@ -88,12 +107,17 @@ def request_admission_policy(root: Path) -> AdmissionPolicy:
         value = block[key]
         typed = isinstance(value, int if kind is int else (int, float)) and not isinstance(value, bool)
         if not typed or not low <= value <= high:
-            raise GovernanceError(f"{POLICY_KEY}.{key}={value!r} must be {kind.__name__} in [{low}, {high}]")
+            block[key] = REQUEST_ADMISSION_DEFAULTS[key]
+            append_tools_governance_once(root, POLICY_INVALID_KIND, {
+                "key": f"{POLICY_KEY}.{key}", "value": repr(value),
+                "bounds": f"{kind.__name__} in [{low}, {high}]", "applied_default": block[key],
+            }, claim_keys=("key", "value"))
     return AdmissionPolicy(
         backlog_days_of_drain=float(block["backlog_days_of_drain"]),
         drain_window_days=int(block["drain_window_days"]),
         executor_liveness_hours=float(block["executor_liveness_hours"]),
         backlog_floor=int(block["backlog_floor"]),
+        plan_seeds_per_cycle=int(block["plan_seeds_per_cycle"]),
     )
 
 
@@ -111,6 +135,7 @@ class DrainCapacity:
     executor_live: bool
     backlog_days_of_drain: float
     backlog_floor: int
+    plan_seeds_per_cycle: int
     budget: float
 
     def to_row(self) -> dict[str, Any]:
@@ -199,12 +224,14 @@ def measure_drain_capacity(root: Path, *, now: datetime, policy: AdmissionPolicy
         executor_live=not (waiting_too_long and silent_too_long),
         backlog_days_of_drain=policy.backlog_days_of_drain,
         backlog_floor=policy.backlog_floor,
+        plan_seeds_per_cycle=policy.plan_seeds_per_cycle,
         budget=round(max(float(policy.backlog_floor), policy.backlog_days_of_drain * drain_per_day), 3),
     )
 
 
 __all__ = [
     "CLAIMABLE_STATES",
+    "POLICY_INVALID_KIND",
     "POLICY_KEY",
     "REQUEST_ADMISSION_BOUNDS",
     "REQUEST_ADMISSION_DEFAULTS",

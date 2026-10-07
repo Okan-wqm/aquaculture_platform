@@ -24,8 +24,11 @@ classified in ``PRODUCER_CLASSES``, per role, with no default:
 
 A refusal is named (``request_admission_throttled:<reason>``), recorded on
 ``agent-invocations/admissions.jsonl`` once per (cycle, producer, role,
-reason), and disclosed on governance once per (cycle, role). Each producer
-re-derives what it did not mint on its next cycle (``ProducerClass.re_offer``).
+reason), and disclosed on governance once per (cycle, role). An admission is
+recorded by the mint, in the request's own transaction, only for an identity
+that was new. Each producer re-derives what it did not mint on its next cycle
+(``ProducerClass.re_offer``). One new plan per cycle is admitted ahead of the
+budget (``SEED_QUOTA_PRODUCERS``) so panels and judges cannot starve planning.
 The finding-opener throttle (``cycle_guard``, wall #7) is a separate door for
 findings, not requests; the step remint budget (``step_request``) is unchanged.
 """
@@ -56,10 +59,14 @@ REASON_PROVIDER_STATUS_UNREADABLE: Final = "provider_status_unreadable"
 REASON_PROVIDER_UNAVAILABLE: Final = "provider_unavailable"
 REASON_BUDGET: Final = "backlog_at_drain_budget"
 
-PLAN_STEP_ROLES: Final = frozenset({
-    "primary_plan", "challenger_plan", "cross_review", "completeness_critique", "implementation",
-    "specialist_domain_review",
-})
+# Review of #1833 (HIGH-1) — producers whose ask is honoured up to a fixed
+# number per cycle BEFORE the budget is consulted, while the executor drains
+# and a provider can run the role. Panels and judges refill the budget's
+# headroom every night (they run earlier in the cycle than the drainer), so
+# without this a new plan would never start; in-flight plans would finish
+# and nothing would replace them, and planning is what closes findings. The
+# quota is policy (`plan_seeds_per_cycle`, minimum 1).
+SEED_QUOTA_PRODUCERS: Final = frozenset({"convergence_drainer.plan_seed"})
 
 
 @dataclass(frozen=True)
@@ -108,8 +115,14 @@ PRODUCER_CLASSES: Final[Mapping[str, ProducerClass]] = {
     "human_required_panel.open": ProducerClass(
         _same(DISCRETIONARY, "human_required_adjudication"),
         "an escalation with no panel row is listed again by the next sweep"),
+    # Review of #1833 (MEDIUM-2) — a panel's re-mint takes the class the DEAD
+    # request was admitted under (recorded on its row at mint), never a role
+    # list: a dead Gate-B review or authoring step stays critical. A row minted
+    # before the door recorded nothing and re-mints as discretionary: bounded,
+    # and re-offered by the next sweep, so never lost.
+    "human_required_panel.remint_critical": ProducerClass(_same(CRITICAL_PATH, *sorted(INVOCATION_ROLES)), _RERUN),
     "human_required_panel.remint": ProducerClass(
-        {role: CRITICAL_PATH if role in PLAN_STEP_ROLES else DISCRETIONARY for role in sorted(INVOCATION_ROLES)},
+        _same(DISCRETIONARY, *sorted(INVOCATION_ROLES)),
         "the record stays open; the next sweep folds the panel and re-applies the disposition"),
     "goldset.curation": ProducerClass(
         _same(DISCRETIONARY, "goldset_curation"),
@@ -155,6 +168,7 @@ class _CycleView:
     stamp: tuple[int, int, int]
     snapshot: dict[str, Any] | None = None
     admitted_since_snapshot: int = 0
+    minted_by_producer: dict[str, int] = field(default_factory=dict)
     throttled_keys: set[tuple[str, str, str]] = field(default_factory=set)
     throttled_roles: set[str] = field(default_factory=set)
 
@@ -167,8 +181,13 @@ def admissions_path(root: Path) -> Path:
 
 
 def cycle_key_for(cycle_id: str | None, now: datetime) -> str:
-    """A producer outside any cycle (CLI, tests) is budgeted per UTC day."""
-    return cycle_id if cycle_id else f"day:{now.astimezone(timezone.utc).date().isoformat()}"
+    """The key a decision is budgeted under.
+
+    A producer outside any cycle (operator CLI, tests) gets a key of its own
+    call, so it is measured fresh rather than against a snapshot up to a day
+    old (review of #1833, MEDIUM-4).
+    """
+    return cycle_id if cycle_id else f"uncycled:{now.astimezone(timezone.utc).isoformat()}"
 
 
 def _stamp(path: Path) -> tuple[int, int, int]:
@@ -199,11 +218,14 @@ def _view(root: Path, cycle_key: str) -> _CycleView:
 
 
 def _fold(view: _CycleView, row: dict[str, Any]) -> None:
-    if row.get("row_type") == "snapshot":
+    kind = row.get("row_type")
+    if kind == "snapshot":
         view.snapshot, view.admitted_since_snapshot = dict(row.get("capacity") or {}), 0
-    elif row.get("admitted"):
-        view.admitted_since_snapshot += int(row.get("count") or 0)
-    else:
+    elif kind == "minted":
+        view.admitted_since_snapshot += 1
+        producer = str(row.get("producer"))
+        view.minted_by_producer[producer] = view.minted_by_producer.get(producer, 0) + 1
+    elif kind == "decision" and not row.get("admitted"):
         view.throttled_keys.add((str(row.get("producer")), str(row.get("role")), str(row.get("reason"))))
         view.throttled_roles.add(str(row.get("role")))
 
@@ -236,8 +258,8 @@ def _measure(root: Path, now: datetime) -> dict[str, Any]:
     return capacity
 
 
-def _discretionary_reason(role: str, capacity: Mapping[str, Any], backlog_now: int, count: int,
-                          now: datetime) -> tuple[bool, str]:
+def _discretionary_reason(producer: str, role: str, capacity: Mapping[str, Any], view: _CycleView,
+                          count: int, now: datetime) -> tuple[bool, str]:
     from .provider_outage import provider_outage
 
     if "fault" in capacity:
@@ -253,6 +275,10 @@ def _discretionary_reason(role: str, capacity: Mapping[str, Any], backlog_now: i
         return False, REASON_PROVIDER_STATUS_UNREADABLE
     if outage is not None:
         return False, REASON_PROVIDER_UNAVAILABLE
+    quota = int(capacity.get("plan_seeds_per_cycle") or 0)
+    if producer in SEED_QUOTA_PRODUCERS and view.minted_by_producer.get(producer, 0) + count <= quota:
+        return True, "plan_seed_quota"
+    backlog_now = int(capacity.get("backlog") or 0) + view.admitted_since_snapshot
     if backlog_now + count > float(capacity.get("budget") or 0.0):
         return False, REASON_BUDGET
     return True, "within_drain_budget"
@@ -270,11 +296,13 @@ def admit_request(
     """Decide whether ``producer`` may mint ``count`` new ``role`` requests now.
 
     Unknown producer or an unclassified (producer, role) is a refusal by
-    name, never a default class. Critical path is admitted and recorded.
+    name, never a default class. Critical path is always admitted.
     Discretionary is measured once per cycle and decided against that
-    snapshot plus everything admitted since; a refusal writes its admissions
+    snapshot plus every request minted since; a refusal writes its admissions
     row once per (cycle, producer, role, reason) and its governance row once
-    per (cycle, role).
+    per (cycle, role). An admission is recorded by the MINT, and only for an
+    identity that was new (``minted_row``): a re-request of a sealed row
+    consumes nothing (review of #1833, MEDIUM-4).
     """
     spec = PRODUCER_CLASSES.get(producer)
     if spec is None:
@@ -294,17 +322,14 @@ def admit_request(
         "role": role, "purpose_class": purpose, "count": count, "decided_at": decided_at,
     }
     if purpose == CRITICAL_PATH:
-        _append(root, view, {**row, "admitted": True, "reason": CRITICAL_PATH})
         return Admission(producer, role, purpose, cycle_key, count, True, CRITICAL_PATH)
     if view.snapshot is None:
         _append(root, view, {"schema_version": 1, "row_type": "snapshot", "cycle_key": cycle_key,
                              "decided_at": decided_at, "capacity": _measure(root, moment)})
     capacity = view.snapshot or {}
     backlog_now = int(capacity.get("backlog") or 0) + view.admitted_since_snapshot
-    admitted, reason = _discretionary_reason(role, capacity, backlog_now, count, moment)
-    if admitted:
-        _append(root, view, {**row, "admitted": True, "reason": reason, "backlog_before": backlog_now})
-    elif (producer, role, reason) not in view.throttled_keys:
+    admitted, reason = _discretionary_reason(producer, role, capacity, view, count, moment)
+    if not admitted and (producer, role, reason) not in view.throttled_keys:
         first_for_role = role not in view.throttled_roles
         _append(root, view, {**row, "admitted": False, "reason": reason, "backlog_before": backlog_now})
         if first_for_role:
@@ -315,6 +340,33 @@ def admit_request(
                 "last_drain_at": capacity.get("last_drain_at"),
             })
     return Admission(producer, role, purpose, cycle_key, count, admitted, reason)
+
+
+def minted_row(admission: Admission, *, request_id: str) -> dict[str, Any]:
+    """The admissions row the mint appends, in its own transaction, for a NEW identity."""
+    return {
+        "schema_version": 1, "row_type": "minted", "cycle_key": admission.cycle_key,
+        "producer": admission.producer, "role": admission.role, "purpose_class": admission.purpose_class,
+        "reason": admission.reason, "request_id": request_id,
+        "decided_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+    }
+
+
+def ledger_stamp(root: Path) -> tuple[int, int, int]:
+    return _stamp(admissions_path(root))
+
+
+def note_minted(root: Path, row: dict[str, Any], *, stamp_before: tuple[int, int, int]) -> None:
+    """Fold the mint's row into this process's view; drop the view if another writer appended."""
+    key = (str(root.resolve()), str(row.get("cycle_key")))
+    view = _VIEWS.get(key)
+    if view is None:
+        return
+    if view.stamp != stamp_before:
+        _VIEWS.pop(key, None)
+        return
+    _fold(view, row)
+    view.stamp = ledger_stamp(root)
 
 
 def check_admission_binding(admission: Admission, *, role: str) -> None:
@@ -332,7 +384,8 @@ def require_admitted(admission: Admission) -> None:
 
 
 __all__ = [
-    "CRITICAL_PATH", "DISCRETIONARY", "GOVERNANCE_KIND", "PLAN_STEP_ROLES", "PRODUCER_CLASSES",
+    "CRITICAL_PATH", "DISCRETIONARY", "GOVERNANCE_KIND", "PRODUCER_CLASSES", "SEED_QUOTA_PRODUCERS",
     "THROTTLED_PREFIX", "Admission", "ProducerClass", "PurposeClass", "RequestAdmissionThrottled",
-    "admissions_path", "admit_request", "check_admission_binding", "cycle_key_for", "require_admitted",
+    "admissions_path", "admit_request", "check_admission_binding", "cycle_key_for", "ledger_stamp",
+    "ADMISSIONS_SURFACE", "minted_row", "note_minted", "require_admitted",
 ]

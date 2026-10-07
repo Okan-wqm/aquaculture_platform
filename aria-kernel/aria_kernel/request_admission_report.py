@@ -28,14 +28,17 @@ def admission_cycle_summary(root: Path, cycle_id: str) -> dict[str, Any] | None:
     snapshot = next((dict(row.get("capacity") or {}) for row in rows if row.get("row_type") == "snapshot"), None)
     by_role: dict[str, dict[str, Any]] = {}
     for row in rows:
-        if row.get("row_type") != "decision":
+        kind = row.get("row_type")
+        if kind not in ("minted", "decision"):
             continue
         entry = by_role.setdefault(str(row.get("role")), {
             "admitted_critical_path": 0, "admitted_discretionary": 0, "throttled": [],
         })
-        if row.get("admitted"):
-            entry[f"admitted_{row.get('purpose_class')}"] += int(row.get("count") or 0)
-        else:
+        # A request counts as admitted when the mint wrote it (a re-request of
+        # a sealed row writes nothing); a refusal is its decision row.
+        if kind == "minted":
+            entry[f"admitted_{row.get('purpose_class')}"] += 1
+        elif not row.get("admitted"):
             entry["throttled"].append({"producer": row.get("producer"), "reason": row.get("reason")})
     return {"schema_version": 1, "cycle_id": cycle_id, "snapshot": snapshot, "by_role": by_role}
 

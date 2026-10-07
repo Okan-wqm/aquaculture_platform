@@ -56,6 +56,29 @@ Fix:
   amplifier (ARIA-HIGH-360, 37%). The finding-opener throttle (`cycle_guard`) and the step remint
   budget (`step_request`) are unchanged.
 
+### Review of #1833 (2026-10-07)
+
+- HIGH-1, seeding starved: panels and judges run before the drainer and refill the headroom every
+  night, so `plan_seed` was refused every cycle. `plan_seeds_per_cycle` (policy, default 1,
+  minimum 1) admits that many new plans per cycle ahead of the budget. The executor must still be
+  draining and a provider must be able to run the challenger. A reserved fraction would still be
+  consumed by producers that ask earlier, and reordering the cycle couples admission to the order
+  of the phases. A quota does neither.
+- MEDIUM-2: the mint records `request_admission` (producer, class) on every request. A panel
+  re-mint inherits its dead predecessor's class (`human_required_panel.remint_critical` or
+  `.remint`), not a role list. A row from before the door re-mints as discretionary.
+- MEDIUM-3: a cleared panel whose successor is refused raises `RequestAdmissionThrottled`, and
+  the sweep reports it as `throttled_retry`. The record stays open and the next sweep retries.
+- MEDIUM-4: the admitted row is written by the mint, in the request's own transaction, only for a
+  new identity. A call outside any cycle is measured fresh, not against a day-old snapshot.
+  `dispatcher_factory` receives the cycle id.
+- MEDIUM-6: `backlog_floor` is at least 1. An out-of-bounds value takes the shipped default and is
+  disclosed once on governance (`request_admission_policy_invalid`).
+- `admissions.jsonl` is a declared, hash-chained ledger. Every append verifies the chain under its
+  lock, and the mint appends inside its state transaction. The cycle and the executor are
+  serialized by the shared concurrency group and the state-writer lease. The door's in-process
+  view refolds when another writer has appended.
+
 ## ARIA-MEDIUM-376
 
 `aria-kernel convergent-plan` could not run at all. The subcommand imported

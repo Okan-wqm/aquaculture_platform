@@ -75,6 +75,7 @@ MINT_SITES: dict[tuple[str, str], str] = {
 # Every string that function can return must be a classified producer.
 PRODUCER_SELECTORS: frozenset[tuple[str, str]] = frozenset({
     ("aria-kernel/aria_kernel/convergence_drainer.py", "_seed_producer"),
+    ("aria-kernel/aria_kernel/human_required_adjudication.py", "_remint_producer"),
 })
 
 

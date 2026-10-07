@@ -120,7 +120,7 @@ def default_dispatcher_config() -> DispatcherConfig:
 # ---------------------------------------------------------------------
 
 
-def select_drafter(*, role: str, config: DispatcherConfig | None = None):
+def select_drafter(*, role: str, config: DispatcherConfig | None = None, cycle_id: str | None = None):
     """Plan ARIA-V7 §2g v2 — return a DrafterFn for the given role.
 
     role MUST be one of ``"primary_authoring"`` or
@@ -166,6 +166,7 @@ def select_drafter(*, role: str, config: DispatcherConfig | None = None):
             # admitted (skill_genesis.authoring_run): critical path.
             admission=admit_request(
                 "convergent_authoring.round_step", role, base_dir=evidence_pack.get("_base_dir"),
+                cycle_id=cycle_id,
             ),
         )
         return _poll_for_drafter_response(
@@ -185,7 +186,7 @@ def select_drafter(*, role: str, config: DispatcherConfig | None = None):
 # ---------------------------------------------------------------------
 
 
-def select_judge(*, role: str, config: DispatcherConfig | None = None):
+def select_judge(*, role: str, config: DispatcherConfig | None = None, cycle_id: str | None = None):
     """Plan ARIA-V7 §2g v2 — return a JudgeFn for the given role."""
     if role not in ("evidence_judgment", "adversarial_judgment"):
         raise ValueError(
@@ -231,6 +232,7 @@ def select_judge(*, role: str, config: DispatcherConfig | None = None):
             # ARIA-HIGH-364 — a judge of an admitted authoring run: critical path.
             admission=admit_request(
                 "convergent_authoring.round_step", role, base_dir=evidence_pack.get("_base_dir"),
+                cycle_id=cycle_id,
             ),
         )
         return _poll_for_judge_response(

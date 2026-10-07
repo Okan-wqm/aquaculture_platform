@@ -24,7 +24,16 @@ from .genesis_lifecycle import verify_shadow_eval_proof
 from .must_satisfy import MUST_SATISFY_ID_FIELD, MUST_SATISFY_TEXT_FIELD, must_satisfy_text, validate_must_satisfy
 from .git_probe import refuse_shallow_checkout
 from .plan_round_scope import PLANNING_ROUND_ROLES, plan_round_contract, require_plan_round_envelope
-from .request_admission import Admission, check_admission_binding, require_admitted
+from .request_admission import (
+    ADMISSIONS_SURFACE,
+    Admission,
+    admissions_path,
+    check_admission_binding,
+    ledger_stamp,
+    minted_row,
+    note_minted,
+    require_admitted,
+)
 from .ledger import (
     SEGMENTED_LEDGERS,
     StateTransaction,
@@ -1738,7 +1747,14 @@ def create_agent_invocation_request(
     # replace its sealed context or reject its already authorized publication.
     # The request and prompt paths are segment-0 anchors (ARIA-HIGH-275):
     # holding them holds the group lock the segment appends choose under.
-    with state_transaction([contexts_path, prompts_path, requests_path,
+    # ARIA-HIGH-364 — the admission is recorded with the request it admitted,
+    # in the same transaction, and only for this NEW identity; the row also
+    # names the producer and class, so a re-mint of it later keeps the class
+    # its first mint was admitted under (review of #1833, MEDIUM-2/-4).
+    row["request_admission"] = {"producer": admission.producer, "purpose_class": admission.purpose_class}
+    admission_row = minted_row(admission, request_id=request_id)
+    stamp_before = ledger_stamp(root)
+    with state_transaction([contexts_path, prompts_path, requests_path, admissions_path(root),
                             root / CONTEXT_AUDITS_FILENAME, root / "governance.jsonl"]) as txn:
         existing_locked = next(
             (item for item in reversed(txn.load_segments(root, "agent_invocation_requests"))
@@ -1786,9 +1802,12 @@ def create_agent_invocation_request(
         row["context_ledger_hash"] = stored_context.get("ledger_hash")
         row["prompt_ledger_hash"] = stored_prompt.get("ledger_hash")
         row["budget_audit_hash"] = budget_audit.get("ledger_hash")
-        return txn.append_segment_rows(
+        stored_request = txn.append_segment_rows(
             root, [row], expected_surface="agent_invocation_requests",
         )[0]
+        txn.append_declared_jsonl(admissions_path(root), admission_row, expected_surface=ADMISSIONS_SURFACE)
+    note_minted(root, admission_row, stamp_before=stamp_before)
+    return stored_request
 
 
 def record_transcript(

@@ -70,6 +70,20 @@ def _ledgers(pending: int, *, pending_age: timedelta, drained: int, drained_age:
     return requests, results, claims
 
 
+def _mint_judge(tools: Path, admission: Any, *, role: str = "evidence_judgment",
+                agent: str | None = None) -> dict[str, Any]:
+    agents = {"evidence_judgment": "aria-evidence-judge", "adversarial_judgment": "aria-adversarial-judge"}
+    return create_agent_invocation_request(
+        target_agent=agent or agents[role], role=role, suggested_prompt="judge it",
+        must_satisfy=[{"id": "verdict", "description": "verdict"}], allowed_scope=["**"],
+        cycle_id="cyc-1", base_dir=tools, admission=admission,
+    )
+
+
+def _admission_rows(tools: Path) -> list[dict[str, Any]]:
+    return load_declared_jsonl(admissions_path(tools), expected_surface="agent_invocation_admissions")
+
+
 class _Store(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = Path(tempfile.mkdtemp(prefix="aria-364-"))
@@ -117,20 +131,34 @@ class BudgetMath(_Store):
             capacity = measure_drain_capacity(self.tools, now=NOW, policy=request_admission_policy(self.tools))
         self.assertEqual(capacity.backlog, 0)
 
-    def test_a_policy_value_out_of_bounds_is_refused_by_name(self) -> None:
+    def test_a_policy_value_out_of_bounds_falls_back_and_is_disclosed_once(self) -> None:
         config = self._tmp / "aria-config"
         config.mkdir()
-        (config / "genesis_policy.json").write_text(json.dumps({"request_admission": {"backlog_floor": -1}}))
-        with self.assertRaisesRegex(GovernanceError, "request_admission.backlog_floor"):
-            request_admission_policy(self.tools)
+        (config / "genesis_policy.json").write_text(json.dumps({"request_admission": {"backlog_floor": 0}}))
+        for _ in range(2):
+            self.assertEqual(request_admission_policy(self.tools).backlog_floor, 32)
+        rows = [row for row in load_jsonl(self.tools / "governance.jsonl")
+                if row.get("kind") == "request_admission_policy_invalid"]
+        self.assertEqual([row["details"]["key"] for row in rows], ["request_admission.backlog_floor"])
 
     def test_discretionary_stops_at_the_budget(self) -> None:
         with self.queue(_ledgers(31, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))):
-            first = self.admit()
-            second = self.admit()
-        self.assertTrue(first.admitted)
-        self.assertFalse(second.admitted)
-        self.assertEqual(second.refusal, "request_admission_throttled:backlog_at_drain_budget")
+            self.assertTrue(self.admit().admitted)
+        with self.queue(_ledgers(32, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))):
+            refused = self.admit(cycle="cyc-2")
+        self.assertEqual(refused.refusal, "request_admission_throttled:backlog_at_drain_budget")
+
+    def test_only_a_new_identity_consumes_the_budget(self) -> None:
+        # 31 waiting against a budget of 32: one new request fills it. The
+        # same request asked again writes nothing and consumes nothing.
+        with self.queue(_ledgers(31, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))):
+            ticket = self.admit()
+            first = _mint_judge(self.tools, ticket)
+            self.assertEqual(_mint_judge(self.tools, self.admit())["request_id"], first["request_id"])
+            refused = self.admit()
+        self.assertFalse(refused.admitted)
+        minted = [row for row in _admission_rows(self.tools) if row["row_type"] == "minted"]
+        self.assertEqual([row["request_id"] for row in minted], [first["request_id"]])
 
     def test_a_panel_is_admitted_whole_or_not_at_all(self) -> None:
         with self.queue(_ledgers(30, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))):
@@ -184,15 +212,25 @@ class PriorityClasses(_Store):
             steps = [self.admit("convergence_drainer.plan_step", role)
                      for role in ("challenger_plan", "cross_review", "primary_plan", "completeness_critique")]
             implementation = self.admit("implementer.converged_plan", "implementation")
+            gate_b = self.admit("review_runner.post_implementation", "adversarial_judgment")
             operator = self.admit("operator_cli.request", "verification")
         self.assertFalse(discretionary.admitted)
-        self.assertTrue(all(step.admitted for step in [*steps, implementation, operator]))
-        self.assertEqual({row["purpose_class"] for row in self.decisions() if row["admitted"]}, {"critical_path"})
+        self.assertTrue(all(step.admitted for step in [*steps, implementation, gate_b, operator]))
+        self.assertEqual({row["producer"] for row in self.decisions()}, {"judge_fanout.sample"})
 
-    def test_a_dead_plan_step_reminted_by_a_panel_is_critical_and_a_judge_is_not(self) -> None:
-        with self.queue(_ledgers(50, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))):
-            self.assertTrue(self.admit("human_required_panel.remint", "primary_plan").admitted)
-            self.assertFalse(self.admit("human_required_panel.remint", "evidence_judgment").admitted)
+    def test_a_re_mint_keeps_the_class_its_dead_request_was_admitted_under(self) -> None:
+        from aria_kernel.human_required_adjudication import _remint_producer
+
+        self.assertEqual(_remint_producer({"request_admission": {"purpose_class": "critical_path"}}),
+                         "human_required_panel.remint_critical")
+        self.assertEqual(_remint_producer({"request_admission": {"purpose_class": "discretionary"}}),
+                         "human_required_panel.remint")
+        # A row minted before the door recorded a class: bounded, re-offered.
+        self.assertEqual(_remint_producer({"role": "adversarial_judgment"}), "human_required_panel.remint")
+        sealed = _mint_judge(self.tools, admit_request("review_runner.post_implementation", "adversarial_judgment",
+                                                       base_dir=self.tools), role="adversarial_judgment")
+        self.assertEqual(sealed["request_admission"],
+                         {"producer": "review_runner.post_implementation", "purpose_class": "critical_path"})
 
     def test_an_unclassified_producer_or_role_is_refused_with_no_default(self) -> None:
         with self.assertRaisesRegex(GovernanceError, "request_admission_producer_unclassified:nobody"):
@@ -245,7 +283,8 @@ class RefusalsAreRecordedOnce(_Store):
     def test_the_cycle_summary_reaches_the_daily_report(self) -> None:
         with self.queue(_ledgers(50, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))):
             self.admit()
-            self.admit("convergence_drainer.plan_step", "cross_review")
+            _mint_judge(self.tools, self.admit("convergence_drainer.plan_step", "cross_review"),
+                        role="cross_review", agent="aria-cross-reviewer")
         summary = admission_cycle_summary(self.tools, "cyc-1")
         assert summary is not None
         self.assertEqual(summary["snapshot"]["backlog"], 50)
@@ -300,7 +339,7 @@ class ThePlannerDaemonBacksOffACooledProvider(_Store):
 
 
 class PlanSeedingIsDiscretionaryAndPlanStepsAreNot(_Store):
-    """The drainer decides a NEW plan before starting it; a started plan's rounds always mint."""
+    """The drainer decides a NEW plan before starting it; one seed per cycle is reserved."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -322,22 +361,57 @@ class PlanSeedingIsDiscretionaryAndPlanStepsAreNot(_Store):
         return dict(run_convergence_drainer(cycle_id="cyc-1", base_dir=self.tools, workspace_root=self.workspace,
                                             plan_id=plan_id, plan_seed=seed))
 
-    def test_a_new_plan_is_not_started_over_budget_and_an_operator_plan_is(self) -> None:
+    def test_one_new_plan_starts_per_cycle_while_panels_and_judges_are_over_budget(self) -> None:
+        # Review of #1833 (HIGH-1): panels and judges run earlier in the cycle
+        # and their demand alone exceeds the drain. The first seed of the
+        # cycle is still admitted; the second waits for the budget; an
+        # operator's plan is never throttled.
         from aria_kernel.operator_feedback_ingestion import PROVENANCE_REF_PREFIX
         from aria_kernel.plan_convergence import fold_plan_state
 
-        with self.queue(_ledgers(50, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))):
-            refused = self.drain("plan-aria", self.seed())
+        with self.queue(_ledgers(80, pending_age=timedelta(hours=1), drained=28, drained_age=timedelta(hours=2))):
+            self.assertFalse(self.admit("human_required_panel.open", "human_required_adjudication", count=3).admitted)
+            self.assertFalse(self.admit("judge_fanout.sample").admitted)
+            first = self.drain("plan-a", self.seed())
+            second = self.drain("plan-b", self.seed())
             operator = self.drain("plan-op", self.seed(provenance_refs=[f"{PROVENANCE_REF_PREFIX}req-1"]))
-            # The refused seed started nothing; the operator's plan is in flight.
-            self.assertEqual(refused["arbiter_verdict"], "request_admission_throttled")
-            self.assertIsNone(fold_plan_state(plan_id="plan-aria", base_dir=self.tools).get("state"))
+            self.assertEqual(first["arbiter_verdict"], "in_progress")
+            self.assertEqual(fold_plan_state(plan_id="plan-a", base_dir=self.tools).get("state"), "DRAFT")
+            self.assertEqual(second["arbiter_verdict"], "request_admission_throttled")
+            self.assertIsNone(fold_plan_state(plan_id="plan-b", base_dir=self.tools).get("state"))
             self.assertEqual(operator["arbiter_verdict"], "in_progress")
-            self.assertEqual(fold_plan_state(plan_id="plan-op", base_dir=self.tools).get("state"), "DRAFT")
-        roles = sorted((row["producer"], row["admitted"]) for row in self.decisions())
-        self.assertEqual(roles, [("convergence_drainer.operator_plan_seed", True),
-                                 ("convergence_drainer.plan_seed", False)])
+        minted = [(row["producer"], row["reason"]) for row in _admission_rows(self.tools) if row["row_type"] == "minted"]
+        self.assertIn(("convergence_drainer.plan_seed", "plan_seed_quota"), minted)
 
+    def test_the_seed_quota_does_not_override_a_dead_executor(self) -> None:
+        with self.queue(_ledgers(3, pending_age=timedelta(hours=48), drained=0, drained_age=timedelta(0))):
+            refused = self.admit("convergence_drainer.plan_seed", "challenger_plan")
+        self.assertEqual(refused.refusal, "request_admission_throttled:executor_not_draining")
+
+
+class AThrottledPanelReMintIsDeferredNotResolved(_Store):
+    """Review of #1833 (MEDIUM-3): a cleared panel whose successor the door refuses."""
+
+    def test_deferred_this_sweep_reminted_the_next(self) -> None:
+        from aria_kernel import human_required_adjudication as hra
+        from tests.test_y7_self_adjudication import ReMintDisposition
+
+        case = ReMintDisposition("test_resolve_quorum_with_re_mint_mints_one_successor")
+        case.setUp()
+        self.addCleanup(case.tearDown)
+        for rid, agent in zip(case._open(), ("judge-a", "judge-b", "judge-c")):
+            case._seed_opinion(rid, agent_id=agent, verdict=hra.RESOLVE_VERDICT, disposition=hra.DISPOSITION_RE_MINT)
+        with self.queue(_ledgers(50, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))):
+            held = hra.sweep_human_required_adjudications(base_dir=case.tools, cycle_id="cyc-1")
+        self.assertEqual([row["request_id"] for row in held["throttled_retry"]], [case.escalation_id])
+        self.assertEqual(held["resolved"], [])
+        self.assertEqual(case._record()["status"], "open")
+        self.assertNotIn("panel_disposition", case._record())
+        self.assertEqual(case._successors(), [])
+        with self.queue(_ledgers(5, pending_age=timedelta(hours=1), drained=40, drained_age=timedelta(hours=2))):
+            hra.sweep_human_required_adjudications(base_dir=case.tools, cycle_id="cyc-2")
+        self.assertEqual(len(case._successors()), 1)
+        self.assertEqual(case._record()["status"], "resolved")
 
 if __name__ == "__main__":
     unittest.main()

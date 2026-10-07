@@ -768,6 +768,20 @@ def _stamp_escalated_to_operator(
     )
 
 
+def _remint_producer(dead: Mapping[str, Any]) -> str:
+    """ARIA-HIGH-364 (review of #1833, MEDIUM-2) — the class a successor inherits.
+
+    The mint records on every request the producer and class it was admitted
+    under (``request_admission``). A dead request first minted as critical
+    path (a plan step, a Gate-B review, an authoring step) re-mints as
+    critical; anything else, and a row minted before the door recorded a
+    class, re-mints as discretionary: bounded, and re-offered next sweep.
+    """
+    recorded = dead.get("request_admission")
+    critical = isinstance(recorded, Mapping) and recorded.get("purpose_class") == "critical_path"
+    return "human_required_panel.remint_critical" if critical else "human_required_panel.remint"
+
+
 def _execute_panel_disposition(
     *,
     root: Path,
@@ -834,15 +848,16 @@ def _execute_panel_disposition(
         )
         _stamp_escalated_to_operator(root, request_id, record, reason="dead_request_obligations_unmintable")
         return {"action": "escalated", "reason": "dead_request_obligations_unmintable"}
-    # ARIA-HIGH-364 — the successor's class is its role's: a dead plan step
-    # or implementation (and its reviews) is critical path, anything else is
-    # discretionary. A refused re-mint leaves the record OPEN; the next sweep
-    # folds the panel again and re-applies the disposition.
+    # ARIA-HIGH-364 — the successor takes the class its dead predecessor was
+    # admitted under (`_remint_producer`). A refusal raises before anything
+    # is written: the record stays OPEN and the sweep reports it
+    # `throttled_retry`; the next sweep folds the panel again and
+    # re-applies the disposition.
     admission = admit_request(
-        "human_required_panel.remint", str(dead.get("role") or ""), base_dir=root, cycle_id=cycle_id,
+        _remint_producer(dead), str(dead.get("role") or ""), base_dir=root, cycle_id=cycle_id,
     )
     if not admission.admitted:
-        return {"action": "throttled", "reason": admission.refusal}
+        raise RequestAdmissionThrottled(admission.refusal)
     successor = create_agent_invocation_request(
         target_agent=str(dead.get("target_agent") or ""),
         role=str(dead.get("role") or ""),
@@ -1120,10 +1135,6 @@ def adjudicate_human_required(
         execution = _execute_panel_disposition(
             root=root, record=record, verdict=verdict, cycle_id=cycle_id,
         )
-        if execution.get("action") == "throttled":
-            # ARIA-HIGH-364 — the request-admission door refused the
-            # successor this cycle: nothing was minted, so nothing resolves.
-            return verdict
         if execution.get("action") == "escalated":
             # The record stays OPEN — a resolve vote with no actionable
             # disposition is not a recovery, and closing the record would
@@ -1244,6 +1255,7 @@ def sweep_human_required_adjudications(
     reopen_exhausted: list[str] = []
     skipped: list[dict[str, str]] = []
     panel_refusal: str | None = None
+    throttled_retry: list[dict[str, str]] = []
 
     try:
         escalations = list_human_required(base_dir=root)
@@ -1273,9 +1285,17 @@ def sweep_human_required_adjudications(
             continue
         try:
             if request_id in existing:
-                verdict = adjudicate_human_required(
-                    escalation_request_id=request_id, base_dir=root, cycle_id=cycle_id,
-                )
+                try:
+                    verdict = adjudicate_human_required(
+                        escalation_request_id=request_id, base_dir=root, cycle_id=cycle_id,
+                    )
+                except RequestAdmissionThrottled as refusal:
+                    # ARIA-HIGH-364 (review of #1833, MEDIUM-3) — the panel
+                    # cleared it but the door refused the successor: not
+                    # resolved (the record stays open) and not the
+                    # operator's. Retried by the next sweep.
+                    throttled_retry.append({"request_id": request_id, "reason": str(refusal)})
+                    continue
                 folded.append(request_id)
                 if verdict.clears_escalation:
                     resolved.append(request_id)
@@ -1337,6 +1357,7 @@ def sweep_human_required_adjudications(
         "resolved": resolved,
         "reopened": reopened,
         "reopen_exhausted": reopen_exhausted,
+        "throttled_retry": throttled_retry,
         "skipped": skipped,
         "escalations_seen": len(escalations),
     }

@@ -1,16 +1,12 @@
-import { randomBytes } from 'node:crypto';
-
 import { ConfigService } from '@nestjs/config';
-import { applyTenantRlsToSchema, getTenantSchemaName } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { IEventBus } from '@platform/event-bus';
-import {
-  bootPostgresContainer,
-  type HarnessContext,
-  shutdownHarness,
-} from '@platform/migration-harness';
 import { DataSource } from 'typeorm';
 
+import {
+  bootSensorRlsHarness,
+  type SensorRlsHarness,
+} from '../../__tests__/support/sensor-rls-postgres.harness';
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 import { SensorMetric } from '../../database/entities/sensor-metric.entity';
 import { SensorProtocol } from '../../database/entities/sensor-protocol.entity';
@@ -38,7 +34,6 @@ import { SensorTopicCacheService } from '../sensor-topic-cache.service';
 
 const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const RUNTIME_ROLE = 'sensor_listener_rls_test';
 const TOPIC_A = 'sensors/rls-e2e/water-quality-a';
 const TOPIC_B = 'sensors/rls-e2e/water-quality-b';
 const ENTITIES = [Sensor, SensorDataChannel, SensorMetric, SensorProtocol, SensorTypeDefinition];
@@ -65,7 +60,7 @@ const PAYLOAD = {
 jest.setTimeout(180_000);
 
 describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () => {
-  let harness: HarnessContext | undefined;
+  let stage: SensorRlsHarness | undefined;
   let admin: DataSource | undefined;
   let runtime: DataSource | undefined;
   let listener: MqttListenerService | undefined;
@@ -75,101 +70,37 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
   const sensorIds: Record<string, string> = {};
 
   beforeAll(async () => {
-    harness = await bootPostgresContainer({ startTimeoutMs: 120_000 });
-    const password = randomBytes(24).toString('hex');
-    const bootstrap = harness.dataSource;
-    SCHEMA_A = getTenantSchemaName(TENANT_A);
-    SCHEMA_B = getTenantSchemaName(TENANT_B);
-
-    await bootstrap.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
-    await bootstrap.query('CREATE SCHEMA sensor');
-    await bootstrap.query(`CREATE ROLE ${RUNTIME_ROLE} LOGIN PASSWORD '${password}'`);
-
-    for (const [tenantId, schema, topic] of [
-      [TENANT_A, SCHEMA_A, TOPIC_A],
-      [TENANT_B, SCHEMA_B, TOPIC_B],
-    ] as const) {
-      await bootstrap.query(`CREATE SCHEMA "${schema}"`);
-
-      // The tenant tables are built from the entities the runtime maps, so the
-      // listener's entity reads and the writer's INSERT meet the same columns.
-      const ddl = new DataSource({
-        type: 'postgres',
-        ...harness.connectionOptions,
-        name: `listener-rls-ddl-${schema}`,
-        schema,
-        entities: ENTITIES,
-        synchronize: true,
-        logging: false,
-      });
-      await ddl.initialize();
-      await ddl.destroy();
-
-      const previousDdlAuthority = process.env['DB_MIGRATE_DDL_AUTHORITY'];
-      process.env['DB_MIGRATE_DDL_AUTHORITY'] = '1';
-      try {
-        const qr = bootstrap.createQueryRunner();
-        await applyTenantRlsToSchema(qr, { schemaOverride: schema });
-        await qr.release();
-      } finally {
-        if (previousDdlAuthority === undefined) delete process.env['DB_MIGRATE_DDL_AUTHORITY'];
-        else process.env['DB_MIGRATE_DDL_AUTHORITY'] = previousDdlAuthority;
-      }
-
-      await bootstrap.query(`GRANT USAGE ON SCHEMA "${schema}", sensor, public TO ${RUNTIME_ROLE}`);
-      await bootstrap.query(
-        `GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA "${schema}" TO ${RUNTIME_ROLE}`,
-      );
-
-      // Seed as the owner: one sensor per tenant, each with the five channels.
-      const [sensor] = await bootstrap.query(
-        `INSERT INTO "${schema}".sensors
-           (tenant_id, name, serial_number, type, status, protocol_configuration)
-         VALUES ($1, 'Water quality sonde', $2, 'temperature', 'active', $3::jsonb)
-         RETURNING id`,
-        [tenantId, `WT-RLS-${schema}`, JSON.stringify({ topic, payloadFormat: 'json' })],
-      );
-      sensorIds[tenantId] = sensor.id;
-      for (const [order, channel] of CHANNELS.entries()) {
-        await bootstrap.query(
-          `INSERT INTO "${schema}".sensor_data_channels
-             (sensor_id, tenant_id, channel_key, display_label, data_type, unit, "dataPath",
-              "minValue", "maxValue", is_enabled, display_order)
-           VALUES ($1, $2, $3, $3, 'number', $4, $3, $5, $6, true, $7)`,
-          [sensor.id, tenantId, channel.key, channel.unit, channel.min, channel.max, order + 1],
-        );
-      }
-    }
-
-    // Least-privilege platform mapping stub — the contract
-    // platform.list_active_tenant_schema_mappings() serves in production.
-    await bootstrap.query('CREATE SCHEMA IF NOT EXISTS platform');
-    await bootstrap.query(`
-      CREATE OR REPLACE FUNCTION platform.list_active_tenant_schema_mappings()
-      RETURNS TABLE (schema_name text, tenant_id uuid, schema_exists boolean, committed_proof boolean)
-      LANGUAGE sql STABLE AS $fn$
-        SELECT * FROM (VALUES
-          ('${SCHEMA_A}', '${TENANT_A}'::uuid, true, true),
-          ('${SCHEMA_B}', '${TENANT_B}'::uuid, true, true)
-        ) AS t(schema_name, tenant_id, schema_exists, committed_proof)
-      $fn$`);
-    await bootstrap.query(`GRANT USAGE ON SCHEMA platform TO ${RUNTIME_ROLE}`);
-    await bootstrap.query(
-      `GRANT EXECUTE ON FUNCTION platform.list_active_tenant_schema_mappings() TO ${RUNTIME_ROLE}`,
-    );
-
-    admin = bootstrap;
-    runtime = new DataSource({
-      type: 'postgres',
-      ...harness.connectionOptions,
-      username: RUNTIME_ROLE,
-      password,
-      name: `listener-rls-runtime-${randomBytes(4).toString('hex')}`,
+    const topics: Record<string, string> = { [TENANT_A]: TOPIC_A, [TENANT_B]: TOPIC_B };
+    stage = await bootSensorRlsHarness({
+      name: 'mqtt_listener',
+      tenants: [TENANT_A, TENANT_B],
       entities: ENTITIES,
-      synchronize: false,
-      logging: false,
+      beforeRls: async ({ admin: bootstrap, tenantId, schema }) => {
+        const topic = topics[tenantId];
+        // Seed as the owner: one sensor per tenant, each with the five channels.
+        const [sensor] = await bootstrap.query(
+          `INSERT INTO "${schema}".sensors
+               (tenant_id, name, serial_number, type, status, protocol_configuration)
+             VALUES ($1, 'Water quality sonde', $2, 'temperature', 'active', $3::jsonb)
+             RETURNING id`,
+          [tenantId, `WT-RLS-${schema}`, JSON.stringify({ topic, payloadFormat: 'json' })],
+        );
+        sensorIds[tenantId] = sensor.id;
+        for (const [order, channel] of CHANNELS.entries()) {
+          await bootstrap.query(
+            `INSERT INTO "${schema}".sensor_data_channels
+                 (sensor_id, tenant_id, channel_key, display_label, data_type, unit, "dataPath",
+                  "minValue", "maxValue", is_enabled, display_order)
+               VALUES ($1, $2, $3, $3, 'number', $4, $3, $5, $6, true, $7)`,
+            [sensor.id, tenantId, channel.key, channel.unit, channel.min, channel.max, order + 1],
+          );
+        }
+      },
     });
-    await runtime.initialize();
+    admin = stage.admin;
+    runtime = stage.runtime;
+    SCHEMA_A = stage.schemaOf(TENANT_A);
+    SCHEMA_B = stage.schemaOf(TENANT_B);
 
     const redisService = {
       getJson: jest.fn().mockResolvedValue(null),
@@ -211,8 +142,7 @@ describe('MqttListenerService ingestion under FORCE RLS (SENSOR-HIGH-137)', () =
   });
 
   afterAll(async () => {
-    if (runtime?.isInitialized) await runtime.destroy();
-    if (harness) await shutdownHarness(harness);
+    await stage?.shutdown();
   });
 
   async function channelValues(schema: string): Promise<Record<string, number>> {

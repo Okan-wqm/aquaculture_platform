@@ -18,10 +18,15 @@
  * - Proper error types for client handling
  */
 
-import { runInTenantTransaction, SENSOR_SOURCE_SCHEMA } from '@aquaculture/backend-common/database';
+import {
+  runInTenantRead,
+  runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
 import { anchorFromDate, encodeSensorReadingId } from '@aquaculture/backend-common/sensor';
-import { Injectable, Logger, Optional, BadRequestException } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
 import {
   canonicalChannelKeyForParameter,
   createBaseEvent,
@@ -34,7 +39,7 @@ import {
   type ParentReadingRoutedEvent,
 } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { Repository, DataSource, In } from 'typeorm';
+import { DataSource, In } from 'typeorm';
 
 import {
   DiscoverySource,
@@ -160,11 +165,6 @@ export class SensorIngestionService {
   private static readonly MAX_BATCH_SIZE = 10000;
 
   constructor(
-    @InjectRepository(Sensor)
-    private readonly sensorRepository: Repository<Sensor>,
-    @Optional()
-    @InjectRepository(SensorDataChannel)
-    private readonly channelRepository: Repository<SensorDataChannel> | null,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
@@ -205,6 +205,7 @@ export class SensorIngestionService {
     // Apply calibration transformations
     const transformedReadings = await this.calibrationService.applyCalibration(
       validatedData.sensorId,
+      validatedData.tenantId,
       validatedData.readings,
     );
 
@@ -234,7 +235,7 @@ export class SensorIngestionService {
       validatedData.sensorId,
       validatedData.tenantId,
       transformedReadings,
-      await this.resolveChannelsByParameter(validatedData.sensorId),
+      await this.resolveChannelsByParameter(validatedData.sensorId, validatedData.tenantId),
     );
 
     // Save the reading AND enqueue the SensorReading event atomically in a
@@ -293,7 +294,7 @@ export class SensorIngestionService {
     const saved = saveResult.result!;
 
     // Update sensor last seen (fire and forget with logging)
-    this.updateSensorLastSeen(validatedData.sensorId).catch((err) =>
+    this.updateSensorLastSeen(validatedData.sensorId, validatedData.tenantId).catch((err) =>
       this.logger.warn(`Failed to update lastSeenAt: ${err.message}`),
     );
 
@@ -321,7 +322,10 @@ export class SensorIngestionService {
 
     // Pre-fetch calibration configs for all unique sensors
     const sensorIds = [...new Set(validatedReadings.map((r) => r.sensorId))];
-    await this.prefetchCalibrationConfigs(sensorIds);
+    // Every reading carries its sensor's tenant; reads run inside that
+    // tenant's RLS boundary (SENSOR-HIGH-148).
+    const tenantBySensor = new Map(validatedReadings.map((r) => [r.sensorId, r.tenantId]));
+    await this.prefetchCalibrationConfigs(tenantBySensor);
 
     // Process readings with calibration. Each prepared item carries both the
     // persisted entity (calibrated `readings`) AND the raw input readings, so
@@ -331,6 +335,7 @@ export class SensorIngestionService {
       // Apply calibration (uses cached configs)
       const transformedReadings = await this.calibrationService.applyCalibration(
         data.sensorId,
+        data.tenantId,
         data.readings,
       );
 
@@ -375,7 +380,7 @@ export class SensorIngestionService {
           sensorId,
           tenantId,
           reported,
-          await this.resolveChannelsByParameter(sensorId),
+          await this.resolveChannelsByParameter(sensorId, tenantId),
         ),
       );
     }
@@ -452,7 +457,7 @@ export class SensorIngestionService {
     }
 
     // Bulk update last seen for all sensors (more efficient)
-    await this.bulkUpdateLastSeen(sensorIds);
+    await this.bulkUpdateLastSeen(tenantBySensor);
 
     this.logger.log(`Batch ingested ${totalInserted} readings from ${sensorIds.length} sensors`);
     return totalInserted;
@@ -580,11 +585,14 @@ export class SensorIngestionService {
   }
 
   /**
-   * Update sensor's last seen timestamp
+   * Update sensor's last seen timestamp, inside the sensor's tenant boundary
+   * (sensors is FORCE-RLS per tenant; an unbound UPDATE matches no row).
    */
-  private async updateSensorLastSeen(sensorId: string): Promise<void> {
+  private async updateSensorLastSeen(sensorId: string, tenantId: string): Promise<void> {
     try {
-      await this.sensorRepository.update({ id: sensorId }, { lastSeenAt: new Date() });
+      await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
+        tenantManagerRepo(qr.manager, Sensor).update({ id: sensorId }, { lastSeenAt: new Date() }),
+      );
     } catch (error) {
       // Log but don't throw - this is a non-critical operation
       this.logger.warn(
@@ -594,50 +602,64 @@ export class SensorIngestionService {
   }
 
   /**
-   * Bulk update last seen timestamps - more efficient for batch operations
+   * Bulk update last seen timestamps — one statement per tenant, each inside
+   * that tenant's boundary.
    */
-  private async bulkUpdateLastSeen(sensorIds: string[]): Promise<void> {
-    if (sensorIds.length === 0) return;
-
-    try {
-      await this.sensorRepository.update({ id: In(sensorIds) }, { lastSeenAt: new Date() });
-    } catch (error) {
-      this.logger.warn(`Failed to bulk update lastSeenAt: ${(error as Error).message}`);
+  private async bulkUpdateLastSeen(tenantBySensor: ReadonlyMap<string, string>): Promise<void> {
+    for (const [tenantId, sensorIds] of this.sensorsByTenant(tenantBySensor)) {
+      try {
+        await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
+          tenantManagerRepo(qr.manager, Sensor).update(
+            { id: In(sensorIds) },
+            { lastSeenAt: new Date() },
+          ),
+        );
+      } catch (error) {
+        this.logger.warn(`Failed to bulk update lastSeenAt: ${(error as Error).message}`);
+      }
     }
   }
 
   /**
    * Prefetch calibration configs for multiple sensors.
-   * MEDIUM-003: Issues a single batch query for all channels rather than
-   * N sequential applyCalibration() calls (1 DB query per sensor).
+   * MEDIUM-003: one batch query per tenant for all of its sensors' channels
+   * rather than N sequential applyCalibration() calls (1 DB query per sensor).
    */
-  private async prefetchCalibrationConfigs(sensorIds: string[]): Promise<void> {
-    if (!this.channelRepository || sensorIds.length === 0) return;
+  private async prefetchCalibrationConfigs(
+    tenantBySensor: ReadonlyMap<string, string>,
+  ): Promise<void> {
+    for (const [tenantId, sensorIds] of this.sensorsByTenant(tenantBySensor)) {
+      const allChannels = await runInTenantRead(
+        this.dataSource,
+        SENSOR_SOURCE_SCHEMA,
+        tenantId,
+        (qr) =>
+          tenantManagerRepo(qr.manager, SensorDataChannel).find({
+            where: { sensorId: In(sensorIds), isEnabled: true },
+          }),
+      );
 
-    try {
-      // Fetch all channels for all sensors in one query
-      const allChannels = await this.channelRepository.findBy({
-        sensorId: In(sensorIds),
-        isEnabled: true,
-      });
-
-      // Group by sensorId and populate the calibration service cache directly
-      const grouped = new Map<string, SensorDataChannel[]>();
+      const grouped = new Map<string, SensorDataChannel[]>(
+        sensorIds.map((sensorId) => [sensorId, []]),
+      );
       for (const channel of allChannels) {
-        const list = grouped.get(channel.sensorId) ?? [];
-        list.push(channel);
-        grouped.set(channel.sensorId, list);
+        grouped.get(channel.sensorId)?.push(channel);
       }
-
-      // Warm calibrationService channel cache for each sensor
-      for (const [sensorId, channels] of grouped.entries()) {
-        // Access the calibration service's internal warming path if available,
-        // otherwise fall back to the single-sensor prefetch which hits cache after first call
-        this.calibrationService.warmChannelCache(sensorId, channels);
+      for (const [sensorId, channels] of grouped) {
+        this.calibrationService.warmChannelCache(sensorId, tenantId, channels);
       }
-    } catch (error) {
-      this.logger.warn(`Failed to batch prefetch calibration configs: ${(error as Error).message}`);
     }
+  }
+
+  /** tenantId → its sensors, from a sensor → tenant map. */
+  private sensorsByTenant(tenantBySensor: ReadonlyMap<string, string>): Map<string, string[]> {
+    const byTenant = new Map<string, string[]>();
+    for (const [sensorId, tenantId] of tenantBySensor) {
+      const sensors = byTenant.get(tenantId);
+      if (sensors) sensors.push(sensorId);
+      else byTenant.set(tenantId, [sensorId]);
+    }
+    return byTenant;
   }
 
   /**
@@ -651,25 +673,22 @@ export class SensorIngestionService {
       return cached;
     }
 
-    try {
-      const children = await this.sensorRepository.find({
+    // Inside the tenant boundary (SENSOR-HIGH-148). A failed read propagates:
+    // reporting "no child sensors configured" for a database error would
+    // misstate the cause.
+    const children = await runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
+      tenantManagerRepo(qr.manager, Sensor).find({
         where: {
           parentId,
-          tenantId,
           sensorRole: SensorRole.CHILD,
           isActive: true,
         },
         order: { createdAt: 'ASC' },
-      });
+      }),
+    );
 
-      this.childSensorCache.set(cacheKey, children);
-      return children;
-    } catch (error) {
-      this.logger.error(
-        `Failed to fetch child sensors for parent ${parentId}: ${(error as Error).message}`,
-      );
-      return [];
-    }
+    this.childSensorCache.set(cacheKey, children);
+    return children;
   }
 
   /**
@@ -746,8 +765,9 @@ export class SensorIngestionService {
    */
   private async resolveChannelsByParameter(
     sensorId: string,
+    tenantId: string,
   ): Promise<Map<SensorReadingParameter, SensorDataChannel>> {
-    const channels = await this.calibrationService.getChannels(sensorId);
+    const channels = await this.calibrationService.getChannels(sensorId, tenantId);
     const byParameter = new Map<SensorReadingParameter, SensorDataChannel>();
     for (const channel of channels) {
       const parameter = parameterForChannelKey(channel.channelKey);
@@ -793,10 +813,6 @@ export class SensorIngestionService {
     readings: SensorReadings,
     channelsByParameter: Map<SensorReadingParameter, SensorDataChannel>,
   ): Promise<Map<SensorReadingParameter, SensorDataChannel>> {
-    if (!this.channelRepository) {
-      return channelsByParameter;
-    }
-
     const missing = SENSOR_READING_PARAMETERS.filter(
       (parameter) => readings[parameter] !== undefined && !channelsByParameter.has(parameter),
     );
@@ -804,26 +820,30 @@ export class SensorIngestionService {
       return channelsByParameter;
     }
 
-    await this.channelRepository
-      .createQueryBuilder()
-      .insert()
-      .into(SensorDataChannel)
-      .values(
-        missing.map((parameter) => ({
-          sensorId,
-          tenantId,
-          // The canonical device-naming spelling, not the camelCase parameter:
-          // a platform-minted channel must be indistinguishable from the one a
-          // device would have registered, so the (tenant, sensor, channel_key)
-          // constraint dedupes them instead of leaving two channels for one
-          // parameter.
-          channelKey: canonicalChannelKeyForParameter(parameter),
-          displayLabel: parameter,
-          discoverySource: DiscoverySource.AUTO,
-        })),
-      )
-      .orIgnore()
-      .execute();
+    // Inside the sensor's tenant boundary: the channel table's RLS WITH CHECK
+    // refuses an insert from a session bound to no tenant (SENSOR-HIGH-148).
+    await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
+      qr.manager
+        .createQueryBuilder()
+        .insert()
+        .into(SensorDataChannel)
+        .values(
+          missing.map((parameter) => ({
+            sensorId,
+            tenantId,
+            // The canonical device-naming spelling, not the camelCase parameter:
+            // a platform-minted channel must be indistinguishable from the one a
+            // device would have registered, so the (tenant, sensor, channel_key)
+            // constraint dedupes them instead of leaving two channels for one
+            // parameter.
+            channelKey: canonicalChannelKeyForParameter(parameter),
+            displayLabel: parameter,
+            discoverySource: DiscoverySource.AUTO,
+          })),
+        )
+        .orIgnore()
+        .execute(),
+    );
 
     this.logger.log(
       `Sensor ${sensorId}: auto-provisioned ${missing.length} data channel(s) for reported ` +
@@ -833,7 +853,7 @@ export class SensorIngestionService {
     // The sensor's channel set changed; drop the cached copy so this ingest and
     // every later one resolve the new channels.
     this.calibrationService.clearCache(sensorId);
-    return this.resolveChannelsByParameter(sensorId);
+    return this.resolveChannelsByParameter(sensorId, tenantId);
   }
 
   /**

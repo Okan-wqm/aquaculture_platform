@@ -523,6 +523,12 @@ class AdjudicationPublicApiPin(unittest.TestCase):
         "adjudication_contract_errors",
         "read_adjudication",
         "validate_adjudication_response",
+        # ARIA-HIGH-360 — the panel sweep's skip rule, and the selection
+        # boundary's reading of it: an envelope is claimable only while the
+        # sweep would still read its answer.
+        "ESCALATION_REF_PREFIX",
+        "adjudication_envelope_is_moot",
+        "panel_skip_reason",
     })
 
     def test_all_matches_the_canonical_set_exactly(self) -> None:

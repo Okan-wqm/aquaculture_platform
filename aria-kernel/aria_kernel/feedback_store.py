@@ -1253,6 +1253,27 @@ def _within_sampling_recency(
     return (reference - recorded_dt) <= timedelta(hours=SAMPLE_RECENCY_HOURS)
 
 
+def resolve_raw_finding(row: dict[str, Any], *, base_dir: str | Path | None) -> dict[str, Any]:
+    """The finding a raw-findings row reports, as the sampler reads it.
+
+    ORPHAN-HIGH-798 — three-tier resolution: inline finding (legacy v1),
+    finding_summary (new compact rows, has rule+id but not full content),
+    artifact_ref fallback (full content from the artifact payload). The
+    sampler needs rule/fingerprint for bucketing and the finding content for
+    the judge prompt; ARIA-HIGH-360's judge re-mint rebuilds the same prompt
+    from the same row, so both read it here.
+    """
+    finding = row.get("finding") if isinstance(row.get("finding"), dict) else {}
+    if not finding:
+        summary = row.get("finding_summary") if isinstance(row.get("finding_summary"), dict) else {}
+        if summary.get("rule"):
+            # Compact row: we know the rule; full content from artifact
+            finding = resolve_finding_from_artifact(row, base_dir=base_dir) or summary
+        elif row.get("artifact_ref"):
+            finding = resolve_finding_from_artifact(row, base_dir=base_dir) or {}
+    return finding
+
+
 def _sampleable_raw_findings(
     *,
     tool_id: str,
@@ -1285,20 +1306,7 @@ def _sampleable_raw_findings(
         # recent night's findings permanently unsampleable.
         if not _within_sampling_recency(row, cycle_id):
             continue
-        # ORPHAN-HIGH-798 — three-tier resolution: inline finding (legacy v1),
-        # finding_summary (new compact rows, has rule+id but not full content),
-        # artifact_ref fallback (full content from the artifact payload).
-        # The sampler needs rule/fingerprint for bucketing and the finding
-        # content for the judge prompt — resolve from the artifact when the
-        # inline object is absent.
-        finding = row.get("finding") if isinstance(row.get("finding"), dict) else {}
-        if not finding:
-            summary = row.get("finding_summary") if isinstance(row.get("finding_summary"), dict) else {}
-            if summary.get("rule"):
-                # Compact row: we know the rule; full content from artifact
-                finding = resolve_finding_from_artifact(row, base_dir=base_dir) or summary
-            elif row.get("artifact_ref"):
-                finding = resolve_finding_from_artifact(row, base_dir=base_dir) or {}
+        finding = resolve_raw_finding(row, base_dir=base_dir)
         finding_id = str(row.get("finding_id") or finding.get("id") or "")
         run_id = str(row.get("run_id") or "")
         if not finding_id or not run_id or (run_id, finding_id) in existing_feedback:
@@ -1561,7 +1569,9 @@ def _optional_string_list(value: Any) -> list[str]:
     return [str(item) for item in value] if _valid_string_list(value) else []
 
 
-def _confirmed_false_positive_fingerprints(base_dir: str | Path | None) -> dict[str, dict[str, Any]]:
+def _confirmed_false_positive_fingerprints(
+    base_dir: str | Path | None, *, feedback: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Plan 023 v3 §F-1 — suppression eligibility filter.
 
     Pre-Plan-023 this read filtered ONLY on `verdict == "false_positive"`,
@@ -1587,7 +1597,7 @@ def _confirmed_false_positive_fingerprints(base_dir: str | Path | None) -> dict[
     that a third judge was minted to attack and failed to overturn.
     """
     confirmed: dict[str, dict[str, Any]] = {}
-    for row in load_feedback(base_dir=base_dir):
+    for row in feedback if feedback is not None else load_feedback(base_dir=base_dir):
         if row.get("verdict") != "false_positive":
             continue
         # JJ-1 — ground-truth filter (one predicate, five readers). Raw

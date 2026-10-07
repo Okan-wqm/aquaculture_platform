@@ -1,0 +1,45 @@
+{
+  "$schema": "aria/agent-response/v1",
+  "agent_id": "ci-executor:gha-37597499191",
+  "claim_id": "claim_699f3cbf595dc513",
+  "details": {
+    "agent_confidence_source": "self_reported",
+    "agent_contract_hash": "sha256:0a6e814cc8172156b992ec574de930b4bfab2de5bc0e76a0836989f6fc27bad1",
+    "agent_dispatch_model": "glm-5.3",
+    "agent_subagent_type": "aria-adversarial-judge",
+    "agent_text": "```json\n{\n  \"$schema\": \"aria/agent-response/v1\",\n  \"request_id\": \"AIR-aria-adversarial-judge-8e519fbea9c4\",\n  \"claim_id\": \"tenant-raw-query-missing-predicate:apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts:707\",\n  \"agent_id\": \"aria-adversarial-judge\",\n  \"role\": \"adversarial_judgment\",\n  \"status\": \"submitted\",\n  \"satisfaction_matrix\": [\n    {\n      \"id\": \"verdict\",\n      \"verdict\": \"contradicted\",\n      \"note\": \"Independent reverse-order scan (anchored on the tail of the excerpt \u2014 the TenantErasureProofHandler/recovery machinery nearest the flagged region, not the head the evidence judge anchored on) contradicts the finding. The admissible evidence is an excerpt of lines 1-251 with truncated=true, so it is insufficient to cover the flagged line 707, and no file tool exists on this route to extend it; the hash could not be independently recomputed. What the excerpt does show cuts against the claim: the only visible raw read of the tenant-bound table admin.tenant_erasure_operations is explicitly tenant-predicated (WHERE \\\"tenantId\\\" = $1 AND status = 'IN_PROGRESS' FOR UPDATE), the INSERT binds tenantId as a value, and the rest of the file is cross-tenant operator machinery \u2014 SCHEMA_DELETION_POLL_LIMIT=25 and REQUEST_RECOVERY_LIMIT=25 sweeps, TENANT_ERASURE_REQUEST_RECOVERY_STALE_SECONDS staleness recovery, and a single-replica advisory-lock scheduled tick claiming jobs FOR UPDATE SKIP LOCKED (commit e9158de63845) \u2014 where a missing single-tenant predicate is the intended shape, not a defect.\",\n      \"evidence_refs\": [\"apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts\"]\n    }\n  ],\n  \"evidence_refs\": [\"apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts\"],\n  \"details\": {\n    \"claim_id_note\": \"request carried no kernel-minted claim_id; claim_id echoes the finding under judgment\",\n    \"verdict\": {\n      \"tool_id\": \"tenant-scoping-adapter\",\n      \"finding_id\": \"tenant-raw-query-missing-predicate:apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts:707\",\n      \"verdict\": \"false_positive\",\n      \"judge_id\": \"aria-adversarial-judge\",\n      \"model\": \"glm-5.3\",\n      \"confidence\": 0.62,\n      \"rationale\": \"The task: falsify a high-severity tenant-scoping finding claiming a raw query at line 707 executes without a tenant predicate. Why the check matters: this rule family guards against cross-tenant reads/writes in services with an ambient per-request tenant context \u2014 a real miss lets one tenant's data surface under another tenant's scope, and the downstream surface here is the GDPR erasure proof/recovery pipeline. Evidence check: the provided excerpt covers lines 1-251 only (truncated=true) \u2014 insufficient to reach line 707 \u2014 and this route provides no file tool, so I say which: the excerpt, not the hash, is the limiting factor; I judged on what is admissible. Cause/effect chain of the contradiction: (1) the file's visible raw read of admin.tenant_erasure_operations is predicate-disciplined \u2014 WHERE \\\"tenantId\\\" = $1 AND status = 'IN_PROGRESS' FOR UPDATE \u2014 and the INSERT binds tenantId, so the author's established pattern contradicts a forgotten-predicate reading; (2) the file's remaining surface is platform-operator machinery \u2014 poll/recovery sweeps (SCHEMA_DELETION_POLL_LIMIT, REQUEST_RECOVERY_LIMIT, TENANT_ERASURE_REQUEST_RECOVERY_STALE_SECONDS) and an advisory-lock scheduled tick claiming jobs FOR UPDATE SKIP LOCKED \u2014 whose queries intentionally span tenants or are keyed by globally unique operationId/jobId in the shared admin schema; (3) admin-api-service is a cross-tenant operator service with no ambient per-request tenant scope on scheduled proof/recovery paths, unlike the sensor-service per-request scopes this rule's sibling findings target. A line-707 query inside that machinery without a single-tenant predicate is expected behavior, not an isolation defect. The finding is directionally plausible but unsupported by concrete admissible evidence at the cited line \u2014 ...",
+    "claim_id_note": "request carried no kernel-minted claim_id; claim_id echoes the finding under judgment",
+    "counter_evidence_refs": [
+      "apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts"
+    ],
+    "runtime_attempt_ledger_hash": "sha256:e8e7213fcc21f4d7e4dfdccba406a8cda866bb4c87daefe154bf212d4e226ff4",
+    "verdict": {
+      "confidence": 0.62,
+      "evidence_refs": [
+        "apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts"
+      ],
+      "finding_id": "tenant-raw-query-missing-predicate:apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts:707",
+      "judge_id": "aria-adversarial-judge",
+      "model": "glm-5.3",
+      "rationale": "The task: falsify a high-severity tenant-scoping finding claiming a raw query at line 707 executes without a tenant predicate. Why the check matters: this rule family guards against cross-tenant reads/writes in services with an ambient per-request tenant context \u2014 a real miss lets one tenant's data surface under another tenant's scope, and the downstream surface here is the GDPR erasure proof/recovery pipeline. Evidence check: the provided excerpt covers lines 1-251 only (truncated=true) \u2014 insufficient to reach line 707 \u2014 and this route provides no file tool, so I say which: the excerpt, not the hash, is the limiting factor; I judged on what is admissible. Cause/effect chain of the contradiction: (1) the file's visible raw read of admin.tenant_erasure_operations is predicate-disciplined \u2014 WHERE \"tenantId\" = $1 AND status = 'IN_PROGRESS' FOR UPDATE \u2014 and the INSERT binds tenantId, so the author's established pattern contradicts a forgotten-predicate reading; (2) the file's remaining surface is platform-operator machinery \u2014 poll/recovery sweeps (SCHEMA_DELETION_POLL_LIMIT, REQUEST_RECOVERY_LIMIT, TENANT_ERASURE_REQUEST_RECOVERY_STALE_SECONDS) and an advisory-lock scheduled tick claiming jobs FOR UPDATE SKIP LOCKED \u2014 whose queries intentionally span tenants or are keyed by globally unique operationId/jobId in the shared admin schema; (3) admin-api-service is a cross-tenant operator service with no ambient per-request tenant scope on scheduled proof/recovery paths, unlike the sensor-service per-request scopes this rule's sibling findings target. A line-707 query inside that machinery without a single-tenant predicate is expected behavior, not an isolation defect. The finding is directionally plausible but unsupported by concrete admissible evidence at the cited line \u2014 false_positive at moderate confidence. Residual risk kept at 0.62 (not higher): line 707 itself is unverifiable from the excerpt, and sibling tenant-scoping findings in this domain have repeatedly required operator adjudication.",
+      "tool_id": "tenant-scoping-adapter",
+      "verdict": "false_positive"
+    }
+  },
+  "evidence_refs": [
+    "apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts"
+  ],
+  "request_id": "AIR-aria-adversarial-judge-8e519fbea9c4",
+  "role": "adversarial_judgment",
+  "satisfaction_matrix": [
+    {
+      "evidence_refs": [
+        "apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts"
+      ],
+      "id": "verdict",
+      "note": "Independent reverse-order scan (anchored on the tail of the excerpt \u2014 the TenantErasureProofHandler/recovery machinery nearest the flagged region, not the head the evidence judge anchored on) contradicts the finding. The admissible evidence is an excerpt of lines 1-251 with truncated=true, so it is insufficient to cover the flagged line 707, and no file tool exists on this route to extend it; the hash could not be independently recomputed. What the excerpt does show cuts against the claim: the only visible raw read of the tenant-bound table admin.tenant_erasure_operations is explicitly tenant-predicated (WHERE \"tenantId\" = $1 AND status = 'IN_PROGRESS' FOR UPDATE), the INSERT binds tenantId as a value, and the rest of the file is cross-tenant operator machinery \u2014 SCHEMA_DELETION_POLL_LIMIT=25 and REQUEST_RECOVERY_LIMIT=25 sweeps, TENANT_ERASURE_REQUEST_RECOVERY_STALE_SECONDS staleness recovery, and a single-replica advisory-lock scheduled tick claiming jobs FOR UPDATE SKIP LOCKED (commit e9158de63845) \u2014 where a missing single-tenant predicate is the intended shape, not a defect.",
+      "verdict": "contradicted"
+    }
+  ],
+  "status": "submitted"
+}

@@ -848,6 +848,8 @@ def _render_repository_map(repository_map: Any) -> str:
 
     impacted = repository_map.get("impacted_projects") or []
     if impacted:
+        from .twin_test_surface import render_project_tests
+
         lines.append("")
         lines.append("Projects in the blast radius:")
         for item in impacted:
@@ -856,6 +858,7 @@ def _render_repository_map(repository_map: Any) -> str:
                 dependents = item[1].get("dependents") or []
                 suffix = f" → dependents: {', '.join(f'`{d}`' for d in dependents)}" if dependents else ""
                 lines.append(f"- `{item[0]}` (layer {item[1].get('layer')}){suffix}")
+                lines.extend(render_project_tests(item[1]))
     return "\n".join(lines) + "\n\n"
 
 

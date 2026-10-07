@@ -8,7 +8,9 @@ edges (deep twin is Wave 10, conditional on a consumer proving need).
 
     1. project dependency — reused from ``impact_graph`` (the SSoT for the
        project graph; a second scanner is how two graphs disagree)
-    2. test↔source — TESTED_BY edges from path convention + import scan
+    2. test↔source — TESTED_BY edges from path convention + import scan, and
+       each project's test targets and spec files (``twin_test_surface``,
+       ARIA-MEDIUM-382)
     3. churn — per-file commit counts over a bounded history window
     4. co-change — file pairs that ship together (CO_CHANGES_WITH)
 
@@ -44,7 +46,11 @@ from .snapshot import (
 )
 
 TWIN_MAP_RELPATH = "twin/map.json"
-TWIN_SCHEMA_VERSION = 1
+# 2 adds each project's ``test_targets`` and ``spec_files`` (ARIA-MEDIUM-382);
+# a version-1 map is rebuilt whole by the next refresh, never patched.
+TWIN_SCHEMA_VERSION = 2
+# The context slice names at most this many spec files per project (and the count).
+CONTEXT_SPEC_FILES_SHOWN = 10
 
 # Churn/co-change window. Bounded so the map's cost is bounded; the window is
 # a signal-quality constant, not a completeness claim (the map records it).
@@ -108,7 +114,9 @@ def build_twin_map(
         }
         for name, meta in graph["projects"].items()
     }
-    tested_by = _tested_by_edges(root, _iter_test_files(root))
+    test_files = _iter_test_files(root)
+    projects = _with_test_surface(root, projects, test_files)
+    tested_by = _tested_by_edges(root, test_files)
     twin = {
         "schema_version": TWIN_SCHEMA_VERSION,
         "generated_at": utc_now(),
@@ -167,12 +175,14 @@ def refresh_twin_map(
     tools = ensure_tools_dir(base_dir)
     prior = read_twin_map(base_dir=tools)
     head = _head_sha(root)
-    if prior is None or not _commit_known(root, str(prior.get("indexed_sha") or "")):
+    stale_schema = prior is not None and prior.get("schema_version") != TWIN_SCHEMA_VERSION
+    if prior is None or stale_schema or not _commit_known(root, str(prior.get("indexed_sha") or "")):
         twin = build_twin_map(
             workspace_root=root, base_dir=tools, nx_graph_file=nx_graph_file, history_limit=history_limit,
             discovery=discovery,
         )
-        twin["refresh"] = {"mode": "full", "reason": "no_prior_map" if prior is None else "unknown_anchor"}
+        reason = "no_prior_map" if prior is None else "schema_changed" if stale_schema else "unknown_anchor"
+        twin["refresh"] = {"mode": "full", "reason": reason}
         _write_map(tools, twin)
         return twin
     anchor = str(prior["indexed_sha"])
@@ -211,6 +221,11 @@ def refresh_twin_map(
     else:
         projects = prior["projects"]
         graph_source = prior["graph_source"]
+    # ARIA-MEDIUM-382 — a spec added or a package.json script changed alters a
+    # project's test surface without touching the graph, so it is recomputed on
+    # every refresh by the function the full build uses (one tree walk, ~1 s here).
+    all_test_files = _iter_test_files(root)
+    projects = _with_test_surface(root, projects, all_test_files)
 
     tested_by = dict(prior.get("tested_by") or {})
     changed_tests = [p for p in changed if _is_test_file(p)]
@@ -221,9 +236,8 @@ def refresh_twin_map(
         # all those dependencies (including previously unresolved imports).
         # Rebuild this association layer through its existing extractor.
         # This is cycle scan work, not bounded per-request qualification.
-        test_files = _iter_test_files(root)
-        tested_by = _tested_by_edges(root, test_files)
-        reparsed_tests = len(test_files)
+        tested_by = _tested_by_edges(root, all_test_files)
+        reparsed_tests = len(all_test_files)
     elif changed_tests:
         changed_test_set = set(changed_tests)
         # Replace surviving changed tests' associations as well as removing
@@ -660,16 +674,32 @@ def twin_context_for_files(twin: dict[str, Any], files: list[str]) -> dict[str, 
         "indexed_sha": twin.get("indexed_sha"),
         "files": entries,
         "impacted_projects": sorted(
-            {
-                p: {
-                    "layer": projects.get(p, {}).get("layer"),
-                    "depends_on": projects.get(p, {}).get("depends_on", []),
-                    "dependents": projects.get(p, {}).get("dependents", []),
-                }
-                for p in impacted_projects
-            }.items()
+            {p: _impacted_project_view(projects.get(p, {})) for p in impacted_projects}.items()
         ),
     }
+
+
+def _impacted_project_view(meta: dict[str, Any]) -> dict[str, Any]:
+    """One project of the blast radius; a v2 map adds what tests it (ARIA-MEDIUM-382)."""
+    view = {
+        "layer": meta.get("layer"),
+        "depends_on": meta.get("depends_on", []),
+        "dependents": meta.get("dependents", []),
+    }
+    if "test_targets" in meta:
+        specs = list(meta.get("spec_files") or [])
+        view.update(test_targets=list(meta["test_targets"]), spec_file_count=len(specs),
+                    spec_files=specs[:CONTEXT_SPEC_FILES_SHOWN])
+    return view
+
+
+def _with_test_surface(root: Path, projects: dict[str, Any], test_files: list[Path]) -> dict[str, Any]:
+    """``projects`` with each entry's test targets and spec files (``twin_test_surface``)."""
+    from .twin_test_surface import project_test_surface
+
+    rels = [path.relative_to(root).as_posix() for path in test_files]
+    surface = project_test_surface(root, projects, rels)
+    return {name: {**meta, **surface[name]} for name, meta in projects.items()}
 
 
 # --- layer builders -------------------------------------------------------

@@ -925,6 +925,14 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         raise GovernanceError(f"{candidate['status']} tool requires runner configuration")
     if "runner" in candidate:
         candidate["runner"] = validate_runner_definition(candidate["runner"])
+    if "quarantine" in candidate:
+        # ARIA-MEDIUM-378 — a named quarantine is refused at the one write
+        # gate unless it names a registry finding and a reason.
+        from .adapter_quarantine import validate_manifest_quarantine
+
+        candidate["quarantine"] = validate_manifest_quarantine(
+            candidate["quarantine"], tool_id=str(candidate["tool_id"]),
+        )
     candidate.setdefault("created_at", utc_now())
     candidate["updated_at"] = utc_now()
     return candidate

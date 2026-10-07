@@ -70,6 +70,7 @@ import {
   mergeInProgressRef,
   stagedChangedFiles,
 } from './git-diff-ranges';
+import { isGatingExcuse, registeredFindingIds } from './banned-phrase-excuse';
 
 const REPO_ROOT = (() => {
   try {
@@ -275,6 +276,9 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   /^CONTRIBUTING\.md$/,
   /^SECURITY\.md$/,
   /^tools\/gates\/banned-phrase\.(ts|mjs)$/,
+  // The tree-mode excuse classifier names the non-excuse senses of each
+  // banned word in order to recognise them (meta-text, same as this file).
+  /^tools\/gates\/banned-phrase-excuse\.ts$/,
   /^tools\/gates\/banned-phrase\.test\.(ts|mjs)$/,
   /^tools\/scripts\/seed-finding-registry\.(mjs|ts)$/, // finding seed text references banned phrases by name (meta-text)
   /^tests\/invariants\//,
@@ -467,6 +471,23 @@ function scanFile(relPath: string, ignoreExemptions = false): Violation[] {
   return scanContent(content, relPath, ALLOW_IF_WINDOW_FILE);
 }
 
+/** Tree mode: scanFile's hits, kept only where the word is a gating excuse. */
+function scanFileForExcuses(relPath: string, ignoreExemptions = false): Violation[] {
+  const hits = scanFile(relPath, ignoreExemptions);
+  if (hits.length === 0) return hits;
+  const lines = readFileSync(resolve(REPO_ROOT, relPath), 'utf8').split('\n');
+  return hits.filter((v) =>
+    isGatingExcuse(
+      relPath,
+      lines[v.line - 1] ?? '',
+      v.column - 1,
+      v.phrase,
+      lines[v.line] ?? '',
+      registeredFindingIds(REPO_ROOT),
+    ),
+  );
+}
+
 /**
  * Like scanFile but only reports hits whose (1-based) line number is in
  * `onlyLines`. Used by range mode to restrict the gate to lines the PR
@@ -653,6 +674,20 @@ function main(): void {
       violations.push(...scanFileAddedLinesOnly(f, added, ignoreExemptions));
     }
     violations.push(...scanRangeCommitBodies(baseRef, headRef));
+  } else if (mode === 'tree') {
+    // ARIA-MEDIUM-378 — every tracked file at HEAD, exemptions honoured: the
+    // scan the ARIA banned-phrase adapter runs each cycle. Staged mode, the
+    // adapter's former default, sees nothing in a cycle checkout.
+    // ARIA-MEDIUM-380 — on main the word rules alone are mostly the word in
+    // another sense (a domain value, a technical term, a document describing
+    // something else); the tree scan keeps only gating excuses
+    // (banned-phrase-excuse.ts). Diff-time modes stay word-strict.
+    const tracked = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z'], { encoding: 'utf8' })
+      .split('\0')
+      .filter((f) => f.length > 0);
+    for (const f of tracked) {
+      violations.push(...scanFileForExcuses(f, ignoreExemptions));
+    }
   } else if (mode === 'commit') {
     violations.push(...scanCommitBody());
   } else if (mode === 'file') {

@@ -2830,6 +2830,7 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
     is the door that can ask.
     """
     from .adapter_fixture_contract import assert_fixture_backed
+    from .adapter_quarantine import apply_manifest_quarantine, assert_manifest_quarantine_stands
 
     manifest_dir = Path(context.workspace_root) / "tools" / "aria-adapters"
     # The manifest's `status` is the tool's BIRTH status; after registration
@@ -2848,16 +2849,25 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
         for tool in list_tools(base_dir=context.base_dir)
     }
     synced: list[str] = []
+    quarantined_by_manifest: list[dict[str, str]] = []
     refused: list[dict[str, str]] = []
     for manifest_path in sorted(manifest_dir.glob("*.tool.json")):
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             assert_fixture_backed(manifest, context.workspace_root)
+            assert_manifest_quarantine_stands(manifest, repo_root=context.workspace_root)
             live_status = live_status_by_id.get(str(manifest.get("tool_id")))
             if live_status is not None:
                 manifest = {**manifest, "status": live_status}
             register_tool(manifest, base_dir=context.base_dir)
             synced.append(str(manifest.get("tool_id") or manifest_path.stem))
+            # ARIA-MEDIUM-378 — a manifest that names a quarantine is
+            # registered like every other one and then held QUARANTINED, so
+            # the adapter is visible by name every night instead of running
+            # as a silent no-op (adapter_quarantine).
+            quarantined = apply_manifest_quarantine(manifest, base_dir=context.base_dir)
+            if quarantined is not None:
+                quarantined_by_manifest.append(quarantined)
         except (GovernanceError, ValueError, OSError) as exc:
             refused.append({
                 "manifest": manifest_path.name,
@@ -2897,6 +2907,7 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
     return {
         "status": "synced",
         "synced_tool_ids": synced,
+        "quarantined_by_manifest": quarantined_by_manifest,
         "refused": refused,
         "manifest_dir": str(manifest_dir),
         "promotions_activated": veto_settlement.get("activated") or [],

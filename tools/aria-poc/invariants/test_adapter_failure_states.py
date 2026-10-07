@@ -66,33 +66,49 @@ class BannedPhraseUnavailableTests(unittest.TestCase):
         self.assertEqual(body["status"], "unavailable")
 
 
+class BannedPhraseTimeoutTests(unittest.TestCase):
+    def test_a_gate_timeout_is_unavailable_not_a_crash(self) -> None:
+        import subprocess
+
+        root = Path(tempfile.mkdtemp(prefix="aria-banned-timeout-"))
+        self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
+        for rel in (banned.GATE_TS_NODE, banned.GATE_SCRIPT):
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text("", encoding="utf-8")
+        with mock.patch.object(banned.subprocess, "run",
+                               side_effect=subprocess.TimeoutExpired(cmd="ts-node", timeout=60)):
+            code, text = banned._invoke_banned_phrase_cli(root, mode="tree")
+        self.assertEqual(code, 124)
+        self.assertIn("timed out", text)
+
+
 class OutboxIncompleteTests(unittest.TestCase):
     def setUp(self) -> None:
         self.root = Path(tempfile.mkdtemp(prefix="aria-outbox-"))
         self.addCleanup(lambda: shutil.rmtree(self.root, ignore_errors=True))
 
     def test_unreadable_source_marks_envelope_incomplete(self) -> None:
-        good = self.root / "src" / "svc.ts"
+        good = self.root / "apps" / "x" / "src" / "svc.ts"
         good.parent.mkdir(parents=True)
         good.write_text("export const x = 1;\n", encoding="utf-8")
-        bad = self.root / "src" / "broken.ts"
+        bad = self.root / "apps" / "x" / "src" / "broken.ts"
         # Valid path, invalid UTF-8 payload: read_text raises
         # UnicodeDecodeError, the exact production shape of an
         # unreadable in-scope source.
         bad.write_bytes(b"\xff\xfe\x00bad\xff")
 
-        envelope = outbox.scan(self.root, allowed_paths=["src/svc.ts", "src/broken.ts"])
+        envelope = outbox.scan(self.root, allowed_paths=["apps/x/src/svc.ts", "apps/x/src/broken.ts"])
 
         self.assertEqual(envelope["metadata"]["unreadable_file_count"], 1)
-        self.assertIn("src/broken.ts", envelope["metadata"]["unreadable_paths"])
+        self.assertIn("apps/x/src/broken.ts", envelope["metadata"]["unreadable_paths"])
         self.assertEqual(envelope["status"], "incomplete")
 
     def test_fully_readable_scan_has_no_status_override(self) -> None:
-        good = self.root / "src" / "svc.ts"
+        good = self.root / "apps" / "x" / "src" / "svc.ts"
         good.parent.mkdir(parents=True)
         good.write_text("export const x = 1;\n", encoding="utf-8")
 
-        envelope = outbox.scan(self.root, allowed_paths=["src/svc.ts"])
+        envelope = outbox.scan(self.root, allowed_paths=["apps/x/src/svc.ts"])
 
         self.assertNotIn("status", envelope)
         self.assertEqual(envelope["metadata"]["scanned_file_count"], 1)

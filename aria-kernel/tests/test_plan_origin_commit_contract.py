@@ -189,6 +189,19 @@ class OriginAndContractTests(unittest.TestCase):
         self.assertIn("Never invent one", without)
         self.assertEqual(render_commit_contract_section(None), "")
 
+    def test_a_trailerless_section_names_the_refused_fix_subject_and_the_literal_command(self) -> None:
+        # ARIA-HIGH-371 — an F-origin plan (F-015) is a defect fix whose
+        # contract refuses a `fix` subject; the repository CLAUDE.md the
+        # agent also reads demands `fix(...)` + `Closes:`. The section must
+        # name the refused types, the precedence and one literal command.
+        f_origin = render_commit_contract_section(commit_contract_for_plan({"finding_id": "F-015"}, plan_id="p"))
+        self.assertIn("Refused for this origin: a subject opening with `fix`, `feat`, `security`", f_origin)
+        self.assertIn("replaces the repository CLAUDE.md commit format", f_origin)
+        self.assertIn('`git commit -m "refactor(<scope>): <subject>" -m "<why>"`', f_origin)
+        orphan = render_commit_contract_section(commit_contract_for_plan({"finding_id": "ORPHAN-HIGH-104"}, plan_id="p"))
+        self.assertNotIn("Refused for this origin", orphan)
+        self.assertIn('-m "Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-104"`', orphan)
+
 
 class CommitsAreJudgedTests(unittest.TestCase):
     ORPHAN = commit_contract_for_plan({"finding_id": "ORPHAN-HIGH-104"}, plan_id="plan-1")
@@ -273,7 +286,8 @@ class TheSynthesizerRecordsTheOriginTests(unittest.TestCase):
         import os
         from unittest import mock
 
-        from aria_kernel.finding_grounding import admit_candidate, load_grounding_context
+        from aria_kernel.finding_grounding import load_grounding_context
+        from aria_kernel.finding_seed import SubjectProbe, admit_and_seed
         from aria_kernel.plan_synthesizer import PlanEvidenceGround
         from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture
 
@@ -288,11 +302,12 @@ class TheSynthesizerRecordsTheOriginTests(unittest.TestCase):
                 "source_type": PlanCandidateSource.F_FINDING.value, "candidate_id": "F-099",
                 "mtime": 1.0, "title_hint": "Process F-099",
             }
+            # ARIA-HIGH-260 — the aging source is judged against the store's loop
+            # history; ARIA-HIGH-369 — and planned from its re-grounded seed.
+            admission, seeded = admit_and_seed(
+                candidate, load_grounding_context(fixture.repo, tools_root=fixture.tools), SubjectProbe({}))
             f_finding = convert_candidate_to_plan_content(
-                # ARIA-HIGH-260 — the aging source is judged against the store's loop history.
-                candidate, admission=admit_candidate(
-                    candidate, load_grounding_context(fixture.repo, tools_root=fixture.tools)),
-                ground=ground,
+                candidate, admission=admission, ground=ground, seed=seeded.seed,
             ).envelope
             orphan = convert_candidate_to_plan_content({
                 "source_type": PlanCandidateSource.ORPHAN_FINDING.value, "candidate_id": "ORPHAN-HIGH-104",

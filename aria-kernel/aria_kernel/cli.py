@@ -2779,8 +2779,11 @@ def build_parser() -> argparse.ArgumentParser:
     # timeout: the resumable drainer waits on nothing). Default
     # numerics come from convergence_drainer.run_convergence_drainer
     # signature + budget.DEFAULT_MAX_BUDGET_USD_PER_RUN.
+    from .convergence_drainer import AUTONOMY_CYCLE_MAX_ROUNDS
+
     auto_run.add_argument(
-        "--max-rounds", type=int, default=2,
+        # ARIA-HIGH-368 — the executor's in-run advance reads the same cap.
+        "--max-rounds", type=int, default=AUTONOMY_CYCLE_MAX_ROUNDS,
         help="Max convergence rounds per plan (default 2 for "
              "autonomous cycles). Reduced from V5.1 default 4 because "
              "V8 P+C+CR multiplies LLM cost per round.",

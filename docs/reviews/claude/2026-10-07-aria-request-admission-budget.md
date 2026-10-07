@@ -79,6 +79,21 @@ Fix:
   serialized by the shared concurrency group and the state-writer lease. The door's in-process
   view refolds when another writer has appended.
 
+### Merged with main (#1825, #1826, #1836, train #1850)
+
+- One new mint site: `judge_remint.remint_judge_request`, reached from the panel re-mint
+  (`remint_judge_for_panel`) and the anchor-stale disposition (`anchor_stale_effects.remint_judge`).
+  Both now carry an admission that inherits the dead judge's recorded class
+  (`human_required_panel.remint*`, `anchor_stale.remint*`). The executor convergence advance runs
+  the drainer (plan steps, critical path; it never seeds), and the converged seam mints through
+  the implementer (critical path).
+- MEDIUM-5: `remint_judge` re-raises `RequestAdmissionThrottled` ahead of its `GovernanceError`
+  operator arm, and the sweep records nothing for that request (`throttled_retry`). The next sweep
+  decides it again; it is never an operator escalation.
+- One admission predicate for an outage: `provider_outage.provider_outage` over the cooldown rows.
+  `provider_clock` (ARIA-HIGH-365) reads the outage intervals to answer "was the provider out
+  then", which the lease reaper asks; it does not admit.
+
 ## ARIA-MEDIUM-376
 
 `aria-kernel convergent-plan` could not run at all. The subcommand imported

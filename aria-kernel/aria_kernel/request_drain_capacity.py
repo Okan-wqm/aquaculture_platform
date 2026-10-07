@@ -183,7 +183,7 @@ def measure_drain_capacity(root: Path, *, now: datetime, policy: AdmissionPolicy
     from .agent_invocations import _anchor_max_age_seconds, derive_request_states
 
     requests, results, claims = _request_ledgers(root)
-    states = derive_request_states(base_dir=root, now=now, _ledgers=(requests, results, claims))
+    states = derive_request_states(base_dir=root, now=now, ledgers=(requests, results, claims))
     anchor_horizon = now - timedelta(seconds=_anchor_max_age_seconds(root))
     claimable: list[datetime] = []
     for row in requests:

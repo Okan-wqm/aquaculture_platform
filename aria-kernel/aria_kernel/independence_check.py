@@ -67,6 +67,12 @@ from .ledger import (
     segment_paths,
 )
 from .model_fleet import dispatching_provider_for_model
+
+# ARIA-HIGH-375 — the reason code a round that failed this module's checks is
+# escalated with (`plan_convergence.evaluate_plan`'s independence gate), and
+# the failure mode `agent_eval` keeps off the drafter's scorecard. Defined here,
+# with the checks it names, so both readers import one spelling.
+CROSS_REVIEW_SELF_AGREEMENT_REASON = "cross_review_self_agreement"
 from .tool_registry import GovernanceError
 
 

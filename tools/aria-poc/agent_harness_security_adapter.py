@@ -65,9 +65,10 @@ REPO_ROOT_ENV = "ARIA_REPO_ROOT"
 #   `allowed_read_globs` field, modulo `aria-tools/registry.json` itself
 #   which is a single file glob handled below by direct read.
 #
-#   Source of truth: `aria-tools/registry.json` row for
-#   `agent-harness-security-adapter`. The invariant test
-#   `tools/aria-poc/test_adapter_scope_narrow.py
+#   Source of truth: `tools/aria-adapters/agent-harness-security-adapter
+#   .tool.json`, the manifest `aria-tools/registry.json` is compiled
+#   from. The invariant test
+#   `tools/aria-poc/invariants/test_adapter_scope_narrow.py
 #   ::test_agent_harness_security_adapter_scope_unchanged` pins this
 #   list to the manifest declaration; if the manifest changes, the
 #   test fails until the adapter is updated.

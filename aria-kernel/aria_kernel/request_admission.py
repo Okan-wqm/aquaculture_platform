@@ -124,6 +124,15 @@ PRODUCER_CLASSES: Final[Mapping[str, ProducerClass]] = {
     "human_required_panel.remint": ProducerClass(
         _same(DISCRETIONARY, *sorted(INVOCATION_ROLES)),
         "the record stays open; the next sweep folds the panel and re-applies the disposition"),
+    # ARIA-HIGH-360 — the anchor-stale disposition re-asks an expired judge
+    # (judge_remint.remint_judge_request). Same inheritance as the panel: the
+    # dead judge's recorded class. A refused re-mint writes no disposition
+    # record, so the next sweep decides the expired request again.
+    "anchor_stale.remint_critical": ProducerClass(
+        _same(CRITICAL_PATH, "evidence_judgment", "adversarial_judgment"), _RERUN),
+    "anchor_stale.remint": ProducerClass(
+        _same(DISCRETIONARY, "evidence_judgment", "adversarial_judgment"),
+        "no disposition is recorded; the next anchor-stale sweep decides the request again"),
     "goldset.curation": ProducerClass(
         _same(DISCRETIONARY, "goldset_curation"),
         "a ready proposal whose subject was never asked is offered again every cycle"),
@@ -342,6 +351,18 @@ def admit_request(
     return Admission(producer, role, purpose, cycle_key, count, admitted, reason)
 
 
+def inherits_critical_path(dead: Mapping[str, Any]) -> bool:
+    """Whether a dead request's successor inherits critical path (review of #1833, MEDIUM-2).
+
+    The mint records on every request the producer and class it was admitted
+    under (``request_admission``). Only that record decides; a row minted
+    before the door recorded none re-mints as discretionary: bounded, and
+    re-offered by its producer, so never lost.
+    """
+    recorded = dead.get("request_admission")
+    return isinstance(recorded, Mapping) and recorded.get("purpose_class") == CRITICAL_PATH
+
+
 def minted_row(admission: Admission, *, request_id: str) -> dict[str, Any]:
     """The admissions row the mint appends, in its own transaction, for a NEW identity."""
     return {
@@ -386,6 +407,7 @@ def require_admitted(admission: Admission) -> None:
 __all__ = [
     "CRITICAL_PATH", "DISCRETIONARY", "GOVERNANCE_KIND", "PRODUCER_CLASSES", "SEED_QUOTA_PRODUCERS",
     "THROTTLED_PREFIX", "Admission", "ProducerClass", "PurposeClass", "RequestAdmissionThrottled",
-    "admissions_path", "admit_request", "check_admission_binding", "cycle_key_for", "ledger_stamp",
+    "admissions_path", "admit_request", "check_admission_binding", "cycle_key_for", "inherits_critical_path",
+    "ledger_stamp",
     "ADMISSIONS_SURFACE", "minted_row", "note_minted", "require_admitted",
 ]

@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from aria_kernel import agent_eval
+from aria_kernel.failure_attribution import InvocationLedgersSource
 from aria_kernel.agent_eval import (
     LESSON_EPISODE_THRESHOLD,
     PERFORMANCE_SURFACE,
@@ -327,7 +328,7 @@ class ImplementationEnvelopeCarriesTheLessonTests(unittest.TestCase):
         )
         # The three red-CI episodes, built by the kernel's own episode builder
         # and appended the way the observation appends them.
-        for row in agent_eval._performance_episodes(fixture_history(), {}):
+        for row in agent_eval._performance_episodes(fixture_history(), {}, InvocationLedgersSource(self.tools)):
             append_declared_jsonl(self.tools / PROCEDURAL, {**row, "recorded_at": "2026-09-08T00:00:00+00:00"},
                                   expected_surface=PERFORMANCE_SURFACE)
 

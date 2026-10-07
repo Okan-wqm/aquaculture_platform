@@ -40,6 +40,16 @@ MANIFEST_PATH = "aria-tools/coverage/plan-1-r1.json"
 
 class PlanCoverageGateTests(unittest.TestCase):
     def setUp(self):
+        # ARIA-HIGH-375 — a cross-reviewed round is also judged by the
+        # independence gate inside evaluate_plan (its own tests:
+        # test_converged_independence_gate.py). These native-fold rounds carry
+        # no dispatch trail, so the gate is answered here: the subject is the
+        # coverage gate.
+        from unittest import mock
+
+        independence = mock.patch("aria_kernel.round_independence.verify_independence", return_value=(True, []))
+        independence.start()
+        self.addCleanup(independence.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name) / "workspace"
         self.root.mkdir()

@@ -521,6 +521,12 @@ def run_pressure(
                 ),
             ),
         )
+    # ARIA-HIGH-370 — each tool's dial (``calibration_dials``) scales the
+    # raw-delta pressure that carries its findings: the dial its labelled
+    # precision measures, moved only by the bounded actuator's ledger.
+    from .calibration_dials import TOOL_DIAL_NEUTRAL, tool_pressure_weights
+
+    _tool_dials = tool_pressure_weights(root)
     for run in list(read_runs_rows(runs_path(root), base_dir=root)):
         if run.get("cycle_id") != cycle_id:
             continue
@@ -543,9 +549,13 @@ def run_pressure(
             )
         delta = _raw_finding_delta(run, cycle_id, root)
         if run.get("status") == "ok" and delta > 0:
+            dial = _tool_dials.get(str(run.get("tool_id")), TOOL_DIAL_NEUTRAL)
+            dialled = _weights if dial == TOOL_DIAL_NEUTRAL else {
+                **_weights, "shadow_raw_delta": _weights["shadow_raw_delta"] * dial / TOOL_DIAL_NEUTRAL,
+            }
             pressures.append(
                 _pressure(
-                    weights=_weights,
+                    weights=dialled,
                     cycle_id=cycle_id,
                     source="shadow_raw_delta",
                     pressure_type="REPETITION",

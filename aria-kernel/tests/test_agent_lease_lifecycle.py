@@ -206,14 +206,13 @@ class LeaseLifecycleTests(unittest.TestCase):
         # Plan 026R §C.5 — DERIVED_STATES expanded with two bridge-
         # aware acceptance states (ACCEPTED_PENDING_BRIDGE +
         # ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL).
-        # V10.5 Phase 3 (per ADR-0001) — EXTERNAL_OUTAGE added for
-        # Anthropic API 529 transient outage handling.
         # ORPHAN-MEDIUM-492 — ANCHOR_STALE added, and deliberately NOT
         # folded into STALE: a lease-expired request is retryable, whereas
         # one anchored at an obsolete tree cannot be made current by
-        # retrying it. Count is now 14.
-        self.assertEqual(len(DERIVED_STATES), 14)
-        self.assertIn("EXTERNAL_OUTAGE", DERIVED_STATES)
+        # retrying it. ARIA-HIGH-366 — EXTERNAL_OUTAGE retired (no producer
+        # ever wrote its claim event). Count is now 13.
+        self.assertEqual(len(DERIVED_STATES), 13)
+        self.assertNotIn("EXTERNAL_OUTAGE", DERIVED_STATES)
         self.assertIn("ANCHOR_STALE", DERIVED_STATES)
         self.assertIn("ANCHOR_STALE", TERMINAL_REQUEST_STATES)
         # The two must stay separate names, not aliases: collapsing them

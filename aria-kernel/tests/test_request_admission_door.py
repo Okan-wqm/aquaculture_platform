@@ -32,12 +32,16 @@ _MINTS = frozenset({
     "issue_cross_review_envelope",
     "issue_implementation_envelope",
     "issue_primary_envelope",
+    # ARIA-HIGH-360's judge re-mint helpers carry their caller's admission.
+    "remint_judge_for_panel",
+    "remint_judge_request",
 })
 
 # Every production mint site, keyed (repo path, outermost function), with
 # the producer(s) whose admission it carries. A new site, or a stale one,
 # fails the build: a mint cannot appear without saying who admitted it.
 MINT_SITES: dict[tuple[str, str], str] = {
+    ("aria-kernel/aria_kernel/anchor_stale_effects.py", "remint_judge"): "anchor_stale.remint / remint_critical",
     ("aria-kernel/aria_kernel/autonomy_orchestrator.py", "_drain_next_cycle_queue"): "next_cycle_queue.projection",
     ("aria-kernel/aria_kernel/cli.py", "_main"): "operator_cli.request / operator_cli.convergent_plan",
     ("aria-kernel/aria_kernel/convergence_drainer.py", "run_convergence_drainer"):
@@ -61,6 +65,8 @@ MINT_SITES: dict[tuple[str, str], str] = {
         "human_required_panel.remint",
     ("aria-kernel/aria_kernel/judge_fanout.py", "dispatch_judges_for_sample"): "judge_fanout.sample",
     ("aria-kernel/aria_kernel/judge_fanout.py", "_mint_arbiter"): "judge_fanout.arbitration",
+    ("aria-kernel/aria_kernel/judge_remint.py", "remint_judge_request"): "the caller's admission",
+    ("aria-kernel/aria_kernel/judge_remint.py", "remint_judge_for_panel"): "the caller's admission",
     ("aria-kernel/aria_kernel/judge_replay.py", "replay_judges_on_goldset"): "judge_replay.goldset",
     ("aria-kernel/aria_kernel/plan_round_controller.py", "_ensure_planner_request"): "plan_round_controller.plan_step",
     ("aria-kernel/aria_kernel/plan_round_controller.py", "_ensure_cross_review_round"):
@@ -76,6 +82,7 @@ MINT_SITES: dict[tuple[str, str], str] = {
 PRODUCER_SELECTORS: frozenset[tuple[str, str]] = frozenset({
     ("aria-kernel/aria_kernel/convergence_drainer.py", "_seed_producer"),
     ("aria-kernel/aria_kernel/human_required_adjudication.py", "_remint_producer"),
+    ("aria-kernel/aria_kernel/anchor_stale_effects.py", "_anchor_remint_producer"),
 })
 
 

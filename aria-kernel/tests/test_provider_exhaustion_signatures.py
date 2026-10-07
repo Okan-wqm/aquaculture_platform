@@ -202,7 +202,9 @@ class ASignatureCoolsItsProvider(_Tools):
                 moment = self._NOW + timedelta(days=index)
                 row = self._record(signature, provider=provider, now=moment, claim=f"CL-{index}")
                 self.assertEqual(row["provider"], provider)
-                self.assertEqual(row["reason"], {"quota": "quota_unavailable", "auth": "auth_unavailable"}[kind])
+                self.assertEqual(row["reason"], {"quota": "quota_unavailable", "auth": "auth_unavailable",
+                                                 "logged_out": "logged_out",  # ARIA-HIGH-366
+                                                 "unreachable": "provider_unreachable"}[kind])
                 self.assertIn(provider, active_provider_cooldowns(self.tools, now=moment + timedelta(seconds=1)))
 
     def test_an_unlisted_or_misattributed_signature_is_refused(self) -> None:

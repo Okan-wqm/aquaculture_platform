@@ -359,7 +359,7 @@ def issue_primary_envelope(
         role=role,
         suggested_prompt=suggested_prompt,
         # ARIA-HIGH-309 — the lessons recorded plans in this plan's scope teach.
-        must_satisfy=[*must_satisfy, *planner_lesson_obligations(base_dir=base_dir, plan_id=plan_id)],
+        must_satisfy=[*must_satisfy, *planner_lesson_obligations(base_dir=base_dir, plan_id=plan_id, envelope_role=PRIMARY_REVISION_ROLE[1])],
         allowed_scope=allowed_scope,
         evidence_refs=evidence_refs,
         convergence_id=plan_id,

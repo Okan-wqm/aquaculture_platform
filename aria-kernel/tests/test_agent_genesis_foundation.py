@@ -198,24 +198,18 @@ class AgentGenesisFoundationTests(unittest.TestCase):
                 "runner": {"raw_findings_count": 0},
             },
         )
-        record_operator_feedback(
-            tool_id="capability_gap",
-            run_id="run-1",
-            finding_id="finding-1",
-            verdict="true_positive",
-            severity="medium",
-            note="valid",
-            base_dir=self.tools_dir,
-        )
-        record_operator_feedback(
-            tool_id="capability_gap",
-            run_id="run-2",
-            finding_id="finding-2",
-            verdict="true_positive",
-            severity="medium",
-            note="valid",
-            base_dir=self.tools_dir,
-        )
+        # ARIA-HIGH-370 (review of #1829) — a weight is recommended on ten
+        # labels or more (`calibration.MIN_LABELS`), never on two.
+        for n in range(1, 11):
+            record_operator_feedback(
+                tool_id="capability_gap",
+                run_id=f"run-{n}",
+                finding_id=f"finding-{n}",
+                verdict="true_positive",
+                severity="medium",
+                note="valid",
+                base_dir=self.tools_dir,
+            )
         payload = recommend_calibration(cycle_id="cycle-calibration", base_dir=self.tools_dir)
         self.assertTrue(payload["tool_recommendations"])
         self.assertTrue(payload["pressure_weight_recommendations"])

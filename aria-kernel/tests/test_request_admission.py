@@ -413,5 +413,35 @@ class AThrottledPanelReMintIsDeferredNotResolved(_Store):
         self.assertEqual(len(case._successors()), 1)
         self.assertEqual(case._record()["status"], "resolved")
 
+
+class AThrottledJudgeReMintRetriesWithNoRecord(_Store):
+    """Review of #1833 (MEDIUM-5): ARIA-HIGH-360's anchor-stale re-mint, refused by the door.
+
+    A refusal must not become an operator escalation (that would feed the
+    panels the anchor-stale disposition removed): no record is written, and
+    the next sweep decides the expired judge again.
+    """
+
+    def test_refused_this_sweep_reminted_the_next(self) -> None:
+        from tests._helpers.anchor_stale_store import EVIDENCE_JUDGE, AnchorStaleStore
+
+        case = AnchorStaleStore("setUp")
+        case.setUp()
+        self.addCleanup(case.tearDown)
+        dead = case.mint_judges(1)[EVIDENCE_JUDGE]
+        case.commit()
+        case.expire(dead)
+        with self.queue(_ledgers(50, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))):
+            held = case.sweep(cycle_id="cyc-1")
+        self.assertEqual([row["request_id"] for row in held["throttled_retry"]], [dead])
+        self.assertEqual(held["disposed"], [])
+        self.assertFalse(case.record_path(dead).exists())
+        self.assertEqual(case.successors(dead), [])
+        self.assertEqual(case.adjudication_requests(), [])
+        with self.queue(_ledgers(5, pending_age=timedelta(hours=1), drained=40, drained_age=timedelta(hours=2))):
+            case.sweep(cycle_id="cyc-2")
+        self.assertEqual(len(case.successors(dead)), 1)
+        self.assertEqual(case.record(dead)["status"], "resolved")
+
 if __name__ == "__main__":
     unittest.main()

@@ -55,8 +55,9 @@ from .tool_registry import (
 )
 from .workspace import governance_event
 
-if TYPE_CHECKING:  # the probe session is imported lazily where it is used
+if TYPE_CHECKING:  # the probe session and the clock are imported lazily where they are used
     from .evidence_probe import GitProbeSession
+    from .provider_clock import ProviderClock
 
 
 ROLES = INVOCATION_ROLES
@@ -2646,6 +2647,18 @@ HARNESS_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
     "provider_quota_unavailable:",
     "executor_uncaught_exit:",
     "human_required_record_unavailable:",
+    # ARIA-HIGH-366 — ``provider_unreachable:<provider>``: the vendor did not
+    # serve (429/529/network); an outage of the provider, never the request.
+    "provider_unreachable:",
+    # ARIA-HIGH-365 — ``anchor_expired_during_provider_outage:<providers>``: a
+    # request whose anchor window ran out although an outage of its role's
+    # provider overlapped the wait. Spelled once, by ARIA-HIGH-360's
+    # `anchor_expiry_cause.anchor_expiry_reason_in_outage`; pinned equal to
+    # its `ANCHOR_EXPIRED_IN_OUTAGE_PREFIX` by test_provider_outage_timers.
+    "anchor_expired_during_provider_outage:",
+    # ARIA-HIGH-367 — ``lease_expired_during_provider_outage:<provider>``:
+    # the lease ran out inside an open outage of the role's provider (M1).
+    "lease_expired_during_provider_outage:",
     # Typed-judgment plan Phase 4b — the batch child's ONE call failed for
     # every request it served: the vendor's or the host's state.
     "judge_batch_call_failed:",
@@ -2838,6 +2851,33 @@ def _latest_claim_row(rows: list[dict[str, Any]], request_id: str) -> dict[str, 
     return candidates[best_idx] if best_idx >= 0 else None
 
 
+def _escalation_stands(claims: list[dict[str, Any]], request_id: str) -> bool:
+    """Whether the request's ``human_required`` claim rows still escalate it.
+
+    ARIA-HIGH-367 (M2). This check used to be ``any(human_required row)``,
+    returned before the latest-claim fold, so the re-derivation in that fold's
+    ``human_required`` arm (written for exactly the rows below) could never
+    run: a request escalated when its releases were counted under an older,
+    wrong fault table stayed HUMAN_REQUIRED forever. Measured on the
+    production store: AIR-aria-autonomy-planner-eb17609b38b1 (three
+    ``claude_cli_exit_1`` releases, 2026-08-06..08) and
+    AIR-aria-autonomy-planner-228f33e15113 (three
+    ``prompt_hash_binding_mismatch``) — every release harness-class today.
+
+    An escalation STANDS when any of its rows names a cause that is not the
+    harness's (a deliberate executor escalation — branch collision, the
+    agent's refusal — an operator act, or a charged release), or when the
+    request-fault count still exceeds the ceiling. Only an escalation built
+    entirely from releases the harness owns is re-derived (and so healed).
+    """
+    rows = [row for row in claims if row.get("event") == "human_required" and row.get("request_id") == request_id]
+    if not rows:
+        return False
+    if any(not _is_harness_fault_reason(str(row.get("reason") or "")) for row in rows):
+        return True
+    return _request_fault_requeue_count(claims, request_id) > DEFAULT_MAX_REQUEUES
+
+
 def derive_request_state(
     *,
     request_id: str,
@@ -2923,18 +2963,8 @@ def derive_request_state(
     control = _control if _control is not None else effective_control(root)
     if control.is_cancelled(request_id):
         return CANCELLED_BY_OPERATOR_STATE
-    if any(row.get("event") == "human_required" and row.get("request_id") == request_id for row in claims):
+    if _escalation_stands(claims, request_id):
         return "HUMAN_REQUIRED"
-
-    # V10.5 Phase 3 (F-023, ADR-0001) — EXTERNAL_OUTAGE check AFTER
-    # HUMAN_REQUIRED to preserve HUMAN_REQUIRED stickiness. A transient
-    # Anthropic API 529 outage must NOT escape operator review. If the
-    # latest non-stale claim event for this request is api_backoff_exhausted,
-    # the request is in EXTERNAL_OUTAGE state (transient; reaped by
-    # external_outage_reaper after 30 min wall-clock).
-    latest_for_outage = _latest_claim_row(claims, request_id)
-    if latest_for_outage is not None and latest_for_outage.get("event") == "api_backoff_exhausted":
-        return "EXTERNAL_OUTAGE"
 
     # A durable prepared journal owns a commit-pending operation. Its lease
     # may expire while recovery is appending missing effects, but the request
@@ -2971,6 +3001,11 @@ def derive_request_state(
         if requeues > DEFAULT_MAX_REQUEUES:
             return "HUMAN_REQUIRED"
         return "REQUEUED" if requeues > 0 else "PENDING"
+    if event == "plan_closed":
+        # ARIA-HIGH-367 (H4) — the request's plan was ABANDONED while it sat
+        # unclaimed (`plan_request_closure`): terminal, never claimed again,
+        # so recovered quota is not spent answering into a closed plan.
+        return "CANCELLED"
     if event == "anchor_stale":
         # ORPHAN-MEDIUM-492 — terminal. The git evaluation happened at the
         # selection boundary (next_pending_request); this function stays a
@@ -3247,6 +3282,7 @@ def _anchor_refusal_reason(
     repo_root: Path,
     *,
     probes: "GitProbeSession",
+    clock: "ProviderClock",
     now: datetime | None = None,
     max_age_seconds: int = DEFAULT_ANCHOR_MAX_AGE_SECONDS,
 ) -> AnchorVerdict:
@@ -3318,12 +3354,51 @@ def _anchor_refusal_reason(
     created = _parse_iso(request.get("created_at"))
     if created is None:
         return AnchorVerdict(refusal="anchor_undatable")
-    age = ((now or _utc_now_dt()) - created).total_seconds()
-    if age > max_age_seconds:
-        return AnchorVerdict(refusal="anchor_expired")
+    expired = _anchor_expiry_reason(request, created, now or _utc_now_dt(), clock=clock,
+                                    max_age_seconds=max_age_seconds)
+    if expired is not None:
+        return AnchorVerdict(refusal=expired)
     if undecided is not None:
         return AnchorVerdict(undecided=undecided)
     return AnchorVerdict()
+
+
+def _anchor_expiry_reason(
+    request: dict[str, Any], created: datetime, now: datetime, *, clock: "ProviderClock",
+    max_age_seconds: int,
+) -> str | None:
+    """Why the request outlived its anchor window in PROVIDER-AVAILABLE time, or None.
+
+    ARIA-HIGH-365 (B3) — the window exists because a request still unclaimed
+    after it "was never picked up at all" (ORPHAN-MEDIUM-492). During an
+    outage of the provider the request's role is routed to, nothing could pick
+    it up, so that time does not count: measured 2026-08-21..25, 37 of 43
+    requests that aged out had seen only provider-class releases, and each
+    death spent one of the step's MAX_STEP_REQUEST_REMINTS successors on the
+    way to `convergence_envelope_dead`. Wall time is checked first because
+    available time can only be shorter, so the ledger is read only for a
+    request that is old by the wall clock.
+
+    An expiry that still happens after an outage overlapped the request's
+    wait (the outage was shorter than the excess) is written under
+    ``anchor_expiry_cause.anchor_expiry_reason_in_outage(<overlapping
+    providers>)`` — the one spelling ARIA-HIGH-360 reads, harness-class in
+    ``classify_release_reason`` — so the expiry disposition spends no re-mint
+    budget on it.
+    """
+    if (now - created).total_seconds() <= max_age_seconds:
+        return None
+    from .anchor_expiry_cause import anchor_expiry_reason_in_outage
+    from .provider_clock import role_head_providers
+
+    role = str(request.get("role") or "")
+    providers = role_head_providers([role]) if role else frozenset()
+    if clock.available_age(created, now, providers).total_seconds() <= max_age_seconds:
+        return None
+    overlapped = clock.overlapping(created, now, providers)
+    if not overlapped:
+        return "anchor_expired"
+    return anchor_expiry_reason_in_outage(interval.provider for interval in overlapped)
 
 
 def _record_anchor_stale(
@@ -3369,14 +3444,11 @@ def _record_anchor_stale(
     )
 
 
-RequestLedgers = tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]
-
-
 def derive_request_states(
     *,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
-    _ledgers: RequestLedgers | None = None,
+    ledgers: tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None = None,
 ) -> dict[str, str]:
     """ORPHAN-HIGH-794 — derive EVERY request's state with ONE ledger load.
 
@@ -3387,23 +3459,26 @@ def derive_request_states(
     memory window where the OOM killer ended the nightly (2026-08-22
     11:40, runner unit killed mid-cycle). The batch form loads once and
     feeds the same authoritative fold; states are identical by
-    construction and pinned by an equivalence test. ``_ledgers`` is a
-    caller that already loaded the same three ledgers (ARIA-HIGH-364: the
-    request-admission measurement reads their timestamps too, and a second
-    load of the 1,866-row request ledger is seconds of prompt-carrying rows).
+    construction and pinned by an equivalence test. ``ledgers`` is a caller
+    that already loaded the same three ledgers (ARIA-HIGH-360's anchor sweep;
+    ARIA-HIGH-364's admission measurement, which reads their timestamps).
     """
     root = ensure_tools_dir(base_dir)
-    ledgers = _ledgers if _ledgers is not None else (
-        load_segments(root, "agent_invocation_requests"),
-        load_declared_jsonl(
-            root / "agent-invocations" / "results.jsonl",
-            expected_surface="agent_invocation_results",
-        ),
-        load_declared_jsonl(
-            _claims_path(root),
-            expected_surface="agent_invocation_claims",
-        ),
-    )
+    # ARIA-HIGH-360 — a sweep that also reads the claims itself (the
+    # anchor-stale disposition reads each expiry's cause) loads the three
+    # ledgers once and hands them in.
+    if ledgers is None:
+        ledgers = (
+            load_segments(root, "agent_invocation_requests"),
+            load_declared_jsonl(
+                root / "agent-invocations" / "results.jsonl",
+                expected_surface="agent_invocation_results",
+            ),
+            load_declared_jsonl(
+                _claims_path(root),
+                expected_surface="agent_invocation_claims",
+            ),
+        )
     from .control import effective_control
     control = effective_control(root)
     return {
@@ -3442,9 +3517,17 @@ def sweep_expired_anchors(
     `derive_request_state` skips terminal requests, so a second sweep finds
     nothing.
     """
+    from .plan_request_closure import close_abandoned_plan_requests
+    from .provider_clock import provider_clock
+
     root = ensure_tools_dir(base_dir)
     reference = now or _utc_now_dt()
+    # ARIA-HIGH-367 (H4) — before the backlog is counted, the queue of every
+    # ABANDONED plan is closed (including plans abandoned before the closure
+    # existed): those requests are not work, and the mint gate must not count them.
+    close_abandoned_plan_requests(root, now=reference)
     max_age_seconds = _anchor_max_age_seconds(root)
+    clock = provider_clock(root)
     swept = 0
     by_role: dict[str, int] = {}
     # ORPHAN-HIGH-794 — one batch derivation for the whole backlog: the
@@ -3462,9 +3545,10 @@ def sweep_expired_anchors(
             # Undatable rows keep the claim-time refusal path; a sweep that
             # guessed an age would be the silent-narrowing class.
             continue
-        if (reference - created).total_seconds() <= max_age_seconds:
+        expired = _anchor_expiry_reason(row, created, reference, clock=clock, max_age_seconds=max_age_seconds)
+        if expired is None:
             continue
-        _record_anchor_stale(root, row, "anchor_expired", now=reference)
+        _record_anchor_stale(root, row, expired, now=reference)
         swept += 1
         role = str(row.get("role") or "unknown")
         by_role[role] = by_role.get(role, 0) + 1
@@ -3502,6 +3586,7 @@ def next_pending_request(
     from a clean ledger.
     """
     from .evidence_probe import GitProbeSession
+    from .human_required_adjudication import adjudication_envelope_is_moot
 
     root = ensure_tools_dir(base_dir)
     repo_root = _anchor_repo_root(root)
@@ -3517,6 +3602,11 @@ def next_pending_request(
     # whole has one clock — so a git that stopped answering costs one clock,
     # not five seconds times every candidate, and never a terminal verdict.
     probes = GitProbeSession()
+    # ARIA-HIGH-365 (B3) — the anchor window is provider-available time; the
+    # clock reads the ledger only if some candidate is old by the wall clock.
+    from .provider_clock import provider_clock
+
+    clock = provider_clock(root)
     undecided: dict[str, str] = {}
     selected: dict[str, Any] | None = None
     for request in requests:
@@ -3534,12 +3624,18 @@ def next_pending_request(
         state = states.get(str(request.get("request_id") or ""), "PENDING")
         if state not in {"PENDING", "REQUEUED"}:
             continue
+        # ARIA-HIGH-360 — a panel envelope whose answer the adjudication
+        # sweep would never read (its escalation is resolved, handed to the
+        # operator, or of a kind no panel decides) is never handed out.
+        if adjudication_envelope_is_moot(root, request):
+            continue
         if repo_root is not None:
             now = _utc_now_dt()
             verdict = _anchor_refusal_reason(
                 request,
                 repo_root,
                 probes=probes,
+                clock=clock,
                 now=now,
                 max_age_seconds=_anchor_max_age_seconds(root),
             )
@@ -3783,6 +3879,13 @@ def claim_request(
             raise GovernanceError(
                 f"shadow_agent_invocation_blocked: {request_for_check.get('target_agent')!r} is not an ACTIVE production target"
             )
+        # ARIA-HIGH-360 — the same rule the selection boundary applies: a
+        # panel envelope whose answer no sweep would read is not leased,
+        # whether it was selected by poll or named by id.
+        from .human_required_adjudication import adjudication_envelope_is_moot
+
+        if adjudication_envelope_is_moot(root, request_for_check):
+            raise GovernanceError(f"adjudication_envelope_moot: {request_id}")
         _strict_request_view(request_for_check)
         # Before any lease is issued: can the envelope this claim is about to
         # hand back still reproduce the prompt hash it was minted under? A
@@ -6568,6 +6671,38 @@ def _verified_evidence_target_sha(
     return verified
 
 
+# The share of a lease an outage must have covered to own its expiry when the
+# outage had already ended by then (review MEDIUM-3): half — more of the
+# lease was the provider's than the request's.
+LEASE_OUTAGE_MIN_SHARE = 0.5
+
+
+def _lease_expiry_reason(
+    clock: "ProviderClock", claimed_at: datetime | None, expires: datetime, role: str,
+) -> str:
+    """``lease_expired``, or the harness-class reason when an outage ate the lease.
+
+    ARIA-HIGH-367 (M1). An expired lease was charged to the request
+    (``lease_expired`` is request-class: "the agent hung"), and three of them
+    escalate it. A lease that ran out while the provider its role is routed to
+    was in an open outage — a job killed in a network loss, a spawn that
+    waited on a vendor that was not serving — says nothing about the request.
+    """
+    from .provider_clock import role_head_providers
+
+    providers = role_head_providers([role]) if role else frozenset()
+    if claimed_at is None or not providers or expires <= claimed_at:
+        return "lease_expired"
+    # PR #1835 review MEDIUM-3 — ANY overlap used to waive the charge, so a
+    # 2-minute blip made a genuinely hung request un-chargeable forever. The
+    # outage must be standing when the lease ran out, or have eaten at least
+    # LEASE_OUTAGE_MIN_SHARE of the lease.
+    share = clock.covered(claimed_at, expires, providers) / (expires - claimed_at)
+    if not (clock.outage_active(providers, expires) or share >= LEASE_OUTAGE_MIN_SHARE):
+        return "lease_expired"
+    return f"lease_expired_during_provider_outage:{'+'.join(sorted(providers))}"
+
+
 def reap_stale_claims(
     *,
     base_dir: str | Path | None = None,
@@ -6595,6 +6730,9 @@ def reap_stale_claims(
         "requeued": [],
         "human_required": [],
     }
+    # ARIA-HIGH-367 (M1) — read only when some lease has actually expired.
+    lease_clock: "ProviderClock | None" = None
+    request_roles: dict[str, str] = {}
     for cid in candidate_ids:
         governance_details: dict[str, Any] | None = None
         with state_transaction([claims_path, results_path]) as transaction:
@@ -6635,6 +6773,16 @@ def reap_stale_claims(
                 continue
             request_id = str(claim_event.get("request_id") or "")
             agent_id = claim_event.get("agent_id")
+            if lease_clock is None:
+                from .provider_clock import provider_clock
+
+                lease_clock = provider_clock(root)
+                request_roles = {str(row.get("request_id")): str(row.get("role") or "")
+                                 for row in load_segments(root, "agent_invocation_requests")}
+            reason = _lease_expiry_reason(
+                lease_clock, _parse_iso(claim_event.get("claimed_at")), expires,
+                request_roles.get(request_id, ""),
+            )
             stale_row = {
                 "schema_version": 1,
                 "event": "stale",
@@ -6649,8 +6797,11 @@ def reap_stale_claims(
                 stale_row,
                 expected_surface="agent_invocation_claims",
             )
-            requeue_count = (
-                _request_fault_requeue_count(locked_claims, request_id) + 1
+            # The SAME counting rule as derivation and release (ARIA-MEDIUM-225):
+            # a lease that ran out inside a provider outage is not charged.
+            requeue_count = _request_fault_requeue_count(
+                [*locked_claims, {"request_id": request_id, "event": "requeued", "reason": reason}],
+                request_id,
             )
             kind = (
                 "requeued"
@@ -6664,7 +6815,7 @@ def reap_stale_claims(
                 "request_id": request_id,
                 "at": _iso(ts),
                 "requeue_count": requeue_count,
-                "reason": "lease_expired",
+                "reason": reason,
             }
             transaction.append_declared_jsonl(
                 claims_path,
@@ -6677,7 +6828,7 @@ def reap_stale_claims(
                 "claim_id": cid,
                 "request_id": request_id,
                 "requeue_count": requeue_count,
-                "reason": "lease_expired",
+                "reason": reason,
                 "kind": kind,
             }
         if governance_details is None:

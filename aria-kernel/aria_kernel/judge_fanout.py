@@ -17,7 +17,7 @@ already dispatched is skipped.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .agent_invocations import create_agent_invocation_request
 from .evidence_trust import forbidden_detector_scope
@@ -166,7 +166,9 @@ def _existing_judge_dispatches(root: Path) -> set[tuple[str, str]]:
     }
 
 
-def _judged_pairs(root: Path, tool_id: str) -> set[tuple[str, str]]:
+def _judged_pairs(
+    root: Path, tool_id: str, *, feedback: list[dict[str, Any]] | None = None,
+) -> set[tuple[str, str]]:
     """(finding_key, judge_id) pairs that already carry an ai_judge verdict.
 
     A finding a judge has ALREADY answered must not be re-minted by the
@@ -178,10 +180,13 @@ def _judged_pairs(root: Path, tool_id: str) -> set[tuple[str, str]]:
     from .feedback_store import load_feedback
 
     pairs: set[tuple[str, str]] = set()
-    try:
-        rows = load_feedback(tool_id=tool_id, base_dir=root)
-    except Exception:
-        return pairs
+    if feedback is not None:
+        rows = [row for row in feedback if row.get("tool_id") == tool_id]
+    else:
+        try:
+            rows = load_feedback(tool_id=tool_id, base_dir=root)
+        except Exception:
+            return pairs
     for row in rows:
         if row.get("source_type") != "ai_judge":
             continue
@@ -192,11 +197,19 @@ def _judged_pairs(root: Path, tool_id: str) -> set[tuple[str, str]]:
     return pairs
 
 
-def pending_judge_counts(*, base_dir: str | Path | None = None) -> dict[str, int]:
+def pending_judge_counts(
+    *,
+    base_dir: str | Path | None = None,
+    states: Mapping[str, str] | None = None,
+    requests: list[dict[str, Any]] | None = None,
+) -> dict[str, int]:
     """Y2 (ORPHAN-704) — live (non-terminal) envelope count per judge role.
 
     Bounded to the anchor window: anything older is ANCHOR_STALE by
     definition, so deriving its state would only re-prove it dead.
+    ``states`` and ``requests`` are a caller's own ``derive_request_states``
+    result and request rows, so a sweep that already holds them does not
+    load the ledgers again.
     """
     from datetime import datetime, timedelta, timezone
 
@@ -208,8 +221,9 @@ def pending_judge_counts(*, base_dir: str | Path | None = None) -> dict[str, int
     counts: dict[str, int] = {role: 0 for role, _ in JUDGE_FANOUT}
     # ORPHAN-HIGH-794 — one batch derivation instead of a per-row derive
     # (each of which reloaded all three ledgers — the OOM churn class).
-    states = derive_request_states(base_dir=root)
-    for row in list_agent_invocation_requests(base_dir=root):
+    if states is None:
+        states = derive_request_states(base_dir=root)
+    for row in requests if requests is not None else list_agent_invocation_requests(base_dir=root):
         role = str(row.get("role") or "")
         if role not in counts:
             continue
@@ -355,6 +369,8 @@ def dispatch_judges_for_sample(
 def _judge_rows_by_group(
     tool_id: str,
     base_dir: str | Path | None,
+    *,
+    feedback: list[dict[str, Any]] | None = None,
 ) -> tuple[
     dict[tuple[str, str, str], dict[str, dict[str, Any]]],
     dict[tuple[str, str, str], int],
@@ -371,7 +387,10 @@ def _judge_rows_by_group(
     """
     from .feedback_store import consensus_judge_count, load_feedback
 
-    rows = load_feedback(tool_id=tool_id, base_dir=base_dir)
+    rows = (
+        [row for row in feedback if row.get("tool_id") == tool_id]
+        if feedback is not None else load_feedback(tool_id=tool_id, base_dir=base_dir)
+    )
     settled: dict[tuple[str, str, str], int] = {}
     grouped: dict[tuple[str, str, str], dict[str, dict[str, Any]]] = {}
     for row in rows:

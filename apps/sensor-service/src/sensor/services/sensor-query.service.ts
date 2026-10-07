@@ -13,7 +13,7 @@
  * - Query result caching consideration
  */
 
-import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { runInTenantRead, SENSOR_SOURCE_SCHEMA } from '@aquaculture/backend-common/database';
 import {
   anchorFromDatabaseText,
   encodeSensorReadingId,
@@ -47,9 +47,6 @@ import {
   ALLOWED_AGGREGATION_INTERVALS,
   SafeAggregationInterval,
 } from '../validation/input-sanitizer';
-
-/** The `sensor` source schema runInTenantRead pins alongside the tenant schema. */
-const SENSOR_SCHEMA = 'sensor';
 
 
 /**
@@ -255,7 +252,7 @@ export class SensorQueryService {
     const validSensorId = validateSensorId(sensorId);
     const validTenantId = validateTenantId(tenantId);
 
-    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+    return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, validTenantId, async (qr) => {
       const rows = (await qr.query(
         `SELECT c.channel_key AS channel_key,
                 lv.value AS value,
@@ -317,7 +314,7 @@ export class SensorQueryService {
     );
     const validLimit = validateLimit(limit, MAX_RESULTS_LIMIT);
 
-    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+    return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, validTenantId, async (qr) => {
       const rows = (await qr.query(
         `WITH obs AS (
            SELECT DISTINCT time
@@ -423,7 +420,7 @@ export class SensorQueryService {
     // joining the per-tenant sensor_data_channels from an unpinned connection.
     const { rows, sensorName } = await runInTenantRead(
       this.dataSource,
-      SENSOR_SCHEMA,
+      SENSOR_SOURCE_SCHEMA,
       validTenantId,
       async (qr) => {
         const source = await resolveExistingSource(
@@ -616,7 +613,7 @@ export class SensorQueryService {
       );
     }
 
-    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+    return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, validTenantId, async (qr) => {
       const rows = (await qr.query(
         `SELECT c.sensor_id AS sensor_id,
                 c.channel_key AS channel_key,
@@ -680,7 +677,7 @@ export class SensorQueryService {
     const validSensorId = validateSensorId(sensorId);
     const validTenantId = validateTenantId(tenantId);
 
-    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+    return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, validTenantId, async (qr) => {
       const rows = (await qr.query(
         `SELECT $3::timestamptz AS as_of,
                 c.channel_key AS channel_key,

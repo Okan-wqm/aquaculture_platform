@@ -664,6 +664,12 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("calibration_judge", "calibration/judge-calibration.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("calibration_adapter_reports", "calibration/adapter-calibration-reports.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("calibration_recommendations", "calibration/recommendations.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # ARIA-HIGH-370 — the bounded calibration actuator's ledger: every
+    # application with its evidence, and its held / reverted judgement.
+    # ARIA-HIGH-370 (second review of #1829, M5) — every half-open probe the
+    # admission breaker granted, so one probe is one probe.
+    StateSurface("admission_probes", "admission/probes.jsonl", "ledger", "admission", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("calibration_auto_applied", "calibration/auto-applied.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="tool_governance", observe_class="mutation"),
     StateSurface("capability_gaps", "capability-gaps/gaps.jsonl", "ledger", "capability_gaps", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("proactive_priorities", "proactive/priorities.jsonl", "ledger", "proactive", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("problem_clusters", "problem_clusters.jsonl", "ledger", "clustering", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),

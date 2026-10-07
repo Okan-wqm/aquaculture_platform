@@ -38,6 +38,7 @@ from .human_required import (
 from .human_required_adjudication import sweep_human_required_adjudications
 from .agent_invocations import reap_stale_claims
 from .calibration import recommend_calibration
+from .calibration_actuator import apply_bounded_calibration
 from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
@@ -1542,6 +1543,21 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
         # rechecked with.
         workspace_root=context.workspace_root,
     )
+    # ARIA-HIGH-372 — main is strict (up-to-date required): ARIA's own
+    # behind-main, green PRs are updated by GitHub's update-branch on the
+    # delivery credential path, once per (head, base). ARIA-HIGH-373 — every
+    # open ARIA PR the merge lane cannot merge is ONE HUMAN_REQUIRED item
+    # (URL, CI state, why), resolved when GitHub reports it merged or closed.
+    from .human_merge_surface import surface_human_merge_prs
+    from .pr_branch_update import update_behind_aria_prs
+
+    scan_result["branch_updates"] = update_behind_aria_prs(
+        cycle_id=context.cycle_id, base_dir=context.base_dir, workspace_root=context.workspace_root,
+        reader=reader, profile=profile,
+    )
+    scan_result["human_merge"] = surface_human_merge_prs(
+        cycle_id=context.cycle_id, base_dir=context.base_dir, reader=reader,
+    )
     return scan_result
 
 
@@ -1662,7 +1678,7 @@ def _phase_lease_lifecycle_escalation(context: PhaseContext) -> dict[str, Any]:
     # CLI-only callers — so an escalation was visible in one view and
     # invisible in the one operators and the daily report read. Running it
     # every cycle is what makes the two views agree.
-    return sweep_lease_lifecycle_for_human_required(base_dir=context.base_dir)
+    return sweep_lease_lifecycle_for_human_required(base_dir=context.base_dir, cycle_id=context.cycle_id)
 
 
 def _phase_human_required_adjudication(context: PhaseContext) -> dict[str, Any]:
@@ -2172,11 +2188,19 @@ def _phase_calibration_recommendation(context: PhaseContext) -> dict[str, Any]:
     # producer becomes a phase, next to judge_calibration and goldset_proposal
     # which read the same feedback ledger.
     #
-    # It stops at `recommendation_only` on purpose. Applying a weight change is
-    # an operator act (`pressure weight-override`), because a system that
-    # silently reweights its own scoring can rationalise anything it later
-    # measures — the same line goldset promotion draws.
+    # The pressure-source table stays an operator act (`pressure
+    # weight-override`): a system that silently reweights its own scoring can
+    # rationalise anything it later measures. ARIA-HIGH-370 — the per-tool
+    # dial the labels actually measure (`calibration_dials`) is moved by the
+    # bounded actuator instead: inside declared bounds, one step per dial per
+    # cycle on fresh labels whose interval supports it, undone with
+    # hysteresis and a cooldown, raise-only for security adapters, every
+    # application ledgered with its evidence. What it may not apply stays
+    # `recommendation_only` and is surfaced in `auto_apply`.
     result = recommend_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
+    result["auto_apply"] = apply_bounded_calibration(
+        recommendation=result, base_dir=context.base_dir, cycle_id=context.cycle_id,
+    )
     # FAZ 4c — rank_pressure_sources' first caller. The effectiveness ledger
     # (converged/minted per pressure source) is exactly the context an
     # operator needs to judge a weight recommendation, and the ranking

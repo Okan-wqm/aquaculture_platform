@@ -99,8 +99,34 @@ per operation (`runInTenantRead` / `runInTenantTransaction`). Its pool sets only
 
 Under FORCE RLS they see zero rows. Ingestion through them fails or stores
 uncalibrated values. On the production tenant this is already true for every
-route except MQTT. Tracked separately: its fix moves those reads into the
-tenant boundary, with a Postgres spec per path.
+route except MQTT.
+
+Fix (the follow-up PR, stacked on the writer fix):
+
+- Every read and write on these paths runs in the owning tenant's
+  `runInTenantRead` / `runInTenantTransaction`, through
+  `tenantManagerRepo`. The services no longer inject bare repositories.
+- The tenant is the request's (GraphQL), the sensor row's (edge/IO) or the
+  event's (NATS).
+- `DataIngestionService`'s boot scan walks the active tenants through
+  `listActiveTenantSchemaIdentities` instead of one cross-tenant query.
+- Each channel/sensor cache entry carries its tenant, and a hit for another
+  tenant is a miss.
+- `CalibrationService` no longer swallows a failed read into `[]`: an ingest
+  that cannot load its calibration fails instead of storing raw values as
+  calibrated.
+- A NATS event whose sensor belongs to another tenant now resolves to "unknown
+  sensor" (acknowledged, counted) instead of "tenant mismatch" (dead-lettered):
+  the other tenant's row is invisible to a read bound to the event's tenant.
+  It can never be written under that tenant; the mismatch branch stays as an
+  assertion over the read.
+- Proof: `sensor-ingestion-paths.rls.postgres.spec.ts` drives the three paths
+  as a non-owner role under FORCE RLS. Mutating one read back to an unbound
+  query turns it red.
+- The five sensor RLS Postgres specs now share one stage
+  (`src/__tests__/support/sensor-rls-postgres.harness.ts`), pinned by
+  `tests/invariants/sensor-rls-postgres-harness-ssot.spec.ts`. The unit-level
+  tenant-session fake lives once in `@platform/testing`.
 
 ## SENSOR-LOW-147 — the source schema is a scattered literal
 

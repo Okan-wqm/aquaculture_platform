@@ -118,10 +118,14 @@ export {
   METRIC_TIERS,
   metricTier,
   tierForWindow,
+  SERIES_QUERY_TIMEOUT,
+  MAX_POINTS_PER_CHANNEL,
+  planSeriesRead,
 } from './sensor-readings/tier-policy';
 export type {
   PolicyDuration,
   AggregationIntervalSql,
   MetricTierName,
   MetricTier,
+  SeriesReadPlan,
 } from './sensor-readings/tier-policy';

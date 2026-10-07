@@ -249,6 +249,16 @@ export class SensorDataChannel {
   })
   declaredQuantity?: QuantityId | null;
 
+  /**
+   * When the unit or the declared quantity last changed; null when not since
+   * tracking began. Samples carry no unit, so a sample older than this was
+   * reported under a different meaning: the channel description never pairs
+   * one with the current configuration. Set only by ChannelManagementService
+   * (markMeasurementChange).
+   */
+  @Column({ name: 'measurement_configured_at', type: 'timestamptz', nullable: true })
+  measurementConfiguredAt?: Date | null;
+
   // === Physical & Operational Bounds ===
 
   @Field(() => Float, { nullable: true })

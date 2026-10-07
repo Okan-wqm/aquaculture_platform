@@ -11,8 +11,8 @@ import {
   ChannelSeriesResponse,
 } from '../dto/channel-reading.dto';
 import {
+  ChannelsByKeyInput,
   SensorChannelDescriptionType,
-  SensorChannelKeyInput,
   toDescriptionType,
 } from '../dto/channel-description.dto';
 import { ChannelDescriptionService } from '../services/channel-description.service';
@@ -21,7 +21,8 @@ import { ChannelReadingQueryService } from '../services/channel-reading-query.se
 /**
  * Channel-generic reading queries (SENSOR-HIGH-138). Read-only; the tenant
  * comes from the verified request context and every read runs inside that
- * tenant's RLS boundary (ChannelReadingQueryService → runInTenantRead).
+ * tenant's RLS boundary (ChannelReadingQueryService and
+ * ChannelDescriptionService → runInTenantRead).
  */
 @Resolver(() => ChannelLatestValue)
 @UseGuards(TenantGuard)
@@ -37,10 +38,10 @@ export class ChannelReadingResolver {
       'What each (sensorId, channelKey) is now (≤100): presence, sensor location, quantity, unit, last value — disabled channels included',
   })
   async channelsByKey(
-    @Args('keys', { type: () => [SensorChannelKeyInput] }) keys: SensorChannelKeyInput[],
+    @Args('input') input: ChannelsByKeyInput,
     @Tenant() tenantId: string,
   ): Promise<SensorChannelDescriptionType[]> {
-    const descriptions = await this.channelDescriptions.describe(tenantId, keys);
+    const descriptions = await this.channelDescriptions.describe(tenantId, input.keys);
     return descriptions.map(toDescriptionType);
   }
 

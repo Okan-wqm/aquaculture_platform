@@ -69,3 +69,52 @@ Proof:
 - `describe-channels.responder.spec.ts`: queue, tenant pass-through, refusal
   before read, unavailable authority.
 - `channel-description.dto.spec.ts`: the GraphQL date mapping.
+
+### Independent review → fixes
+
+A sensor review found three medium and six low problems.
+
+- **No gate pinned the subject's broker grants.** The generic NATS RPC scan
+  reads `.respond(` as a send, so neither this contract nor the farm time-zone
+  contract was in it. `tests/invariants/request-reply-contract-acl.spec.ts`
+  now derives each contract's grants from its constants:
+  - the owner holds a subscribe grant, exact or wildcard, matched the way the
+    broker matches;
+  - each caller holds a publish grant;
+  - the owner registers exactly one responder.
+  - Mutation check: dropping farm's publish grant fails it.
+- **A raw quality code.** Farm would have had to copy `>= 192`, becoming a
+  second owner of the quality scale. The reply now carries `latestQuality`
+  (GOOD, UNCERTAIN or BAD), classified by the sensor service's own
+  `qualityCategoryOf`. "Latest" is the newest sample of any quality, with its
+  band.
+- **A sample paired with a newer unit.** Samples carry no unit. Re-labelling an
+  H2S channel from mg/L to µg/L would have paired the last sample with the new
+  unit: a thousandfold error.
+  - `sensor_data_channels.measurement_configured_at` (migration
+    `1821000000000`) is stamped whenever the unit or the declared quantity
+    changes.
+  - The description returns it as `configuredAt` and never reports a sample
+    older than it.
+  - Mutation check: dropping the filter fails the spec.
+- **Low:**
+  - The cross-tenant case was hidden by `search_path`, not RLS. The spec now
+    puts another tenant's rows inside this tenant's schema.
+  - Cases added: duplicates, an inactive sensor, a missing unit, a refused
+    stored declaration, a BAD newest sample.
+  - The 101-key cap moved to a unit spec.
+  - GraphQL key validators did not run on a bare array. The input is now a
+    validated, capped `ChannelsByKeyInput`.
+  - The reply validator is now exhaustive by type (`satisfies Record<keyof …>`)
+    and checks ISO instants. `describesRequest` checks that a reply matches its
+    request.
+  - The contract now states:
+    - the window (`AS_OF_LOOKBACK`, 7 days);
+    - that location is the device owning the channel;
+    - that a null unit means unconvertible;
+    - that a null calibration date means no schedule;
+    - that a new `presence` or quality value is a contract change, which an
+      older caller refuses.
+- Left as recorded (CONTRACT-LOW-012): removing farm's self-publish grant on
+  `request.farm.validateSiteAssignment`, and teaching the e2e RPC scan to read
+  `.respond(`. Both belong to the owners of those files.

@@ -1,4 +1,5 @@
 import {
+  describesRequest,
   isDescribeSensorChannelsRequest,
   isDescribeSensorChannelsResponse,
   MAX_DESCRIBED_CHANNELS,
@@ -23,9 +24,10 @@ const found: SensorChannelDescription = {
   quantityFamily: 'ammonia',
   unit: 'mg/L',
   calibrationDueAt: null,
+  configuredAt: '2026-10-07T09:00:00.000Z',
   latestValue: 0.44,
   latestAt: '2026-10-07T12:00:00.000Z',
-  latestQualityCode: 192,
+  latestQuality: 'GOOD',
 };
 
 describe('sensor channel description contract', () => {
@@ -68,5 +70,33 @@ describe('sensor channel description contract', () => {
       false,
     );
     expect(isDescribeSensorChannelsResponse({ channels: 'none' })).toBe(false);
+    expect(isDescribeSensorChannelsResponse({ channels: [{ ...found, latestQuality: 192 }] })).toBe(
+      false,
+    );
+  });
+
+  it('accepts only ISO instants with a zone where dates cross the wire', () => {
+    for (const latestAt of ['yesterday', '2026-10-07 12:00', '2026-10-07T12:00:00']) {
+      expect(isDescribeSensorChannelsResponse({ channels: [{ ...found, latestAt }] })).toBe(false);
+    }
+    expect(
+      isDescribeSensorChannelsResponse({
+        channels: [{ ...found, latestAt: '2026-10-07T14:00:00+02:00' }],
+      }),
+    ).toBe(true);
+  });
+
+  it('tells whether a reply describes exactly the asked keys, in order', () => {
+    const request = {
+      tenantId: TENANT,
+      channels: [
+        { sensorId: SENSOR, channelKey: 'ammonia' },
+        { sensorId: SENSOR, channelKey: 'ph' },
+      ],
+    };
+    const ph = { ...found, channelKey: 'ph' };
+    expect(describesRequest(request, { channels: [found, ph] })).toBe(true);
+    expect(describesRequest(request, { channels: [ph, found] })).toBe(false);
+    expect(describesRequest(request, { channels: [found] })).toBe(false);
   });
 });

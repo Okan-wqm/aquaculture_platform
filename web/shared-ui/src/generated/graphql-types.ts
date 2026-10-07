@@ -2057,6 +2057,10 @@ export type ChannelType =
   | 'DIRECT'
   | 'GROUP';
 
+export type ChannelsByKeyInput = {
+  keys: Array<SensorChannelKeyInput>;
+};
+
 export type CheckInHistoryEntry = {
   location?: Maybe<CheckInLocation>;
   method: Scalars['String']['output'];
@@ -16351,7 +16355,7 @@ export type QueryChannelSeriesArgs = {
 
 
 export type QueryChannelsByKeyArgs = {
-  keys: Array<SensorChannelKeyInput>;
+  input: ChannelsByKeyInput;
 };
 
 
@@ -19569,6 +19573,12 @@ export type SalinityInput = {
   unit?: Scalars['String']['input'];
 };
 
+/** OPC-UA quality band of a sample, classified by the sensor service */
+export type SampleQuality =
+  | 'BAD'
+  | 'GOOD'
+  | 'UNCERTAIN';
+
 export type SatelliteCoverageStatus =
   | 'FULL'
   | 'OUT_OF_COVERAGE'
@@ -19845,12 +19855,15 @@ export type SensorAlertThresholdsType = {
 };
 
 export type SensorChannelDescriptionType = {
+  /** Null: the channel has no calibration schedule (not "not due") */
   calibrationDueAt?: Maybe<Scalars['DateTime']['output']>;
   channelId?: Maybe<Scalars['ID']['output']>;
   channelKey: Scalars['String']['output'];
+  /** When the unit or quantity last changed; latest* is never older */
+  configuredAt?: Maybe<Scalars['DateTime']['output']>;
   enabled?: Maybe<Scalars['Boolean']['output']>;
   latestAt?: Maybe<Scalars['DateTime']['output']>;
-  latestQualityCode?: Maybe<Scalars['Int']['output']>;
+  latestQuality?: Maybe<SampleQuality>;
   latestValue?: Maybe<Scalars['Float']['output']>;
   presence: ChannelPresence;
   /** Effective measured quantity */

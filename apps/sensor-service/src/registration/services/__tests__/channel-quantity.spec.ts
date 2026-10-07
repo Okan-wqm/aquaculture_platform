@@ -187,6 +187,29 @@ describe('channel quantity', () => {
       expect((await service.updateChannel(CHANNEL, TENANT, { unit: 'ppm' })).unit).toBe('ppm');
     });
 
+    it('stamps when the unit or quantity changes, and only then', async () => {
+      findOne.mockResolvedValue(channelRow({ channelKey: 'h2s', unit: 'mg/L' }));
+      const relabelled = await service.updateChannel(CHANNEL, TENANT, { unit: 'µg/L' });
+      expect(relabelled.measurementConfiguredAt).toBeInstanceOf(Date);
+
+      findOne.mockResolvedValue(channelRow({ channelKey: 'h2s', unit: 'mg/L' }));
+      const sameUnit = await service.updateChannel(CHANNEL, TENANT, {
+        unit: 'mg/L',
+        displayLabel: 'H2S',
+      });
+      expect(sameUnit.measurementConfiguredAt).toBeUndefined();
+
+      findOne.mockResolvedValue(channelRow({}));
+      expect(
+        (await service.declareQuantity(CHANNEL, TENANT, ACTOR, 'tan')).measurementConfiguredAt,
+      ).toBeInstanceOf(Date);
+
+      findOne.mockResolvedValue(channelRow({ declaredQuantity: 'tan' }));
+      expect(
+        (await service.clearQuantity(CHANNEL, TENANT, ACTOR)).measurementConfiguredAt,
+      ).toBeInstanceOf(Date);
+    });
+
     it('leaves unit edits on an undeclared channel as they were', async () => {
       findOne.mockResolvedValue(channelRow({ channelKey: 'temperature', unit: '°C' }));
       expect((await service.updateChannel(CHANNEL, TENANT, { unit: '°F' })).unit).toBe('°F');

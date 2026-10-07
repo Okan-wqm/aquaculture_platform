@@ -16,10 +16,12 @@ describe('toDescriptionType', () => {
       quantityFamily: null,
       unit: 'pH',
       calibrationDueAt: null,
+      configuredAt: '2026-10-07T09:00:00.000Z',
       latestValue: 7.9,
       latestAt: '2026-10-07T12:00:00.000Z',
-      latestQualityCode: 192,
+      latestQuality: 'GOOD',
     });
+    expect(mapped.configuredAt).toEqual(new Date('2026-10-07T09:00:00.000Z'));
     expect(mapped.latestAt).toEqual(new Date('2026-10-07T12:00:00.000Z'));
     expect(mapped.calibrationDueAt).toBeNull();
     expect(mapped.latestValue).toBe(7.9);

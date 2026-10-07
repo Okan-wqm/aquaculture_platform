@@ -1,6 +1,19 @@
-import { Field, Float, ID, InputType, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
-import type { SensorChannelDescription, SensorChannelPresence } from '@platform/event-contracts';
-import { IsString, IsUUID, MaxLength } from 'class-validator';
+import { Field, Float, ID, InputType, ObjectType, registerEnumType } from '@nestjs/graphql';
+import {
+  MAX_DESCRIBED_CHANNELS,
+  type SensorChannelDescription,
+  type SensorChannelPresence,
+  type SensorSampleQuality,
+} from '@platform/event-contracts';
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsString,
+  IsUUID,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
 
 /**
  * GraphQL view of the sensor channel description contract
@@ -18,6 +31,17 @@ registerEnumType(ChannelPresence, {
   description: 'Whether a (sensorId, channelKey) names a live channel, or what is missing',
 });
 
+export const SampleQuality = {
+  GOOD: 'GOOD',
+  UNCERTAIN: 'UNCERTAIN',
+  BAD: 'BAD',
+} as const satisfies { [Q in SensorSampleQuality]: Q };
+
+registerEnumType(SampleQuality, {
+  name: 'SampleQuality',
+  description: 'OPC-UA quality band of a sample, classified by the sensor service',
+});
+
 @InputType()
 export class SensorChannelKeyInput {
   @Field(() => ID)
@@ -28,6 +52,21 @@ export class SensorChannelKeyInput {
   @IsString()
   @MaxLength(100)
   channelKey!: string;
+}
+
+/**
+ * The keys to describe. Wrapped in an input object because the global
+ * ValidationPipe does not validate a bare array argument: here every key is
+ * validated and the request is capped like the NATS contract.
+ */
+@InputType()
+export class ChannelsByKeyInput {
+  @Field(() => [SensorChannelKeyInput])
+  @IsArray()
+  @ArrayMaxSize(MAX_DESCRIBED_CHANNELS)
+  @ValidateNested({ each: true })
+  @Type(() => SensorChannelKeyInput)
+  keys!: SensorChannelKeyInput[];
 }
 
 @ObjectType()
@@ -68,8 +107,17 @@ export class SensorChannelDescriptionType {
   @Field(() => String, { nullable: true })
   unit!: string | null;
 
-  @Field(() => Date, { nullable: true })
+  @Field(() => Date, {
+    nullable: true,
+    description: 'Null: the channel has no calibration schedule (not "not due")',
+  })
   calibrationDueAt!: Date | null;
+
+  @Field(() => Date, {
+    nullable: true,
+    description: 'When the unit or quantity last changed; latest* is never older',
+  })
+  configuredAt!: Date | null;
 
   @Field(() => Float, { nullable: true })
   latestValue!: number | null;
@@ -77,8 +125,8 @@ export class SensorChannelDescriptionType {
   @Field(() => Date, { nullable: true })
   latestAt!: Date | null;
 
-  @Field(() => Int, { nullable: true })
-  latestQualityCode!: number | null;
+  @Field(() => SampleQuality, { nullable: true })
+  latestQuality!: SensorSampleQuality | null;
 }
 
 /** The wire description (ISO dates) as the GraphQL type (Date scalars). */
@@ -89,6 +137,7 @@ export function toDescriptionType(
     ...description,
     calibrationDueAt:
       description.calibrationDueAt === null ? null : new Date(description.calibrationDueAt),
+    configuredAt: description.configuredAt === null ? null : new Date(description.configuredAt),
     latestAt: description.latestAt === null ? null : new Date(description.latestAt),
   };
 }

@@ -8,6 +8,14 @@ interface MaxOrderResult {
   max: number | null;
 }
 
+/**
+ * Stamp the instant a channel's unit or quantity changed: samples before it
+ * were reported under the old meaning and are never paired with the new one.
+ */
+function markMeasurementChange(channel: SensorDataChannel): void {
+  channel.measurementConfiguredAt = new Date();
+}
+
 /** The actor recorded when rediscovery, not an operator, ends a declaration. */
 const REDISCOVERY_ACTOR = 'system:rediscovery';
 
@@ -160,7 +168,10 @@ export class ChannelManagementService {
 
       if (input.displayLabel !== undefined) channel.displayLabel = input.displayLabel;
       if (input.description !== undefined) channel.description = input.description;
-      if (input.unit !== undefined) channel.unit = input.unit;
+      if (input.unit !== undefined && input.unit !== channel.unit) {
+        channel.unit = input.unit;
+        markMeasurementChange(channel);
+      }
       if (input.dataPath !== undefined) channel.dataPath = input.dataPath;
       if (input.minValue !== undefined) channel.minValue = input.minValue;
       if (input.maxValue !== undefined) channel.maxValue = input.maxValue;
@@ -202,6 +213,9 @@ export class ChannelManagementService {
       if (conflict !== null) {
         throw new BadRequestException(conflict);
       }
+      if (declared !== channel.declaredQuantity || nextUnit !== channel.unit) {
+        markMeasurementChange(channel);
+      }
       channel.declaredQuantity = declared;
       channel.unit = nextUnit;
       await this.recordDeclaration(manager, channel, QuantityDeclarationReason.DECLARED, actor);
@@ -219,6 +233,7 @@ export class ChannelManagementService {
         return channel;
       }
       channel.declaredQuantity = null;
+      markMeasurementChange(channel);
       await this.recordDeclaration(manager, channel, QuantityDeclarationReason.CLEARED, actor);
       return manager.save(SensorDataChannel, channel);
     });

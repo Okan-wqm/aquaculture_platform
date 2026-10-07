@@ -10,13 +10,22 @@ import {
   MAX_DESCRIBED_CHANNELS,
   type SensorChannelDescription,
   type SensorChannelKey,
+  type SensorSampleQuality,
 } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
+import { QualityCategory, qualityCategoryOf } from '../../database/entities/sensor-metric.entity';
 import { channelQuantity } from '../../registration/services/channel-quantity';
 import { validateTenantId } from '../validation/input-sanitizer';
 
 import { AS_OF_LOOKBACK, toNumberOrUndefined } from './metric-source';
+
+/** The contract's quality bands, from the sensor service's own classification. */
+const SAMPLE_QUALITY: Readonly<Record<QualityCategory, SensorSampleQuality>> = {
+  [QualityCategory.GOOD]: 'GOOD',
+  [QualityCategory.UNCERTAIN]: 'UNCERTAIN',
+  [QualityCategory.BAD]: 'BAD',
+};
 
 interface DescriptionRow {
   ord: string;
@@ -30,6 +39,7 @@ interface DescriptionRow {
   declared_quantity: string | null;
   unit: string | null;
   next_calibration_due: Date | null;
+  measurement_configured_at: Date | null;
   value: string | number | null;
   time: Date | null;
   quality_code: number | null;
@@ -42,9 +52,10 @@ interface DescriptionRow {
  *
  * Disabled channels and inactive sensors are described, not dropped: a
  * binding to a switched-off probe must say so, not vanish. The latest value
- * is the last sample inside the freshness window the readings page uses
- * (AS_OF_LOOKBACK); how fresh is fresh enough for a calculation is the
- * caller's decision.
+ * is the newest sample, of any quality (classified, not filtered), inside the
+ * freshness window the readings page uses (AS_OF_LOOKBACK) and no older than
+ * the channel's current unit and quantity (measurement_configured_at); how
+ * fresh is fresh enough for a calculation is the caller's decision.
  */
 @Injectable()
 export class ChannelDescriptionService {
@@ -77,7 +88,8 @@ export class ChannelDescriptionService {
                 `SELECT k.ord, s.id IS NOT NULL AS sensor_found, s.is_active,
                         s.site_id, s.system_id, s.tank_id,
                         c.id AS channel_id, c.is_enabled, c.declared_quantity, c.unit,
-                        c.next_calibration_due, lv.value, lv.time, lv.quality_code
+                        c.next_calibration_due, c.measurement_configured_at,
+                        lv.value, lv.time, lv.quality_code
                    FROM unnest($1::uuid[], $2::text[]) WITH ORDINALITY AS k(sensor_id, channel_key, ord)
                    LEFT JOIN sensors s
                      ON s.id = k.sensor_id AND s.tenant_id = $3
@@ -88,6 +100,9 @@ export class ChannelDescriptionService {
                        FROM sensor_metrics m
                       WHERE m.sensor_id = c.sensor_id AND m.channel_id = c.id AND m.tenant_id = $3
                         AND m.time >= NOW() - $4::interval
+                        -- Never a sample reported under a previous unit or quantity.
+                        AND (c.measurement_configured_at IS NULL
+                             OR m.time >= c.measurement_configured_at)
                       ORDER BY m.time DESC
                       LIMIT 1
                    ) lv ON true`,
@@ -133,7 +148,8 @@ function describeRow(
     calibrationDueAt: null,
     latestValue: null,
     latestAt: null,
-    latestQualityCode: null,
+    configuredAt: null,
+    latestQuality: null,
   };
   if (row === undefined || !row.sensor_found) {
     return absent;
@@ -160,8 +176,13 @@ function describeRow(
     unit: row.unit,
     calibrationDueAt:
       row.next_calibration_due === null ? null : row.next_calibration_due.toISOString(),
+    configuredAt:
+      row.measurement_configured_at === null ? null : row.measurement_configured_at.toISOString(),
     latestValue: value ?? null,
     latestAt: value === undefined || row.time === null ? null : row.time.toISOString(),
-    latestQualityCode: value === undefined ? null : row.quality_code,
+    latestQuality:
+      value === undefined || row.quality_code === null
+        ? null
+        : SAMPLE_QUALITY[qualityCategoryOf(row.quality_code)],
   };
 }

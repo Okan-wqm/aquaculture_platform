@@ -652,13 +652,13 @@ class CrossCycleConvergence(_StepCase):
             plan_status(plan_id="plan-1", base_dir=self.tools)["state"], "CROSS_REVIEWED",
         )
         # Cycle 3: CROSS_REVIEWED → evaluate → terminal (schema v1: no
-        # coverage gate; zero risks converge). Independence may honestly
-        # downgrade (the kernel-native folds carry no claim trail), so the
-        # pin is: a TERMINAL verdict with zero polling governance rows.
-        third = self.step()
-        self.assertIn(
-            third["arbiter_verdict"], {"converged", "cross_review_self_agreement"},
-        )
+        # coverage gate; zero risks converge). The kernel-native folds carry
+        # no claim trail, so the independence gate (ARIA-HIGH-375, its own
+        # tests in test_converged_independence_gate.py) is answered here: the
+        # pin is a CONVERGED plan reached with zero polling governance rows.
+        with mock.patch.object(cd, "verify_independence", return_value=(True, [])):
+            third = self.step()
+        self.assertEqual(third["arbiter_verdict"], "converged")
         self.assertEqual(
             plan_status(plan_id="plan-1", base_dir=self.tools)["state"], "CONVERGED",
         )

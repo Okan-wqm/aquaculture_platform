@@ -78,3 +78,49 @@ Observed while tracing, reported to the operator: a round whose independence che
 (`cross_review_self_agreement`) leaves the plan state CONVERGED. The cycle withholds delivery that
 cycle, but the next cycle's `redeliver_stranded_converged_plans` offers it by plan state alone. The
 executor seam offers only on the `converged` verdict.
+
+## ARIA-HIGH-375
+
+The cross-review independence check (ORPHAN-HIGH-421) ran after `evaluate_plan` had already
+written CONVERGED (origin/main `convergence_drainer.py:991`). On failure the converging cycle
+downgraded only its own verdict to `cross_review_self_agreement` (`:998`) and withheld delivery.
+The plan stayed CONVERGED, and every delivery path selects plans by that state:
+`converged_delivery._plan_ledger_scan` (`:127`) feeds `redeliver_stranded_converged_plans` (`:526`),
+so the next cycle's sweep offered the echo-chamber plan to the implementer. The independence gate
+was bypassed one cycle later. Live store, 2026-10-07: no plan is in this state today (zero
+`convergence_invalid_self_agreement` rows), so no repair of existing plans is needed.
+
+Rule: a round whose cross review is not independent never reaches CONVERGED, so no path can
+deliver it.
+
+Fix, in the state machine rather than at each door:
+
+- **Independence is a gate of the evaluation.** `plan_convergence.evaluate_plan(independence=)`
+  records `cross_review_independence` in `gate_decisions`, next to the spine and contract gates. A
+  round that would converge but failed the gate is written HUMAN_REQUIRED with reason
+  `cross_review_self_agreement`, in the same single `plan_evaluated` event. There is no window in
+  which the plan is CONVERGED. The drainer measures the round before it asks
+  (`_round_independence`), and `_derive_arbiter_verdict` maps the reason to the
+  `cross_review_self_agreement` verdict, so the cycle reads the same verdict it did before.
+- **Plans converged without the gate.** This covers the operator's `plan evaluate` /
+  `plan advance-rounds` and ledgers written before the gate existed. When the drainer next judges
+  such a plan and it fails, it is moved CONVERGED → HUMAN_REQUIRED under the plan lock
+  (`force_plan_human_required(from_states={"CONVERGED"})`).
+- **Why not a check inside `deliver_converged_plan`.** The verdict lives on the plan ledger, which
+  every door already reads through the CONVERGED state, so a state that cannot be reached covers
+  the sweep, the executor seam and the converging call with no per-door check. Recomputing the
+  check at the door would need the round's dispatch records at delivery time, and it would leave a
+  plan whose state says CONVERGED while it is undeliverable, which is the same mismatch again.
+
+Tests (`aria-kernel/tests/test_converged_independence_gate.py`, 5). Each fails on the pre-fix
+kernel: 5/5 red at `46d2e6a0c`.
+
+- A self-agreeing round is HUMAN_REQUIRED with the gate on record, and the next sweep offers
+  nothing.
+- `deliver_converged_plan` withholds it (`not_converged`).
+- The executor advance never reaches its converged seam.
+- A plan converged by `plan evaluate` leaves CONVERGED when judged and is not swept.
+- A clean round converges with `passed: true` recorded and is delivered.
+
+`test_convergence_resumable_step` used to accept CONVERGED with a self-agreement verdict, which is
+exactly this defect. It now answers the gate.

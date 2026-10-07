@@ -745,7 +745,20 @@ def evaluate_plan(
     round_number: int,
     base_dir: str | Path | None = None,
     max_rounds: int = MAX_CROSS_REVIEW_ROUNDS,
+    independence: tuple[bool, list[str]] | None = None,
 ) -> dict[str, Any]:
+    """Judge one round and record the verdict.
+
+    ``independence`` (ARIA-HIGH-375) is the round's cross-review
+    independence verdict, ``(passed, violation_reasons)``, measured by the
+    convergence drainer before it asks. It is a GATE of this decision, like
+    the spine and the contract below: a round that would converge on a
+    review that echoes the plans it reviewed is recorded HUMAN_REQUIRED with
+    ``CROSS_REVIEW_SELF_AGREEMENT_REASON``, in the same single event. It used
+    to be checked AFTER this function had written CONVERGED, so the plan
+    stayed CONVERGED and the next cycle's stranded-plan sweep offered it to
+    the implementer by state alone.
+    """
     _validate_id(plan_id, "plan_id")
     if not isinstance(round_number, int) or round_number <= 0:
         raise GovernanceError("round_number must be a positive integer")
@@ -796,6 +809,18 @@ def evaluate_plan(
                     decision["reason_codes"].append("max_rounds_reached")
             elif decision["terminal_state"] != "HUMAN_REQUIRED":
                 decision["terminal_state"] = "NEXT_ROUND_REQUIRED"
+        if independence is not None:
+            passed, violations = independence
+            decision["gate_decisions"].append({
+                "gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": bool(passed),
+                "violation_reasons": list(violations),
+            })
+            # Only a round that would CONVERGE is ended by it: a round going
+            # to another round is re-judged there, and an escalated one is
+            # escalated already.
+            if not passed and decision["terminal_state"] == "CONVERGED":
+                decision["terminal_state"] = "HUMAN_REQUIRED"
+                decision["reason_codes"] = [CROSS_REVIEW_SELF_AGREEMENT_REASON]
         if decision["terminal_state"] == "NEXT_ROUND_REQUIRED":
             return {
                 "schema_version": 1,
@@ -1155,6 +1180,11 @@ class PlanStateRefused(GovernanceError):
 
 
 FORCED_MAX_ROUNDS_REASON = "max_rounds_reached"
+# ARIA-HIGH-375 — the independence gate `evaluate_plan` applies, and the reason
+# code a round that failed it is escalated with. The drainer maps the reason
+# to the `cross_review_self_agreement` arbiter verdict.
+CROSS_REVIEW_INDEPENDENCE_GATE = "cross_review_independence"
+CROSS_REVIEW_SELF_AGREEMENT_REASON = "cross_review_self_agreement"
 FORCED_ESCALATION_GATE = "forced_escalation"
 
 

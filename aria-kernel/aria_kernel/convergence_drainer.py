@@ -69,6 +69,8 @@ from .independence_check import (
 from .ledger import load_declared_jsonl, load_segments
 from .must_satisfy import architecture_spine_obligation, coverage_gap_obligation, plan_contract_obligation
 from .plan_convergence import (
+    CROSS_REVIEW_SELF_AGREEMENT_REASON,
+    PlanStateRefused,
     TERMINAL_STATES,
     converged_plan_body,
     force_plan_human_required,
@@ -237,6 +239,9 @@ def _derive_arbiter_verdict(
         _verdict, _branch = "converged", "terminal_state=CONVERGED"
     elif terminal_state == "ABANDONED" and _REASON_ARIA_STOP in reasons:
         _verdict, _branch = "aria_stop_interrupted", "ABANDONED+aria_stop"
+    elif terminal_state == "HUMAN_REQUIRED" and CROSS_REVIEW_SELF_AGREEMENT_REASON in reasons:
+        # ARIA-HIGH-375 — the independence gate ended the round.
+        _verdict, _branch = "cross_review_self_agreement", "HUMAN_REQUIRED+self_agreement"
     elif terminal_state == "HUMAN_REQUIRED" and _REASON_MAX_ROUNDS in reasons:
         _verdict, _branch = "max_rounds", "HUMAN_REQUIRED+max_rounds"
     elif terminal_state == "HUMAN_REQUIRED" and any(
@@ -961,6 +966,40 @@ def run_convergence_drainer(
             )
             return None
 
+    def _round_independence(round_n: int) -> tuple[bool, list[str]]:
+        """ORPHAN-HIGH-421 — the round's cross-review independence verdict
+        over its real dispatches: ``(passed, violation_reasons)``."""
+        dispatches = _store_round_dispatches(round_n)
+        missing = [
+            role
+            for role in (IND_PRIMARY_ROLE, IND_CHALLENGER_ROLE, IND_CROSS_REVIEW_ROLE)
+            if role not in dispatches
+        ]
+        if missing:
+            return False, [f"round_dispatch_missing:{role}" for role in missing]
+        return verify_independence(
+            primary=dispatches[IND_PRIMARY_ROLE],
+            challenger=dispatches[IND_CHALLENGER_ROLE],
+            cross_review=dispatches[IND_CROSS_REVIEW_ROLE],
+            base_dir=base_dir,
+        )
+
+    def _record_self_agreement(round_n: int, violation_reasons: list[str]) -> None:
+        try:
+            append_tools_governance(
+                root,
+                "convergence_invalid_self_agreement",
+                {
+                    "plan_id": plan_id,
+                    "cycle_id": cycle_id,
+                    "round_number": round_n,
+                    "violation_reasons": violation_reasons,
+                    "request_ids": request_ids,
+                },
+            )
+        except Exception:
+            pass
+
     def _terminal_result(cur: dict[str, Any], round_n: int) -> ConvergenceResult:
         terminal_state = cur.get("terminal_state") or cur.get("state")
         # Reasons live in the terminal plan_evaluated event's payload.
@@ -986,37 +1025,29 @@ def run_convergence_drainer(
         except Exception:
             pass
         if arbiter_verdict == "converged":
-            dispatches = _store_round_dispatches(round_n)
-            missing = [
-                role
-                for role in (IND_PRIMARY_ROLE, IND_CHALLENGER_ROLE, IND_CROSS_REVIEW_ROLE)
-                if role not in dispatches
-            ]
-            if missing:
-                independence_ok = False
-                violation_reasons = [f"round_dispatch_missing:{role}" for role in missing]
-            else:
-                independence_ok, violation_reasons = verify_independence(
-                    primary=dispatches[IND_PRIMARY_ROLE],
-                    challenger=dispatches[IND_CHALLENGER_ROLE],
-                    cross_review=dispatches[IND_CROSS_REVIEW_ROLE],
-                    base_dir=base_dir,
-                )
+            # ARIA-HIGH-375 — a round reaching evaluation through this drainer
+            # was gated before it could converge (the independence gate of
+            # `evaluate_plan`).
+            # A plan CONVERGED by any other path (the operator's `plan
+            # evaluate`, a ledger written before the gate existed) is judged
+            # here and, failing, LEAVES CONVERGED: every delivery path offers a
+            # plan by its CONVERGED state, so a verdict alone did not stop the
+            # next cycle's sweep from delivering it.
+            independence_ok, violation_reasons = _round_independence(round_n)
             if not independence_ok:
                 arbiter_verdict = "cross_review_self_agreement"
+                _record_self_agreement(round_n, violation_reasons)
                 try:
-                    append_tools_governance(
-                        root,
-                        "convergence_invalid_self_agreement",
-                        {
-                            "plan_id": plan_id,
-                            "cycle_id": cycle_id,
-                            "round_number": round_n,
-                            "violation_reasons": violation_reasons,
-                            "request_ids": request_ids,
-                        },
+                    force_plan_human_required(
+                        plan_id=plan_id,
+                        round_number=round_n,
+                        reason_codes=[CROSS_REVIEW_SELF_AGREEMENT_REASON],
+                        from_states=frozenset({"CONVERGED"}),
+                        base_dir=base_dir,
                     )
-                except Exception:
+                except PlanStateRefused:
+                    # Left CONVERGED between the read and the lock (a mint):
+                    # what it is now is the plan's, not this verdict's.
                     pass
         # ORPHAN-CRITICAL-728 — the CONVERGED body comes from the ONE
         # producer that verifies it: `converged_plan_body` returns the
@@ -1193,13 +1224,20 @@ def run_convergence_drainer(
             waiting = _coverage_step(current_round)
             if waiting == "waiting":
                 return _result("in_progress", rounds=current_round)
+            # ARIA-HIGH-375 — independence is a gate OF the evaluation, so a
+            # self-agreeing round is recorded HUMAN_REQUIRED in the one event
+            # and is never CONVERGED, never deliverable.
+            independence = _round_independence(current_round)
             eval_result = evaluate_plan(
                 plan_id=plan_id,
                 round_number=current_round,
                 base_dir=base_dir,
                 max_rounds=max_rounds,
+                independence=independence,
             )
             event_payload = eval_result.get("event", {}).get("payload", {})
+            if CROSS_REVIEW_SELF_AGREEMENT_REASON in (event_payload.get("reason_codes") or []):
+                _record_self_agreement(current_round, list(independence[1]))
             terminal_state = event_payload.get("terminal_state")
             if terminal_state in TERMINAL_STATES:
                 return _terminal_result(

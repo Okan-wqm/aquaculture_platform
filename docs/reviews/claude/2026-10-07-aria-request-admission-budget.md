@@ -55,3 +55,20 @@ Fix:
 - Adjudication panels are discretionary, so the same budget also caps the anchor_stale-to-panel
   amplifier (ARIA-HIGH-360, 37%). The finding-opener throttle (`cycle_guard`) and the step remint
   budget (`step_request`) are unchanged.
+
+## ARIA-MEDIUM-376
+
+`aria-kernel convergent-plan` could not run at all. The subcommand imported
+`start_convergent_plan_with_envelope`, which V8 deleted (B-V2-07), so both `start` and
+`issue-challenger` died on an `ImportError` before argument dispatch. The neighbouring CLI test
+asserted only that no `TypeError` appeared, which an `ImportError` also satisfies.
+
+Evidence (at `main@958eed5b7`): `aria-kernel/aria_kernel/cli.py:5680` (the import) and
+`aria-kernel/tests/test_cli_issue_challenger.py:100` (the assertion an `ImportError` passes).
+
+Fix: `convergent_planning_bridge.start_convergent_plan_with_challenger` runs the V8 shape the
+drainer's seed branch runs. It opens the plan with `start_convergent_plan_drafted_by_primary`, then
+mints the round-1 challenger, with scope, obligations and evidence derived from the plan's own
+`plan_started` record (ARIA-HIGH-345). The operator's obligations are added to those. `start`
+loses `--evidence-ref` and `--allowed-scope` and gains `--workspace-root`. A subprocess test runs
+`--help`, `start` and `issue-challenger` end to end.

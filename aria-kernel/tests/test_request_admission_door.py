@@ -43,6 +43,8 @@ MINT_SITES: dict[tuple[str, str], str] = {
     ("aria-kernel/aria_kernel/convergence_drainer.py", "run_convergence_drainer"):
         "convergence_drainer.plan_step / plan_seed / operator_plan_seed",
     ("aria-kernel/aria_kernel/convergent_planning_bridge.py", "issue_challenger_envelope"): "the caller's admission",
+    ("aria-kernel/aria_kernel/convergent_planning_bridge.py", "start_convergent_plan_with_challenger"):
+        "the caller's admission (operator_cli.convergent_plan)",
     ("aria-kernel/aria_kernel/cross_review_bridge.py", "issue_completeness_critic_envelope"): "the caller's admission",
     ("aria-kernel/aria_kernel/cross_review_bridge.py", "issue_cross_review_envelope"): "the caller's admission",
     ("aria-kernel/aria_kernel/cross_review_bridge.py", "issue_implementation_envelope"): "the caller's admission",

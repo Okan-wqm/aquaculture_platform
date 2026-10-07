@@ -8,7 +8,7 @@ import {
   SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS,
   validateTenantSchemaName,
 } from '@aquaculture/backend-common/database';
-import { metricTier } from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
+import { metricTier } from '@aquaculture/shared-contracts';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectDataSource } from '@nestjs/typeorm';

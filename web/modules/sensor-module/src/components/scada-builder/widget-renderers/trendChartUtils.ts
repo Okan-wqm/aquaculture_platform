@@ -3,6 +3,7 @@
  * Extracted to keep the renderer component under 300 lines.
  */
 import { colors } from '@aquaculture/shared-ui';
+import { parsePresetKey, type RelativePresetKey } from '@aquaculture/shared-contracts';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -13,20 +14,28 @@ export interface SimPoint {
   values: Record<string, number>;
 }
 
-export type TimeRangeKey = '1h' | '6h' | '24h' | '7d' | '30d';
+/**
+ * The ranges the SCADA trend widget offers — its builder option list and its
+ * runtime buttons both read this list; durations and words come from the
+ * shared time-range table and the locale maps.
+ */
+export const TREND_WIDGET_PRESETS = ['1h', '6h', '24h', '7d', '30d'] as const satisfies readonly RelativePresetKey[];
+
+export type TrendWidgetPreset = (typeof TREND_WIDGET_PRESETS)[number];
+
+export const DEFAULT_TREND_WIDGET_PRESET: TrendWidgetPreset = '24h';
+
+/** A trend widget range from a stored widget config, or null when it is not one. */
+export function parseTrendWidgetPreset(value: unknown): TrendWidgetPreset | null {
+  const key = parsePresetKey(value);
+  return TREND_WIDGET_PRESETS.find((preset) => preset === key) ?? null;
+}
 
 export const TRACE_COLORS = [
   colors.info[500], colors.success[500], colors.warning[500], colors.error[500],
   colors.primary[700], colors.accent[500], colors.primary[400], colors.accent[600],
 ];
 
-export const TIME_RANGES: { key: TimeRangeKey; label: string; ms: number }[] = [
-  { key: '1h',  label: '1h',  ms: 3_600_000 },
-  { key: '6h',  label: '6h',  ms: 21_600_000 },
-  { key: '24h', label: '24h', ms: 86_400_000 },
-  { key: '7d',  label: '7d',  ms: 604_800_000 },
-  { key: '30d', label: '30d', ms: 2_592_000_000 },
-];
 
 /* ------------------------------------------------------------------ */
 /*  Formatting                                                         */

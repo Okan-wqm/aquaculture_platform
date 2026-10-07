@@ -1,6 +1,7 @@
 /**
  * Dashboard Widget Types
  */
+import type { RelativePresetKey } from '@aquaculture/shared-contracts';
 import { colors } from '@aquaculture/shared-ui';
 
 export type WidgetType =
@@ -17,7 +18,23 @@ export type WidgetType =
   | 'alert'
   | 'process-view';
 
-export type TimeRange = 'live' | '1h' | '6h' | '24h' | '7d' | '30d';
+/**
+ * A widget's range: any preset of the shared sensor-reading time range (the
+ * save API accepts exactly these). Durations and words live there and in the
+ * locale maps; WIDGET_TIME_RANGE_PRESETS only chooses what the editor offers.
+ */
+export type TimeRange = RelativePresetKey;
+
+export const WIDGET_TIME_RANGE_PRESETS = [
+  'live',
+  '1h',
+  '6h',
+  '24h',
+  '7d',
+  '30d',
+  '90d',
+  '365d',
+] as const satisfies readonly RelativePresetKey[];
 
 /**
  * Available sensor metrics for visualization
@@ -263,15 +280,6 @@ export const WIDGET_TYPES: {
     icon: 'git-fork',
     category: 'data',
   },
-];
-
-export const TIME_RANGES: { value: TimeRange; label: string }[] = [
-  { value: 'live', label: 'Live' },
-  { value: '1h', label: 'Last 1 Hour' },
-  { value: '6h', label: 'Last 6 Hours' },
-  { value: '24h', label: 'Last 24 Hours' },
-  { value: '7d', label: 'Last 7 Days' },
-  { value: '30d', label: 'Last 30 Days' },
 ];
 
 export const REFRESH_INTERVALS: { value: number; label: string }[] = [

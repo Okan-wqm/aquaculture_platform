@@ -1,4 +1,4 @@
-import type { AggregationIntervalSql } from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
+import type { AggregationIntervalSql } from '@aquaculture/shared-contracts';
 import { ObjectType, Field, Float, Int, registerEnumType } from '@nestjs/graphql';
 
 /**

@@ -8,6 +8,8 @@
  * Widget actions, Operator permissions, Trend charts, Script engine.
  */
 
+import type { ScadaRangeToken } from '@aquaculture/shared-contracts';
+
 /* ================================================================== */
 /*  1. TAG & DATA PROVIDER                                             */
 /* ================================================================== */
@@ -490,15 +492,12 @@ export interface WidgetPermissionResult {
 /** Chart view mode (FUXA ChartViewType). */
 export type ChartViewMode = 'realtime' | 'history' | 'custom';
 
-/** Time range presets. */
-export type ChartTimeRange =
-  | 'last1h'
-  | 'last8h'
-  | 'last1d'
-  | 'last3d'
-  | 'last1w'
-  | 'last1m'
-  | 'custom';
+/**
+ * Time range presets — the SCADA tokens of the shared time-range table
+ * (`@aquaculture/shared-contracts`), which also owns their durations. A fixed
+ * window is a `{ from, to }` pair (`TrendTimeRange`), never a token.
+ */
+export type ChartTimeRange = ScadaRangeToken;
 
 /** Line interpolation type. */
 export type LineInterpolation =

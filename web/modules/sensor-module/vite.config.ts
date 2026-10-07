@@ -69,6 +69,9 @@ export default defineConfig(({ mode }) => {
           __dirname,
           '../../../libs/sensor-contracts/src/index.ts',
         ),
+        // Zero-dependency cross-stack contracts (the sensor-reading time range
+        // and tier policy) — path-aliased, as admin-panel and shared-ui do.
+        '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
       },
       dedupe: ['react', 'react-dom', '@xyflow/react'],
     },

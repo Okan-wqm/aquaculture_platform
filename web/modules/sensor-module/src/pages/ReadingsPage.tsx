@@ -18,18 +18,20 @@ import {
   Server,
   Wifi,
 } from 'lucide-react';
-import { Button, PageHeader, Select, Spinner } from '@aquaculture/shared-ui';
+import { presetDurationMs } from '@aquaculture/shared-contracts';
+import { Button, PageHeader, Select, Spinner, useTimeRangeLabels } from '@aquaculture/shared-ui';
 
 import { SensorReadingsCard } from '../components/readings/SensorReadingsCard';
 import {
-  PERIODS,
   channelFilterOptions,
+  DEFAULT_READINGS_PRESET,
   freshness,
   lastReportedAt,
   latestValuesCsv,
-  periodMs,
+  parseReadingsPreset,
+  READINGS_PRESETS,
   readingOwners,
-  type PeriodValue,
+  type ReadingsPreset,
 } from '../components/readings/readingsModel';
 import { useChannelLatestValues } from '../hooks/useChannelReadings';
 import { useSensorList } from '../hooks/useSensorList';
@@ -76,7 +78,8 @@ const StatCard: React.FC<{
 
 const ReadingsPage: React.FC = () => {
   const [selectedChannel, setSelectedChannel] = useState('all');
-  const [period, setPeriod] = useState<PeriodValue>('24h');
+  const [period, setPeriod] = useState<ReadingsPreset>(DEFAULT_READINGS_PRESET);
+  const rangeLabels = useTimeRangeLabels();
   const [autoRefresh, setAutoRefresh] = useState(true);
   const now = useNow();
 
@@ -230,9 +233,15 @@ const ReadingsPage: React.FC = () => {
             <Calendar className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             <Select
               aria-label="Trend dönemi"
-              options={PERIODS.map(({ value, label }) => ({ value, label }))}
+              options={READINGS_PRESETS.map((preset) => ({
+                value: preset,
+                label: rangeLabels.preset(preset),
+              }))}
               value={period}
-              onChange={(event) => setPeriod(event.target.value as PeriodValue)}
+              onChange={(event) => {
+                const next = parseReadingsPreset(event.target.value);
+                if (next !== null) setPeriod(next);
+              }}
             />
           </div>
         </div>
@@ -268,7 +277,7 @@ const ReadingsPage: React.FC = () => {
               key={sensor.id}
               sensor={sensor}
               channels={channels}
-              rangeMs={periodMs(period)}
+              rangeMs={presetDurationMs(period)}
               now={now}
               defaultExpanded={visible.length <= 3}
             />

@@ -6,7 +6,7 @@
  *   [< Back] [Preset v] [Forward >]  [Custom from/to]  [Aggregation v]
  *   [Refresh] [Auto-refresh v]  [Export v]
  *
- * Preset ranges: 1h, 8h, 1d, 3d, 1w, 1m
+ * Preset ranges: the SCADA tokens of the shared time-range table
  * Aggregation: raw, 5min, 10min, 30min, 1h, 1d
  * Navigation: back / forward by the current range width
  * Auto-refresh: off | 30s | 1min | 5min | 10min | 30min
@@ -14,35 +14,20 @@
  */
 
 import React, { useState, useCallback, useRef } from 'react';
-import { Button, Input } from '@aquaculture/shared-ui';
+import { Button, Input, useTimeRangeLabels } from '@aquaculture/shared-ui';
+import { SCADA_RANGE_TOKENS, scadaRangePreset } from '@aquaculture/shared-contracts';
 import { ChartExport } from './ChartExport';
 import type {
   ChartLine,
-  ChartTimeRange,
   DaqAggregation,
   DaqAggregationInterval,
   HistoricalDataPoint,
 } from '../../types/scada-runtime.types';
-import type { TrendTimeRange } from '../../hooks/useTrendData';
+import { resolveTrendTimeRange, type TrendTimeRange } from '../../hooks/useTrendData';
 
 /* ------------------------------------------------------------------ */
 /*  Types & constants                                                   */
 /* ------------------------------------------------------------------ */
-
-interface PresetOption {
-  label: string;
-  value: ChartTimeRange;
-  ms: number;
-}
-
-const PRESETS: PresetOption[] = [
-  { label: 'Last 1h', value: 'last1h', ms: 60 * 60 * 1000 },
-  { label: 'Last 8h', value: 'last8h', ms: 8 * 60 * 60 * 1000 },
-  { label: 'Last 1d', value: 'last1d', ms: 24 * 60 * 60 * 1000 },
-  { label: 'Last 3d', value: 'last3d', ms: 3 * 24 * 60 * 60 * 1000 },
-  { label: 'Last 1w', value: 'last1w', ms: 7 * 24 * 60 * 60 * 1000 },
-  { label: 'Last 1m', value: 'last1m', ms: 30 * 24 * 60 * 60 * 1000 },
-];
 
 interface AggregationOption {
   label: string;
@@ -82,16 +67,6 @@ function toLocalDatetimeInput(date: Date): string {
     `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
     `T${pad(date.getHours())}:${pad(date.getMinutes())}`
   );
-}
-
-/** Resolve a TrendTimeRange to an absolute {from, to} pair. */
-function resolveRange(range: TrendTimeRange): { from: Date; to: Date } {
-  if (typeof range === 'object' && 'from' in range) return range;
-
-  const preset = PRESETS.find((p) => p.value === range);
-  const ms = preset?.ms ?? 60 * 60 * 1000;
-  const to = new Date();
-  return { from: new Date(to.getTime() - ms), to };
 }
 
 /* ------------------------------------------------------------------ */
@@ -144,7 +119,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
 
   // Custom range input state
   const [customFrom, setCustomFrom] = useState<string>(() => {
-    const resolved = resolveRange(currentRange);
+    const resolved = resolveTrendTimeRange(currentRange);
     return toLocalDatetimeInput(resolved.from);
   });
   const [customTo, setCustomTo] = useState<string>(() => {
@@ -153,12 +128,10 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
 
   /* ---- Resolved values ---- */
 
-  const currentPreset =
-    typeof currentRange === 'string' && currentRange !== 'custom'
-      ? PRESETS.find((p) => p.value === currentRange)
-      : null;
-
-  const currentPresetLabel = currentPreset?.label ?? 'Custom';
+  const rangeLabels = useTimeRangeLabels();
+  const currentToken = typeof currentRange === 'string' ? currentRange : null;
+  const currentPresetLabel =
+    currentToken === null ? rangeLabels.custom : rangeLabels.preset(scadaRangePreset(currentToken));
 
   const currentRefreshLabel =
     AUTO_REFRESH_OPTIONS.find((o) => o.ms === autoRefreshMs)?.label ?? 'Off';
@@ -170,7 +143,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
 
   const navigate = useCallback(
     (direction: 'back' | 'forward') => {
-      const { from, to } = resolveRange(currentRange);
+      const { from, to } = resolveTrendTimeRange(currentRange);
       const rangeMs = to.getTime() - from.getTime();
       const offset = direction === 'back' ? -rangeMs : rangeMs;
       onRangeChange({
@@ -243,22 +216,22 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
         </Button>
         {showPresetMenu && (
           <div className="absolute top-full left-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[110px]">
-            {PRESETS.map((preset) => (
+            {SCADA_RANGE_TOKENS.map((preset) => (
               <button
-                key={preset.value}
+                key={preset.token}
                 type="button"
                 onClick={() => {
-                  onRangeChange(preset.value);
+                  onRangeChange(preset.token);
                   setShowPresetMenu(false);
                   setShowCustom(false);
                 }}
                 className={`block w-full text-left px-3 py-1.5 hover:bg-info-50 dark:hover:bg-info-900/30 transition-colors ${
-                  currentPreset?.value === preset.value
+                  currentToken === preset.token
                     ? 'font-semibold text-info-600 dark:text-info-400'
                     : 'text-gray-700 dark:text-gray-300'
                 }`}
               >
-                {preset.label}
+                {rangeLabels.preset(preset.preset)}
               </button>
             ))}
             <hr className="my-1 border-gray-100 dark:border-gray-700" />

@@ -1,4 +1,4 @@
-import type { MetricTierName } from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
+import type { MetricTierName } from '@aquaculture/shared-contracts';
 import { Field, Float, ID, Int, ObjectType, registerEnumType } from '@nestjs/graphql';
 
 import { AggregationInterval } from './aggregated-reading.dto';

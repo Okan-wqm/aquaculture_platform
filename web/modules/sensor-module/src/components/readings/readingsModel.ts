@@ -3,6 +3,8 @@
  * the formatting, freshness and export rules live here so they are tested
  * once and the page/cards only render.
  */
+import type { RelativePresetKey } from '@aquaculture/shared-contracts';
+
 import type { ChannelLatestValue } from '../../graphql/channelReadings';
 import type { RegisteredSensor } from '../../hooks/useSensorList';
 
@@ -11,18 +13,28 @@ export const FRESH_WINDOW_MS = 5 * 60 * 1000;
 
 export type Freshness = 'live' | 'stale' | 'none';
 
-export const PERIODS = [
-  { value: '1h', label: 'Son 1 Saat', ms: 60 * 60 * 1000 },
-  { value: '6h', label: 'Son 6 Saat', ms: 6 * 60 * 60 * 1000 },
-  { value: '24h', label: 'Son 24 Saat', ms: 24 * 60 * 60 * 1000 },
-  { value: '7d', label: 'Son 7 Gün', ms: 7 * 24 * 60 * 60 * 1000 },
-  { value: '30d', label: 'Son 30 Gün', ms: 30 * 24 * 60 * 60 * 1000 },
-] as const;
+/**
+ * The relative ranges the readings page offers. Durations and words come
+ * from the shared time-range table (`@aquaculture/shared-contracts`) and the
+ * locale maps; this list only chooses which presets the page shows.
+ */
+export const READINGS_PRESETS = [
+  '1h',
+  '6h',
+  '24h',
+  '7d',
+  '30d',
+  '90d',
+  '365d',
+] as const satisfies readonly RelativePresetKey[];
 
-export type PeriodValue = (typeof PERIODS)[number]['value'];
+export type ReadingsPreset = (typeof READINGS_PRESETS)[number];
 
-export function periodMs(period: PeriodValue): number {
-  return PERIODS.find((entry) => entry.value === period)?.ms ?? PERIODS[2].ms;
+export const DEFAULT_READINGS_PRESET: ReadingsPreset = '24h';
+
+/** A readings preset from untrusted input (a select's value), or null. */
+export function parseReadingsPreset(value: unknown): ReadingsPreset | null {
+  return READINGS_PRESETS.find((preset) => preset === value) ?? null;
 }
 
 /**

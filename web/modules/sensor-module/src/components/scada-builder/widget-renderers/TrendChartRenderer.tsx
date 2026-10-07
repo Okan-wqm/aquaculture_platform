@@ -13,15 +13,18 @@ import type { WidgetRendererProps } from '../WidgetRenderer';
 import { useScadaPackageStore } from '../../../store/scada';
 import {
   TRACE_COLORS,
-  TIME_RANGES,
+  TREND_WIDGET_PRESETS,
+  DEFAULT_TREND_WIDGET_PRESET,
+  parseTrendWidgetPreset,
   formatTimeLabel,
   generateDemoTraces,
   computeYDomain,
   niceStep,
   exportCsv,
 } from './trendChartUtils';
-import type { SimPoint, TimeRangeKey } from './trendChartUtils';
-import { useI18n } from '@aquaculture/shared-ui';
+import type { SimPoint, TrendWidgetPreset } from './trendChartUtils';
+import { useI18n, useTimeRangeLabels } from '@aquaculture/shared-ui';
+import { presetDurationMs } from '@aquaculture/shared-contracts';
 import { colors, chartChrome, colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 const TrendChartRenderer: React.FC<WidgetRendererProps> = ({
@@ -39,10 +42,12 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({
 
   const showGrid = (config.showGrid as boolean) ?? true;
   const showLegend = (config.showLegend as boolean) ?? true;
-  const defaultRange = (config.defaultRange ?? config.timeRange ?? '24h') as string as TimeRangeKey;
+  const rangeLabels = useTimeRangeLabels();
+  const defaultRange =
+    parseTrendWidgetPreset(config.defaultRange ?? config.timeRange) ?? DEFAULT_TREND_WIDGET_PRESET;
 
-  const [selectedRange, setSelectedRange] = useState<TimeRangeKey>(defaultRange);
-  const rangeMs = TIME_RANGES.find((r) => r.key === selectedRange)?.ms ?? 86_400_000;
+  const [selectedRange, setSelectedRange] = useState<TrendWidgetPreset>(defaultRange);
+  const rangeMs = presetDurationMs(selectedRange);
 
   /* ---------- Simulation accumulation ------------------------------ */
   const simulationMode = useScadaPackageStore((s) => s.simulationMode);
@@ -203,11 +208,13 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({
             >
               {label}
             </span>
-            {TIME_RANGES.map((r) => (
+            {TREND_WIDGET_PRESETS.map((preset) => (
               <Button
                 variant="ghost"
-                key={r.key}
-                onClick={() => setSelectedRange(r.key)}
+                key={preset}
+                aria-label={rangeLabels.preset(preset)}
+                aria-pressed={selectedRange === preset}
+                onClick={() => setSelectedRange(preset)}
                 style={{
                   padding: '1px 5px',
                   fontSize: 9,
@@ -215,12 +222,12 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({
                   lineHeight: '14px',
                   borderRadius: 3,
                   cursor: 'pointer',
-                  borderColor: selectedRange === r.key ? colors.primary[400] : colors.neutral[300],
-                  background: selectedRange === r.key ? colors.primary[50] : themeColors.white,
-                  color: selectedRange === r.key ? colors.primary[600] : colors.gray[400],
+                  borderColor: selectedRange === preset ? colors.primary[400] : colors.neutral[300],
+                  background: selectedRange === preset ? colors.primary[50] : themeColors.white,
+                  color: selectedRange === preset ? colors.primary[600] : colors.gray[400],
                 }}
               >
-                {r.label}
+                {rangeLabels.short(preset)}
               </Button>
             ))}
             <Button

@@ -53,7 +53,7 @@ export interface TrendChartProps {
   className?: string;
   /** Realtime mode: rolling window width in minutes. Default 10. */
   realtimeWindowMinutes?: number;
-  /** History mode: initial preset or custom range. */
+  /** History mode: initial preset; a fixed window is chosen in the toolbar. */
   initialRange?: ChartTimeRange;
   /** Custom mode: pre-fetched series data keyed by tagId. */
   customData?: Record<string, HistoricalDataPoint[]>;
@@ -409,9 +409,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
   const pendingRealtimeRef = useRef(false);
 
   // History/custom time range state
-  const [historyRange, setHistoryRange] = useState<TrendTimeRange>(
-    (initialRange === 'custom' ? 'last1h' : initialRange) as TrendTimeRange,
-  );
+  const [historyRange, setHistoryRange] = useState<TrendTimeRange>(initialRange);
   const [autoRefreshMs, setAutoRefreshMs] = useState<number | undefined>(undefined);
 
   // Tooltip state

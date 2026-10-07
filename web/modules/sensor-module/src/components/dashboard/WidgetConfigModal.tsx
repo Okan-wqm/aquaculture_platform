@@ -6,7 +6,14 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Modal, colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
+import { parsePresetKey } from '@aquaculture/shared-contracts';
+import {
+  Modal,
+  colors as themeColors,
+  Button,
+  Input,
+  useTimeRangeLabels,
+} from '@aquaculture/shared-ui';
 import {
   X,
   Check,
@@ -31,7 +38,7 @@ import {
   WidgetSettings,
   YAxisConfig,
   WIDGET_TYPES,
-  TIME_RANGES,
+  WIDGET_TIME_RANGE_PRESETS,
   REFRESH_INTERVALS,
   WIDGET_CATEGORIES,
 } from './types';
@@ -134,6 +141,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
     new Set(editingWidget?.dataChannelIds || []),
   );
   const [timeRange, setTimeRange] = useState<TimeRange>(editingWidget?.timeRange || 'live');
+  const rangeLabels = useTimeRangeLabels();
   const [refreshInterval, setRefreshInterval] = useState(editingWidget?.refreshInterval || 10000);
   const [expandedSensors, setExpandedSensors] = useState<Set<string>>(new Set());
 
@@ -673,12 +681,15 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                 </label>
                 <select
                   value={timeRange}
-                  onChange={(e) => setTimeRange(e.target.value as TimeRange)}
+                  onChange={(e) => {
+                    const next = parsePresetKey(e.target.value);
+                    if (next !== null) setTimeRange(next);
+                  }}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
                 >
-                  {TIME_RANGES.map((range) => (
-                    <option key={range.value} value={range.value}>
-                      {range.label}
+                  {WIDGET_TIME_RANGE_PRESETS.map((preset) => (
+                    <option key={preset} value={preset}>
+                      {rangeLabels.preset(preset)}
                     </option>
                   ))}
                 </select>

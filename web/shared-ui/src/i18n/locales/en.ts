@@ -626,6 +626,32 @@ export const en = {
   'nav.users': 'Users',
   'nav.waterAnalysis': 'Water Analysis',
   'nav.waterChemistry': 'Water Chemistry',
+
+  // ── Time ranges (sensor readings, dashboards, SCADA charts) ──
+  'timeRange.preset.live': 'Live',
+  'timeRange.preset.1h': 'Last 1 hour',
+  'timeRange.preset.6h': 'Last 6 hours',
+  'timeRange.preset.8h': 'Last 8 hours',
+  'timeRange.preset.24h': 'Last 24 hours',
+  'timeRange.preset.3d': 'Last 3 days',
+  'timeRange.preset.7d': 'Last 7 days',
+  'timeRange.preset.30d': 'Last 30 days',
+  'timeRange.preset.90d': 'Last 90 days',
+  'timeRange.preset.365d': 'Last year',
+  'timeRange.short.live': 'Live',
+  'timeRange.short.1h': '1h',
+  'timeRange.short.6h': '6h',
+  'timeRange.short.8h': '8h',
+  'timeRange.short.24h': '24h',
+  'timeRange.short.3d': '3d',
+  'timeRange.short.7d': '7d',
+  'timeRange.short.30d': '30d',
+  'timeRange.short.90d': '90d',
+  'timeRange.short.365d': '1y',
+  'timeRange.custom': 'Custom range',
+  'timeRange.error.empty': 'The range ends before it starts',
+  'timeRange.error.tooLong': 'The range is longer than one year',
+  'timeRange.error.invalid': 'The range in this link is not valid',
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -15,7 +15,7 @@ import {
   type AggregationIntervalSql,
   MAX_SERIES_RANGE_MS,
   SERIES_QUERY_TIMEOUT,
-} from '@aquaculture/shared-contracts/sensor-readings/tier-policy';
+} from '@aquaculture/shared-contracts';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In, QueryRunner } from 'typeorm';

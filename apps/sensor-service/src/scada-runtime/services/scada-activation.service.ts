@@ -27,7 +27,11 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
-import { getTenantSchemaName, runInTenantRead } from '@aquaculture/backend-common/database';
+import {
+  getTenantSchemaName,
+  runInTenantRead,
+  SENSOR_SOURCE_SCHEMA,
+} from '@aquaculture/backend-common/database';
 
 import type { ScadaScript } from '../scada-types';
 import { AlarmEngineService } from './alarm-engine.service';
@@ -41,8 +45,6 @@ import {
   type ScadaTenantOperatorEvent,
   type ScadaPackageLifecycleEvent,
 } from './scada-activation.events';
-
-const SENSOR_SCHEMA = 'sensor';
 
 /** How long a tenant may sit with no connected operator before it is evicted. */
 const IDLE_EVICTION_MS = 15 * 60 * 1000; // 15 min
@@ -150,7 +152,7 @@ export class ScadaActivationService implements OnModuleInit, OnModuleDestroy {
   private async loadAndApply(tenantId: string): Promise<void> {
     let rows: PackageRow[];
     try {
-      rows = await runInTenantRead(this.dataSource, SENSOR_SCHEMA, tenantId, (qr) =>
+      rows = await runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
         qr.query(`SELECT package_data FROM scada_packages WHERE status = 'published'`),
       );
     } catch (error) {

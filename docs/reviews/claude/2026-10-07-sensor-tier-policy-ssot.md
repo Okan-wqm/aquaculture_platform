@@ -52,3 +52,27 @@ threshold comparisons and the whitelist array in sensor-service.
 Not in this change: the browser's range presets (`readingsModel.ts`, the
 widget and heatmap maps). They move onto this module with the date-range UI
 phase, whose picker needs the cap and retention from the same table.
+
+## SENSOR-HIGH-159 — the shared library did not load under CommonJS
+
+`libs/shared-contracts/package.json` exported only the ESM `import`
+condition. The browser bundlers and the service build were unaffected:
+Vite takes `import`, and `tsc-alias` rewrites the path to a relative one.
+CommonJS resolvers could not load the package (`require.resolve` gives
+`ERR_PACKAGE_PATH_NOT_EXPORTED`). That covers the e2e jest suite and
+backend-common's jest config. Once the rollup DDL imported the tier policy,
+the `schema-invariants` and `tenant-clone-parity` gates failed to load
+before testing anything. This pull request did not trigger that workflow;
+the next one that did, #1823, showed it.
+
+Fix:
+
+- The package exports `require` and `default` beside `import`.
+- The tier policy is exported from the package root, and every importer uses
+  the root. A subpath like `@aquaculture/shared-contracts/sensor-readings/...`
+  is not in `exports`, and the e2e TypeScript resolution cannot follow it.
+- `shared-contracts-no-enum-drift.spec.ts` allows the tier-policy module in
+  the barrel.
+
+Proof: the e2e `schema-invariants.spec.ts` now loads and reaches its database
+connection locally, where before it failed on the module.

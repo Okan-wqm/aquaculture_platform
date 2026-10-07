@@ -66,6 +66,9 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
       './enums/messaging-media-mime',
       './ai/persona-id',
       './ai/persona-catalogue',
+      // The sensor-reading tier policy (SENSOR-MEDIUM-149): the series cap,
+      // store choice, interval whitelist and rollup windows the backend reads.
+      './sensor-readings/tier-policy',
       // The design palette (FE-MEDIUM-093): zero-dependency colour data the
       // browser reads through `web/shared-ui/src/styles/theme.ts` and the HTML
       // e-mail builders read directly, so both paint the product's colours.

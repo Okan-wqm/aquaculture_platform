@@ -636,38 +636,43 @@ def _attach_orphan_registry_evidence(
             c["evidence"] = ev
 
 
-def scan_f_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
-    """Plan ARIA-V9.4 source — F-* findings from ``aria-findings/*.json``.
+def scan_f_findings(findings: Mapping[str, Mapping[str, Any]] | None) -> list[dict[str, Any]]:
+    """Plan ARIA-V9.4 source — the F findings the finding-event fold holds.
 
-    Aging scan uses ``Path.stat().st_mtime`` ONLY — JSON body parse
-    is invoked at candidate-selection time, not at scan time
-    (perf HIGH-006 lazy-parse contract). Returns candidates oldest-first
-    (older = higher priority).
+    ARIA-MEDIUM-330 — candidates come from the fold
+    (``finding.fold_findings``), the one authority for which findings
+    exist. This scan used to glob ``F-*.json`` and age each file by its
+    mtime, so F-101/F-102, which the pre-ORPHAN-702 seeder wrote beside the
+    ledger, became candidates that admission then refused as
+    ``finding_unknown``, and a store restore that reset every mtime reset
+    every age. Age is the record's ``created_at``; an undateable record is
+    as young as now. Returns candidates oldest-first.
+
+    ``findings`` is the fold the synthesis already read
+    (``finding_grounding.load_grounding_context``, ADR-0018 D5: one fold per
+    synthesis), not a second read: the slot policy
+    (``plan_slot_policy.order_for_slot``) judges status against that same
+    fold, so the view that names the candidates and the view that drops the
+    ones not OPEN cannot disagree. None — no ledger, or one the context
+    refused — yields no candidates. Status stays the slot policy's and
+    admission's question.
     """
-    # D3 — resolve through the writer's own accessor: under a redirected
-    # state root the hand-built `workspace_root / "aria-findings"` pointed
-    # at a directory the emitter never writes, so aging F-findings could
-    # never become plan candidates on the runner.
-    from .finding import findings_dir as _findings_dir_accessor
+    from .tool_registry import parse_utc_stamp
 
-    findings_dir = _findings_dir_accessor(workspace_root)
-    if not findings_dir.is_dir():
-        return []
+    now = time.time()
     candidates: list[dict[str, Any]] = []
-    for p in findings_dir.glob("F-*.json"):
-        try:
-            mtime = p.stat().st_mtime
-        except OSError:
-            continue
+    for finding_id, record in sorted((findings or {}).items()):
+        stamp = record.get("created_at")
+        created = parse_utc_stamp(stamp) if isinstance(stamp, str) else None
+        created_epoch = created.timestamp() if created is not None else now
         candidates.append({
             "source_type": PlanCandidateSource.F_FINDING.value,
-            "candidate_id": p.stem,
-            "mtime": mtime,
-            "path": str(p),
-            "age_seconds": time.time() - mtime,
-            "title_hint": f"Process aging F-finding {p.stem}",
+            "candidate_id": finding_id,
+            "created_at": stamp,
+            "age_seconds": now - created_epoch,
+            "title_hint": f"Process aging F-finding {finding_id}",
         })
-    candidates.sort(key=lambda c: c["mtime"])  # oldest first
+    candidates.sort(key=lambda c: -c["age_seconds"])  # oldest first
     return candidates[:_MAX_CANDIDATES_PER_SOURCE]
 
 
@@ -1123,6 +1128,7 @@ def rank_candidate_sources(
     workspace_root: str | Path,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
+    findings: Mapping[str, Mapping[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     """Plan ARIA-V9.4 — scan all 5 sources + return ranked candidates.
 
@@ -1138,6 +1144,11 @@ def rank_candidate_sources(
     so the provider can bind the synthesis it selects to that scan (V9.5
     check 12) — and the failing-CI scanner, which discloses each red
     workflow it excludes once per cycle in that store (ADR-0019).
+
+    ``findings`` is the caller's finding fold, which the F_FINDING source
+    reads instead of folding the ledger again (ARIA-MEDIUM-330; see
+    :func:`scan_f_findings`). It is required, so no caller can rank F
+    candidates from one view and judge them against another.
     """
     workspace = Path(workspace_root).resolve()
     all_candidates: list[dict[str, Any]] = []
@@ -1149,11 +1160,14 @@ def rank_candidate_sources(
     def _scan_failing_ci(root: Path) -> list[dict[str, Any]]:
         return scan_failing_ci(root, base_dir=base_dir, cycle_id=cycle_id)
 
+    def _scan_f_findings(_root: Path) -> list[dict[str, Any]]:
+        return scan_f_findings(findings)
+
     for source_name, scanner in (
         (PlanCandidateSource.OPERATOR_FEEDBACK.value, _scan_operator_feedback),
         (PlanCandidateSource.FAILING_CI.value, _scan_failing_ci),
         (PlanCandidateSource.ORPHAN_FINDING.value, scan_orphan_findings),
-        (PlanCandidateSource.F_FINDING.value, scan_f_findings),
+        (PlanCandidateSource.F_FINDING.value, _scan_f_findings),
         (PlanCandidateSource.GITHUB_ISSUE.value, scan_github_issue_missions),
     ):
         t0 = time.monotonic()
@@ -1378,7 +1392,7 @@ def convert_candidate_to_plan_content(
       failing_jobs, head_sha, conclusion, created_at, title_hint }
     * `orphan_finding` — { candidate_id, severity, raw_id, heading_line,
       evidence, title_hint }
-    * `f_finding` — { candidate_id, mtime, path, age_seconds,
+    * `f_finding` — { candidate_id, created_at, age_seconds,
       title_hint }
     * `git_diff` — synthesized by V7GitDiffProvider, not by this
       function.

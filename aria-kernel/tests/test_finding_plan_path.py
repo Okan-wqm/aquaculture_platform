@@ -23,7 +23,7 @@ from unittest import mock
 
 from aria_kernel import finding_grounding as fg
 from aria_kernel.cycle_phases.plan_source import V9PressureSourceProvider
-from aria_kernel.finding import fold_findings
+from aria_kernel.finding import findings_dir, fold_findings
 from aria_kernel.finding_seed import SUBJECT_ABSENT, SUBJECT_UNVERIFIABLE
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.plan_slot_policy import (
@@ -228,6 +228,20 @@ class ProviderSlotTests(_ProviderFixture):
         self.assertTrue(applied["f_first"])
         self.assertEqual(applied["offered"][0], "OP-F015-live")
 
+
+    def test_a_finding_file_no_event_emitted_never_reaches_the_slot(self) -> None:
+        # ARIA-MEDIUM-330 — the runner store holds F-101.json from the
+        # pre-ORPHAN-702 seeder with no finding_emitted event. The F source
+        # names candidates from the fold the slot policy judges, so the stray
+        # is neither offered nor dropped: it was never a candidate.
+        self.fx.seed_finding("F-010", refs=[f"{GROUNDED_FILE}:12"])
+        (findings_dir(self.fx.repo) / "F-101.json").write_text(
+            '{"id": "F-101", "source": "seed_drift_findings", "status": "OPEN"}\n', encoding="utf-8")
+        self.synthesize("cyc-stray")
+        applied = self.governance("plan_slot_policy_applied")[-1]
+        self.assertNotIn("F-101", applied["offered"])
+        self.assertNotIn("F-101", [d["candidate_id"] for d in applied["dropped"]])
+        self.assertIn("F-010", applied["offered"])
 
 class SeedTests(_ProviderFixture):
     def test_a_moved_cited_line_re_anchors_to_where_it_is_now(self) -> None:

@@ -7,7 +7,8 @@
  * zone is a required input: the picker never falls back to the browser's.
  *
  * Times name whole minutes: the start is the first instant of its minute, the
- * end the last, so the default 00:00–23:59 covers every selected day fully.
+ * end the last, so the whole-day 00:00–23:59 a preset opens with covers every
+ * picked day fully.
  */
 import {
   type RelativePresetKey,
@@ -33,7 +34,7 @@ import {
 const MINUTE_MS = 60_000;
 
 /** Why a draft cannot be applied: a range check, or a day or time not filled in. */
-type DraftError = TimeRangeError | 'incomplete';
+type DraftError = TimeRangeError | 'incomplete' | 'future';
 
 export interface TimeRangeDataBounds {
   readonly firstMs: number;
@@ -68,14 +69,24 @@ function parseHhmm(value: string): { hour: number; minute: number } | null {
   return match ? { hour: Number(match[1]), minute: Number(match[2]) } : null;
 }
 
-/** The draft a spec opens the picker with: its window, read in the zone. */
+const WHOLE_DAY = { startTime: '00:00', endTime: '23:59' } as const;
+
+/**
+ * The draft a spec opens the picker with, read in the zone. A fixed window
+ * reopens on its own days and times. A preset ("last 24 hours") opens on the
+ * days it spans but with whole-day times: its clock times belong to "now",
+ * not to the days a user goes on to pick.
+ */
 function draftOf(spec: TimeRangeSpec, timeZone: string, nowMs: number): Draft {
   const window = resolveTimeRange(spec, nowMs);
   if (!window.ok) {
-    return { start: null, end: null, startTime: '00:00', endTime: '23:59' };
+    return { start: null, end: null, ...WHOLE_DAY };
   }
   const start = wallClockAt(window.startMs, timeZone);
   const end = wallClockAt(window.endMs - MINUTE_MS, timeZone);
+  if (spec.kind === 'relative') {
+    return { start, end, ...WHOLE_DAY };
+  }
   return {
     start,
     end,
@@ -100,6 +111,10 @@ function specOf(
     startMs: instantOfWallClock({ ...draft.start, ...startTime }, timeZone),
     endMs: instantOfWallClock({ ...draft.end, ...endTime }, timeZone) + MINUTE_MS,
   };
+  // A window that starts after now has nothing to show yet.
+  if (spec.startMs > nowMs) {
+    return { ok: false, error: 'future' };
+  }
   const resolved = resolveTimeRange(spec, nowMs);
   return resolved.ok ? { ok: true, spec } : { ok: false, error: resolved.error };
 }
@@ -136,7 +151,35 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({
   const triggerLabel =
     value.kind === 'relative'
       ? labels.preset(value.preset)
-      : `${instantFormat.format(value.startMs)} – ${instantFormat.format(value.endMs - MINUTE_MS)}`;
+      : t('timeRange.span', {
+          start: instantFormat.format(value.startMs),
+          end: instantFormat.format(value.endMs - MINUTE_MS),
+        });
+  // The zone by its localised name, with its id for the unambiguous answer.
+  const zoneName =
+    new Intl.DateTimeFormat(locale, { timeZone, timeZoneName: 'long' })
+      .formatToParts(Date.now())
+      .find((part) => part.type === 'timeZoneName')?.value ?? timeZone;
+  const zoneLabel = t('timeRange.picker.zoneName', { name: zoneName, id: timeZone });
+  const dayFormat = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' });
+  const draftDays =
+    draft.start !== null && draft.end !== null
+      ? t('timeRange.span', {
+          start: dayFormat.format(
+            Date.UTC(draft.start.year, draft.start.month - 1, draft.start.day, 12),
+          ),
+          end: dayFormat.format(Date.UTC(draft.end.year, draft.end.month - 1, draft.end.day, 12)),
+        })
+      : null;
+  const errorId = `${ids}-error`;
+  const errorText =
+    error === null
+      ? null
+      : error === 'incomplete'
+        ? t('timeRange.picker.incomplete')
+        : error === 'future'
+          ? t('timeRange.picker.future')
+          : labels.error(error);
 
   const today = civilDateAt(Date.now(), timeZone);
   const firstDataDay = dataBounds ? civilDateAt(dataBounds.firstMs, timeZone) : null;
@@ -183,7 +226,7 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({
           {...props}
           type="button"
           disabled={disabled}
-          aria-label={`${t('timeRange.picker.open')}: ${triggerLabel}`}
+          aria-label={t('timeRange.picker.openWith', { range: triggerLabel })}
           className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
         >
           <CalendarClock className="h-4 w-4 text-gray-500" aria-hidden="true" />
@@ -206,7 +249,8 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({
                     type="button"
                     aria-pressed={current}
                     onClick={() => {
-                      onChange({ kind: 'relative', preset });
+                      // The range already shown: nothing changes, nothing is recorded.
+                      if (!current) onChange({ kind: 'relative', preset });
                       close();
                     }}
                     className={`rounded px-2 py-1.5 text-left text-sm hover:bg-primary-50 dark:hover:bg-primary-900/30 ${
@@ -232,9 +276,9 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({
             <p className="mt-2 text-xs text-gray-500" aria-live="polite">
               {draft.start === null
                 ? t('timeRange.picker.pickStart')
-                : draft.end === null
+                : draftDays === null
                   ? t('timeRange.picker.pickEnd')
-                  : t('timeRange.picker.timeZone', { zone: timeZone })}
+                  : t('timeRange.picker.chosen', { range: draftDays, zone: zoneLabel })}
             </p>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <label className="text-xs text-gray-600 dark:text-gray-300">
@@ -242,9 +286,13 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({
                 <input
                   type="time"
                   step={60}
+                  lang={locale}
                   value={draft.startTime}
+                  aria-invalid={error !== null || undefined}
+                  aria-describedby={error !== null ? errorId : undefined}
                   onChange={(event) => {
                     const startTime = event.currentTarget.value;
+                    setError(null);
                     setDraft((current) => ({ ...current, startTime }));
                   }}
                   className="mt-1 block w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800"
@@ -255,18 +303,26 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({
                 <input
                   type="time"
                   step={60}
+                  lang={locale}
                   value={draft.endTime}
+                  aria-invalid={error !== null || undefined}
+                  aria-describedby={error !== null ? errorId : undefined}
                   onChange={(event) => {
                     const endTime = event.currentTarget.value;
+                    setError(null);
                     setDraft((current) => ({ ...current, endTime }));
                   }}
                   className="mt-1 block w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800"
                 />
               </label>
             </div>
-            {error !== null && (
-              <p role="alert" className="mt-2 text-sm text-error-600 dark:text-error-400">
-                {error === 'incomplete' ? t('timeRange.picker.incomplete') : labels.error(error)}
+            {errorText !== null && (
+              <p
+                id={errorId}
+                role="alert"
+                className="mt-2 text-sm text-error-600 dark:text-error-400"
+              >
+                {errorText}
               </p>
             )}
             <div className="mt-3 flex justify-end gap-2">

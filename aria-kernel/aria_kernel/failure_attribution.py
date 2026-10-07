@@ -5,36 +5,48 @@ ARIA-HIGH-309 (#1773) turns a failure mode recurring
 ``LESSON_EPISODE_THRESHOLD`` times into a binding lesson, but only for
 episodes marked ``attributable``. Measured on the runner store 2026-10-06:
 19 drafter failure episodes, 18 of them ``attributable=false`` and the 19th
-(``operator_withdrawn``) attributable although it records an operator's act,
-so the lesson reader never fired. The episode took the first token of the
-plan's terminal reason, and that token names the LANE (``stalled``,
-``convergence_envelope_dead:<role>``), never the cause. The cause was on the
-record all along, one join away: the dead envelope's request, its terminal
-claim release (``release_reason``'s closed code) and its refused result
-(the evidence law's ``agent_evidence_*`` codes). Nothing read them.
+(``operator_withdrawn``) attributable although it records an operator's act.
+The episode took the first token of the plan's terminal reason, and that
+token names the LANE (``stalled``, ``convergence_envelope_dead:<role>``),
+never the cause, which sat one join away on the agent-invocation ledgers.
 
-WHAT. :func:`attribute_plan_failure` and :func:`attribute_implementation_failure`
-attribute a failure only when the failure's own evidence names the work:
+WHAT. Attribution is a CLOSED ALLOWLIST of evidence (review of #1829, HIGH-1
+and HIGH-2: the first version attributed every code not on a lane denylist,
+so an environment fault such as ``architecture_spine_unavailable:*`` and any
+code an operator typed into ``plan force-human-required`` became the
+drafter's lesson). A failure is attributed only when:
 
-* ``evidence_law`` — the agent's result was refused by the evidence law
-  (``agent_invocation_results`` row, status ``rejected``, ``agent_evidence_*``);
-* ``gate_refusal`` — a named kernel gate refused the work: the plan-content
-  validator on a claim release (``PLAN_CONTENT_INVALID``), a rejected result
-  under a non-evidence code, or an evaluation gate's reason code;
-* ``cross_review_rejection`` — the evaluation ended on material cross-review
-  risks the revisions never resolved;
-* ``agent_refusal`` — the agent refused the REQUEST (``AGENT_REFUSED:<class>``):
-  the refusal is a verdict on what the plan handed it, so it is the plan's
-  (role ``drafter``), not the refusing agent's;
-* ``apply_gate`` — the implementer's change failed an apply-gate or CI check;
-* ``post_merge_revert`` — an attributed self-revert of the merged change.
+* ``gate_refusal`` / ``cross_review_rejection`` — the evaluator's own row
+  (``plan_convergence.evaluate_plan``) names a code in
+  :data:`ATTRIBUTABLE_GATE_CODES`. A FORCED escalation (gate decision
+  ``human_escalation``) is the kernel's only when every code it carries is in
+  :data:`KERNEL_FORCED_CODES`; any other forced row is an operator's or an
+  unknown writer's act and is never attributed.
+* ``evidence_law`` — the dead step's latest request ended on a result the
+  evidence law refused for the AGENT's citation (``agent_evidence_*``, minus
+  the validator's own "could not verify" codes, which are harness class:
+  ``evidence_validator.EVIDENCE_VERIFICATION_UNAVAILABLE_CODES`` and
+  ``*_evidence_baseline_unavailable``), the request's last release is of
+  fault domain ``request``, and no harness release came after the result.
+* ``gate_refusal`` (release) — the last release is ``PLAN_CONTENT_INVALID``
+  for a body the validator refused; ``plan_content:absent_or_not_object`` is
+  the kernel's EXTRACTION failing to find a body and is not attributed.
+* ``agent_refusal`` — the last release is ``AGENT_REFUSED:<class>`` with a
+  class in ``agent_contract.REASON_CLASSES``; the refusal judges the request,
+  so the failure is the plan's (role ``drafter``).
+* ``apply_gate`` / ``post_merge_revert`` — the implementer's change failed a
+  check judged against its own diff, or was reverted by attribution.
 
-Everything else — a lease or poll that ran out, a provider or runtime that
-was unavailable (``release_reason`` fault domain ``harness``), an operator's
-act, a request nobody claimed — is never attributed: it says nothing about
-the work, and lane 365 owns that fault domain. Unknown is unattributed: the
-rule is an allowlist of evidence, so a new failure shape teaches nothing
-until its evidence is named here.
+Kernel-owned rejection codes (``response_schema``, ``separation_of_duties``,
+``plan_contract``: the kernel's parse, the kernel's duty table, the kernel's
+rendered contract) are never the agent's. Every release whose fault domain is
+not ``request`` — every provider outage (quota, auth, unreachable, logged
+out), runtime unavailability, lease expiry, an unclassified string — is never
+attributed: this module's rule is the single place lane 365's fault domain
+meets the learning loop, and it admits only ``request``.
+
+A historical episode whose cause the kernel has since fixed is voided by
+:mod:`attribution_void` (applied by ``agent_eval``).
 """
 from __future__ import annotations
 
@@ -51,41 +63,38 @@ CROSS_REVIEW_REJECTION = "cross_review_rejection"
 AGENT_REFUSAL = "agent_refusal"
 APPLY_GATE = "apply_gate"
 POST_MERGE_REVERT = "post_merge_revert"
-#: A plan abandoned under a reason no lane rule names: the abandon writer's
-#: own words (the stall reaper is the only production writer, and its
-#: ``stalled`` is a lane code).
-ABANDON_REASON = "abandon_reason"
 
-#: The plan's own role: the seed or revision the planners were handed.
 DRAFTER_ROLE = "drafter"
 IMPLEMENTER_ROLE = "implementer"
 ENVELOPE_DEAD = "convergence_envelope_dead"
+HUMAN_ESCALATION = "human_escalation"
 
-#: Evaluation reason codes that name the lane, the operator or a budget —
-#: never the plan's content. ``max_rounds_reached`` rides with the cause
-#: (``unresolved_material_risk``, ``coverage_gaps_present``); alone it is a
-#: budget. ``implementation_delivery_exhausted`` is the implementer lane's
-#: (its rejections are implementer episodes of their own).
-LANE_REASON_CODES: frozenset[str] = frozenset({
-    "stalled", ENVELOPE_DEAD, "human_required", "operator_withdrawn", "max_rounds_reached",
-    "pending_tasks_present", "partial_cross_review_coverage", "partial_coverage",
-    "coverage_missing", "coverage_environment_unable", "cycle_budget_exhausted",
-    "implementation_delivery_exhausted",
-})
-#: Evaluation reason codes that are the cross-review's rejection of the plan.
+#: The evaluator's codes that judge the plan body (``evaluate_plan``,
+#: ``_evaluate_state``, ``_evaluate_cross_review_state``, the plan-contract and
+#: architecture-spine gates). Closed: a code absent here is never attributed.
 CROSS_REVIEW_REASON_CODES: frozenset[str] = frozenset({
     "material_cross_review_risks_present", "unresolved_material_risk",
 })
-#: Claim-release codes whose evidence names the agent's output (the plan
-#: validator refused it) or the request it was handed (the agent refused it).
-_RELEASE_ATTRIBUTION: Mapping[str, str] = {
-    "PLAN_CONTENT_INVALID": GATE_REFUSAL,
-    "AGENT_REFUSED": AGENT_REFUSAL,
-}
+ATTRIBUTABLE_GATE_CODES: frozenset[str] = CROSS_REVIEW_REASON_CODES | frozenset({
+    "plan_contract_incomplete", "critical_risks_present", "high_risks_present", "unknown_risks_present",
+    "new_risk_category_round_3", "coverage_gaps_present", "architecture_spine_regression",
+})
+#: The codes the kernel's own ``force_plan_human_required`` callers write
+#: (convergence_drainer, plan_round_controller, converged_delivery). A forced
+#: row carrying any other code was written by ``plan force-human-required``.
+KERNEL_FORCED_CODES: frozenset[str] = frozenset({
+    ENVELOPE_DEAD, "max_rounds_reached", "unresolved_material_risk", "implementation_delivery_exhausted",
+})
+#: Result rejection codes that are the kernel's own judgement of its own
+#: artefacts, never the agent's work.
+KERNEL_OWNED_REJECTION_CODES: frozenset[str] = frozenset({
+    "response_schema", "separation_of_duties", "plan_contract",
+})
+#: PLAN_CONTENT_INVALID details that are the kernel's extraction failing.
+EXTRACTION_FAILURE_DETAILS: frozenset[str] = frozenset({"plan_content:absent_or_not_object"})
 #: Implementation rejection classes judged against the implementer's own
 #: change (``implementation_rejections``). The rest name the lane, the host
-#: or the plan: a poll deadline, a branch collision, a file lock, a missing
-#: signing identity, a profile precondition, drift of the base under it.
+#: or the plan.
 APPLY_GATE_REJECTION_CLASSES: frozenset[str] = frozenset({
     "ci_check_red", "merge_policy_violation", "content_hash_mismatch", "secret_leak_detected",
     "kernel_self_modification_attempted", "bash_command_denylist_hit",
@@ -100,13 +109,23 @@ _MAX_MODE = 64
 
 
 def mode_token(*parts: str) -> str:
-    """A kernel token (``must_satisfy._REASON_CODE_RE``) naming the mode, so
-    the lesson rides as readable data; the first part alone when the joined
-    form would not be one."""
+    """A kernel token (``must_satisfy._REASON_CODE_RE``) naming the mode."""
     joined = re.sub(r"[^a-z0-9]+", "_", "_".join(parts).lower()).strip("_")
     if _TOKEN_RE.match(joined) and len(joined) <= _MAX_MODE:
         return joined
     return re.sub(r"[^a-z0-9]+", "_", parts[0].lower()).strip("_")
+
+
+def harness_rejection_code(code: str) -> bool:
+    """A rejection code that says the kernel could not verify, never what the agent did."""
+    from .evidence_validator import EVIDENCE_VERIFICATION_UNAVAILABLE_CODES
+
+    return code in EVIDENCE_VERIFICATION_UNAVAILABLE_CODES or code.endswith("_evidence_baseline_unavailable")
+
+
+def attributable_rejection_code(code: str) -> bool:
+    return (code.startswith("agent_evidence_") and not harness_rejection_code(code)
+            and code not in KERNEL_OWNED_REJECTION_CODES)
 
 
 @dataclass(frozen=True)
@@ -147,86 +166,6 @@ class InvocationLedgers:
         )
 
 
-def _result_codes(row: Mapping[str, Any]) -> list[str]:
-    codes = row.get("rejection_codes")
-    if isinstance(codes, list) and codes:
-        return [str(code) for code in codes if _TOKEN_RE.match(str(code))]
-    # Rows written before the structured field carry the kernel's own
-    # rendering of the code (`evidence: {'code': '<token>', ...}`).
-    found: list[str] = []
-    for reason in row.get("rejection_reasons") or []:
-        found.extend(_CODE_IN_REASON_RE.findall(str(reason)))
-    return found
-
-
-def _dead_step_attribution(
-    ledgers: InvocationLedgers, *, plan_id: str, role: str, round_number: int | None, drafter: str,
-) -> Attribution | None:
-    """The cause of one dead envelope: the latest request minted for the step,
-    then its refused result, else its last claim release."""
-    requests = [row for row in ledgers.requests
-                if row.get("convergence_id") == plan_id and row.get("role") == role
-                and (round_number is None or row.get("round_number") == round_number)]
-    if not requests:
-        return None
-    request = requests[-1]
-    request_id = str(request.get("request_id"))
-    agent = str(request.get("target_agent") or role)
-    results = [row for row in ledgers.results if row.get("request_id") == request_id]
-    if results and results[-1].get("status") == "rejected":
-        codes = _result_codes(results[-1])
-        if codes:
-            kind = EVIDENCE_LAW if codes[0].startswith("agent_evidence_") else GATE_REFUSAL
-            ref = {"surface": "agent_invocation_results", "id": str(results[-1].get("row_id") or request_id)}
-            return Attribution(role, agent, kind, mode_token(codes[0]), ",".join(dict.fromkeys(codes)), (ref,))
-    releases = [row for row in ledgers.claims
-                if row.get("request_id") == request_id and row.get("event") in ("released", "human_required")]
-    if not releases:
-        return None
-    reason = parse_release_reason(str(releases[-1].get("reason") or ""))
-    kind = _RELEASE_ATTRIBUTION.get(reason.reason_code)
-    if kind is None:
-        return None
-    ref = {"surface": "agent_invocation_claims", "id": f"{request_id}:{releases[-1].get('event')}"}
-    mode = mode_token(reason.reason_code, reason.reason_detail)
-    if kind == AGENT_REFUSAL:
-        # The refusing agent judged the request; the plan it was handed failed.
-        return Attribution(DRAFTER_ROLE, drafter, kind, mode, f"refused_by={agent}", (ref,))
-    return Attribution(role, agent, kind, mode, reason.reason_detail, (ref,))
-
-
-def attribute_plan_failure(
-    reason_codes: list[str], *, plan_id: str, round_number: int | None, drafter: str,
-    ledgers: "InvocationLedgersSource", named_by: str = GATE_REFUSAL,
-) -> Attribution | None:
-    """The attribution of a drafter episode that ended HUMAN_REQUIRED or
-    abandoned, or None when no reason's evidence names the work."""
-    for raw in reason_codes:
-        code, _, suffix = str(raw).partition(":")
-        code = code.strip()
-        if code == ENVELOPE_DEAD and suffix.strip():
-            found = _dead_step_attribution(ledgers.get(), plan_id=plan_id, role=suffix.strip(),
-                                           round_number=round_number, drafter=drafter)
-            if found is not None:
-                return found
-            continue
-        if code in LANE_REASON_CODES or not code:
-            continue
-        kind = CROSS_REVIEW_REJECTION if code in CROSS_REVIEW_REASON_CODES else named_by
-        return Attribution(DRAFTER_ROLE, drafter, kind, code)
-    return None
-
-
-def attribute_implementation_failure(rejection_class: str, *, implementer: str) -> Attribution | None:
-    if rejection_class not in APPLY_GATE_REJECTION_CLASSES:
-        return None
-    return Attribution(IMPLEMENTER_ROLE, implementer, APPLY_GATE, rejection_class)
-
-
-def attribute_self_revert(trigger: str, *, implementer: str) -> Attribution:
-    return Attribution(IMPLEMENTER_ROLE, implementer, POST_MERGE_REVERT, f"self_revert:{trigger}")
-
-
 class InvocationLedgersSource:
     """Loads :class:`InvocationLedgers` on first use: a history with no dead
     envelope never reads them."""
@@ -241,10 +180,128 @@ class InvocationLedgersSource:
         return self._ledgers
 
 
+def _result_codes(row: Mapping[str, Any]) -> list[str]:
+    codes = row.get("rejection_codes")
+    if isinstance(codes, list) and codes:
+        return [str(code) for code in codes if _TOKEN_RE.match(str(code))]
+    # Rows written before the structured field carry the kernel's own
+    # rendering of the code (`evidence: {'code': '<token>', ...}`).
+    found: list[str] = []
+    for reason in row.get("rejection_reasons") or []:
+        found.extend(_CODE_IN_REASON_RE.findall(str(reason)))
+    return found
+
+
+def _stamp(row: Mapping[str, Any], *fields: str) -> Any:
+    from .tool_registry import parse_utc_stamp
+
+    for name in fields:
+        value = row.get(name)
+        if isinstance(value, str) and (parsed := parse_utc_stamp(value)) is not None:
+            return parsed
+    return None
+
+
+def _not_before(stamp: Any, reference: Any) -> bool:
+    return stamp is None or reference is None or stamp >= reference
+
+
+def _fault_domain(row: Mapping[str, Any]) -> str:
+    recorded = row.get("fault_domain")
+    return str(recorded) if recorded else parse_release_reason(str(row.get("reason") or "")).fault_domain
+
+
+def _dead_step_attribution(
+    ledgers: InvocationLedgers, *, plan_id: str, role: str, round_number: int | None, drafter: str,
+) -> Attribution | None:
+    """The cause of one dead envelope, when its last word is the request's.
+
+    The latest request minted for the step is read. Its last release must be
+    of fault domain ``request`` (an outage, an unavailable runtime, a lease
+    that ran out, an unclassified string end the analysis). A rejected result
+    is the cause only when no harness release followed it: a rejection on
+    attempt one followed by provider outages died of the outages.
+    """
+    requests = [row for row in ledgers.requests
+                if row.get("convergence_id") == plan_id and row.get("role") == role
+                and (round_number is None or row.get("round_number") == round_number)]
+    if not requests:
+        return None
+    request_id = str(requests[-1].get("request_id"))
+    agent = str(requests[-1].get("target_agent") or role)
+    releases = [row for row in ledgers.claims
+                if row.get("request_id") == request_id and row.get("event") in ("released", "human_required")]
+    if releases and _fault_domain(releases[-1]) != "request":
+        return None
+    results = [row for row in ledgers.results if row.get("request_id") == request_id]
+    if results and results[-1].get("status") == "rejected":
+        rejected_at = _stamp(results[-1], "submitted_at", "recorded_at")
+        # A release whose time (or the result's) cannot be read is counted as
+        # after it: an unplaceable outage never leaves the agent blamed.
+        later_harness = [row for row in releases if _fault_domain(row) != "request"
+                         and _not_before(_stamp(row, "released_at", "at"), rejected_at)]
+        codes = [code for code in _result_codes(results[-1]) if attributable_rejection_code(code)]
+        if later_harness or not codes:
+            return None
+        ref = {"surface": "agent_invocation_results", "id": str(results[-1].get("row_id") or request_id)}
+        return Attribution(role, agent, EVIDENCE_LAW, mode_token(codes[0]), ",".join(dict.fromkeys(codes)), (ref,))
+    if not releases:
+        return None
+    reason = parse_release_reason(str(releases[-1].get("reason") or ""))
+    ref = {"surface": "agent_invocation_claims", "id": f"{request_id}:{releases[-1].get('event')}"}
+    if reason.reason_code == "PLAN_CONTENT_INVALID" and reason.reason_detail not in EXTRACTION_FAILURE_DETAILS:
+        return Attribution(role, agent, GATE_REFUSAL, mode_token(reason.reason_code, reason.reason_detail),
+                           reason.reason_detail, (ref,))
+    if reason.reason_code == "AGENT_REFUSED":
+        from .agent_contract import REASON_CLASSES
+
+        if reason.reason_detail not in REASON_CLASSES:
+            return None  # an agent-written class outside the contract teaches nothing
+        # The refusing agent judged the request; the plan it was handed failed.
+        return Attribution(DRAFTER_ROLE, drafter, AGENT_REFUSAL, mode_token("agent_refused", reason.reason_detail),
+                           f"refused_by={agent}", (ref,))
+    return None
+
+
+def _forced(payload: Mapping[str, Any]) -> bool:
+    decisions = payload.get("gate_decisions") or []
+    return any(isinstance(d, Mapping) and d.get("decision") == HUMAN_ESCALATION for d in decisions)
+
+
+def attribute_evaluation(
+    payload: Mapping[str, Any], *, plan_id: str, drafter: str, ledgers: InvocationLedgersSource,
+) -> Attribution | None:
+    """The attribution of a drafter episode that ended HUMAN_REQUIRED, or None."""
+    codes = [str(raw) for raw in payload.get("reason_codes") or []]
+    heads = [code.partition(":")[0].strip() for code in codes]
+    if _forced(payload) and not set(heads) <= KERNEL_FORCED_CODES:
+        return None  # an operator's (or any non-kernel writer's) escalation
+    for code, head in zip(codes, heads):
+        if head == ENVELOPE_DEAD and code.partition(":")[2].strip():
+            found = _dead_step_attribution(ledgers.get(), plan_id=plan_id, role=code.partition(":")[2].strip(),
+                                           round_number=payload.get("round_number"), drafter=drafter)
+            if found is not None:
+                return found
+        elif code in ATTRIBUTABLE_GATE_CODES:
+            kind = CROSS_REVIEW_REJECTION if code in CROSS_REVIEW_REASON_CODES else GATE_REFUSAL
+            return Attribution(DRAFTER_ROLE, drafter, kind, code)
+    return None
+
+
+def attribute_implementation_failure(rejection_class: str, *, implementer: str) -> Attribution | None:
+    if rejection_class not in APPLY_GATE_REJECTION_CLASSES:
+        return None
+    return Attribution(IMPLEMENTER_ROLE, implementer, APPLY_GATE, rejection_class)
+
+
+def attribute_self_revert(trigger: str, *, implementer: str) -> Attribution:
+    return Attribution(IMPLEMENTER_ROLE, implementer, POST_MERGE_REVERT, f"self_revert:{trigger}")
+
+
 __all__ = [
-    "ABANDON_REASON", "AGENT_REFUSAL", "APPLY_GATE", "APPLY_GATE_REJECTION_CLASSES", "Attribution",
-    "CROSS_REVIEW_REJECTION", "CROSS_REVIEW_REASON_CODES", "DRAFTER_ROLE", "EVIDENCE_LAW",
-    "GATE_REFUSAL", "InvocationLedgers", "InvocationLedgersSource", "LANE_REASON_CODES",
-    "POST_MERGE_REVERT", "attribute_implementation_failure", "attribute_plan_failure",
-    "attribute_self_revert", "mode_token",
+    "AGENT_REFUSAL", "APPLY_GATE", "APPLY_GATE_REJECTION_CLASSES", "ATTRIBUTABLE_GATE_CODES", "Attribution",
+    "CROSS_REVIEW_REJECTION", "CROSS_REVIEW_REASON_CODES", "DRAFTER_ROLE", "EVIDENCE_LAW", "GATE_REFUSAL",
+    "InvocationLedgers", "InvocationLedgersSource", "KERNEL_FORCED_CODES", "KERNEL_OWNED_REJECTION_CODES",
+    "POST_MERGE_REVERT", "attributable_rejection_code", "attribute_evaluation",
+    "attribute_implementation_failure", "attribute_self_revert", "harness_rejection_code", "mode_token",
 ]

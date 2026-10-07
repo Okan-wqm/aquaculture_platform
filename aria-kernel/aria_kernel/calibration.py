@@ -75,7 +75,9 @@ RAISE_AT_PRECISION = 0.85
 CUT_AT_PRECISION = 0.5
 RAISE_STEP = 5
 CUT_STEP = 10
-MIN_LABELS = 2
+#: Review of #1829 (HIGH-4) — ten labels before any weight is recommended:
+#: at two, one label moves the point precision by 0.5 and the dial with it.
+MIN_LABELS = 10
 
 
 def _pressure_weight_recommendations(feedback_rows: list[dict[str, Any]], *, base_dir=None) -> list[dict[str, Any]]:

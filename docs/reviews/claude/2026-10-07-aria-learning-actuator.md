@@ -133,11 +133,96 @@ events occurred; no producer is missing.
 
 On the next three cycles, all four are surfaced as `window_open`.
 
+### Review corrections (review of #1829)
+
+The review held the merge on 4 HIGH and 3 MEDIUM findings. Each fix below has a test that failed
+on the first version of the branch (b7de16a13). Where that version lacked the symbol the test
+reads, the test fails on import instead. The sections above describe the first version. Where they
+disagree with this one, this section wins.
+
+**HIGH-1. Attribution blocked known-bad codes instead of allowing known-good ones.**
+
+- `failure_attribution.attribute_evaluation` now attributes only codes in
+  `ATTRIBUTABLE_GATE_CODES`:
+  - `material_cross_review_risks_present`, `unresolved_material_risk`
+    (cross-review rejection);
+  - `plan_contract_incomplete`, `critical_risks_present`, `high_risks_present`,
+    `unknown_risks_present`, `new_risk_category_round_3`, `coverage_gaps_present`,
+    `architecture_spine_regression` (gate refusal).
+- A forced escalation (gate decision `human_escalation`) counts as the kernel's only when every
+  code it carries is in `KERNEL_FORCED_CODES`. Any other forced row is an operator's act and is
+  never attributed.
+- Abandons are never attributed.
+
+**HIGH-2. The kernel's own harness verdict was ignored.**
+
+- A dead step is attributed only when its last release has fault domain `request`, and when no
+  harness release came after the rejected result. Every outage kind, and any unclassified string,
+  is excluded.
+- These are excluded too:
+  - the validator's "could not verify" codes and `*_evidence_baseline_unavailable`;
+  - the kernel-owned codes `response_schema`, `separation_of_duties` and `plan_contract`;
+  - the extraction failure `plan_content:absent_or_not_object`;
+  - any refusal class outside `agent_contract.REASON_CLASSES`. The executor now records such a
+    class as `unspecified`.
+- `attribution_void.ATTRIBUTION_VOID` voids an attribution whose kernel cause a later fix removed.
+  Its entries:
+
+  | Mode                           | Role                    | Before            | Fixed by |
+  | ------------------------------ | ----------------------- | ----------------- | -------- |
+  | `agent_evidence_path_missing`  | `completeness_critique` | 2026-10-06T16:50Z | #1797    |
+  | `agent_evidence_ref_malformed` | `challenger_plan`       | 2026-10-04T06:10Z | #1731    |
+  | `agent_refused_evidence`       | `drafter`               | 2026-10-04T06:10Z | #1731    |
+
+  The two #1731 entries cover the `gh-run-list:` pseudo-ref that the kernel's own seed carried.
+
+- Every recorded row now carries `gate_epoch`, a digest of the gate modules.
+
+**HIGH-3. Admission lessons blocked forever and could blame the wrong party.**
+
+- **Wrong party.** Only failures with attribution role `drafter` count. A challenger's or critic's
+  failure never refuses the drafter's candidate.
+- **No way back in.** The breaker is now half-open. It admits one probe 7 days after the newest
+  counted failure, or as soon as the gate epoch has moved. The skip or the selection names the
+  breaker state.
+- **Identity.** A failing-CI candidate is keyed on its workflow plus its failing `job::step` pairs
+  (`plan_content.failing_signature`, which the synthesizer now writes). An F candidate is keyed on
+  its ARIA-HIGH-363 subject.
+- **Composition with #1826.** The slot policy cools a workflow after any failure, and its drop
+  stands alone. This brake only judges what the slot policy kept, and the test pins that it adds no
+  duplicate refusal.
+
+**HIGH-4. The calibration actuator flapped, and its revert test proved nothing.**
+
+- **Measure versus dial.** No outcome metric exists for the pressure a dial scales: the
+  effectiveness ledger is kept per source and has recorded 0 merges. So no bet is claimed.
+  - The dial is the trust weight of a tool's findings.
+  - Its measure is the labelled precision of those findings, read through a 90% Wilson interval.
+- **Step and undo rules.**
+  - A step needs 10 fresh labels whose interval sits on the step's side.
+  - A step is undone only when the opposite bound crosses (hysteresis), and a 14-day cooldown
+    follows.
+  - A window with no labels closes as `held_timeout` after 21 days and takes no further step.
+  - The recommendation itself also needs 10 labels.
+- **Security adapters** (security-boundary, tenant-scoping, agent-harness-security and
+  typeorm-entity-schema) can only be raised, and their floor is 50.
+
+**MEDIUM.**
+
+- The dial is clamped on read as well as on write.
+- A flapping verdict is re-judged on each transition.
+- The plan and procedural ledgers are read once per synthesis.
+
+**Replay on the real store, after the corrections.**
+
+- **Attribution.** 0 episodes are attributable. Four rows would have been attributed, and the void
+  registry names the fix for each: #1731 three times and #1797 once. The 2026-09-18 extraction
+  failure is not attributed.
+- **Calibration.** Only security-boundary and tenant-scoping still reach 10 labels with a
+  recommendation. Both are surfaced as `security_tool_cut_is_operator_act`, and nothing is applied.
+
 ### Tests
 
-- `tests/test_learning_attribution.py` (10): each evidence type is attributed, harness failures
-  are not, recorded rows are re-judged once, and the lesson reaches the challenger envelope.
-- `tests/test_candidate_admission_lessons.py` (4): admission gating through the production
-  provider.
-- `tests/test_calibration_actuator.py` (9): bounded apply, surfacing, revert and hold, profile
-  withholding, and the pressure dial.
+- `tests/test_learning_attribution.py` (10) and `tests/test_learning_attribution_review.py` (12).
+- `tests/test_candidate_admission_lessons.py` (12).
+- `tests/test_calibration_actuator.py` (12).

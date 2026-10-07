@@ -1,89 +1,155 @@
 """ARIA-HIGH-370 — kernel-attributed failure modes gate candidate admission.
 
 WHY. The 2026-10-06 loop RCA (blocker 7) measured a planner that re-admitted
-the same candidate after every failure: four failing_ci plans built on the
-same ``gh-run-list:`` pseudo-ref, each refused for that ref (the evidence law
-on 08-16, the challenger's ``agent_refused:evidence`` on 09-29 and 09-30),
-and nothing between the record of those failures and the next admission.
-The lesson reader (ARIA-HIGH-309) tells the NEXT PLANNER what failed; it
-cannot stop the synthesizer from minting the identical plan again, which
-burns a challenger turn per cycle on a refusal already recorded.
+the same candidate after every failure, and nothing between the record of
+those failures and the next admission read them. The lesson reader
+(ARIA-HIGH-309) tells the NEXT PLANNER what failed; it cannot stop the
+synthesizer from minting the identical plan again.
 
-WHAT. :func:`recurring_attributed_refusal` judges a converted candidate
-before it is admitted. A candidate is identified by what its plan is built
-on — its ``finding_id`` and the grounds of its evidence refs (the text
-before the first ``:``: a file path, or a pseudo-ref's scheme), so a new CI
-run id or a new line number is the same candidate and a different file is
-not. When the last ``LESSON_EPISODE_THRESHOLD`` ATTRIBUTED drafter episodes
-of earlier plans with that identity all failed in the same attributed mode
-(``failure_attribution``), the candidate is refused unchanged; a converged
-episode in that window, a different mode, or a changed identity admits it.
-Unattributed episodes (a stall, a dead lease, a provider outage) are
-skipped, never counted: they say nothing about the candidate.
+WHAT. :func:`admission_verdict` judges a converted candidate before it is
+admitted, against :class:`AdmissionHistory` (the plan ledger and procedural
+memory, read ONCE per synthesis).
+
+Identity — what the candidate is about, stable across the facts that change
+between attempts (review of #1829, HIGH-3):
+
+* failing CI: the workflow file and the failing ``job::step`` signature
+  (``plan_content.failing_signature``, written by the synthesizer). The run
+  id is provenance (``provenance_refs``) since #1731 and is not identity;
+* an F finding: its ARIA-HIGH-363 subject (``finding_subject_key``), so the
+  re-seeded refs of #1826 and a sibling finding of the same subject are the
+  same candidate; a finding without a subject is itself;
+* anything else: the grounds of its evidence refs (path before the line).
+
+Refusal — the last :data:`LESSON_EPISODE_THRESHOLD` episodes of earlier
+plans with that identity, counting only failures attributed to the PLAN
+(attribution role ``drafter``) and successes, all failed in one mode. A
+challenger's or critic's refused output is that agent's lesson, never a
+reason to refuse the drafter's candidate. Unattributed episodes are skipped.
+
+Half-open breaker — a refused identity is re-admitted for ONE probe when
+:data:`PROBE_INTERVAL` has passed since its newest counted failure, or when
+the gate epoch (``attribution_void.gate_epoch``) differs from the one that
+failure was recorded under: the gate that refused it may have changed. A
+probe that fails the same way closes the breaker for another interval.
+
+Composition with #1826 (``plan_slot_policy``): the slot policy cools a red
+workflow for three days after ANY failed plan and the F loop guards cool a
+subject after any failure; this brake engages only on a RECURRING attributed
+mode, after the slot policy has ordered the candidates, and holds the
+identity until the probe interval or a gate change.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
 from .agent_eval import LESSON_EPISODE_THRESHOLD, list_performance_observations
 from .ledger import load_declared_jsonl
-from .tool_registry import ensure_tools_dir_readonly
+from .tool_registry import ensure_tools_dir_readonly, parse_utc_stamp
 
 RECURRING_ATTRIBUTED_FAILURE = "recurring_attributed_failure"
+RECURRING_FAILURE_PROBE = "recurring_attributed_failure_probe"
+#: Seven days: two of the slot policy's three-day failing-CI cool-offs plus
+#: one, so a refused identity is retried at most weekly.
+PROBE_INTERVAL = timedelta(days=7)
 
 
-def candidate_identity(plan_content: Mapping[str, Any]) -> str:
-    """What a plan is built on: its finding and the grounds of its refs."""
-    refs = plan_content.get("evidence_refs")
-    grounds = sorted({str(ref).split(":", 1)[0].strip() for ref in refs}) if isinstance(refs, list) else []
+def _grounds(refs: Any) -> list[str]:
+    return sorted({str(ref).split(":", 1)[0].strip() for ref in refs}) if isinstance(refs, list) else []
+
+
+def candidate_identity(plan_content: Mapping[str, Any], findings: Mapping[str, Mapping[str, Any]] | None) -> str:
+    """What a plan is about; see the module docstring."""
+    from .finding_subject import finding_subject_key
+
+    signature = plan_content.get("failing_signature")
     finding = plan_content.get("finding_id")
-    canonical = json.dumps([finding if isinstance(finding, str) else None, grounds], sort_keys=True)
-    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    if isinstance(signature, Mapping):
+        canonical: list[Any] = ["failing_ci", signature.get("workflow_path"), sorted(signature.get("failed") or [])]
+    elif isinstance(finding, str) and finding.strip():
+        key = finding_subject_key((findings or {}).get(finding) or {})
+        canonical = ["subject", key] if key is not None else ["finding", finding]
+    else:
+        canonical = ["refs", _grounds(plan_content.get("evidence_refs"))]
+    return "sha256:" + hashlib.sha256(json.dumps(canonical, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def _plan_identities(root: Path) -> dict[str, str]:
-    from .plan_convergence import events_file
+@dataclass(frozen=True)
+class AdmissionHistory:
+    """Plan identities and drafter episodes, read once per synthesis."""
 
-    ledger = events_file(root)
-    rows = load_declared_jsonl(ledger, expected_surface="plan_convergence_events") if ledger.is_file() else []
-    identities: dict[str, str] = {}
-    for row in rows:
-        content = row["payload"].get("plan_content") if row["event_type"] == "plan_started" else None
-        if isinstance(content, dict):
-            identities[str(row["plan_id"])] = candidate_identity(content)
-    return identities
+    identities: Mapping[str, str]
+    episodes: tuple[Mapping[str, Any], ...]
+    findings: Mapping[str, Mapping[str, Any]] | None
+    now: datetime
+
+    @classmethod
+    def load(
+        cls, base_dir: str | Path | None, *, findings: Mapping[str, Mapping[str, Any]] | None,
+        now: datetime | None = None,
+    ) -> "AdmissionHistory":
+        from .plan_convergence import events_file
+
+        root = ensure_tools_dir_readonly(base_dir)
+        identities: dict[str, str] = {}
+        episodes: tuple[Mapping[str, Any], ...] = ()
+        if root is not None:
+            ledger = events_file(root)
+            rows = load_declared_jsonl(ledger, expected_surface="plan_convergence_events") if ledger.is_file() else []
+            for row in rows:
+                content = row["payload"].get("plan_content") if row["event_type"] == "plan_started" else None
+                if isinstance(content, dict):
+                    identities[str(row["plan_id"])] = candidate_identity(content, findings)
+            episodes = tuple(row for row in list_performance_observations(base_dir=root) if row["role"] == "drafter")
+        return cls(identities, episodes, findings, now or datetime.now(timezone.utc))
 
 
-def recurring_attributed_refusal(
-    *, base_dir: str | Path | None, plan_content: Mapping[str, Any],
-    threshold: int = LESSON_EPISODE_THRESHOLD,
+def _counted(row: Mapping[str, Any]) -> bool:
+    """A success, or a failure the evidence attributed to the plan itself."""
+    if row["success"]:
+        return True
+    return bool(row["attributable"]) and str((row.get("attribution") or {}).get("role") or row["role"]) == "drafter"
+
+
+def admission_verdict(
+    history: AdmissionHistory, plan_content: Mapping[str, Any], *, threshold: int = LESSON_EPISODE_THRESHOLD,
 ) -> dict[str, Any] | None:
-    """The recorded lesson that refuses this candidate unchanged, or None."""
-    root = ensure_tools_dir_readonly(base_dir)
-    if root is None:
-        return None
-    identity = candidate_identity(plan_content)
-    same = {plan for plan, other in _plan_identities(root).items() if other == identity}
-    attributed = [
-        row for row in list_performance_observations(base_dir=root)
-        if row["role"] == "drafter" and row["plan_id"] in same and row["attributable"]
-    ]
-    window = attributed[-threshold:]
+    """None when no recorded lesson bears on the candidate; else the lesson
+    with ``reason`` :data:`RECURRING_ATTRIBUTED_FAILURE` (refuse) or
+    :data:`RECURRING_FAILURE_PROBE` (the breaker's one half-open admission)."""
+    from .attribution_void import gate_epoch
+
+    identity = candidate_identity(plan_content, history.findings)
+    same = {plan for plan, other in history.identities.items() if other == identity}
+    window = [row for row in history.episodes if row["plan_id"] in same and _counted(row)][-threshold:]
     if len(window) < threshold or any(row["success"] for row in window):
         return None
-    modes = {(str(row["failure_mode"]), str((row.get("attribution") or {}).get("role") or "drafter"))
-             for row in window}
+    modes = {str(row["failure_mode"]) for row in window}
     if len(modes) != 1:
         return None
-    mode, role = modes.pop()
+    newest = window[-1]
+    failed_at = parse_utc_stamp(str(newest.get("occurred_at") or ""))
+    epoch = newest.get("gate_epoch")
+    probe_at = failed_at + PROBE_INTERVAL if failed_at is not None else None
+    if probe_at is not None and history.now >= probe_at:
+        reason, why = RECURRING_FAILURE_PROBE, "probe_interval_elapsed"
+    elif isinstance(epoch, str) and epoch != gate_epoch():
+        reason, why = RECURRING_FAILURE_PROBE, "gate_epoch_changed"
+    else:
+        reason, why = RECURRING_ATTRIBUTED_FAILURE, "breaker_open"
     return {
-        "reason": RECURRING_ATTRIBUTED_FAILURE, "candidate_identity": identity, "failure_mode": mode,
-        "attributed_role": role, "episodes": len(window),
-        "plan_ids": [str(row["plan_id"]) for row in window],
+        "reason": reason, "breaker": why, "candidate_identity": identity, "failure_mode": modes.pop(),
+        "episodes": len(window), "plan_ids": [str(row["plan_id"]) for row in window],
+        "probe_after": probe_at.isoformat() if probe_at is not None else None,
     }
 
 
-__all__ = ["RECURRING_ATTRIBUTED_FAILURE", "candidate_identity", "recurring_attributed_refusal"]
+__all__ = [
+    "PROBE_INTERVAL", "RECURRING_ATTRIBUTED_FAILURE", "RECURRING_FAILURE_PROBE", "AdmissionHistory",
+    "admission_verdict", "candidate_identity",
+]

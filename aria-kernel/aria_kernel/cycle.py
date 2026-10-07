@@ -2176,10 +2176,11 @@ def _phase_calibration_recommendation(context: PhaseContext) -> dict[str, Any]:
     # weight-override`): a system that silently reweights its own scoring can
     # rationalise anything it later measures. ARIA-HIGH-370 — the per-tool
     # dial the labels actually measure (`calibration_dials`) is moved by the
-    # bounded actuator instead: inside declared bounds, one step per cycle
-    # and per window, every application ledgered with its evidence and
-    # reverted when the next window's labels contradict it. What it may not
-    # apply stays `recommendation_only` and is surfaced in `auto_apply`.
+    # bounded actuator instead: inside declared bounds, one step per dial per
+    # cycle on fresh labels whose interval supports it, undone with
+    # hysteresis and a cooldown, raise-only for security adapters, every
+    # application ledgered with its evidence. What it may not apply stays
+    # `recommendation_only` and is surfaced in `auto_apply`.
     result = recommend_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
     result["auto_apply"] = apply_bounded_calibration(
         recommendation=result, base_dir=context.base_dir, cycle_id=context.cycle_id,

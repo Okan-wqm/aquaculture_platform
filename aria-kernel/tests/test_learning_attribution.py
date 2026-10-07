@@ -42,7 +42,8 @@ from tests.test_implementation_lifecycle_continuity import converging_plan_conte
 
 HR_SURFACE = [{"paths": ["apps/hr-service/src/leave/**"]}]
 KIND = "observed_plan_failure_mode"
-INVALID = "plan_content_invalid_plan_content_absent_or_not_object"
+INVALID = "plan_content_invalid_plan_content_key_changes_empty"
+INVALID_RELEASE = "plan_content_invalid:plan_content:key_changes_empty"
 
 
 class _Ledgers(unittest.TestCase):
@@ -105,7 +106,7 @@ class EachEvidenceTypeAttributesTests(_Ledgers):
                          {"role": "challenger_plan", "agent": "aria-challenger-planner", "evidence_type": "evidence_law"})
 
     def test_an_output_the_plan_validator_refused_is_a_gate_refusal(self) -> None:
-        self.dead_challenger("plan-gate", release="plan_content_invalid:plan_content:absent_or_not_object")
+        self.dead_challenger("plan-gate", release=INVALID_RELEASE)
         row = self.episodes()["plan-gate"]
         self.assertEqual((row["attributable"], row["failure_mode"], row["attribution"]["evidence_type"]),
                          (True, INVALID, "gate_refusal"))
@@ -164,7 +165,7 @@ class HarnessFailuresAreNeverAttributedTests(_Ledgers):
 
 class RecordedEpisodesAreRejudgedOnceTests(_Ledgers):
     def test_a_row_recorded_before_attribution_is_superseded_and_the_rejudgement_is_stable(self) -> None:
-        self.dead_challenger("plan-old", release="plan_content_invalid:plan_content:absent_or_not_object")
+        self.dead_challenger("plan-old", release=INVALID_RELEASE)
         # The row the pre-attribution observer wrote for this episode (origin/main).
         legacy = [row for row in self._derive() if row["plan_id"] == "plan-old"][0]
         append_declared_jsonl(self.tools / "memory" / "procedural.jsonl",
@@ -193,7 +194,7 @@ class TheLessonReachesTheRolesNextEnvelopeTests(_Ledgers):
 
     def test_a_recurring_challenger_failure_reaches_the_next_challenger_envelope_as_data(self) -> None:
         for n in (1, 2, 3):
-            self.dead_challenger(f"plan-old-{n}", release="plan_content_invalid:plan_content:absent_or_not_object")
+            self.dead_challenger(f"plan-old-{n}", release=INVALID_RELEASE)
         observe_agent_performance(base_dir=self.tools, cycle_id="cyc-370")
         self.start("plan-now")
 
@@ -202,13 +203,13 @@ class TheLessonReachesTheRolesNextEnvelopeTests(_Ledgers):
         self.assertEqual([(o["id"], o["failure_mode"], o["attributed_role"], o["episodes"]) for o in found],
                          [(f"observed_plan_failure:challenger_plan:{INVALID}", INVALID, "challenger_plan", 3)])
         self.assertEqual(found[0]["plan_ids"], ["plan-old-1", "plan-old-2", "plan-old-3"])
-        self.assertNotIn("absent_or_not_object", found[0]["description"])  # data, never the kernel's text
+        self.assertNotIn("key_changes_empty", found[0]["description"])  # data, never the kernel's text
 
     def test_the_challengers_lesson_is_not_the_primarys_and_the_plans_own_lesson_is_both(self) -> None:
         from aria_kernel.planner_lessons import planner_lesson_obligations
 
         for n in (1, 2, 3):
-            self.dead_challenger(f"plan-inv-{n}", release="plan_content_invalid:plan_content:absent_or_not_object")
+            self.dead_challenger(f"plan-inv-{n}", release=INVALID_RELEASE)
             self.dead_challenger(f"plan-ref-{n}", release="agent_refused:evidence")
         observe_agent_performance(base_dir=self.tools, cycle_id="cyc-370")
         self.start("plan-now")

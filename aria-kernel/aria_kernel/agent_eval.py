@@ -50,11 +50,10 @@ from typing import Any, Collection
 
 from .artifact_safety import assert_real_mode_env_safe
 from .failure_attribution import (
-    ABANDON_REASON,
     Attribution,
     InvocationLedgersSource,
+    attribute_evaluation,
     attribute_implementation_failure,
-    attribute_plan_failure,
     attribute_self_revert,
 )
 from .ledger import LedgerIntegrityError, append_declared_jsonl, load_declared_jsonl
@@ -892,8 +891,16 @@ def _episode(
     """One episode. ARIA-HIGH-370: a failure is ``attributable`` only when
     ``failure_attribution`` names the work from the failure's own evidence;
     the attribution's mode replaces the lane token the reason started with."""
+    from .attribution_void import void_for
+
     canonical = json.dumps([role, plan_id, source], sort_keys=True).encode("utf-8")
     episode_id = "sha256:" + hashlib.sha256(canonical).hexdigest()
+    # Review of #1829 (HIGH-2) — an attribution whose cause a kernel fix has
+    # since removed is recorded unattributed, naming the fix.
+    void = void_for(attribution.failure_mode, attribution.role, occurred_at) if attribution is not None else None
+    voided_by = void.fixed_by if void is not None else None
+    if void is not None:
+        attribution = None
     mode = attribution.failure_mode if attribution is not None else failure_mode
     evidence = [source, *(dict(ref) for ref in attribution.evidence)] if attribution is not None else [source]
     return {
@@ -903,6 +910,7 @@ def _episode(
         "success": failure_mode is None, "failure_mode": mode,
         "attributable": failure_mode is None or attribution is not None,
         "attribution": attribution.as_row() if attribution is not None else None,
+        **({"voided_by": voided_by} if voided_by is not None else {}),
         "occurred_at": occurred_at, "evidence": evidence, "supersedes": supersedes,
     }
 
@@ -931,18 +939,13 @@ def _performance_episodes(
             # HUMAN_REQUIRED (the validator's only other terminal): the first
             # reason code, or the state itself when the evaluation named none.
             reasons = [*payload["reason_codes"], "human_required"]
-            attribution = attribute_plan_failure(
-                [str(code) for code in reasons], plan_id=plan_id, round_number=payload.get("round_number"),
-                drafter=drafter, ledgers=ledgers,
-            )
+            attribution = attribute_evaluation(payload, plan_id=plan_id, drafter=drafter, ledgers=ledgers)
             episodes.append(_episode("drafter", drafter, plan_id, source, at, "escalated",
                                      str(reasons[0]).split(":", 1)[0].strip(), attribution=attribution))
         elif kind == "plan_abandoned":
+            # The stall reaper is the abandon writer; an abandon names no work.
             reason = str(payload["reason"]).split(":", 1)[0].strip()
-            attribution = attribute_plan_failure([reason], plan_id=plan_id, round_number=None, drafter=drafter,
-                                                 ledgers=ledgers, named_by=ABANDON_REASON)
-            episodes.append(_episode("drafter", drafter, plan_id, source, at, "abandoned", reason,
-                                     attribution=attribution))
+            episodes.append(_episode("drafter", drafter, plan_id, source, at, "abandoned", reason))
         elif kind == "implementation_rejected":
             rejection = str(payload["rejection_class"])
             episodes.append(_episode(
@@ -964,7 +967,8 @@ def _performance_episodes(
 
 
 def _judgement(row: dict[str, Any]) -> tuple[Any, ...]:
-    return (row["failure_mode"], row["attributable"], json.dumps(row.get("attribution"), sort_keys=True))
+    return (row["failure_mode"], row["attributable"], json.dumps(row.get("attribution"), sort_keys=True),
+            row.get("voided_by"))
 
 
 def _unrecorded_episodes(root: Path) -> list[dict[str, Any]]:
@@ -991,7 +995,12 @@ def _unrecorded_episodes(root: Path) -> list[dict[str, Any]]:
             continue
         if _judgement(current) == _judgement(episode):
             continue
-        digest = hashlib.sha256(json.dumps([lineage, *_judgement(episode)]).encode("utf-8")).hexdigest()
+        # Review of #1829 (M) — the id names the TRANSITION (the row it
+        # supersedes and the new judgement): a verdict that flaps A→B→A→B
+        # gets a fresh row each time instead of colliding with the B already
+        # recorded and sticking on A.
+        transition = [lineage, str(current["episode_id"]), *_judgement(episode)]
+        digest = hashlib.sha256(json.dumps(transition).encode("utf-8")).hexdigest()
         rejudged = {**episode, "episode_id": "sha256:" + digest, "row_id": "sha256:" + digest,
                     "lineage_id": lineage, "supersedes": str(current["episode_id"])}
         if rejudged["episode_id"] not in recorded:
@@ -1025,8 +1034,10 @@ def observe_agent_performance(*, base_dir: str | Path | None = None, cycle_id: s
         return _refuse(root, cycle_id, "agent_eval_inputs_unverified", str(exc))
     path = _surface_file(root, PERFORMANCE_SURFACE)
     path.parent.mkdir(parents=True, exist_ok=True)
+    from .attribution_void import gate_epoch
+
     for row in pending:
-        append_declared_jsonl(path, {**row, "cycle_id": cycle_id, "recorded_at": utc_now()},
+        append_declared_jsonl(path, {**row, "cycle_id": cycle_id, "recorded_at": utc_now(), "gate_epoch": gate_epoch()},
                               expected_surface=PERFORMANCE_SURFACE)
     return {"verdict": "observed", "appended": len(pending)}
 

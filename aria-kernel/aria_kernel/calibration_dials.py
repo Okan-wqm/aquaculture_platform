@@ -36,6 +36,18 @@ TOOL_DIAL_NEUTRAL = 50
 #: and never above a confirmed in-repo violation (tool_quarantine, 90).
 TOOL_DIAL_MIN = 20
 TOOL_DIAL_MAX = 80
+#: Review of #1829 (HIGH-4) — the adapters whose findings guard tenant
+#: isolation, authorization, the agent harness's security boundary and the
+#: tenant-schema invariant. Their dial is RAISE-ONLY with a floor of
+#: neutral: a precise security adapter may gain attention, and making one
+#: quieter is an operator's act (``pressure weight-override`` territory), never
+#: the actuator's. Closed; ``tests/test_calibration_actuator.py`` pins that
+#: every registered adapter whose id names security, tenant, auth, rls or
+#: secret is in it.
+SECURITY_TOOLS: frozenset[str] = frozenset({
+    "security-boundary-adapter", "tenant-scoping-adapter", "agent-harness-security-adapter",
+    "typeorm-entity-schema-adapter",
+})
 AUTO_APPLIED_PATH = ("calibration", "auto-applied.jsonl")
 AUTO_APPLIED_SURFACE = "calibration_auto_applied"
 
@@ -64,18 +76,32 @@ def auto_applied_rows(base_dir: str | Path | None) -> list[dict[str, Any]]:
     return load_declared_jsonl(path, expected_surface=AUTO_APPLIED_SURFACE)
 
 
+def dial_bounds(tool: str) -> tuple[int, int]:
+    """(min, max) of a tool's dial; a security tool's floor is neutral."""
+    return (TOOL_DIAL_NEUTRAL if tool in SECURITY_TOOLS else TOOL_DIAL_MIN), TOOL_DIAL_MAX
+
+
+def clamp_dial(tool: str, weight: int) -> int:
+    low, high = dial_bounds(tool)
+    return max(low, min(high, int(weight)))
+
+
 def tool_pressure_weights(base_dir: str | Path | None) -> dict[str, int]:
-    """Current weight of every tool dial an application moved; absent = neutral."""
+    """Current weight of every tool dial an application moved; absent = neutral.
+
+    Clamped on READ as well as on write (review of #1829, M): the ledger is a
+    file, and a stray ``to_weight`` of 1000 must not become 20x pressure."""
     weights: dict[str, int] = {}
     for row in auto_applied_rows(base_dir):
+        tool = str(row["dial"]["name"])
         if row["event"] == "applied":
-            weights[str(row["dial"]["name"])] = int(row["to_weight"])
+            weights[tool] = clamp_dial(tool, row["to_weight"])
         elif row["event"] == "reverted":
-            weights[str(row["dial"]["name"])] = int(row["weight"])
+            weights[tool] = clamp_dial(tool, row["weight"])
     return weights
 
 
 __all__ = [
-    "AUTO_APPLIED_PATH", "AUTO_APPLIED_SURFACE", "SOURCE_DIAL", "TOOL_DIAL", "TOOL_DIAL_MAX",
+    "AUTO_APPLIED_PATH", "AUTO_APPLIED_SURFACE", "SECURITY_TOOLS", "SOURCE_DIAL", "clamp_dial", "dial_bounds", "TOOL_DIAL", "TOOL_DIAL_MAX",
     "TOOL_DIAL_MIN", "TOOL_DIAL_NEUTRAL", "auto_applied_rows", "feedback_dial", "tool_pressure_weights",
 ]

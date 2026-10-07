@@ -1289,6 +1289,26 @@ def _named_line(lines: list[str], name: str, start: int) -> int | None:
     return None
 
 
+def _failing_signature(workflow_path: Any, failing_jobs: Any) -> dict[str, Any]:
+    """ARIA-HIGH-370 (review of #1829, HIGH-3) — what a red run is about: its
+    workflow file and the ``job::step`` pairs that failed. The run id is
+    provenance; two red runs failing the same steps are one candidate for
+    ``admission_lessons``, and a different failing step is another."""
+    from .text_safety import sanitize_untrusted_text
+
+    failed: set[str] = set()
+    for job in failing_jobs if isinstance(failing_jobs, list) else []:
+        if not isinstance(job, dict):
+            continue
+        name = sanitize_untrusted_text(str(job.get("name") or ""), max_len=120)
+        steps = job.get("failed_steps") if isinstance(job.get("failed_steps"), list) else []
+        if not steps:
+            failed.add(f"{name}::")
+        for step in steps:
+            failed.add(f"{name}::{sanitize_untrusted_text(str(step), max_len=120)}")
+    return {"workflow_path": str(workflow_path), "failed": sorted(failed)}
+
+
 def _workflow_evidence_refs(repo_root: Path, workflow_path: Any, failing_jobs: Any) -> list[str]:
     """``<workflow>:<line>`` of each failing step, then of its job, then the file itself.
 
@@ -1416,6 +1436,7 @@ def convert_candidate_to_plan_content(
     if finding_sourced and (admission is None or not admission.admitted):
         return _NO_PLAN
     provenance_refs: list[str] = []
+    failing_signature: dict[str, Any] | None = None
     key_changes: list[dict[str, Any]] | None = None
     signed_fallback: list[str] | None = None
     # Per-source content authoring. Each branch builds the same
@@ -1468,6 +1489,7 @@ def convert_candidate_to_plan_content(
             f"{head_sha or 'unknown'}; diagnose root cause + land architectural fix."
         )
         provenance_refs = [f"gh-run-list:{candidate_id}"]
+        failing_signature = _failing_signature(workflow_path, candidate.get("failing_jobs"))
     elif source_type == PlanCandidateSource.ORPHAN_FINDING.value:
         severity = sanitize_untrusted_text(
             candidate.get("severity") or "MEDIUM", max_len=16,
@@ -1552,6 +1574,8 @@ def convert_candidate_to_plan_content(
     }
     if provenance_refs:
         content["provenance_refs"] = provenance_refs
+    if failing_signature is not None:
+        content["failing_signature"] = failing_signature
     # ARIA-HIGH-104 (4) — the plan's ORIGIN is a plan claim, recorded in the
     # body (hash-covered, revised and cross-reviewed like every other claim)
     # and not only in the sidecar metadata that never reaches the plan

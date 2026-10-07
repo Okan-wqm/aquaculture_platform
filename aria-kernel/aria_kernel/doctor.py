@@ -21,6 +21,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -606,6 +607,26 @@ def _check_deadlines(tools_dir: Path, workspace_root: Path) -> DoctorCheck:
     return DoctorCheck("deadlines", "ok", "", detail)
 
 
+def _check_finding_backlog(workspace_root: Path, *, now: datetime | None = None) -> DoctorCheck:
+    """Wall #7 — WARN names overdue operator-only findings with their age
+    (``F-012@19.4d``), a closable backlog at the cap and a breached closure
+    SLO; the detail is the whole census the cycle gates on."""
+    from .cycle_guard import backlog_census
+
+    census = backlog_census(workspace_root, now=now)
+    overdue = [row for row in census["operator_only"]
+               if row["age_days"] is not None and row["age_days"] >= census["operator_escalation_age_days"]]
+    slo = census["slo"]
+    warnings = [
+        *(["operator_only_overdue:" + ",".join(f"{r['finding_id']}@{r['age_days']}d" for r in overdue)] if overdue else []),
+        *([f"closable_backlog_at_cap:{census['capped']}>={census['backlog_cap']}"]
+          if census["capped"] >= census["backlog_cap"] else []),
+        *([f"closure_slo_breached:{slo['opened_closable']}>{slo['closed']}/{slo['window_days']}d"]
+          if slo["breached"] else []),
+    ]
+    return DoctorCheck("finding_backlog", "warn" if warnings else "ok", ";".join(warnings), census)
+
+
 def run_doctor(
     *,
     base_dir: str | Path | None = None,
@@ -650,6 +671,7 @@ def run_doctor(
         _guarded("orchestrator", lambda: _check_orchestrator(tools_dir)),
         _guarded("tools", lambda: _check_tools(tools_dir)),
         _guarded("deadlines", lambda: _check_deadlines(tools_dir, workspace)),
+        _guarded("finding_backlog", lambda: _check_finding_backlog(workspace)),
         _guarded("calibration_gate", lambda: _check_calibration_gate(tools_dir)),
     )
     return DoctorReport(

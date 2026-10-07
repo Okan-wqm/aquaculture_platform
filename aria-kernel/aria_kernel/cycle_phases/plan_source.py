@@ -192,16 +192,20 @@ class V9PressureSourceProvider:
         # V9.5 check 12 — the tools store and cycle reach the operator-feedback
         # scanner so its ingestion row lands in the store the merge owner reads
         # and carries the cycle the binding below joins on.
-        candidates = rank_candidate_sources(
-            workspace_root=workspace_root, base_dir=base_dir, cycle_id=cycle_id,
-        )
-        attempted = 0
         # ADR-0018 D5 — the anchor commit and the finding fold are read ONCE
         # per synthesis (arbiter ruling iv), then every finding-naming
         # candidate is judged against the same view. ARIA-HIGH-260 — the
         # store's plan, binding and self-revert ledgers are folded into that
         # view too: the aging F_FINDING source carries ADR-0003's loop guards.
+        # ARIA-MEDIUM-330 — read BEFORE ranking, because the F_FINDING source
+        # names its candidates from this same fold: the slot policy and
+        # admission then judge them against the view that produced them.
         grounding_context = load_grounding_context(workspace_root, tools_root=base_dir)
+        candidates = rank_candidate_sources(
+            workspace_root=workspace_root, base_dir=base_dir, cycle_id=cycle_id,
+            findings=grounding_context.findings,
+        )
+        attempted = 0
         # ORPHAN-HIGH-519 — and every candidate's refs are judged at the one
         # commit the challenger request will name.
         ground = PlanEvidenceGround.of(workspace_root)

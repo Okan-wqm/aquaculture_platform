@@ -85,6 +85,18 @@ def finding_subject_key(record: Mapping[str, Any]) -> str | None:
     return subject_key_from_evidences(drift_class=drift_class, evidences=evidences)
 
 
+def subject_sides(record: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+    """ARIA-HIGH-369 — the (file, declared name) sides of a record's subject, sorted; () without a subject.
+
+    The same pairs :func:`subject_key_from_evidences` hashes, so a plan seeded
+    from them names exactly what the key identifies — never the line, never
+    the values.
+    """
+    if finding_subject_key(record) is None:
+        return ()
+    return tuple(sorted({side for side in map(_side, record["evidences"]) if side is not None}))
+
+
 def findings_with_subject(
     findings: Mapping[str, Mapping[str, Any]], subject_key: str,
 ) -> list[str]:
@@ -102,4 +114,5 @@ __all__ = [
     "finding_subject_key",
     "findings_with_subject",
     "subject_key_from_evidences",
+    "subject_sides",
 ]

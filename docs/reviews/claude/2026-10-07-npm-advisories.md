@@ -62,7 +62,7 @@ After the change, the gate's verdict per leg:
 - e2e-full: clean (existing reviewed exceptions only).
 - root-full and aquamobil-full: only the two dev-only groups below.
 
-## SUPPLY-HIGH-019 — vitest 3 and its tinypool carry critical advisories with no patch on 3.x (open, excepted)
+## SUPPLY-HIGH-019 — vitest 3 and tinypool: critical, no patch on 3.x (open, excepted)
 
 - `tinypool` up to 2.1.1 (GHSA-5gmw-xhrv-c9v3, GHSA-85c8-ppgw-ccpr) and
   `vitest`/`@vitest/mocker` below 4.1.11 (GHSA-82fw-gwwq-j7x9). The fixes are
@@ -77,7 +77,7 @@ After the change, the gate's verdict per leg:
 - Fix: move the web modules to vitest 4. Owner: claude. Deadline: 2026-11-07.
   The exception expires the same day.
 
-## SUPPLY-MEDIUM-020 — tailwind 3's postcss-selector-parser is quadratic on crafted selectors (open, excepted)
+## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
 
 - `postcss-selector-parser` below 7.1.6 (GHSA-rj75-hqrm-r3gf), reached through
   `tailwindcss` 3.4.19 in the root and AquaMobil trees.

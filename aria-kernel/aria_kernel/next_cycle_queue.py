@@ -50,6 +50,10 @@ __all__ = [
     "read_pending",
     "mark_consumed",
     "queue_path",
+    "REOFFERED",
+    "REOFFER_ALREADY_PENDING",
+    "REOFFER_NEVER_QUEUED",
+    "REOFFER_QUEUE_FULL",
     "reoffer_item",
 ]
 
@@ -306,13 +310,19 @@ def mark_consumed(
         )
 
 
+REOFFERED = "reoffered"
+REOFFER_ALREADY_PENDING = "already_pending"
+REOFFER_NEVER_QUEUED = "never_queued"
+REOFFER_QUEUE_FULL = "queue_full"
+
+
 def reoffer_item(
     base_dir: str | Path | None,
     *,
     queue_item_id: str,
     reason: str,
-) -> dict[str, Any] | None:
-    """Make a consumed item pending again; the appended row, or None when it cannot be.
+) -> str:
+    """Make a consumed item pending again; ``REOFFERED`` or why it was not.
 
     ARIA-HIGH-360 — the autonomy orchestrator consumes an item when it mints
     the item's request, so a request that expired unclaimed left nothing to
@@ -320,19 +330,25 @@ def reoffer_item(
     item back; the orchestrator's projection then sees the dead request and
     mints its successor under its own remint budget. ``_pending_from_rows``
     returns an item's FIRST pending row while its latest row is pending, so
-    this row carries only the transition. None when the item was never
-    queued, is already pending, or the queue is at its depth cap: the caller
-    hands the work to the operator instead of losing it.
+    this row carries only the transition.
+
+    ``REOFFER_ALREADY_PENDING`` is the item already offered: a sweep that
+    re-offered it and crashed before recording that finds it so, and the
+    item is where the caller wants it (review of PR #1825). The caller hands
+    the work to the operator only for ``REOFFER_NEVER_QUEUED`` and
+    ``REOFFER_QUEUE_FULL``.
     """
     path = queue_path(base_dir)
     with state_transaction([path]) as txn:
         rows = load_declared_jsonl(path, expected_surface="next_cycle_queue")
         mine = [row for row in rows if str(row.get("queue_item_id") or "") == queue_item_id]
-        if not any(row.get("state") == "pending" for row in mine) or mine[-1].get("state") == "pending":
-            return None
+        if not any(row.get("state") == "pending" for row in mine):
+            return REOFFER_NEVER_QUEUED
+        if mine[-1].get("state") == "pending":
+            return REOFFER_ALREADY_PENDING
         if len(_pending_from_rows(rows)) >= queue_depth():
-            return None
-        return txn.append_declared_jsonl(
+            return REOFFER_QUEUE_FULL
+        txn.append_declared_jsonl(
             path,
             {
                 "schema_version": 1,
@@ -343,3 +359,4 @@ def reoffer_item(
             },
             expected_surface="next_cycle_queue",
         )
+        return REOFFERED

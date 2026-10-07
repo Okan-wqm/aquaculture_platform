@@ -273,7 +273,13 @@ def dispose_anchor_stale_requests(
     })
     disposed: list[dict[str, Any]] = []
     for rid, request, record, cause, decision in planned:
-        effect = _effect(decision, request, root=root, requests=requests, subjects=subjects, gate=gate)
+        try:
+            effect = _effect(decision, request, root=root, requests=requests, subjects=subjects, gate=gate)
+        except Exception as exc:  # noqa: BLE001 — one item's failure is recorded by name, never the batch's
+            # Review of PR #1825: an uncaught mint error aborted the sweep on
+            # the newest item, so every later cycle stopped at the same one.
+            # The failed effect is the operator's, named with its error.
+            effect = operator_required(f"disposition_effect_failed:{type(exc).__name__}", error=str(exc)[:300])
         disposition = {"role": request.get("role"), "expiry_reason": cause.reason,
                        "expiry_fault_class": cause.fault_class, **effect}
         if record is not None:

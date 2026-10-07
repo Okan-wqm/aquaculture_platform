@@ -91,18 +91,19 @@ def remint_judge(
 def reoffer_queue_item(root: Path, request: Mapping[str, Any], requests: list[dict[str, Any]]) -> dict[str, Any]:
     """Put a projected maintenance request's queue item back, inside the producer's own remint budget."""
     from .autonomy_orchestrator import _MAX_QUEUE_ITEM_REMINTS
-    from .next_cycle_queue import reoffer_item
+    from .next_cycle_queue import REOFFER_ALREADY_PENDING, REOFFERED, reoffer_item
 
     qid = str(queue_item_id_of(request) or "")
-    # The orchestrator's own lineage count (autonomy_orchestrator.py:265):
+    # The orchestrator's own lineage count (autonomy_orchestrator
+    # `_drain_next_cycle_queue` remint_exhausted arm):
     # past it the projection discloses the item exhausted and consumes it.
     lineage = sum(1 for row in requests if row.get("remint_of") and qid in str(row.get("suggested_prompt") or ""))
     if lineage >= _MAX_QUEUE_ITEM_REMINTS:
         return operator_required("queue_remint_budget_spent", queue_item_id=qid)
-    row = reoffer_item(root, queue_item_id=qid, reason=f"anchor_stale:{request.get('request_id')}")
-    if row is None:
-        return operator_required("queue_item_not_reofferable", queue_item_id=qid)
-    return {"disposition": DISPOSITION_REOFFERED, "reason": "queue_item_pending_again", "queue_item_id": qid}
+    outcome = reoffer_item(root, queue_item_id=qid, reason=f"anchor_stale:{request.get('request_id')}")
+    if outcome not in (REOFFERED, REOFFER_ALREADY_PENDING):
+        return operator_required(f"queue_item_not_reofferable:{outcome}", queue_item_id=qid)
+    return {"disposition": DISPOSITION_REOFFERED, "reason": f"queue_item_{outcome}", "queue_item_id": qid}
 
 
 __all__ = [

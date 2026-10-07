@@ -855,6 +855,21 @@ def _execute_panel_disposition(
         )
         _stamp_escalated_to_operator(root, request_id, record, reason="remint_budget_exhausted")
         return {"action": "escalated", "reason": "remint_budget_exhausted"}
+    # ARIA-HIGH-360 (review of PR #1825) — a judge is re-asked only the way
+    # the fan-out asks today: obligations rebuilt from the current rule
+    # contract, its forbidden_scope and fingerprint kept. A rule with no
+    # declared contract is not the panel's to ask about: the record goes to
+    # the operator, as the fan-out refuses the same question.
+    from .judge_fanout import JUDGE_FANOUT
+
+    if str(dead.get("role") or "") in {role for role, _agent in JUDGE_FANOUT}:
+        from .judge_remint import remint_judge_for_panel
+
+        rebuilt = remint_judge_for_panel(root, dead, adjudication_ref=adjudication_ref)
+        if isinstance(rebuilt, str):
+            _stamp_escalated_to_operator(root, request_id, record, reason=f"judge_{rebuilt}")
+            return {"action": "escalated", "reason": f"judge_{rebuilt}"}
+        return {"action": "reminted", "successor": rebuilt.get("request_id"), "existing": False}
     # ARIA-HIGH-104 (5) — the dead row's obligations were sealed under the
     # shape of their day (``{id, criterion}`` before ``must_satisfy`` owned
     # the shape); the successor is a FRESH mint and is held to the one

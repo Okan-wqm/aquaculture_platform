@@ -94,3 +94,19 @@ providers sorted and joined by `+`. The reasons production writes today (`anchor
 
 Tests: `test_anchor_stale_disposition.py` (17) and `test_anchor_stale_migration.py` (11),
 production writers; `test_y7_self_adjudication.py` pins the refusal of the kind.
+
+## Second review corrections (PR #1825)
+
+- MEDIUM-A: the ownership table cites `file.py::symbol`, never a line number
+  (`human_required_adjudication.py:1194` had drifted to a blank line). The test parses each cited
+  file with `ast` and fails when the symbol is not defined there.
+- MEDIUM-B: a panel `re_mint` of an evidence or adversarial judge goes through
+  `judge_remint.remint_judge_for_panel`: obligations rebuilt from the current rule contract,
+  `forbidden_scope` and fingerprint kept, anchored at HEAD. A rule with no contract hands the
+  record to the operator. Other roles keep the upcast mint (`test_must_satisfy_shape`).
+- LOW: `reoffer_item` returns why; an item already pending (a sweep that crashed after the
+  re-offer) counts as re-offered, not as an operator item.
+- LOW: an effect that raises is recorded per item as `disposition_effect_failed:<type>` and
+  goes to the operator; the batch continues.
+- MEDIUM-C (the outage reason is never written) belongs to ARIA-HIGH-365, which writes the
+  reason through `anchor_expiry_reason_in_outage`.

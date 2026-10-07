@@ -1261,12 +1261,19 @@ def run_autonomy_orchestrator(
                 # a request_id that dedupes across every later scan.
                 _spared_recent: list[dict[str, Any]] = []
                 _escalated_undateable: list[dict[str, Any]] = []
+                # ARIA-HIGH-365 (B2) — one provider-available clock for the
+                # whole scan: an implementation request outstanding through an
+                # outage of the implementer's provider is not an orphan.
+                from .provider_clock import provider_clock
+
+                _orphan_clock = provider_clock(root)
                 for _orphan in _orphans:
                     _orphan_plan_id = _orphan.get("plan_id")
                     if not isinstance(_orphan_plan_id, str) or not _orphan_plan_id:
                         continue
                     _orphan_decision = decide_orphan_reap(
                         _orphan,
+                        clock=_orphan_clock,
                         reap_after_hours=ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
                     )
                     if _orphan_decision.decision == ORPHAN_DECISION_ESCALATE_UNDATEABLE:
@@ -1328,6 +1335,7 @@ def run_autonomy_orchestrator(
                                 # auditor of this row must not have to infer.
                                 "age_source": _orphan_decision.age_source,
                                 "age_hours": _orphan_decision.age_hours,
+                                "age_basis": "provider_available",
                                 "reap_after_hours":
                                     ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
                             },
@@ -1780,7 +1788,12 @@ def run_autonomy_orchestrator(
                 # envelopes answered into it stay OWNED); start fresh only
                 # when nothing is mid-flight.
                 from .plan_convergence import resume_candidate_plan_id
+                from .provider_outage_ledger import escalate_prolonged_outages
 
+                # ARIA-HIGH-365 — the bound on the provider-available clock:
+                # an outage open 30 days goes to the operator as one item;
+                # the plan it pauses is adopted below, never abandoned for it.
+                cycle_summary["prolonged_provider_outages"] = escalate_prolonged_outages(root)
                 active_plan_id = (
                     resume_candidate_plan_id(base_dir=root)
                     or "plan-" + cycle_id

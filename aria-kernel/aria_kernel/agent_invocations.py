@@ -45,8 +45,9 @@ from .tool_registry import (
 )
 from .workspace import governance_event
 
-if TYPE_CHECKING:  # the probe session is imported lazily where it is used
+if TYPE_CHECKING:  # the probe session and the clock are imported lazily where they are used
     from .evidence_probe import GitProbeSession
+    from .provider_clock import ProviderClock
 
 
 ROLES = INVOCATION_ROLES
@@ -2620,6 +2621,12 @@ HARNESS_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
     # ARIA-HIGH-366 — ``provider_unreachable:<provider>``: the vendor did not
     # serve (429/529/network); an outage of the provider, never the request.
     "provider_unreachable:",
+    # ARIA-HIGH-365 — ``anchor_expired_during_provider_outage:<providers>``: a
+    # request whose anchor window ran out although an outage of its role's
+    # provider overlapped the wait. Spelled once, by ARIA-HIGH-360's
+    # `anchor_expiry_cause.anchor_expiry_reason_in_outage`; pinned equal to
+    # its `ANCHOR_EXPIRED_IN_OUTAGE_PREFIX` by test_provider_outage_timers.
+    "anchor_expired_during_provider_outage:",
     # Typed-judgment plan Phase 4b — the batch child's ONE call failed for
     # every request it served: the vendor's or the host's state.
     "judge_batch_call_failed:",
@@ -3211,6 +3218,7 @@ def _anchor_refusal_reason(
     repo_root: Path,
     *,
     probes: "GitProbeSession",
+    clock: "ProviderClock",
     now: datetime | None = None,
     max_age_seconds: int = DEFAULT_ANCHOR_MAX_AGE_SECONDS,
 ) -> AnchorVerdict:
@@ -3282,12 +3290,51 @@ def _anchor_refusal_reason(
     created = _parse_iso(request.get("created_at"))
     if created is None:
         return AnchorVerdict(refusal="anchor_undatable")
-    age = ((now or _utc_now_dt()) - created).total_seconds()
-    if age > max_age_seconds:
-        return AnchorVerdict(refusal="anchor_expired")
+    expired = _anchor_expiry_reason(request, created, now or _utc_now_dt(), clock=clock,
+                                    max_age_seconds=max_age_seconds)
+    if expired is not None:
+        return AnchorVerdict(refusal=expired)
     if undecided is not None:
         return AnchorVerdict(undecided=undecided)
     return AnchorVerdict()
+
+
+def _anchor_expiry_reason(
+    request: dict[str, Any], created: datetime, now: datetime, *, clock: "ProviderClock",
+    max_age_seconds: int,
+) -> str | None:
+    """Why the request outlived its anchor window in PROVIDER-AVAILABLE time, or None.
+
+    ARIA-HIGH-365 (B3) — the window exists because a request still unclaimed
+    after it "was never picked up at all" (ORPHAN-MEDIUM-492). During an
+    outage of the provider the request's role is routed to, nothing could pick
+    it up, so that time does not count: measured 2026-08-21..25, 37 of 43
+    requests that aged out had seen only provider-class releases, and each
+    death spent one of the step's MAX_STEP_REQUEST_REMINTS successors on the
+    way to `convergence_envelope_dead`. Wall time is checked first because
+    available time can only be shorter, so the ledger is read only for a
+    request that is old by the wall clock.
+
+    An expiry that still happens after an outage overlapped the request's
+    wait (the outage was shorter than the excess) is written under
+    ``anchor_expiry_cause.anchor_expiry_reason_in_outage(<overlapping
+    providers>)`` — the one spelling ARIA-HIGH-360 reads, harness-class in
+    ``classify_release_reason`` — so the expiry disposition spends no re-mint
+    budget on it.
+    """
+    if (now - created).total_seconds() <= max_age_seconds:
+        return None
+    from .anchor_expiry_cause import anchor_expiry_reason_in_outage
+    from .provider_clock import role_head_providers
+
+    role = str(request.get("role") or "")
+    providers = role_head_providers([role]) if role else frozenset()
+    if clock.available_age(created, now, providers).total_seconds() <= max_age_seconds:
+        return None
+    overlapped = clock.overlapping(created, now, providers)
+    if not overlapped:
+        return "anchor_expired"
+    return anchor_expiry_reason_in_outage(interval.provider for interval in overlapped)
 
 
 def _record_anchor_stale(
@@ -3404,9 +3451,12 @@ def sweep_expired_anchors(
     `derive_request_state` skips terminal requests, so a second sweep finds
     nothing.
     """
+    from .provider_clock import provider_clock
+
     root = ensure_tools_dir(base_dir)
     reference = now or _utc_now_dt()
     max_age_seconds = _anchor_max_age_seconds(root)
+    clock = provider_clock(root)
     swept = 0
     by_role: dict[str, int] = {}
     # ORPHAN-HIGH-794 — one batch derivation for the whole backlog: the
@@ -3424,9 +3474,10 @@ def sweep_expired_anchors(
             # Undatable rows keep the claim-time refusal path; a sweep that
             # guessed an age would be the silent-narrowing class.
             continue
-        if (reference - created).total_seconds() <= max_age_seconds:
+        expired = _anchor_expiry_reason(row, created, reference, clock=clock, max_age_seconds=max_age_seconds)
+        if expired is None:
             continue
-        _record_anchor_stale(root, row, "anchor_expired", now=reference)
+        _record_anchor_stale(root, row, expired, now=reference)
         swept += 1
         role = str(row.get("role") or "unknown")
         by_role[role] = by_role.get(role, 0) + 1
@@ -3480,6 +3531,11 @@ def next_pending_request(
     # whole has one clock — so a git that stopped answering costs one clock,
     # not five seconds times every candidate, and never a terminal verdict.
     probes = GitProbeSession()
+    # ARIA-HIGH-365 (B3) — the anchor window is provider-available time; the
+    # clock reads the ledger only if some candidate is old by the wall clock.
+    from .provider_clock import provider_clock
+
+    clock = provider_clock(root)
     undecided: dict[str, str] = {}
     selected: dict[str, Any] | None = None
     for request in requests:
@@ -3508,6 +3564,7 @@ def next_pending_request(
                 request,
                 repo_root,
                 probes=probes,
+                clock=clock,
                 now=now,
                 max_age_seconds=_anchor_max_age_seconds(root),
             )

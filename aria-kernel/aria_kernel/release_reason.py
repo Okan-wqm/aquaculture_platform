@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .anchor_expiry_cause import ANCHOR_EXPIRED_IN_OUTAGE_PREFIX
+
 # Closed vocabulary. Adding a code is a one-way door (ledger-anchored).
 RELEASE_REASON_CODES: tuple[str, ...] = (
     "NATIVE_RUNTIME_ADMISSION_UNAVAILABLE", "NATIVE_RUNTIME_EXECUTION_UNAVAILABLE",
@@ -102,6 +104,13 @@ RELEASE_REASON_CODES: tuple[str, ...] = (
     # a network loss); the detail is the provider. Harness-class: the
     # provider's state, recorded as an `unreachable` outage, never the request's.
     "PROVIDER_UNREACHABLE",
+    # ARIA-HIGH-365 — an anchor window that ran out although a provider
+    # outage overlapped the wait (the outage was shorter than the excess, so
+    # the provider-available clock still expired it). Detail
+    # the providers joined by `+`, spelled once by ARIA-HIGH-360's
+    # `anchor_expiry_cause.anchor_expiry_reason_in_outage`. Harness-class:
+    # an expiry the request did not cause spends no re-mint budget.
+    "ANCHOR_EXPIRED_DURING_PROVIDER_OUTAGE",
     "UNCLASSIFIED",
 )
 FAULT_DOMAINS: tuple[str, ...] = ("harness", "request", "operator", "unclassified")
@@ -160,6 +169,7 @@ _PREFIXES: tuple[tuple[str, str, str], ...] = (
     # The detail is the exhausted PROVIDER (operator decision 2026-09-12).
     ("provider_quota_unavailable:", "PROVIDER_QUOTA_UNAVAILABLE", "harness"),
     (PROVIDER_UNREACHABLE_PREFIX, "PROVIDER_UNREACHABLE", "harness"),
+    (ANCHOR_EXPIRED_IN_OUTAGE_PREFIX, "ANCHOR_EXPIRED_DURING_PROVIDER_OUTAGE", "harness"),
     ("executor_uncaught_exit:", "EXECUTOR_UNCAUGHT_EXIT", "harness"),
     ("plan_content_invalid:", "PLAN_CONTENT_INVALID", "request"),
     ("agent_refused:", "AGENT_REFUSED", "request"),

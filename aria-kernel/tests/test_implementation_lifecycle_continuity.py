@@ -675,12 +675,14 @@ class OrphanReapWindowTests(unittest.TestCase):
             ORPHAN_DECISION_SPARE_RECENT,
             decide_orphan_reap,
         )
+        # ARIA-HIGH-365 — a store that saw no outage: available age = wall age.
+        from aria_kernel.provider_clock import ProviderClock
         self.assertEqual(
-            decide_orphan_reap({"last_event_at": self._hours_ago(1)}).decision,
+            decide_orphan_reap({"last_event_at": self._hours_ago(1)}, clock=ProviderClock(())).decision,
             ORPHAN_DECISION_SPARE_RECENT,
         )
         self.assertEqual(
-            decide_orphan_reap({"last_event_at": self._hours_ago(30)}).decision,
+            decide_orphan_reap({"last_event_at": self._hours_ago(30)}, clock=ProviderClock(())).decision,
             ORPHAN_DECISION_REAP,
         )
 
@@ -700,16 +702,18 @@ class OrphanReapWindowTests(unittest.TestCase):
             ORPHAN_DECISION_SPARE_RECENT,
             decide_orphan_reap,
         )
+        # ARIA-HIGH-365 — a store that saw no outage: available age = wall age.
+        from aria_kernel.provider_clock import ProviderClock
         stale = decide_orphan_reap({
             "last_event_at": "not-a-date",
             "first_event_at": self._hours_ago(30),
-        })
+        }, clock=ProviderClock(()))
         self.assertEqual(stale.decision, ORPHAN_DECISION_REAP)
         self.assertEqual(stale.age_source, "first_event_at")
         recent = decide_orphan_reap({
             "last_event_at": "not-a-date",
             "first_event_at": self._hours_ago(2),
-        })
+        }, clock=ProviderClock(()))
         self.assertEqual(recent.decision, ORPHAN_DECISION_SPARE_RECENT)
         self.assertEqual(recent.age_source, "first_event_at")
 
@@ -724,13 +728,15 @@ class OrphanReapWindowTests(unittest.TestCase):
             ORPHAN_DECISION_ESCALATE_UNDATEABLE,
             decide_orphan_reap,
         )
+        from aria_kernel.provider_clock import ProviderClock
+
         for orphan in (
             {"last_event_at": None, "first_event_at": None},
             {"last_event_at": "not-a-date", "first_event_at": "also-not-a-date"},
             {},
         ):
             with self.subTest(orphan=orphan):
-                decision = decide_orphan_reap(orphan)
+                decision = decide_orphan_reap(orphan, clock=ProviderClock(()))
                 self.assertEqual(
                     decision.decision, ORPHAN_DECISION_ESCALATE_UNDATEABLE,
                 )

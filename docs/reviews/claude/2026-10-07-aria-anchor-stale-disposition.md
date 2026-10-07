@@ -35,39 +35,62 @@ Evidence (at `958eed5b7`, origin/main):
 
 ## Fix
 
-One function decides, `anchor_stale.decide_expiry_disposition(request, cause, ...)`:
+One function decides, `anchor_stale.decide_expiry_disposition(request, cause, owner, ...)`:
 
-1. A planning-round step is the convergence drainer's (`step_request`); a panel envelope is its
-   panel's re-open budget. No record is written for either.
-2. A request with a `remint_of` successor was recovered by the lane that minted it.
-3. A judge request whose finding still needs that judge is re-minted once against the current
-   HEAD with `remint_of` lineage. "Still needs" is the judge lane's own rules
-   (`judge_subject_liveness`): fingerprint not settled, rule not quarantined, this judge has not
-   answered, the group has no consensus, and a run reported the finding inside the sampler's
-   window. The re-mint waits while that judge role's backlog is at the fan-out's ceiling.
-4. Everything else is dropped by name: `role_not_remintable`, `remint_budget_spent`,
-   `subject_closed:<rule>`, `obligations_unmintable`, `remint_refused`,
-   `request_not_in_ledger`.
+1. A request with a `remint_of` successor was recovered by the lane that minted it.
+2. Every role has one owner (`expiry_ownership.ROLE_OWNERSHIP`, closed over `INVOCATION_ROLES`).
+   A role nobody recovers, or a request whose claimed producer's signature is absent (an
+   operator's own request), keeps an OPEN record with the kernel's reason, and the sweep
+   notifies once per batch. No panel: the kind is not adjudicable.
+3. A verified producer that recovers its own dead requests is left to it.
+4. A projected maintenance request has its queue item re-offered
+   (`next_cycle_queue.reoffer_item`), inside the orchestrator's own re-mint budget.
+5. A fan-out judge request waits while the judge backlog is full; is dropped by name when its
+   finding no longer needs that judge (`subject_closed:<rule>`, including the fan-out's own
+   `rule_contract_undeclared`); goes to the operator when its lineage is spent; otherwise is
+   re-minted at HEAD the way the fan-out mints today (`judge_remint`).
 
-The expiry cause is the `reason` on the request's `anchor_stale` claim row, classified by the
-one release-reason table (`classify_release_reason`). A harness-class expiry spends no re-mint
-budget. The clock and the harness-class expiry reasons belong to ARIA-HIGH-365; this rule reads
-whatever they write and needs no edit when they change.
-
-Every decision is a resolved record in `human-required/` (`resolved_by=kernel`, decision in
-`kernel_disposition`), with one governance row per sweep. `anchor_stale` left
+Every decision is a record in `human-required/`: resolved (`resolved_by=kernel`) or open for the
+operator, with the decision in `kernel_disposition`. `anchor_stale` left
 `ADJUDICABLE_CONTEXT_KINDS` and `OPERATIONAL_DISPOSITION_KINDS`; a historical fold still
 replays and acts on nothing.
 
 Backlog: the lease sweep runs every kernel cycle. The 170 open `anchor_stale` records go through
 the same rule first, then the expiries with no record, newest first, 50 decisions per sweep.
-A resolved record is never read again, so the migration is idempotent and needs no operator
-step. A panel envelope whose answer the panel sweep would never read (record resolved, handed
-to the operator, or of a kind no panel decides) is no longer handed out
-(`adjudication_envelope_is_moot`, one predicate `panel_skip_reason` shared with the sweep).
+Idempotent, no operator step. A panel envelope whose answer the panel sweep would never read is
+neither selected (`next_pending_request`) nor leased by id (`claim_request`), by one predicate
+shared with the sweep (`panel_skip_reason`).
 
-The panel's own `re_mint` uses the same successor mint, which now carries a judge's
-`forbidden_scope` and finding fingerprint.
+## Review corrections (PR #1825)
 
-Tests: `aria-kernel/tests/test_anchor_stale_disposition.py` (19 tests, production writers);
-`test_y7_self_adjudication.py` pinned the kind as admitted and now pins the refusal.
+- HIGH-1, every non-judge role was dropped silently: `expiry_ownership.py` gives each role one
+  owner, proven by a cited line that a test reads. Unowned or unverified work stays OPEN and
+  notifies.
+- MEDIUM-2, the harness exemption never fired and had no cap: `anchor_expiry_cause.py` holds the
+  outage reason contract and `MAX_EXPIRY_LINEAGE_REMINTS = 2`.
+- MEDIUM-3, the re-mint went around the rule-contract gate: `judge_remint.py` rebuilds the
+  envelope from the sampler's item and the contract resolved now.
+- MEDIUM-4, sweep cost: each ledger is read once per sweep and none when nothing is due; a
+  waiting judge reads nothing.
+- LOW: `claim_request` refuses a moot envelope; a started governance row precedes any effect.
+- CI, proof-surface roster: `judge_subject_liveness.py` is rostered as an observational
+  finding-funnel consumer.
+- CI, re-mint upcast pin: the panel's `re_mint` keeps its own `upcast_sealed_items` mint.
+
+Role ownership of expired requests:
+
+- Planning roles (4): convergence drainer, `convergence_drainer.py:623`, `step_request.py:92`.
+- implementation: orphan reaper, `autonomy_orchestrator.py:1231`, `plan_convergence.py:941`.
+- human_required_adjudication: panel re-open, `human_required_adjudication.py:1194`.
+- evidence and adversarial judgment: kernel re-mint, `judge_fanout.py:152`.
+- maintenance_utility: queue re-offer, `autonomy_orchestrator.py:233`.
+- consensus_arbitration, verification, change_intelligence, goldset_curation, both authoring
+  roles, specialist_domain_review: operator; each cites the line that never re-asks.
+
+The outage contract for ARIA-HIGH-365: the `anchor_stale` row's reason is
+`anchor_expiry_reason_in_outage(providers)`, `anchor_expired_during_provider_outage:` plus the
+providers sorted and joined by `+`. The reasons production writes today (`anchor_expired`,
+`anchor_undatable`, `anchor_unreachable`) spend budget; a test pins both.
+
+Tests: `test_anchor_stale_disposition.py` (17) and `test_anchor_stale_migration.py` (11),
+production writers; `test_y7_self_adjudication.py` pins the refusal of the kind.

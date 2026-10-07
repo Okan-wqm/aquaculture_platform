@@ -304,6 +304,7 @@ class AnchorStaleProducer(unittest.TestCase):
     def _seed_stale_request(
         self, request_id: str, *, role: str = "maintenance_utility",
         target_agent: str = "aria-autonomy-planner", remint_of: str | None = None,
+        **fields: object,
     ) -> None:
         requests_path = self.tools / "agent-invocations" / "requests.jsonl"
         requests_path.parent.mkdir(parents=True, exist_ok=True)
@@ -323,6 +324,7 @@ class AnchorStaleProducer(unittest.TestCase):
         }
         if remint_of:
             row["remint_of"] = remint_of
+        row.update(fields)
         append_declared_fixture(
             requests_path, row, expected_surface="agent_invocation_requests",
         )
@@ -346,16 +348,20 @@ class AnchorStaleProducer(unittest.TestCase):
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
     def test_no_stale_request_becomes_a_panel_question(self) -> None:
+        # A drainer-minted step (convergence_id, round, HEAD anchor).
         self._seed_stale_request("AIR-stale-plan", role="challenger_plan",
-                                 target_agent="aria-challenger-planner")
+                                 target_agent="aria-challenger-planner",
+                                 convergence_id="plan-1", round_number=1, target_sha="a" * 40)
         self._seed_stale_request("AIR-stale-maint")
         summary = sweep_lease_lifecycle_for_human_required(base_dir=self.tools)
         self.assertEqual(summary["created"], [])
         # The planning step is the convergence drainer's: no record at all.
         self.assertIsNone(self._record("AIR-stale-plan"))
+        # Work no producer can be shown to recover stays open for the
+        # operator (ARIA-HIGH-360 review): visible, never a panel question.
         record = self._record("AIR-stale-maint")
-        self.assertEqual(record["status"], "resolved")
-        self.assertEqual(record["kernel_disposition"]["reason"], "role_not_remintable")
+        self.assertEqual(record["status"], "open")
+        self.assertEqual(record["kernel_disposition"]["reason"], "producer_unverified:autonomy_orchestrator")
         self.assertEqual(hra.sweep_human_required_adjudications(base_dir=self.tools)["opened"], [])
 
     def test_a_request_with_a_remint_successor_is_recovered_not_recorded(self) -> None:

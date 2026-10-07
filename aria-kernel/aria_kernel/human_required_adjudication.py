@@ -821,7 +821,7 @@ def _execute_panel_disposition(
     The dead request itself is never resurrected — a successor is minted
     with remint_of lineage, exactly the Y3 shape.
     """
-    from .agent_invocations import _find_request_by_id, list_agent_invocation_requests
+    from .agent_invocations import _find_request_by_id, create_agent_invocation_request, list_agent_invocation_requests
 
     request_id = verdict.escalation_request_id
     disposition = verdict.disposition
@@ -873,14 +873,25 @@ def _execute_panel_disposition(
         )
         _stamp_escalated_to_operator(root, request_id, record, reason="dead_request_obligations_unmintable")
         return {"action": "escalated", "reason": "dead_request_obligations_unmintable"}
-    # ARIA-HIGH-360 — the one successor shape, shared with the kernel's
-    # anchor-stale disposition (it also carries a judge's forbidden_scope and
-    # finding fingerprint, which this copy used to drop).
-    from .anchor_stale import mint_successor
-
-    successor = mint_successor(
-        root, dead, must_satisfy=must_satisfy, target_sha=dead.get("target_sha"),
-        extra_evidence_refs=(adjudication_ref,) if adjudication_ref else (),
+    successor = create_agent_invocation_request(
+        target_agent=str(dead.get("target_agent") or ""),
+        role=str(dead.get("role") or ""),
+        suggested_prompt=str(dead.get("suggested_prompt") or ""),
+        must_satisfy=must_satisfy,
+        allowed_scope=list(dead.get("allowed_scope") or []),
+        evidence_refs=list(dead.get("evidence_refs") or []) + (
+            [adjudication_ref] if adjudication_ref else []
+        ),
+        convergence_id=dead.get("convergence_id"),
+        round_number=dead.get("round_number"),
+        pressure_event_id=dead.get("pressure_event_id"),
+        finding_id=dead.get("finding_id"),
+        tool_id=dead.get("tool_id"),
+        run_id=dead.get("run_id"),
+        judgment_group_id=dead.get("judgment_group_id"),
+        target_sha=dead.get("target_sha"),
+        remint_of=request_id,
+        base_dir=root,
     )
     return {"action": "reminted", "successor": successor.get("request_id"), "existing": False}
 

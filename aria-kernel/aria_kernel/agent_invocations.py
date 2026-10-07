@@ -3344,6 +3344,7 @@ def derive_request_states(
     *,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
+    ledgers: tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]] | None = None,
 ) -> dict[str, str]:
     """ORPHAN-HIGH-794 — derive EVERY request's state with ONE ledger load.
 
@@ -3357,17 +3358,21 @@ def derive_request_states(
     construction and pinned by an equivalence test.
     """
     root = ensure_tools_dir(base_dir)
-    ledgers = (
-        load_segments(root, "agent_invocation_requests"),
-        load_declared_jsonl(
-            root / "agent-invocations" / "results.jsonl",
-            expected_surface="agent_invocation_results",
-        ),
-        load_declared_jsonl(
-            _claims_path(root),
-            expected_surface="agent_invocation_claims",
-        ),
-    )
+    # ARIA-HIGH-360 — a sweep that also reads the claims itself (the
+    # anchor-stale disposition reads each expiry's cause) loads the three
+    # ledgers once and hands them in.
+    if ledgers is None:
+        ledgers = (
+            load_segments(root, "agent_invocation_requests"),
+            load_declared_jsonl(
+                root / "agent-invocations" / "results.jsonl",
+                expected_surface="agent_invocation_results",
+            ),
+            load_declared_jsonl(
+                _claims_path(root),
+                expected_surface="agent_invocation_claims",
+            ),
+        )
     from .control import effective_control
     control = effective_control(root)
     return {
@@ -3753,6 +3758,13 @@ def claim_request(
             raise GovernanceError(
                 f"shadow_agent_invocation_blocked: {request_for_check.get('target_agent')!r} is not an ACTIVE production target"
             )
+        # ARIA-HIGH-360 — the same rule the selection boundary applies: a
+        # panel envelope whose answer no sweep would read is not leased,
+        # whether it was selected by poll or named by id.
+        from .human_required_adjudication import adjudication_envelope_is_moot
+
+        if adjudication_envelope_is_moot(root, request_for_check):
+            raise GovernanceError(f"adjudication_envelope_moot: {request_id}")
         _strict_request_view(request_for_check)
         # Before any lease is issued: can the envelope this claim is about to
         # hand back still reproduce the prompt hash it was minted under? A

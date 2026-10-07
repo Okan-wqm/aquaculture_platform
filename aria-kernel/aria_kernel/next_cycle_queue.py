@@ -50,6 +50,7 @@ __all__ = [
     "read_pending",
     "mark_consumed",
     "queue_path",
+    "reoffer_item",
 ]
 
 
@@ -301,5 +302,44 @@ def mark_consumed(
         return txn.append_declared_jsonl(
             path,
             row,
+            expected_surface="next_cycle_queue",
+        )
+
+
+def reoffer_item(
+    base_dir: str | Path | None,
+    *,
+    queue_item_id: str,
+    reason: str,
+) -> dict[str, Any] | None:
+    """Make a consumed item pending again; the appended row, or None when it cannot be.
+
+    ARIA-HIGH-360 — the autonomy orchestrator consumes an item when it mints
+    the item's request, so a request that expired unclaimed left nothing to
+    re-offer it and the work was lost. The anchor-stale disposition puts the
+    item back; the orchestrator's projection then sees the dead request and
+    mints its successor under its own remint budget. ``_pending_from_rows``
+    returns an item's FIRST pending row while its latest row is pending, so
+    this row carries only the transition. None when the item was never
+    queued, is already pending, or the queue is at its depth cap: the caller
+    hands the work to the operator instead of losing it.
+    """
+    path = queue_path(base_dir)
+    with state_transaction([path]) as txn:
+        rows = load_declared_jsonl(path, expected_surface="next_cycle_queue")
+        mine = [row for row in rows if str(row.get("queue_item_id") or "") == queue_item_id]
+        if not any(row.get("state") == "pending" for row in mine) or mine[-1].get("state") == "pending":
+            return None
+        if len(_pending_from_rows(rows)) >= queue_depth():
+            return None
+        return txn.append_declared_jsonl(
+            path,
+            {
+                "schema_version": 1,
+                "queue_item_id": queue_item_id,
+                "state": "pending",
+                "reoffered_reason": reason,
+                "recorded_at": utc_now(),
+            },
             expected_surface="next_cycle_queue",
         )

@@ -113,9 +113,11 @@ class DriftSubjectDetector:
             )
         except subprocess.TimeoutExpired:
             return {"verdict": VERDICT_UNVERIFIABLE, "reason": "detector_timeout"}
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             # ARIA-HIGH-369 review M2 — no interpreter, no fork: the detector
-            # could not run, which is not a verdict about the subject.
+            # could not run, which is not a verdict about the subject. A
+            # ValueError is undecodable output (``text=True`` raises
+            # UnicodeDecodeError inside ``run``): no verdict either.
             return {"verdict": VERDICT_UNVERIFIABLE, "reason": f"detector_unrunnable:{type(exc).__name__}"}
         lines = [line for line in completed.stdout.splitlines() if line.strip()]
         if completed.returncode != 0 or not lines:

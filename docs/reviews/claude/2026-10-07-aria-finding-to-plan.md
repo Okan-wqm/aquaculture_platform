@@ -120,3 +120,16 @@ summary is present.
 `aria-kernel/tests/test_finding_plan_path_review.py` adds 13 tests. 10 of them fail on
 e5d4e8f13. The 3 that pass there pin behaviour that was already correct: a line shifted by
 hunks, an operator request whose subject is absent, and a UI drift without the wire.
+
+## Second review corrections
+
+- **The line map now checks that the line exists at the origin.** Before, a path absent at the
+  origin was read as an insertion above the line, and `g.txt:1` mapped to `4`. A line past the
+  origin's end passed through unchanged, and so did a path absent at both commits.
+  `map_cited_line` now reads the origin blob first and refuses any of these cases as
+  `cited_line_absent_at_origin`.
+- **The drift detector treats undecodable output as unverifiable.** `ValueError` from `text=True`
+  decoding means no verdict, so it is no longer read as one.
+- **The seed ignores non-string detector matches** instead of aborting the synthesis.
+- **Test proof:** `LineMapOriginTests` has 3 tests that fail on the previous head and 1 that
+  pins the shift.

@@ -11,10 +11,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
 from .agent_priors import reviewer_names
 from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES
+from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
 from .ledger import append_declared_jsonl, load_declared_jsonl, load_jsonl, load_jsonl_verified_text, verify_jsonl
 from .tool_registry import (
     GovernanceError,
@@ -24,6 +25,9 @@ from .tool_registry import (
     parse_utc_stamp,
     utc_now,
 )
+
+if TYPE_CHECKING:
+    from .provider_clock import ProviderClock
 
 
 FINDING_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-(CRITICAL|HIGH|MEDIUM|LOW)-[0-9]{3,}$")
@@ -746,6 +750,18 @@ def evaluate_plan(
     base_dir: str | Path | None = None,
     max_rounds: int = MAX_CROSS_REVIEW_ROUNDS,
 ) -> dict[str, Any]:
+    """Judge one round and record the verdict.
+
+    ARIA-HIGH-375 — a cross-reviewed round's independence is a GATE of this
+    decision, like the spine and the contract below, and it is derived HERE
+    (``round_independence``) so no caller can converge a round without it: a
+    round that would converge on a review that echoes the plans it reviewed
+    is recorded HUMAN_REQUIRED with ``CROSS_REVIEW_SELF_AGREEMENT_REASON`` in
+    the same single event. It used to be checked by the drainer AFTER this
+    function had written CONVERGED, so the plan stayed CONVERGED and the next
+    cycle's stranded-plan sweep offered it to the implementer by state alone;
+    the operator's `plan evaluate` and `plan advance-rounds` never checked it.
+    """
     _validate_id(plan_id, "plan_id")
     if not isinstance(round_number, int) or round_number <= 0:
         raise GovernanceError("round_number must be a positive integer")
@@ -796,6 +812,23 @@ def evaluate_plan(
                     decision["reason_codes"].append("max_rounds_reached")
             elif decision["terminal_state"] != "HUMAN_REQUIRED":
                 decision["terminal_state"] = "NEXT_ROUND_REQUIRED"
+        if decision["terminal_state"] == "CONVERGED" and cross_reviewed_round(state, round_number):
+            from .round_independence import round_independence_verdict
+
+            passed, violations = round_independence_verdict(
+                plan_id=plan_id, round_number=round_number, state=state, base_dir=root,
+            )
+            decision["gate_decisions"].append({
+                "gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": bool(passed),
+                "violation_reasons": list(violations),
+            })
+            # Only a cross-reviewed round that would CONVERGE is judged: a
+            # round going to another round is judged there, an escalated one
+            # is escalated, and a legacy critique-only round (V8
+            # `request_critics`) has no cross reviewer to be independent of.
+            if not passed:
+                decision["terminal_state"] = "HUMAN_REQUIRED"
+                decision["reason_codes"] = [CROSS_REVIEW_SELF_AGREEMENT_REASON]
         if decision["terminal_state"] == "NEXT_ROUND_REQUIRED":
             return {
                 "schema_version": 1,
@@ -1017,6 +1050,8 @@ class OrphanReapDecision:
 def decide_orphan_reap(
     orphan: dict[str, Any],
     *,
+    clock: "ProviderClock",
+    awaits_provider: bool,
     reap_after_hours: int = ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
     now: datetime | None = None,
 ) -> OrphanReapDecision:
@@ -1044,14 +1079,26 @@ def decide_orphan_reap(
     event stream — which `_append_event` cannot produce, so the ledger has
     been corrupted or hand-written. That is not a scheduling question and the
     caller escalates it to a human instead of guessing in either direction.
+
+    ARIA-HIGH-365 (B2) — the age is PROVIDER-AVAILABLE time (``clock``, a
+    required argument so no caller can fall back to wall time): an
+    implementation request outstanding through a 3-day outage of the
+    implementer's provider was reaped to IMPLEMENTATION_REJECTED, a terminal,
+    though nothing could have answered it. ``age_hours`` is that age.
+    ``awaits_provider`` (review HIGH-1, ``outage_causality``) is whether the
+    plan's implementation request is still waiting on a provider; when it is
+    not, an outage explains nothing and the age is wall time.
     """
+    from .provider_clock import role_head_providers
+
     reference = now or datetime.now(timezone.utc)
+    providers = role_head_providers(["implementation"]) if awaits_provider else frozenset()
     for source in ("last_event_at", "first_event_at"):
         raw = orphan.get(source)
         parsed = parse_utc_stamp(raw) if isinstance(raw, str) and raw else None
         if parsed is None:
             continue
-        age = reference - parsed
+        age = clock.available_age(parsed, reference, providers)
         return OrphanReapDecision(
             decision=(
                 ORPHAN_DECISION_REAP
@@ -1093,8 +1140,12 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
     event is older than STALE_PLAN_MAX_AGE_HOURS is abandoned (recorded,
     reason carries the stall timestamp) and the scan moves on.
     """
+    from .outage_causality import request_awaits_provider
+    from .provider_clock import provider_clock, role_head_providers
+
     root = ensure_tools_dir(base_dir)
     last_seen = _last_event_at_by_plan(root)
+    clock = provider_clock(root)
     invocations: list[list[dict[str, Any]]] = []
     for plan_id in reversed(list_active_plans(base_dir=base_dir)):
         state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
@@ -1111,7 +1162,23 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
                 invocations.extend(load_jsonl(root / "agent-invocations" / name)
                                    for name in ("requests.jsonl", "claims.jsonl"))
             stall = _stall_cause(plan_id, requests=invocations[0], claims=invocations[1])
-            stall.update(last_event_at=stamp, max_age_hours=STALE_PLAN_MAX_AGE_HOURS)
+            # ARIA-HIGH-365 (B1) — the bound is on PROVIDER-AVAILABLE time:
+            # wall time minus the outage of the provider the plan's waiting
+            # request is routed to. A plan whose 72 h are a provider outage
+            # (measured: `stalled:provider_quota_unavailable:anthropic`) was
+            # not neglected; it is adopted and continues where it stopped.
+            # Review HIGH-1: only while that request is still WAITING on a
+            # provider (`outage_causality`); one a fallback rung answered and
+            # that died for its own reason is held to the wall clock.
+            waiting = request_awaits_provider(stall.get("request_id"), base_dir=root, claims=invocations[1])
+            available = clock.available_age(
+                parse_utc_stamp(stamp), datetime.now(timezone.utc),
+                role_head_providers([stall["role"]]) if waiting and stall.get("role") else frozenset(),
+            )
+            if available <= timedelta(hours=STALE_PLAN_MAX_AGE_HOURS):
+                return plan_id
+            stall.update(last_event_at=stamp, max_age_hours=STALE_PLAN_MAX_AGE_HOURS,
+                         provider_available_hours=round(available.total_seconds() / 3600.0, 3))
             abandon_plan(plan_id=plan_id, reason=f"stalled:{stall['cause']}", stall=stall, base_dir=base_dir)
             continue
         return plan_id
@@ -1175,7 +1242,41 @@ class PlanStateRefused(GovernanceError):
 
 
 FORCED_MAX_ROUNDS_REASON = "max_rounds_reached"
+# ARIA-HIGH-375 — the independence gate `evaluate_plan` applies. A round that
+# fails it is escalated with `independence_check.CROSS_REVIEW_SELF_AGREEMENT_
+# REASON`, which the drainer maps to the `cross_review_self_agreement` verdict.
+CROSS_REVIEW_INDEPENDENCE_GATE = "cross_review_independence"
+
+
+def cross_reviewed_round(state: dict[str, Any], round_number: int) -> bool:
+    """Did ``round_number`` of this plan have a cross review? Only such a round
+    has a reviewer whose independence the gate can judge."""
+    return round_number in (state.get("cross_reviews") or {})
+
+
+def independence_violations(payload: dict[str, Any]) -> list[str]:
+    """The independence gate's violation reasons on one ``plan_evaluated``
+    payload, or [] when the evaluation carries no such gate."""
+    for gate in payload.get("gate_decisions") or []:
+        if isinstance(gate, dict) and gate.get("gate") == CROSS_REVIEW_INDEPENDENCE_GATE:
+            return [str(reason) for reason in gate.get("violation_reasons") or []]
+    return []
+
+
+def independence_gated(payload: dict[str, Any]) -> bool:
+    """Did this ``plan_evaluated`` payload pass through the independence gate?
+    A CONVERGED evaluation without it predates ARIA-HIGH-375."""
+    return any(isinstance(gate, dict) and gate.get("gate") == CROSS_REVIEW_INDEPENDENCE_GATE
+               for gate in payload.get("gate_decisions") or [])
 FORCED_ESCALATION_GATE = "forced_escalation"
+# ARIA-HIGH-370 (second review of #1829, M3) — who forced the escalation, on
+# the row itself. `plan force-human-required` writes exactly the row a kernel
+# caller writes, so the codes alone cannot say whether the kernel judged the
+# plan; the learning loop attributes a forced row only for a kernel caller.
+FORCED_BY_OPERATOR = "operator"
+KERNEL_FORCERS: frozenset[str] = frozenset({
+    "kernel:convergence_drainer", "kernel:plan_round_controller", "kernel:converged_delivery",
+})
 
 
 def force_plan_human_required(
@@ -1186,8 +1287,12 @@ def force_plan_human_required(
     active_gap_count: int = 0,
     from_states: frozenset[str] | None = None,
     base_dir: str | Path | None = None,
+    forced_by: str = FORCED_BY_OPERATOR,
 ) -> dict[str, Any]:
     """Escalate a plan to HUMAN_REQUIRED from a state the caller names.
+
+    ``forced_by`` is stamped on the row: a kernel caller names itself
+    (:data:`KERNEL_FORCERS`); every other caller is the operator's path.
 
     ARIA-HIGH-362 (review M3) — the from-state is checked INSIDE the plan
     lock, against the fold taken under it. It used to check only that the
@@ -1202,6 +1307,8 @@ def force_plan_human_required(
         raise GovernanceError("round_number must be a positive integer")
     if not reason_codes:
         raise GovernanceError("reason_codes must be non-empty")
+    if forced_by != FORCED_BY_OPERATOR and forced_by not in KERNEL_FORCERS:
+        raise GovernanceError(f"forced_by must be {FORCED_BY_OPERATOR!r} or one of {sorted(KERNEL_FORCERS)}")
     root = ensure_tools_dir(base_dir)
     # ARIA-HIGH-194 — the event says WHY it was forced, from the caller's own
     # codes. It used to stamp `gate: max_rounds, max_rounds_reached: true`
@@ -1218,6 +1325,7 @@ def force_plan_human_required(
             "reason_codes": reason_codes,
         }],
         "reason_codes": reason_codes,
+        "forced_by": forced_by,
     }
     key = _idempotency_key(plan_id, "force-human-required", payload)
     with _plan_lock(root):
@@ -1267,7 +1375,12 @@ def abandon_plan(
         if existing:
             return _event_result(existing, idempotent=True)
         event = _append_event(root=root, plan_id=plan_id, event_type="plan_abandoned", payload=payload, idempotency_key=key)
-        return _event_result(event, idempotent=False)
+    # ARIA-HIGH-367 (H4) — the plan's unclaimed requests close with it, outside
+    # the plan lock (the claims ledger has its own transaction).
+    from .plan_request_closure import close_abandoned_plan_requests
+
+    close_abandoned_plan_requests(root, plan_ids=[plan_id])
+    return _event_result(event, idempotent=False)
 
 
 # =============================================================================

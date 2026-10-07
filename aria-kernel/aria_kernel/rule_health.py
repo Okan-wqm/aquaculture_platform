@@ -47,13 +47,21 @@ MIN_JUDGED_FOR_QUARANTINE = 3
 MAX_FP_RATE = 0.75
 
 
-def _fingerprint_rules(base_dir: str | Path | None) -> dict[str, str]:
-    """fingerprint → rule, from the raw ledger (feedback rows carry no rule)."""
+def _fingerprint_rules(
+    base_dir: str | Path | None, *, raw_findings: list[dict[str, Any]] | None = None,
+) -> dict[str, str]:
+    """fingerprint → rule, from the raw ledger (feedback rows carry no rule).
+
+    ``raw_findings`` is a caller's own load of that ledger (ARIA-HIGH-360: the
+    anchor-stale sweep reads the 34 MB ledger once, not once per reader).
+    """
     from .runtime_artifacts import resolve_finding_from_artifact
 
     mapping: dict[str, str] = {}
     path = raw_findings_path(base_dir)
-    for row in load_jsonl(path) if path.exists() else []:
+    if raw_findings is None:
+        raw_findings = load_jsonl(path) if path.exists() else []
+    for row in raw_findings:
         fingerprint = str(row.get("finding_fingerprint") or "")
         # ORPHAN-HIGH-798 — three-tier resolution mirroring the sampler:
         # inline finding (legacy v1), finding_summary (compact rows), then
@@ -77,11 +85,19 @@ def _fingerprint_rules(base_dir: str | Path | None) -> dict[str, str]:
     return mapping
 
 
-def rule_stats(base_dir: str | Path | None = None) -> dict[tuple[str, str], dict[str, int]]:
-    """Per (tool_id, rule): {'true_positive', 'false_positive', 'judged'}."""
-    rules_by_fingerprint = _fingerprint_rules(base_dir)
+def rule_stats(
+    base_dir: str | Path | None = None,
+    *,
+    feedback: list[dict[str, Any]] | None = None,
+    raw_findings: list[dict[str, Any]] | None = None,
+) -> dict[tuple[str, str], dict[str, int]]:
+    """Per (tool_id, rule): {'true_positive', 'false_positive', 'judged'}.
+
+    ``feedback`` / ``raw_findings`` are a caller's own loads of those ledgers.
+    """
+    rules_by_fingerprint = _fingerprint_rules(base_dir, raw_findings=raw_findings)
     stats: dict[tuple[str, str], dict[str, int]] = {}
-    for row in load_feedback(base_dir=base_dir):
+    for row in feedback if feedback is not None else load_feedback(base_dir=base_dir):
         if not is_ground_truth_row(row):
             continue
         verdict = row.get("verdict")
@@ -104,10 +120,12 @@ def quarantined_rules(
     *,
     min_judged: int = MIN_JUDGED_FOR_QUARANTINE,
     max_fp_rate: float = MAX_FP_RATE,
+    feedback: list[dict[str, Any]] | None = None,
+    raw_findings: list[dict[str, Any]] | None = None,
 ) -> set[tuple[str, str]]:
     """Rules whose measured FP rate earns exclusion from judgment sampling."""
     quarantined: set[tuple[str, str]] = set()
-    for key, bucket in rule_stats(base_dir).items():
+    for key, bucket in rule_stats(base_dir, feedback=feedback, raw_findings=raw_findings).items():
         judged = bucket["judged"]
         if judged < min_judged:
             continue

@@ -2249,6 +2249,60 @@ class TheStartupReaperCollectsAbandonmentNotLateness(unittest.TestCase):
         ]
         self.assertEqual(len(escalations), 1, escalations)
 
+    def _open_implementer_outage(self, hours_ago: float) -> None:
+        """ARIA-HIGH-365 — the implementer's provider went out ``hours_ago`` and is still out."""
+        from datetime import datetime, timedelta, timezone
+
+        from aria_kernel.provider_clock import role_head_providers
+        from aria_kernel.provider_cooldown import record_provider_cooldown
+
+        (provider,) = tuple(role_head_providers(["implementation"]))
+        record_provider_cooldown(
+            self.base, provider=provider, model="opus", cooldown_seconds=900, request_id="AIR-out",
+            claim_id="CL-out", detection={"signature": "claude_credit_error"},
+            now=datetime.now(timezone.utc) - timedelta(hours=hours_ago),
+        )
+
+    def _mint_implementation_request(self) -> str:
+        """The envelope production mints before the plan's IMPLEMENTATION_REQUESTED event
+        (`cross_review_bridge.issue_implementation_envelope`); the fixture drives the event only."""
+        from tests._helpers.declared_fixtures import append_declared_fixture
+
+        append_declared_fixture(ensure_tools_dir(self.base) / "agent-invocations" / "requests.jsonl", {
+            "schema_version": 1, "request_id": "AIR-impl-729", "role": "implementation",
+            "target_agent": "aria-implementer", "convergence_id": "plan-729", "state": "pending",
+            "created_at": self._hours_ago(30),
+        }, expected_surface="agent_invocation_requests")
+        return "AIR-impl-729"
+
+    def test_a_request_waiting_through_a_provider_outage_is_spared(self) -> None:
+        """ARIA-HIGH-365 (B2) — 30 wall hours, 29 of them an outage of the implementer's
+        provider: the orchestrator's reap reads the ledger clock and spares the request."""
+        self._mint_implementation_request()
+        self._open_implementer_outage(29)
+        events = self._run_with_orphan_age(30)
+        self.assertNotIn("implementation_orphan_reaped", [row.get("kind") for row in events])
+        self.assertEqual(fold_plan_state(plan_id="plan-729", base_dir=self.base)["state"],
+                         "IMPLEMENTATION_REQUESTED")
+        summary = next(row["details"] for row in events
+                       if row.get("kind") == "implementation_orphans_reaped_summary")
+        self.assertEqual(summary["spared_recent_count"], 1)
+
+    def test_an_answered_request_is_reaped_whatever_the_outage(self) -> None:
+        """PR #1835 review HIGH-1 — a request answered and refused on its merits is not
+        waiting on a provider, so the outage pauses nothing and the wall clock reaps it."""
+        from tests._helpers.declared_fixtures import append_declared_fixture
+
+        request_id = self._mint_implementation_request()
+        append_declared_fixture(ensure_tools_dir(self.base) / "agent-invocations" / "claims.jsonl", {
+            "schema_version": 1, "event": "human_required", "claim_id": "CL-refused",
+            "request_id": request_id, "reason": "agent_refused:evidence", "requeue_count": 1,
+            "at": self._hours_ago(29),
+        }, expected_surface="agent_invocation_claims")
+        self._open_implementer_outage(29)
+        events = self._run_with_orphan_age(30)
+        self.assertIn("implementation_orphan_reaped", [row.get("kind") for row in events])
+
 
 if __name__ == "__main__":
     unittest.main()

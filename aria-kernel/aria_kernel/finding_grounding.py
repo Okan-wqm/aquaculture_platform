@@ -345,13 +345,20 @@ def _fold_plans(tools_root: Path, now: datetime) -> tuple[PlanRecord, ...]:
         if row.get("row_type") == SYNTHESIS_BOUND_ROW_TYPE
         and row.get("source_type") == PlanCandidateSource.OPERATOR_FEEDBACK.value
     }
+    from .outage_attribution import failure_is_lane_fault
+    from .provider_clock import provider_clock
+
+    clock = provider_clock(tools_root)
     plans: dict[str, dict[str, Any]] = {}
+    previous_at: dict[str, datetime] = {}
     for event in _declared_rows(tools_root / "plans" / "events.jsonl", "plan_convergence_events"):
         plan_id, kind = event.get("plan_id"), event.get("event_type")
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         if not isinstance(plan_id, str):
             continue
         at = _stamp(event.get("recorded_at"), now)
+        waited_since = previous_at.get(plan_id)
+        previous_at[plan_id] = at
         if kind == "plan_started":
             content = payload.get("plan_content") if isinstance(payload.get("plan_content"), dict) else {}
             surfaces = content.get("affected_surfaces") if isinstance(content.get("affected_surfaces"), list) else []
@@ -368,7 +375,11 @@ def _fold_plans(tools_root: Path, now: datetime) -> tuple[PlanRecord, ...]:
             plans[plan_id].update(merged_at=at, merge_sha=sha if isinstance(sha, str) and sha else None)
         elif kind in _FAILED_PLAN_EVENTS or (
                 kind == "plan_evaluated" and payload.get("terminal_state") == "HUMAN_REQUIRED"):
-            plans[plan_id]["failed_at"] = at
+            # ARIA-HIGH-367 — a plan the LANE killed (a provider outage, a
+            # harness-class stall) says nothing about its finding: the finding
+            # is re-planned once the provider is back, not after a 7-day cool-off.
+            if not failure_is_lane_fault(event, waited_since=waited_since, at=at, clock=clock):
+                plans[plan_id]["failed_at"] = at
     return tuple(PlanRecord(**fields) for fields in plans.values())
 
 

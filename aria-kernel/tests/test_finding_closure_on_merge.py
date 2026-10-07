@@ -20,6 +20,7 @@ from pathlib import Path
 from unittest import mock
 
 from aria_kernel import finding_grounding as fg
+from aria_kernel.cycle_guard import OpenerAdmission
 from aria_kernel.finding import fold_findings, record_finding_status_change
 from aria_kernel.finding_closure import (
     CLOSURE_ACTOR,
@@ -346,7 +347,13 @@ class ClosureOnMergeTests(_Store):
         # The drift comes back in a later commit (here a revert of the fix).
         self.fx.commit_files({UI_FILE: "".join(f"export const row{n} = {n};\n" for n in range(1, 401))},
                              "revert: leave filter")
-        regression = self.mint(_leave_drift(389))
+        # The seeder opens findings at the openers' rate under backlog pressure
+        # (Wall #7, tests/test_closable_backlog_cap.py). This fixture's window
+        # has opened more than it closed, so admit the opener: the subject here
+        # is what a merge may close, not when the seeder may open.
+        admitted = OpenerAdmission(opener="seed_drift_findings", admitted=True)
+        with mock.patch("aria_kernel.cycle_guard.admit_finding_opener", return_value=admitted):
+            regression = self.mint(_leave_drift(389))
         self.assertNotIn(regression, (self.primary, self.duplicate))
         detector = _Detector("absent")
         result = self.reconcile(detector)

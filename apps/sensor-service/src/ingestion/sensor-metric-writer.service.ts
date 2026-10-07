@@ -1,5 +1,8 @@
 import {
+  assertTenantRlsBound,
   getTenantSchemaName,
+  runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
   validateTenantSchemaName,
 } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
@@ -68,6 +71,21 @@ interface FlushWaiter {
  *     instead of silently landing in whichever schema the session resolved;
  *   - `buildInsertSql` cannot be called without a validated schema, so no code
  *     path can emit a schema-less or hand-qualified metric INSERT.
+ *
+ * ## Row security: every INSERT runs inside its tenant's RLS binding
+ *
+ * db-migrate arms FORCE RLS on each uncompressed tenant `sensor_metrics`, and
+ * the policy admits a row only when `app.current_tenant` names its tenant. So
+ * the schema is necessary but not sufficient (SENSOR-HIGH-145: a bare
+ * transaction stored nothing for any freshly provisioned tenant):
+ *
+ *   - the writer's own paths (buffered flush, writeImmediate) open each
+ *     tenant's batch through `runInTenantTransaction`, the platform boundary
+ *     that binds and reads back the tenant;
+ *   - writeManaged writes on a transaction its caller opened, so it never
+ *     re-binds: it verifies the caller bound exactly the rows' tenant and
+ *     refuses otherwise. A row of tenant B in tenant A's transaction is the
+ *     defect, not a context to repair.
  *
  * Invalid rows are dropped, never written: a row is invalid if any of
  * sensorId/channelId/tenantId is not a UUID, or if value/rawValue is non-finite
@@ -288,10 +306,15 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
    * never leaking onto other pool users) then the chunked INSERTs.
    */
   private async insertTenantRows(tenantId: string, rows: SensorMetricInput[]): Promise<void> {
-    await this.dataSource.transaction(async (manager) => {
-      await manager.query(SensorMetricWriterService.TX_TIMEOUT_SQL);
-      await this.insertForTenant(tenantId, rows, (sql, params) => manager.query(sql, params));
-    });
+    await runInTenantTransaction(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      tenantId,
+      async (queryRunner) => {
+        await queryRunner.query(SensorMetricWriterService.TX_TIMEOUT_SQL);
+        await this.insertForTenant(tenantId, rows, (sql, params) => queryRunner.query(sql, params));
+      },
+    );
   }
 
   /**
@@ -299,11 +322,16 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
    * saveReading paths so the metric rows commit atomically with the outbox event
    * in one transaction — do NOT change this atomicity: any failure propagates so
    * the whole transaction rolls back.
+   *
+   * The caller's transaction must already be bound to the rows' tenant
+   * (`runInTenantTransaction`); otherwise this throws `TenantContextError`
+   * before any row is sent.
    */
   async writeManaged(metrics: SensorMetricInput[], manager: EntityManager): Promise<void> {
     const valid = this.filterValid(metrics);
     if (valid.length === 0) return;
     for (const [tenantId, rows] of this.groupByTenant(valid)) {
+      await assertTenantRlsBound(manager, tenantId, SENSOR_SOURCE_SCHEMA);
       await this.insertForTenant(tenantId, rows, (sql, params) => manager.query(sql, params));
     }
   }

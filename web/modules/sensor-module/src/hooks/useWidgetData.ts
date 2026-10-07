@@ -15,6 +15,13 @@ import {
   extractAggregatedValueByChannelKey,
   type AggregatedDataPoint,
 } from '../graphql/aggregatedReadings';
+import {
+  CHANNEL_LATEST_VALUES_QUERY,
+  CHANNEL_SERIES_QUERY,
+  type ChannelAlertLevel,
+  type ChannelLatestValuesResult,
+  type ChannelSeriesResult,
+} from '../graphql/channelReadings';
 
 export { GET_AGGREGATED_READINGS_QUERY, extractAggregatedValueByChannelKey };
 export type { AggregatedDataPoint };
@@ -236,25 +243,6 @@ const METRIC_TO_AGGREGATED_FIELD: Record<SensorMetric, keyof AggregatedDataPoint
 
 
 // Extract value from raw readings by channel key
-function extractRawValueByChannelKey(
-  readings: SensorReadings,
-  channelKey: string
-): number | null {
-  // Direct access if key matches
-  const value = readings[channelKey as keyof SensorReadings];
-  if (value !== undefined && value !== null) {
-    return value;
-  }
-
-  // Handle underscore vs camelCase variations
-  const camelKey = channelKey.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-  const camelValue = readings[camelKey as keyof SensorReadings];
-  if (camelValue !== undefined && camelValue !== null) {
-    return camelValue;
-  }
-
-  return null;
-}
 
 // Extract value from aggregated data point based on selected metric
 function extractAggregatedValue(
@@ -317,6 +305,13 @@ function determineStatus(
 // ============================================================================
 // Hook Implementation
 // ============================================================================
+
+/** A channel's alert level as the widget status vocabulary. */
+function widgetStatus(level: ChannelAlertLevel | null | undefined): WidgetDataPoint['status'] {
+  if (level === 'CRITICAL') return 'critical';
+  if (level === 'WARNING') return 'warning';
+  return 'normal';
+}
 
 export function useWidgetData(config: WidgetConfig): WidgetDataResult {
   const [data, setData] = useState<WidgetDataPoint[]>([]);
@@ -544,44 +539,35 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
       const readings: WidgetDataPoint[] = [];  
 
       if (hasSelectedChannels) {
-        // New approach: fetch by selected channels using batch latest-reading query (PERF-005)
+        // Channel-generic read (SENSOR-HIGH-138): one batch of every selected
+        // sensor's enabled channels, matched to the widget by channel id. Any
+        // channel key is readable, and the status is the channel's own alert
+        // level rather than a constant.
         const uniqueSensorIds = [...new Set(config.selectedChannels!.map((ch) => ch.sensorId))];
-        const channelsBySensor = new Map<string, SelectedChannel[]>();
-        for (const ch of config.selectedChannels!) {
-          if (!channelsBySensor.has(ch.sensorId)) {
-            channelsBySensor.set(ch.sensorId, []);
-          }
-          channelsBySensor.get(ch.sensorId)!.push(ch);
-        }
-
         try {
-          const result = await graphqlFetch<{ latestReadingsBatch: RawSensorReading[] }>(
-            GET_LATEST_READINGS_QUERY,
-            { sensorIds: uniqueSensorIds }
+          const result = await graphqlFetch<ChannelLatestValuesResult>(
+            CHANNEL_LATEST_VALUES_QUERY,
+            { sensorIds: uniqueSensorIds },
           );
-
-          if (result.latestReadingsBatch) {
-            for (const rawReading of result.latestReadingsBatch) {
-              const channels = channelsBySensor.get(rawReading.sensorId) || [];
-              for (const channel of channels) {
-                const value = extractRawValueByChannelKey(rawReading.readings, channel.channelKey);
-                if (value !== null) {
-                  readings.push({
-                    sensorId: channel.id,
-                    sensorName: `${channel.sensorName} - ${channel.displayLabel}`,
-                    value,
-                    unit: channel.unit || '',
-                    timestamp: new Date(rawReading.timestamp),
-                    status: 'normal',
-                    minValue: 0,
-                    maxValue: 100,
-                  });
-                }
-              }
-            }
+          const byChannelId = new Map(
+            result.channelLatestValues.map((latest) => [latest.channelId, latest]),
+          );
+          for (const channel of config.selectedChannels!) {
+            const latest = byChannelId.get(channel.id);
+            if (latest?.value === null || latest?.value === undefined || !latest.time) continue;
+            readings.push({
+              sensorId: channel.id,
+              sensorName: `${channel.sensorName} - ${channel.displayLabel}`,
+              value: latest.value,
+              unit: latest.unitSymbol ?? latest.unit ?? channel.unit ?? '',
+              timestamp: new Date(latest.time),
+              status: widgetStatus(latest.alertLevel),
+              minValue: 0,
+              maxValue: 100,
+            });
           }
         } catch (batchError) {
-          console.warn('[useWidgetData] Failed to fetch batch latest readings:', batchError);
+          console.warn('[useWidgetData] Failed to fetch channel latest values:', batchError);
         }
       } else {
         // Legacy approach: sensorIds + metric — use batch query too (PERF-005)
@@ -645,52 +631,39 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
       const allHistory: HistoryPoint[] = [];
 
       if (hasSelectedChannels) {
-        // New approach: fetch by selected channels
-        // Group channels by sensorId
+        // Channel-generic history (SENSOR-HIGH-138): one channelSeries per
+        // sensor, matched to the widget's channels by channel id; the backend
+        // picks the raw / 1min / 1hour / 1day tier from the range.
         const channelsBySensor = new Map<string, SelectedChannel[]>();
         for (const ch of config.selectedChannels!) {
-          if (!channelsBySensor.has(ch.sensorId)) {
-            channelsBySensor.set(ch.sensorId, []);
-          }
-          channelsBySensor.get(ch.sensorId)!.push(ch);
+          channelsBySensor.set(ch.sensorId, [...(channelsBySensor.get(ch.sensorId) ?? []), ch]);
         }
 
         for (const [sensorId, channels] of channelsBySensor) {
           try {
-            // Use aggregated readings - backend auto-selects optimal interval
-            const result = await graphqlFetch<{ aggregatedReadings: AggregatedReadingsResponse }>(
-              GET_AGGREGATED_READINGS_QUERY,
-              {
-                sensorId,
-                startTime: startTime.toISOString(),
-                endTime: endTime.toISOString(),
-              }
+            const result = await graphqlFetch<ChannelSeriesResult>(CHANNEL_SERIES_QUERY, {
+              sensorId,
+              startTime: startTime.toISOString(),
+              endTime: endTime.toISOString(),
+            });
+            const seriesByChannelId = new Map(
+              result.channelSeries.channels.map((series) => [series.channelId, series]),
             );
-
-            if (result.aggregatedReadings?.data) {
-              for (const dataPoint of result.aggregatedReadings.data) {
-                for (const channel of channels) {
-                  const value = extractAggregatedValueByChannelKey(dataPoint, channel.channelKey);
-                  if (value !== null) {
-                    allHistory.push({
-                      sensorId: channel.id, // Use channel ID
-                      sensorName: channel.sensorName,
-                      channelKey: channel.channelKey,
-                      channelLabel: channel.displayLabel,
-                      value,
-                      unit: channel.unit,
-                      timestamp: new Date(dataPoint.bucket),
-                    });
-                  }
-                }
+            for (const channel of channels) {
+              for (const point of seriesByChannelId.get(channel.id)?.points ?? []) {
+                allHistory.push({
+                  sensorId: channel.id,
+                  sensorName: channel.sensorName,
+                  channelKey: channel.channelKey,
+                  channelLabel: channel.displayLabel,
+                  value: point.avg,
+                  unit: channel.unit,
+                  timestamp: new Date(point.bucket),
+                });
               }
             }
           } catch (sensorError) {
-            console.warn(`Failed to fetch aggregated history for sensor ${sensorId}:`, sensorError);
-            // Fallback to raw readings for each channel
-            for (const channel of channels) {
-              await fetchRawHistoryByChannel(sensorId, channel, startTime, endTime, allHistory);
-            }
+            console.warn(`Failed to fetch channel series for sensor ${sensorId}:`, sensorError);
           }
         }
       } else {
@@ -777,45 +750,6 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
     }
   }, [config.metric, fetchSensorInfo]);
 
-  // Fallback: fetch raw readings by channel
-  const fetchRawHistoryByChannel = useCallback(async (
-    sensorId: string,
-    channel: SelectedChannel,
-    startTime: Date,
-    endTime: Date,
-    allHistory: HistoryPoint[]
-  ) => {
-    try {
-      const result = await graphqlFetch<{ readings: RawSensorReading[] }>(
-        GET_READINGS_HISTORY_QUERY,
-        {
-          sensorId,
-          startTime: startTime.toISOString(),
-          endTime: endTime.toISOString(),
-          limit: 100,
-        }
-      );
-
-      if (result.readings) {
-        for (const rawReading of result.readings) {
-          const value = extractRawValueByChannelKey(rawReading.readings, channel.channelKey);
-          if (value !== null) {
-            allHistory.push({
-              sensorId: channel.id,
-              sensorName: channel.sensorName,
-              channelKey: channel.channelKey,
-              channelLabel: channel.displayLabel,
-              value,
-              unit: channel.unit,
-              timestamp: new Date(rawReading.timestamp),
-            });
-          }
-        }
-      }
-    } catch (error) {
-      console.warn(`Fallback raw history by channel failed for ${channel.id}:`, error);
-    }
-  }, []);
 
   // Combined fetch function
   const fetchData = useCallback(async () => {

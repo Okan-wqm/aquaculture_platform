@@ -177,7 +177,9 @@ export class SensorLookupResponderService
 
     let sensor;
     try {
-      sensor = await this.cacheService.getSensor(sensorId);
+      // Read inside the requested tenant's boundary (SENSOR-HIGH-148): a
+      // sensor of another tenant is invisible there and replies null.
+      sensor = await this.cacheService.getSensor(sensorId, tenantId);
     } catch (error) {
       // Cache / repo failure: do not leak the error class to the
       // sidecar; reply null so the cache stays cold for this key
@@ -203,7 +205,8 @@ export class SensorLookupResponderService
 
     if (sensor.tenantId !== tenantId) {
       // SEC-M01 defence-in-depth — the responder MUST NOT leak a
-      // cross-tenant sensor's metadata even by accident. The Rust
+      // cross-tenant sensor's metadata even by accident. The read above
+      // is already bound to request.tenantId; this asserts it. The Rust
       // side checks the same invariant inside
       // spawn_lookup_and_populate_cache; both layers refuse
       // independently. Logged at warn so the security team's alarm
@@ -217,7 +220,7 @@ export class SensorLookupResponderService
 
     let channels;
     try {
-      channels = await this.cacheService.getChannels(sensorId);
+      channels = await this.cacheService.getChannels(sensorId, tenantId);
     } catch (error) {
       this.logger.error(
         `getChannels failed for sensorId=${sensorId}: ${(error as Error).message}`,

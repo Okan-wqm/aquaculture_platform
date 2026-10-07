@@ -30,9 +30,10 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 import {
-  runInTenantTransaction,
-  runInTenantRead,
   BypassRlsService,
+  runInTenantRead,
+  runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
 } from '@aquaculture/backend-common/database';
 
 // TODO: Replace with '@aquaculture/scada-types' path alias when monorepo build supports it.
@@ -52,9 +53,6 @@ const CHUNK_WINDOW_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 /** SQL table name — change to match your migration. */
 const TABLE_NAME = 'scada_tag_history';
-
-/** Source schema that owns the cross-tenant SCADA tag-history table. */
-const SENSOR_SCHEMA = 'sensor';
 
 /** Mapping from DaqAggregation.interval to a SQL interval literal. */
 const INTERVAL_SQL: Record<DaqAggregation['interval'], string> = {
@@ -251,7 +249,7 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
       // transaction per batch sets `app.current_tenant` → the FORCED
       // tenant_isolation_policy ENFORCES the multi-row insert (a mis-stamped
       // tenant_id is refused by Postgres — ORPHAN-414, Tier-1). No per-row tx.
-      await runInTenantTransaction(this.dataSource, SENSOR_SCHEMA, tenantId, (qr) =>
+      await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
         qr.query(sql, params),
       );
       this.logger.debug(
@@ -308,7 +306,7 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
       // tenant's history (the leading tenant_id predicate is defence-in-depth).
       const rows: RawHistoryRow[] = await runInTenantRead(
         this.dataSource,
-        SENSOR_SCHEMA,
+        SENSOR_SOURCE_SCHEMA,
         tenantId,
         (qr) => qr.query(sql, [tenantId, tagIds, from, to]),
       );
@@ -396,7 +394,7 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
     // date_trunc fallback needs a fresh one.
     let rows: AggregatedRow[];
     try {
-      rows = await runInTenantRead(this.dataSource, SENSOR_SCHEMA, tenantId, (qr) =>
+      rows = await runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
         qr.query(sql, [intervalSql, tenantId, tagIds, from, to]),
       );
     } catch {
@@ -404,7 +402,7 @@ export class DaqStorageService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(
         'DaqStorage: time_bucket unavailable, falling back to date_trunc',
       );
-      rows = await runInTenantRead(this.dataSource, SENSOR_SCHEMA, tenantId, (qr) =>
+      rows = await runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
         qr.query(fallbackSql, [tenantId, tagIds, from, to]),
       );
     }

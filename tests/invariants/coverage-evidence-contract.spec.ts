@@ -1,6 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import { parse } from 'yaml';
+
 interface CoverageMetric {
   covered: number;
   found: number;
@@ -416,6 +418,31 @@ describe('repository-owned coverage evidence contract', () => {
     }
 
     expect(misdirected).toEqual([]);
+  });
+
+  it('publishes the coverage evidence whenever the test run completed, so a refusal can be re-pinned', () => {
+    // The ratchet's refusal names its own remedy — `coverage-evidence.js --write`
+    // against the run's LCOV — and only ci-full produces that LCOV (the whole
+    // suite, ~35 minutes). The upload ran only when verification PASSED, so the
+    // one run that measured a gain discarded the evidence the re-pin needs:
+    // CI - Full run 34745082343 refused six services' baselines and published no
+    // coverage artifact, leaving the gate red until someone re-ran the suite.
+    const workflow = parse(
+      fs.readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci-full.yml'), 'utf8'),
+    ) as {
+      jobs: { test: { steps: Array<{ id?: string; name?: string; if?: string }> } };
+    };
+    const steps = workflow.jobs.test.steps;
+    const runAllTests = steps.find((step) => step.name === 'Run all tests');
+    const verify = steps.find((step) => step.name === 'Verify coverage evidence');
+    const upload = steps.find((step) => step.name === 'Upload coverage evidence');
+
+    expect(runAllTests?.id).toBe('tests');
+    expect(verify?.if).toBeUndefined();
+    expect(upload?.if).toBe("${{ !cancelled() && steps.tests.outcome == 'success' }}");
+    expect(steps.indexOf(upload as (typeof steps)[number])).toBeGreaterThan(
+      steps.indexOf(verify as (typeof steps)[number]),
+    );
   });
 
   it('rejects syntactically present reports with no instrumented source lines', () => {

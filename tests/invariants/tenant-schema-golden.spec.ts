@@ -12,6 +12,10 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import {
+  RLS_BYPASS_GUC,
+  RLS_TENANT_GUC,
+} from '../../libs/backend-common/src/database/rls/apply-tenant-rls.helper';
 import { getTenantSchemaName } from '../../libs/backend-common/src/database/tenant-schema.utils';
 import { validateTenantSchemaName } from '../../libs/backend-common/src/database/schema-manager.service';
 
@@ -46,5 +50,25 @@ describe('Tenant schema golden vectors (TS ↔ Rust SSoT parity)', () => {
     expect(() => validateTenantSchemaName('tenant_550e8400e29b41d4a716446655440000')).toThrow(
       /Invalid schema name/,
     );
+  });
+});
+
+/**
+ * The RLS session settings, same contract (SENSOR-HIGH-145): the Rust sidecar
+ * binds `tenant_context::RLS_TENANT_GUC` / `RLS_BYPASS_GUC` before writing
+ * into a FORCE-RLS sensor_metrics whose policy the TS helper installed. Both
+ * sides read crates/tenant-context/tests/rls-gucs.json, so a rename on either
+ * side fails CI instead of writing under no tenant.
+ */
+describe('RLS session settings (TS ↔ Rust SSoT parity)', () => {
+  const fixture = JSON.parse(
+    readFileSync(resolve(REPO_ROOT, 'crates', 'tenant-context', 'tests', 'rls-gucs.json'), 'utf8'),
+  ) as { tenant_guc: string; bypass_guc: string };
+
+  it('the TS policy settings are the ones the Rust crate binds', () => {
+    expect({ tenant: RLS_TENANT_GUC, bypass: RLS_BYPASS_GUC }).toEqual({
+      tenant: fixture.tenant_guc,
+      bypass: fixture.bypass_guc,
+    });
   });
 });

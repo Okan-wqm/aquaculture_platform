@@ -1,0 +1,4 @@
+{
+  "tenant_guc": "app.current_tenant",
+  "bypass_guc": "app.bypass_rls"
+}

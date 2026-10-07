@@ -20,6 +20,7 @@ import { Repository, DataSource, EntityManager, In, LessThan } from 'typeorm';
 import {
   listActiveTenantSchemaIdentities,
   runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
@@ -134,7 +135,7 @@ export class AutomationService {
     tenantId: string,
     fn: (manager: EntityManager) => Promise<T>,
   ): Promise<T> {
-    return runInTenantTransaction(this.dataSource, 'sensor', tenantId, (qr) => fn(qr.manager));
+    return runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) => fn(qr.manager));
   }
 
   // ============================================
@@ -843,7 +844,7 @@ export class AutomationService {
     programId: string,
     variables: SyncVariableInput[],
   ): Promise<SyncProgramVariablesResult> {
-    return runInTenantTransaction(this.dataSource, 'sensor', tenantId, async (qr) => {
+    return runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, async (qr) => {
       const manager = qr.manager;
 
       // Verify program exists and belongs to tenant
@@ -2773,7 +2774,7 @@ export class AutomationService {
 
     for (const { tenantId, schemaName } of tenants) {
       try {
-        await runInTenantTransaction(this.dataSource, 'sensor', tenantId, async (qr) => {
+        await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, async (qr) => {
           const timedOutPrograms = await qr.manager.find(AutomationProgram, {
             where: {
               status: ProgramStatus.DEPLOYING,

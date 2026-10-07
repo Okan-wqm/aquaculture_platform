@@ -679,7 +679,7 @@ export class Baseline1800000000000 implements MigrationInterface {
 
     // ── GENERATED postCondition (DATA-CRITICAL-010) — do not hand-edit ──
     public async postCondition(queryRunner: QueryRunner): Promise<boolean> {
-        const rows: Array<{ missing: string }> = await queryRunner.query(`
+        const rows: unknown = await queryRunner.query(`
             SELECT expected.table_name AS missing
               FROM (VALUES ('auto_rules'), ('batch_documents'), ('batch_feed_assignments'), ('batch_locations'), ('batches_v2'), ('biomass_reports'), ('chemical_sites'), ('chemical_types'), ('chemicals'), ('code_sequences'), ('consumables'), ('daily_feeding_executions'), ('departments'), ('equipment'), ('equipment_systems'), ('equipment_types'), ('farm_workers'), ('farms'), ('feed_inventory'), ('feed_sites'), ('feed_type_species'), ('feed_types'), ('feeder_calibrations'), ('feeding_program_tanks'), ('feeding_programs'), ('feeding_protocols'), ('feeding_records'), ('feeding_tables'), ('feeds'), ('growth_measurements'), ('harvest_plans'), ('harvest_records'), ('health_events'), ('inventory_count_items'), ('inventory_counts'), ('maintenance_schedules'), ('marine_observations'), ('mortality_records'), ('ponds'), ('purchase_order_items'), ('purchase_orders'), ('recurring_templates'), ('regulatory_settings'), ('sentinel_hub_settings'), ('site_contacts'), ('sites'), ('spare_parts'), ('species'), ('stock_movements'), ('storage_inventory'), ('storage_locations'), ('storage_lot_mixes'), ('sub_equipment'), ('sub_equipment_types'), ('sub_systems'), ('supplier_sites'), ('supplier_types'), ('suppliers'), ('systems'), ('tank_allocations'), ('tank_batches'), ('tank_operations'), ('tanks'), ('tasks'), ('water_quality_measurements'), ('water_quality_param_equipment'), ('water_quality_parameter_configs'), ('weather_observations'), ('weather_settings'), ('work_orders')) AS expected(table_name)
              WHERE NOT EXISTS (
@@ -689,7 +689,7 @@ export class Baseline1800000000000 implements MigrationInterface {
                   AND table_name = expected.table_name
              )
         `);
-        return rows.length === 0;
+        return Array.isArray(rows) && rows.length === 0;
     }
     // ── END GENERATED postCondition ──
 

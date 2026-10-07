@@ -1118,6 +1118,26 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
     return None
 
 
+def in_flight_plan_id(*, base_dir: str | Path | None = None) -> str | None:
+    """ARIA-HIGH-369 review M4 — the plan :func:`resume_candidate_plan_id` adopts, read without abandoning.
+
+    The orchestrator adopts before it synthesizes, so after its call this is
+    the adopted plan; a reader (the plan provider deciding whether a new
+    envelope will be used at all) must not abandon anything itself.
+    """
+    root = ensure_tools_dir(base_dir)
+    last_seen = _last_event_at_by_plan(root)
+    for plan_id in reversed(list_active_plans(base_dir=base_dir)):
+        state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+        if not isinstance(state, dict) or state.get("state") in _IMPLEMENTATION_PHASE_STATES:
+            continue
+        stamp = last_seen.get(plan_id)
+        if stamp and _older_than_hours(stamp, STALE_PLAN_MAX_AGE_HOURS):
+            continue
+        return plan_id
+    return None
+
+
 def _stall_cause(
     plan_id: str, *, requests: list[dict[str, Any]], claims: list[dict[str, Any]],
 ) -> dict[str, Any]:

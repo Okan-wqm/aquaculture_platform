@@ -1,6 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { listActiveTenantSchemaIdentities, runInTenantRead } from '@aquaculture/backend-common/database';
+import {
+  listActiveTenantSchemaIdentities,
+  runInTenantRead,
+  SENSOR_SOURCE_SCHEMA,
+} from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { DataSource } from 'typeorm';
 
@@ -229,7 +233,7 @@ export class SensorTopicCacheService implements OnModuleInit {
           // Get all sensors with MQTT topics. The read runs with the tenant
           // schema on search_path; protocol_configuration is aliased to
           // camelCase to match the row mapping below.
-          const sensors = await runInTenantRead(this.dataSource, 'sensor', identity.tenantId, (qr) =>
+          const sensors = await runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, identity.tenantId, (qr) =>
             qr.query(`
             SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration AS "protocolConfiguration", metadata
             FROM sensors
@@ -274,7 +278,7 @@ export class SensorTopicCacheService implements OnModuleInit {
         try {
           // Try exact topic match. The read runs with the tenant schema on
           // search_path, so the table name stays unqualified.
-          const sensors = await runInTenantRead(this.dataSource, 'sensor', identity.tenantId, (qr) =>
+          const sensors = await runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, identity.tenantId, (qr) =>
             qr.query(
               `
             SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration AS "protocolConfiguration", metadata
@@ -292,7 +296,7 @@ export class SensorTopicCacheService implements OnModuleInit {
           }
 
           // Try wildcard match
-          const wildcardSensors = await runInTenantRead(this.dataSource, 'sensor', identity.tenantId, (qr) =>
+          const wildcardSensors = await runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, identity.tenantId, (qr) =>
             qr.query(
               `
             SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration AS "protocolConfiguration", metadata

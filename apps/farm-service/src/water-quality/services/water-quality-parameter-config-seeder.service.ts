@@ -128,7 +128,7 @@ const DEFAULT_SEEDS: readonly SeedEntry[] = [
   {
     code: 'ammonia',
     name: 'Ammonia (NH₃)',
-    unit: unitOfParameterCode('ammonia'),
+    unit: 'mg/L',
     dataType: ParameterDataType.NUMBER,
     precision: 3,
     group: ParameterGroup.NITROGEN_CYCLE,
@@ -148,7 +148,7 @@ const DEFAULT_SEEDS: readonly SeedEntry[] = [
   {
     code: 'nitrite',
     name: 'Nitrite (NO₂⁻)',
-    unit: unitOfParameterCode('nitrite'),
+    unit: 'mg/L',
     dataType: ParameterDataType.NUMBER,
     precision: 3,
     group: ParameterGroup.NITROGEN_CYCLE,

@@ -169,7 +169,9 @@ export {
   parseQuantityId,
   channelKeyMeaning,
   channelKeyUnit,
+  declarableQuantities,
   effectiveQuantity,
+  readingParameterOfChannelKey,
   isAcceptedUnit,
 } from './measurement/quantities';
 export type {

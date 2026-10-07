@@ -33,9 +33,11 @@ describe('farm parameter codes and the measured-quantity registry', () => {
   it('seeds every quantity-recording parameter in the registry unit', () => {
     for (const seed of seeds.getDefaults()) {
       const quantity = quantityOfParameterCode(seed.code);
-      expect(quantity).not.toBeNull();
       if (quantity !== null) {
-        expect(seed.unit).toBe(measuredQuantity(quantity).unit);
+        expect({ code: seed.code, unit: seed.unit }).toEqual({
+          code: seed.code,
+          unit: measuredQuantity(quantity).unit,
+        });
       }
     }
   });
@@ -56,6 +58,9 @@ describe('farm parameter codes and the measured-quantity registry', () => {
       expect(measuredQuantity(quantity).id).toBe(quantity);
     }
     expect(quantityOfParameterCode('transparency')).toBeNull();
+    // Recorded without a basis: not mapped until a basis is declared.
+    expect(quantityOfParameterCode('ammonia')).toBeNull();
+    expect(quantityOfParameterCode('nitrite')).toBeNull();
     expect(quantityOfParameterCode('constructor')).toBeNull();
   });
 });

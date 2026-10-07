@@ -58,7 +58,7 @@ const UNIT_HEURISTICS: ReadonlyArray<{ patterns: readonly string[]; unit: string
   { patterns: ['power', 'watt'], unit: 'W' },
   { patterns: ['vibr'], unit: 'mm/s' },
   {
-    patterns: ['dissolved_o', 'diss_oxy', 'do_level', 'do_mg', 'oxygen'],
+    patterns: ['dissolved_o', 'diss_oxy', 'do_mg', 'oxygen'],
     unit: measuredQuantity('dissolvedOxygen').unit,
   },
   { patterns: ['salinity'], unit: measuredQuantity('salinity').unit },

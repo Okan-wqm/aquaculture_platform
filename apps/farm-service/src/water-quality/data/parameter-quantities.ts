@@ -10,10 +10,12 @@ import { measuredQuantity, type QuantityId } from '@aquaculture/shared-contracts
  * channel measuring the same thing — they had: pH as `''` beside `pH`, and
  * `mg/L CaCO₃` beside `mg/L CaCO3`.
  *
- * `ammonia` is the farm's un-ionized ammonia (its templates bound it at
- * 0.02–0.05 mg/L, a toxicity limit), recorded as N like the chemistry engine's
- * NH3-N. Codes absent here (transparency, BOD, counts, …) measure nothing a
- * sensor channel names; they keep their own unit.
+ * `ammonia`, `nitrite` and `nitrate` are absent on purpose: the farm records
+ * them without a basis (labels say NH₃ / NO₂ / NO₃, thresholds fit either the
+ * molecule or the N basis, which differ 1.2× to 4.4×), and an undeclared basis
+ * must not feed the chemistry. Their configs carry a declared quantity once
+ * the parameter-config binding lands. Codes absent here (transparency, BOD,
+ * counts, …) keep their own unit.
  */
 export const PARAMETER_CODE_QUANTITY: Readonly<Record<string, QuantityId>> = {
   temperature: 'temperature',
@@ -22,10 +24,7 @@ export const PARAMETER_CODE_QUANTITY: Readonly<Record<string, QuantityId>> = {
   oxygen_saturation: 'oxygenSaturation',
   salinity: 'salinity',
   conductivity: 'conductivity',
-  ammonia: 'nh3',
   total_ammonia_nitrogen: 'tan',
-  nitrite: 'nitrite',
-  nitrate: 'nitrate',
   h2s: 'h2s',
   alkalinity: 'alkalinity',
   hardness: 'hardness',

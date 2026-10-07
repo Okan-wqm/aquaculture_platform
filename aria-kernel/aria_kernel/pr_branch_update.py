@@ -111,22 +111,24 @@ def _attempted(request_id: str, *, base_dir: str | Path | None) -> dict[str, dic
 
 def _answer_unreceipted(request_id: str, live: dict[str, Any], *, base_dir: str | Path | None) -> None:
     """An intent a killed or timed-out pass left without a receipt is answered
-    from the PR as GitHub shows it now: its head moved (the update landed) or
-    it did not — for a PR that has since closed too (review LOW), so no
-    intent stays unanswered for recovery to chase."""
+    ``absent``, with the head GitHub shows now — for a PR that has since
+    closed too (review LOW), so no intent stays unanswered.
+
+    GSEC-MEDIUM-002 — a head that MOVED is not proof the update landed: a
+    stranger's push moves it as well. Only a result read back right after
+    an accepted call (``request_branch_update``) confirms an update; this
+    answer never does, so the lineage never accepts what it saw here.
+    """
     from .recovery import record_receipt
 
     live_head = str(live.get("headRefOid") or "")
     for operation_id, entry in _attempted(request_id, base_dir=base_dir).items():
         if entry["receipt"] is not None:
             continue
-        expected = str((entry["intent"].get("intended_postcondition") or {}).get("expected_head_sha") or "")
-        landed = bool(expected) and bool(live_head) and live_head != expected
         record_receipt(
             operation_id=operation_id, request_id=request_id,
-            observed={"head_sha": live_head, "state": str(live.get("state") or ""),
-                      "answered_from": "pr_head", "landed": landed},
-            status="confirmed" if landed else "absent", base_dir=base_dir,
+            observed={"head_sha": live_head, "state": str(live.get("state") or ""), "answered_from": "pr_head"},
+            status="absent", base_dir=base_dir,
         )
 
 
@@ -208,6 +210,35 @@ def already_requested(*, pr_number: int, head_sha: str, base_sha: str, base_dir:
     return receipt is None or receipt.get("status") == "confirmed"
 
 
+# GitHub merges asynchronously after the 202: poll the head this long.
+RESULT_READ_BACK_ATTEMPTS = 6
+RESULT_READ_BACK_INTERVAL_SECONDS = 5.0
+
+
+def _read_back_head(
+    *, pr_number: int, previous_head: str, environment: dict[str, str], workspace_root: str | Path,
+    sleep: Callable[[float], None] | None = None,
+) -> str | None:
+    """The PR head once it moved off ``previous_head``, or None inside the bound."""
+    import time
+
+    pause = sleep or time.sleep
+    for attempt in range(RESULT_READ_BACK_ATTEMPTS):
+        try:
+            read = subprocess.run(
+                ["gh", "api", f"repos/{{owner}}/{{repo}}/pulls/{int(pr_number)}", "--jq", ".head.sha"],
+                cwd=workspace_root, env=environment, capture_output=True, text=True, check=False, timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        head = (read.stdout or "").strip()
+        if read.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", head) and head != previous_head:
+            return head
+        if attempt + 1 < RESULT_READ_BACK_ATTEMPTS:
+            pause(RESULT_READ_BACK_INTERVAL_SECONDS)
+    return None
+
+
 def request_branch_update(
     *,
     pr_number: int,
@@ -217,6 +248,7 @@ def request_branch_update(
     workspace_root: str | Path,
     base_dir: str | Path | None,
     runner: Callable[..., "subprocess.CompletedProcess[str]"] | None = None,
+    head_reader: Callable[..., str | None] | None = None,
 ) -> dict[str, Any]:
     """The ONE ``update-branch`` call ARIA makes, bracketed by intent and receipt.
 
@@ -258,12 +290,26 @@ def request_branch_update(
         return {**row, "outcome": f"refused:{str(exc)[:200]}"}
     accepted = completed.returncode == 0
     first_error = ((completed.stderr or "").strip().splitlines() or [""])[0]
+    if not accepted:
+        record_receipt(
+            operation_id=str(intent["operation_id"]), request_id=request_id,
+            observed={"returncode": completed.returncode, "stderr": [first_error] if first_error else []},
+            status="failed", base_dir=base_dir,
+        )
+        return {**row, "outcome": f"failed:{first_error[:200]}"}
+    # GSEC-MEDIUM-002 — the update runs on GitHub's side after the 202; the
+    # head it produced is read back and recorded, and only that head is the
+    # update's result the lineage accepts. Not observed inside the bound:
+    # `absent`, never confirmed — the PR's next head is not attributable.
+    result = (head_reader or _read_back_head)(
+        pr_number=pr_number, previous_head=head_sha, environment=environment, workspace_root=workspace_root,
+    )
     record_receipt(
         operation_id=str(intent["operation_id"]), request_id=request_id,
-        observed={"returncode": completed.returncode, "stderr": [first_error] if first_error else []},
-        status="confirmed" if accepted else "failed", base_dir=base_dir,
+        observed={"returncode": 0, "result_head_sha": result},
+        status="confirmed" if result else "absent", base_dir=base_dir,
     )
-    return {**row, "outcome": "accepted" if accepted else f"failed:{first_error[:200]}"}
+    return {**row, "outcome": "accepted" if result else "accepted_result_unobserved", "result_head_sha": result}
 
 
 def update_behind_aria_prs(
@@ -275,6 +321,7 @@ def update_behind_aria_prs(
     profile: str,
     credential_hold: Callable[..., Any] | None = None,
     runner: Callable[..., "subprocess.CompletedProcess[str]"] | None = None,
+    head_reader: Callable[..., str | None] | None = None,
 ) -> dict[str, Any]:
     """Request ``update-branch`` for each qualifying ARIA PR; see module doc."""
     from .delivery_credentials import (
@@ -309,6 +356,19 @@ def update_behind_aria_prs(
             continue
         assert live is not None
         base = str(live.get("baseRefOid") or "")
+        # GSEC-MEDIUM-002 — the shared predicate: ARIA merges main only into
+        # a head it can vouch for (the delivered commit or a verified lineage).
+        from .branch_update_lineage import fetch_pr_head, update_request_refusal
+
+        fetch_pr_head(workspace_root, number)
+        refusal = update_request_refusal(
+            workspace=workspace_root, base_dir=base_dir, pr_number=number, head_sha=head, live_base_sha=base,
+            branch=str(live.get("headRefName") or ""), base_branch=str(live.get("baseRefName") or ""),
+            checks_green=ci_summary(live.get("statusCheckRollup"))["state"] == CI_GREEN,
+        )
+        if refusal is not None:
+            skipped.append({"pr_number": number, "reason": refusal})
+            continue
         if already_requested(pr_number=number, head_sha=head, base_sha=base, base_dir=base_dir):
             skipped.append({"pr_number": number, "reason": "already_requested_for_this_head_and_base"})
             continue
@@ -332,7 +392,7 @@ def update_behind_aria_prs(
         for number, head, base in queue:
             requested.append(request_branch_update(
                 pr_number=number, head_sha=head, base_sha=base, environment=environment,
-                workspace_root=workspace_root, base_dir=base_dir, runner=runner,
+                workspace_root=workspace_root, base_dir=base_dir, runner=runner, head_reader=head_reader,
             ))
     append_tools_governance(ensure_tools_dir(base_dir), UPDATE_REQUESTED_EVENT, {"cycle_id": cycle_id, "requested": requested})
     return {"status": "ran", "requested": requested, "skipped": skipped}

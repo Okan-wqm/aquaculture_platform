@@ -214,6 +214,61 @@ On the 371–373 head (`1f83bb1dc`), the gate and lane tests fail:
 
 The red-check test pins behaviour that already held.
 
+## ARIA-HIGH-374 security review corrections
+
+The security review of #1832 found no CRITICAL or HIGH issues; it confirmed that the content
+invariant holds. Its three MEDIUM and six LOW issues are fixed as follows.
+
+- **GSEC-MEDIUM-001: the purity check used the checkout's git configuration.** Every git call
+  in `branch_update_lineage` now runs in a throwaway bare repository with no configuration of its
+  own. It borrows the checkout's objects through `alternates`, and the `.git` location is read
+  from disk, not from that checkout's git. The environment and options are:
+  - `scrubbed_git_env`, with `GIT_CONFIG_GLOBAL=/dev/null`;
+  - `--no-replace-objects`;
+  - `--attr-source=<empty tree>` and `core.attributesFile=/dev/null`;
+  - `merge.renormalize=false`, plus hooks and fsmonitor turned off.
+
+  A test registers a driver in the checkout and commits a `.gitattributes` that names it. The
+  driver never runs, and the conflict it would have resolved is refused as `merge_not_clean`.
+
+- **GSEC-MEDIUM-002: ARIA could update, or count as updated, a head it never vouched for.**
+  - Both requesters, the cycle and the merge lane, now read one predicate,
+    `update_request_refusal`. It requires an `aria-impl-*` branch, `main` as the base, green
+    checks, and either the delivered commit or a verified lineage.
+  - After an accepted call, the head GitHub produced is read back and stored in the receipt as
+    `result_head_sha`.
+  - The walk accepts only the `(expected_head, result_head)` pairs those receipts name.
+  - An unreceipted intent is answered `absent`. A head that merely moved is never treated as
+    confirmed.
+- **GSEC-MEDIUM-003: the validated tree is not the merged tree.** An updated head is refused when
+  the merged change touches a project that main's `scripts/ci/affected-target-policy.json`
+  quarantines. The refusal is named `updated_head_touches_quarantined_project`.
+
+  Re-running the hygiene battery on the merged head was rejected. That would mean the whole
+  four-command suite on a hosted merge runner, with no sandbox.
+
+  Measured on 2026-10-07: the `test` quarantine is empty. The `lint` quarantine lists 40
+  projects, which covers almost every `apps/` and `web/` project. So an updated head that changes
+  application code is a human merge until that quarantine drains. Docs-only L1 changes still
+  self-merge.
+
+- **LOW:** a ledger that cannot be read now refuses as `update_ledger_unreadable` and no longer
+  raises. New tests cover:
+  - an octopus merge;
+  - reversed parents;
+  - a foreign commit mid-chain;
+  - a missing git;
+  - a conflicted merge;
+  - a merged parent older than the recorded base.
+
+Proof on `e341e33af`:
+
+- These new tests fail behaviourally: the merge driver ran, the quarantine was not refused, a
+  result that was never read back was accepted, and a result other than the recorded one was
+  accepted.
+- The predicate, receipt and ledger tests fail because the inputs they need do not exist there.
+- The octopus, chain, git-missing, conflict and older-base tests pin behaviour that already held.
+
 ## Review corrections
 
 An independent review of #1828 found one HIGH, three MEDIUM and six LOW issues. All of them are

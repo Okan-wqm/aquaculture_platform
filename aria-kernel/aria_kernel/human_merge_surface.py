@@ -72,19 +72,13 @@ def _head_lineage_refusal(
     fetched by object id (``refs/pull/<n>/head``, no local ref written)
     before the walk. A head the verifier refuses is named with its reason.
     """
-    import subprocess
-
-    from .branch_update_lineage import BranchUpdateLineageRefused, verify_branch_update_lineage
+    from .branch_update_lineage import BranchUpdateLineageRefused, fetch_pr_head, verify_branch_update_lineage
 
     head = str(live.get("headRefOid") or "")
     if workspace_root is None:
         return f"head_is_not_the_delivered_commit:head={head[:12]}:delivered={delivered[:12]}:no_checkout"
     number = int(live.get("number") or opened.get("pr_number") or 0)
-    try:
-        subprocess.run(["git", "fetch", "--no-tags", "--quiet", "origin", f"refs/pull/{number}/head"],
-                       cwd=workspace_root, capture_output=True, text=True, check=False, timeout=120)
-    except (OSError, subprocess.SubprocessError):
-        pass  # the walk below names an object it cannot read; nothing passes on a failed fetch
+    fetch_pr_head(workspace_root, number)
     try:
         verify_branch_update_lineage(
             workspace=workspace_root, base_dir=base_dir, pr_number=number, head_sha=head,

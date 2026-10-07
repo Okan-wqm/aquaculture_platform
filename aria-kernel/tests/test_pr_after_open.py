@@ -64,7 +64,8 @@ class FakeReader:
 
 def _live(**overrides: Any) -> dict[str, Any]:
     return {"number": 7, "state": "OPEN", "url": URL, "headRefName": BRANCH, "headRefOid": HEAD,
-            "baseRefOid": MAIN, "mergeStateStatus": "BEHIND", "statusCheckRollup": GREEN, "labels": [],
+            "baseRefName": "main", "baseRefOid": MAIN, "mergeStateStatus": "BEHIND", "statusCheckRollup": GREEN,
+            "labels": [],
             **overrides}
 
 
@@ -103,10 +104,15 @@ class _UpdateHarness(_Store):
         self.calls.append({"argv": argv, "token": kwargs["env"].get("GH_TOKEN"), "timeout": kwargs.get("timeout")})
         return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
 
+    @staticmethod
+    def _result(**kwargs: Any) -> str:
+        # GSEC-MEDIUM-002 — the head GitHub produced, read back after the call.
+        return "9" * 40
+
     def _update(self, live: dict[str, Any] | None, *, profile: str = "strict") -> dict[str, Any]:
         return update_behind_aria_prs(
             cycle_id="cyc-372", base_dir=self.tools, workspace_root=self.root, reader=FakeReader(live),
-            profile=profile, credential_hold=self._hold, runner=self._runner,
+            profile=profile, credential_hold=self._hold, runner=self._runner, head_reader=self._result,
         )
 
 
@@ -119,6 +125,11 @@ class BranchUpdateTests(_UpdateHarness):
             "gh", "api", "-X", "PUT", "repos/{owner}/{repo}/pulls/7/update-branch", "-f", f"expected_head_sha={HEAD}",
         ])
         self.assertEqual(self.calls[0]["token"], "ghs_fixture_installation")
+        # GSEC-MEDIUM-002 — the receipt carries the head GitHub produced,
+        # and that pair is the only update the lineage will accept.
+        from aria_kernel.branch_update_lineage import recorded_updates
+
+        self.assertEqual(recorded_updates(base_dir=self.tools, pr_number=7), {(HEAD, "9" * 40): (MAIN,)})
         self.assertEqual([hold["consumer"] for hold in self.holds], ["pr_branch_update"])
         # The same head against the same main is never asked twice.
         again = self._update(_live())
@@ -161,7 +172,7 @@ class BranchUpdateRecoveryTests(_UpdateHarness):
     def test_a_failed_request_is_retried_and_an_accepted_one_is_not(self) -> None:
         first = update_behind_aria_prs(cycle_id="c1", base_dir=self.tools, workspace_root=self.root,
                                        reader=FakeReader(_live()), profile="strict", credential_hold=self._hold,
-                                       runner=self._failing_runner)
+                                       runner=self._failing_runner, head_reader=self._result)
         self.assertTrue(first["requested"][0]["outcome"].startswith("failed:gh: HTTP 502"), first)
         self.assertEqual(self._update(_live())["requested"][0]["outcome"], "accepted")
         self.assertEqual(self._update(_live())["requested"], [])
@@ -189,6 +200,19 @@ class BranchUpdateRecoveryTests(_UpdateHarness):
         self.assertEqual(len(self.calls), 1)
         self.assertEqual(self._update(moved_base)["requested"][0]["outcome"], "accepted")
         self.assertEqual(len(self.calls), 2)
+
+    def test_a_head_that_moved_after_a_timeout_is_never_confirmed(self) -> None:
+        from aria_kernel.branch_update_lineage import recorded_updates
+
+        def timing_out(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            raise subprocess.TimeoutExpired(argv, 60)
+
+        update_behind_aria_prs(cycle_id="t", base_dir=self.tools, workspace_root=self.root,
+                               reader=FakeReader(_live()), profile="strict", credential_hold=self._hold,
+                               runner=timing_out, head_reader=self._result)
+        # A stranger's push moved the head: answered, but not as our update.
+        self._update(_live(headRefOid="8" * 40, mergeStateStatus="CLEAN"))
+        self.assertEqual(recorded_updates(base_dir=self.tools, pr_number=7), {})
 
     def test_an_intent_left_on_a_closed_pr_is_answered(self) -> None:
         from aria_kernel.pr_branch_update import _prs_with_unanswered_intents, update_request_id
@@ -223,6 +247,8 @@ class BranchUpdateRecoveryTests(_UpdateHarness):
         for number in numbers:
             record_pr_lifecycle({"number": number, "base_branch": "main", "head_sha": HEAD, "change_id": f"c{number}",
                                  "changed_files": []}, event="opened", base_dir=self.tools)
+            append_declared_fixture(self.tools / "change-ledger" / "committed.jsonl",
+                                    {"change_id": f"c{number}", "commit_sha": HEAD}, expected_surface="change_committed")
 
         class Many(FakeReader):
             def list_own_prs(self) -> list[dict[str, Any]]:
@@ -233,7 +259,7 @@ class BranchUpdateRecoveryTests(_UpdateHarness):
 
         result = update_behind_aria_prs(cycle_id="cap", base_dir=self.tools, workspace_root=self.root,
                                         reader=Many(None), profile="strict", credential_hold=self._hold,
-                                        runner=self._runner)
+                                        runner=self._runner, head_reader=self._result)
         self.assertEqual(len(result["requested"]), MAX_UPDATES_PER_CYCLE)
         self.assertEqual(len(self.calls), MAX_UPDATES_PER_CYCLE)
 

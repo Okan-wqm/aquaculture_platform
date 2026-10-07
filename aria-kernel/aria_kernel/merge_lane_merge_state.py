@@ -15,9 +15,11 @@ incident pre-row:
 
 * ``BEHIND`` — the lane asks for the update itself, through the ONE call
   the cycle uses (``pr_branch_update.request_branch_update``, idempotent per
-  (pr, head, base) via ``already_requested``), and returns a named skip. The
-  candidate already holds a readiness claim, which the readiness lane mints
-  only on a green head, so the update never cancels a pending run. The
+  (pr, head, base) via ``already_requested``), and returns a named skip.
+  Only when the shared predicate admits the head
+  (``branch_update_lineage.update_request_refusal``, GSEC-MEDIUM-002): an
+  ARIA implementation branch on ``main``, combined checks ``SUCCESS``, and
+  the delivered commit or a verified lineage. The
   update's record is what lets the merged-in head through every self-merge
   gate next time (``branch_update_lineage``).
 * ``DIRTY`` / ``BLOCKED`` — a named skip and nothing written: a conflict or
@@ -51,8 +53,10 @@ def route_unmergeable_merge_state(
     base_dir: str | Path | None,
     workspace_root: str | Path | None,
     runner: Callable[..., Any] | None = None,
+    head_reader: Callable[..., Any] | None = None,
 ) -> dict[str, Any] | None:
     """A named skip (and, for ``BEHIND``, the update request) or None to proceed."""
+    from .branch_update_lineage import update_request_refusal
     from .pr_branch_update import already_requested, request_branch_update
 
     read = getattr(adapter, "get_merge_state", None)
@@ -72,15 +76,27 @@ def route_unmergeable_merge_state(
     if status != "BEHIND":
         return None
     base_sha = str((observed or {}).get("base_sha") or "")
-    if not _FULL_SHA.fullmatch(head_sha) or not _FULL_SHA.fullmatch(base_sha):
-        update: dict[str, Any] = {"outcome": "head_or_base_unreadable"}
+    refusal = None
+    if _FULL_SHA.fullmatch(head_sha) and _FULL_SHA.fullmatch(base_sha) and workspace_root is not None:
+        # GSEC-MEDIUM-002 — the predicate the cycle reads too: an ARIA
+        # implementation branch on main, the head's combined checks green,
+        # and a head ARIA can vouch for (delivered, or a verified lineage).
+        refusal = update_request_refusal(
+            workspace=workspace_root, base_dir=base_dir, pr_number=pr_number, head_sha=head_sha,
+            live_base_sha=base_sha, branch=str((observed or {}).get("head_ref") or ""),
+            base_branch=str((observed or {}).get("base_ref") or ""),
+            checks_green=str((observed or {}).get("checks_state") or "").upper() == "SUCCESS",
+        )
+    if not _FULL_SHA.fullmatch(head_sha) or not _FULL_SHA.fullmatch(base_sha) or workspace_root is None:
+        update: dict[str, Any] = {"outcome": "head_base_or_checkout_unreadable"}
+    elif refusal is not None:
+        update = {"outcome": f"not_requested:{refusal}"}
     elif already_requested(pr_number=pr_number, head_sha=head_sha, base_sha=base_sha, base_dir=base_dir):
         update = {"outcome": "already_requested_for_this_head_and_base"}
     else:
         update = request_branch_update(
             pr_number=pr_number, head_sha=head_sha, base_sha=base_sha, environment=dict(os.environ),
-            workspace_root=workspace_root if workspace_root is not None else ".", base_dir=base_dir,
-            runner=runner,
+            workspace_root=workspace_root, base_dir=base_dir, runner=runner, head_reader=head_reader,
         )
     return {**decision, "decision": SKIP_BEHIND, "reasons": ["merge_state:BEHIND"], "branch_update": update}
 

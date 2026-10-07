@@ -865,6 +865,15 @@ def merge_outcome(
     }
 
 
+def _rollup_state(commits: Any) -> str | None:
+    """The head commit's combined check state (``SUCCESS``/``FAILURE``/``PENDING``…), or None."""
+    nodes = commits.get("nodes") if isinstance(commits, dict) else None
+    commit = (nodes[-1] or {}).get("commit") if isinstance(nodes, list) and nodes else None
+    rollup = commit.get("statusCheckRollup") if isinstance(commit, dict) else None
+    state = rollup.get("state") if isinstance(rollup, dict) else None
+    return str(state).upper() if state else None
+
+
 def _merge_commit_oid(merge_commit: Any) -> str | None:
     """``mergeCommit`` is ``null`` until the PR merges."""
     return merge_commit.get("oid") if isinstance(merge_commit, dict) else None
@@ -955,6 +964,9 @@ class SnapshotGitHubAdapter:
             "merge_commit_sha": pr.get("merge_commit_sha"),
             "merge_state_status": pr.get("mergeStateStatus") or pr.get("merge_state_status"),
             "base_sha": pr.get("base_sha") or pr.get("baseRefOid"),
+            "head_ref": pr.get("head_ref") or pr.get("headRefName"),
+            "base_ref": pr.get("base_branch") or pr.get("baseRefName"),
+            "checks_state": pr.get("checks_state"),
         }
 
 
@@ -1047,8 +1059,11 @@ class GhCliGitHubAdapter:
         pullRequest(number: $number) {
           state
           headRefOid
+          headRefName
           baseRefOid
+          baseRefName
           mergeStateStatus
+          commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
           isInMergeQueue
           autoMergeRequest { enabledAt }
           mergeCommit { oid }
@@ -1082,6 +1097,9 @@ class GhCliGitHubAdapter:
             # it is judged against (`merge_lane_merge_state`).
             "merge_state_status": str(pull.get("mergeStateStatus") or "").upper() or None,
             "base_sha": pull.get("baseRefOid"),
+            "head_ref": pull.get("headRefName"),
+            "base_ref": pull.get("baseRefName"),
+            "checks_state": _rollup_state(pull.get("commits")),
         }
 
     def get_required_checks(self, base_branch: str) -> dict[str, Any]:

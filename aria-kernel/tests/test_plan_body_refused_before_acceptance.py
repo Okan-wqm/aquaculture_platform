@@ -34,6 +34,7 @@ from aria_kernel.plan_coverage import build_synthetic_risk
 from aria_kernel.plan_origin import REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE
 from aria_kernel.plan_round_scope import plan_round_contract
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.request_admission import admit_request
 from tests.test_revision_scope_bound import FARM, SHARED, _body, _ScopeBoundFixture, _seed
 
 
@@ -84,6 +85,7 @@ class TheBridgeLawIsAskedBeforeAcceptance(_Plan):
             convergence_id=self.plan_id, round_number=1, must_satisfy=list(contract.must_satisfy),
             allowed_scope=list(contract.allowed_scope), evidence_refs=[f"{FARM}:1"],
             base_dir=self.tools, target_sha=head,
+            admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools),
         )
         envelope = {"request_id": request["request_id"], "role": "challenger_plan",
                     "plan_content": _body(self.seed, [FARM, SHARED])}

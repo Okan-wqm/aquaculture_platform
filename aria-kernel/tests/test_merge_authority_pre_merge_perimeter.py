@@ -31,6 +31,7 @@ from unittest.mock import patch
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
 from aria_kernel.merge_authority import merge_pr_if_ready
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 from tests._helpers.declared_fixtures import segmented_ledger_bytes
 from tests._helpers.node_modules import installed_node_modules
 from tests._helpers.operator_acts import operator_set_profile
@@ -514,6 +515,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             proposal_id=staged["proposal_id"], change_id=staged["change_id"],
             branch=staged["branch"], base_sha=staged["base_sha"], base_dir=tools,
             cycle_id="cycle-pre-merge-fixture",
+            admission=admit_request("implementer.converged_plan", "implementation", base_dir=tools),
         )
         self.assertEqual(request["implementation_ids"]["change_id"], staged["change_id"])
         self.assertEqual(request["plan_revision_hash"], plan.content_hash)

@@ -54,6 +54,7 @@ from aria_kernel.plan_convergence import (
     request_implementation,
 )
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.request_admission import admit_request
 from tests._helpers.operator_acts import operator_set_profile
 from tests.test_implementation_lifecycle_continuity import (
     converging_plan_content,
@@ -281,6 +282,7 @@ class ConvergedDeliveryTests(unittest.TestCase):
                     cross_review_summary_text="{}", proposal_id="proposal-362",
                     change_id="chg-362", branch="aria-impl-0123456789abcdef",
                     base_sha="0" * 40, base_dir=self.tools, cycle_id="cyc-0",
+                    admission=admit_request("implementer.converged_plan", "implementation", base_dir=self.tools),
                 )
         self.assertEqual(self._state()["state"], "CONVERGED")
         live = live_implementation_request_ids(PLAN, base_dir=self.tools)
@@ -322,6 +324,7 @@ class ReviewCorrectionTests(unittest.TestCase):
                     cross_review_summary_text="{}", proposal_id="proposal-362",
                     change_id="chg-362", branch="aria-impl-0123456789abcdef",
                     base_sha="0" * 40, base_dir=self.tools, cycle_id="cyc-0",
+                    admission=admit_request("implementer.converged_plan", "implementation", base_dir=self.tools),
                 )
 
     def _records(self) -> list[str]:

@@ -7,6 +7,7 @@ from typing import Any
 
 from .agent_invocations import create_agent_invocation_request, list_agent_invocation_requests
 from .plan_contract import render_plan_contract
+from .request_admission import admit_request
 from .plan_convergence import (
     content_hash,
     _planning_source_context,
@@ -161,6 +162,8 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
         remint_of=remint_of,
         base_dir=root,
         plan_contract=render_plan_contract(root),
+        # ARIA-HIGH-364 — a round of a started plan: critical path.
+        admission=admit_request("plan_round_controller.plan_step", role, base_dir=root),
     )
     kind = "planner_request_reminted" if remint_of else "planner_request_created"
     return {"kind": kind, "role": role, "request_id": request.get("request_id"), "remint_of": remint_of}
@@ -225,6 +228,8 @@ def _ensure_cross_review_round(root: Path, state: dict[str, Any], *,
             target_sha=target_sha,
             base_dir=root,
             plan_contract=render_plan_contract(root),
+            # ARIA-HIGH-364 — a round of a started plan: critical path.
+            admission=admit_request("plan_round_controller.plan_step", "cross_review", base_dir=root),
         )
         actions.append({
             "kind": "cross_review_request_created",

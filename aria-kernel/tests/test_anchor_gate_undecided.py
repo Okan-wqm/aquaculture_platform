@@ -48,6 +48,7 @@ from aria_kernel.evidence_probe import PROBE_TIMEOUT, GitProbeSession
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.provider_clock import ProviderClock
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _POC_DIR = _REPO_ROOT / "tools" / "aria-poc"
@@ -132,6 +133,7 @@ def _seed(tools: Path, *, target_sha: str | None, prompt: str = "plan it") -> di
         allowed_scope=["aria-kernel/**"],
         target_sha=target_sha,
         base_dir=tools,
+        admission=admit_request("operator_cli.request", "primary_plan", base_dir=tools),
     )
 
 

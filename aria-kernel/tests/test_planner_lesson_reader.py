@@ -35,6 +35,7 @@ from aria_kernel.agent_invocations import list_agent_invocation_requests
 from aria_kernel.convergent_planning_bridge import issue_challenger_envelope
 from aria_kernel.must_satisfy import must_satisfy_item
 from aria_kernel.plan_convergence import abandon_plan, force_plan_human_required, start_plan
+from aria_kernel.request_admission import admit_request
 
 from tests._helpers.plan_evaluations import evaluator_escalation
 from tests.test_implementation_lifecycle_continuity import converging_plan_content
@@ -90,6 +91,7 @@ class _LedgerCase(unittest.TestCase):
             must_satisfy=[must_satisfy_item(id="draft", description="write a competing plan")],
             evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["apps/**"], base_dir=self.tools,
             cycle_id="cyc-309",
+            admission=admit_request("convergence_drainer.plan_step", "challenger_plan", base_dir=self.tools),
         )
         validate_request(row, base_dir=self.tools)
         return row
@@ -139,6 +141,7 @@ class EveryPlannerMintCarriesTheLessonTests(_LedgerCase):
             must_satisfy=[must_satisfy_item(id="revise", description="revise the plan")],
             evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["apps/**"], base_dir=self.tools,
             cycle_id="cyc-309",
+            admission=admit_request("convergence_drainer.plan_step", "primary_plan", base_dir=self.tools),
         )
 
         validate_request(row, base_dir=self.tools)

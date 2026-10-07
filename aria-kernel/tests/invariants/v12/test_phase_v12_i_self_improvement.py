@@ -45,6 +45,7 @@ from aria_kernel.gateway.scheduler import SCHEDULE_ACTIONS
 from aria_kernel.harness_parity import check_parity, render_parity_report
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _POC = _REPO_ROOT / "tools" / "aria-poc"
@@ -121,13 +122,13 @@ class DecisionMemory(_Store):
     def test_I_V12_MEM_02_sealed_at_mint_rendered_as_data(self) -> None:
         bare = create_agent_invocation_request(
             target_agent="aria-challenger-planner", role="challenger_plan", suggested_prompt="anything",
-            must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="conv-0", base_dir=self.tools)
+            must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="conv-0", base_dir=self.tools, admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools))
         self.assertNotIn("decision_memory", bare)
         self.assertNotIn('section="decision_memory"', render_invocation_prompt(bare))
         control.record_control("cancel", base_dir=self.tools, request_id="AIR-9", reason="the tenant isolation approach was rejected by the panel")
         req = create_agent_invocation_request(
             target_agent="aria-challenger-planner", role="challenger_plan", suggested_prompt="challenge the tenant isolation plan",
-            must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="conv-1", base_dir=self.tools)
+            must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="conv-1", base_dir=self.tools, admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools))
         self.assertIn("decision_memory", req)
         prompt = render_invocation_prompt(req)
         self.assertIn('<derived_context section="decision_memory">', prompt)

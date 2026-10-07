@@ -23,6 +23,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel import agent_invocations as ai
+from aria_kernel.request_admission import admit_request
 
 
 def _request_row(**overrides) -> dict:
@@ -263,6 +264,7 @@ class NoLegacyMintTests(unittest.TestCase):
                 allowed_scope=["aria-kernel/**"],
                 evidence_refs=["aria-kernel/aria_kernel/agent_invocations.py:1"],
                 base_dir=tools,
+                admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=tools),
             )
             self.assertEqual(
                 row.get("prompt_render_version"), ai.PROMPT_RENDER_VERSION

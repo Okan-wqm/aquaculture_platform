@@ -9,6 +9,7 @@ from aria_kernel.agent_invocations import (
     list_agent_invocation_requests,
 )
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 class AgentInvocationListFilterTests(unittest.TestCase):
@@ -29,6 +30,7 @@ class AgentInvocationListFilterTests(unittest.TestCase):
             convergence_id="C-1",
             round_number=1,
             base_dir=self.tools_dir,
+            admission=admit_request("operator_cli.request", "cross_review", base_dir=self.tools_dir),
         )
         self.req_b = create_agent_invocation_request(
             target_agent="aria-adversarial-judge",
@@ -38,6 +40,7 @@ class AgentInvocationListFilterTests(unittest.TestCase):
             convergence_id="C-2",
             round_number=1,
             base_dir=self.tools_dir,
+            admission=admit_request("operator_cli.request", "primary_plan", base_dir=self.tools_dir),
         )
         # ARIA-HIGH-104 — an implementation row is never a legacy row: the
         # request contract refuses one that names no plan revision, so the

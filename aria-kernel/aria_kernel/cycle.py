@@ -1679,7 +1679,7 @@ def _phase_lease_lifecycle_escalation(context: PhaseContext) -> dict[str, Any]:
     # CLI-only callers — so an escalation was visible in one view and
     # invisible in the one operators and the daily report read. Running it
     # every cycle is what makes the two views agree.
-    return sweep_lease_lifecycle_for_human_required(base_dir=context.base_dir)
+    return sweep_lease_lifecycle_for_human_required(base_dir=context.base_dir, cycle_id=context.cycle_id)
 
 
 def _phase_human_required_adjudication(context: PhaseContext) -> dict[str, Any]:
@@ -1688,7 +1688,7 @@ def _phase_human_required_adjudication(context: PhaseContext) -> dict[str, Any]:
     # panel that had zero non-test importers, so escalations were still
     # being raised every cycle and cleared by nobody: the finding's own
     # defect, reproduced by its fix. This is the caller.
-    return sweep_human_required_adjudications(base_dir=context.base_dir)
+    return sweep_human_required_adjudications(base_dir=context.base_dir, cycle_id=context.cycle_id)
 
 
 def _phase_decision_questioning(context: PhaseContext) -> dict[str, Any]:
@@ -1703,7 +1703,7 @@ def _phase_decision_questioning(context: PhaseContext) -> dict[str, Any]:
     """
     from .decision_questioning import open_decision_questioning
 
-    return open_decision_questioning(base_dir=context.base_dir)
+    return open_decision_questioning(base_dir=context.base_dir, cycle_id=context.cycle_id)
 
 def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
     """Carry each merge into the impact ledger, then ask what the globs missed.
@@ -2034,6 +2034,7 @@ def _phase_judge_replay(context: PhaseContext) -> dict[str, Any]:
         try:
             result = replay_judges_on_goldset(
                 tool_id=tool_id, base_dir=context.base_dir, target_sha=target_sha,
+                cycle_id=context.cycle_id,
             )
             replayed.append({"tool_id": tool_id, "status": result.get("status"), "replayed_items": result.get("replayed_items")})
         except GovernanceError as exc:

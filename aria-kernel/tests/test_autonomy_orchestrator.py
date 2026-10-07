@@ -1627,6 +1627,35 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             {"cycles_minted": 0, "cycles_converged": 0, "cycles_merged": 0, "cycles_rejected": 1},
         ])
 
+    def test_a_throttled_seed_is_neither_minted_nor_rejected(self) -> None:
+        """ARIA-HIGH-364 (re-review of #1833, MEDIUM-B) — the door refuses to
+        START the plan (here: work waited 48 h and nothing drained). The
+        refusal is decided before the funnel books the plan, so the
+        effectiveness ledger gets no row, convergence never starts, and the
+        refusal is one governance row."""
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+
+        from aria_kernel.ledger import load_jsonl
+
+        old = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        waiting = ([{"request_id": "p-0", "role": "evidence_judgment", "state": "pending", "created_at": old}], [], [])
+        calls: list[dict[str, Any]] = []
+
+        def _recording(**kwargs: Any) -> dict[str, Any]:
+            calls.append(kwargs)
+            return _fake_convergence_runner(**kwargs)
+
+        with patch("aria_kernel.request_drain_capacity._request_ledgers", return_value=waiting):
+            result = self._run(convergence_runner=_recording)
+        self.assertTrue(result["exits_clean"])
+        self.assertEqual(result["per_cycle"][0]["plan_seed_throttled"]["refusal"],
+                         "request_admission_throttled:executor_not_draining")
+        self.assertEqual(calls, [])
+        self.assertEqual(self._funnel_counters(self.base), {})
+        rows = [r for r in load_jsonl(self.base / "governance.jsonl") if r.get("kind") == "convergence_seed_throttled"]
+        self.assertEqual(len(rows), 1)
+
     def test_an_invalid_plan_counts_the_minted_plan_as_rejected(self) -> None:
         """The other non-converged exit: convergence_runner refuses the plan
         with GovernanceError. The plan was minted (the synthesizer yielded

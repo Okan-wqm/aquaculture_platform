@@ -37,6 +37,7 @@ from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.must_satisfy import must_satisfy_item
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.plan_convergence import abandon_plan, force_plan_human_required, start_plan
+from aria_kernel.request_admission import admit_request
 
 from tests.test_implementation_lifecycle_continuity import converging_plan_content
 
@@ -69,6 +70,7 @@ class _Ledgers(unittest.TestCase):
             must_satisfy=[must_satisfy_item(id="draft", description="write a competing plan")],
             evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["apps/**"], base_dir=self.tools,
             cycle_id="cyc-370",
+            admission=admit_request("convergence_drainer.plan_step", "challenger_plan", base_dir=self.tools),
         )
 
     def dead_challenger(self, plan_id: str, *, release: str | None = None,

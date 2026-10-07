@@ -278,7 +278,10 @@ def seed_finding(context: GroundingContext, admission: FindingAdmission, *, prob
     if verdict.get("verdict") != VERDICT_REPRODUCES:
         return SeedVerdict(None, SUBJECT_UNVERIFIABLE, detail)
     matches = verdict.get("matches") if isinstance(verdict.get("matches"), list) else []
-    refs = [ref for ref in dict.fromkeys(matches) if safe_repo_ref(ref) and not is_self_output_ref(ref)]
+    # Only strings are refs; an unhashable item (a dict, a list) from a
+    # malformed scan must not abort the synthesis that carries an operator turn.
+    textual = [ref for ref in matches if isinstance(ref, str)]
+    refs = [ref for ref in dict.fromkeys(textual) if safe_repo_ref(ref) and not is_self_output_ref(ref)]
     if not refs:
         return SeedVerdict(None, SUBJECT_UNVERIFIABLE, {**detail, "cause": "detector_matches_unusable"})
     by_path = {_ref_path(ref): ref for ref in refs}

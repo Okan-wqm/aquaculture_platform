@@ -15,7 +15,10 @@
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
+import tempfile
+import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -196,3 +199,49 @@ class PlanInFlightTests(_ProviderFixture):
         applied = self.governance("plan_slot_policy_applied")[-1]
         self.assertEqual((applied["plan_in_flight"], applied["seed_detectors"]),
                          ("plan-adopted", "skipped_plan_in_flight"))
+
+
+class LineMapOriginTests(unittest.TestCase):
+    """Second review of #1826: a line must exist at the origin before the
+    hunk walk says where it went (``finding_line_map.LINE_ABSENT_AT_ORIGIN``)."""
+
+    def setUp(self) -> None:
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+
+        self._git = _git
+        self.root = Path(tempfile.mkdtemp(prefix="aria-369-linemap-")).resolve()
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.repo = make_repo_with_initial_commit(self.root, {"f.txt": "1\n2\n3\n4\n5\n"}, name="repo")
+        self.origin = self._head()
+        (self.repo / "g.txt").write_text("a\nb\nc\nd\ne\nf\n", encoding="utf-8")
+        (self.repo / "f.txt").write_text("0\n1\n2\n3\n4\n5\n", encoding="utf-8")
+        self._git(["add", "-A"], cwd=self.repo)
+        self._git(["commit", "-q", "-m", "add g, shift f"], cwd=self.repo)
+        self.anchor = self._head()
+
+    def _head(self) -> str:
+        return self._git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+
+    def _map(self, path: str, line: int) -> tuple[int | None, str | None]:
+        from aria_kernel.finding_line_map import map_cited_line
+
+        return map_cited_line(self.repo, origin=self.origin, anchor=self.anchor, path=path, line=line)
+
+    def test_a_path_absent_at_the_origin_is_never_mapped_into_the_anchor(self) -> None:
+        from aria_kernel.finding_line_map import LINE_ABSENT_AT_ORIGIN
+
+        self.assertEqual(self._map("g.txt", 1), (None, LINE_ABSENT_AT_ORIGIN))
+
+    def test_a_line_past_the_origins_end_is_absent(self) -> None:
+        from aria_kernel.finding_line_map import LINE_ABSENT_AT_ORIGIN
+
+        self.assertEqual(self._map("f.txt", 6), (None, LINE_ABSENT_AT_ORIGIN))
+        self.assertEqual(self._map("f.txt", 0), (None, LINE_ABSENT_AT_ORIGIN))
+
+    def test_a_path_absent_at_both_commits_is_absent(self) -> None:
+        from aria_kernel.finding_line_map import LINE_ABSENT_AT_ORIGIN
+
+        self.assertEqual(self._map("nowhere.txt", 1), (None, LINE_ABSENT_AT_ORIGIN))
+
+    def test_an_existing_line_still_shifts(self) -> None:
+        self.assertEqual(self._map("f.txt", 5), (6, None))

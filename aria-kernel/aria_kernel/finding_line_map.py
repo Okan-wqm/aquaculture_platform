@@ -23,6 +23,12 @@ from pathlib import Path
 _HUNK_RE = re.compile(rb"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 LINE_GONE = "cited_line_gone"
 DIFF_UNREADABLE = "cited_line_diff_unreadable"
+# Second review of #1826: the walk proves where a line WENT, never that it was
+# there. A path absent at the origin diffs as ``@@ -0,0 +1,N @@`` and read as an
+# insertion above the line (``g.txt:1`` mapped to ``4``); a line past the
+# origin's end, or a path absent at both commits (empty diff), passed through
+# unchanged. Either is a citation of nothing, so the line must exist first.
+LINE_ABSENT_AT_ORIGIN = "cited_line_absent_at_origin"
 
 
 def map_cited_line(
@@ -31,6 +37,15 @@ def map_cited_line(
     """(the line's number at ``anchor``, None) or (None, why) for a 1-based ``line`` of ``path`` at ``origin``."""
     from .main_anchor import _git
 
+    blob = _git(repo_root, "cat-file", "blob", f"{origin}:{path}")
+    if blob is None:
+        return None, DIFF_UNREADABLE
+    if blob.returncode != 0:
+        return None, LINE_ABSENT_AT_ORIGIN
+    text = blob.stdout
+    origin_lines = text.count(b"\n") + (1 if text and not text.endswith(b"\n") else 0)
+    if not 1 <= line <= origin_lines:
+        return None, LINE_ABSENT_AT_ORIGIN
     proc = _git(repo_root, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "-U0",
                 origin, anchor, "--", path)
     if proc is None or proc.returncode != 0:
@@ -57,4 +72,4 @@ def map_cited_line(
     return line + shift, None
 
 
-__all__ = ["DIFF_UNREADABLE", "LINE_GONE", "map_cited_line"]
+__all__ = ["DIFF_UNREADABLE", "LINE_ABSENT_AT_ORIGIN", "LINE_GONE", "map_cited_line"]

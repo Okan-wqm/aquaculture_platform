@@ -184,5 +184,8 @@ describe('sensor-reading-parameters SSoT (SENSOR-MEDIUM-066/068)', () => {
     });
     expect(parameterForChannelKey('NH4')).toBeUndefined();
     expect(parameterForChannelKey('flow_rate')).toBeUndefined();
+    // Own keys only: an inherited property name is not a channel key.
+    expect(parameterForChannelKey('constructor')).toBeUndefined();
+    expect(parameterForChannelKey('__proto__')).toBeUndefined();
   });
 });

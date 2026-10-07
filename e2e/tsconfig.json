@@ -33,6 +33,7 @@
       "@platform/backend-common": ["libs/backend-common/src/index.ts"],
       "@platform/shared": ["libs/shared/src/index.ts"],
       "@platform/event-contracts": ["libs/event-contracts/src/index.ts"],
+      "@aquaculture/shared-contracts": ["libs/shared-contracts/src/index.ts"],
       "@platform/storage": ["libs/storage/src/index.ts"],
       "@platform/testing": ["libs/testing/src/index.ts"],
       "@platform/outbox": ["platform/libs/outbox/src/index.ts"],

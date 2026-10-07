@@ -46,7 +46,14 @@ type Presentation = Omit<ParameterDefinition, 'unit' | 'dataType'>;
 
 const M = SensorType.MULTI_PARAMETER;
 
-/** Per measured quantity: how a channel measuring it is typed, labelled and bounded. */
+/**
+ * Per measured quantity: how a channel measuring it is typed, labelled and
+ * bounded. A SensorType that has a flat reading mapper (TEMPERATURE → the
+ * event's `temperature`, …) is given only to a quantity whose registry
+ * `readingParameter` is that same field — otherwise a registered child sensor
+ * would publish, say, % saturation as dissolved oxygen. The catalog spec
+ * checks this against the mapper registry.
+ */
 const QUANTITY_PRESENTATION: Readonly<Record<QuantityId, Presentation>> = {
   temperature: { sensorType: SensorType.TEMPERATURE, label: 'Temperature', min: 0, max: 40 },
   ph: { sensorType: SensorType.PH, label: 'pH', min: 0, max: 14 },
@@ -56,21 +63,26 @@ const QUANTITY_PRESENTATION: Readonly<Record<QuantityId, Presentation>> = {
     min: 0,
     max: 20,
   },
-  oxygenSaturation: {
-    sensorType: SensorType.DISSOLVED_OXYGEN,
-    label: 'Oxygen Saturation',
-    min: 0,
-    max: 200,
-  },
+  oxygenSaturation: { sensorType: M, label: 'Oxygen Saturation', min: 0, max: 200 },
   salinity: { sensorType: SensorType.SALINITY, label: 'Salinity', min: 0, max: 50 },
   conductivity: { sensorType: SensorType.CONDUCTIVITY, label: 'Conductivity', min: 0, max: 50000 },
-  tan: { sensorType: SensorType.AMMONIA, label: 'Total Ammonia Nitrogen', min: 0, max: 10 },
-  nh3: { sensorType: SensorType.AMMONIA, label: 'Un-ionized Ammonia', min: 0, max: 10 },
-  nh4: { sensorType: SensorType.AMMONIA, label: 'Ammonium', min: 0, max: 10 },
-  nitrite: { sensorType: SensorType.NITRITE, label: 'Nitrite', min: 0, max: 5 },
-  nitrate: { sensorType: SensorType.NITRATE, label: 'Nitrate', min: 0, max: 100 },
+  specificConductance: {
+    sensorType: SensorType.CONDUCTIVITY,
+    label: 'Specific Conductance',
+    min: 0,
+    max: 50000,
+  },
+  tan: { sensorType: M, label: 'Total Ammonia Nitrogen', min: 0, max: 10 },
+  nh3: { sensorType: M, label: 'Un-ionized Ammonia', min: 0, max: 10 },
+  nh4: { sensorType: M, label: 'Ammonium', min: 0, max: 10 },
+  nh4Ion: { sensorType: M, label: 'Ammonium', min: 0, max: 15 },
+  nitriteN: { sensorType: M, label: 'Nitrite-N', min: 0, max: 5 },
+  nitriteIon: { sensorType: M, label: 'Nitrite', min: 0, max: 20 },
+  nitrateN: { sensorType: M, label: 'Nitrate-N', min: 0, max: 100 },
+  nitrateIon: { sensorType: M, label: 'Nitrate', min: 0, max: 500 },
   h2s: { sensorType: M, label: 'Hydrogen Sulfide', min: 0, max: 1000 },
   totalSulfide: { sensorType: M, label: 'Total Sulfide', min: 0, max: 1000 },
+  totalSulfideAsS: { sensorType: M, label: 'Total Sulfide (as S)', min: 0, max: 1000 },
   alkalinity: { sensorType: M, label: 'Alkalinity', min: 0, max: 500 },
   calcium: { sensorType: M, label: 'Calcium', min: 0, max: 1000 },
   hardness: { sensorType: M, label: 'Hardness', min: 0, max: 1000 },
@@ -80,9 +92,11 @@ const QUANTITY_PRESENTATION: Readonly<Record<QuantityId, Presentation>> = {
   flowRate: { sensorType: SensorType.FLOW_RATE, label: 'Flow Rate', min: 0, max: 1000 },
   // Pressure — no dedicated SensorType, persisted as MULTI_PARAMETER (SENSOR-HIGH-028).
   pressure: { sensorType: M, label: 'Pressure', min: 0, max: 10 },
+  barometricPressure: { sensorType: M, label: 'Barometric Pressure', min: 800, max: 1100 },
   orp: { sensorType: SensorType.ORP, label: 'ORP', min: -500, max: 500 },
   tds: { sensorType: M, label: 'Total Dissolved Solids', min: 0, max: 50000 },
   chlorine: { sensorType: SensorType.CHLORINE, label: 'Chlorine', min: 0, max: 10 },
+  chloride: { sensorType: M, label: 'Chloride', min: 0, max: 30000 },
   ozone: { sensorType: M, label: 'Ozone', min: 0, max: 2 },
   humidity: { sensorType: M, label: 'Humidity', min: 0, max: 100 },
   batteryLevel: { sensorType: M, label: 'Battery Level', min: 0, max: 100 },
@@ -92,6 +106,8 @@ const QUANTITY_PRESENTATION: Readonly<Record<QuantityId, Presentation>> = {
 /** Per family: a channel whose key names the family before its basis is declared. */
 const FAMILY_PRESENTATION: Readonly<Record<QuantityFamily, Presentation>> = {
   ammonia: { sensorType: SensorType.AMMONIA, label: 'Ammonia', min: 0, max: 10 },
+  nitrite: { sensorType: SensorType.NITRITE, label: 'Nitrite', min: 0, max: 5 },
+  nitrate: { sensorType: SensorType.NITRATE, label: 'Nitrate', min: 0, max: 100 },
 };
 
 function presentationOf(meaning: ChannelKeyMeaning): Presentation {

@@ -1,4 +1,4 @@
-import { CHANNEL_KEYS, type ChannelKeyMeaning } from '@aquaculture/shared-contracts';
+import { readingParameterOfChannelKey } from '@aquaculture/shared-contracts';
 
 import { SensorReadingParameter } from './sensor-events';
 
@@ -61,32 +61,22 @@ export const PARAMETER_BY_READING_FIELD: Readonly<
 );
 
 /**
- * channelKey (and its device-naming aliases) → reading parameter, projected
- * from the measured-quantity registry's channel-key table: a key the flat
- * reading event carries names its parameter there. Keys are lowercased.
- */
-const PARAMETER_BY_CHANNEL_KEY: Readonly<Record<string, SensorReadingParameter>> = Object.freeze(
-  Object.fromEntries(
-    Object.entries(CHANNEL_KEYS).flatMap(([key, meaning]: [string, ChannelKeyMeaning]) =>
-      meaning.readingParameter === undefined ? [] : [[key, meaning.readingParameter]],
-    ),
-  ),
-);
-
-/**
  * Resolve a device/channel key to its canonical reading parameter, or undefined
  * when the channel is outside the nine-parameter vocabulary (e.g. flow_rate, orp,
  * co2 — the types the flat event shape cannot yet carry; convergence phase ≥3
  * gives them a channel-keyed representation).
  */
 export function parameterForChannelKey(channelKey: string): SensorReadingParameter | undefined {
-  return PARAMETER_BY_CHANNEL_KEY[channelKey.toLowerCase()];
+  // The measured-quantity registry owns the device spellings and which
+  // reading parameter each lands on; own keys only, so `constructor` is
+  // not a parameter.
+  return readingParameterOfChannelKey(channelKey);
 }
 
 /**
  * The channel key to MINT for a parameter — the inverse this SSoT was missing.
  *
- * `PARAMETER_BY_CHANNEL_KEY` maps many device spellings onto one parameter,
+ * The registry maps many device spellings onto one parameter,
  * which is right for reading whatever a device calls its channel. But when the
  * platform itself creates a channel — auto-provisioning one for a reported
  * parameter that had none — it has to pick a spelling, and picking it at the

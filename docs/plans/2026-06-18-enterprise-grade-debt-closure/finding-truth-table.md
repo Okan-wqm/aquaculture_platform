@@ -248,7 +248,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
-| `SUPPLY-CRITICAL-018` | OPEN           | 2026-10-07   | claude                     | real-open                 |
 
 Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
 `ADMIN-CRITICAL-157` — `MessagingPage`'s Internal Note toggle set local state, styled the draft, and
@@ -990,4 +989,7 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `real-open`.
 - `INFRA-CRITICAL-080`: registry state is `RESOLVED` with closing commit
   `58c18a8f2`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `SUPPLY-CRITICAL-018`: registry state is `RESOLVED` with closing commit
+  `f469a651b`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.

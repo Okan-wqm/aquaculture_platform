@@ -153,6 +153,9 @@ disagree with this one, this section wins.
   code it carries is in `KERNEL_FORCED_CODES`. Any other forced row is an operator's act and is
   never attributed.
 - Abandons are never attributed.
+- `cross_review_self_agreement` (ARIA-HIGH-375, #1831) is kept off the allowlist on purpose. It
+  marks a round that failed the cross-review independence check, which is a routing fault in the
+  kernel, not the drafter's. A test pins that it stays unattributed.
 
 **HIGH-2. The kernel's own harness verdict was ignored.**
 
@@ -223,6 +226,6 @@ disagree with this one, this section wins.
 
 ### Tests
 
-- `tests/test_learning_attribution.py` (10) and `tests/test_learning_attribution_review.py` (12).
+- `tests/test_learning_attribution.py` (10) and `tests/test_learning_attribution_review.py` (13).
 - `tests/test_candidate_admission_lessons.py` (12).
 - `tests/test_calibration_actuator.py` (12).

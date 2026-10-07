@@ -46,6 +46,18 @@ class AttributionIsAnAllowlistTests(_Ledgers):
         rows = self.episodes()
         self.assertEqual([rows[p]["attributable"] for p in ("plan-op", "plan-mixed")], [False, False])
 
+    def test_a_cross_review_independence_failure_is_the_kernels_not_the_drafters(self) -> None:
+        # ARIA-HIGH-375 (#1831) — `cross_review_self_agreement` names a
+        # routing/independence fault; it is not on the allowlist, whichever
+        # writer records it.
+        self.start("plan-sod-eval")
+        evaluator_escalation(self.tools, "plan-sod-eval", "cross_review_self_agreement")
+        self.start("plan-sod-forced")
+        force_plan_human_required(plan_id="plan-sod-forced", round_number=1,
+                                  reason_codes=["cross_review_self_agreement"], base_dir=self.tools)
+        rows = self.episodes()
+        self.assertEqual([rows[p]["attributable"] for p in ("plan-sod-eval", "plan-sod-forced")], [False, False])
+
     def test_the_evaluators_own_gate_code_is_attributed(self) -> None:
         self.start("plan-spine")
         evaluator_escalation(self.tools, "plan-spine", "architecture_spine_regression")

@@ -72,6 +72,9 @@ HUMAN_ESCALATION = "human_escalation"
 #: The evaluator's codes that judge the plan body (``evaluate_plan``,
 #: ``_evaluate_state``, ``_evaluate_cross_review_state``, the plan-contract and
 #: architecture-spine gates). Closed: a code absent here is never attributed.
+#: Deliberately absent: ``cross_review_self_agreement`` (ARIA-HIGH-375, #1831)
+#: — a round that failed the cross-review independence check is a kernel
+#: routing fault, never the drafter's.
 CROSS_REVIEW_REASON_CODES: frozenset[str] = frozenset({
     "material_cross_review_risks_present", "unresolved_material_risk",
 })

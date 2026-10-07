@@ -173,3 +173,33 @@ Measured after the fix on the same tree: 14 hits, all 14 real (100%). The manife
 block is removed. A tool that a cycle has already held QUARANTINED leaves only through
 `unquarantine_tool`, which needs an operator approval (ARIA-CRITICAL-216). The kernel never lifts
 a quarantine on its own.
+
+Review follow-up (independent review of #1843, M1): the first classifier dropped hits by default.
+It kept a `deferred` only after a fixed list of predicates. It treated "to the" and "until the" as
+technical. It accepted any hyphenated token (SHA-256) as a tracking id. It read every ALL-CAPS
+word as an enum. And it skipped all `.sql`. The reviewer's 7 probe excuses all passed it
+(recall 0/7):
+
+- "deferred to the next PR";
+- "deferred until the next sprint";
+- "deferred to v2";
+- "We deferred the validation work";
+- "deferred: needs SHA-256 support";
+- "TEMPORARY FIX";
+- "-- for now skip RLS" in a live SQL script.
+
+The default is now inverted. A banned word in prose or a comment is a hit unless it matches one
+narrowly defined sense, each pinned by a fixture:
+
+- a descriptive document; only archived migrations are excluded among SQL, not live scripts;
+- in code outside a comment, an enum member, identifier or string literal (ALL-CAPS counts only
+  there); in prose, a backtick code span;
+- `temporary` / `interim` naming a technical object;
+- `deferred` in its execution sense;
+- a deferral citing a finding id (`{AREA}-{SEVERITY}-{NNN}`) that the review registry holds;
+- a spec's own scope heading.
+
+Measured on main `88878799e` after the change: 16 hits, 15 real (94%). The one false positive is
+`docs/guides/vfd-user-guide.md:515`, "Commands are temporary actions". The Dockerfile deferral is
+now a hit, because `INFRA-BACKUP-003` is not a registry finding. Recall over the 7 probes is 7/7,
+both in the classifier spec and end to end through `--mode=tree` on a scratch repository.

@@ -70,7 +70,7 @@ import {
   mergeInProgressRef,
   stagedChangedFiles,
 } from './git-diff-ranges';
-import { isGatingExcuse } from './banned-phrase-excuse';
+import { isGatingExcuse, registeredFindingIds } from './banned-phrase-excuse';
 
 const REPO_ROOT = (() => {
   try {
@@ -477,7 +477,14 @@ function scanFileForExcuses(relPath: string, ignoreExemptions = false): Violatio
   if (hits.length === 0) return hits;
   const lines = readFileSync(resolve(REPO_ROOT, relPath), 'utf8').split('\n');
   return hits.filter((v) =>
-    isGatingExcuse(relPath, lines[v.line - 1] ?? '', v.column - 1, v.phrase, lines[v.line] ?? ''),
+    isGatingExcuse(
+      relPath,
+      lines[v.line - 1] ?? '',
+      v.column - 1,
+      v.phrase,
+      lines[v.line] ?? '',
+      registeredFindingIds(REPO_ROOT),
+    ),
   );
 }
 

@@ -340,8 +340,11 @@ function capitalize(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
+// A registered finding id, as the gate reads them from the review registry.
+const REGISTERED = new Set<string>(['ARIA-MEDIUM-380']);
+
 function excuse(path: string, line: string, word: string, label: string, next = ''): boolean {
-  return isGatingExcuse(path, line, line.indexOf(word), label, next);
+  return isGatingExcuse(path, line, line.indexOf(word), label, next, REGISTERED);
 }
 
 void test('tree-mode excuse classifier keeps real excuses (true positives)', () => {
@@ -395,6 +398,29 @@ void test('tree-mode excuse classifier keeps real excuses (true positives)', () 
   }
 });
 
+void test('tree-mode excuse classifier catches every review probe (recall)', () => {
+  // The independent review of #1843 (M1) found each of these dropped by the
+  // first classifier. Every one is an excuse, so every one must be a hit.
+  const def = `${W.postponed} (x)`;
+  const probes: Array<[string, string, string, string]> = [
+    ['docs/x.md', `Validation is ${W.postponed} to the next PR.`, W.postponed, def],
+    ['docs/x.md', `RLS enforcement ${W.postponed} until the next sprint.`, W.postponed, def],
+    ['docs/x.md', `Tenant isolation ${W.postponed} to v2.`, W.postponed, def],
+    ['docs/x.md', `We ${W.postponed} the validation work.`, W.postponed, def],
+    ['apps/x/src/a.ts', `// ${W.postponed}: needs SHA-256 support`, W.postponed, def],
+    [
+      'apps/x/src/b.ts',
+      `// ${W.temp.toUpperCase()} FIX until the pool lands`,
+      W.temp.toUpperCase(),
+      W.temp,
+    ],
+    ['db/scripts/rls.sql', `-- ${W.forNow} skip RLS on this table`, W.forNow, W.forNow],
+  ];
+  for (const [path, line, word, label] of probes) {
+    assert.strictEqual(excuse(path, line, word, label), true, `${path}: ${line}`);
+  }
+});
+
 void test('tree-mode excuse classifier drops other senses of the word (false positives)', () => {
   const upper = W.postponed.toUpperCase();
   const cap = `${capitalize(W.postponed)}`;
@@ -435,13 +461,23 @@ void test('tree-mode excuse classifier drops other senses of the word (false pos
       W.postponed,
       `${W.postponed} (x)`,
     ],
-    // tracked deferral: an id on the next line
+    // tracked deferral: a registered finding on the next line
     [
       'infra/Dockerfile',
       `# the publish workflow is tracked as a ${W.postponed}`,
       W.postponed,
       `${W.postponed} (x)`,
-      '# follow-up (INFRA-BACKUP-003)',
+      '# follow-up (ARIA-MEDIUM-380)',
+    ],
+    // a string literal in code, and a backtick code span in prose
+    ['apps/x/src/e.ts', `  const status = '${W.postponed}';`, W.postponed, `${W.postponed} (x)`],
+    ['docs/x.md', `The \`${upper}\` status parks a goal.`, upper, `${W.postponed} (x)`],
+    // an archived migration (immutable history)
+    [
+      'apps/hr/src/database/migrations/.archive/2026/1-x.ts',
+      `-- ${W.forNow} keep the column`,
+      W.forNow,
+      W.forNow,
     ],
     // documents describing something else
     ['docs/research/x/note.md', `Monthly is a sensible ${W.midway}.`, 'middle', W.midway],

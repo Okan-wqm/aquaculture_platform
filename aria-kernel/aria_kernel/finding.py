@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,7 +35,13 @@ from .diagnostics import emit_ledger_corruption_diagnostic
 from .evidence_probe import GitProbeSession
 from .evidence_trust import classify_evidence_ref
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, parse_utc_stamp
+from .tool_registry import (
+    GovernanceError,
+    append_tools_governance,
+    append_tools_governance_once,
+    ensure_tools_binding,
+    parse_utc_stamp,
+)
 
 
 # Plan 033 Faz 033a — CRITICAL is the top severity for security findings; added
@@ -325,6 +332,79 @@ def _normalize_evidences(
     return normalized
 
 
+def _is_kernel_finding_doc(raw: bytes, finding_id: str) -> bool:
+    """True when ``raw`` is the document ``emit_finding`` writes for ``finding_id``."""
+    try:
+        doc = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    return (
+        isinstance(doc, dict)
+        and doc.get("$schema") == "aria/finding/v1"
+        and doc.get("finding_id") == finding_id
+    )
+
+
+def _retire_unledgered_finding_file(tools_root: Path, path: Path, finding_id: str) -> None:
+    """ARIA-MEDIUM-330 — remove a foreign file from the id this mint owns.
+
+    Called under the allocation lock with the id ``_allocate_finding_id``
+    just read off the ledger, so the ledger proves no finding was ever
+    emitted under it: whatever sits at ``path`` is not a finding. The
+    runner store carries two such files, F-101 and F-102, written by the
+    pre-ORPHAN-702 seeder beside the ledger; a SIGKILL between
+    ``_claim_finding_file`` and the event append leaves a third shape, an
+    empty claim. Either one would refuse every later mint at that id, so
+    the allocator could never move past it. Each is recorded (sha256 +
+    size, once per content) and removed; aria/state history keeps its bytes.
+
+    A file shaped like a kernel-written finding is NOT removed: an
+    unledgered one means the ledger lost rows, re-minting over it would
+    destroy the only copy of that record, and ``_claim_finding_file``
+    refuses the mint by name instead.
+    """
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return
+    if _is_kernel_finding_doc(raw, finding_id):
+        return
+    append_tools_governance_once(
+        tools_root,
+        "finding_file_unledgered_retired",
+        {
+            "finding_id": finding_id,
+            "path": path.relative_to(path.parent.parent).as_posix(),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "bytes": len(raw),
+        },
+        claim_keys=("finding_id", "sha256"),
+    )
+    path.unlink(missing_ok=True)
+
+
+def _claim_finding_file(path: Path, finding_id: str) -> None:
+    """ARIA-MEDIUM-330 — create the finding's file exclusively, or refuse the mint.
+
+    Runs BEFORE the ``finding_emitted`` event is appended. The ledger is the
+    authority for which findings exist; checking for the file only after
+    the append left an event naming a finding whose file belonged to
+    someone else. ``O_EXCL`` makes the check and the claim one step, so a
+    file that survived ``_retire_unledgered_finding_file`` (an unledgered
+    kernel-shaped record) or one a writer outside the allocation lock
+    created in between is refused with the ledger and that file exactly
+    as they were.
+    """
+    try:
+        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644))
+    except FileExistsError as exc:
+        raise GovernanceError(
+            f"finding_file_collision:{finding_id}: {path.name} exists but the "
+            f"event ledger never emitted {finding_id}; the mint is refused "
+            f"before its event is appended"
+        ) from exc
+
+
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp")
@@ -488,23 +568,29 @@ def emit_finding(
             "closes_in_commit": None,
             "schema_version": SCHEMA_VERSION,
         }
-        event = append_declared_jsonl(
-            _events_path(repo_path),
-            {
-                "schema_version": 1,
-                "event": "finding_emitted",
-                "event_id": f"finding:{finding_id}:emitted",
-                "finding_id": finding_id,
-                "target_sha": target_sha,
-                "record": record,
-            },
-            expected_surface="repo_finding_events",
-        )
+        output_path = _findings_dir(repo_path) / f"{finding_id}.json"
+        _retire_unledgered_finding_file(tools_root, output_path, finding_id)
+        _claim_finding_file(output_path, finding_id)
+        try:
+            event = append_declared_jsonl(
+                _events_path(repo_path),
+                {
+                    "schema_version": 1,
+                    "event": "finding_emitted",
+                    "event_id": f"finding:{finding_id}:emitted",
+                    "finding_id": finding_id,
+                    "target_sha": target_sha,
+                    "record": record,
+                },
+                expected_surface="repo_finding_events",
+            )
+        except BaseException:
+            # The append refused or died: the claim must not outlive it, or
+            # this id would hold an empty file no event names.
+            output_path.unlink(missing_ok=True)
+            raise
         record["source_event_id"] = event.get("event_id")
         record["source_ledger_hash"] = event.get("ledger_hash")
-        output_path = _findings_dir(repo_path) / f"{finding_id}.json"
-        if output_path.exists():
-            raise GovernanceError(f"finding {finding_id} already exists at {output_path}")
         _atomic_write_json(output_path, record)
         _refresh_index(repo_path)
 

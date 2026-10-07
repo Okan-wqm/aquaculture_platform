@@ -73,13 +73,14 @@ class _LoopFixture(unittest.TestCase):
     # -- seeding the existing ledgers -------------------------------------------------
     def finding(self, finding_id: str, path: str, *, origin: str = "manual:operator",
                 created: str | None = None) -> None:
-        """Seed an OPEN finding. ``rank_candidate_sources`` orders F candidates by
-        ascending age — the folded record's ``created_at`` (ARIA-MEDIUM-330), not
-        a file mtime — so each seed without an explicit stamp is a second older
-        than the one before it and the provider meets them in seeding order."""
+        """Seed an OPEN finding. The slot policy offers F candidates oldest first by
+        the folded record's ``created_at`` (ARIA-MEDIUM-330: the F source reads the
+        fold, never a file mtime), so each seed without an explicit stamp is a
+        second younger than the one before it and the provider meets them in
+        seeding order."""
         self._age += 1
         body: dict[str, Any] = {"originating_skill": origin,
-                                "created_at": created or _ago(days=30, seconds=self._age)}
+                                "created_at": created or _ago(days=30, seconds=-self._age)}
         self.fx.seed_finding(finding_id, refs=[f"{path}:3"], body=body)
 
     def plan(self, plan_id: str, finding_id: str, *, started: str, source: str = "f_finding",
@@ -269,9 +270,10 @@ class CycleDetectionTests(_LoopFixture):
         self.merged("plan-m", _ago(days=3), "c" * 40)
         self.finding("F-081", GROUNDED_FILE, created=_ago(days=1))
         self.assertIsNone(self.synthesize("cyc-new"))
-        # F-081 is a day old and F-080 a month: the provider meets the younger first.
+        # One subject: the slot policy offers its oldest member first, by the
+        # folded created_at — F-080 is a month old and F-081 a day.
         self.assertEqual(self.skips("cyc-new"),
-                         [("F-081", fg.SELF_LOOP_OWN_CHANGE), ("F-080", fg.SUBJECT_COOL_OFF)])
+                         [("F-080", fg.SUBJECT_COOL_OFF), ("F-081", fg.SELF_LOOP_OWN_CHANGE)])
         detail = self.skip_detail("F-080")["loop_guard"]
         self.assertEqual((detail["cause"], detail["finding"]), ("new_finding_on_subject", "F-081"))
 

@@ -20,7 +20,10 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Lives under invariants/ so the aria-kernel workflow's
+# `unittest discover tools/aria-poc/invariants` step runs it: beside the
+# harness it was a test nothing invoked (ARIA-MEDIUM-330).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from measure_watchdog_fp_rate import main, measure_fp_rate  # noqa: E402
 
 from aria_kernel.ledger import append_declared_jsonl  # noqa: E402

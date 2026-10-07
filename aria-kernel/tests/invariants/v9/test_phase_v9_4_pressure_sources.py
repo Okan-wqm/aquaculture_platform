@@ -27,6 +27,7 @@ from unittest import mock
 from . import _helpers  # noqa: F401
 
 from aria_kernel import plan_synthesizer as _ps
+from aria_kernel.finding import fold_findings
 from aria_kernel.plan_candidate_source import PlanCandidateSource
 
 
@@ -89,7 +90,7 @@ class TestV9FFindingScanner(unittest.TestCase):
 
     def test_scan_missing_dir_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(_ps.scan_f_findings(tmp), [])
+            self.assertEqual(_ps.scan_f_findings(fold_findings(tmp)), [])
 
     def test_scan_orders_oldest_first(self):
         """Age is the folded record's created_at (ARIA-MEDIUM-330), not a file mtime."""
@@ -105,7 +106,7 @@ class TestV9FFindingScanner(unittest.TestCase):
                     "event_id": f"finding:{finding_id}:emitted", "finding_id": finding_id,
                     "record": {"finding_id": finding_id, "status": "OPEN", "created_at": created_at},
                 }, expected_surface="repo_finding_events")
-            results = _ps.scan_f_findings(tmp)
+            results = _ps.scan_f_findings(fold_findings(tmp))
             self.assertEqual([c["candidate_id"] for c in results], ["F-001", "F-002"])
             self.assertGreater(results[0]["age_seconds"], results[1]["age_seconds"])
 
@@ -123,7 +124,7 @@ class TestV9FFindingScanner(unittest.TestCase):
             }, expected_surface="repo_finding_events")
             (findings / "F-001.json").write_text(json.dumps(record))
             (findings / "F-101.json").write_text(json.dumps({"id": "F-101", "status": "OPEN"}))
-            results = _ps.scan_f_findings(tmp)
+            results = _ps.scan_f_findings(fold_findings(tmp))
             self.assertEqual([c["candidate_id"] for c in results], ["F-001"])
 
 

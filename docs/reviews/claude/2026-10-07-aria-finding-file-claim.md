@@ -68,18 +68,27 @@ Fix, reader side: every reader reads the fold, so a file with no event is not a 
 - `reflection._summarize_findings` replaces the `F-*.json` scan. Status is the folded status, and
   the fold is read strictly: a ledger that fails verification fails the report.
 - `plan_synthesizer.scan_f_findings` yields one candidate per folded finding. Age comes from the
-  record's `created_at`, and an undateable record is as young as now. Status stays admission's
-  question.
+  record's `created_at`, and an undateable record is as young as now. It takes the fold as an
+  argument instead of reading the ledger again. `rank_candidate_sources` requires that fold, and the
+  provider reads the grounding context before ranking (ADR-0018 D5: one fold per synthesis). The
+  slot policy and admission therefore judge status against the same view that named the
+  candidates.
 - `measure_watchdog_fp_rate.measure_fp_rate` buckets folded statuses and places the window by
   `created_at`. A missing ledger is `unmeasured`, and the `unreadable` count is gone because no
   file is parsed.
 
-Overlap with ARIA-HIGH-369 (`fix/aria-finding-plan-path`, PR #1826): its slot policy drops F
-candidates the fold does not hold. It does not change `scan_f_findings`, which still globs on that
-branch. This change touches only that source's read. One assertion overlaps:
-`test_f_finding_loop_guards.py` `CycleDetectionTests` expects F-081 before F-080. On main, the rank
-offers the younger candidate first. Under #1826's slot policy, the oldest member of a subject comes
-first. Whichever PR lands second sets that expectation to F-080, then F-081.
+Composition with ARIA-HIGH-369 (PR #1826, merged as 772dca4e6): its slot policy
+(`plan_slot_policy.order_for_slot`) drops F candidates the fold does not hold, or holds in a status
+other than OPEN. Before this change, the F source globbed, so F-101 and F-102 reached the policy and
+were dropped as `finding_unknown`. Now the source and the policy read one fold:
+
+- a stray file is never a candidate, so it appears neither offered nor dropped;
+- non-OPEN findings are still dropped by the policy and disclosed by name;
+- no second filter disagrees with it.
+
+The policy offers each subject's oldest member first by the folded `created_at`. The loop-guard
+fixture therefore stamps each seed a second younger than the one before it, and
+`CycleDetectionTests` expects F-080 before F-081.
 
 Tests, mint side: `aria-kernel/tests/test_finding_and_debt_emission.py` adds four cases:
 
@@ -97,6 +106,19 @@ Tests, reader side. Each fails on `origin/main`:
   and a WITHDRAWN in the fold beats the frozen OPEN file. I-V3.1-06 now pins the fold.
 - `tests/invariants/v9/test_phase_v9_4_pressure_sources.py`: a stray F-101.json is never a
   candidate, and the order comes from `created_at`.
-- `tools/aria-poc/test_measure_watchdog_fp_rate.py`: the rate is 1/1 from the fold, never read from
-  the frozen file or the stray. No CI step runs this file; it ran locally.
+- `tests/test_finding_plan_path.py`: through the production provider, a stray F-101.json is
+  neither offered nor dropped by the slot policy. On main, the policy drops it as
+  `finding_unknown`.
+- `tools/aria-poc/invariants/test_measure_watchdog_fp_rate.py`: the rate is 1/1 from the fold,
+  never read from the frozen file or the stray.
 - `test_f_finding_loop_guards.py`: the fixture stamps `created_at` instead of a file mtime.
+
+The FP harness test was moved from `tools/aria-poc/` into `tools/aria-poc/invariants/`. The
+aria-kernel workflow runs `unittest discover tools/aria-poc/invariants`, and nothing ran the file
+beside the harness. Three other top-level files are also outside every CI step:
+
+- `tools/aria-poc/test_poc.py` (16 pass);
+- `tools/aria-poc/test_adapter_failure_states.py` (4 pass);
+- `tools/aria-poc/test_adapter_scope_narrow.py`, where 2 of 7 fail locally.
+
+They are a separate defect from ARIA-MEDIUM-330, and no finding tracks them yet.

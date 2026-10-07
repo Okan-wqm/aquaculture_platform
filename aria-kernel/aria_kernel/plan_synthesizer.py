@@ -636,7 +636,7 @@ def _attach_orphan_registry_evidence(
             c["evidence"] = ev
 
 
-def scan_f_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
+def scan_f_findings(findings: Mapping[str, Mapping[str, Any]] | None) -> list[dict[str, Any]]:
     """Plan ARIA-V9.4 source — the F findings the finding-event fold holds.
 
     ARIA-MEDIUM-330 — candidates come from the fold
@@ -646,15 +646,22 @@ def scan_f_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
     ledger, became candidates that admission then refused as
     ``finding_unknown``, and a store restore that reset every mtime reset
     every age. Age is the record's ``created_at``; an undateable record is
-    as young as now. Status stays admission's question
-    (``finding_grounding.admit_finding``). Returns candidates oldest-first.
+    as young as now. Returns candidates oldest-first.
+
+    ``findings`` is the fold the synthesis already read
+    (``finding_grounding.load_grounding_context``, ADR-0018 D5: one fold per
+    synthesis), not a second read: the slot policy
+    (``plan_slot_policy.order_for_slot``) judges status against that same
+    fold, so the view that names the candidates and the view that drops the
+    ones not OPEN cannot disagree. None — no ledger, or one the context
+    refused — yields no candidates. Status stays the slot policy's and
+    admission's question.
     """
-    from .finding import fold_findings
     from .tool_registry import parse_utc_stamp
 
     now = time.time()
     candidates: list[dict[str, Any]] = []
-    for finding_id, record in sorted((fold_findings(workspace_root) or {}).items()):
+    for finding_id, record in sorted((findings or {}).items()):
         stamp = record.get("created_at")
         created = parse_utc_stamp(stamp) if isinstance(stamp, str) else None
         created_epoch = created.timestamp() if created is not None else now
@@ -1121,6 +1128,7 @@ def rank_candidate_sources(
     workspace_root: str | Path,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
+    findings: Mapping[str, Mapping[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     """Plan ARIA-V9.4 — scan all 5 sources + return ranked candidates.
 
@@ -1136,6 +1144,11 @@ def rank_candidate_sources(
     so the provider can bind the synthesis it selects to that scan (V9.5
     check 12) — and the failing-CI scanner, which discloses each red
     workflow it excludes once per cycle in that store (ADR-0019).
+
+    ``findings`` is the caller's finding fold, which the F_FINDING source
+    reads instead of folding the ledger again (ARIA-MEDIUM-330; see
+    :func:`scan_f_findings`). It is required, so no caller can rank F
+    candidates from one view and judge them against another.
     """
     workspace = Path(workspace_root).resolve()
     all_candidates: list[dict[str, Any]] = []
@@ -1147,11 +1160,14 @@ def rank_candidate_sources(
     def _scan_failing_ci(root: Path) -> list[dict[str, Any]]:
         return scan_failing_ci(root, base_dir=base_dir, cycle_id=cycle_id)
 
+    def _scan_f_findings(_root: Path) -> list[dict[str, Any]]:
+        return scan_f_findings(findings)
+
     for source_name, scanner in (
         (PlanCandidateSource.OPERATOR_FEEDBACK.value, _scan_operator_feedback),
         (PlanCandidateSource.FAILING_CI.value, _scan_failing_ci),
         (PlanCandidateSource.ORPHAN_FINDING.value, scan_orphan_findings),
-        (PlanCandidateSource.F_FINDING.value, scan_f_findings),
+        (PlanCandidateSource.F_FINDING.value, _scan_f_findings),
         (PlanCandidateSource.GITHUB_ISSUE.value, scan_github_issue_missions),
     ):
         t0 = time.monotonic()

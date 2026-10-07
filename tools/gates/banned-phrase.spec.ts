@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 
+import { isGatingExcuse } from './banned-phrase-excuse';
 import { removeFixtureTree } from './fixture-tree';
 const REPO_ROOT = (() => {
   try {
@@ -295,7 +296,11 @@ void test('tree mode reports a phrase in any tracked file and skips exempt and u
     runFixtureGit(root, ['init', '--quiet', '--initial-branch=main']);
     // Assembled from fragments so this spec's own source does not trip the gate.
     const phrase = ['tempo', 'rary'].join('');
-    writeFileSync(join(root, 'tracked.ts'), `export const id = 1; // ${phrase} id\n`, 'utf8');
+    writeFileSync(
+      join(root, 'tracked.ts'),
+      `export const id = 1; // ${phrase} fix until the store lands\n`,
+      'utf8',
+    );
     runFixtureGit(root, ['add', 'tracked.ts']);
     // CLAUDE.md is exempt; it is tracked, so only the exemption keeps it out.
     writeFileSync(join(root, 'CLAUDE.md'), `${phrase} is a banned phrase.\n`, 'utf8');
@@ -314,5 +319,143 @@ void test('tree mode reports a phrase in any tracked file and skips exempt and u
     assert.doesNotMatch(result.stderr, /untracked\.ts:/);
   } finally {
     removeFixtureTree(root);
+  }
+});
+
+// ---------------------------------------------------------
+// ARIA-MEDIUM-380 — the tree scan keeps gating excuses only
+// ---------------------------------------------------------
+
+// Words assembled from fragments so this spec's own source does not trip the gate.
+const W = {
+  forNow: ['for', 'now'].join(' '),
+  temp: ['tempo', 'rary'].join(''),
+  postponed: ['defer', 'red'].join(''),
+  outOfScope: ['out of', 'scope'].join(' '),
+  tradeoff: ['prag', 'matic'].join(''),
+  midway: ['middle', 'ground'].join(' '),
+};
+
+function capitalize(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+function excuse(path: string, line: string, word: string, label: string, next = ''): boolean {
+  return isGatingExcuse(path, line, line.indexOf(word), label, next);
+}
+
+void test('tree-mode excuse classifier keeps real excuses (true positives)', () => {
+  const cases: Array<[string, string, string, string]> = [
+    [
+      'apps/x/src/a.ts',
+      `// ${capitalize(W.forNow)}, just log the check`,
+      `${capitalize(W.forNow)}`,
+      W.forNow,
+    ],
+    [
+      'apps/x/src/b.ts',
+      `const pool = fetch; // ${W.temp} fix until the pool lands`,
+      W.temp,
+      W.temp,
+    ],
+    [
+      'web/x/types.ts',
+      `// renaming would break callers and is ${W.postponed}`,
+      W.postponed,
+      `${W.postponed} (x)`,
+    ],
+    [
+      'docs/db/review.md',
+      `The type issue (M-1) is ${W.postponed}, which I accept.`,
+      W.postponed,
+      `${W.postponed} (x)`,
+    ],
+    [
+      'docs/security/r.md',
+      `## Skipped / ${capitalize(W.postponed)}`,
+      `${capitalize(W.postponed)}`,
+      `${W.postponed} (x)`,
+    ],
+    [
+      'docs/x.md',
+      `- naming consistency — ${W.postponed} as a large refactor`,
+      W.postponed,
+      `${W.postponed} (x)`,
+    ],
+    [
+      'apps/x/src/c.ts',
+      `// This is ${W.outOfScope} for this change`,
+      W.outOfScope,
+      `${W.outOfScope} (x)`,
+    ],
+    ['apps/x/src/d.ts', `// a ${W.tradeoff} shortcut`, W.tradeoff, W.tradeoff],
+  ];
+  for (const [path, line, word, label] of cases) {
+    assert.strictEqual(excuse(path, line, word, label), true, `${path}: ${line}`);
+  }
+});
+
+void test('tree-mode excuse classifier drops other senses of the word (false positives)', () => {
+  const upper = W.postponed.toUpperCase();
+  const cap = `${capitalize(W.postponed)}`;
+  const capTemp = `${capitalize(W.temp)}`;
+  const cases: Array<[string, string, string, string, string?]> = [
+    // domain values
+    ['web/hr/types.ts', `  ${upper} = '${upper}',`, upper, `${W.postponed} (x)`],
+    [
+      'web/hr/types.ts',
+      `  [GoalStatus.${upper}]: { label: '${cap}' },`,
+      upper,
+      `${W.postponed} (x)`,
+    ],
+    [
+      'apps/hr/m.ts',
+      `  'in_progress', '${W.postponed}', 'cancelled'`,
+      W.postponed,
+      `${W.postponed} (x)`,
+    ],
+    // technical senses
+    ['scripts/x.sh', `# ${capTemp} directory for intermediate JSON`, capTemp, W.temp],
+    ['web/st.ts', `  VAR_TEMP: 'Declares ${W.temp} variables.',`, W.temp, W.temp],
+    [
+      'docs/db/a.md',
+      `RISK if events are ${W.postponed} past the request lifecycle.`,
+      W.postponed,
+      `${W.postponed} (x)`,
+    ],
+    [
+      'docs/db/a.md',
+      `or use withTenantSchema() if ${W.postponed}.`,
+      W.postponed,
+      `${W.postponed} (x)`,
+    ],
+    [
+      'docs/x.md',
+      `- Variable binding resolution ${W.postponed} to runtime = HIGH.`,
+      W.postponed,
+      `${W.postponed} (x)`,
+    ],
+    // tracked deferral: an id on the next line
+    [
+      'infra/Dockerfile',
+      `# the publish workflow is tracked as a ${W.postponed}`,
+      W.postponed,
+      `${W.postponed} (x)`,
+      '# follow-up (INFRA-BACKUP-003)',
+    ],
+    // documents describing something else
+    ['docs/research/x/note.md', `Monthly is a sensible ${W.midway}.`, 'middle', W.midway],
+    ['docs/product-audits/a/r.md', `// ${W.forNow}, a placeholder`, W.forNow, W.forNow],
+    ['.github/ISSUE_TEMPLATE/s.md', `## ${capTemp} Mitigation`, capTemp, W.temp],
+    // a spec's own scope section
+    [
+      'docs/superpowers/specs/s.md',
+      `## 12. Kapsam Disi (${['Out of', 'Scope'].join(' ')})`,
+      'Out of',
+      `${W.outOfScope} (x)`,
+    ],
+  ];
+  for (const [path, line, word, label, next] of cases) {
+    assert.strictEqual(excuse(path, line, word, label, next ?? ''), false, `${path}: ${line}`);
   }
 });

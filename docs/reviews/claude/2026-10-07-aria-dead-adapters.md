@@ -108,3 +108,25 @@ quarantined by name until its scope and rules are redesigned and their precision
 under the 0.85 precision floor, so the adapter is quarantined by name until the scan is narrowed
 to prose and comments this repository wrote. The pre-commit and CI range-mode gate keep blocking
 new phrases.
+
+Recount (branch `fix/aria-adapter-precision`): labelled line by line, 14 of the 49 hits are real
+gating excuses (29%). Earlier in this doc they were estimated at "about 6". The other 35 fall
+into these classes:
+
+- domain values: `GoalStatus.DEFERRED`, SQL enum literals, `{ label: 'Deferred' }`;
+- technical senses: temporary directories and variables, events "deferred past the request";
+- documents that describe something else: `docs/research/**`, `docs/product-audits/**`, agent
+  audit reports, archived migrations, issue templates;
+- a spec's own "Out of Scope" heading;
+- one deferral tracked by an id on the next line (`INFRA-BACKUP-003`).
+
+Fix: `tools/gates/banned-phrase-excuse.ts` (`isGatingExcuse`) runs in `--mode=tree` only. The
+diff-time modes stay word-strict. A hit survives only when the word is used as the reason to leave
+work unfinished. Every narrowing names the class of false positive it removes, and any shape it
+does not recognise stays a hit. `tools/gates/banned-phrase.spec.ts` pins 8 true-positive and 13
+false-positive cases taken from main.
+
+Measured after the fix on the same tree: 14 hits, all 14 real (100%). The manifest's quarantine
+block is removed. A tool that a cycle has already held QUARANTINED leaves only through
+`unquarantine_tool`, which needs an operator approval (ARIA-CRITICAL-216). The kernel never lifts
+a quarantine on its own.

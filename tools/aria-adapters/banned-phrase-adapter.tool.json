@@ -40,9 +40,5 @@
     "timeout_ms": 120000,
     "stdin_json": true
   },
-  "schema_version": 1,
-  "quarantine": {
-    "finding": "ARIA-MEDIUM-380",
-    "reason": "banned_phrase_precision_below_floor: the tree scan on main 88878799e reports 49 hits and about 6 are unfinished-work excuses in code comments; the rest are domain values (GoalStatus.DEFERRED, SQL enum literals), research notes and quoted headings, far under the 0.85 precision floor"
-  }
+  "schema_version": 1
 }

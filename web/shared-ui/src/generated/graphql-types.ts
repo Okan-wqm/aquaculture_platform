@@ -2021,6 +2021,8 @@ export type ChannelSeriesPoint = {
 export type ChannelSeriesResponse = {
   bucketTimeZone: Scalars['String']['output'];
   channels: Array<ChannelSeries>;
+  displayTimeZone: Scalars['String']['output'];
+  displayTimeZoneSource: SeriesTimeZoneSource;
   endTime: Scalars['DateTime']['output'];
   /** @deprecated Use resolution */
   interval: Scalars['String']['output'];
@@ -20040,6 +20042,12 @@ export type SentimentTrendsInput = {
   /** Number of weeks to look back (1-52) */
   weeks?: Scalars['Int']['input'];
 };
+
+/** Where a series display time zone came from */
+export type SeriesTimeZoneSource =
+  | 'SITE'
+  | 'TENANT'
+  | 'UNAVAILABLE';
 
 export type SetChecklistItemInput = {
   /** Stable client command UUID generated before first submission */

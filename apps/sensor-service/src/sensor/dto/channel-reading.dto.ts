@@ -169,6 +169,21 @@ export class ChannelSeries {
   gaps!: TimeWindow[];
 }
 
+/** Where a series' display time zone came from. */
+export enum SeriesTimeZoneSource {
+  /** Every sensor of the series sits on a site that set its own zone. */
+  SITE = 'site',
+  /** The tenant's zone: sensors without a site, sites that inherit, or mixed zones. */
+  TENANT = 'tenant',
+  /** Farm could not answer, or named a zone the database does not know: UTC is shown. */
+  UNAVAILABLE = 'unavailable',
+}
+
+registerEnumType(SeriesTimeZoneSource, {
+  name: 'SeriesTimeZoneSource',
+  description: 'Where a series display time zone came from',
+});
+
 @ObjectType()
 export class ChannelSeriesResponse {
   @Field(() => ID)
@@ -189,9 +204,20 @@ export class ChannelSeriesResponse {
   @Field(() => MetricSourceTier)
   sourceTier!: MetricSourceTier;
 
-  /** The time zone the bucket boundaries are aligned in. */
+  /**
+   * The time zone the bucket boundaries are aligned in: the display zone, or
+   * UTC where the window predates the stores that can be split at local
+   * boundaries.
+   */
   @Field()
   bucketTimeZone!: string;
+
+  /** The zone to show times and pick ranges in: the sensors' site zone (IANA). */
+  @Field()
+  displayTimeZone!: string;
+
+  @Field(() => SeriesTimeZoneSource)
+  displayTimeZoneSource!: SeriesTimeZoneSource;
 
   /** The longest range one request may span, in seconds. */
   @Field(() => Int)

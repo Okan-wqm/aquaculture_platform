@@ -129,6 +129,7 @@ export type {
   MetricTierName,
   MetricTier,
   SeriesReadPlan,
+  SeriesBucketZone,
 } from './sensor-readings/tier-policy';
 
 // ── Sensor-reading time range ──

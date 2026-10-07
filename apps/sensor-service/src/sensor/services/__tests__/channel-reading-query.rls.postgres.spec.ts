@@ -6,6 +6,9 @@ import {
   type HarnessContext,
   shutdownHarness,
 } from '@platform/migration-harness';
+import type { CircuitBreakerService } from '@aquaculture/backend-common/resilience';
+import { stub } from '@aquaculture/testing';
+import type { NatsRequestReply } from '@platform/event-bus';
 import { DataSource } from 'typeorm';
 
 import { SensorDataChannel } from '../../../database/entities/sensor-data-channel.entity';
@@ -16,6 +19,7 @@ import { Sensor } from '../../../database/entities/sensor.entity';
 import { AggregationInterval } from '../../dto/aggregated-reading.dto';
 import { ChannelAlertLevel, MetricSourceTier } from '../../dto/channel-reading.dto';
 import { ChannelReadingQueryService } from '../channel-reading-query.service';
+import { SeriesTimeZoneService } from '../series-time-zone.service';
 
 /**
  * SENSOR-HIGH-138 on real Postgres: the channel-generic reads behind
@@ -175,7 +179,18 @@ describe('ChannelReadingQueryService under FORCE RLS (SENSOR-HIGH-138)', () => {
       logging: false,
     });
     await runtime.initialize();
-    service = new ChannelReadingQueryService(runtime);
+    // Farm names no site zone here: the tenant's (UTC) applies.
+    service = new ChannelReadingQueryService(
+      runtime,
+      new SeriesTimeZoneService(
+        stub<NatsRequestReply>({
+          requestTyped: jest.fn().mockResolvedValue({ tenantZone: 'UTC', siteZones: {} }),
+        }),
+        stub<CircuitBreakerService>({
+          execute: <T>(args: { fn: () => Promise<T> }): Promise<T> => args.fn(),
+        }),
+      ),
+    );
   });
 
   afterAll(async () => {

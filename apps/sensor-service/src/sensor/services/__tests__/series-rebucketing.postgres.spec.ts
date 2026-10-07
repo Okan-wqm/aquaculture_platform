@@ -7,6 +7,9 @@ import {
   type HarnessContext,
   shutdownHarness,
 } from '@platform/migration-harness';
+import type { CircuitBreakerService } from '@aquaculture/backend-common/resilience';
+import { stub } from '@aquaculture/testing';
+import type { NatsRequestReply } from '@platform/event-bus';
 import { DataSource } from 'typeorm';
 
 import { SensorDataChannel } from '../../../database/entities/sensor-data-channel.entity';
@@ -16,6 +19,7 @@ import { SensorTypeDefinition } from '../../../database/entities/sensor-type-def
 import { Sensor } from '../../../database/entities/sensor.entity';
 import { MetricSourceTier } from '../../dto/channel-reading.dto';
 import { ChannelReadingQueryService } from '../channel-reading-query.service';
+import { SeriesTimeZoneService } from '../series-time-zone.service';
 
 /**
  * SENSOR-HIGH-162 on real TimescaleDB with the production rollup DDL: a
@@ -105,7 +109,18 @@ describe('sensor series re-bucketing on rollups (real TimescaleDB)', () => {
       logging: false,
     });
     await reads.initialize();
-    service = new ChannelReadingQueryService(reads);
+    // Farm names no site zone: the tenant's (UTC) applies, so buckets stay UTC.
+    service = new ChannelReadingQueryService(
+      reads,
+      new SeriesTimeZoneService(
+        stub<NatsRequestReply>({
+          requestTyped: jest.fn().mockResolvedValue({ tenantZone: 'UTC', siteZones: {} }),
+        }),
+        stub<CircuitBreakerService>({
+          execute: <T>(args: { fn: () => Promise<T> }): Promise<T> => args.fn(),
+        }),
+      ),
+    );
   }, 300_000);
 
   afterAll(async () => {

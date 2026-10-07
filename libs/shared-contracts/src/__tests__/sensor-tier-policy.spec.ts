@@ -174,6 +174,122 @@ describe('sensor-reading tier policy', () => {
       expect([plan.tier.table, plan.interval]).toEqual(['metrics_1day', '1 day']);
     });
 
+    describe('local buckets (rule 5)', () => {
+      const OSLO = { kind: 'zoned', wholeHourOffset: true } as const;
+      const KOLKATA = { kind: 'zoned', wholeHourOffset: false } as const;
+
+      it('a UTC series plans exactly as before', () => {
+        for (const windowMs of ladderProbes) {
+          const plain = planSeriesRead({ startMs: NOW - windowMs, endMs: NOW, nowMs: NOW });
+          const utc = planSeriesRead({
+            startMs: NOW - windowMs,
+            endMs: NOW,
+            nowMs: NOW,
+            zone: { kind: 'utc' },
+          });
+          expect(utc).toEqual(plain);
+          expect([utc.alignment, utc.boundaryMinutes]).toEqual(['utc', false]);
+        }
+      });
+
+      it('reads local days and weeks from the hourly rollup, never the UTC daily one', () => {
+        for (const [windowMs, requestedIntervalMs] of [
+          [90 * DAY, undefined],
+          [MAX_SERIES_RANGE_MS, undefined],
+          [7 * DAY, DAY],
+        ] as const) {
+          const plan = planSeriesRead({
+            startMs: NOW - windowMs,
+            endMs: NOW,
+            nowMs: NOW,
+            zone: OSLO,
+            ...(requestedIntervalMs === undefined ? {} : { requestedIntervalMs }),
+          });
+          expect([windowMs, plan.tier.table, plan.alignment, plan.boundaryMinutes]).toEqual([
+            windowMs,
+            'metrics_1hour',
+            'zone',
+            false,
+          ]);
+        }
+      });
+
+      it('adds the minute rows of boundary hours in a zone whose offset is not a whole hour', () => {
+        const plan = planSeriesRead({
+          startMs: NOW - 90 * DAY,
+          endMs: NOW,
+          nowMs: NOW,
+          zone: KOLKATA,
+        });
+        expect([plan.tier.table, plan.alignment, plan.boundaryMinutes]).toEqual([
+          'metrics_1hour',
+          'zone',
+          true,
+        ]);
+        // A short window reads minute rows already: nothing extra is needed.
+        const short = planSeriesRead({
+          startMs: NOW - 6 * HOUR,
+          endMs: NOW,
+          nowMs: NOW,
+          zone: KOLKATA,
+        });
+        expect([short.tier.table, short.alignment, short.boundaryMinutes]).toEqual([
+          'metrics_1min',
+          'zone',
+          false,
+        ]);
+      });
+
+      it('falls back to UTC buckets, and says so, only where the finer stores no longer reach', () => {
+        const sixYearsAgo = NOW - 6 * 365 * DAY;
+        const ancient = planSeriesRead({
+          startMs: sixYearsAgo,
+          endMs: sixYearsAgo + 30 * DAY,
+          nowMs: NOW,
+          zone: OSLO,
+        });
+        expect([ancient.tier.table, ancient.alignment]).toEqual(['metrics_1day', 'utc']);
+
+        const twoYearsAgo = NOW - 2 * 365 * DAY;
+        const fractional = planSeriesRead({
+          startMs: twoYearsAgo,
+          endMs: twoYearsAgo + 30 * DAY,
+          nowMs: NOW,
+          zone: KOLKATA,
+        });
+        expect([fractional.tier.table, fractional.alignment, fractional.boundaryMinutes]).toEqual([
+          'metrics_1hour',
+          'utc',
+          false,
+        ]);
+      });
+
+      it('never falls back to UTC for a window inside the minute rollup retention', () => {
+        for (const zone of [OSLO, KOLKATA]) {
+          for (const windowMs of ladderProbes) {
+            for (const requestedIntervalMs of [
+              undefined,
+              ...AGGREGATION_INTERVALS.map((interval) => interval.ms),
+            ]) {
+              const plan = planSeriesRead({
+                startMs: NOW - windowMs,
+                endMs: NOW,
+                nowMs: NOW,
+                zone,
+                ...(requestedIntervalMs === undefined ? {} : { requestedIntervalMs }),
+              });
+              expect([zone, windowMs, requestedIntervalMs, plan.alignment]).toEqual([
+                zone,
+                windowMs,
+                requestedIntervalMs,
+                'zone',
+              ]);
+            }
+          }
+        }
+      });
+    });
+
     it(`bounds every series at ${MAX_POINTS_PER_CHANNEL} points per channel`, () => {
       const windows = ladderProbes.concat([MINUTE, 90 * DAY]);
       const requests: Array<number | undefined> = [

@@ -14,6 +14,8 @@ import {
   metricTier,
   type MetricTierName,
   planSeriesRead,
+  type SeriesBucketZone,
+  type SeriesReadPlan,
 } from '@aquaculture/shared-contracts';
 import { Logger } from '@nestjs/common';
 import { QueryRunner } from 'typeorm';
@@ -81,11 +83,15 @@ export const METRIC_ROLLUP_SOURCES: Readonly<Record<Exclude<MetricTierName, 'raw
     day: { table: metricTier('day').table, timeColumn: 'bucket', weighted: true },
   };
 
-/** What one series read does: the store, the bucket width it returns, the window. */
+/** What one series read does: the store, the bucket width it returns, the window, the alignment. */
 export interface MetricReadPlan {
   readonly source: MetricSource;
   readonly interval: AggregationIntervalSql;
   readonly windowStart: Date;
+  /** Buckets start at the series zone's local boundaries (`zone`) or UTC ones. */
+  readonly alignment: SeriesReadPlan['alignment'];
+  /** Hourly rows plus the minute rows of hours that straddle a local boundary. */
+  readonly boundaryMinutes: boolean;
 }
 
 /** Native bucket width (ms) of each rollup source; raw rows have none. */
@@ -126,6 +132,7 @@ export function planMetricRead(
   endTime: Date,
   requestedInterval?: AggregationIntervalSql,
   now: Date = new Date(),
+  zone: SeriesBucketZone = { kind: 'utc' },
 ): MetricReadPlan {
   const requestedIntervalMs = AGGREGATION_INTERVALS.find(
     (interval) => interval.sql === requestedInterval,
@@ -134,6 +141,7 @@ export function planMetricRead(
     startMs: startTime.getTime(),
     endMs: endTime.getTime(),
     nowMs: now.getTime(),
+    zone,
     ...(requestedIntervalMs === undefined ? {} : { requestedIntervalMs }),
   });
   const { tier } = plan.tier;
@@ -141,6 +149,32 @@ export function planMetricRead(
     source: tier === 'raw' ? RAW_METRIC_SOURCE : METRIC_ROLLUP_SOURCES[tier],
     interval: plan.interval,
     windowStart: startTime,
+    alignment: plan.alignment,
+    boundaryMinutes: plan.boundaryMinutes,
+  };
+}
+
+/**
+ * The bucket start and end expressions over a time expression, for the
+ * plan's alignment. `refs` name the caller's bound parameters (the interval,
+ * and the zone for local buckets). A local bucket's end comes from
+ * `date_add` in the zone, so a 23- or 25-hour day ends where it really ends.
+ * UTC buckets keep the zone-free `time_bucket`, exactly as before.
+ */
+export function seriesBucketExpressions(
+  alignment: MetricReadPlan['alignment'],
+  time: string,
+  refs: { readonly interval: string; readonly zone: string },
+): { bucket: string; bucketEnd: (bucket: string) => string } {
+  if (alignment === 'utc') {
+    return {
+      bucket: `time_bucket(${refs.interval}::interval, ${time})`,
+      bucketEnd: (bucket) => `${bucket} + ${refs.interval}::interval`,
+    };
+  }
+  return {
+    bucket: `time_bucket(${refs.interval}::interval, ${time}, ${refs.zone})`,
+    bucketEnd: (bucket) => `date_add(${bucket}, ${refs.interval}::interval, ${refs.zone})`,
   };
 }
 

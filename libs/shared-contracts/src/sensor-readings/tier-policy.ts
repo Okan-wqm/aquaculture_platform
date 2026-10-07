@@ -179,10 +179,33 @@ export function tierForWindow(windowMs: number): MetricTier {
 /** The most points one channel's series can carry under this policy. */
 export const MAX_POINTS_PER_CHANNEL = 2_000;
 
-/** What a series read will actually do: the store and the bucket width. */
+/**
+ * What a series' buckets must line up with: UTC, or a zone's local clock (the
+ * site's day, owner decision 2026-10-06). `wholeHourOffset` says whether the
+ * zone's offset is a whole number of hours (Oslo, Istanbul) or not (Kolkata
+ * +05:30, Kathmandu +05:45) — hourly rows split cleanly at a local midnight
+ * only in the first case.
+ */
+export type SeriesBucketZone =
+  | { readonly kind: 'utc' }
+  | { readonly kind: 'zoned'; readonly wholeHourOffset: boolean };
+
+/** What a series read will actually do: the store, the bucket width and how buckets align. */
 export interface SeriesReadPlan {
   readonly tier: MetricTier;
   readonly interval: AggregationIntervalSql;
+  /**
+   * `zone` when buckets start at the zone's local boundaries; `utc` when they
+   * start at UTC ones — for a UTC zone, or when the window starts before the
+   * finer stores' retention and only UTC-bucketed daily rows remain.
+   */
+  readonly alignment: 'zone' | 'utc';
+  /**
+   * Read the hourly rows plus, for each hour that straddles a local bucket
+   * boundary, that hour's minute rows — exact for a zone whose offset is not
+   * a whole hour.
+   */
+  readonly boundaryMinutes: boolean;
 }
 
 function intervalForMs(ms: number): (typeof AGGREGATION_INTERVALS)[number] {
@@ -208,12 +231,15 @@ function intervalForMs(ms: number): (typeof AGGREGATION_INTERVALS)[number] {
  *    be read finer than it keeps.
  * 4. A requested width at least as coarse as a coarser store's bucket reads
  *    that store instead — the same answer from fewer rows.
+ * 5. Buckets in a zone other than UTC start at the zone's local boundaries,
+ *    read from stores that can be split there (see below).
  */
 export function planSeriesRead(params: {
   readonly startMs: number;
   readonly endMs: number;
   readonly nowMs: number;
   readonly requestedIntervalMs?: number;
+  readonly zone?: SeriesBucketZone;
 }): SeriesReadPlan {
   const windowMs = params.endMs - params.startMs;
   const baseIndex = METRIC_TIERS.indexOf(tierForWindow(windowMs));
@@ -241,5 +267,39 @@ export function planSeriesRead(params: {
     }
   }
 
-  return { tier: METRIC_TIERS[tierIndex] ?? metricTier('day'), interval: interval.sql };
+  // Rule 5: local buckets. The daily rollup is bucketed in UTC, so a zoned
+  // series reads the hourly rollup while it still holds the window's start;
+  // in a zone whose offset is not a whole hour, the hours that straddle a
+  // local boundary come from the minute rollup. Where neither finer store
+  // reaches back far enough, the buckets stay UTC and the plan says so.
+  const zone = params.zone ?? { kind: 'utc' };
+  const retains = (name: MetricTierName): boolean => {
+    const { retention } = metricTier(name);
+    return retention === null || params.startMs >= params.nowMs - retention.ms;
+  };
+  let alignment: SeriesReadPlan['alignment'] = zone.kind === 'zoned' ? 'zone' : 'utc';
+  let boundaryMinutes = false;
+  if (zone.kind === 'zoned') {
+    if (METRIC_TIERS[tierIndex]?.tier === 'day') {
+      if (retains('hour')) {
+        tierIndex = METRIC_TIERS.indexOf(metricTier('hour'));
+      } else {
+        alignment = 'utc';
+      }
+    }
+    if (METRIC_TIERS[tierIndex]?.tier === 'hour' && !zone.wholeHourOffset) {
+      if (retains('minute')) {
+        boundaryMinutes = true;
+      } else {
+        alignment = 'utc';
+      }
+    }
+  }
+
+  return {
+    tier: METRIC_TIERS[tierIndex] ?? metricTier('day'),
+    interval: interval.sql,
+    alignment,
+    boundaryMinutes,
+  };
 }

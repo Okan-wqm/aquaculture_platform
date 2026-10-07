@@ -10,12 +10,7 @@
  */
 
 import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
-import {
-  AGGREGATION_INTERVALS,
-  type AggregationIntervalSql,
-  MAX_SERIES_RANGE_MS,
-  SERIES_QUERY_TIMEOUT,
-} from '@aquaculture/shared-contracts';
+import { MAX_SERIES_RANGE_MS, SERIES_QUERY_TIMEOUT } from '@aquaculture/shared-contracts';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In, QueryRunner } from 'typeorm';
@@ -31,6 +26,7 @@ import {
   metricSourceTierOf,
   TimeWindow,
 } from '../dto/channel-reading.dto';
+import { SeriesTimeZoneService } from './series-time-zone.service';
 import {
   validateAggregationInterval,
   validateDateRange,
@@ -41,9 +37,13 @@ import {
   AS_OF_LOOKBACK,
   bucketAggregateExpressions,
   METRIC_ROLLUP_SOURCES,
+  type MetricReadPlan,
+  type MetricSource,
   planMetricRead,
+  RAW_METRIC_SOURCE,
   resolveExistingSource,
   scanStart,
+  seriesBucketExpressions,
   tierOfSource,
   toNumberOrUndefined,
 } from './metric-source';
@@ -74,6 +74,7 @@ interface SeriesRow {
   max_value: string | number | null;
   sample_count: string | number | null;
   bad_count: string | number | null;
+  bucket_end: Date;
 }
 
 /** History reads fail fast instead of holding a pooled connection. */
@@ -86,6 +87,7 @@ export class ChannelReadingQueryService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly seriesTimeZones: SeriesTimeZoneService,
   ) {}
 
   /**
@@ -171,57 +173,59 @@ export class ChannelReadingQueryService {
       endTime,
       MAX_SERIES_RANGE_MS,
     );
-    const plan = planMetricRead(validStart, validEnd, validateAggregationInterval(interval));
-    const intervalMs = intervalMsOf(plan.interval);
+    const requestedInterval = validateAggregationInterval(interval);
 
-    const { channels, tier } = await runInTenantRead(
+    // The zone is farm's answer for the sensor's site. The site is read first
+    // and farm asked between the two reads, so no pooled connection waits on
+    // NATS.
+    const siteBySensor = await runInTenantRead(
+      this.dataSource,
+      SENSOR_SCHEMA,
+      validTenantId,
+      (qr) => this.seriesTimeZones.sitesOf(qr, [validSensorId]),
+    );
+    const candidate = await this.seriesTimeZones.candidate(validTenantId, siteBySensor);
+
+    const { channels, tier, plan, zone } = await runInTenantRead(
       this.dataSource,
       SENSOR_SCHEMA,
       validTenantId,
       async (qr) => {
         await qr.query(SERIES_TIMEOUT_SQL);
+        const seriesZone = await this.seriesTimeZones.validated(qr, candidate);
+        const readPlan = planMetricRead(
+          validStart,
+          validEnd,
+          requestedInterval,
+          new Date(),
+          seriesZone.bucketZone,
+        );
         const sensorChannels = await this.allChannels(qr, [validSensorId]);
-        const source = await resolveExistingSource(qr, plan.source, this.logger);
+        const read = await this.resolveSeriesRead(qr, readPlan);
         if (sensorChannels.length === 0) {
-          return { channels: [], tier: tierOfSource(source) };
+          return {
+            channels: [],
+            tier: tierOfSource(read.source),
+            plan: read.plan,
+            zone: seriesZone,
+          };
         }
-        const agg = bucketAggregateExpressions(source);
-        // The table and time column come from the fixed tier-policy whitelist
-        // (never user input); everything else is a bound parameter. The window
-        // is [scanStart, end): a rollup bucket overlapping the start counts,
-        // a bucket starting at the end does not.
-        const rows = (await qr.query(
-          `SELECT s.channel_id AS channel_id,
-                  time_bucket($1::interval, s.${source.timeColumn}) AS bucket,
-                  ${agg.avg} AS avg_value,
-                  ${agg.min} AS min_value,
-                  ${agg.max} AS max_value,
-                  ${agg.count} AS sample_count,
-                  ${agg.badCount} AS bad_count
-             FROM ${source.table} s
-            WHERE s.sensor_id = $2
-              AND s.tenant_id = $3
-              AND s.channel_id = ANY($4)
-              AND s.${source.timeColumn} >= $5
-              AND s.${source.timeColumn} < $6
-            -- Positional: a rollup's own \`bucket\` column would win over the
-            -- alias in GROUP BY, and its rows would come back un-re-bucketed.
-            GROUP BY 1, 2
-            ORDER BY 2 ASC`,
-          [
-            plan.interval,
-            validSensorId,
-            validTenantId,
-            sensorChannels.map((channel) => channel.id),
-            scanStart(plan, source),
-            validEnd,
-          ],
-        )) as SeriesRow[];
+        const query = seriesQuery(read, {
+          sensorId: validSensorId,
+          tenantId: validTenantId,
+          channelIds: sensorChannels.map((channel) => channel.id),
+          windowStart: validStart,
+          end: validEnd,
+          zone: seriesZone.displayTimeZone,
+        });
+        const rows = (await qr.query(query.sql, query.params)) as SeriesRow[];
         return {
           channels: sensorChannels.map((channel) =>
-            toSeries(channel, rows, { start: validStart, end: validEnd, intervalMs }),
+            toSeries(channel, rows, { start: validStart, end: validEnd }),
           ),
-          tier: tierOfSource(source),
+          tier: tierOfSource(read.source),
+          plan: read.plan,
+          zone: seriesZone,
         };
       },
     );
@@ -231,13 +235,33 @@ export class ChannelReadingQueryService {
       interval: plan.interval,
       resolution: aggregationIntervalOf(plan.interval),
       sourceTier: metricSourceTierOf(tier),
-      // time_bucket without an origin or zone argument aligns buckets in UTC.
-      bucketTimeZone: 'UTC',
+      bucketTimeZone: plan.alignment === 'zone' ? zone.displayTimeZone : 'UTC',
+      displayTimeZone: zone.displayTimeZone,
+      displayTimeZoneSource: zone.source,
       maxRangeSeconds: MAX_SERIES_RANGE_MS / 1000,
       startTime: validStart,
       endTime: validEnd,
       channels,
     };
+  }
+
+  /**
+   * The stores a plan reads, as they exist in this tenant. A missing rollup
+   * falls back to raw rows (exact at any alignment); a plan that needs the
+   * minute rows of boundary hours but finds no minute rollup reads raw too.
+   */
+  private async resolveSeriesRead(
+    qr: QueryRunner,
+    plan: MetricReadPlan,
+  ): Promise<{ plan: MetricReadPlan; source: MetricSource; minuteSource: MetricSource | null }> {
+    const source = await resolveExistingSource(qr, plan.source, this.logger);
+    if (!plan.boundaryMinutes || source === RAW_METRIC_SOURCE) {
+      return { plan: { ...plan, boundaryMinutes: false }, source, minuteSource: null };
+    }
+    const minute = await resolveExistingSource(qr, METRIC_ROLLUP_SOURCES.minute, this.logger);
+    return minute === RAW_METRIC_SOURCE
+      ? { plan: { ...plan, boundaryMinutes: false }, source: RAW_METRIC_SOURCE, minuteSource: null }
+      : { plan, source, minuteSource: minute };
   }
 
   /**
@@ -326,21 +350,24 @@ export class ChannelReadingQueryService {
 function toSeries(
   channel: SensorDataChannel,
   rows: readonly SeriesRow[],
-  range: { start: Date; end: Date; intervalMs: number },
+  range: { start: Date; end: Date },
 ): ChannelSeries {
   const points: ChannelSeries['points'] = [];
+  const spans: Array<{ bucket: Date; bucketEnd: Date }> = [];
   for (const row of rows) {
     if (row.channel_id !== channel.id) continue;
     const avg = toNumberOrUndefined(row.avg_value);
     if (avg === undefined) continue;
+    const bucket = new Date(row.bucket);
     points.push({
-      bucket: new Date(row.bucket),
+      bucket,
       avg,
       min: toNumberOrUndefined(row.min_value),
       max: toNumberOrUndefined(row.max_value),
       count: toNumberOrUndefined(row.sample_count) ?? 0,
       badCount: toNumberOrUndefined(row.bad_count) ?? 0,
     });
+    spans.push({ bucket, bucketEnd: new Date(row.bucket_end) });
   }
   return {
     channelId: channel.id,
@@ -351,47 +378,128 @@ function toSeries(
     precision: channel.displaySettings?.precision,
     enabled: channel.isEnabled,
     points,
-    gaps: gapsIn(points, range),
+    gaps: gapsIn(spans, range),
   };
 }
 
 /**
  * The stretches of [start, end) no bucket covers, at least one bucket wide.
- * Buckets come back aligned by the database, so the gaps are read off the
- * buckets that exist rather than recomputing the alignment here.
+ * Each bucket's start and end come from the database, which aligned them —
+ * in a local zone a day is 23 or 25 hours at a daylight-saving change, so a
+ * fixed width would report gaps that are not there.
  */
 export function gapsIn(
-  points: readonly { bucket: Date }[],
-  range: { start: Date; end: Date; intervalMs: number },
+  buckets: readonly { bucket: Date; bucketEnd: Date }[],
+  range: { start: Date; end: Date },
 ): TimeWindow[] {
-  const gaps: TimeWindow[] = [];
-  const { start, end, intervalMs } = range;
-  if (points.length === 0) {
+  const { start, end } = range;
+  const first = buckets[0];
+  const last = buckets[buckets.length - 1];
+  if (first === undefined || last === undefined) {
     return [{ start, end }];
   }
-  const first = points[0]?.bucket ?? start;
-  if (first.getTime() - start.getTime() >= intervalMs) {
-    gaps.push({ start, end: first });
+  const gaps: TimeWindow[] = [];
+  const widthOf = (span: { bucket: Date; bucketEnd: Date }): number =>
+    span.bucketEnd.getTime() - span.bucket.getTime();
+  if (first.bucket.getTime() - start.getTime() >= widthOf(first)) {
+    gaps.push({ start, end: first.bucket });
   }
-  for (let index = 1; index < points.length; index++) {
-    const previousEnd = (points[index - 1]?.bucket.getTime() ?? 0) + intervalMs;
-    const next = points[index]?.bucket.getTime() ?? previousEnd;
-    if (next > previousEnd) {
-      gaps.push({ start: new Date(previousEnd), end: new Date(next) });
+  for (let index = 1; index < buckets.length; index++) {
+    const previous = buckets[index - 1];
+    const next = buckets[index];
+    if (previous && next && next.bucket.getTime() > previous.bucketEnd.getTime()) {
+      gaps.push({ start: previous.bucketEnd, end: next.bucket });
     }
   }
-  const lastEnd = (points[points.length - 1]?.bucket.getTime() ?? 0) + intervalMs;
-  if (end.getTime() - lastEnd >= intervalMs) {
-    gaps.push({ start: new Date(lastEnd), end });
+  if (end.getTime() - last.bucketEnd.getTime() >= widthOf(last)) {
+    gaps.push({ start: last.bucketEnd, end });
   }
   return gaps;
 }
 
-/** Milliseconds of a whitelisted interval. */
-function intervalMsOf(sql: AggregationIntervalSql): number {
-  const interval = AGGREGATION_INTERVALS.find((candidate) => candidate.sql === sql);
-  if (interval === undefined) {
-    throw new Error(`Not a policy interval: ${sql}`);
+/**
+ * The series SQL and its parameters for a resolved read. Every table, column
+ * and expression comes from the fixed tier-policy whitelist and this module
+ * (never user input); everything else is bound: $1 interval, $2 sensor,
+ * $3 tenant, $4 channels, $5 scan start, $6 end, then $7 zone and $8 window
+ * start only where the SQL uses them (an unreferenced parameter has no type
+ * Postgres could infer). The window is [scan start, end): a rollup bucket
+ * overlapping the start counts, a bucket starting at the end does not.
+ *
+ * With boundary minutes the rows are the hourly rollup's hours that lie
+ * inside one local bucket plus the minute rollup's rows of the hours that
+ * straddle a local boundary — exact for a +05:30 or +05:45 zone. Minute rows
+ * are exact, so they are taken from the window's own start, not the widened
+ * scan start. Both rollups store the same partial columns, so one weighted
+ * re-bucketing serves both.
+ */
+function seriesQuery(
+  read: { plan: MetricReadPlan; source: MetricSource; minuteSource: MetricSource | null },
+  values: {
+    sensorId: string;
+    tenantId: string;
+    channelIds: string[];
+    windowStart: Date;
+    end: Date;
+    zone: string;
+  },
+): { sql: string; params: unknown[] } {
+  const { plan, source, minuteSource } = read;
+  const refs = { interval: '$1', zone: '$7' };
+  const agg = bucketAggregateExpressions(source);
+  const filters = (alias: string, column: string, startRef: string): string =>
+    `${alias}.sensor_id = $2 AND ${alias}.tenant_id = $3 AND ${alias}.channel_id = ANY($4)
+       AND ${alias}.${column} >= ${startRef} AND ${alias}.${column} < $6`;
+  const params: unknown[] = [
+    plan.interval,
+    values.sensorId,
+    values.tenantId,
+    values.channelIds,
+    scanStart(plan, source),
+    values.end,
+  ];
+  if (plan.alignment === 'zone') params.push(values.zone);
+
+  let from: string;
+  let time: string;
+  let where: string;
+  if (plan.boundaryMinutes && minuteSource !== null) {
+    params.push(values.windowStart);
+    const local = (expr: string): string => seriesBucketExpressions('zone', expr, refs).bucket;
+    const straddles = (hourStart: string): string =>
+      `${local(hourStart)} <> ${local(`${hourStart} + interval '59 minutes'`)}`;
+    const columns = 'channel_id, bucket, avg_value, min_value, max_value, sample_count, bad_count';
+    from = `(
+        SELECT ${columns} FROM ${source.table} h
+         WHERE ${filters('h', 'bucket', '$5')} AND NOT (${straddles('h.bucket')})
+        UNION ALL
+        SELECT ${columns} FROM ${minuteSource.table} m
+         WHERE ${filters('m', 'bucket', '$8')}
+           AND ${straddles("time_bucket('1 hour', m.bucket)")}
+      ) s`;
+    time = 's.bucket';
+    where = '';
+  } else {
+    from = `${source.table} s`;
+    time = `s.${source.timeColumn}`;
+    where = `WHERE ${filters('s', source.timeColumn, '$5')}`;
   }
-  return interval.ms;
+  const { bucket, bucketEnd } = seriesBucketExpressions(plan.alignment, time, refs);
+  const sql = `SELECT q.*, ${bucketEnd('q.bucket')} AS bucket_end
+            FROM (
+              SELECT s.channel_id AS channel_id,
+                     ${bucket} AS bucket,
+                     ${agg.avg} AS avg_value,
+                     ${agg.min} AS min_value,
+                     ${agg.max} AS max_value,
+                     ${agg.count} AS sample_count,
+                     ${agg.badCount} AS bad_count
+                FROM ${from}
+               ${where}
+               -- Positional: a rollup's own \`bucket\` column would win over the
+               -- alias, and the rows would not be re-bucketed at all.
+               GROUP BY 1, 2
+            ) q
+           ORDER BY q.bucket ASC`;
+  return { sql, params };
 }

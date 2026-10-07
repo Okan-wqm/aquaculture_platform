@@ -9,7 +9,11 @@
  * metric-source.ts, the same rules the nine-parameter projection uses.
  */
 
-import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import {
+  runInTenantRead,
+  SENSOR_SOURCE_SCHEMA,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
 import { MAX_SERIES_RANGE_MS, SERIES_QUERY_TIMEOUT } from '@aquaculture/shared-contracts';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -50,8 +54,6 @@ import {
   toNumberOrUndefined,
 } from './metric-source';
 
-/** The `sensor` source schema runInTenantRead pins alongside the tenant schema. */
-const SENSOR_SCHEMA = 'sensor';
 /** Same batch cap as latestReadingsBatch. */
 const MAX_SENSORS_PER_BATCH = 100;
 /**
@@ -115,7 +117,7 @@ export class ChannelReadingQueryService {
     const validTenantId = validateTenantId(tenantId);
     const validSensorIds = sensorIds.map((id) => validateSensorId(id));
 
-    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+    return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, validTenantId, async (qr) => {
       const channels = await this.enabledChannels(qr, validSensorIds);
       if (channels.length === 0) {
         return [];
@@ -188,7 +190,7 @@ export class ChannelReadingQueryService {
     // NATS.
     const siteBySensor = await runInTenantRead(
       this.dataSource,
-      SENSOR_SCHEMA,
+      SENSOR_SOURCE_SCHEMA,
       validTenantId,
       (qr) => this.seriesTimeZones.sitesOf(qr, [validSensorId]),
     );
@@ -196,7 +198,7 @@ export class ChannelReadingQueryService {
 
     const { channels, tier, plan, zone } = await runInTenantRead(
       this.dataSource,
-      SENSOR_SCHEMA,
+      SENSOR_SOURCE_SCHEMA,
       validTenantId,
       async (qr) => {
         await qr.query(SERIES_TIMEOUT_SQL);
@@ -290,7 +292,7 @@ export class ChannelReadingQueryService {
     const validSensorIds = sensorIds.map((id) => validateSensorId(id));
     const siteBySensor = await runInTenantRead(
       this.dataSource,
-      SENSOR_SCHEMA,
+      SENSOR_SOURCE_SCHEMA,
       validTenantId,
       (qr) => this.seriesTimeZones.sitesOf(qr, validSensorIds),
     );
@@ -298,7 +300,7 @@ export class ChannelReadingQueryService {
     // Only the zone's name and source are returned; the bucket facts (which
     // depend on a window) are not, so the check is made at this instant.
     const now = new Date();
-    const zone = await runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, (qr) =>
+    const zone = await runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, validTenantId, (qr) =>
       this.seriesTimeZones.validated(qr, candidate, { start: now, end: now }),
     );
     return { displayTimeZone: zone.displayTimeZone, source: zone.source };
@@ -322,7 +324,7 @@ export class ChannelReadingQueryService {
     const validTenantId = validateTenantId(tenantId);
     const validSensorIds = sensorIds.map((id) => validateSensorId(id));
 
-    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+    return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, validTenantId, async (qr) => {
       await qr.query(SERIES_TIMEOUT_SQL);
       const channels = await this.allChannels(qr, validSensorIds);
       if (channels.length === 0) {

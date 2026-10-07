@@ -7,9 +7,14 @@
  * - DIP: Depends on abstractions (interfaces)
  */
 
-import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import {
+  runInTenantRead,
+  SENSOR_SOURCE_SCHEMA,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
+import { Injectable, Logger, Inject } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 import { SensorReadings } from '../../database/entities/sensor-reading.entity';
@@ -248,16 +253,24 @@ export class LookupTableCalibrationStrategy implements ICalibrationStrategy {
 export class CalibrationService implements ICalibrationService {
   private readonly logger = new Logger(CalibrationService.name);
   private readonly strategies: ICalibrationStrategy[] = [];
-  private readonly channelCache: LRUCache<string, SensorDataChannel[]>;
+  /**
+   * sensorId → the enabled channels and the tenant they were read for. The
+   * tenant is part of the entry, not just the lookup: a hit for a different
+   * tenant is a miss, so a cached tenant's channels can never answer another
+   * tenant's request for the same id (SENSOR-HIGH-148).
+   */
+  private readonly channelCache: LRUCache<
+    string,
+    { tenantId: string; channels: SensorDataChannel[] }
+  >;
 
   // Configuration
   private static readonly CACHE_MAX_SIZE = 1000;
   private static readonly CACHE_TTL_MS = 60000; // 1 minute
 
   constructor(
-    @Optional()
-    @InjectRepository(SensorDataChannel)
-    private readonly channelRepository: Repository<SensorDataChannel> | null,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {
     this.channelCache = new LRUCache(
       CalibrationService.CACHE_MAX_SIZE,
@@ -277,9 +290,10 @@ export class CalibrationService implements ICalibrationService {
 
   async applyCalibration(
     sensorId: string,
+    tenantId: string,
     readings: SensorReadings,
   ): Promise<SensorReadings> {
-    const channels = await this.getChannelsForSensor(sensorId);
+    const channels = await this.getChannels(sensorId, tenantId);
 
     if (channels.length === 0) {
       return readings;
@@ -363,47 +377,37 @@ export class CalibrationService implements ICalibrationService {
    * Called by SensorIngestionService.prefetchCalibrationConfigs() to avoid
    * N sequential DB queries during batch prefetch (MEDIUM-003).
    */
-  warmChannelCache(sensorId: string, channels: SensorDataChannel[]): void {
-    this.channelCache.set(sensorId, channels);
+  warmChannelCache(sensorId: string, tenantId: string, channels: SensorDataChannel[]): void {
+    this.channelCache.set(sensorId, { tenantId, channels });
   }
 
   /**
    * The sensor's enabled channels, cache-backed. Exposed so the ingestion path
    * can key sensor_metrics rows by channel WITHOUT a second DB round-trip: the
    * applyCalibration()/warmChannelCache() call that precedes every metric build
-   * already warmed this cache for the same sensorId, so this resolves from cache
+   * already warmed this cache for the same sensor, so this resolves from cache
    * on the ingest hot path. Keeps the channel fetch a single responsibility of
    * this service rather than duplicating the query in the ingestion service
    * (SENSOR-MEDIUM-066/068 convergence).
+   *
+   * The read runs inside the tenant's RLS boundary: sensor_data_channels is
+   * FORCE-RLS per tenant, and a read with no tenant bound sees nothing
+   * (SENSOR-HIGH-148). A failure propagates — an ingest that cannot load its
+   * calibration must not store uncalibrated values as if they were calibrated.
    */
-  async getChannels(sensorId: string): Promise<SensorDataChannel[]> {
-    return this.getChannelsForSensor(sensorId);
-  }
-
-  private async getChannelsForSensor(sensorId: string): Promise<SensorDataChannel[]> {
-    if (!this.channelRepository) {
-      return [];
-    }
-
-    // Check cache first
+  async getChannels(sensorId: string, tenantId: string): Promise<SensorDataChannel[]> {
     const cached = this.channelCache.get(sensorId);
-    if (cached) {
-      return cached;
+    if (cached && cached.tenantId === tenantId) {
+      return cached.channels;
     }
 
-    try {
-      const channels = await this.channelRepository.find({
+    const channels = await runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
+      tenantManagerRepo(qr.manager, SensorDataChannel).find({
         where: { sensorId, isEnabled: true },
-      });
-
-      this.channelCache.set(sensorId, channels);
-      return channels;
-    } catch (error) {
-      this.logger.warn(
-        `Failed to fetch channels for sensor ${sensorId}: ${(error as Error).message}`,
-      );
-      return [];
-    }
+      }),
+    );
+    this.channelCache.set(sensorId, { tenantId, channels });
+    return channels;
   }
 
   /**

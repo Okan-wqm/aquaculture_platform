@@ -265,7 +265,12 @@ function withPostCondition(source) {
   const block = [
     PROBE_BEGIN,
     '    public async postCondition(queryRunner: QueryRunner): Promise<boolean> {',
-    '        const rows: Array<{ missing: string }> = await queryRunner.query(`',
+    // TypeORM types QueryRunner.query() as Promise<any>. Binding it to a
+    // concrete row type is an unchecked any -> T assignment (ai-service's lint
+    // policy rejects it: @typescript-eslint/no-unsafe-assignment, which kept
+    // CI - Full red); `unknown` plus Array.isArray says what the driver
+    // actually returns and fails closed on any other shape.
+    '        const rows: unknown = await queryRunner.query(`',
     '            SELECT expected.table_name AS missing',
     `              FROM (VALUES ${values}) AS expected(table_name)`,
     '             WHERE NOT EXISTS (',
@@ -275,7 +280,7 @@ function withPostCondition(source) {
     '                  AND table_name = expected.table_name',
     '             )',
     '        `);',
-    '        return rows.length === 0;',
+    '        return Array.isArray(rows) && rows.length === 0;',
     '    }',
     PROBE_END,
   ].join('\n');

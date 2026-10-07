@@ -177,7 +177,68 @@ class OutboxAdapterDetectionTests(unittest.TestCase):
             "domain_event_published_outside_outbox", "apps/hr-service/src/leave/reject.handler.ts", 9,
         )])
         finding = outbox_scan(self.repo)["findings"][0]
-        self.assertEqual(finding["evidence"], [{"path": finding["path"], "line": finding["line"]}])
+        # The publish, then the durable write it follows (review M3: the
+        # premise a judge verifies names the actual write).
+        self.assertEqual(finding["evidence"], [
+            {"path": finding["path"], "line": 9}, {"path": finding["path"], "line": 7},
+        ])
+
+    def test_a_save_then_publish_without_a_transaction_is_flagged(self) -> None:
+        # Review M2: complete-training saves through a repository and then
+        # publishes, with no transaction; it is the same dual write.
+        _seed(self.repo, "apps/hr-service/src/outbox/hr-outbox.module.ts", _OUTBOX_REGISTRATION)
+        _seed(self.repo, "apps/hr-service/src/training/complete.handler.ts", """
+export class CompleteHandler {
+  async execute(command: CompleteCommand): Promise<Enrollment> {
+    const saved = await this.enrollmentRepository.save(enrollment);
+    this.eventBus.publish(createCompletedEvent(saved));
+    return saved;
+  }
+}
+""")
+        self.assertEqual(self._rules(), [(
+            "domain_event_published_outside_outbox", "apps/hr-service/src/training/complete.handler.ts", 5,
+        )])
+
+    def test_a_write_and_a_publish_through_same_class_helpers_are_flagged(self) -> None:
+        # Review M2: harvest-completed saves in one helper and publishes in
+        # another, both called from handle().
+        _seed(self.repo, "apps/farm-service/src/outbox/farm-outbox.module.ts", _OUTBOX_REGISTRATION)
+        _seed(self.repo, "apps/farm-service/src/events/harvest.listener.ts", """
+export class HarvestListener {
+  async handle(event: Harvested): Promise<void> {
+    await this.updateBatch(event);
+    await this.publishFollowUps(event);
+  }
+
+  private async updateBatch(event: Harvested): Promise<void> {
+    await this.batchRepository.save(batch);
+  }
+
+  private async publishFollowUps(event: Harvested): Promise<void> {
+    await this.eventBus.publish(createCompletedEvent(event));
+  }
+}
+""")
+        findings = outbox_scan(self.repo)["findings"]
+        self.assertEqual([(f["line"], [e["line"] for e in f["evidence"]]) for f in findings], [(13, [13, 9])])
+
+    def test_a_map_delete_or_a_write_after_the_publish_is_not_a_dual_write(self) -> None:
+        _seed(self.repo, "apps/hr-service/src/outbox/hr-outbox.module.ts", _OUTBOX_REGISTRATION)
+        _seed(self.repo, "apps/hr-service/src/cache/cache.service.ts", """
+export class CacheService {
+  async evict(key: string): Promise<void> {
+    this.cache.delete(key);
+    await this.eventBus.publish(createEvictedEvent(key));
+  }
+
+  async record(entry: Entry): Promise<void> {
+    await this.eventBus.publish(createSeenEvent(entry));
+    await this.entryRepository.save(entry);
+  }
+}
+""")
+        self.assertEqual(self._rules(), [])
 
     def test_the_outbox_enqueue_path_is_not_flagged(self) -> None:
         _seed(self.repo, "apps/hr-service/src/outbox/hr-outbox.module.ts", _OUTBOX_REGISTRATION)
@@ -188,7 +249,7 @@ class OutboxAdapterDetectionTests(unittest.TestCase):
               ))
         self.assertEqual(self._rules(), [])
 
-    def test_a_publish_in_a_method_without_a_transactional_write_is_not_flagged(self) -> None:
+    def test_a_publish_in_a_unit_without_a_durable_write_is_not_flagged(self) -> None:
         _seed(self.repo, "apps/hr-service/src/outbox/hr-outbox.module.ts", _OUTBOX_REGISTRATION)
         _seed(self.repo, "apps/hr-service/src/ingest/telemetry.service.ts", """
 export class TelemetryService {

@@ -26,11 +26,11 @@
     "domain_event_published_outside_outbox": {
       "claim_type": "wrong_code",
       "severity_cap": "HIGH",
-      "defect_claim": "A transactional write path in a service that registers the outbox publishes its domain event with eventBus.publish instead of OutboxPublisher.enqueue, so the event and the write can diverge.",
+      "defect_claim": "A unit of work in a service that registers the outbox makes a durable write and then publishes the event with eventBus.publish instead of OutboxPublisher.enqueue, so the event and the write can diverge.",
       "premises": [
-        "The method writes state inside a transaction (a query runner transaction or a transaction callback) before the cited publish.",
-        "The cited publish announces that write as a domain event other services act on, not telemetry or a log.",
-        "The service registers OutboxModule.forFeature, so OutboxPublisher.enqueue is available to this write path."
+        "The finding's second evidence line is a durable write (a repository or entity-manager save, insert, update or delete) made in the same method, or in a same-class helper it calls, before the cited publish.",
+        "The cited publish announces that state change as a domain event other services act on, not telemetry or a log.",
+        "The service registers OutboxModule.forFeature, so OutboxPublisher.enqueue is available to this unit of work."
       ]
     }
   },

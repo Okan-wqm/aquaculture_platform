@@ -145,6 +145,32 @@ and the outbox implementation together with commented-out publishes. The quarant
 removed. A quarantine a cycle already applied leaves only through the operator-approved
 `unquarantine_tool`.
 
+Review follow-up (independent review of #1843, M2 and M3): the rule required a transaction, so it
+missed two dual writes:
+
+- `complete-training.handler.ts` saves through a repository and then publishes;
+- `harvest-completed.listener.ts` saves in one helper and publishes through another.
+
+It also used `queryRunner\.manager\.` as its "write", which matches reads. auto-rule-trigger's
+query runner only sets `search_path`, so that finding rested on the wrong premise.
+
+The rule is now a durable write followed by a raw publish in one unit of work: a method, plus the
+same-class helpers it calls directly. A durable write is a TypeORM writer call. The verbs a Map or
+a Set also have (`delete`, `update`) count only on a repository or entity manager. Every finding
+cites two lines: the publish, and the nearest preceding write. The rule contract's premise now
+states exactly that.
+
+Measured on main `88878799e`: 15 hits, 15 real (100%). These are the 9 above, now with their
+actual write lines; auto-rule-trigger cites its `queryRunner.manager.save(...)`. The 6 new hits
+are:
+
+- billing-scheduler: trial expiry and subscription expiry, each a save then a publish;
+- farm `harvest-completed`: three follow-up events after `batchRepository.save`;
+- hr `complete-training`.
+
+New fixtures cover a save and publish without a transaction, a write helper and a publish helper,
+a `Map.delete`, and a write that follows the publish.
+
 ## ARIA-MEDIUM-380
 
 `banned-phrase-adapter`'s tree scan reports 49 hits, and about 6 of them are real. That is far

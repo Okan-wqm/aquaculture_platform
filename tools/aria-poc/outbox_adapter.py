@@ -15,16 +15,21 @@ it; the leave-approval handler enqueues while its reject sibling published).
 Rule:
 
 1. domain_event_published_outside_outbox (HIGH)
-   A non-comment ``eventBus.publish(`` inside a class method that, before the
-   publish, opens or uses a transaction (``startTransaction(``,
-   ``commitTransaction(``, ``.transaction(``, ``queryRunner.manager.``), in a
-   service whose source registers ``OutboxModule.forFeature``.
+   In one unit of work — a class method, together with the same-class helper
+   methods it calls directly (one level) — a durable write (``.save(``,
+   ``.insert(``, ``.upsert(``, ``.softDelete(``, or ``update`` / ``delete`` /
+   ``remove`` / ``increment`` / ``decrement`` on a repository or entity
+   manager) followed by a non-comment ``eventBus.publish(``, in a service
+   whose source registers ``OutboxModule.forFeature``. A transaction is not
+   required: a save and a publish without one are the same dual write. The
+   finding cites the publish and, as its second evidence line, the nearest
+   preceding write — the premise a judge verifies.
 
 What it does not flag, by construction:
   - the outbox implementation itself (``platform/libs/outbox`` and every
     ``outbox/`` directory) — it is never read;
-  - a publish in a method with no transactional write (telemetry streams,
-    reactions to already-committed events);
+  - a publish in a unit of work that makes no durable write before it
+    (telemetry streams, reactions to already-committed events);
   - a service that has not registered the outbox.
 
 The former two rules read only the outbox directories, so all three of their
@@ -73,19 +78,27 @@ _SERVICE_SOURCE_RE = re.compile(r"^apps/([^/]+)/src/")
 
 _PUBLISH_RE = re.compile(r"\beventBus\.publish\s*\(")
 _OUTBOX_REGISTRATION_RE = re.compile(r"\bOutboxModule\.forFeature\s*\(")
-_TRANSACTION_RE = re.compile(
-    r"startTransaction\s*\(|commitTransaction\s*\(|\.transaction\s*\(|queryRunner\.manager\."
+# A durable write. The unambiguous TypeORM writers match on any receiver; the
+# verbs a Map, a Set or a hash also have match only on a repository or an
+# entity manager (``this.cache.delete(key)`` is not a write).
+_WRITE_RE = re.compile(
+    r"\.(save|insert|upsert|softDelete|softRemove)\s*\("
+    r"|\b\w*(?:[Rr]epo(?:sitory)?|[Mm]anager)\b\s*\.(update|delete|remove|increment|decrement)\s*\("
 )
+_SELF_CALL_RE = re.compile(r"\bthis\.(\w+)\s*\(")
 # A class member at the two-space class-body indent: the enclosing method.
 _METHOD_RE = re.compile(
     r"^  (?:(?:public|private|protected|static|readonly|override)\s+)*(?:async\s+)?"
-    r"[A-Za-z_]\w*\s*(?:<[^>]*>)?\s*\("
+    r"([A-Za-z_]\w*)\s*(?:<[^>]*>)?\s*\("
 )
 _COMMENT_RE = re.compile(r"^\s*(?://|\*|/\*)")
 
 
-def _finding(rule: str, severity: str, rel: str, *, line: int, message: str) -> dict:
-    """The kernel's evidence contract (``evidence_validator``)."""
+def _finding(
+    rule: str, severity: str, rel: str, *, line: int, write_line: int, message: str,
+) -> dict:
+    """The kernel's evidence contract (``evidence_validator``): the publish
+    line, then the durable write it follows."""
     return {
         "id": f"{rule}:{rel}:{line}",
         "rule": rule,
@@ -93,7 +106,7 @@ def _finding(rule: str, severity: str, rel: str, *, line: int, message: str) -> 
         "path": rel,
         "line": line,
         "message": message,
-        "evidence": [{"path": rel, "line": line}],
+        "evidence": [{"path": rel, "line": line}, {"path": rel, "line": write_line}],
     }
 
 
@@ -143,19 +156,49 @@ def _iter_files(root: Path, allowed_paths: Iterable[str] | None = None) -> list[
     return _iter_files_from_globs(root, _FALLBACK_SCANNED_GLOBS)
 
 
-def _publishes_in_transactional_write(lines: list[str]) -> list[int]:
-    """1-based lines of raw publishes whose enclosing method writes in a transaction first."""
-    hits: list[int] = []
-    for index, line in enumerate(lines):
-        if _COMMENT_RE.match(line) or not _PUBLISH_RE.search(line):
-            continue
-        start = index
-        while start > 0 and not _METHOD_RE.match(lines[start]):
-            start -= 1
-        body = lines[start:index]
-        if any(_TRANSACTION_RE.search(text) and not _COMMENT_RE.match(text) for text in body):
-            hits.append(index + 1)
-    return hits
+def _methods(lines: list[str]) -> list[tuple[str, int, int]]:
+    """(name, first line index, end index) of each class method, by the class-body indent."""
+    starts = [(i, m.group(1)) for i, line in enumerate(lines) if (m := _METHOD_RE.match(line))]
+    return [
+        (name, start, starts[k + 1][0] if k + 1 < len(starts) else len(lines))
+        for k, (start, name) in enumerate(starts)
+    ]
+
+
+def _code_lines(lines: list[str], start: int, end: int, pattern: re.Pattern[str]) -> list[int]:
+    return [i for i in range(start, end) if not _COMMENT_RE.match(lines[i]) and pattern.search(lines[i])]
+
+
+def dual_writes(lines: list[str]) -> list[tuple[int, int, str]]:
+    """(publish line, nearest preceding write line, unit) — 1-based — for every
+    raw publish that follows a durable write in the same unit of work.
+
+    A unit of work is a class method plus the same-class helpers it calls
+    directly: a call to a helper that writes counts as a write at the call
+    site, a call to a helper that publishes as its publishes at the call site.
+    """
+    methods = _methods(lines)
+    writes = {name: _code_lines(lines, s, e, _WRITE_RE) for name, s, e in methods}
+    publishes = {name: _code_lines(lines, s, e, _PUBLISH_RE) for name, s, e in methods}
+    found: dict[int, tuple[int, int, str]] = {}
+    for name, start, end in methods:
+        last_write: int | None = None
+        for i in range(start, end):
+            if _COMMENT_RE.match(lines[i]):
+                continue
+            helpers = [h for h in _SELF_CALL_RE.findall(lines[i]) if h != name]
+            if _PUBLISH_RE.search(lines[i]) and last_write is not None:
+                found.setdefault(i + 1, (i + 1, last_write + 1, name))
+            for helper in helpers:
+                if last_write is not None:
+                    for line in publishes.get(helper, []):
+                        found.setdefault(line + 1, (line + 1, last_write + 1, name))
+            if _WRITE_RE.search(lines[i]):
+                last_write = i
+            for helper in helpers:
+                if writes.get(helper):
+                    last_write = writes[helper][-1]
+    return sorted(found.values())
 
 
 def scan(repo_root: Path, allowed_paths: Iterable[str] | None = None) -> dict:
@@ -182,12 +225,14 @@ def scan(repo_root: Path, allowed_paths: Iterable[str] | None = None) -> dict:
         service = _service_of(rel)
         if service not in services_with_outbox:
             continue
-        for line in _publishes_in_transactional_write(lines):
+        for publish_line, write_line, unit in dual_writes(lines):
             findings.append(_finding(
-                "domain_event_published_outside_outbox", "HIGH", rel, line=line,
+                "domain_event_published_outside_outbox", "HIGH", rel,
+                line=publish_line, write_line=write_line,
                 message=(
-                    f"{service} registers the outbox, yet this transactional write path "
-                    "publishes its event with eventBus.publish instead of OutboxPublisher.enqueue"
+                    f"{unit}: durable write at line {write_line}, then eventBus.publish at line "
+                    f"{publish_line}; {service} registers the outbox, so the event belongs in "
+                    "OutboxPublisher.enqueue with that write"
                 ),
             ))
     envelope = {

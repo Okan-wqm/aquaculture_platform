@@ -23,24 +23,30 @@ and the subject it names — or the reason there is none:
   ``absent`` is :data:`SUBJECT_ABSENT` and ``unverifiable`` is
   :data:`SUBJECT_UNVERIFIABLE` — never planned, never closed here: closing is
   363's merge path, after a fix lands;
-* any other finding has each ``path:line`` ref re-read at the commit it was
-  verified against (the evidence envelope's ``target_sha``, else the mint
-  event's ``minted_at_sha``) and at the anchor. An unchanged line stays; a
-  line found exactly once elsewhere in the file re-anchors there; a line that
-  is gone, ambiguous, or has no readable origin makes the finding
-  :data:`SUBJECT_UNVERIFIABLE`.
+* any other finding has each ``path:line`` ref mapped through the diff from
+  the commit it was verified against (the evidence envelope's ``target_sha``,
+  else the mint event's ``minted_at_sha``) to the anchor
+  (``finding_line_map.map_cited_line``, review H1): a line no hunk touched is
+  shifted by the hunks above it; a line inside a hunk, or one with no readable
+  origin, makes the finding :data:`SUBJECT_UNVERIFIABLE`. Text is never
+  matched, so a trivial line elsewhere can never stand in for a deleted one.
+
+A detector that raises or answers a non-object is :data:`SUBJECT_UNVERIFIABLE`
+with the error named (review M2): one finding's detector never aborts the
+synthesis that also carries the operator's request.
 
 Only ids, paths, lines, the severity and claim type (closed sets) and the
 subject's side NAMES (identifiers, ``finding_subject.subject_sides``, checked
 against :data:`_SIDE_NAME_RE`) reach a plan; no prose field of the finding
 does (ADR-0018 D6). An operator request is never refused by this module: its
-admission stands on the grounding the operator signed, and a seed only
-replaces that evidence when the detector or the line re-read re-anchors it
-(:func:`admit_and_seed`).
+admission stands on the grounding the operator signed, and a seed only moves
+a signed ref to its current line (:meth:`FindingSeed.signed_refs_moved`,
+review M1) — it never adds a ref or a surface the operator did not sign.
 """
 from __future__ import annotations
 
 import re
+import subprocess
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Mapping
@@ -90,6 +96,16 @@ class FindingSeed:
     def disclosure(self) -> dict[str, Any]:
         return {"state": self.state, "anchor_commit": self.anchor_commit,
                 "moved": [{"recorded": old, "current": new} for old, new in self.moved]}
+
+    def signed_refs_moved(self, signed: tuple[str, ...]) -> tuple[str, ...]:
+        """``signed`` with each ref this seed moved within its own file replaced by where it is now.
+
+        Review M1 — an operator signed a grounding digest over ``signed``; the
+        plan may follow a signed line that moved, but never cite a ref or a
+        file the operator did not sign.
+        """
+        moves = {old: new for old, new in self.moved if _ref_path(old) == _ref_path(new)}
+        return tuple(dict.fromkeys(moves.get(ref, ref) for ref in signed))
 
     def plan_text(self) -> tuple[str, str, list[dict[str, Any]]]:
         """(title, summary, key_changes) naming only this seed's ids, paths and identifiers."""
@@ -150,8 +166,26 @@ class SubjectProbe:
             return None
         key = (finding_subject_key(record) or str(record.get("finding_id")), commit)
         if key not in self._memo:
-            self._memo[key] = dict(detector.recheck(record, merge_sha=commit, workspace_root=repo_root))
+            self._memo[key] = _guarded_recheck(detector, record, commit=commit, repo_root=repo_root)
         return self._memo[key]
+
+
+def _guarded_recheck(detector: Any, record: Mapping[str, Any], *, commit: str, repo_root: Path) -> dict[str, Any]:
+    """The detector's verdict, or ``unverifiable`` naming why it could not give one (review M2).
+
+    A detector runs a subprocess scan; ``OSError`` (no interpreter, no fork),
+    a subprocess failure or an unreadable answer is that detector's fault, so
+    it is this finding's ``unverifiable``, never the synthesis' crash.
+    """
+    from .finding_closure import VERDICT_UNVERIFIABLE
+
+    try:
+        verdict = detector.recheck(record, merge_sha=commit, workspace_root=repo_root)
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        return {"verdict": VERDICT_UNVERIFIABLE, "reason": f"detector_error:{type(exc).__name__}"}
+    if not isinstance(verdict, Mapping):
+        return {"verdict": VERDICT_UNVERIFIABLE, "reason": "detector_verdict_not_an_object"}
+    return dict(verdict)
 
 
 def _ref_origins(record: Mapping[str, Any]) -> dict[str, str]:
@@ -171,25 +205,13 @@ def _ref_origins(record: Mapping[str, Any]) -> dict[str, str]:
     return origins
 
 
-def _file_lines(
-    repo_root: Path, commit: str, path: str, cache: dict[tuple[str, str], list[bytes] | None],
-) -> list[bytes] | None:
-    """``path`` at ``commit`` split the way a ``path:line`` ref counts (by newline); None when unreadable."""
-    from .main_anchor import committed_blob
-
-    if (commit, path) not in cache:
-        blob = committed_blob(repo_root, commit=commit, path=path)
-        content = None if blob is None else (blob.content[:-1] if blob.content.endswith(b"\n") else blob.content)
-        cache[(commit, path)] = None if content is None else (content.split(b"\n") if content else [])
-    return cache[(commit, path)]
-
-
 def _reread_lines(
     context: GroundingContext, record: Mapping[str, Any], refs: tuple[str, ...], anchor: str,
 ) -> tuple[list[str] | None, Any]:
-    """(refs at the anchor, moves) or (None, why) — each cited line re-read where it was verified."""
+    """(refs at the anchor, moves) or (None, why) — each cited line mapped through the diff (review H1)."""
+    from .finding_line_map import map_cited_line
+
     origins, minted = _ref_origins(record), record.get("minted_at_sha")
-    cache: dict[tuple[str, str], list[bytes] | None] = {}
     current: list[str] = []
     moved: list[tuple[str, str]] = []
     for ref in refs:
@@ -203,20 +225,14 @@ def _reread_lines(
         if origin == anchor:
             current.append(ref)
             continue
-        path, line = _ref_path(ref), int(match.group(1))
-        then = _file_lines(context.repo_root, origin, path, cache)
-        now = _file_lines(context.repo_root, anchor, path, cache)
-        if then is None or now is None or not 0 < line <= len(then):
-            return None, {"cause": "cited_line_unreadable", "ref": ref, "origin": origin}
-        seen = then[line - 1]
-        if line <= len(now) and now[line - 1] == seen:
-            current.append(ref)
-            continue
-        hits = [index + 1 for index, text in enumerate(now) if text == seen] if seen.strip() else []
-        if len(hits) != 1:
-            return None, {"cause": "cited_line_gone" if not hits else "cited_line_ambiguous", "ref": ref}
-        current.append(f"{path}:{hits[0]}")
-        moved.append((ref, current[-1]))
+        path = _ref_path(ref)
+        line, why = map_cited_line(context.repo_root, origin=origin, anchor=anchor, path=path,
+                                   line=int(match.group(1)))
+        if line is None:
+            return None, {"cause": why, "ref": ref, "origin": origin}
+        current.append(f"{path}:{line}")
+        if current[-1] != ref:
+            moved.append((ref, current[-1]))
     return current, moved
 
 

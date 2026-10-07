@@ -176,6 +176,7 @@ class V9PressureSourceProvider:
     ) -> CyclePlanEnvelope | None:
         from ..finding_grounding import load_grounding_context
         from ..finding_seed import SubjectProbe, admit_and_seed
+        from ..plan_convergence import in_flight_plan_id
         from ..plan_slot_policy import SLOT_POLICY_EVENT, order_for_slot
         from ..operator_feedback_ingestion import bind_plan_synthesis, record_request_refused
         from ..operator_request_spend import REQUEST_TEXT_UNUSABLE
@@ -210,9 +211,25 @@ class V9PressureSourceProvider:
         # turns), and what it dropped is disclosed once per synthesis.
         slot = order_for_slot(candidates, findings=grounding_context.findings,
                               history=grounding_context.loop_history)
-        append_tools_governance(base_dir, SLOT_POLICY_EVENT, {"cycle_id": cycle_id, **slot.disclosure()})
+        # Review M4 — while a plan is in flight the orchestrator adopts it and
+        # this envelope only seeds a plan that does not exist, so it is never
+        # started: no detector scan (a worktree + a full drift scan) is spent
+        # on it. Seeds fall back to the diff line map, which costs one git
+        # diff per cited path, and the mode is disclosed.
+        # A plan ledger the fold refuses is disclosed and the detectors stay
+        # on: not knowing whether a plan is in flight costs a scan, never a
+        # stale plan. (The orchestrator's own adoption read raises on such a
+        # ledger before this provider runs.)
+        try:
+            in_flight, ledger_fault = in_flight_plan_id(base_dir=base_dir), None
+        except GovernanceError as exc:
+            in_flight, ledger_fault = None, str(exc)[:200]
+        append_tools_governance(base_dir, SLOT_POLICY_EVENT, {
+            "cycle_id": cycle_id, "plan_in_flight": in_flight, "plan_ledger_fault": ledger_fault,
+            "seed_detectors": "skipped_plan_in_flight" if in_flight else "on", **slot.disclosure(),
+        })
         candidates = list(slot.ordered)
-        probe = SubjectProbe()
+        probe = SubjectProbe({}) if in_flight else SubjectProbe()
         for candidate in candidates:
             # One admission for every source that names an F finding (aging
             # F findings and operator requests alike), then its seed: the

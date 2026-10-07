@@ -83,3 +83,40 @@ F-001/F-004/F-006 another; F-101/F-102 are files that the finding fold never emi
 `aria-kernel/tests/test_finding_plan_path.py` has 12 tests. All 12 fail on origin/main
 958eed5b7: the provider picks failing_ci, the plan cites :355 and :12, and the template
 summary is present.
+
+### Review corrections (PR #1826)
+
+- **H1, re-anchoring onto an unrelated line.** The first seed matched the cited line's text. A
+  deleted statement could "move" to a one-off `});` elsewhere, and an equal trivial line at the
+  old line number counted as unchanged. `finding_line_map.map_cited_line` now maps the line
+  through `git diff -U0 --no-renames <origin> <anchor> -- <path>`:
+  - a line inside an old-side hunk is gone;
+  - any other line is shifted by the hunks above it;
+  - text is never matched.
+- **M1, operator requests.** A seed may only move a signed ref within its own file
+  (`FindingSeed.signed_refs_moved`). The surfaces stay the signed ones. If the moved refs are
+  refused, the signed refs are judged instead, so a seed never gets a request spent.
+- **M2, detector faults.** A detector that raises (`OSError`, subprocess error, `ValueError`)
+  or answers a non-object is `f_finding_subject_unverifiable` with the error named.
+  `DriftSubjectDetector` now returns `unverifiable` for an `OSError` from `subprocess.run` and
+  for valid JSON that is not an object. The synthesis, and the operator request in it,
+  continues.
+- **M3, per-subject guards.** F candidates are grouped by subject, and every member is offered,
+  best first. The representative is whichever member admission and the seed accept. The loop
+  guards (cool-off, quarantine) judge the plans of the whole subject
+  (`finding_grounding._subject_ids`). So a sibling cannot re-plan a subject that another
+  sibling's failed plan cooled off, and a subject does not starve behind a member that was
+  refused for its own reasons.
+- **M4, detector cost.** While a plan is in flight
+  (`plan_convergence.in_flight_plan_id`, which reads the plan
+  `resume_candidate_plan_id` adopts and abandons nothing), the envelope is never started. So
+  no detector runs: seeds use the diff line map, and `plan_slot_policy_applied` records
+  `seed_detectors: skipped_plan_in_flight`.
+- **`ui_option_drift` without `ARIA_SUPERGRAPH`.** Outside the cycle step, the scan judges no
+  UI pair and the detector answers `unverifiable` (`wire_unavailable:*`). The F finding is
+  disclosed with that reason, is not planned, and stays OPEN. An operator request falls back to
+  its signed refs.
+
+`aria-kernel/tests/test_finding_plan_path_review.py` adds 13 tests. 10 of them fail on
+e5d4e8f13. The 3 that pass there pin behaviour that was already correct: a line shifted by
+hunks, an operator request whose subject is absent, and a UI drift without the wire.

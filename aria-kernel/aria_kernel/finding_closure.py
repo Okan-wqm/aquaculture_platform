@@ -113,6 +113,10 @@ class DriftSubjectDetector:
             )
         except subprocess.TimeoutExpired:
             return {"verdict": VERDICT_UNVERIFIABLE, "reason": "detector_timeout"}
+        except OSError as exc:
+            # ARIA-HIGH-369 review M2 — no interpreter, no fork: the detector
+            # could not run, which is not a verdict about the subject.
+            return {"verdict": VERDICT_UNVERIFIABLE, "reason": f"detector_unrunnable:{type(exc).__name__}"}
         lines = [line for line in completed.stdout.splitlines() if line.strip()]
         if completed.returncode != 0 or not lines:
             return {"verdict": VERDICT_UNVERIFIABLE, "reason": f"detector_exit_{completed.returncode}"}
@@ -120,6 +124,10 @@ class DriftSubjectDetector:
             verdict = json.loads(lines[-1])
         except json.JSONDecodeError:
             return {"verdict": VERDICT_UNVERIFIABLE, "reason": "detector_output_unreadable"}
+        if not isinstance(verdict, dict):
+            # Review M2 — valid JSON that is not an object (``[1]``, ``"x"``)
+            # crashed on ``verdict.get`` and took the whole cycle with it.
+            return {"verdict": VERDICT_UNVERIFIABLE, "reason": "detector_output_not_an_object"}
         if verdict.get("verdict") not in {VERDICT_ABSENT, VERDICT_REPRODUCES, VERDICT_UNVERIFIABLE}:
             return {"verdict": VERDICT_UNVERIFIABLE, "reason": "detector_verdict_unknown"}
         return verdict

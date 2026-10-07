@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol
 
@@ -1417,6 +1417,7 @@ def convert_candidate_to_plan_content(
         return _NO_PLAN
     provenance_refs: list[str] = []
     key_changes: list[dict[str, Any]] | None = None
+    signed_fallback: list[str] | None = None
     # Per-source content authoring. Each branch builds the same
     # canonical 7-field plan_content; only the textual hints differ.
     if source_type == PlanCandidateSource.OPERATOR_FEEDBACK.value:
@@ -1440,12 +1441,18 @@ def convert_candidate_to_plan_content(
             f"root-cause remediation of finding {admission.finding_id}. "
             f"Operator text: {request}"
         )
-        # The signed grounding is the evidence — re-anchored at the anchor when
-        # the seed moved a line (ARIA-HIGH-369); the feedback row is provenance.
-        grounding = seed if seed is not None and seed.finding_id == admission.finding_id else admission
-        evidence_refs = list(grounding.evidence_refs)
+        # The signed grounding is the evidence; the feedback row is provenance.
+        # ARIA-HIGH-369 review M1 — a seed may only move a SIGNED ref to its
+        # current line (never add a ref or a surface the operator did not
+        # sign), and when the moved refs are refused the signed ones are
+        # judged instead, so a seed can never get the request spent.
+        evidence_refs = list(admission.evidence_refs)
+        if seed is not None and seed.finding_id == admission.finding_id:
+            moved_refs = list(seed.signed_refs_moved(admission.evidence_refs))
+            signed_fallback = evidence_refs if moved_refs != evidence_refs else None
+            evidence_refs = moved_refs
         provenance_refs = [f"{PROVENANCE_REF_PREFIX}{candidate_id}"]
-        affected_surfaces = list(grounding.affected_surfaces)
+        affected_surfaces = list(admission.affected_surfaces)
     elif source_type == PlanCandidateSource.FAILING_CI.value:
         workflow = sanitize_untrusted_text(
             candidate.get("workflow_name") or "unknown", max_len=200,
@@ -1501,6 +1508,11 @@ def convert_candidate_to_plan_content(
         affected_surfaces = list(seed.affected_surfaces)
 
     evidence_refs, refusal = _admit_plan_refs(evidence_refs, ground)
+    if not evidence_refs and signed_fallback is not None:
+        moved_refusal = refusal
+        evidence_refs, refusal = _admit_plan_refs(signed_fallback, ground)
+        refusal = replace(refusal, refused_evidence_refs=moved_refusal.refused_evidence_refs
+                          + refusal.refused_evidence_refs)
     if not evidence_refs:
         return refusal
     if source_type == PlanCandidateSource.ORPHAN_FINDING.value:

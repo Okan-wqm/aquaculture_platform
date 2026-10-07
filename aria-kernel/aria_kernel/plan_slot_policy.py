@@ -26,11 +26,16 @@ WHAT. :func:`order_for_slot` re-orders the ranked candidates for the slot:
   (``plan_abandoned``, ``implementation_rejected``, ``HUMAN_REQUIRED``) less
   than :data:`FAILING_CI_COOL_OFF` ago is dropped (:data:`FAILING_CI_COOL_OFF_REASON`);
 * F candidates the fold does not hold, or holds in another status than OPEN,
-  are dropped with admission's own reasons; the rest collapse to ONE per
-  subject (``finding_subject.finding_subject_key``, ARIA-HIGH-363; a finding
-  without a subject is its own), the representative the highest severity,
-  then the oldest ``created_at``, then the lowest id — and are ordered the
-  same way;
+  are dropped with admission's own reasons; the rest are GROUPED by subject
+  (``finding_subject.finding_subject_key``, ARIA-HIGH-363; a finding without
+  a subject is its own group). Groups are offered best first and every member
+  of a group is offered, best first — highest severity, then oldest
+  ``created_at``, then lowest id. Review M3: dropping the siblings up front
+  starved a subject whose first member was refused for a reason of its own;
+  the representative is now whichever member admission and the seed accept
+  (the provider falls through the group), and the loop guards judge the
+  SUBJECT's plans (``finding_grounding._loop_refusal``), so a sibling cannot
+  re-plan a subject another sibling's failed plan cooled off;
 * the slot alternates: when the newest automated plan (a plan no operator
   request bound) came from the F source, the other automated sources go first
   and F follows; otherwise F goes first and the others follow. With one slot
@@ -42,7 +47,7 @@ Dropped candidates are disclosed in ONE governance event per synthesis
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
@@ -54,7 +59,6 @@ from .plan_candidate_source import PlanCandidateSource
 SLOT_POLICY_EVENT = "plan_slot_policy_applied"
 FAILING_CI_SELF_LANE = "failing_ci_self_lane"
 FAILING_CI_COOL_OFF_REASON = "failing_ci_subject_cool_off"
-F_FINDING_SUBJECT_DUPLICATE = "f_finding_subject_duplicate"
 # The 5 failing-CI plans on the store (2026-08-16 .. 10-05) reached their
 # terminal state 0.25 to 2.39 days after they started: three days is one full
 # plan lifetime for the slot to serve another lane before the same red
@@ -73,10 +77,12 @@ class SlotOrder:
     dropped: tuple[dict[str, Any], ...]
     f_first: bool
     last_automated_plan: str | None
+    subjects: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
     def disclosure(self) -> dict[str, Any]:
         return {"f_first": self.f_first, "last_automated_plan": self.last_automated_plan,
-                "offered": [c.get("candidate_id") for c in self.ordered], "dropped": list(self.dropped)}
+                "offered": [c.get("candidate_id") for c in self.ordered], "dropped": list(self.dropped),
+                "subjects": {key: list(ids) for key, ids in self.subjects.items()}}
 
 
 def _drop(candidate: Mapping[str, Any], reason: str, **detail: Any) -> dict[str, Any]:
@@ -110,12 +116,13 @@ def _f_rank(record: Mapping[str, Any], finding_id: str, now: datetime) -> tuple[
     return (-SEVERITY_RANK.get(str(record.get("severity")), -1), created or now, finding_id)
 
 
-def _f_representatives(
+def _f_groups(
     candidates: list[Mapping[str, Any]], findings: Mapping[str, Mapping[str, Any]] | None, now: datetime,
-) -> tuple[list[Mapping[str, Any]], list[dict[str, Any]]]:
+) -> tuple[list[Mapping[str, Any]], list[dict[str, Any]], dict[str, tuple[str, ...]]]:
+    """(F candidates group by group, dropped, each multi-member subject's ids in offer order)."""
     if findings is None:
         # No fold: admission refuses every F candidate as a store fault, by name.
-        return candidates, []
+        return candidates, [], {}
     dropped: list[dict[str, Any]] = []
     groups: dict[str, list[tuple[tuple[int, datetime, str], Mapping[str, Any]]]] = {}
     for candidate in candidates:
@@ -126,14 +133,12 @@ def _f_representatives(
             continue
         subject = finding_subject_key(record) or f"finding:{finding_id}"
         groups.setdefault(subject, []).append((_f_rank(record, finding_id, now), candidate))
-    kept: list[tuple[tuple[int, datetime, str], Mapping[str, Any]]] = []
-    for subject, members in groups.items():
+    for members in groups.values():
         members.sort(key=lambda member: member[0])
-        kept.append(members[0])
-        dropped.extend(_drop(candidate, F_FINDING_SUBJECT_DUPLICATE, subject_key=subject,
-                             kept=members[0][1].get("candidate_id")) for _rank, candidate in members[1:])
-    kept.sort(key=lambda member: member[0])
-    return [candidate for _rank, candidate in kept], dropped
+    ordered = sorted(groups.items(), key=lambda item: item[1][0][0])
+    subjects = {key: tuple(str(c.get("candidate_id")) for _rank, c in members)
+                for key, members in ordered if len(members) > 1}
+    return [candidate for _key, members in ordered for _rank, candidate in members], dropped, subjects
 
 
 def order_for_slot(
@@ -163,7 +168,7 @@ def order_for_slot(
                                  workflow_path=candidate.get("workflow_path"), until=until.isoformat()))
         else:
             others.append(candidate)
-    f_kept, f_dropped = _f_representatives(f_candidates, findings, now)
+    f_kept, f_dropped, subjects = _f_groups(f_candidates, findings, now)
     dropped.extend(f_dropped)
     automated = [plan for plan in plans if not plan.operator_sourced]
     last = max(automated, key=lambda plan: plan.started_at, default=None)
@@ -171,14 +176,14 @@ def order_for_slot(
     # (LOOP_HISTORY_UNAVAILABLE), so it cannot hold the slot's first offer.
     f_first = history is not None and (last is None or not last.f_sourced)
     ordered = operator + (f_kept + others if f_first else others + f_kept)
-    return SlotOrder(tuple(ordered), tuple(dropped), f_first, last.plan_id if last is not None else None)
+    return SlotOrder(tuple(ordered), tuple(dropped), f_first, last.plan_id if last is not None else None,
+                     subjects)
 
 
 __all__ = [
     "FAILING_CI_COOL_OFF",
     "FAILING_CI_COOL_OFF_REASON",
     "FAILING_CI_SELF_LANE",
-    "F_FINDING_SUBJECT_DUPLICATE",
     "SLOT_POLICY_EVENT",
     "SlotOrder",
     "order_for_slot",

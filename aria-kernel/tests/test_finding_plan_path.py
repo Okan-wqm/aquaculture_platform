@@ -29,7 +29,6 @@ from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.plan_slot_policy import (
     FAILING_CI_COOL_OFF_REASON,
     FAILING_CI_SELF_LANE,
-    F_FINDING_SUBJECT_DUPLICATE,
     order_for_slot,
 )
 from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture
@@ -102,7 +101,7 @@ class SlotOrderTests(unittest.TestCase):
         old = _history(_plan("plan-ci", started_days=6, surfaces=(_CI,), failed_days=4))
         self.assertEqual(self.ids(order_for_slot([_ci(2, _CI)], findings={}, history=old)), ["ci-run-2"])
 
-    def test_f_duplicates_collapse_by_subject_and_order_by_severity_then_age(self) -> None:
+    def test_f_candidates_group_by_subject_and_order_by_severity_then_age(self) -> None:
         findings = {
             "F-003": _drift("F-003", 346, created="2026-09-18T00:00:00Z"),
             "F-007": _drift("F-007", 355, created="2026-09-19T00:00:00Z"),
@@ -116,12 +115,12 @@ class SlotOrderTests(unittest.TestCase):
         # Youngest first, as the aging scan hands them over.
         candidates = [_f(fid) for fid in ("F-015", "F-012", "F-011", "F-010", "F-007", "F-003", "F-101")]
         order = order_for_slot(candidates, findings=findings, history=_history())
-        self.assertEqual(self.ids(order), ["F-003", "F-010", "F-012"])
-        self.assertEqual(sorted((d["candidate_id"], d["reason"]) for d in order.dropped), [
-            ("F-007", F_FINDING_SUBJECT_DUPLICATE), ("F-011", fg.FINDING_NOT_OPEN),
-            ("F-015", F_FINDING_SUBJECT_DUPLICATE), ("F-101", fg.FINDING_UNKNOWN),
-        ])
-        self.assertTrue(all(d["kept"] == "F-003" for d in order.dropped if d["reason"] == F_FINDING_SUBJECT_DUPLICATE))
+        # Review M3 — a subject's members are all offered, best first, one group after another,
+        # so the representative is whichever member admission accepts.
+        self.assertEqual(self.ids(order), ["F-003", "F-007", "F-015", "F-010", "F-012"])
+        self.assertEqual(sorted((d["candidate_id"], d["reason"]) for d in order.dropped),
+                         [("F-011", fg.FINDING_NOT_OPEN), ("F-101", fg.FINDING_UNKNOWN)])
+        self.assertEqual(list(order.subjects.values()), [("F-003", "F-007", "F-015")])
 
     def test_one_slot_alternates_between_f_and_the_other_automated_sources(self) -> None:
         findings = {"F-010": {"finding_id": "F-010", "status": "OPEN", "severity": "HIGH"}}
@@ -164,7 +163,7 @@ class _ProviderFixture(unittest.TestCase):
             _SELF_CI: "name: aria-auto-cycle\non:\n  push: {}\njobs:\n  cycle:\n    runs-on: self-hosted\n",
         })
         self.failing: list[dict[str, Any]] = []
-        self.verdict: dict[str, Any] | None = None
+        self.verdict: Any = None
         # Hermetic: no network source, and no git-diff fallback plan standing in for a refusal.
         for name, value in (("scan_orphan_findings", []), ("scan_github_issue_missions", []),
                             ("synthesize_plan_content_from_cycle", None)):
@@ -185,6 +184,8 @@ class _ProviderFixture(unittest.TestCase):
     def recheck(self, record: dict[str, Any], *, merge_sha: str, workspace_root: Path) -> dict[str, Any]:
         self.rechecks.append(merge_sha)
         assert self.verdict is not None, "a drift finding was rechecked without a verdict"
+        if isinstance(self.verdict, BaseException):
+            raise self.verdict
         return self.verdict
 
     def seed_drift(self, finding_id: str, line: int) -> None:

@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "doc-staleness:missing:docs/plans/2026-04-01-security-remediation-remaining.md:246:libs/backend-common/src/gdpr/gdpr-erasure.interface.ts",
+    "judgment_group_id": "judge:doc-staleness-adapter:finding:794b0570083ddcf8297704a04a1805328d00accdf6d098e99dd9428856f2b959",
+    "kind": "consensus_escalation",
+    "run_id": "cce5264c-3c2a-44bc-ba64-3e8d3c772676",
+    "tool_id": "doc-staleness-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'doc-staleness:missing:docs/plans/2026-04-01-security-remediation-remaining.md:246:libs/backend-common/src/gdpr/gdpr-erasure.interface.ts' (tool 'doc-staleness-adapter', run 'cce5264c-3c2a-44bc-ba64-3e8d3c772676'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-07T08:29:03Z",
+  "request_id": "consensus-d6e6f0d3b1c000d7",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-14T08:29:03Z",
+  "status": "open"
+}

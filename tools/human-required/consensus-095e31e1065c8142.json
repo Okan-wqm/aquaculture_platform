@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "security-source-without-test:libs/backend-common/src/security/gdpr/gdpr.module.ts",
+    "judgment_group_id": "judge:test-gap-adapter:finding:a443ee2469041384694ba1948fa3ab6dc3863a455ac547a9cfed162dccd59cbf",
+    "kind": "consensus_escalation",
+    "run_id": "d090521b-ac6a-4a03-a9ad-d3ad6248b171",
+    "tool_id": "test-gap-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'security-source-without-test:libs/backend-common/src/security/gdpr/gdpr.module.ts' (tool 'test-gap-adapter', run 'd090521b-ac6a-4a03-a9ad-d3ad6248b171'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-07T08:28:59Z",
+  "request_id": "consensus-095e31e1065c8142",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-10T08:28:59Z",
+  "status": "open"
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "tenant-raw-query-missing-predicate:apps/farm-service/src/task/services/task.service.ts:773",
+    "judgment_group_id": "judge:tenant-scoping-adapter:finding:a452372d4efeead85abe2075df11666381ed3c5674b493bbdcad5221c2baeeb2",
+    "kind": "consensus_escalation",
+    "run_id": "8efacad6-30e5-4c3d-bd24-73be08ced065",
+    "tool_id": "tenant-scoping-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'tenant-raw-query-missing-predicate:apps/farm-service/src/task/services/task.service.ts:773' (tool 'tenant-scoping-adapter', run '8efacad6-30e5-4c3d-bd24-73be08ced065'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-07T08:28:46Z",
+  "request_id": "consensus-81a795613daa66c2",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-14T08:28:46Z",
+  "status": "open"
+}

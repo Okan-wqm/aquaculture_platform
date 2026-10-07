@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "migration-without-test:apps/admin-api-service/src/migrations/1801100000000-AddTenantRolePermissionsRoleIdIndex.ts",
+    "judgment_group_id": "judge:test-gap-adapter:finding:da4d7bf47327727a7ee59f2f3d61964b9b9a49f13712ea773cdddd561fe65bb8",
+    "kind": "consensus_escalation",
+    "run_id": "43188f4f-abb7-4d8f-b81e-7cd3a686408d",
+    "tool_id": "test-gap-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'migration-without-test:apps/admin-api-service/src/migrations/1801100000000-AddTenantRolePermissionsRoleIdIndex.ts' (tool 'test-gap-adapter', run '43188f4f-abb7-4d8f-b81e-7cd3a686408d'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-07T08:28:50Z",
+  "request_id": "consensus-860931936d0edf34",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-10T08:28:50Z",
+  "status": "open"
+}

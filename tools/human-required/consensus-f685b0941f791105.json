@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "security-source-without-test:apps/sensor-service/src/vfd-programming/resolvers/vfd-programming.resolver.ts",
+    "judgment_group_id": "judge:test-gap-adapter:finding:21f1bee2e69441e964b936d6446495e38a8976e1745d00d82b8e5ebcc40477fb",
+    "kind": "consensus_escalation",
+    "run_id": "4a6f8f9c-72e0-4b1e-ad1d-bd02b100daca",
+    "tool_id": "test-gap-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'security-source-without-test:apps/sensor-service/src/vfd-programming/resolvers/vfd-programming.resolver.ts' (tool 'test-gap-adapter', run '4a6f8f9c-72e0-4b1e-ad1d-bd02b100daca'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-07T08:28:53Z",
+  "request_id": "consensus-f685b0941f791105",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-10T08:28:53Z",
+  "status": "open"
+}

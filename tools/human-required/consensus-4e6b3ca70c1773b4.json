@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "security-source-without-test:apps/farm-service/src/harvest/resolvers/harvest.resolver.ts",
+    "judgment_group_id": "judge:test-gap-adapter:finding:ad05a505580bfe9a765b9604f56109bbde752e929303203be2046a074a49a891",
+    "kind": "consensus_escalation",
+    "run_id": "85752406-ba00-4431-a980-abfd3f63d728",
+    "tool_id": "test-gap-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'security-source-without-test:apps/farm-service/src/harvest/resolvers/harvest.resolver.ts' (tool 'test-gap-adapter', run '85752406-ba00-4431-a980-abfd3f63d728'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-07T08:28:57Z",
+  "request_id": "consensus-4e6b3ca70c1773b4",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-10T08:28:57Z",
+  "status": "open"
+}

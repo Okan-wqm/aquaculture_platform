@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "doc-staleness:missing:docs/reviews/2026-09-01-aria-full-system-audit.md:19:web/modules/aria",
+    "judgment_group_id": "judge:doc-staleness-adapter:finding:e912453e7ad87d260d01f16a821aec9cb3e65bf21985b34751e3c6b40e6b44c6",
+    "kind": "consensus_escalation",
+    "run_id": "ea8258ce-9577-42fa-87cb-cab9b3bc5443",
+    "tool_id": "doc-staleness-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'doc-staleness:missing:docs/reviews/2026-09-01-aria-full-system-audit.md:19:web/modules/aria' (tool 'doc-staleness-adapter', run 'ea8258ce-9577-42fa-87cb-cab9b3bc5443'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-07T08:29:05Z",
+  "request_id": "consensus-ec02570d58e2ee54",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-14T08:29:05Z",
+  "status": "open"
+}

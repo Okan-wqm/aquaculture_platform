@@ -70,3 +70,26 @@ Fix:
 Proof: `channel-reading-query.rls.postgres.spec.ts` covers the contract fields,
 the disabled channel, the gaps, the bounds, and that one tenant cannot read
 another's bounds, all under FORCE RLS.
+
+## SENSOR-HIGH-162 — series from a rollup were not re-bucketed
+
+The rollups (`metrics_1min`, `metrics_1hour`, `metrics_1day`) have their own
+`bucket` column. In `GROUP BY s.channel_id, bucket`, Postgres binds an
+ambiguous name to the input column, not the output alias. The series query
+therefore grouped by the rollup's own buckets and returned every minute (or
+hour) as a separate point, stamped with the wider bucket's start: six hours
+at 15 minutes came back as 360 points instead of 24. `/sensor/readings`
+draws every view wider than the store's bucket this way, and so does main.
+
+The existing series spec reads the raw hypertable, whose time column is
+`time`, so the alias was unambiguous there and it never saw this.
+
+Fix: both series queries group and order by position. `aggregatedReadings`
+had the same grouping; its pivot merges same-bucket rows, so only its row
+count was wrong.
+
+Proof: `series-rebucketing.postgres.spec.ts` builds the production rollup
+DDL on real TimescaleDB, seeds a sample a minute for three days, and asserts
+one point per 15-minute bucket from the minute rollup and per 4-hour bucket
+from the hourly rollup. With the old grouping it fails (360 points instead
+of 24).

@@ -204,8 +204,10 @@ export class ChannelReadingQueryService {
               AND s.channel_id = ANY($4)
               AND s.${source.timeColumn} >= $5
               AND s.${source.timeColumn} < $6
-            GROUP BY s.channel_id, bucket
-            ORDER BY bucket ASC`,
+            -- Positional: a rollup's own \`bucket\` column would win over the
+            -- alias in GROUP BY, and its rows would come back un-re-bucketed.
+            GROUP BY 1, 2
+            ORDER BY 2 ASC`,
           [
             plan.interval,
             validSensorId,

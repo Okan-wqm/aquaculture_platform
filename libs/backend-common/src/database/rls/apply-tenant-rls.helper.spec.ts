@@ -46,9 +46,7 @@ import {
  * many members to stub individually and the extra surface distracts
  * from what the test is actually verifying.
  */
-function makeMockRunner(
-  replies: ReadonlyArray<unknown>,
-): {
+function makeMockRunner(replies: ReadonlyArray<unknown>): {
   runner: QueryRunner;
   calls: Array<{ sql: string; params?: unknown[] }>;
 } {
@@ -96,9 +94,7 @@ describe('apply-tenant-rls.helper', () => {
       // the helper header as the behaviour matrix. Any accidental
       // simplification of either side would either over-grant (bypass
       // without guard) or under-grant (no bypass path at all).
-      expect(clause).toContain(
-        `current_setting('${RLS_BYPASS_GUC}', true) = 'on'`,
-      );
+      expect(clause).toContain(`current_setting('${RLS_BYPASS_GUC}', true) = 'on'`);
       expect(clause).toContain(
         `"tenantId" = NULLIF(current_setting('${RLS_TENANT_GUC}', true), '')::uuid`,
       );
@@ -117,15 +113,11 @@ describe('apply-tenant-rls.helper', () => {
       expect(() => buildTenantPolicyUsingClause('tenant_id; DROP TABLE users')).toThrow(
         /Unsafe SQL identifier/,
       );
-      expect(() => buildTenantPolicyUsingClause('tenant id')).toThrow(
-        /Unsafe SQL identifier/,
-      );
-      expect(() => buildTenantPolicyUsingClause('')).toThrow(
-        /Unsafe SQL identifier/,
-      );
+      expect(() => buildTenantPolicyUsingClause('tenant id')).toThrow(/Unsafe SQL identifier/);
+      expect(() => buildTenantPolicyUsingClause('')).toThrow(/Unsafe SQL identifier/);
     });
 
-    it('NEVER emits the legacy buggy COALESCE(..., \'\')::uuid pattern', () => {
+    it("NEVER emits the legacy buggy COALESCE(..., '')::uuid pattern", () => {
       // Regression guard: the original farm-service RLS migration shipped
       //   COALESCE(current_setting(...), '')::uuid
       // which throws "invalid input syntax for type uuid: ''" whenever the
@@ -178,9 +170,7 @@ describe('apply-tenant-rls.helper', () => {
       Reflect.deleteProperty(process.env, AUTHORITY_ENV);
       const { runner, calls } = makeMockRunner([]);
 
-      await expect(applyTenantRlsToSchema(runner)).rejects.toThrow(
-        /db-migrate authority/,
-      );
+      await expect(applyTenantRlsToSchema(runner)).rejects.toThrow(/db-migrate authority/);
       expect(calls).toEqual([]);
     });
 
@@ -188,9 +178,7 @@ describe('apply-tenant-rls.helper', () => {
       Reflect.deleteProperty(process.env, AUTHORITY_ENV);
       const { runner, calls } = makeMockRunner([]);
 
-      await expect(removeTenantRlsFromSchema(runner)).rejects.toThrow(
-        /db-migrate authority/,
-      );
+      await expect(removeTenantRlsFromSchema(runner)).rejects.toThrow(/db-migrate authority/);
       expect(calls).toEqual([]);
     });
   });
@@ -203,12 +191,8 @@ describe('apply-tenant-rls.helper', () => {
       Reflect.deleteProperty(process.env, ddlAuthorityEnvironmentKey);
       const { runner, calls } = makeMockRunner([]);
 
-      await expect(applyTenantRlsToSchema(runner)).rejects.toThrow(
-        /db-migrate authority/,
-      );
-      await expect(removeTenantRlsFromSchema(runner)).rejects.toThrow(
-        /db-migrate authority/,
-      );
+      await expect(applyTenantRlsToSchema(runner)).rejects.toThrow(/db-migrate authority/);
+      await expect(removeTenantRlsFromSchema(runner)).rejects.toThrow(/db-migrate authority/);
       expect(calls).toHaveLength(0);
     });
 
@@ -231,8 +215,14 @@ describe('apply-tenant-rls.helper', () => {
           { table_name: 'users_legacy', column_name: 'tenantId', udt_name: 'uuid' },
         ],
         // 4 DDL statements × 2 tables = 8 undefined replies
-        undefined, undefined, undefined, undefined,
-        undefined, undefined, undefined, undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
       ];
       const { runner, calls } = makeMockRunner(replies);
 
@@ -286,7 +276,10 @@ describe('apply-tenant-rls.helper', () => {
           { table_name: 'audit_logs', column_name: 'tenant_id', udt_name: 'uuid' },
         ],
         // 4 DDLs × 1 non-excluded table (batches) = 4 replies
-        undefined, undefined, undefined, undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
       ];
       const { runner, calls } = makeMockRunner(replies);
 
@@ -313,10 +306,13 @@ describe('apply-tenant-rls.helper', () => {
       const replies = [
         [{ schema: 'mixed' }],
         [
-          { table_name: 'weird_table', column_name: 'tenantId', udt_name: 'uuid' },   // first
-          { table_name: 'weird_table', column_name: 'tenant_id', udt_name: 'uuid' },  // duplicate
+          { table_name: 'weird_table', column_name: 'tenantId', udt_name: 'uuid' }, // first
+          { table_name: 'weird_table', column_name: 'tenant_id', udt_name: 'uuid' }, // duplicate
         ],
-        undefined, undefined, undefined, undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
       ];
       const { runner, calls } = makeMockRunner(replies);
 
@@ -333,21 +329,20 @@ describe('apply-tenant-rls.helper', () => {
       // If information_schema somehow returns a schema name with a
       // semicolon (e.g. from a compromised catalog), the identifier
       // validator must catch it before any interpolation happens.
-      const replies = [
-        [{ schema: 'farm; DROP DATABASE postgres' }],
-      ];
+      const replies = [[{ schema: 'farm; DROP DATABASE postgres' }]];
       const { runner } = makeMockRunner(replies);
 
-      await expect(applyTenantRlsToSchema(runner)).rejects.toThrow(
-        /Unsafe SQL identifier/,
-      );
+      await expect(applyTenantRlsToSchema(runner)).rejects.toThrow(/Unsafe SQL identifier/);
     });
 
     it('honours custom tenantIdColumns option', async () => {
       const replies = [
         [{ schema: 'custom' }],
         [{ table_name: 't', column_name: 'orgId', udt_name: 'uuid' }],
-        undefined, undefined, undefined, undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
       ];
       const { runner, calls } = makeMockRunner(replies);
 
@@ -369,7 +364,10 @@ describe('apply-tenant-rls.helper', () => {
             udt_name: 'uuid',
           },
         ],
-        undefined, undefined, undefined, undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
       ];
       const { runner, calls } = makeMockRunner(replies);
 
@@ -383,7 +381,9 @@ describe('apply-tenant-rls.helper', () => {
         ['tenantId', 'tenant_id'],
         ['farm_stock_batch_snapshots'],
       ]);
-      expect(calls.filter((call) => call.sql.includes('"farm"."farm_stock_batch_snapshots"'))).toHaveLength(4);
+      expect(
+        calls.filter((call) => call.sql.includes('"farm"."farm_stock_batch_snapshots"')),
+      ).toHaveLength(4);
     });
 
     it('skips TimescaleDB columnstore hypertables only in tenant schemas', async () => {
@@ -409,16 +409,113 @@ describe('apply-tenant-rls.helper', () => {
         ],
         [{ column_name: 'columnstore_enabled' }],
         [{ table_name: 'sensor_metrics' }],
-        undefined, undefined, undefined, undefined,
+        [], // no continuous aggregate reads either table
+        undefined,
+        undefined,
+        undefined,
+        undefined,
       ];
       const { runner, calls } = makeMockRunner(replies);
 
       await applyTenantRlsToSchema(runner, { logger });
 
-      expect(calls.filter((call) => call.sql.includes('"tenant_7f6b08ab90e246d3"."farm_stock_batch_snapshots"'))).toHaveLength(4);
-      expect(calls.filter((call) => call.sql.includes('"tenant_7f6b08ab90e246d3"."sensor_metrics"'))).toHaveLength(0);
-      expect(warns.some((warn) => warn.includes('TimescaleDB columnstore hypertable') && warn.includes('sensor_metrics'))).toBe(true);
+      expect(
+        calls.filter((call) =>
+          call.sql.includes('"tenant_7f6b08ab90e246d3"."farm_stock_batch_snapshots"'),
+        ),
+      ).toHaveLength(4);
+      expect(
+        calls.filter((call) => call.sql.includes('"tenant_7f6b08ab90e246d3"."sensor_metrics"')),
+      ).toHaveLength(0);
+      expect(
+        warns.some(
+          (warn) =>
+            warn.includes('TimescaleDB columnstore hypertable') && warn.includes('sensor_metrics'),
+        ),
+      ).toBe(true);
       expect(logs.some((log) => log.includes('skipped: 1'))).toBe(true);
+    });
+  });
+
+  describe('continuous-aggregate owner read path (SENSOR-HIGH-146)', () => {
+    beforeEach(grantDdlAuthority);
+    afterEach(restoreDdlAuthority);
+
+    const TENANT = 'tenant_7f6b08ab90e246d3';
+    const discovery = [
+      [{ schema: TENANT }],
+      [{ table_name: 'sensor_metrics', column_name: 'tenant_id', udt_name: 'uuid' }],
+      [{ column_name: 'columnstore_enabled' }],
+      [], // sensor_metrics is not columnstore
+    ];
+
+    it('gives every aggregate owner a SELECT-only policy when RLS is armed', async () => {
+      const { runner, calls } = makeMockRunner([
+        ...discovery,
+        [{ table_name: 'sensor_metrics', owners: ['sensor_aggregate_owner'], has_policy: false }],
+        undefined,
+        undefined,
+        undefined,
+        undefined, // ENABLE, FORCE, DROP, CREATE tenant policy
+        undefined, // owner policy DO block
+      ]);
+
+      await applyTenantRlsToSchema(runner, {
+        logger: { log: () => undefined, warn: () => undefined },
+      });
+
+      const ownerPolicy = calls[calls.length - 1]?.sql ?? '';
+      expect(ownerPolicy).toContain('DO $owner_read$');
+      expect(ownerPolicy).toContain(
+        `CREATE POLICY "continuous_aggregate_owner_read" ON "${TENANT}"."sensor_metrics"`,
+      );
+      expect(ownerPolicy).toContain(
+        'AS PERMISSIVE FOR SELECT TO "sensor_aggregate_owner" USING (true)',
+      );
+      // An existing, identical policy is left alone — no lock on the hypertable.
+      expect(ownerPolicy).toContain("ARRAY['sensor_aggregate_owner']::name[]");
+      expect(ownerPolicy).toMatch(/IF FOUND\s+AND current_policy\.cmd = 'SELECT'[\s\S]*RETURN;/);
+      // It is armed in the same pass as the tenant policy, after it.
+      const tenantPolicy = calls.findIndex((call) =>
+        call.sql.includes('CREATE POLICY "tenant_isolation_policy"'),
+      );
+      expect(tenantPolicy).toBeGreaterThan(-1);
+      expect(tenantPolicy).toBeLessThan(calls.length - 1);
+    });
+
+    it('drops the owner policy from a table no aggregate reads any more', async () => {
+      const { runner, calls } = makeMockRunner([
+        ...discovery,
+        [{ table_name: 'sensor_metrics', owners: null, has_policy: true }],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined, // DROP owner policy
+      ]);
+
+      await applyTenantRlsToSchema(runner, {
+        logger: { log: () => undefined, warn: () => undefined },
+      });
+
+      expect(calls[calls.length - 1]?.sql).toBe(
+        `DROP POLICY IF EXISTS "continuous_aggregate_owner_read" ON "${TENANT}"."sensor_metrics"`,
+      );
+    });
+
+    it('refuses an aggregate owner name that is not a safe identifier', async () => {
+      const { runner } = makeMockRunner([
+        ...discovery,
+        [{ table_name: 'sensor_metrics', owners: ['x"; DROP TABLE users; --'], has_policy: false }],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      ]);
+
+      await expect(
+        applyTenantRlsToSchema(runner, { logger: { log: () => undefined, warn: () => undefined } }),
+      ).rejects.toThrow(/continuous aggregate owner/);
     });
   });
 
@@ -430,7 +527,9 @@ describe('apply-tenant-rls.helper', () => {
       const replies = [
         [{ schema: 'farm' }],
         [{ table_name: 'batches', column_name: 'tenant_id', udt_name: 'uuid' }],
-        undefined, undefined, undefined, // DROP POLICY, NO FORCE, DISABLE
+        undefined,
+        undefined,
+        undefined, // DROP POLICY, NO FORCE, DISABLE
       ];
       const { runner, calls } = makeMockRunner(replies);
 
@@ -458,10 +557,7 @@ describe('apply-tenant-rls.helper', () => {
         warn: (msg: string): void => void warns.push(msg),
       };
 
-      const replies = [
-        [{ schema: 'empty' }],
-        [],
-      ];
+      const replies = [[{ schema: 'empty' }], []];
       const { runner } = makeMockRunner(replies);
 
       await applyTenantRlsToSchema(runner, { logger });
@@ -506,7 +602,10 @@ describe('apply-tenant-rls.helper', () => {
           { table_name: 'invitations', column_name: 'tenantId', udt_name: 'uuid' },
         ],
         // 4 DDL statements × 1 non-skipped table (invitations) = 4 replies
-        undefined, undefined, undefined, undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
       ];
       const { runner, calls } = makeMockRunner(replies);
 
@@ -517,9 +616,7 @@ describe('apply-tenant-rls.helper', () => {
       expect(usersDdl).toHaveLength(0);
 
       // invitations got the full DDL sequence (4 statements)
-      const invitationsDdl = calls.filter((c) =>
-        c.sql.includes('"auth"."invitations"'),
-      );
+      const invitationsDdl = calls.filter((c) => c.sql.includes('"auth"."invitations"'));
       expect(invitationsDdl.length).toBe(4);
       expect(invitationsDdl[0]?.sql).toContain('ENABLE ROW LEVEL SECURITY');
       expect(invitationsDdl[3]?.sql).toContain('CREATE POLICY');
@@ -547,7 +644,10 @@ describe('apply-tenant-rls.helper', () => {
           { table_name: 'subscriptions', column_name: 'tenantId', udt_name: 'uuid' },
         ],
         // 4 DDL × 1 table = 4 replies
-        undefined, undefined, undefined, undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
       ];
       const { runner, calls } = makeMockRunner(replies);
 
@@ -556,12 +656,12 @@ describe('apply-tenant-rls.helper', () => {
       const tenantsDdl = calls.filter((c) => c.sql.includes('"billing"."tenants"'));
       expect(tenantsDdl).toHaveLength(0);
 
-      const subsDdl = calls.filter((c) =>
-        c.sql.includes('"billing"."subscriptions"'),
-      );
+      const subsDdl = calls.filter((c) => c.sql.includes('"billing"."subscriptions"'));
       expect(subsDdl.length).toBe(4);
 
-      expect(warns.some((w) => w.includes('IDENTITY-PRIMITIVE') && w.includes('tenants'))).toBe(true);
+      expect(warns.some((w) => w.includes('IDENTITY-PRIMITIVE') && w.includes('tenants'))).toBe(
+        true,
+      );
     });
 
     it('auto-skip applies even when excludeTables is non-empty (combined)', async () => {
@@ -583,7 +683,10 @@ describe('apply-tenant-rls.helper', () => {
           { table_name: 'refresh_tokens', column_name: 'tenantId', udt_name: 'uuid' },
         ],
         // 4 DDL × 1 non-skipped table (refresh_tokens)
-        undefined, undefined, undefined, undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
       ];
       const { runner, calls } = makeMockRunner(replies);
 
@@ -596,9 +699,7 @@ describe('apply-tenant-rls.helper', () => {
       expect(calls.filter((c) => c.sql.includes('"users"')).length).toBe(0);
       expect(calls.filter((c) => c.sql.includes('"auth_outbox"')).length).toBe(0);
       // Full DDL sequence on refresh_tokens
-      expect(
-        calls.filter((c) => c.sql.includes('"refresh_tokens"')).length,
-      ).toBe(4);
+      expect(calls.filter((c) => c.sql.includes('"refresh_tokens"')).length).toBe(4);
     });
   });
 });

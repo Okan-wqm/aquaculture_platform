@@ -14,23 +14,34 @@
  */
 import { DataSource, QueryRunner, EntityManager } from 'typeorm';
 
+/** One `mockManager.createQueryBuilder()` chain: every builder method is a mock. */
+export type MockQueryBuilderChain = Record<string, jest.Mock>;
+
 export interface MockDataSourceResult {
   mockDataSource: jest.Mocked<DataSource>;
   mockQueryRunner: jest.Mocked<QueryRunner>;
   mockManager: jest.Mocked<EntityManager>;
+  /** Every chain `mockManager.createQueryBuilder()` has returned, in order. */
+  queryBuilders: MockQueryBuilderChain[];
 }
 
 export function createMockDataSource(): MockDataSourceResult {
+  const queryBuilders: MockQueryBuilderChain[] = [];
   const mockManager = {
     find: jest.fn().mockResolvedValue([]),
     findAndCount: jest.fn().mockResolvedValue([[], 0]),
     findOne: jest.fn().mockResolvedValue(null),
-    save: jest.fn().mockImplementation((_entityClassOrEntity: unknown, maybeData?: unknown) =>
-      Promise.resolve(maybeData ?? _entityClassOrEntity),
-    ),
-    create: jest.fn().mockImplementation((_entityClassOrData: unknown, maybeData?: unknown) =>
-      maybeData ?? _entityClassOrData,
-    ),
+    save: jest
+      .fn()
+      .mockImplementation((_entityClassOrEntity: unknown, maybeData?: unknown) =>
+        Promise.resolve(maybeData ?? _entityClassOrEntity),
+      ),
+    create: jest
+      .fn()
+      .mockImplementation(
+        (_entityClassOrData: unknown, maybeData?: unknown) => maybeData ?? _entityClassOrData,
+      ),
+    insert: jest.fn().mockResolvedValue({ identifiers: [], generatedMaps: [], raw: [] }),
     update: jest.fn().mockResolvedValue({ affected: 1 }),
     delete: jest.fn().mockResolvedValue({ affected: 1 }),
     // Chainable no-op query builder — handlers use `.createQueryBuilder().update()
@@ -38,14 +49,17 @@ export function createMockDataSource(): MockDataSourceResult {
     // that must not clobber a sibling column). Returns a self-referencing chain so
     // any `.update/.set/.where/...` sequence resolves.
     createQueryBuilder: jest.fn(() => {
-      const qb: Record<string, jest.Mock> = {};
+      const qb: MockQueryBuilderChain = {};
       for (const method of [
         'update',
+        'insert',
+        'into',
         'set',
         'where',
         'andWhere',
         'from',
         'values',
+        'orIgnore',
         'returning',
         'select',
         'leftJoin',
@@ -56,6 +70,7 @@ export function createMockDataSource(): MockDataSourceResult {
       qb.execute = jest.fn().mockResolvedValue({ affected: 1, raw: [] });
       qb.getMany = jest.fn().mockResolvedValue([]);
       qb.getOne = jest.fn().mockResolvedValue(null);
+      queryBuilders.push(qb);
       return qb;
     }),
     getRepository: jest.fn().mockReturnValue({
@@ -88,5 +103,5 @@ export function createMockDataSource(): MockDataSourceResult {
     }),
   } as unknown as jest.Mocked<DataSource>;
 
-  return { mockDataSource, mockQueryRunner, mockManager };
+  return { mockDataSource, mockQueryRunner, mockManager, queryBuilders };
 }

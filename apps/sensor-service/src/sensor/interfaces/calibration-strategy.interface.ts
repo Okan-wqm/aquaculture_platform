@@ -85,10 +85,12 @@ export interface ICalibrationService {
   /**
    * Apply calibration to readings using channel configurations
    * @param sensorId The sensor ID to get channel configs for
+   * @param tenantId The sensor's tenant — the channel read runs in its RLS boundary
    * @param readings The raw readings to calibrate
    */
   applyCalibration(
     sensorId: string,
+    tenantId: string,
     readings: SensorReadings,
   ): Promise<SensorReadings>;
 

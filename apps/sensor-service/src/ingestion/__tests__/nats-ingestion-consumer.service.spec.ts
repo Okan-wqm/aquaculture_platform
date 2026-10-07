@@ -527,5 +527,12 @@ describe('NatsIngestionConsumerService', () => {
       expect(metaCache.getSensor).toHaveBeenCalledTimes(3);
       expect(metaCache.getChannels).toHaveBeenCalledTimes(3);
     });
+
+    it("looks the sensor and its channels up in the event's own tenant (SENSOR-HIGH-148)", async () => {
+      const { svc, metaCache } = makeService();
+      await svc.handle(fakeEvent());
+      expect(metaCache.getSensor).toHaveBeenCalledWith(SENSOR_ID, TENANT_ID);
+      expect(metaCache.getChannels).toHaveBeenCalledWith(SENSOR_ID, TENANT_ID);
+    });
   });
 });

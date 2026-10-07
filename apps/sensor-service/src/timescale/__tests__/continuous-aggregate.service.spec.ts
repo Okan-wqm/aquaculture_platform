@@ -34,6 +34,8 @@ function createHarness(
     failFor?: string;
     aggregateRows?: Array<{ view_name: string; view_owner: string }>;
     statsRows?: Array<{ view_name: string; last_run_started_at: Date | null }>;
+    /** pg_class/pg_policies answer for the tenant sensor_metrics; [] = table absent. */
+    sensorMetricsRls?: Array<{ row_security: boolean; owner_policy: boolean }>;
   } = {},
 ): Harness {
   const {
@@ -49,6 +51,7 @@ function createHarness(
       { view_name: 'metrics_1day', view_owner: 'sensor_aggregate_owner' },
     ],
     statsRows = [],
+    sensorMetricsRls = [{ row_security: true, owner_policy: true }],
   } = opts;
 
   // The schema the runner is currently pinned to, so current_schema() answers
@@ -61,6 +64,7 @@ function createHarness(
     if (text.includes('timescaledb_information.continuous_aggregates')) {
       return Promise.resolve(aggregateRows);
     }
+    if (text.includes('relrowsecurity')) return Promise.resolve(sensorMetricsRls);
     if (text.includes('pg_try_advisory_lock')) return Promise.resolve([{ locked: lock }]);
     const pin = text.match(/SET search_path TO "([^"]+)"/);
     if (pin) {
@@ -233,6 +237,32 @@ describe('ContinuousAggregateService — aggregate authority', () => {
     await expect(service.ensureAggregates()).rejects.toThrow(
       /metrics_1min owner=admin_schema_owner.*metrics_1day missing/,
     );
+  });
+
+  it('fails boot when sensor_metrics has row security but no rollup-owner read policy', async () => {
+    const { service } = createHarness({
+      authoritative: true,
+      sensorMetricsRls: [{ row_security: true, owner_policy: false }],
+    });
+
+    await expect(service.ensureAggregates()).rejects.toThrow(
+      /sensor_metrics has row security but no continuous_aggregate_owner_read policy/,
+    );
+  });
+
+  it('accepts a legacy sensor_metrics without row security, where the GRANT is the read path', async () => {
+    const { service } = createHarness({
+      authoritative: true,
+      sensorMetricsRls: [{ row_security: false, owner_policy: false }],
+    });
+
+    await expect(service.ensureAggregates()).resolves.toBeUndefined();
+  });
+
+  it('fails boot when the tenant has no sensor_metrics hypertable', async () => {
+    const { service } = createHarness({ authoritative: true, sensorMetricsRls: [] });
+
+    await expect(service.ensureAggregates()).rejects.toThrow(/sensor_metrics missing/);
   });
 
   it('onApplicationBootstrap delegates to ensureAggregates', async () => {

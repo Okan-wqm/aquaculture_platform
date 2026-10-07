@@ -82,6 +82,7 @@ MINT_SITES: dict[tuple[str, str], str] = {
 PRODUCER_SELECTORS: frozenset[tuple[str, str]] = frozenset({
     ("aria-kernel/aria_kernel/convergence_drainer.py", "_seed_producer"),
     ("aria-kernel/aria_kernel/human_required_adjudication.py", "_remint_producer"),
+    ("aria-kernel/aria_kernel/human_required_adjudication.py", "_panel_producer"),
     ("aria-kernel/aria_kernel/anchor_stale_effects.py", "_anchor_remint_producer"),
 })
 

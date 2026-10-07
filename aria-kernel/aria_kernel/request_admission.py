@@ -115,11 +115,19 @@ PRODUCER_CLASSES: Final[Mapping[str, ProducerClass]] = {
     "human_required_panel.open": ProducerClass(
         _same(DISCRETIONARY, "human_required_adjudication"),
         "an escalation with no panel row is listed again by the next sweep"),
+    # Re-review of #1833 (MEDIUM-C) — a panel over the death of a request
+    # admitted as critical path (an implementation, its Gate-B or expert
+    # review, an authoring step) is the recovery of in-flight work: it opens
+    # under the dead request's class, or its critical re-mint below could
+    # never be reached while the backlog is over budget. Plan steps do not
+    # depend on it: the drainer re-mints a dead step itself (step_request).
+    "human_required_panel.open_critical": ProducerClass(_same(CRITICAL_PATH, "human_required_adjudication"), _RERUN),
     # Review of #1833 (MEDIUM-2) — a panel's re-mint takes the class the DEAD
     # request was admitted under (recorded on its row at mint), never a role
-    # list: a dead Gate-B review or authoring step stays critical. A row minted
-    # before the door recorded nothing and re-mints as discretionary: bounded,
-    # and re-offered by the next sweep, so never lost.
+    # list: a dead Gate-B review or authoring step stays critical, reached
+    # through a panel that itself opened critical (`open_critical`). A row
+    # minted before the door recorded nothing and re-mints as discretionary:
+    # bounded, and re-offered by the next sweep, so never lost.
     "human_required_panel.remint_critical": ProducerClass(_same(CRITICAL_PATH, *sorted(INVOCATION_ROLES)), _RERUN),
     "human_required_panel.remint": ProducerClass(
         _same(DISCRETIONARY, *sorted(INVOCATION_ROLES)),
@@ -183,6 +191,10 @@ class _CycleView:
 
 
 _VIEWS: dict[tuple[str, str], _CycleView] = {}
+# A long-lived process (the orchestrator) sees one key per cycle; the cache
+# keeps the newest few and an uncycled key (one per call) is never cached.
+_MAX_VIEWS = 16
+_UNCYCLED_PREFIX = "uncycled:"
 
 
 def admissions_path(root: Path) -> Path:
@@ -196,7 +208,7 @@ def cycle_key_for(cycle_id: str | None, now: datetime) -> str:
     call, so it is measured fresh rather than against a snapshot up to a day
     old (review of #1833, MEDIUM-4).
     """
-    return cycle_id if cycle_id else f"uncycled:{now.astimezone(timezone.utc).isoformat()}"
+    return cycle_id if cycle_id else f"{_UNCYCLED_PREFIX}{now.astimezone(timezone.utc).isoformat()}"
 
 
 def _stamp(path: Path) -> tuple[int, int, int]:
@@ -222,7 +234,11 @@ def _view(root: Path, cycle_key: str) -> _CycleView:
         if row.get("cycle_key") != cycle_key:
             continue
         _fold(view, row)
-    _VIEWS[key] = view
+    if not cycle_key.startswith(_UNCYCLED_PREFIX):
+        _VIEWS.pop(key, None)
+        while len(_VIEWS) >= _MAX_VIEWS:
+            _VIEWS.pop(next(iter(_VIEWS)))
+        _VIEWS[key] = view
     return view
 
 
@@ -324,14 +340,16 @@ def admit_request(
     moment = now or datetime.now(timezone.utc)
     root = ensure_tools_dir(base_dir)
     cycle_key = cycle_key_for(cycle_id, moment)
-    view = _view(root, cycle_key)
     decided_at = moment.replace(microsecond=0).isoformat()
     row: dict[str, Any] = {
         "schema_version": 1, "row_type": "decision", "cycle_key": cycle_key, "producer": producer,
         "role": role, "purpose_class": purpose, "count": count, "decided_at": decided_at,
     }
     if purpose == CRITICAL_PATH:
+        # Nothing to measure or read: critical path is admitted, and the mint
+        # records it if the identity is new.
         return Admission(producer, role, purpose, cycle_key, count, True, CRITICAL_PATH)
+    view = _view(root, cycle_key)
     if view.snapshot is None:
         _append(root, view, {"schema_version": 1, "row_type": "snapshot", "cycle_key": cycle_key,
                              "decided_at": decided_at, "capacity": _measure(root, moment)})

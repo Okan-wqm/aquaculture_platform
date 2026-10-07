@@ -94,6 +94,25 @@ Fix:
   `provider_clock` (ARIA-HIGH-365) reads the outage intervals to answer "was the provider out
   then", which the lease reaper asks; it does not admit.
 
+### Re-review of #1833 (2026-10-07)
+
+- HIGH-A: the anchor-stale sweep's bound now counts decided items, not examined ones. Before it
+  re-mints, it asks the door once per (producer, role). A refused class waits like a full judge
+  backlog: no record, retried next cycle, and no slot taken. Previously the same newest refused
+  judges were re-planned every cycle, and the older open records and expiries behind them were
+  never decided. The `RequestAdmissionThrottled` arm stays for the budget edge inside one sweep.
+- MEDIUM-B: the orchestrator asks the door (`convergence_drainer.seed_admission`, the drainer's
+  own question) before booking a new plan. A refused seed writes one governance row
+  (`convergence_seed_throttled`). It is not counted as minted or rejected and starts no
+  convergence.
+- MEDIUM-C: the earlier claim was overstated. A panel opened as discretionary, so under backlog
+  pressure the critical re-mint behind it was unreachable. A panel now opens under the dead
+  request's recorded class (`human_required_panel.open_critical`). A critical death
+  (implementation, Gate-B or expert review, authoring step) is recovery of in-flight work. In-flight
+  plans never depended on it: the drainer re-mints a dead plan step itself.
+- A critical call reads no ledger. An uncycled key is never cached, and the cache keeps the 16
+  newest cycles.
+
 ## ARIA-MEDIUM-376
 
 `aria-kernel convergent-plan` could not run at all. The subcommand imported

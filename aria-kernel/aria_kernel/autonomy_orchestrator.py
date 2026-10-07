@@ -1990,6 +1990,42 @@ def run_autonomy_orchestrator(
                     cycle_summary["reflection"] = post_drain_reflection
                     per_cycle_results.append(cycle_summary)
                     continue
+                # ARIA-HIGH-364 (re-review of #1833, MEDIUM-B) — a NEW plan is
+                # admitted before it is booked: a seed the request-admission
+                # door refuses is neither minted nor rejected in the funnel and
+                # starts no convergence; the cycle records the refusal on
+                # governance and the synthesizer re-derives the candidate next
+                # cycle. An adopted plan (already started) is never asked.
+                from .convergence_drainer import seed_admission
+
+                _seed_ticket = seed_admission(
+                    plan_id=active_plan_id, plan_seed=_v7_plan_content, base_dir=root, cycle_id=cycle_id,
+                )
+                if _seed_ticket is not None and not _seed_ticket.admitted:
+                    append_tools_governance(root, "convergence_seed_throttled", {
+                        "cycle_id": cycle_id, "plan_id": active_plan_id, "refusal": _seed_ticket.refusal,
+                    })
+                    cycle_summary["plan_seed_throttled"] = {
+                        "plan_id": active_plan_id, "refusal": _seed_ticket.refusal,
+                    }
+                    _calibration_reporter_and_auto_promotion(
+                        root, cycle_id, cycle_summary, profile_snapshot,
+                    )
+                    post_drain_reflection = run_reflection(
+                        cycle_id=cycle_id,
+                        base_dir=root,
+                        repo_root=workspace_root,
+                        convergence_result=None,
+                        review_result=None,
+                        **producer_reflection_kwargs(
+                            cycle_summary=cycle_summary,
+                            cycle_result=cycle_result,
+                            pedagogy_lint_result=pedagogy_snapshot,
+                        ),
+                    )
+                    cycle_summary["reflection"] = post_drain_reflection
+                    per_cycle_results.append(cycle_summary)
+                    continue
                 # Plan ARIA-V7 §2i v2 — synthesizer produced real plan.
                 # The funnel's entry: the plan is minted. Recorded BEFORE
                 # the state transition below so that a

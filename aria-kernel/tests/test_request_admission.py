@@ -428,20 +428,90 @@ class AThrottledJudgeReMintRetriesWithNoRecord(_Store):
         case = AnchorStaleStore("setUp")
         case.setUp()
         self.addCleanup(case.tearDown)
-        dead = case.mint_judges(1)[EVIDENCE_JUDGE]
+        judges = [case.mint_judges(i)[EVIDENCE_JUDGE] for i in (1, 2)]
         case.commit()
-        case.expire(dead)
-        with self.queue(_ledgers(50, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))):
+        for dead in judges:
+            case.expire(dead)
+        # One slot of headroom: both re-mints pass the per-class question,
+        # the first mint fills the budget, the second is refused AT the mint.
+        with self.queue(_ledgers(31, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))):
             held = case.sweep(cycle_id="cyc-1")
-        self.assertEqual([row["request_id"] for row in held["throttled_retry"]], [dead])
-        self.assertEqual(held["disposed"], [])
-        self.assertFalse(case.record_path(dead).exists())
-        self.assertEqual(case.successors(dead), [])
+        refused = [row["request_id"] for row in held["throttled_retry"]]
+        self.assertEqual(len(refused), 1)
+        self.assertEqual(len(held["disposed"]), 1)
+        self.assertFalse(case.record_path(refused[0]).exists())
+        self.assertEqual(case.successors(refused[0]), [])
         self.assertEqual(case.adjudication_requests(), [])
         with self.queue(_ledgers(5, pending_age=timedelta(hours=1), drained=40, drained_age=timedelta(hours=2))):
             case.sweep(cycle_id="cyc-2")
-        self.assertEqual(len(case.successors(dead)), 1)
-        self.assertEqual(case.record(dead)["status"], "resolved")
+        self.assertEqual(len(case.successors(refused[0])), 1)
+        self.assertEqual(case.record(refused[0])["status"], "resolved")
+
+
+class RefusedReMintsDoNotHoldTheSweepsSlots(_Store):
+    """Re-review of #1833 (HIGH-A): refused judge re-mints wait without taking a slot."""
+
+    def test_older_expiries_are_decided_while_refused_judges_wait(self) -> None:
+        from aria_kernel import anchor_stale
+        from tests._helpers.anchor_stale_store import EVIDENCE_JUDGE, AnchorStaleStore
+
+        case = AnchorStaleStore("setUp")
+        case.setUp()
+        self.addCleanup(case.tearDown)
+        case.seed_row("AIR-verify-1", role="verification", target_agent="aria-adversarial-judge")
+        judges = [case.mint_judges(i)[EVIDENCE_JUDGE] for i in (1, 2, 3)]
+        case.commit()
+        for dead in judges:
+            case.expire(dead)
+        over_budget = _ledgers(50, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))
+        with patch.object(anchor_stale, "ANCHOR_STALE_DISPOSITIONS_PER_SWEEP", 2), self.queue(over_budget):
+            held = case.sweep(cycle_id="cyc-1")
+        # The three newest items are refused judges; the older expiry is
+        # still decided inside a two-slot sweep, and handed to the operator.
+        self.assertEqual([row["request_id"] for row in held["disposed"]], ["AIR-verify-1"])
+        self.assertEqual(held["waiting_request_admission"], 3)
+        self.assertEqual([case.successors(dead) for dead in judges], [[], [], []])
+        self.assertFalse(any(case.record_path(dead).exists() for dead in judges))
+        caught_up = _ledgers(5, pending_age=timedelta(hours=1), drained=40, drained_age=timedelta(hours=2))
+        with self.queue(caught_up):
+            case.sweep(cycle_id="cyc-2")
+        self.assertEqual(sum(len(case.successors(dead)) for dead in judges), 3)
+
+class APanelOverACriticalDeathOpensCritical(_Store):
+    """Re-review of #1833 (MEDIUM-C): the panel inherits the dead request's class."""
+
+    def test_a_gate_b_death_opens_its_panel_over_budget_and_a_fanout_death_waits(self) -> None:
+        from aria_kernel import human_required_adjudication as hra
+
+        gate_b = _mint_judge(self.tools, admit_request("review_runner.post_implementation", "adversarial_judgment",
+                                                       base_dir=self.tools), role="adversarial_judgment")
+        fanout = _mint_judge(self.tools, admit_request("operator_cli.request", "evidence_judgment",
+                                                       base_dir=self.tools))
+        record = {"context": {"kind": "lease_lifecycle"}}
+        with self.queue(_ledgers(50, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))):
+            panel = hra.open_adjudication(escalation_request_id=gate_b["request_id"], record=record,
+                                          base_dir=self.tools, cycle_id="cyc-1")
+            # The operator's CLI mint is critical too; a pre-door row is not.
+            self.assertEqual(hra._panel_producer(self.tools, fanout["request_id"]), "human_required_panel.open_critical")
+            self.assertEqual(hra._panel_producer(self.tools, "AIR-pre-door"), "human_required_panel.open")
+            with self.assertRaisesRegex(RequestAdmissionThrottled, "backlog_at_drain_budget"):
+                hra.open_adjudication(escalation_request_id="AIR-pre-door", record=record,
+                                      base_dir=self.tools, cycle_id="cyc-1")
+        self.assertEqual(len(panel["request_ids"]), 3)
+
+class TheDoorsCacheStaysSmall(_Store):
+    """Re-review of #1833 (minor): critical calls read nothing; uncycled keys are not cached."""
+
+    def test_a_critical_call_reads_no_ledger_and_an_uncycled_call_is_not_kept(self) -> None:
+        from aria_kernel import request_admission
+
+        with patch("aria_kernel.ledger.load_declared_jsonl", side_effect=AssertionError("read")):
+            self.assertTrue(self.admit("convergence_drainer.plan_step", "cross_review").admitted)
+        before = set(request_admission._VIEWS)
+        with self.queue(_ledgers(1, pending_age=timedelta(hours=1), drained=7, drained_age=timedelta(hours=2))):
+            for _ in range(3):
+                admit_request("judge_fanout.sample", "evidence_judgment", base_dir=self.tools)
+        self.assertEqual(set(request_admission._VIEWS) - before, set())
 
 if __name__ == "__main__":
     unittest.main()

@@ -448,15 +448,16 @@ def open_adjudication(
             f"{len(distinct_targets)}<{panel_size}"
         )
     panel = distinct_targets[:panel_size]
-    # ARIA-HIGH-364 — a panel is new work (about 18 envelopes a cycle into a
-    # 630-request backlog on 10-06): discretionary, and admitted whole —
-    # ``count`` is the panel, so no half-panel is ever minted. A refusal
-    # raises before any envelope or ledger row; the escalation keeps no
-    # panel row and the next sweep lists it again. Under this door the
-    # anchor_stale -> panel amplifier (ARIA-HIGH-360) is capped by the same
-    # drain budget.
+    # ARIA-HIGH-364 — a panel is admitted whole (``count`` is the panel, so
+    # no half-panel is ever minted), under the class of the request whose
+    # death it adjudicates (`_panel_producer`): discretionary for ordinary
+    # work (about 18 envelopes a cycle into a 630-request backlog on 10-06),
+    # critical path when the dead request was admitted as critical. A refusal
+    # raises before any envelope or ledger row; the escalation keeps no panel
+    # row and the next sweep lists it again.
     admission = admit_request(
-        "human_required_panel.open", ADJUDICATION_ROLE, base_dir=root, cycle_id=cycle_id, count=len(panel),
+        _panel_producer(root, escalation_request_id), ADJUDICATION_ROLE,
+        base_dir=root, cycle_id=cycle_id, count=len(panel),
     )
     if not admission.admitted:
         raise RequestAdmissionThrottled(admission.refusal)
@@ -821,6 +822,20 @@ def _stamp_escalated_to_operator(
         root, "human_required_escalated_to_operator",
         {"escalation_request_id": request_id, "reason": reason},
     )
+
+
+def _panel_producer(root: Path, escalation_request_id: str) -> str:
+    """ARIA-HIGH-364 (re-review of #1833, MEDIUM-C) — the class a panel opens under.
+
+    The class of the request whose death it adjudicates, as recorded at its
+    mint. An escalation that names no request (a belief, a genesis
+    candidate, a promotion) or a row minted before the door is discretionary.
+    """
+    from .agent_invocations import _find_request_by_id
+
+    dead = _find_request_by_id(root, escalation_request_id)
+    critical = dead is not None and inherits_critical_path(dead)
+    return "human_required_panel.open_critical" if critical else "human_required_panel.open"
 
 
 def _remint_producer(dead: Mapping[str, Any]) -> str:

@@ -310,6 +310,22 @@ def _seed_producer(plan_seed: dict[str, Any]) -> str:
     return "convergence_drainer.operator_plan_seed" if operator else "convergence_drainer.plan_seed"
 
 
+def seed_admission(
+    *, plan_id: str, plan_seed: dict[str, Any], base_dir: str | Path, cycle_id: str,
+) -> Admission | None:
+    """ARIA-HIGH-364 — the door's decision on STARTING ``plan_id``, or None when it already exists.
+
+    One function for both askers: the drainer before it starts the plan, and
+    the orchestrator before it books the plan as minted (re-review of #1833,
+    MEDIUM-B), so a refused seed is never counted as minted and rejected. An
+    admitted decision writes nothing; the round-1 challenger the drainer then
+    mints consumes it.
+    """
+    if fold_plan_state(plan_id=plan_id, base_dir=base_dir).get("state") is not None:
+        return None
+    return admit_request(_seed_producer(plan_seed), _STEP_ROLE_CHALLENGER, base_dir=base_dir, cycle_id=cycle_id)
+
+
 def _persistence_path(root: Path, plan_id: str) -> Path:
     # E2/F9 — keyed by PLAN, not cycle: the resume branch already requires
     # plan_id equality, but a cycle-keyed filename meant a new cycle never
@@ -907,10 +923,8 @@ def run_convergence_drainer(
             # and would mint anyway). A seed from an operator-signed request
             # is operator work and is never throttled. The synthesizer
             # re-derives the candidate next cycle.
-            seed_ticket = admit_request(
-                _seed_producer(plan_seed), _STEP_ROLE_CHALLENGER, base_dir=root, cycle_id=cycle_id,
-            )
-            if not seed_ticket.admitted:
+            seed_ticket = seed_admission(plan_id=plan_id, plan_seed=plan_seed, base_dir=root, cycle_id=cycle_id)
+            if seed_ticket is not None and not seed_ticket.admitted:
                 _advanced(seed_ticket.refusal, None, 1)
                 return _result("request_admission_throttled", rounds=0)
             start_convergent_plan_drafted_by_primary(

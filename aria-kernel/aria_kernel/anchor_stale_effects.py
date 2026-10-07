@@ -40,8 +40,10 @@ class RemintGate:
     def __init__(self, root: Path, requests: list[dict[str, Any]], states: Mapping[str, str],
                  cycle_id: str | None = None) -> None:
         self._root = root
-        # ARIA-HIGH-364 — the cycle a re-mint's admission is budgeted under.
+        # ARIA-HIGH-364 — the cycle a re-mint's admission is budgeted under,
+        # and the door's answer per (producer, role), asked once per sweep.
         self.cycle_id = cycle_id
+        self._refusals: dict[tuple[str, str], str | None] = {}
         self._requests = requests
         self._states = states
         self._pending: dict[str, int] | None = None
@@ -67,6 +69,15 @@ class RemintGate:
             self._head = _resolve_workspace_head_sha(self.workspace)
             self._head_read = True
         return self._head
+
+    def refusal(self, request: Mapping[str, Any]) -> str | None:
+        """The door's refusal of this request's re-mint class, asked once per (producer, role) per sweep."""
+        key = (_anchor_remint_producer(request), str(request.get("role") or ""))
+        if key not in self._refusals:
+            admission = admit_request(_anchor_remint_producer(request), key[1], base_dir=self._root,
+                                      cycle_id=self.cycle_id)
+            self._refusals[key] = None if admission.admitted else admission.refusal
+        return self._refusals[key]
 
     def minted(self, role: str) -> None:
         """Reserve a planned re-mint against the ceiling before it is minted."""

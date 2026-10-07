@@ -238,15 +238,26 @@ def dispose_anchor_stale_requests(
     waiting = [rid for rid, request, _record in work if request is not None and rid not in successor_of
                and owners[rid][0] == OWNER_KERNEL_REMINT and gate.full(str(request.get("role") or ""))]
     waiting_ids = set(waiting)
-    due = [item for item in work if item[0] not in waiting_ids][:ANCHOR_STALE_DISPOSITIONS_PER_SWEEP]
+    # ARIA-HIGH-364 (re-review of #1833, HIGH-A) — the bound counts decided
+    # items, not examined ones. A re-mint the request-admission door refuses
+    # waits like a full judge backlog: no record, retried next cycle, and it
+    # does not take one of the sweep's slots. Slicing the first items of
+    # `work` instead re-planned the same newest refused judges every cycle
+    # while the backlog stayed over budget, and the open records and other
+    # expiries behind them (operator hand-offs, re-offers, drops) were never
+    # decided.
+    candidates = [item for item in work if item[0] not in waiting_ids]
     summary: dict[str, Any] = {"disposed": [], "waiting_judge_backlog_full": len(waiting),
                                "waiting_sample": waiting[:20], "bound": ANCHOR_STALE_DISPOSITIONS_PER_SWEEP}
-    if not due:
+    if not candidates:
         return summary
     causes = _causes(claims)
     subjects = JudgeSubjectLiveness(base_dir=root, now=reference)
     planned: list[tuple[str, dict[str, Any], dict[str, Any] | None, ExpiryCause, ExpiryDecision]] = []
-    for rid, request, record in due:
+    waiting_admission: list[str] = []
+    for rid, request, record in candidates:
+        if len(planned) >= ANCHOR_STALE_DISPOSITIONS_PER_SWEEP:
+            break
         cause = causes.get(rid, ExpiryCause.from_reason(""))
         if request is None:
             # Only an open record can name a request the ledger lacks.
@@ -263,10 +274,14 @@ def dispose_anchor_stale_requests(
             waiting.append(rid)
             continue
         if decision.action == ACTION_REMINT:
+            if gate.refusal(request) is not None:
+                waiting_admission.append(rid)
+                continue
             gate.minted(str(request.get("role") or ""))
         planned.append((rid, request, record, cause, decision))
     summary["waiting_judge_backlog_full"] = len(waiting)
     summary["waiting_sample"] = waiting[:20]
+    summary["waiting_request_admission"] = len(waiting_admission)
     # Written before any effect, so a crash mid-batch leaves the plan on the
     # ledger; the next sweep decides the unwritten items again.
     append_tools_governance(root, STARTED_GOVERNANCE_KIND, {

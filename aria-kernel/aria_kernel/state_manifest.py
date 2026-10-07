@@ -478,6 +478,10 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # request's admitted turns FROM this ledger before deciding the next one, so losing it
     # resets the cap, not only the record.
     StateSurface("hook_decisions", "hooks/decisions.jsonl", "ledger", "hooks", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
+    # ARIA-HIGH-364 — the request-admission door's decisions and per-cycle
+    # drain snapshots (request_admission.admit_request); read by the door
+    # itself and by the daily report's Request Admission section.
+    StateSurface("agent_invocation_admissions", "agent-invocations/admissions.jsonl", "ledger", "request_admission", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     StateSurface("agent_work_journal", "agent-invocations/work-journal.jsonl", "ledger", "work_journal", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     # Plan 032 Faz 032c — checkpoints (observation), sessions, external-effect intents/receipts and recovery decisions (write-driving).
     StateSurface("checkpoints_index", "checkpoints/index.jsonl", "ledger", "checkpoints", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),

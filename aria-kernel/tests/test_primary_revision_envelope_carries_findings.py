@@ -31,6 +31,7 @@ from aria_kernel.cross_review_bridge import (
     issue_primary_envelope,
 )
 from aria_kernel.plan_convergence import content_hash
+from aria_kernel.request_admission import admit_request
 
 
 def _body(title: str) -> dict:
@@ -99,6 +100,7 @@ class TheEnvelopeUsesItByDefault(unittest.TestCase):
             issue_primary_envelope(
                 plan_id="flow-x", round_number=2, must_satisfy=[{"id": "m1"}], evidence_refs=["a.ts:1"],
                 allowed_scope=["**"], base_dir=Path(tmp) / "aria-tools",
+                admission=admit_request("convergence_drainer.plan_step", "primary_plan", base_dir=Path(tmp) / "aria-tools"),
             )
         self.assertEqual(captured["role"], "primary_plan")
         self.assertIn('<untrusted_cross_review_risks round="1">', captured["suggested_prompt"])

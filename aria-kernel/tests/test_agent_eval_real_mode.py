@@ -51,6 +51,7 @@ from aria_kernel.agent_eval import (
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.state_manifest import surface_by_name
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 PROCEDURAL = Path("memory") / "procedural.jsonl"
 MERGE_SHA = "a" * 40
@@ -342,6 +343,7 @@ class ImplementationEnvelopeCarriesTheLessonTests(unittest.TestCase):
             plan_id="plan-k10", cross_review_revision_id="cr-1", cross_review_summary_text="{}",
             proposal_id="proposal-k10", change_id="chg-k10", branch="aria-impl-0123456789abcdef",
             base_sha="0" * 40, base_dir=self.tools, cycle_id="cyc-k10",
+            admission=admit_request("implementer.converged_plan", "implementation", base_dir=self.tools),
         )
 
         validate_request(row, base_dir=self.tools)

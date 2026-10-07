@@ -40,13 +40,11 @@ opened (``own_pr_delivery.aria_opened_prs``) on an ``aria-impl-*`` branch:
   attempt whose receipt never came (timeout) is answered from the PR's head
   on the next pass and never re-sent for the same triple.
 
-WHAT IT DOES NOT DO. An update changes the PR head, and every self-merge
-gate binds the head to the delivered commit (``change_committed.commit_sha``,
-the triple gate, the native merge context). An updated ARIA PR is therefore
-a human merge until the merge authority accepts ARIA's own recorded,
-server-made updates of a delivered commit — tracked as ARIA-HIGH-374
-(owner claude, deadline 2026-10-14). ``human_merge_surface`` names exactly
-that reason on the PR's HUMAN_REQUIRED item.
+AFTER THE UPDATE (ARIA-HIGH-374). An update changes the PR head, and every
+self-merge gate binds the evidence to the delivered commit. The gates accept
+the updated head only through ``branch_update_lineage``: each update commit
+must be one this ledger records (``request_branch_update``) and a pure merge
+of main. Anything else on the branch keeps the PR a person's merge.
 """
 from __future__ import annotations
 
@@ -113,22 +111,24 @@ def _attempted(request_id: str, *, base_dir: str | Path | None) -> dict[str, dic
 
 def _answer_unreceipted(request_id: str, live: dict[str, Any], *, base_dir: str | Path | None) -> None:
     """An intent a killed or timed-out pass left without a receipt is answered
-    from the PR as GitHub shows it now: its head moved (the update landed) or
-    it did not — for a PR that has since closed too (review LOW), so no
-    intent stays unanswered for recovery to chase."""
+    ``absent``, with the head GitHub shows now — for a PR that has since
+    closed too (review LOW), so no intent stays unanswered.
+
+    GSEC-MEDIUM-002 — a head that MOVED is not proof the update landed: a
+    stranger's push moves it as well. Only a result read back right after
+    an accepted call (``request_branch_update``) confirms an update; this
+    answer never does, so the lineage never accepts what it saw here.
+    """
     from .recovery import record_receipt
 
     live_head = str(live.get("headRefOid") or "")
     for operation_id, entry in _attempted(request_id, base_dir=base_dir).items():
         if entry["receipt"] is not None:
             continue
-        expected = str((entry["intent"].get("intended_postcondition") or {}).get("expected_head_sha") or "")
-        landed = bool(expected) and bool(live_head) and live_head != expected
         record_receipt(
             operation_id=operation_id, request_id=request_id,
-            observed={"head_sha": live_head, "state": str(live.get("state") or ""),
-                      "answered_from": "pr_head", "landed": landed},
-            status="confirmed" if landed else "absent", base_dir=base_dir,
+            observed={"head_sha": live_head, "state": str(live.get("state") or ""), "answered_from": "pr_head"},
+            status="absent", base_dir=base_dir,
         )
 
 
@@ -210,6 +210,108 @@ def already_requested(*, pr_number: int, head_sha: str, base_sha: str, base_dir:
     return receipt is None or receipt.get("status") == "confirmed"
 
 
+# GitHub merges asynchronously after the 202: poll the head this long.
+RESULT_READ_BACK_ATTEMPTS = 6
+RESULT_READ_BACK_INTERVAL_SECONDS = 5.0
+
+
+def _read_back_head(
+    *, pr_number: int, previous_head: str, environment: dict[str, str], workspace_root: str | Path,
+    sleep: Callable[[float], None] | None = None,
+) -> str | None:
+    """The PR head once it moved off ``previous_head``, or None inside the bound."""
+    import time
+
+    pause = sleep or time.sleep
+    for attempt in range(RESULT_READ_BACK_ATTEMPTS):
+        try:
+            read = subprocess.run(
+                ["gh", "api", f"repos/{{owner}}/{{repo}}/pulls/{int(pr_number)}", "--jq", ".head.sha"],
+                cwd=workspace_root, env=environment, capture_output=True, text=True, check=False, timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        head = (read.stdout or "").strip()
+        if read.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", head) and head != previous_head:
+            return head
+        if attempt + 1 < RESULT_READ_BACK_ATTEMPTS:
+            pause(RESULT_READ_BACK_INTERVAL_SECONDS)
+    return None
+
+
+def request_branch_update(
+    *,
+    pr_number: int,
+    head_sha: str,
+    base_sha: str,
+    environment: dict[str, str],
+    workspace_root: str | Path,
+    base_dir: str | Path | None,
+    runner: Callable[..., "subprocess.CompletedProcess[str]"] | None = None,
+    head_reader: Callable[..., str | None] | None = None,
+) -> dict[str, Any]:
+    """The ONE ``update-branch`` call ARIA makes, bracketed by intent and receipt.
+
+    ARIA-HIGH-374 — the cycle's batch and the merge lane (for a ``BEHIND``
+    PR it would otherwise try to merge) both call this, so every update ARIA
+    asks for is on the external-effects ledger in one shape: the record
+    ``branch_update_lineage.verify_branch_update_lineage`` accepts an updated
+    head by. ``environment`` must carry an installation token
+    (``run_gh_write``).
+    """
+    from .github_writes import run_gh_write
+    from .recovery import record_intent, record_receipt
+
+    request_id = update_request_id(pr_number)
+    intent = record_intent(
+        request_id=request_id, effect_kind=EFFECT_KIND, target=f"pr#{pr_number}",
+        intended_postcondition={"pr_number": pr_number, "expected_head_sha": head_sha, "base_sha": base_sha},
+        base_dir=base_dir,
+    )
+    row = {"pr_number": pr_number, "head_sha": head_sha, "base_sha": base_sha}
+    try:
+        completed = run_gh_write(
+            ["api", "-X", "PUT", f"repos/{{owner}}/{{repo}}/pulls/{pr_number}/update-branch",
+             "-f", f"expected_head_sha={head_sha}"],
+            env=environment, cwd=workspace_root, timeout=GH_UPDATE_BRANCH_TIMEOUT_SECONDS, runner=runner,
+        )
+    except OSError as exc:
+        # Review LOW — `gh` missing or not executable: a failed request by
+        # name, never an exception that aborts the caller's phase.
+        record_receipt(operation_id=str(intent["operation_id"]), request_id=request_id,
+                       observed={"os_error": type(exc).__name__}, status="failed", base_dir=base_dir)
+        return {**row, "outcome": f"os_error:{type(exc).__name__}"}
+    except subprocess.TimeoutExpired:
+        # Unknown outcome: no receipt; the next pass answers it from the head.
+        return {**row, "outcome": "timed_out"}
+    except GovernanceError as exc:
+        record_receipt(operation_id=str(intent["operation_id"]), request_id=request_id,
+                       observed={"refused": str(exc)[:300]}, status="failed", base_dir=base_dir)
+        return {**row, "outcome": f"refused:{str(exc)[:200]}"}
+    accepted = completed.returncode == 0
+    first_error = ((completed.stderr or "").strip().splitlines() or [""])[0]
+    if not accepted:
+        record_receipt(
+            operation_id=str(intent["operation_id"]), request_id=request_id,
+            observed={"returncode": completed.returncode, "stderr": [first_error] if first_error else []},
+            status="failed", base_dir=base_dir,
+        )
+        return {**row, "outcome": f"failed:{first_error[:200]}"}
+    # GSEC-MEDIUM-002 — the update runs on GitHub's side after the 202; the
+    # head it produced is read back and recorded, and only that head is the
+    # update's result the lineage accepts. Not observed inside the bound:
+    # `absent`, never confirmed — the PR's next head is not attributable.
+    result = (head_reader or _read_back_head)(
+        pr_number=pr_number, previous_head=head_sha, environment=environment, workspace_root=workspace_root,
+    )
+    record_receipt(
+        operation_id=str(intent["operation_id"]), request_id=request_id,
+        observed={"returncode": 0, "result_head_sha": result},
+        status="confirmed" if result else "absent", base_dir=base_dir,
+    )
+    return {**row, "outcome": "accepted" if result else "accepted_result_unobserved", "result_head_sha": result}
+
+
 def update_behind_aria_prs(
     *,
     cycle_id: str,
@@ -219,6 +321,7 @@ def update_behind_aria_prs(
     profile: str,
     credential_hold: Callable[..., Any] | None = None,
     runner: Callable[..., "subprocess.CompletedProcess[str]"] | None = None,
+    head_reader: Callable[..., str | None] | None = None,
 ) -> dict[str, Any]:
     """Request ``update-branch`` for each qualifying ARIA PR; see module doc."""
     from .delivery_credentials import (
@@ -226,8 +329,6 @@ def update_behind_aria_prs(
         DeliveryCredentialError,
         hold_delivery_credentials,
     )
-    from .github_writes import run_gh_write
-    from .recovery import record_intent, record_receipt
     from .runtime_profile import ACTION_PERMISSIONS
 
     if profile not in ACTION_PERMISSIONS["pr_open"]:
@@ -255,6 +356,19 @@ def update_behind_aria_prs(
             continue
         assert live is not None
         base = str(live.get("baseRefOid") or "")
+        # GSEC-MEDIUM-002 — the shared predicate: ARIA merges main only into
+        # a head it can vouch for (the delivered commit or a verified lineage).
+        from .branch_update_lineage import fetch_pr_head, update_request_refusal
+
+        fetch_pr_head(workspace_root, number)
+        refusal = update_request_refusal(
+            workspace=workspace_root, base_dir=base_dir, pr_number=number, head_sha=head, live_base_sha=base,
+            branch=str(live.get("headRefName") or ""), base_branch=str(live.get("baseRefName") or ""),
+            checks_green=ci_summary(live.get("statusCheckRollup"))["state"] == CI_GREEN,
+        )
+        if refusal is not None:
+            skipped.append({"pr_number": number, "reason": refusal})
+            continue
         if already_requested(pr_number=number, head_sha=head, base_sha=base, base_dir=base_dir):
             skipped.append({"pr_number": number, "reason": "already_requested_for_this_head_and_base"})
             continue
@@ -276,55 +390,23 @@ def update_behind_aria_prs(
             return {"status": "credential_unavailable", "reason": str(exc)[:300], "requested": [], "skipped": skipped}
         environment = {**os.environ, **(dict(credential.env) if credential is not None else {})}
         for number, head, base in queue:
-            request_id = update_request_id(number)
-            intent = record_intent(
-                request_id=request_id, effect_kind=EFFECT_KIND, target=f"pr#{number}",
-                intended_postcondition={"pr_number": number, "expected_head_sha": head, "base_sha": base},
-                base_dir=base_dir,
-            )
-            try:
-                completed = run_gh_write(
-                    ["api", "-X", "PUT", f"repos/{{owner}}/{{repo}}/pulls/{number}/update-branch",
-                     "-f", f"expected_head_sha={head}"],
-                    env=environment, cwd=workspace_root, timeout=GH_UPDATE_BRANCH_TIMEOUT_SECONDS, runner=runner,
-                )
-            except OSError as exc:
-                # Review LOW — `gh` missing or not executable: a failed
-                # request by name, never an exception that aborts the phase
-                # before the human-merge surface runs.
-                record_receipt(operation_id=str(intent["operation_id"]), request_id=request_id,
-                               observed={"os_error": type(exc).__name__}, status="failed", base_dir=base_dir)
-                requested.append({"pr_number": number, "head_sha": head, "outcome": f"os_error:{type(exc).__name__}"})
-                continue
-            except subprocess.TimeoutExpired:
-                # Unknown outcome: no receipt; the next pass answers it from the head.
-                requested.append({"pr_number": number, "head_sha": head, "outcome": "timed_out"})
-                continue
-            except GovernanceError as exc:
-                record_receipt(operation_id=str(intent["operation_id"]), request_id=request_id,
-                               observed={"refused": str(exc)[:300]}, status="failed", base_dir=base_dir)
-                requested.append({"pr_number": number, "head_sha": head, "outcome": f"refused:{str(exc)[:200]}"})
-                continue
-            accepted = completed.returncode == 0
-            record_receipt(
-                operation_id=str(intent["operation_id"]), request_id=request_id,
-                observed={"returncode": completed.returncode,
-                          "stderr": (completed.stderr or "").strip().splitlines()[:1]},
-                status="confirmed" if accepted else "failed", base_dir=base_dir,
-            )
-            outcome = "accepted" if accepted else f"failed:{((completed.stderr or '').strip().splitlines() or [''])[0][:200]}"
-            requested.append({"pr_number": number, "head_sha": head, "base_sha": base, "outcome": outcome})
+            requested.append(request_branch_update(
+                pr_number=number, head_sha=head, base_sha=base, environment=environment,
+                workspace_root=workspace_root, base_dir=base_dir, runner=runner, head_reader=head_reader,
+            ))
     append_tools_governance(ensure_tools_dir(base_dir), UPDATE_REQUESTED_EVENT, {"cycle_id": cycle_id, "requested": requested})
     return {"status": "ran", "requested": requested, "skipped": skipped}
 
 
 __all__ = [
     "BEHIND",
+    "EFFECT_KIND",
     "BranchUpdateGrant",
     "GH_UPDATE_BRANCH_TIMEOUT_SECONDS",
     "MAX_UPDATES_PER_CYCLE",
     "UPDATE_REQUESTED_EVENT",
     "already_requested",
+    "request_branch_update",
     "update_behind_aria_prs",
     "update_request_id",
 ]

@@ -1594,6 +1594,16 @@ def alias_factory(root):
                     f"{KERNEL}autonomy_orchestrator.py",
                     "consumer",
                 ),
+                # ARIA-HIGH-364 — the request-admission door reads result
+                # timestamps to measure the drain rate and executor
+                # liveness; it decides whether NEW work may be minted,
+                # never whether the executor's work is accepted.
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}request_drain_capacity.py",
+                    "consumer",
+                ),
                 (
                     "executor",
                     "agent_invocation_results",

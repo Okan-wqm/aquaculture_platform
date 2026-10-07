@@ -160,15 +160,114 @@ the head is no longer the delivered commit, so every self-merge gate refuses it.
 Net effect: under `autonomous`, an L1 ARIA PR merges only if main did not move between the anchor
 commit and the merge.
 
-What is done here: the update never runs for a pending head, and ARIA-HIGH-373 names the
-condition on the PR's record (`behind_base_under_strict_protection`,
-`head_is_not_the_delivered_commit:…:ARIA-HIGH-374`). So a person sees it and merges.
+Fix (stacked on #1828, branch `fix/aria-merge-after-branch-update`).
 
-Not done: the merge authority accepting a head that is a server-made update recorded by ARIA,
-with a purity proof (`git merge-tree` of the recorded `(head, base)` equals the head's tree).
-This touches the triple gate, the native merge context and the implementation join in
-`merge_authority.py` and `auto_merge.py`, so it is a merge-authority change in its own right.
-Tracked here: owner claude, deadline 2026-10-14.
+- **One shared verifier:** `branch_update_lineage.verify_branch_update_lineage`. A head that
+  differs from the delivered commit is accepted only if every commit on its first-parent chain
+  back to the delivered commit meets all three conditions:
+  - it is a two-parent merge whose first parent ARIA asked GitHub to update (a
+    `pr_branch_update` intent with a `confirmed` receipt);
+  - its second parent descends from the recorded base and is contained in the live base;
+  - its tree equals `git merge-tree --write-tree` of those two parents.
+
+  Any other commit is refused by name: `unrecorded_commit`, `merged_base_not_main`,
+  `merge_not_clean`, `tree_differs_from_pure_merge`, or `commit_unreadable`. The walk is bounded
+  at 64 updates.
+
+- **The three gates use it:**
+  - the triple gate (`auto_merge._evaluate_triple_gate`, now given the checkout and the live
+    base);
+  - the native merge context (`merge_authority._capture_pre_merge_context`);
+  - the implementation join.
+
+  The evidence stays bound to the implementation pair (the delivered commit and its base). The
+  live pair (`merge_head_sha`, `merge_base_sha`) is what the snapshot, the branch-tip lock, the
+  PR diff and the read-only check read. The merged paths may only narrow the implementation's
+  paths, never widen them.
+
+- **Same rule in the surface:** `human_merge_surface` judges an updated head with the same
+  verifier. It fetches `refs/pull/<n>/head` by object id, without writing a ref.
+- **The merge lane reads `mergeStateStatus`** (`merge_lane_merge_state`) before any proof or
+  incident row:
+  - `BEHIND` asks for the update through the cycle's own call
+    (`pr_branch_update.request_branch_update`), once per (PR, head, base).
+  - `DIRTY` and `BLOCKED` are named skips. No incident is written.
+- **CI stays the merge authority's.** `evaluate_auto_merge` reads every check run on the live
+  head. Runs on the delivered commit do not count for the updated head.
+
+Tests: `tests/test_branch_update_lineage.py` has 12 tests.
+
+- Lineage: a recorded pure update passes. These are refused: an unrecorded push, an update ARIA
+  never asked for, a failed request, foreign content, a merged parent not on main.
+- The triple gate: passes after a pure update, and refuses foreign content.
+- The branch-tip lock on the merged pair.
+- The merge lane:
+  - `BEHIND` requests the update once and writes no incident;
+  - `DIRTY` and `BLOCKED` are skips.
+- Red checks on the live head.
+
+On the 371–373 head (`1f83bb1dc`), the gate and lane tests fail:
+
+- The lane goes on to the risk gate (`risk_policy_required_for_merge`) instead of skipping.
+- The triple gate and the evidence have no lineage inputs (`TypeError`).
+- The lineage tests cannot import their module.
+
+The red-check test pins behaviour that already held.
+
+## ARIA-HIGH-374 security review corrections
+
+The security review of #1832 found no CRITICAL or HIGH issues; it confirmed that the content
+invariant holds. Its three MEDIUM and six LOW issues are fixed as follows.
+
+- **GSEC-MEDIUM-001: the purity check used the checkout's git configuration.** Every git call
+  in `branch_update_lineage` now runs in a throwaway bare repository with no configuration of its
+  own. It borrows the checkout's objects through `alternates`, and the `.git` location is read
+  from disk, not from that checkout's git. The environment and options are:
+  - `scrubbed_git_env`, with `GIT_CONFIG_GLOBAL=/dev/null`;
+  - `--no-replace-objects`;
+  - `--attr-source=<empty tree>` and `core.attributesFile=/dev/null`;
+  - `merge.renormalize=false`, plus hooks and fsmonitor turned off.
+
+  A test registers a driver in the checkout and commits a `.gitattributes` that names it. The
+  driver never runs, and the conflict it would have resolved is refused as `merge_not_clean`.
+
+- **GSEC-MEDIUM-002: ARIA could update, or count as updated, a head it never vouched for.**
+  - Both requesters, the cycle and the merge lane, now read one predicate,
+    `update_request_refusal`. It requires an `aria-impl-*` branch, `main` as the base, green
+    checks, and either the delivered commit or a verified lineage.
+  - After an accepted call, the head GitHub produced is read back and stored in the receipt as
+    `result_head_sha`.
+  - The walk accepts only the `(expected_head, result_head)` pairs those receipts name.
+  - An unreceipted intent is answered `absent`. A head that merely moved is never treated as
+    confirmed.
+- **GSEC-MEDIUM-003: the validated tree is not the merged tree.** An updated head is refused when
+  the merged change touches a project that main's `scripts/ci/affected-target-policy.json`
+  quarantines. The refusal is named `updated_head_touches_quarantined_project`.
+
+  Re-running the hygiene battery on the merged head was rejected. That would mean the whole
+  four-command suite on a hosted merge runner, with no sandbox.
+
+  Measured on 2026-10-07: the `test` quarantine is empty. The `lint` quarantine lists 40
+  projects, which covers almost every `apps/` and `web/` project. So an updated head that changes
+  application code is a human merge until that quarantine drains. Docs-only L1 changes still
+  self-merge.
+
+- **LOW:** a ledger that cannot be read now refuses as `update_ledger_unreadable` and no longer
+  raises. New tests cover:
+  - an octopus merge;
+  - reversed parents;
+  - a foreign commit mid-chain;
+  - a missing git;
+  - a conflicted merge;
+  - a merged parent older than the recorded base.
+
+Proof on `e341e33af`:
+
+- These new tests fail behaviourally: the merge driver ran, the quarantine was not refused, a
+  result that was never read back was accepted, and a result other than the recorded one was
+  accepted.
+- The predicate, receipt and ledger tests fail because the inputs they need do not exist there.
+- The octopus, chain, git-missing, conflict and older-base tests pin behaviour that already held.
 
 ## Review corrections
 

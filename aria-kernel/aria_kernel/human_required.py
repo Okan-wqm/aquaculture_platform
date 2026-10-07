@@ -618,6 +618,7 @@ def sweep_lease_lifecycle_for_human_required(
     *,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
+    cycle_id: str | None = None,
 ) -> dict[str, Any]:
     """Find lease-lifecycle requests whose derived state is HUMAN_REQUIRED but
     have no corresponding `aria-tools/human-required/<request_id>.json` file yet.
@@ -693,7 +694,7 @@ def sweep_lease_lifecycle_for_human_required(
     from .anchor_stale import dispose_anchor_stale_requests
 
     anchor_stale = dispose_anchor_stale_requests(
-        root=root, requests=requests, states=states, claims=claims, now=now,
+        root=root, requests=requests, states=states, claims=claims, now=now, cycle_id=cycle_id,
     )
     return {"created": created, "skipped": skipped, "anchor_stale": anchor_stale}
 

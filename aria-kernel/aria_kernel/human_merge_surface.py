@@ -14,8 +14,9 @@ same reader: for each open PR ARIA's own ledger says it opened, the reasons
 it is not self-mergeable RIGHT NOW are computed from the opener's recorded
 merge route, the merge authority's own refusal (``assert_merge_authorized``
 for the route's lane), the head against the delivered commit (the change
-ledger's ``commit_sha`` — an updated head is not one the self-merge gates
-accept, ARIA-HIGH-374) and GitHub's ``mergeStateStatus``. A PR with any
+ledger's ``commit_sha`` — an updated head counts only when
+``branch_update_lineage`` verifies it, ARIA-HIGH-374) and GitHub's
+``mergeStateStatus``. A PR with any
 reason has exactly ONE record, ``human-merge-pr-<n>``, whose context carries
 the PR URL, its CI state (``own_pr_delivery.ci_summary``) and the reasons;
 the context is refreshed while the PR waits (``refresh_open_record_context``)
@@ -37,7 +38,7 @@ from .human_required import (
     refresh_open_record_context,
     resolve_human_required,
 )
-from .own_pr_delivery import aria_opened_prs, ci_summary
+from .own_pr_delivery import CI_PENDING, aria_opened_prs, ci_summary
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 HUMAN_MERGE_SEVERITY = "MEDIUM"
@@ -61,8 +62,44 @@ def human_merge_request_id(pr_number: int, *, base_dir: str | Path | None = None
     return f"{first}-{episode}"
 
 
-def self_merge_refusals(opened: dict[str, Any], live: dict[str, Any], *, base_dir: str | Path | None) -> list[str]:
-    """Why the merge lane cannot merge this open ARIA PR now; empty when it can."""
+def _head_lineage_refusal(
+    opened: dict[str, Any], live: dict[str, Any], delivered: str, *,
+    base_dir: str | Path | None, workspace_root: str | Path | None,
+) -> str | None:
+    """ARIA-HIGH-374 — the head judged by the SAME verifier the merge gates use.
+
+    The cycle's checkout may not hold the PR's newest commits; they are
+    fetched by object id (``refs/pull/<n>/head``, no local ref written)
+    before the walk. A head the verifier refuses is named with its reason.
+    """
+    from .branch_update_lineage import BranchUpdateLineageRefused, fetch_pr_head, verify_branch_update_lineage
+
+    head = str(live.get("headRefOid") or "")
+    if workspace_root is None:
+        return f"head_is_not_the_delivered_commit:head={head[:12]}:delivered={delivered[:12]}:no_checkout"
+    number = int(live.get("number") or opened.get("pr_number") or 0)
+    fetch_pr_head(workspace_root, number)
+    try:
+        verify_branch_update_lineage(
+            workspace=workspace_root, base_dir=base_dir, pr_number=number, head_sha=head,
+            delivered_sha=delivered, live_base_sha=str(live.get("baseRefOid") or ""),
+        )
+    except BranchUpdateLineageRefused as exc:
+        return f"head_is_not_the_delivered_commit:head={head[:12]}:delivered={delivered[:12]}:{exc.reason}"
+    return None
+
+
+def self_merge_refusals(
+    opened: dict[str, Any], live: dict[str, Any], *,
+    base_dir: str | Path | None, workspace_root: str | Path | None = None,
+) -> list[str]:
+    """Why the merge lane cannot merge this open ARIA PR now; empty when it can.
+
+    ARIA-HIGH-374 — ``BEHIND`` is no longer a person's: the cycle and the
+    merge lane request the update, and an updated head passes the gates
+    when its lineage verifies. ``DIRTY`` is a conflict, and ``BLOCKED`` with
+    settled checks a protection rule; both are named.
+    """
     from .change_ledger import _find_committed
     from .risk_policy import HUMAN_MERGE_LABEL
     from .runtime_profile import assert_merge_authorized
@@ -86,12 +123,15 @@ def self_merge_refusals(opened: dict[str, Any], live: dict[str, Any], *, base_di
     if not delivered:
         reasons.append("delivered_commit_unrecorded")
     elif head != delivered:
-        reasons.append(f"head_is_not_the_delivered_commit:head={head[:12]}:delivered={delivered[:12]}:ARIA-HIGH-374")
+        refusal = _head_lineage_refusal(opened, live, delivered, base_dir=base_dir, workspace_root=workspace_root)
+        if refusal is not None:
+            reasons.append(refusal)
     merge_state = str(live.get("mergeStateStatus") or "").upper()
     if merge_state == "DIRTY":
         reasons.append("conflicts_with_base")
-    elif merge_state == "BEHIND" or (merge_state == "BLOCKED" and (live.get("behindBy") or 0) > 0):
-        reasons.append("behind_base_under_strict_protection")
+    elif merge_state == "BLOCKED" and not (live.get("behindBy") or 0) > 0 \
+            and ci_summary(live.get("statusCheckRollup"))["state"] != CI_PENDING:
+        reasons.append("blocked_by_branch_protection")
     return reasons
 
 
@@ -110,7 +150,9 @@ def _context(number: int, opened: dict[str, Any], live: dict[str, Any], reasons:
     }
 
 
-def surface_human_merge_prs(*, cycle_id: str, base_dir: str | Path | None, reader: Any) -> dict[str, Any]:
+def surface_human_merge_prs(
+    *, cycle_id: str, base_dir: str | Path | None, reader: Any, workspace_root: str | Path | None = None,
+) -> dict[str, Any]:
     """Record, refresh and resolve the human-merge items; see module doc."""
     readable, reason = reader.readable()
     if not readable:
@@ -144,7 +186,7 @@ def surface_human_merge_prs(*, cycle_id: str, base_dir: str | Path | None, reade
                 continue
             if state != "OPEN" or number not in opened:
                 continue
-            reasons = self_merge_refusals(opened[number], live, base_dir=root)
+            reasons = self_merge_refusals(opened[number], live, base_dir=root, workspace_root=workspace_root)
             context = _context(number, opened[number], live, reasons)
             if number in open_records:
                 if refresh_open_record_context(request_id=request_id, context=context, base_dir=root):

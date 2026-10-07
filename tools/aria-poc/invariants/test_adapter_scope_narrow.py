@@ -1,32 +1,32 @@
-"""Plan 022 §C-7/§C-8 follow-up — adapter scope narrowness invariants.
+"""Plan 022 §C-7/§C-8 follow-up — adapter scope invariants.
 
-Pins the iteration surfaces of the outbox + agent-harness-security
-adapters to their manifest declarations. The pre-fix `outbox_adapter`
-walked the entire `apps/`, `platform/libs/`, and `libs/` trees regardless
-of its manifest scope (`apps/**/outbox/**/*.ts`,
-`platform/libs/outbox/**/*.ts`), surfacing ~200 hr-service paths and
-producing a real-positive scope_violation once the kernel-side scope
-matcher (Plan 022 §C-7/§C-8) was repaired.
+Pins the iteration surfaces of the outbox + agent-harness-security adapters
+to their manifest declarations.
+
+ARIA-MEDIUM-379 — the outbox adapter's scope is application source
+(`apps/*/src/**/*.ts`), not the outbox directories. Reading only the outbox
+directories (the Plan 022 narrowing) made both of its former rules judge the
+outbox machinery itself: all three hits on main were false positives, and the
+domain code where a raw publish is the defect was never read. The scope is
+still pinned to the manifest, and libraries, tests, migrations and the outbox
+implementation stay out of it.
 
 These tests guarantee:
 
-* `outbox_adapter.SCANNED_GLOBS` (and its `_FALLBACK_SCANNED_GLOBS`
-  internal alias) match the manifest exactly — neither broader nor
-  narrower than its committed declaration
-  (`aria_kernel.adapter_portfolio`) says.
-* `outbox_adapter._iter_files` walks ONLY outbox subtrees, both in
-  fallback mode (no `allowed_paths`) and in kernel-injection mode
-  (`allowed_paths` supplied).
-* `outbox_adapter` does not yield non-outbox paths even when an
-  hr-service file sits in the same fixture repo.
-* `agent_harness_security_adapter.SCANNED_GLOBS` matches its manifest
-  declaration exactly — confirms the implementer-side claim that this
-  adapter was already scope-narrow and needs no change.
+* `outbox_adapter.SCANNED_GLOBS` (and its `_FALLBACK_SCANNED_GLOBS` alias)
+  match the manifest (`tools/aria-adapters/outbox-adapter.tool.json`)
+  exactly, and never widen to libraries;
+* `outbox_adapter._iter_files` walks application source only, in fallback
+  mode and in kernel-injection mode (`allowed_paths` supplied), and an empty
+  kernel list means no walk;
+* the rule flags a raw publish in a transactional write path of a service
+  that registers the outbox, and nothing else (true- and false-positive
+  fixtures);
+* `agent_harness_security_adapter.SCANNED_GLOBS` matches its manifest.
 
-Test isolation: each test creates a tempdir fixture repo with
-`package.json` (the marker `_resolve_repo_root` walks up the parent
-chain to find), seeds the relevant TS / py files, runs the adapter,
-asserts shape.
+Test isolation: each test creates a tempdir fixture repo with `package.json`
+(the marker `_resolve_repo_root` walks up the parent chain to find), seeds the
+relevant TS / py files, runs the adapter, asserts shape.
 """
 from __future__ import annotations
 
@@ -64,22 +64,12 @@ def _manifest_globs(tool_id: str) -> list[str]:
     gitignored registry ``registry_compiler`` builds at runtime. A fresh
     checkout and the CI job (whose bootstrap writes ``.aria-ci/tools``) have
     no such file, so both pins failed with FileNotFoundError wherever they
-    could run. The registry is compiled from these same
-    declarations: ``tools/aria-adapters/<tool_id>.tool.json`` for a
-    manifest adapter, and the Plan 016 portfolio row
-    (``adapter_portfolio._build_adapter_row``) for the MVP adapters that
-    have no manifest file.
+    could run. The registry is compiled from the manifests
+    (``tools/aria-adapters/<tool_id>.tool.json``), the only declaration an
+    adapter has since ARIA-MEDIUM-378 gave the Plan 016 portfolio adapters
+    manifests of their own.
     """
-    manifest = _MANIFEST_DIR / f"{tool_id}.tool.json"
-    if manifest.exists():
-        row = json.loads(manifest.read_text(encoding="utf-8"))
-    else:
-        from aria_kernel.adapter_portfolio import _MVP_ADAPTERS, _build_adapter_row
-
-        spec = next((s for s in _MVP_ADAPTERS if s["tool_id"] == tool_id), None)
-        if spec is None:
-            raise AssertionError(f"{tool_id} has neither a manifest nor a portfolio row")
-        row = _build_adapter_row(spec)
+    row = json.loads((_MANIFEST_DIR / f"{tool_id}.tool.json").read_text(encoding="utf-8"))
     globs = row.get("allowed_read_globs", [])
     if not isinstance(globs, list):
         raise AssertionError(f"{tool_id} allowed_read_globs is not a list")
@@ -102,8 +92,31 @@ def _seed(repo: Path, rel: str, content: str = "") -> Path:
     return path
 
 
-class OutboxAdapterScopeNarrowTests(unittest.TestCase):
-    """Pin outbox_adapter scanned surface to the manifest declaration."""
+_OUTBOX_REGISTRATION = (
+    "import { OutboxModule } from '@platform/outbox';\n"
+    "export const HrOutbox = OutboxModule.forFeature({ entity: HrOutbox });\n"
+)
+
+_TRANSACTIONAL_HANDLER = """
+export class RejectHandler {
+  async execute(command: RejectCommand): Promise<Request> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.startTransaction();
+    try {
+      const saved = await queryRunner.manager.save(Request, request);
+      await queryRunner.commitTransaction();
+      this.eventBus.publish(createRejectedEvent(saved));
+      return saved;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+}
+"""
+
+
+class OutboxAdapterScopeTests(unittest.TestCase):
+    """Pin outbox_adapter's scanned surface to the manifest declaration."""
 
     def setUp(self) -> None:
         self.repo = _make_repo()
@@ -111,146 +124,42 @@ class OutboxAdapterScopeNarrowTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.repo, ignore_errors=True)
 
-    def test_outbox_adapter_scanned_globs_narrow(self) -> None:
-        """SCANNED_GLOBS must match manifest, NOT include broad
-        `apps/**/*.ts` or `libs/**/*.ts` patterns that walked the whole
-        tree pre-fix. The manifest is the single source of truth; this
-        test fails immediately if the adapter drifts above scope."""
-        # The exact, sorted manifest globs.
-        expected = sorted(_manifest_globs("outbox-adapter"))
-        # The adapter's declared globs.
-        actual = sorted(OUTBOX_SCANNED_GLOBS)
-        self.assertEqual(
-            expected,
-            actual,
-            (
-                "outbox_adapter.SCANNED_GLOBS drifted from manifest "
-                f"`outbox-adapter.allowed_read_globs`. Expected={expected}, "
-                f"actual={actual}. Update the adapter to match the "
-                "manifest, or update the manifest+adapter together."
-            ),
-        )
-        # Internal fallback alias must be the same tuple — the public
-        # SCANNED_GLOBS is documented to alias _FALLBACK_SCANNED_GLOBS.
+    def test_outbox_adapter_scanned_globs_match_the_manifest(self) -> None:
+        self.assertEqual(sorted(_manifest_globs("outbox-adapter")), sorted(OUTBOX_SCANNED_GLOBS))
         self.assertEqual(tuple(OUTBOX_SCANNED_GLOBS), OUTBOX_FALLBACK_GLOBS)
-        # The pre-fix broad patterns must be absent.
-        for forbidden in ("apps/**/*.ts", "libs/**/*.ts", "platform/libs/**/*.ts"):
-            self.assertNotIn(
-                forbidden,
-                OUTBOX_SCANNED_GLOBS,
-                f"forbidden broad glob `{forbidden}` survived in SCANNED_GLOBS",
-            )
+        for glob in OUTBOX_SCANNED_GLOBS:
+            self.assertTrue(glob.startswith("apps/"), f"{glob} widens past application source")
 
-    def test_outbox_adapter_walks_only_outbox_paths(self) -> None:
-        """Fallback walker (no `allowed_paths` supplied) must visit
-        ONLY outbox-surface files. Drop file mix is the strict version
-        of the no-hr-drift test below: every file in the seeded repo
-        is non-outbox EXCEPT the two outbox files."""
-        outbox_in_apps = _seed(
-            self.repo,
-            "apps/farm-service/src/outbox/feed.outbox.ts",
-            "// outbox file, in scope",
-        )
-        outbox_in_platform = _seed(
-            self.repo,
-            "platform/libs/outbox/src/publisher.outbox.ts",
-            "// outbox file, in scope",
-        )
-        # Out-of-scope files spread across the broad pre-fix surfaces.
-        _seed(self.repo, "apps/hr-service/src/personnel/foo.ts", "// not outbox")
-        _seed(self.repo, "apps/farm-service/src/feed/feed.service.ts", "// not outbox")
-        _seed(self.repo, "libs/backend-common/src/utils.ts", "// not outbox")
-        _seed(self.repo, "platform/libs/cqrs/src/bus.ts", "// not outbox")
-
-        # Iterate via the adapter's path walker — fallback mode (no
-        # kernel-pre-filtered list).
-        walked = outbox_iter_files(self.repo, allowed_paths=None)
-        walked_rel = sorted(p.relative_to(self.repo).as_posix() for p in walked)
-        self.assertEqual(
-            walked_rel,
-            sorted([
-                outbox_in_apps.relative_to(self.repo).as_posix(),
-                outbox_in_platform.relative_to(self.repo).as_posix(),
-            ]),
-            "fallback walker yielded out-of-scope files",
-        )
-
-    def test_outbox_adapter_no_hr_service_drift(self) -> None:
-        """Mirrors the original drift bug: an hr-service TS file MUST
-        NOT appear in the adapter's read_paths. This is the regression
-        test that would have caught the pre-fix `apps/**/*.ts` walk."""
-        outbox_path = _seed(
-            self.repo,
-            "apps/farm-service/src/outbox/feed.outbox.ts",
-            "// outbox source — in scope",
-        )
-        hr_path = _seed(
-            self.repo,
-            "apps/hr-service/src/personnel/foo.ts",
-            "// hr source — out of scope",
-        )
-
-        envelope = outbox_scan(self.repo)
-        read_paths = envelope.get("read_paths", [])
-        # Outbox path is read.
-        self.assertIn(
-            outbox_path.relative_to(self.repo).as_posix(),
-            read_paths,
-        )
-        # hr-service path is NOT read.
-        self.assertNotIn(
-            hr_path.relative_to(self.repo).as_posix(),
-            read_paths,
-            "hr-service drift returned: adapter read a non-outbox path",
-        )
+    def test_outbox_adapter_walks_application_source_only(self) -> None:
+        handler = _seed(self.repo, "apps/hr-service/src/leave/reject.handler.ts", "// handler")
+        registration = _seed(self.repo, "apps/hr-service/src/outbox/hr-outbox.module.ts", "// module")
+        _seed(self.repo, "apps/hr-service/src/leave/__tests__/reject.spec.ts", "// test")
+        _seed(self.repo, "apps/hr-service/src/database/migrations/1-x.ts", "// migration")
+        _seed(self.repo, "apps/hr-service/test/e2e.ts", "// outside src")
+        _seed(self.repo, "platform/libs/outbox/src/outbox-worker.service.ts", "// library")
+        _seed(self.repo, "libs/backend-common/src/utils.ts", "// library")
+        walked = sorted(p.relative_to(self.repo).as_posix() for p in outbox_iter_files(self.repo, None))
+        self.assertEqual(walked, sorted([
+            handler.relative_to(self.repo).as_posix(),
+            registration.relative_to(self.repo).as_posix(),
+        ]))
 
     def test_outbox_adapter_kernel_injection_path_uses_allowed_paths(self) -> None:
-        """When `allowed_paths` is supplied (the production path,
-        kernel-pre-filtered through `_snapshot_for_tool`), the walker
-        consumes that list directly. Verifies the Option-A
-        single-source-of-truth path: even if the manifest declared a
-        broader fallback, the kernel-pre-filtered list dominates."""
-        outbox_path = _seed(
-            self.repo,
-            "apps/farm-service/src/outbox/feed.outbox.ts",
-            "// outbox",
-        )
-        # Out-of-scope file present on disk; adapter must not read it
-        # because it is NOT in `allowed_paths`.
-        _seed(
-            self.repo,
-            "apps/hr-service/src/personnel/foo.ts",
-            "// hr service",
-        )
-
-        # Kernel-supplied list contains ONLY the outbox path.
-        kernel_supplied = [
-            outbox_path.relative_to(self.repo).as_posix(),
-        ]
-        envelope = outbox_scan(self.repo, allowed_paths=kernel_supplied)
-        self.assertEqual(envelope["read_paths"], kernel_supplied)
+        handler = _seed(self.repo, "apps/hr-service/src/leave/reject.handler.ts", "// handler")
+        _seed(self.repo, "apps/hr-service/src/leave/approve.handler.ts", "// not supplied")
+        supplied = [handler.relative_to(self.repo).as_posix()]
+        envelope = outbox_scan(self.repo, allowed_paths=supplied)
+        self.assertEqual(envelope["read_paths"], supplied)
 
     def test_outbox_adapter_empty_allowed_paths_means_no_walk(self) -> None:
-        """Edge case: kernel hands back an empty `allowed_paths` (e.g.
-        the working tree contains zero outbox files). Adapter must
-        return zero read_paths, not silently fall back to the manifest
-        walk and reintroduce drift."""
-        _seed(
-            self.repo,
-            "apps/hr-service/src/personnel/foo.ts",
-            "// hr service",
-        )
+        _seed(self.repo, "apps/hr-service/src/leave/reject.handler.ts", _TRANSACTIONAL_HANDLER)
         envelope = outbox_scan(self.repo, allowed_paths=[])
         self.assertEqual(envelope["read_paths"], [])
         self.assertEqual(envelope["findings"], [])
 
 
-class OutboxAdapterDetectionUnaffectedTests(unittest.TestCase):
-    """Confirm the rule detection logic still fires correctly under the
-    narrowed scope. Mirrors the existing
-    `tests/test_outbox_cqrs_adapters.py` expectations but seeds the
-    fixture inside the outbox surface so the narrowed walker still
-    sees the file."""
+class OutboxAdapterDetectionTests(unittest.TestCase):
+    """ARIA-MEDIUM-379 — true- and false-positive fixtures for the one rule."""
 
     def setUp(self) -> None:
         self.repo = _make_repo()
@@ -258,19 +167,117 @@ class OutboxAdapterDetectionUnaffectedTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.repo, ignore_errors=True)
 
-    def test_publish_outside_transaction_in_outbox_subtree_flagged(self) -> None:
-        path = self.repo / "apps" / "farm-service" / "src" / "outbox" / "publisher.ts"
-        path.parent.mkdir(parents=True)
-        path.write_text("""
-import { EventBus } from '@nestjs/cqrs';
-class P { constructor(private eventBus: EventBus) {}
-  do() { this.eventBus.publish(new SomeEvent()); }
+    def _rules(self) -> list[tuple[str, str, int]]:
+        return [(f["rule"], f["path"], f["line"]) for f in outbox_scan(self.repo)["findings"]]
+
+    def test_raw_publish_in_a_transactional_write_path_is_flagged(self) -> None:
+        _seed(self.repo, "apps/hr-service/src/outbox/hr-outbox.module.ts", _OUTBOX_REGISTRATION)
+        _seed(self.repo, "apps/hr-service/src/leave/reject.handler.ts", _TRANSACTIONAL_HANDLER)
+        self.assertEqual(self._rules(), [(
+            "domain_event_published_outside_outbox", "apps/hr-service/src/leave/reject.handler.ts", 9,
+        )])
+        finding = outbox_scan(self.repo)["findings"][0]
+        # The publish, then the durable write it follows (review M3: the
+        # premise a judge verifies names the actual write).
+        self.assertEqual(finding["evidence"], [
+            {"path": finding["path"], "line": 9}, {"path": finding["path"], "line": 7},
+        ])
+
+    def test_a_save_then_publish_without_a_transaction_is_flagged(self) -> None:
+        # Review M2: complete-training saves through a repository and then
+        # publishes, with no transaction; it is the same dual write.
+        _seed(self.repo, "apps/hr-service/src/outbox/hr-outbox.module.ts", _OUTBOX_REGISTRATION)
+        _seed(self.repo, "apps/hr-service/src/training/complete.handler.ts", """
+export class CompleteHandler {
+  async execute(command: CompleteCommand): Promise<Enrollment> {
+    const saved = await this.enrollmentRepository.save(enrollment);
+    this.eventBus.publish(createCompletedEvent(saved));
+    return saved;
+  }
 }
-""", encoding="utf-8")
-        result = outbox_scan(self.repo)
-        rules = {f["rule"] for f in result["findings"]}
-        self.assertIn("transactional_outbox_violation", rules)
-        self.assertIn("outbox_entity_base_missing", rules)
+""")
+        self.assertEqual(self._rules(), [(
+            "domain_event_published_outside_outbox", "apps/hr-service/src/training/complete.handler.ts", 5,
+        )])
+
+    def test_a_write_and_a_publish_through_same_class_helpers_are_flagged(self) -> None:
+        # Review M2: harvest-completed saves in one helper and publishes in
+        # another, both called from handle().
+        _seed(self.repo, "apps/farm-service/src/outbox/farm-outbox.module.ts", _OUTBOX_REGISTRATION)
+        _seed(self.repo, "apps/farm-service/src/events/harvest.listener.ts", """
+export class HarvestListener {
+  async handle(event: Harvested): Promise<void> {
+    await this.updateBatch(event);
+    await this.publishFollowUps(event);
+  }
+
+  private async updateBatch(event: Harvested): Promise<void> {
+    await this.batchRepository.save(batch);
+  }
+
+  private async publishFollowUps(event: Harvested): Promise<void> {
+    await this.eventBus.publish(createCompletedEvent(event));
+  }
+}
+""")
+        findings = outbox_scan(self.repo)["findings"]
+        self.assertEqual([(f["line"], [e["line"] for e in f["evidence"]]) for f in findings], [(13, [13, 9])])
+
+    def test_a_map_delete_or_a_write_after_the_publish_is_not_a_dual_write(self) -> None:
+        _seed(self.repo, "apps/hr-service/src/outbox/hr-outbox.module.ts", _OUTBOX_REGISTRATION)
+        _seed(self.repo, "apps/hr-service/src/cache/cache.service.ts", """
+export class CacheService {
+  async evict(key: string): Promise<void> {
+    this.cache.delete(key);
+    await this.eventBus.publish(createEvictedEvent(key));
+  }
+
+  async record(entry: Entry): Promise<void> {
+    await this.eventBus.publish(createSeenEvent(entry));
+    await this.entryRepository.save(entry);
+  }
+}
+""")
+        self.assertEqual(self._rules(), [])
+
+    def test_the_outbox_enqueue_path_is_not_flagged(self) -> None:
+        _seed(self.repo, "apps/hr-service/src/outbox/hr-outbox.module.ts", _OUTBOX_REGISTRATION)
+        _seed(self.repo, "apps/hr-service/src/leave/approve.handler.ts",
+              _TRANSACTIONAL_HANDLER.replace(
+                  "this.eventBus.publish(createRejectedEvent(saved));",
+                  "await this.outboxPublisher.enqueue(createRejectedEvent(saved), queryRunner.manager);",
+              ))
+        self.assertEqual(self._rules(), [])
+
+    def test_a_publish_in_a_unit_without_a_durable_write_is_not_flagged(self) -> None:
+        _seed(self.repo, "apps/hr-service/src/outbox/hr-outbox.module.ts", _OUTBOX_REGISTRATION)
+        _seed(self.repo, "apps/hr-service/src/ingest/telemetry.service.ts", """
+export class TelemetryService {
+  async save(): Promise<void> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.startTransaction();
+    await queryRunner.commitTransaction();
+  }
+
+  async forward(reading: Reading): Promise<void> {
+    await this.eventBus.publish(createReadingEvent(reading));
+  }
+}
+""")
+        self.assertEqual(self._rules(), [])
+
+    def test_a_service_without_the_outbox_is_not_flagged(self) -> None:
+        _seed(self.repo, "apps/legacy-service/src/leave/reject.handler.ts", _TRANSACTIONAL_HANDLER)
+        self.assertEqual(self._rules(), [])
+
+    def test_the_outbox_implementation_and_comments_are_not_judged(self) -> None:
+        _seed(self.repo, "apps/hr-service/src/outbox/hr-outbox.module.ts", _OUTBOX_REGISTRATION)
+        _seed(self.repo, "apps/hr-service/src/outbox/best-effort-publisher.ts", _TRANSACTIONAL_HANDLER)
+        _seed(self.repo, "apps/hr-service/src/leave/reject.handler.ts", _TRANSACTIONAL_HANDLER.replace(
+            "this.eventBus.publish(createRejectedEvent(saved));",
+            "// Previously eventBus.publish() was called AFTER commit.",
+        ))
+        self.assertEqual(self._rules(), [])
 
 
 class AgentHarnessSecurityScopeUnchangedTests(unittest.TestCase):

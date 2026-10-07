@@ -199,6 +199,7 @@ def _drain_next_cycle_queue(
     daemon_agent_id: str,
     limit: int,
     workspace_root: str | Path | None = None,
+    cycle_id: str | None = None,
 ) -> int:
     # A queue item is consumed only after its agent request is appended.
     import json
@@ -227,6 +228,7 @@ def _drain_next_cycle_queue(
         create_agent_invocation_request,
         list_agent_invocation_requests,
     )
+    from .request_admission import admit_request
     from .tool_registry import append_tools_governance
 
     pending = read_pending(base_dir, limit=limit)
@@ -420,6 +422,15 @@ def _drain_next_cycle_queue(
             )
             consumed += 1
             continue
+        # ARIA-HIGH-364 — a projected queue item starts new work:
+        # discretionary. A refused item is NOT consumed, so the next drain
+        # offers it again; the refusal holds for the rest of this cycle (one
+        # snapshot per cycle), so the drain stops asking here.
+        admission = admit_request(
+            "next_cycle_queue.projection", "maintenance_utility", base_dir=base_dir, cycle_id=cycle_id,
+        )
+        if not admission.admitted:
+            break
         try:
             request = create_agent_invocation_request(
                 target_agent="aria-autonomy-planner",
@@ -432,6 +443,7 @@ def _drain_next_cycle_queue(
                 pressure_event_id=pressure_id or None,
                 remint_of=remint_of,
                 base_dir=base_dir,
+                admission=admission,
             )
         except Exception as exc:
             append_tools_governance(
@@ -1577,6 +1589,7 @@ def run_autonomy_orchestrator(
                     # itself in its first accepted response (RC-2,
                     # AIR-aria-autonomy-planner-5636a540ccaa).
                     workspace_root=Path(workspace_root) if workspace_root else root,
+                    cycle_id=cycle_id,
                 )
                 AutonomyStateReducer.transition(
                     root,
@@ -1849,10 +1862,10 @@ def run_autonomy_orchestrator(
                     base_dir=root,
                     workspace_root=Path(workspace_root) if workspace_root else root,
                     profile=str(profile_snapshot or "standard"),
-                    primary_drafter=_v7_select_drafter(role="primary_authoring"),
-                    challenger_drafter=_v7_select_drafter(role="challenger_authoring"),
-                    evidence_judge=_v7_select_judge(role="evidence_judgment"),
-                    adversarial_judge=_v7_select_judge(role="adversarial_judgment"),
+                    primary_drafter=_v7_select_drafter(role="primary_authoring", cycle_id=cycle_id),
+                    challenger_drafter=_v7_select_drafter(role="challenger_authoring", cycle_id=cycle_id),
+                    evidence_judge=_v7_select_judge(role="evidence_judgment", cycle_id=cycle_id),
+                    adversarial_judge=_v7_select_judge(role="adversarial_judgment", cycle_id=cycle_id),
                     sandbox_runner=_v7_select_sandbox_runner(),
                 )
                 cycle_summary["skill_genesis"] = _v7_genesis_result
@@ -1959,6 +1972,42 @@ def run_autonomy_orchestrator(
                     # ORPHAN-HIGH-782 — this cycle COMPLETED (enterprise
                     # cycle ran, tool health exists); a no-pressure night
                     # is not a reason to skip precision history.
+                    _calibration_reporter_and_auto_promotion(
+                        root, cycle_id, cycle_summary, profile_snapshot,
+                    )
+                    post_drain_reflection = run_reflection(
+                        cycle_id=cycle_id,
+                        base_dir=root,
+                        repo_root=workspace_root,
+                        convergence_result=None,
+                        review_result=None,
+                        **producer_reflection_kwargs(
+                            cycle_summary=cycle_summary,
+                            cycle_result=cycle_result,
+                            pedagogy_lint_result=pedagogy_snapshot,
+                        ),
+                    )
+                    cycle_summary["reflection"] = post_drain_reflection
+                    per_cycle_results.append(cycle_summary)
+                    continue
+                # ARIA-HIGH-364 (re-review of #1833, MEDIUM-B) — a NEW plan is
+                # admitted before it is booked: a seed the request-admission
+                # door refuses is neither minted nor rejected in the funnel and
+                # starts no convergence; the cycle records the refusal on
+                # governance and the synthesizer re-derives the candidate next
+                # cycle. An adopted plan (already started) is never asked.
+                from .convergence_drainer import seed_admission
+
+                _seed_ticket = seed_admission(
+                    plan_id=active_plan_id, plan_seed=_v7_plan_content, base_dir=root, cycle_id=cycle_id,
+                )
+                if _seed_ticket is not None and not _seed_ticket.admitted:
+                    append_tools_governance(root, "convergence_seed_throttled", {
+                        "cycle_id": cycle_id, "plan_id": active_plan_id, "refusal": _seed_ticket.refusal,
+                    })
+                    cycle_summary["plan_seed_throttled"] = {
+                        "plan_id": active_plan_id, "refusal": _seed_ticket.refusal,
+                    }
                     _calibration_reporter_and_auto_promotion(
                         root, cycle_id, cycle_summary, profile_snapshot,
                     )

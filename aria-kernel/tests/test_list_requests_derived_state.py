@@ -23,6 +23,7 @@ from aria_kernel.agent_invocations import (
     list_agent_invocation_requests,
 )
 from aria_kernel.runtime_profile import set_profile
+from aria_kernel.request_admission import admit_request
 
 
 class ListRequestsDerivedStateTests(unittest.TestCase):
@@ -38,6 +39,7 @@ class ListRequestsDerivedStateTests(unittest.TestCase):
             must_satisfy=[{"id": "p", "description": "p"}],
             allowed_scope=["docs/"], evidence_refs=["docs/a.md"],
             base_dir=self.base,
+            admission=admit_request("operator_cli.request", "primary_plan", base_dir=self.base),
         )
         self.r2 = create_agent_invocation_request(
             target_agent="agent-b", role="primary_plan",
@@ -46,6 +48,7 @@ class ListRequestsDerivedStateTests(unittest.TestCase):
             must_satisfy=[{"id": "p", "description": "p"}],
             allowed_scope=["docs/"], evidence_refs=["docs/b.md"],
             base_dir=self.base,
+            admission=admit_request("operator_cli.request", "primary_plan", base_dir=self.base),
         )
         # Claim r1 → derived state CLAIMED. r2 stays PENDING.
         claim_request(

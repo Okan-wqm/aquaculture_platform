@@ -39,6 +39,7 @@ for _path in (_POC_DIR, _KERNEL_DIR):
         sys.path.insert(0, str(_path))
 
 from tests import test_ci_executor_native_zai as _zai  # noqa: E402
+from aria_kernel.request_admission import admit_request
 
 SECRET = _zai.SECRET
 
@@ -68,6 +69,7 @@ class JudgeBatchLane(unittest.TestCase):
                 target_sha=target_sha, context_repo_root=self.repo, base_dir=self.tools,
                 tool_id="fixture-tool", run_id="fixture-run", finding_id=f"F-00{index}",
                 judgment_group_id=f"judge:fixture-tool:fp{index}", finding_fingerprint=f"fp{index}",
+                admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
             ))
         self.request_ids = [str(r["request_id"]) for r in self.requests]
         self.runner_temp = self.root / "runner-temp"

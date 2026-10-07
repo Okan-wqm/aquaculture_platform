@@ -36,6 +36,7 @@ from aria_kernel.context_budget_gate import (
 )
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 class _FakeRepo:
@@ -382,6 +383,7 @@ class CreateAgentInvocationRequestOptInTests(unittest.TestCase):
             suggested_prompt="x" * 100_000,
             legacy_strict_fields_optional=True,
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "primary_plan", base_dir=self.tools),
         )
         self.assertEqual(row["target_agent"], "tiny-agent")
 
@@ -397,6 +399,7 @@ class CreateAgentInvocationRequestOptInTests(unittest.TestCase):
                 enforce_context_budget=True,
                 context_repo_root=self.repo,
                 context_window_tokens_override=10_000,
+                admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
             )
         self.assertIn("context_budget_exceeded", str(cm.exception))
 

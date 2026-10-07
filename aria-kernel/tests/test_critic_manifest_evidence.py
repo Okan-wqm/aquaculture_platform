@@ -29,6 +29,7 @@ from aria_kernel.evidence_validator import (
 from aria_kernel.plan_convergence import _validate_cross_review_risk
 from aria_kernel.plan_coverage import build_synthetic_risk
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.request_admission import admit_request
 from tests._helpers.git_fixtures import make_local_git_repo
 
 PLAN_ID = "plan-cyc-20261004T073028Z-auto"
@@ -64,6 +65,7 @@ class _Workspace:
             closure_manifest_path=LIVE_MANIFEST, closure_manifest_hash=HASH,
             waivers=WAIVERS, evidence_refs=[f"{PAGE}:355"], allowed_scope=["web/modules/hr-module/**"],
             base_dir=self.tools, target_sha=self.head,
+            admission=admit_request("convergence_drainer.plan_step", "completeness_critique", base_dir=self.tools),
         )
 
 
@@ -94,6 +96,7 @@ class MintRefusesStateStoreRecords(unittest.TestCase):
                     allowed_scope=["web/modules/hr-module/**"],
                     evidence_refs=[LIVE_MANIFEST, f"{PAGE}:355"],
                     base_dir=ws.tools,
+                    admission=admit_request("operator_cli.request", "completeness_critique", base_dir=ws.tools),
                 )
 
 

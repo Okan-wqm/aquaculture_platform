@@ -1557,6 +1557,7 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
     )
     scan_result["human_merge"] = surface_human_merge_prs(
         cycle_id=context.cycle_id, base_dir=context.base_dir, reader=reader,
+        workspace_root=context.workspace_root,
     )
     return scan_result
 
@@ -1678,7 +1679,7 @@ def _phase_lease_lifecycle_escalation(context: PhaseContext) -> dict[str, Any]:
     # CLI-only callers — so an escalation was visible in one view and
     # invisible in the one operators and the daily report read. Running it
     # every cycle is what makes the two views agree.
-    return sweep_lease_lifecycle_for_human_required(base_dir=context.base_dir)
+    return sweep_lease_lifecycle_for_human_required(base_dir=context.base_dir, cycle_id=context.cycle_id)
 
 
 def _phase_human_required_adjudication(context: PhaseContext) -> dict[str, Any]:
@@ -1687,7 +1688,7 @@ def _phase_human_required_adjudication(context: PhaseContext) -> dict[str, Any]:
     # panel that had zero non-test importers, so escalations were still
     # being raised every cycle and cleared by nobody: the finding's own
     # defect, reproduced by its fix. This is the caller.
-    return sweep_human_required_adjudications(base_dir=context.base_dir)
+    return sweep_human_required_adjudications(base_dir=context.base_dir, cycle_id=context.cycle_id)
 
 
 def _phase_decision_questioning(context: PhaseContext) -> dict[str, Any]:
@@ -1702,7 +1703,7 @@ def _phase_decision_questioning(context: PhaseContext) -> dict[str, Any]:
     """
     from .decision_questioning import open_decision_questioning
 
-    return open_decision_questioning(base_dir=context.base_dir)
+    return open_decision_questioning(base_dir=context.base_dir, cycle_id=context.cycle_id)
 
 def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
     """Carry each merge into the impact ledger, then ask what the globs missed.
@@ -2033,6 +2034,7 @@ def _phase_judge_replay(context: PhaseContext) -> dict[str, Any]:
         try:
             result = replay_judges_on_goldset(
                 tool_id=tool_id, base_dir=context.base_dir, target_sha=target_sha,
+                cycle_id=context.cycle_id,
             )
             replayed.append({"tool_id": tool_id, "status": result.get("status"), "replayed_items": result.get("replayed_items")})
         except GovernanceError as exc:
@@ -2829,6 +2831,7 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
     is the door that can ask.
     """
     from .adapter_fixture_contract import assert_fixture_backed
+    from .adapter_quarantine import apply_manifest_quarantine, assert_manifest_quarantine_stands
 
     manifest_dir = Path(context.workspace_root) / "tools" / "aria-adapters"
     # The manifest's `status` is the tool's BIRTH status; after registration
@@ -2847,16 +2850,25 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
         for tool in list_tools(base_dir=context.base_dir)
     }
     synced: list[str] = []
+    quarantined_by_manifest: list[dict[str, str]] = []
     refused: list[dict[str, str]] = []
     for manifest_path in sorted(manifest_dir.glob("*.tool.json")):
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             assert_fixture_backed(manifest, context.workspace_root)
+            assert_manifest_quarantine_stands(manifest, repo_root=context.workspace_root)
             live_status = live_status_by_id.get(str(manifest.get("tool_id")))
             if live_status is not None:
                 manifest = {**manifest, "status": live_status}
             register_tool(manifest, base_dir=context.base_dir)
             synced.append(str(manifest.get("tool_id") or manifest_path.stem))
+            # ARIA-MEDIUM-378 — a manifest that names a quarantine is
+            # registered like every other one and then held QUARANTINED, so
+            # the adapter is visible by name every night instead of running
+            # as a silent no-op (adapter_quarantine).
+            quarantined = apply_manifest_quarantine(manifest, base_dir=context.base_dir)
+            if quarantined is not None:
+                quarantined_by_manifest.append(quarantined)
         except (GovernanceError, ValueError, OSError) as exc:
             refused.append({
                 "manifest": manifest_path.name,
@@ -2896,6 +2908,7 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
     return {
         "status": "synced",
         "synced_tool_ids": synced,
+        "quarantined_by_manifest": quarantined_by_manifest,
         "refused": refused,
         "manifest_dir": str(manifest_dir),
         "promotions_activated": veto_settlement.get("activated") or [],

@@ -13,6 +13,7 @@ from pathlib import Path
 from aria_kernel.agent_invocations import create_agent_invocation_request, list_agent_invocation_requests
 from aria_kernel.judge_fanout import dispatch_judges_for_sample
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 from tests._helpers.rule_contracts import register_contracted_tool
 
@@ -89,6 +90,7 @@ class JudgeFanoutTests(unittest.TestCase):
             suggested_prompt="seed", must_satisfy=[{"id": "v", "description": "c"}],
             allowed_scope=["**"], finding_id=item["finding_id"], tool_id=item["tool_id"],
             run_id=item["run_id"], judgment_group_id=group, base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
         result = dispatch_judges_for_sample(sample={"cycle_id": "c1", "items": [item]}, base_dir=self.tools)
         self.assertEqual(result["minted_count"], 1)

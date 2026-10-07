@@ -79,3 +79,9 @@ compiled registry (`.aria-state-store/tools/registry.json`, 11 tools) has no `ou
 Rule: an adapter the portfolio names is registered from a committed manifest with its real runner,
 or the portfolio does not claim it. ARIA-MEDIUM-378 is registered with owner claude and deadline
 2026-10-21. It is not fixed in the 377 change.
+
+Fix: branch `fix/aria-dead-adapters` gives the four adapters manifests with their real runners,
+deletes the portfolio's row builder and `register-mvp`, and adds the registry-completeness gate.
+`docs/reviews/claude/2026-10-07-aria-dead-adapters.md` records the root cause and the measured
+finding counts. It also records the decision for each adapter: cqrs and dual-alias run, while
+outbox and banned-phrase are quarantined by name (ARIA-MEDIUM-379, ARIA-MEDIUM-380).

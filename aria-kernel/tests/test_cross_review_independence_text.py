@@ -63,6 +63,7 @@ from aria_kernel.independence_check import (  # noqa: E402
     verify_independence,
 )
 from aria_kernel.tool_registry import ensure_tools_dir  # noqa: E402
+from aria_kernel.request_admission import admit_request
 from tests._helpers.independence_seats import seal_accepted_seat  # noqa: E402
 
 _QUEUE_ROLE = CROSS_REVIEW_ROLE[1]
@@ -176,6 +177,7 @@ class DiversityLayerActuallyRuns(unittest.TestCase):
                 allowed_scope=["aria-kernel/**"],
                 convergence_id="conv-ind-001",
                 base_dir=self.tools,
+                admission=admit_request("operator_cli.request", role, base_dir=self.tools),
             )
             request_id = str(request["request_id"])
             self.request_ids[role] = request_id

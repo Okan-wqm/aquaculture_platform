@@ -31,6 +31,7 @@ from aria_kernel.plan_origin import REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE, va
 from aria_kernel.plan_round_scope import plan_round_contract
 from aria_kernel.plan_convergence import fold_plan_state
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.request_admission import admit_request
 from tests.test_revision_scope_bound import FARM, SHARED, _body, _ScopeBoundFixture, _seed
 
 
@@ -48,6 +49,7 @@ class DependencyEvidenceScope(_ScopeBoundFixture):
             convergence_id=plan_id, round_number=1, must_satisfy=list(contract.must_satisfy),
             allowed_scope=list(contract.allowed_scope), evidence_refs=[f"{FARM}:1"],
             base_dir=self.tools, target_sha=head,
+            admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools),
         )
 
     def test_the_record_names_the_imported_projects_roots_and_writes_none_of_them(self) -> None:

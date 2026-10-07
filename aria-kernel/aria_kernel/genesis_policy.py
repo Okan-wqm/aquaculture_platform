@@ -56,10 +56,10 @@ POLICY_KEYS = {
     # per-role pending ceiling that stops the nightly mint when the
     # executor's drain is behind. Consumed via judgment_pipeline_policy.
     "judgment_pipeline",
-    # E25-a (ORPHAN-710) — rhythm discipline: the open-backlog ceiling that
-    # pauses work-minting phases (watchdog_sweep, experiment_author) until
-    # ARIA finishes what it already opened. Consumed by
-    # cycle._backlog_below_cap via rhythm_policy.
+    # E25-a (ORPHAN-710), wall #7 — rhythm discipline: the closable-backlog
+    # ceiling, the closure SLO and the rate they throttle finding openers
+    # to. Consumed by cycle_guard.backlog_census / admit_finding_opener via
+    # rhythm_policy.
     "executor",
     "rhythm",
     # E24-a (ORPHAN-711) — runtime telemetry pull: where the watchdog reads
@@ -206,8 +206,19 @@ RHYTHM_DEFAULTS: dict[str, Any] = {
     # Calibrated against the live store at E25 time: 2 kernel findings open.
     # 25 leaves an order of magnitude of headroom before the gate first
     # fires — the ceiling exists for the pile-up failure mode, not for
-    # steady state.
+    # steady state. Wall #7: it bounds the CLOSABLE backlog
+    # (cycle_guard.backlog_census), and reaching it throttles the openers
+    # to a rate; it never pauses them.
     "backlog_cap": 25,
+    # Wall #7 — the closure SLO: closable findings opened inside this window
+    # must not outnumber the findings closed inside it.
+    "closure_slo_window_days": 7,
+    # Wall #7 — under backlog pressure an opener is admitted once per this
+    # many hours: a rate, so discovery slows and never stops.
+    "opener_throttle_interval_hours": 24.0,
+    # Wall #7 — an operator-only finding this old is escalated once on
+    # governance; it is never counted against the cap.
+    "operator_escalation_age_days": 14,
     # Plan 032 Faz 032a — the chain's minimum spacing (SI-5 brake) becomes
     # policy: a plan needs at least three executor→cycle turns
     # (challenger → cross_review → evaluate), and at the 6h code default that
@@ -215,6 +226,18 @@ RHYTHM_DEFAULTS: dict[str, Any] = {
     # the operator override lowers it. `cycle_rhythm.MIN_CYCLE_INTERVAL_HOURS`
     # remains the code-side floor the decider falls back to.
     "min_interval_hours": 6.0,
+}
+
+# Wall #7 — inclusive (type, low, high) per rhythm key. 2h is the floor the
+# operator override names as the chain's ceiling (12 cycles/day); an int key
+# refuses a float, every key refuses a bool. A value outside is refused by
+# name, never clamped — a misread brake is worse than a loud one.
+RHYTHM_BOUNDS: dict[str, tuple[type, float, float]] = {
+    "backlog_cap": (int, 1, 10_000),
+    "min_interval_hours": (float, 2.0, 168.0),
+    "closure_slo_window_days": (int, 1, 90),
+    "opener_throttle_interval_hours": (float, 1.0, 168.0),
+    "operator_escalation_age_days": (int, 1, 365),
 }
 
 
@@ -499,10 +522,17 @@ def rhythm_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
             (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
         )
         merged = raw if isinstance(raw, dict) else {}
+    from .tool_registry import GovernanceError
+
     block = dict(RHYTHM_DEFAULTS)
     raw_block = merged.get("rhythm")
     if isinstance(raw_block, dict):
         block.update({k: raw_block[k] for k in RHYTHM_DEFAULTS if k in raw_block})
+    for key, (kind, low, high) in RHYTHM_BOUNDS.items():
+        value = block[key]
+        typed = isinstance(value, int if kind is int else (int, float)) and not isinstance(value, bool)
+        if not typed or not low <= value <= high:
+            raise GovernanceError(f"rhythm.{key}={value!r} must be {kind.__name__} in [{low}, {high}]")
     return block
 
 

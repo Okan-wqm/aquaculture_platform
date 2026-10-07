@@ -420,8 +420,10 @@ export class SensorQueryService {
              AND s.tenant_id = $3
              AND s.${source.timeColumn} >= $4
              AND s.${source.timeColumn} < $5
-           GROUP BY bucket, c.channel_key
-           ORDER BY bucket ASC`,
+           -- Positional: a rollup's own \`bucket\` column would win over the
+           -- alias in GROUP BY, and its rows would come back un-re-bucketed.
+           GROUP BY 1, 2
+           ORDER BY 1 ASC`,
           [effectiveInterval, validSensorId, validTenantId, scanStart(plan, source), validEnd],
         )) as Array<{
           bucket: string;

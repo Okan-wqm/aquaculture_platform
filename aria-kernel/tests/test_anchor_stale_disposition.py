@@ -22,7 +22,7 @@ Migration, mootness, ledger cost and crash pins: test_anchor_stale_migration.
 """
 from __future__ import annotations
 
-import re
+import ast
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -105,20 +105,34 @@ class TheRuleIsOneFunctionOfTheCause(unittest.TestCase):
                 self.assertEqual((decision.action, decision.reason), expected)
 
 
+def _defined_names(tree: ast.AST) -> set[str]:
+    """Every function, class and assigned name a module defines, nested functions included."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names.update(t.id for t in targets if isinstance(t, ast.Name))
+    return names
+
+
 class EveryRoleHasOneOwner(unittest.TestCase):
     def test_the_table_is_closed_over_the_roles(self) -> None:
         self.assertEqual(set(ROLE_OWNERSHIP), set(INVOCATION_ROLES))
 
-    def test_every_claim_cites_a_line_that_exists(self) -> None:
+    def test_every_claim_cites_symbols_defined_where_it_says(self) -> None:
         package = Path(anchor_stale.__file__).parent
+        defined: dict[str, set[str]] = {}
         for role, ownership in ROLE_OWNERSHIP.items():
             with self.subTest(role=role):
                 self.assertEqual(bool(ownership.producer), ownership.owner != OWNER_OPERATOR)
-                cited = re.findall(r"([a-z_]+\.py):(\d+)", ownership.proof)
-                self.assertTrue(cited, ownership.proof)
-                for name, line in cited:
-                    lines = (package / name).read_text(encoding="utf-8").splitlines()
-                    self.assertLessEqual(int(line), len(lines), f"{name}:{line}")
+                self.assertTrue(ownership.citations)
+                for citation in ownership.citations:
+                    name, _, symbol = citation.partition("::")
+                    if name not in defined:
+                        defined[name] = _defined_names(ast.parse((package / name).read_text(encoding="utf-8")))
+                    self.assertIn(symbol, defined[name], citation)
 
 
 class LiveJudgeSubjectIsReMinted(AnchorStaleStore):

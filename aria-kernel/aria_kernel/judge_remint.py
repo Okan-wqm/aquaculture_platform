@@ -15,7 +15,8 @@ the rule contract resolved now (``rule_contract.resolve_rule_contract``),
 and the fan-out's envelope (``judge_fanout.judge_request_fields``). Only the
 identity is the dead request's: role, judge, finding id, run id and judgment
 group, so the answer folds into the same consensus group, and ``remint_of``
-names the dead request.
+names the dead request. The anchor-stale disposition and the adjudication
+panel's ``re_mint`` (``remint_judge_for_panel``) both re-ask a judge here.
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ def remint_judge_request(
     subjects: JudgeSubjectLiveness,
     target_sha: str | None,
     workspace: Path | None,
+    extra_evidence_refs: tuple[str, ...] = (),
 ) -> dict[str, Any] | str:
     """The successor row, or the fan-out's named refusal (``rule_contract_undeclared``)."""
     from .feedback_store import _sample_item_from_finding, finding_fingerprint
@@ -55,7 +57,7 @@ def remint_judge_request(
         target_agent=str(dead.get("target_agent") or ""),
         role=str(dead.get("role") or ""),
         **judge_request_fields(item, contract),
-        evidence_refs=_evidence_refs(item) or None,
+        evidence_refs=(_evidence_refs(item) + list(extra_evidence_refs)) or None,
         finding_id=item["finding_id"],
         finding_fingerprint=fingerprint,
         tool_id=tool_id,
@@ -69,4 +71,30 @@ def remint_judge_request(
     )
 
 
-__all__ = ["RULE_CONTRACT_UNDECLARED", "remint_judge_request"]
+def remint_judge_for_panel(
+    root: Path, dead: Mapping[str, Any], *, adjudication_ref: str | None,
+) -> dict[str, Any] | str:
+    """The panel's ``re_mint`` of a dead fan-out judge request, through the same gate.
+
+    Review of PR #1825: the panel copied a judge request's prompt and
+    obligations verbatim, so a pre-ARIA-HIGH-324 envelope came back at the
+    panel's word, without ``forbidden_scope``, fingerprint or rule-contract
+    check. The successor is anchored at the workspace HEAD, as the fan-out
+    anchors a fresh judge envelope, and cites the panel's verdict.
+    """
+    from datetime import datetime, timezone
+
+    from .convergence_drainer import _resolve_workspace_head_sha
+    from .tool_registry import bound_workspace_root
+
+    workspace = bound_workspace_root(root)
+    return remint_judge_request(
+        dead,
+        subjects=JudgeSubjectLiveness(base_dir=root, now=datetime.now(timezone.utc)),
+        target_sha=_resolve_workspace_head_sha(workspace),
+        workspace=workspace,
+        extra_evidence_refs=(adjudication_ref,) if adjudication_ref else (),
+    )
+
+
+__all__ = ["RULE_CONTRACT_UNDECLARED", "remint_judge_for_panel", "remint_judge_request"]

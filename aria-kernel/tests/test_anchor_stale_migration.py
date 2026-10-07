@@ -218,5 +218,71 @@ class ACrashMidBatchLosesNothing(AnchorStaleStore):
         self.assertEqual(sorted(d["request_id"] for d in disposed), ["AIR-verify-0", "AIR-verify-1"])
 
 
+class PanelReMintOfAJudgeGoesThroughTheGate(_Panels):
+    """Review of PR #1825: the panel's ``re_mint`` copied a judge request verbatim."""
+
+    def _panel_votes_re_mint(self, request_id: str) -> dict:
+        panel = self.open_record_with_panel(request_id, kind="lease_lifecycle")
+        for envelope, agent in zip(panel, ("judge-a", "judge-b", "judge-c")):
+            seed_adjudicator_opinion(self.tools, envelope, agent_id=agent, verdict=hra.RESOLVE_VERDICT,
+                                     disposition=hra.DISPOSITION_RE_MINT)
+        hra.adjudicate_human_required(escalation_request_id=request_id, base_dir=self.tools)
+        return self.record(request_id)
+
+    def test_a_pre_contract_judge_is_rebuilt_from_the_contract(self) -> None:
+        self.report(5)
+        fingerprint = item(5)["finding_fingerprint"]
+        self.seed_row("AIR-panel-judge", role="evidence_judgment", target_agent=EVIDENCE_JUDGE,
+                      prompt="Did rule-a fire?", tool_id="tool-x", finding_id="F5", run_id="r1",
+                      finding_fingerprint=fingerprint, judgment_group_id=f"judge:tool-x:{fingerprint}",
+                      forbidden_scope=["tools/aria-adapters/**"], expire=False)
+        self._panel_votes_re_mint("AIR-panel-judge")
+        successor = self.successors("AIR-panel-judge")[0]
+        self.assertNotEqual(successor["suggested_prompt"], "Did rule-a fire?")
+        self.assertIn("defect claim:", successor["suggested_prompt"])
+        self.assertEqual(successor["finding_fingerprint"], fingerprint)
+        self.assertTrue(successor["forbidden_scope"])
+        self.assertEqual(successor["target_sha"], self.head())
+
+    def test_a_judge_whose_rule_has_no_contract_goes_to_the_operator(self) -> None:
+        self.report(6, rule="rule-undeclared")
+        self.seed_row("AIR-panel-nocontract", role="evidence_judgment", target_agent=EVIDENCE_JUDGE,
+                      tool_id="tool-x", finding_id="F6", run_id="r1", judgment_group_id="judge:tool-x:F6",
+                      expire=False)
+        record = self._panel_votes_re_mint("AIR-panel-nocontract")
+        self.assertEqual(self.successors("AIR-panel-nocontract"), [])
+        self.assertEqual(record["status"], "open")
+        self.assertEqual(record.get("panel_disposition"), hra.DISPOSITION_ESCALATE_OPERATOR)
+
+
+class EffectsAreIdempotentAndIsolated(AnchorStaleStore):
+    def test_a_reoffer_recorded_before_a_crash_is_not_an_operator_item(self) -> None:
+        from aria_kernel.next_cycle_queue import REOFFERED, append_pending, mark_consumed, reoffer_item
+
+        qid = str(append_pending(self.tools, source_cycle_id="c1", pressure_id="p1")["queue_item_id"])
+        mark_consumed(self.tools, queue_item_id=qid, consumed_by="daemon")
+        prompt = f'{{"$schema": "aria/next-cycle-queue-request/v1", "queue_item_id": "{qid}"}}'
+        self.seed_row("AIR-maint-crash", role="maintenance_utility", target_agent="aria-autonomy-planner",
+                      prompt=prompt)
+        # The sweep re-offered the item and died before writing its record.
+        self.assertEqual(reoffer_item(self.tools, queue_item_id=qid, reason="crashed sweep"), REOFFERED)
+        self.sweep()
+        record = self.record("AIR-maint-crash")
+        self.assertEqual(record["status"], "resolved")
+        self.assertEqual(record["kernel_disposition"]["reason"], "queue_item_already_pending")
+
+    def test_one_failing_effect_is_named_and_the_batch_continues(self) -> None:
+        dead = self.mint_judges(1)[EVIDENCE_JUDGE]
+        self.expire(dead)
+        self.seed_row("AIR-verify-after", role="verification", target_agent="aria-adversarial-judge")
+        with patch("aria_kernel.anchor_stale_effects.remint_judge_request", side_effect=KeyError("boom")):
+            summary = self.sweep()
+        self.assertEqual(len(summary["disposed"]), 2)
+        record = self.record(dead)
+        self.assertEqual(record["status"], "open")
+        self.assertEqual(record["kernel_disposition"]["reason"], "disposition_effect_failed:KeyError")
+        self.assertEqual(self.record("AIR-verify-after")["status"], "open")
+
+
 if __name__ == "__main__":
     unittest.main()

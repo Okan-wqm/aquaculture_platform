@@ -4,16 +4,17 @@ WHY this module exists. The first version of the anchor-stale disposition
 dropped every role outside the judge and planning roles as
 ``role_not_remintable`` and wrote the record already resolved, with no
 notification. Review found that work lost for good: a maintenance item is
-consumed when its request is minted (``autonomy_orchestrator.py:438``), a
+consumed when its request is minted (``autonomy_orchestrator``), a
 verification question counts its dead request as asked
-(``decision_questioning.py:92``), a change-intelligence merge and a goldset
-proposal do the same (``agent_invocations.minted_subject_refs``,
-``goldset.py:240``), and an operator's own request has no producer at all.
-The standing rule (Okan): no work may be lost inside ARIA.
+(``decision_questioning.already_questioned``), a change-intelligence merge
+and a goldset proposal do the same (``agent_invocations.minted_subject_refs``,
+``goldset.dispatch_goldset_curation``), and an operator's own request has no
+producer at all. The standing rule (Okan): no work may be lost inside ARIA.
 
 THE TABLE (``ROLE_OWNERSHIP``) is closed over ``agent_surface.INVOCATION_ROLES``
 (``tests/test_anchor_stale_disposition.py`` fails on a role it does not
-name). Each role has exactly one owner of its expired requests:
+name). Each role has exactly one owner of its expired requests, and each
+claim cites ``file.py::symbol`` definitions the same test resolves with ``ast``:
 
 * ``producer``: a named producer notices the death and recovers the work on
   its own (re-mint, re-open, or a terminal outcome it records where the
@@ -57,6 +58,10 @@ class Ownership:
     producer: str
     proof: str
     signature: Callable[[Mapping[str, Any], frozenset[str]], bool]
+    # ``file.py::symbol`` for each definition the proof rests on; a test
+    # parses each file and fails when the symbol is not defined there
+    # (review of PR #1825: a line number alone drifted to a blank line).
+    citations: tuple[str, ...]
 
 
 def _planning_step(request: Mapping[str, Any], _panel_ids: frozenset[str]) -> bool:
@@ -104,60 +109,74 @@ def _never(_request: Mapping[str, Any], _panel_ids: frozenset[str]) -> bool:
 
 _DRAINER = Ownership(
     OWNER_PRODUCER, "convergence_drainer",
-    "convergence_drainer.py:623 _step_disposition -> step_request.py:92 step_request_disposition: "
-    "ANCHOR_STALE is successor-eligible (MAX_STEP_REQUEST_REMINTS), exhaustion escalates the plan",
+    "ANCHOR_STALE is successor-eligible for a planning step (MAX_STEP_REQUEST_REMINTS); exhaustion "
+    "escalates the plan",
     _planning_step,
+    ("convergence_drainer.py::_step_disposition", "step_request.py::step_request_disposition"),
 )
 _NOBODY = "no producer re-asks a dead request of this role"
+_FANOUT_DEDUPE = ("judge_fanout.py::_existing_judge_dispatches",)
 
 ROLE_OWNERSHIP: Mapping[str, Ownership] = {
     **{role: _DRAINER for role in sorted(PLANNING_ROUND_ROLES)},
     "implementation": Ownership(
         OWNER_PRODUCER, "implementation_orphan_reaper",
-        "autonomy_orchestrator.py:1231 scan_orphan_implementation_requests (plan_convergence.py:1683): "
-        "a plan left IMPLEMENTATION_REQUESTED 24 h (plan_convergence.py:941, inside the 7-day anchor "
-        "window) is moved to IMPLEMENTATION_REJECTED, recorded on the plan",
+        "a plan left IMPLEMENTATION_REQUESTED 24 h (inside the 7-day anchor window) is moved to "
+        "IMPLEMENTATION_REJECTED by the orchestrator, recorded on the plan",
         _implementation,
+        ("plan_convergence.py::scan_orphan_implementation_requests",
+         "plan_convergence.py::ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS"),
     ),
     "human_required_adjudication": Ownership(
         OWNER_PRODUCER, "adjudication_panel",
-        "human_required_adjudication.py:1194 _panel_is_terminally_dead: a panel whose envelopes all "
-        "died is re-opened up to MAX_PANEL_REOPENS, then left open for the operator",
+        "a panel whose envelopes all died is re-opened up to MAX_PANEL_REOPENS, then left open for the "
+        "operator",
         _panel_member,
+        ("human_required_adjudication.py::_panel_is_terminally_dead",
+         "human_required_adjudication.py::MAX_PANEL_REOPENS"),
     ),
     "evidence_judgment": Ownership(
-        OWNER_KERNEL_REMINT, "anchor_stale", "judge_fanout.py:152 counts dead rows as dispatched", _fanout_judge,
+        OWNER_KERNEL_REMINT, "anchor_stale", "the fan-out counts dead rows as dispatched", _fanout_judge,
+        _FANOUT_DEDUPE,
     ),
     "adversarial_judgment": Ownership(
-        OWNER_KERNEL_REMINT, "anchor_stale", "judge_fanout.py:152 counts dead rows as dispatched", _fanout_judge,
+        OWNER_KERNEL_REMINT, "anchor_stale", "the fan-out counts dead rows as dispatched", _fanout_judge,
+        _FANOUT_DEDUPE,
     ),
     "maintenance_utility": Ownership(
         OWNER_REOFFER, "autonomy_orchestrator",
-        "autonomy_orchestrator.py:233 re-mints a dead projection with remint_of while its queue item "
-        "is pending; next_cycle_queue.reoffer_item makes it pending again",
+        "the projection re-mints a dead request with remint_of while its queue item is pending; "
+        "reoffer_item makes it pending again",
         _queue_projection,
+        ("autonomy_orchestrator.py::_find_projected_queue_request", "next_cycle_queue.py::reoffer_item"),
     ),
     "consensus_arbitration": Ownership(
-        OWNER_OPERATOR, "", "judge_fanout.py:152 counts the dead arbiter as dispatched; the anchor arm "
-        "never escalates", _never,
+        OWNER_OPERATOR, "", "the fan-out counts the dead arbiter as dispatched; the anchor arm never "
+        "escalates", _never, _FANOUT_DEDUPE,
     ),
     "verification": Ownership(
-        OWNER_OPERATOR, "", f"decision_questioning.py:92 already_questioned counts dead requests; {_NOBODY}", _never,
+        OWNER_OPERATOR, "", f"already_questioned counts dead requests; {_NOBODY}", _never,
+        ("decision_questioning.py::already_questioned",),
     ),
     "change_intelligence": Ownership(
-        OWNER_OPERATOR, "", f"agent_invocations.py:2039 minted_subject_refs counts dead rows; {_NOBODY}", _never,
+        OWNER_OPERATOR, "", f"minted_subject_refs counts dead rows; {_NOBODY}", _never,
+        ("agent_invocations.py::minted_subject_refs",),
     ),
     "goldset_curation": Ownership(
-        OWNER_OPERATOR, "", f"goldset.py:241 minted_subject_refs counts dead rows; {_NOBODY}", _never,
+        OWNER_OPERATOR, "", f"the curation dispatch skips a subject any request named; {_NOBODY}", _never,
+        ("goldset.py::dispatch_goldset_curation",),
     ),
     "primary_authoring": Ownership(
-        OWNER_OPERATOR, "", f"dispatcher_factory.py:270 polls until timeout, never re-mints; {_NOBODY}", _never,
+        OWNER_OPERATOR, "", f"the drafter poll waits until timeout, never re-mints; {_NOBODY}", _never,
+        ("dispatcher_factory.py::_poll_for_drafter_response",),
     ),
     "challenger_authoring": Ownership(
-        OWNER_OPERATOR, "", f"dispatcher_factory.py:270 polls until timeout, never re-mints; {_NOBODY}", _never,
+        OWNER_OPERATOR, "", f"the drafter poll waits until timeout, never re-mints; {_NOBODY}", _never,
+        ("dispatcher_factory.py::_poll_for_drafter_response",),
     ),
     "specialist_domain_review": Ownership(
-        OWNER_OPERATOR, "", f"specialist_review_runner.py:602 fails closed on a dead request; {_NOBODY}", _never,
+        OWNER_OPERATOR, "", f"the runner fails closed on a dead request; {_NOBODY}", _never,
+        ("specialist_review_runner.py::run_specialist_review_runner",),
     ),
 }
 

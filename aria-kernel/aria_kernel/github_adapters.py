@@ -600,7 +600,8 @@ class RealChecksReader:
 
         completed = _subprocess.run(
             ["gh", "pr", "view", str(pr_number), "--json",
-             "number,state,url,headRefName,headRefOid,baseRefOid,mergeStateStatus,statusCheckRollup,labels"],
+             "number,state,url,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,"
+             "statusCheckRollup,labels"],
             cwd=self._cwd, capture_output=True, text=True, check=False,
         )
         if completed.returncode != 0:

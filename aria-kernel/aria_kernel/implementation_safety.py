@@ -1931,6 +1931,12 @@ class _PreMergeEvidence:
     # is the implementation base (where the head forked from it); main moves
     # ahead of it while the PR waits for the merge queue.
     live_base_sha: str | None = None
+    # ARIA-HIGH-374 — the pair GitHub MERGES: the live PR head and the base
+    # it forked from. It equals (head_sha, base_sha) unless ARIA's own pure
+    # branch updates sit between (`branch_update_lineage`, verified by the
+    # capture); None on evidence built before the field, read as equal.
+    merge_head_sha: str | None = None
+    merge_base_sha: str | None = None
     snapshot_hash: str | None = None
     scope_observed_at: str | None = None
     scope_ledger_tips: tuple[str, ...] = ()
@@ -2178,10 +2184,12 @@ def _check_branch_tip_lock_and_recheck(context: HardFailContext) -> HardFailResu
     from .state_store import StateStoreError as _StateStoreError
     from .state_store import _git
 
+    merge_head = evidence.merge_head_sha if evidence.merge_head_sha is not None else evidence.head_sha
+    merge_base = evidence.merge_base_sha if evidence.merge_base_sha is not None else evidence.base_sha
     try:
-        for ref, expected in (("HEAD", evidence.head_sha),
-                              ("refs/heads/" + evidence.branch, evidence.head_sha),
-                              ("refs/heads/" + context.base_branch, evidence.base_sha)):
+        for ref, expected in (("HEAD", merge_head),
+                              ("refs/heads/" + evidence.branch, merge_head),
+                              ("refs/heads/" + context.base_branch, merge_base)):
             if _git(context.workspace_root, "rev-parse", "--verify", ref + "^{commit}").strip() != expected:
                 return _failed(name, "native_branch_tip_changed")
     except (OSError, _StateStoreError):

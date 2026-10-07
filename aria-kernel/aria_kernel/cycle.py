@@ -1557,6 +1557,7 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
     )
     scan_result["human_merge"] = surface_human_merge_prs(
         cycle_id=context.cycle_id, base_dir=context.base_dir, reader=reader,
+        workspace_root=context.workspace_root,
     )
     return scan_result
 

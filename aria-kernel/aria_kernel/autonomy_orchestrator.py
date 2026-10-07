@@ -64,7 +64,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
-from .autonomy_state import FUNNEL_RECORDED_DETAIL, PLAN_MINTED_PHASE, AutonomyStateReducer
+from .autonomy_state import (
+    FUNNEL_RECORDED_DETAIL,
+    PLAN_MINTED_PHASE,
+    PLAN_PRESSURE_SOURCE_DETAIL,
+    AutonomyStateReducer,
+)
 from .cycle import job_deadline_epoch
 from .file_lock import with_exclusive_lock
 from .next_cycle_queue import mark_consumed, read_pending
@@ -1966,6 +1971,10 @@ def run_autonomy_orchestrator(
                     profile=profile_snapshot,
                     details={
                         "plan_id": active_plan_id,
+                        # ARIA-HIGH-368 — the source this plan was minted
+                        # from, so the executor that converges it credits
+                        # the same source in the funnel.
+                        PLAN_PRESSURE_SOURCE_DETAIL: _v7_pressure_source_type,
                         "affected_surfaces_count": len(
                             _v7_plan_content.get("affected_surfaces", [])
                         ),

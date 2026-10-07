@@ -73,6 +73,9 @@ HUMAN_REQUIRED_CONTEXT_KIND: str = "converged_plan_delivery"
 UNCOUNTED_GOVERNANCE_KIND: str = "converged_delivery_uncounted"
 ORIGIN_CONVERGED: str = "converged_this_cycle"
 ORIGIN_REDELIVERY: str = "stranded_redelivery"
+# ARIA-HIGH-368 — the executor run whose in-run advance converged the plan
+# (`executor_converged_seam`); counted like the converging cycle's offer.
+ORIGIN_EXECUTOR: str = "converged_in_executor_run"
 VOID_PROFILE_REFUSED: str = "profile_refused_at_staging"
 
 # Why an offer was not made. Named so the cycle summary and the tests read the
@@ -606,6 +609,7 @@ __all__ = [
     "HUMAN_REQUIRED_CONTEXT_KIND",
     "MAX_DELIVERY_ATTEMPTS",
     "ORIGIN_CONVERGED",
+    "ORIGIN_EXECUTOR",
     "ORIGIN_REDELIVERY",
     "REDELIVERIES_PER_CYCLE",
     "authority_absent_request_id",

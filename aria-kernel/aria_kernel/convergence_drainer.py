@@ -115,6 +115,14 @@ _ROUND_N_ENVELOPES: tuple[str, ...] = ("primary_revision", "challenger", "cross_
 # string literal so we do not redefine the engine's own enum.
 _NEXT_ROUND_REQUIRED = "NEXT_ROUND_REQUIRED"
 
+# ARIA-HIGH-368 — the round cap EVERY autonomous advance of a plan runs
+# under: the nightly `autonomy run` (its `--max-rounds` default) and the
+# executor's in-run advance (`executor_convergence`). `evaluate_plan` turns
+# round == max_rounds with blockers into HUMAN_REQUIRED, so two advancers
+# with two caps would give one plan two terminal rules depending on which
+# job happened to evaluate it. One constant, read by both, closes that.
+AUTONOMY_CYCLE_MAX_ROUNDS: int = 2
+
 # Plan ARIA-V5 §3c v2 — reason codes mapped onto arbiter_verdict.
 # See ``_derive_arbiter_verdict`` for the full mapping table.
 _REASON_ARIA_STOP = "aria_stop_during_convergence"

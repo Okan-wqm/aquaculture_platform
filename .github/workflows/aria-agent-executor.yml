@@ -607,6 +607,11 @@ jobs:
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'
+          # ARIA-HIGH-368 — the restore's writer-lease verdict. The drain
+          # advances a plan's convergence in-run only while this job holds
+          # the aria/state writer lease (`executor_convergence`); the value
+          # is the public verdict, never the capability token.
+          ARIA_STATE_WRITER_LEASE: ${{ steps.restore_state.outputs.writer-lease }}
           # ARIA-HIGH-208 — the App a delivery mints its PR credential from.
           # ARIA_REQUIRE_MODE_A: that mint is Mode A or refuses by name; it
           # never copies the ambient GH_TOKEN (Mode B) into a PR's author.

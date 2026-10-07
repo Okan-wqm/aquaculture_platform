@@ -126,6 +126,13 @@ class _LoopFixture(unittest.TestCase):
                 if row["kind"] == "plan_candidate_conversion_skipped"
                 and (cycle_id is None or row["details"]["cycle_id"] == cycle_id)]
 
+    def slot_dropped(self, cycle_id: str) -> list[tuple[str, str]]:
+        """ARIA-HIGH-369 — what the slot policy dropped before admission, disclosed once per synthesis."""
+        rows = load_declared_jsonl(self.fx.tools / "governance.jsonl", expected_surface="tools_governance")
+        return [(drop["candidate_id"], drop["reason"]) for row in rows
+                if row["kind"] == "plan_slot_policy_applied" and row["details"]["cycle_id"] == cycle_id
+                for drop in row["details"]["dropped"]]
+
     def skip_detail(self, candidate_id: str) -> dict[str, Any]:
         rows = load_declared_jsonl(self.fx.tools / "governance.jsonl", expected_surface="tools_governance")
         return next(row["details"] for row in rows if row["kind"] == "plan_candidate_conversion_skipped"
@@ -160,8 +167,9 @@ class SelfLoopGuardTests(_LoopFixture):
         self.fx.set_status("F-030", "RESOLVED")
         self.finding("F-031", GROUNDED_FILE, origin="aria-watchdog:runtime_anomaly")
         self.assertIsNone(self.synthesize("cyc-wd"))
-        self.assertEqual(self.skips("cyc-wd"),
-                         [("F-030", fg.FINDING_NOT_OPEN), ("F-031", fg.SELF_LOOP_WATCHDOG_RECENT)])
+        self.assertEqual(self.skips("cyc-wd"), [("F-031", fg.SELF_LOOP_WATCHDOG_RECENT)])
+        # The RESOLVED finding never reaches admission: the slot policy drops it by the same reason.
+        self.assertEqual(self.slot_dropped("cyc-wd"), [("F-030", fg.FINDING_NOT_OPEN)])
 
     def test_external_origins_are_exactly_the_operator_and_the_review_registry(self) -> None:
         # Widening this set lets ARIA's own findings plan ARIA's own paths unattended:
@@ -273,8 +281,8 @@ class CycleDetectionTests(_LoopFixture):
             self.fx.set_status(f"F-0{number}", "RESOLVED")
         self.finding("F-053", GROUNDED_FILE)
         self.assertIsNone(self.synthesize("cyc-streak"))
-        self.assertEqual(self.skips("cyc-streak")[-1], ("F-053", fg.WATCHDOG_RESOLUTION_STREAK))
-        self.assertEqual({reason for _id, reason in self.skips("cyc-streak")[:-1]}, {fg.FINDING_NOT_OPEN})
+        self.assertEqual(self.skips("cyc-streak"), [("F-053", fg.WATCHDOG_RESOLUTION_STREAK)])
+        self.assertEqual({reason for _id, reason in self.slot_dropped("cyc-streak")}, {fg.FINDING_NOT_OPEN})
 
 
 class ScopeTests(_LoopFixture):

@@ -1,7 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
+import { getDataSourceToken } from '@nestjs/typeorm';
 import { decodeSensorReadingId } from '@aquaculture/backend-common/sensor';
 import { OutboxPublisher } from '@platform/outbox';
+import type { ObjectLiteral, Repository } from 'typeorm';
+import { createMockRepository, createTenantSessionDataSource } from '@platform/testing';
 
 import { SensorDataChannel } from '../../../database/entities/sensor-data-channel.entity';
 import { SensorReadings } from '../../../database/entities/sensor-reading.entity';
@@ -27,77 +29,38 @@ describe('SensorIngestionService — outbox durability', () => {
 
   const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 
-  // The transactional EntityManager the outbox enqueue + metric write receive.
-  // The service no longer calls save/insert on it — it is only an identity the
-  // atomicity assertions match against.
-  const transactionManager = { save: jest.fn(), insert: jest.fn() };
-
-  const mockSensorRepository = {
-    update: jest.fn().mockResolvedValue(undefined),
-    find: jest.fn().mockResolvedValue([]),
-  };
-
-  // Auto-provisioning of missing channels (SENSOR-HIGH-085 / B1) inserts through
-  // a query builder with orIgnore(), so the mock models that chain and records
-  // the values it was handed.
-  const insertedChannelValues: jest.Mock = jest.fn();
-  const mockChannelRepository = {
-    findBy: jest.fn().mockResolvedValue([]),
-    createQueryBuilder: jest.fn(() => ({
-      insert: () => ({
-        into: () => ({
-          values: (v: unknown) => {
-            insertedChannelValues(v);
-            return { orIgnore: () => ({ execute: async () => undefined }) };
-          },
-        }),
-      }),
-    })),
-  };
-
-  // The reading paths run inside `runInTenantTransaction`: a QueryRunner whose
-  // manager is `transactionManager`. The runner honours the boundary's own
-  // statements — search_path / tenant / bypass are really set and read back —
-  // so a reading committed under the wrong tenant (or none) fails here exactly
-  // as it would against Postgres (SENSOR-HIGH-145). `boundTenants` records the
-  // tenant each transaction was bound to when it committed.
-  const boundTenants: string[] = [];
-  const session = { schema: 'public', tenant: '', bypass: '' };
-  const runnerQuery = jest.fn((sql: string, params: unknown[] = []): Promise<unknown> => {
-    if (sql.includes("set_config('search_path'")) {
-      session.schema = String(params[0]).split(',')[0]!.trim().replace(/"/g, '');
-    } else if (sql.includes("set_config($1, 'off', true)")) {
-      session.bypass = 'off';
-    } else if (sql.includes('set_config($1, $2, true)') && params[0] === 'app.current_tenant') {
-      session.tenant = String(params[1]);
-    } else if (sql.includes('current_schema() AS schema')) {
-      return Promise.resolve([
-        { schema: session.schema, tenant: session.tenant, bypass: session.bypass },
-      ]);
-    }
-    return Promise.resolve([]);
-  });
-  const endTransaction = (committed: boolean) => (): Promise<void> => {
-    if (committed) boundTenants.push(session.tenant);
-    Object.assign(session, { schema: 'public', tenant: '', bypass: '' });
-    return Promise.resolve();
-  };
-  const mockDataSource = {
-    createQueryRunner: jest.fn(() => ({
-      connect: jest.fn().mockResolvedValue(undefined),
-      startTransaction: jest.fn().mockResolvedValue(undefined),
-      commitTransaction: jest.fn(endTransaction(true)),
-      rollbackTransaction: jest.fn(endTransaction(false)),
-      release: jest.fn().mockResolvedValue(undefined),
-      query: runnerQuery,
-      manager: transactionManager,
-    })),
-    // Parent-routing still opens a plain transaction (no sensor_metrics write).
+  // Every read and write runs inside runInTenantTransaction / runInTenantRead:
+  // a session that honours the boundary's own statements, so a statement run
+  // under the wrong tenant (or none) is visible here exactly as it would be
+  // against Postgres (SENSOR-HIGH-145/148). `boundTenants` records the tenant
+  // each transaction was bound to when it committed. `transactionManager` is
+  // the identity the atomicity assertions match against.
+  const {
+    mockDataSource,
+    mockManager: transactionManager,
+    session,
+    boundTenants,
+    queryBuilders,
+  } = createTenantSessionDataSource();
+  /** The tenant the session was bound to at each outbox enqueue. */
+  const tenantAtEnqueue: string[] = [];
+  // Parent-routing still opens a plain transaction (outbox only, no tenant table).
+  const dataSource = Object.assign(mockDataSource, {
     transaction: jest.fn(
       (cb: (m: typeof transactionManager) => Promise<unknown>): Promise<unknown> =>
         cb(transactionManager),
     ),
-  };
+  });
+
+  // Tenant-scoped repositories (tenantManagerRepo over the session manager).
+  const sensorRepository = createMockRepository<Sensor>();
+  const channelRepository = createMockRepository<SensorDataChannel>();
+
+  // Auto-provisioning of missing channels (SENSOR-HIGH-085 / B1) inserts through
+  // the session manager's query builder with orIgnore(); these are the values
+  // each insert chain was handed.
+  const insertedChannelValues = (): unknown[] =>
+    queryBuilders.flatMap((qb) => qb['values']?.mock.calls.map(([values]) => values) ?? []);
 
   const mockOutboxPublisher = {
     enqueue: jest.fn().mockResolvedValue(undefined),
@@ -136,23 +99,32 @@ describe('SensorIngestionService — outbox durability', () => {
     mockDataQualityService.hasValidMetrics.mockReturnValue(true);
     mockDataQualityService.calculateQuality.mockReturnValue(95);
     mockCalibrationService.applyCalibration.mockImplementation(
-      async (_sensorId: string, readings: SensorReadings) => readings,
+      async (_sensorId: string, _tenantId: string, readings: SensorReadings) => readings,
     );
     mockCalibrationService.getChannels.mockResolvedValue([]);
     mockMetricWriter.writeManaged.mockResolvedValue(undefined);
-    mockDataSource.transaction.mockImplementation(
+    dataSource.transaction.mockImplementation(
       (cb: (m: typeof transactionManager) => Promise<unknown>): Promise<unknown> =>
         cb(transactionManager),
     );
     boundTenants.length = 0;
-    mockOutboxPublisher.enqueue.mockResolvedValue(undefined);
+    tenantAtEnqueue.length = 0;
+    sensorRepository.find.mockResolvedValue([]);
+    sensorRepository.update.mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] });
+    channelRepository.find.mockResolvedValue([]);
+    transactionManager.getRepository.mockImplementation(
+      (entity): Repository<ObjectLiteral> =>
+        entity === Sensor ? sensorRepository : channelRepository,
+    );
+    queryBuilders.length = 0;
+    mockOutboxPublisher.enqueue.mockImplementation(async () => {
+      tenantAtEnqueue.push(session.tenant);
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SensorIngestionService,
-        { provide: getRepositoryToken(Sensor), useValue: mockSensorRepository },
-        { provide: getRepositoryToken(SensorDataChannel), useValue: mockChannelRepository },
-        { provide: getDataSourceToken(), useValue: mockDataSource },
+        { provide: getDataSourceToken(), useValue: dataSource },
         { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: CalibrationService, useValue: mockCalibrationService },
         { provide: DataQualityService, useValue: mockDataQualityService },
@@ -196,11 +168,14 @@ describe('SensorIngestionService — outbox durability', () => {
       expect(decoded!.anchor).toBe(`${result.timestamp.toISOString().slice(0, -1)}000Z`);
     });
 
-    it("enqueues within one transaction bound to the reading's tenant (SENSOR-HIGH-145)", async () => {
+    it("runs the enqueue — and every other statement — bound to the reading's tenant (SENSOR-HIGH-145/148)", async () => {
       await service.ingestReading(baseInput);
 
-      expect(mockDataSource.createQueryRunner).toHaveBeenCalledTimes(1);
-      expect(boundTenants).toEqual([TENANT_ID]);
+      expect(tenantAtEnqueue).toEqual([TENANT_ID]);
+      // Channel provisioning, the atomic write and the last_seen update each
+      // committed bound to the reading's tenant, never to none.
+      expect(boundTenants.length).toBeGreaterThanOrEqual(2);
+      expect(new Set(boundTenants)).toEqual(new Set([TENANT_ID]));
     });
 
     it('propagates an enqueue failure so the ingest rejects (transaction rolls back)', async () => {
@@ -235,11 +210,13 @@ describe('SensorIngestionService — outbox durability', () => {
       ]);
 
       expect(count).toBe(3);
-      expect(boundTenants).toEqual([TENANT_ID, OTHER_TENANT]);
+      // Each reading's event was enqueued under its own tenant's binding.
       const tenantsPerEnqueue = mockOutboxPublisher.enqueue.mock.calls.map(
         ([event]) => (event as { tenantId: string }).tenantId,
       );
       expect(tenantsPerEnqueue).toEqual([TENANT_ID, TENANT_ID, OTHER_TENANT]);
+      expect(tenantAtEnqueue).toEqual(tenantsPerEnqueue);
+      expect(new Set(boundTenants)).toEqual(new Set([TENANT_ID, OTHER_TENANT]));
     });
 
     it('propagates a chunk enqueue failure so the batch ingest rejects', async () => {
@@ -256,7 +233,7 @@ describe('SensorIngestionService — outbox durability', () => {
         dataPath: 'data.temp',
         type: undefined,
       };
-      mockSensorRepository.find.mockResolvedValueOnce([child as Sensor]);
+      sensorRepository.find.mockResolvedValueOnce([child as Sensor]);
 
       const result = await service.ingestParentReading(
         '55555555-5555-4555-8555-555555555555',
@@ -322,8 +299,8 @@ describe('SensorIngestionService — outbox durability', () => {
       await service.ingestReading({ ...baseInput, readings: { temperature: 24.5 } });
 
       // A channel was provisioned for the reported parameter...
-      expect(insertedChannelValues).toHaveBeenCalledTimes(1);
-      expect(insertedChannelValues.mock.calls[0][0]).toEqual([
+      expect(insertedChannelValues()).toHaveLength(1);
+      expect(insertedChannelValues()[0]).toEqual([
         expect.objectContaining({
           sensorId: baseInput.sensorId,
           tenantId: TENANT_ID,
@@ -349,7 +326,7 @@ describe('SensorIngestionService — outbox durability', () => {
 
       await service.ingestReading({ ...baseInput, readings: { dissolvedOxygen: 6.8 } });
 
-      expect(insertedChannelValues.mock.calls[0][0]).toEqual([
+      expect(insertedChannelValues()[0]).toEqual([
         expect.objectContaining({ channelKey: 'dissolved_oxygen' }),
       ]);
       const [metrics] = mockMetricWriter.writeManaged.mock.calls[0];
@@ -365,7 +342,7 @@ describe('SensorIngestionService — outbox durability', () => {
 
       await service.ingestReading({ ...baseInput, readings: { temperature: 24.5 } });
 
-      expect(insertedChannelValues).not.toHaveBeenCalled();
+      expect(insertedChannelValues()).toHaveLength(0);
       expect(mockMetricWriter.writeManaged).toHaveBeenCalledTimes(1);
     });
 

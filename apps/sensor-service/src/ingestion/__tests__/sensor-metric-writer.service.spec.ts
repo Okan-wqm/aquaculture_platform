@@ -1,5 +1,9 @@
 import { TenantContextError } from '@aquaculture/backend-common/database';
-import { DataSource, EntityManager, QueryRunner } from 'typeorm';
+import {
+  createTenantBoundManager,
+  createTenantSessionDataSource,
+  type TenantSession,
+} from '@platform/testing';
 
 import { SensorMetricInput } from '../../database/entities/sensor-metric.entity';
 import { SensorMetricWriterService } from '../sensor-metric-writer.service';
@@ -21,96 +25,13 @@ const TENANT_B = '44444444-4444-4444-8444-444444444444';
 const SCHEMA_A = 'tenant_3333333333334333';
 const SCHEMA_B = 'tenant_4444444444444444';
 
-/**
- * A one-connection fake of a Postgres session that honours the tenant
- * boundary's own statements: `set_config` really sets search_path /
- * app.current_tenant / app.bypass_rls (transaction-locally — commit and
- * rollback clear them), and the read-backs answer from that state. So
- * `runInTenantTransaction` and `assertTenantRlsBound` are exercised, not
- * stubbed. Every other statement (SET LOCAL timeouts, INSERTs) goes to
- * `query`, the mock the assertions inspect.
- */
-interface FakeSession {
-  schema: string;
-  tenant: string;
-  bypass: string;
-}
-
-function answerBoundary(
-  session: FakeSession,
-  sql: string,
-  params: readonly unknown[] = [],
-): unknown[] | null | undefined {
-  if (sql.includes("set_config('search_path'")) {
-    session.schema = String(params[0]).split(',')[0]!.trim().replace(/"/g, '');
-    return [];
-  }
-  if (sql.includes("set_config($1, 'off', true)")) {
-    session.bypass = 'off';
-    return [];
-  }
-  if (sql.includes('set_config($1, $2, true)')) {
-    if (params[0] === 'app.current_tenant') session.tenant = String(params[1]);
-    return [];
-  }
-  if (sql.includes('current_schema() AS schema')) {
-    return [{ schema: session.schema, tenant: session.tenant, bypass: session.bypass }];
-  }
-  if (sql.includes('current_setting($1, true) AS tenant')) {
-    return [{ tenant: session.tenant, bypass: session.bypass }];
-  }
-  return undefined;
-}
-
-function freshSession(): FakeSession {
-  return { schema: 'public', tenant: '', bypass: '' };
-}
-
 function createService(): {
   service: SensorMetricWriterService;
   query: jest.Mock;
-  session: FakeSession;
+  session: TenantSession;
 } {
-  const query = jest.fn().mockResolvedValue(undefined);
-  const session = freshSession();
-  const run = (sql: string, params?: readonly unknown[]): Promise<unknown> => {
-    const boundary = answerBoundary(session, sql, params);
-    return boundary === undefined ? query(sql, params) : Promise.resolve(boundary);
-  };
-  const endTransaction = (): Promise<void> => {
-    Object.assign(session, freshSession());
-    return Promise.resolve();
-  };
-  const queryRunner: Partial<QueryRunner> = {
-    connect: jest.fn().mockResolvedValue(undefined),
-    startTransaction: jest.fn().mockResolvedValue(undefined),
-    commitTransaction: jest.fn(endTransaction),
-    rollbackTransaction: jest.fn(endTransaction),
-    release: jest.fn().mockResolvedValue(undefined),
-    query: run as QueryRunner['query'],
-  };
-  const dataSource: Partial<DataSource> = {
-    query,
-    createQueryRunner: () => queryRunner as QueryRunner,
-  };
-  const service = new SensorMetricWriterService(dataSource as DataSource);
-  return { service, query, session };
-}
-
-/** A caller-owned transaction manager, bound to `tenantId` (or to none). */
-function managerBoundTo(tenantId: string | null, insert: jest.Mock): EntityManager {
-  const session: FakeSession = {
-    schema: 'public',
-    tenant: tenantId ?? '',
-    bypass: tenantId === null ? '' : 'off',
-  };
-  const manager: Partial<EntityManager> = {
-    query: ((sql: string, params?: readonly unknown[]) => {
-      const boundary = answerBoundary(session, sql, params);
-      return boundary === undefined ? insert(sql, params) : Promise.resolve(boundary);
-    }) as EntityManager['query'],
-  };
-  return manager as EntityManager;
+  const { mockDataSource, session, domainQuery } = createTenantSessionDataSource();
+  return { service: new SensorMetricWriterService(mockDataSource), query: domainQuery, session };
 }
 
 function createMetric(overrides: Partial<SensorMetricInput> = {}): SensorMetricInput {
@@ -269,7 +190,7 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
     it('writes on the caller transaction manager, into the tenant schema', async () => {
       const { service, query } = createService();
       const insert = jest.fn().mockResolvedValue(undefined);
-      await service.writeManaged([createMetric()], managerBoundTo(TENANT_A, insert));
+      await service.writeManaged([createMetric()], createTenantBoundManager(TENANT_A, insert));
       expect(insert).toHaveBeenCalledTimes(1);
       expect(query).not.toHaveBeenCalled();
       const [sql] = insert.mock.calls[0]!;
@@ -281,7 +202,7 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
       const insert = jest.fn().mockRejectedValue(new Error('deadlock detected'));
 
       await expect(
-        service.writeManaged([createMetric()], managerBoundTo(TENANT_A, insert)),
+        service.writeManaged([createMetric()], createTenantBoundManager(TENANT_A, insert)),
       ).rejects.toThrow('deadlock detected');
     });
 
@@ -290,7 +211,7 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
       const insert = jest.fn().mockResolvedValue(undefined);
 
       await expect(
-        service.writeManaged([createMetric()], managerBoundTo(null, insert)),
+        service.writeManaged([createMetric()], createTenantBoundManager(null, insert)),
       ).rejects.toBeInstanceOf(TenantContextError);
       expect(insert).not.toHaveBeenCalled();
     });
@@ -302,7 +223,7 @@ describe('SensorMetricWriterService (SENSOR-MEDIUM-068)', () => {
       await expect(
         service.writeManaged(
           [createMetric({ tenantId: TENANT_B })],
-          managerBoundTo(TENANT_A, insert),
+          createTenantBoundManager(TENANT_A, insert),
         ),
       ).rejects.toBeInstanceOf(TenantContextError);
       expect(insert).not.toHaveBeenCalled();

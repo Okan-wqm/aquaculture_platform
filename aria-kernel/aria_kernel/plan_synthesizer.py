@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol
 
@@ -64,6 +64,7 @@ __all__ = [
     # ORPHAN-HIGH-519 — what a conversion returns, and where its refs are judged.
     "PlanCandidateConversion",
     "PlanEvidenceGround",
+    "F_FINDING_UNSEEDED",
 ]
 
 
@@ -1228,6 +1229,9 @@ class PlanCandidateConversion:
 
 
 _NO_PLAN = PlanCandidateConversion(None)
+# ARIA-HIGH-369 — an F_FINDING candidate reached conversion without the seed
+# ``finding_seed.admit_and_seed`` re-grounds it into; no template plan stands in.
+F_FINDING_UNSEEDED = "f_finding_unseeded"
 
 
 def _admit_plan_refs(refs: list[str], ground: PlanEvidenceGround) -> tuple[list[str], PlanCandidateConversion]:
@@ -1319,6 +1323,7 @@ def convert_candidate_to_plan_content(
     *,
     admission: "FindingAdmission | None" = None,
     ground: PlanEvidenceGround,
+    seed: "FindingSeed | None" = None,
 ) -> PlanCandidateConversion:
     """Plan ARIA-V3.1-A — convert one ranked candidate into a
     CyclePlanEnvelope (closes 6-validator audit C-5 + H-2 + H-8).
@@ -1336,6 +1341,14 @@ def convert_candidate_to_plan_content(
     ``skip_reason`` ``plan_evidence_inadmissible``. Where a plan came from
     (the operator's feedback row, the CI run) is ``provenance_refs``, never
     evidence: no challenger can cite either.
+
+    ARIA-HIGH-369 — ``seed`` is ``finding_seed.seed_finding``'s re-grounding
+    of the same finding at the anchor. An F_FINDING plan is built ONLY from
+    it — its refs as they stand now, its subject's sides, its title, summary
+    and one key change per surface — and converts to no plan
+    (:data:`F_FINDING_UNSEEDED`) without one; there is no template F plan. An
+    operator request cites the seed's refs when there is one (a moved line
+    re-anchored) and the refs it signed otherwise.
 
     The caller iterates to the next ranked candidate when no plan results
     (V3.1-A-3 iterative fallback) and emits one
@@ -1401,6 +1414,8 @@ def convert_candidate_to_plan_content(
     if finding_sourced and (admission is None or not admission.admitted):
         return _NO_PLAN
     provenance_refs: list[str] = []
+    key_changes: list[dict[str, Any]] | None = None
+    signed_fallback: list[str] | None = None
     # Per-source content authoring. Each branch builds the same
     # canonical 7-field plan_content; only the textual hints differ.
     if source_type == PlanCandidateSource.OPERATOR_FEEDBACK.value:
@@ -1425,7 +1440,15 @@ def convert_candidate_to_plan_content(
             f"Operator text: {request}"
         )
         # The signed grounding is the evidence; the feedback row is provenance.
+        # ARIA-HIGH-369 review M1 — a seed may only move a SIGNED ref to its
+        # current line (never add a ref or a surface the operator did not
+        # sign), and when the moved refs are refused the signed ones are
+        # judged instead, so a seed can never get the request spent.
         evidence_refs = list(admission.evidence_refs)
+        if seed is not None and seed.finding_id == admission.finding_id:
+            moved_refs = list(seed.signed_refs_moved(admission.evidence_refs))
+            signed_fallback = evidence_refs if moved_refs != evidence_refs else None
+            evidence_refs = moved_refs
         provenance_refs = [f"{PROVENANCE_REF_PREFIX}{candidate_id}"]
         affected_surfaces = list(admission.affected_surfaces)
     elif source_type == PlanCandidateSource.FAILING_CI.value:
@@ -1467,20 +1490,27 @@ def convert_candidate_to_plan_content(
     else:  # F_FINDING
         if admission.finding_id != candidate_id:
             return _NO_PLAN
-        summary = (
-            f"Process aging F-finding {candidate_id}; verify status + "
-            "land remediation if OPEN."
-        )
-        # ORPHAN-312 / ARIA-HIGH-181 — the plan is grounded in the finding's
-        # REAL code references, never the finding JSON (self-output,
-        # gitignored, unresolvable at any SHA). ADR-0018 D5 moved that
-        # judgement into the shared admission: OPEN in the event fold, refs
-        # that are tracked files of this checkout, at least one writable
-        # surface. A finding that fails it never reaches this branch.
-        evidence_refs = list(admission.evidence_refs)
-        affected_surfaces = list(admission.affected_surfaces)
+        if seed is None or seed.finding_id != candidate_id:
+            return PlanCandidateConversion(None, F_FINDING_UNSEEDED)
+        # ORPHAN-312 / ARIA-HIGH-181 — grounded in the finding's REAL code
+        # references, never the finding JSON. ARIA-HIGH-369 — and as they
+        # stand at the anchor (the seed re-read every cited line, or asked the
+        # finding's own detector), with the plan's text built from the seed's
+        # ids, paths and side names instead of a template.
+        title_hint, summary, key_changes = seed.plan_text()
+        title_hint = sanitize_untrusted_text(title_hint, max_len=200)
+        summary = sanitize_untrusted_text(summary, max_len=2048)
+        key_changes = [{**change, "description": sanitize_untrusted_text(change["description"], max_len=1024)}
+                       for change in key_changes]
+        evidence_refs = list(seed.evidence_refs)
+        affected_surfaces = list(seed.affected_surfaces)
 
     evidence_refs, refusal = _admit_plan_refs(evidence_refs, ground)
+    if not evidence_refs and signed_fallback is not None:
+        moved_refusal = refusal
+        evidence_refs, refusal = _admit_plan_refs(signed_fallback, ground)
+        refusal = replace(refusal, refused_evidence_refs=moved_refusal.refused_evidence_refs
+                          + refusal.refused_evidence_refs)
     if not evidence_refs:
         return refusal
     if source_type == PlanCandidateSource.ORPHAN_FINDING.value:
@@ -1497,7 +1527,7 @@ def convert_candidate_to_plan_content(
         "title": title_hint,
         "summary": summary,
         "affected_surfaces": affected_surfaces,
-        "key_changes": [
+        "key_changes": key_changes if key_changes is not None else [
             {
                 "id": f"{candidate_id}-key-change-001",
                 "description": summary,

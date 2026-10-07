@@ -8,13 +8,12 @@ import {
   SENSOR_CONTINUOUS_AGGREGATE_STATEMENTS,
   TenantContextError,
 } from '@aquaculture/backend-common/database';
-import {
-  bootPostgresContainer,
-  type HarnessContext,
-  shutdownHarness,
-} from '@platform/migration-harness';
 import { DataSource } from 'typeorm';
 
+import {
+  bootSensorRlsHarness,
+  type SensorRlsHarness,
+} from '../../__tests__/support/sensor-rls-postgres.harness';
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 import { SensorMetric, SensorMetricInput } from '../../database/entities/sensor-metric.entity';
 import { SensorProtocol } from '../../database/entities/sensor-protocol.entity';
@@ -42,7 +41,6 @@ import { SensorMetricWriterService } from '../sensor-metric-writer.service';
 
 const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const RUNTIME_ROLE = 'sensor_writer_rls_test';
 const AGGREGATE_ROLE = 'sensor_aggregate_owner';
 const ENTITIES = [Sensor, SensorDataChannel, SensorMetric, SensorProtocol, SensorTypeDefinition];
 /** One sensor + channel per tenant; sensor_metrics references both. */
@@ -81,7 +79,7 @@ function metric(tenantId: TestTenant, minute: number, value: number): SensorMetr
 }
 
 describe('SensorMetricWriterService under FORCE RLS (SENSOR-HIGH-145, SENSOR-HIGH-146)', () => {
-  let harness: HarnessContext | undefined;
+  let stage: SensorRlsHarness | undefined;
   let admin: DataSource | undefined;
   let runtime: DataSource | undefined;
   let writer: SensorMetricWriterService | undefined;
@@ -89,117 +87,77 @@ describe('SensorMetricWriterService under FORCE RLS (SENSOR-HIGH-145, SENSOR-HIG
   const SCHEMA_B = getTenantSchemaName(TENANT_B);
 
   beforeAll(async () => {
-    harness = await bootPostgresContainer({ startTimeoutMs: 180_000 });
-    admin = harness.dataSource;
-    const runtimePassword = randomBytes(24).toString('hex');
     const aggregatePassword = randomBytes(24).toString('hex');
-
-    await admin.query('CREATE EXTENSION IF NOT EXISTS timescaledb');
-    await admin.query('CREATE SCHEMA IF NOT EXISTS sensor');
-    await admin.query(`CREATE ROLE ${RUNTIME_ROLE} LOGIN PASSWORD '${runtimePassword}'`);
-    // The production rollup owner: LOGIN (Timescale jobs run as it), and —
-    // like every application role — without BYPASSRLS.
-    await admin.query(
-      `CREATE ROLE ${AGGREGATE_ROLE} LOGIN NOBYPASSRLS PASSWORD '${aggregatePassword}'`,
-    );
-
-    const aggregate = new DataSource({
-      type: 'postgres',
-      ...harness.connectionOptions,
-      username: AGGREGATE_ROLE,
-      password: aggregatePassword,
-      name: `writer-rls-aggregate-${randomBytes(4).toString('hex')}`,
-      logging: false,
-    });
-    await aggregate.initialize();
-
-    for (const [tenantId, schema] of [
-      [TENANT_A, SCHEMA_A],
-      [TENANT_B, SCHEMA_B],
-    ] as const) {
-      await admin.query(`CREATE SCHEMA "${schema}"`);
-      const ddl = new DataSource({
-        type: 'postgres',
-        ...harness.connectionOptions,
-        name: `writer-rls-ddl-${schema}`,
-        schema,
+    let aggregate: DataSource | undefined;
+    try {
+      stage = await bootSensorRlsHarness({
+        name: 'metric_writer',
+        tenants: [TENANT_A, TENANT_B],
         entities: ENTITIES,
-        synchronize: true,
-        logging: false,
+        beforeRls: async ({ admin: owner, harness, tenantId, schema }) => {
+          if (aggregate === undefined) {
+            // The production rollup owner: LOGIN (Timescale jobs run as it),
+            // and — like every application role — without BYPASSRLS.
+            await owner.query(
+              `CREATE ROLE ${AGGREGATE_ROLE} LOGIN NOBYPASSRLS PASSWORD '${aggregatePassword}'`,
+            );
+            aggregate = new DataSource({
+              type: 'postgres',
+              ...harness.connectionOptions,
+              username: AGGREGATE_ROLE,
+              password: aggregatePassword,
+              name: `writer-rls-aggregate-${randomBytes(4).toString('hex')}`,
+              logging: false,
+            });
+            await aggregate.initialize();
+          }
+          const { sensorId, channelId } = SOURCES[tenantId as TestTenant];
+          await owner.query(
+            `INSERT INTO "${schema}".sensors (id, tenant_id, name, serial_number, type, status)
+             VALUES ($1, $2, 'Probe', $3, 'temperature', 'active')`,
+            [sensorId, tenantId, `RLS-${schema}`],
+          );
+          await owner.query(
+            `INSERT INTO "${schema}".sensor_data_channels
+               (id, sensor_id, tenant_id, channel_key, display_label, data_type, unit, "dataPath",
+                is_enabled, display_order)
+             VALUES ($1, $2, $3, 'temperature', 'temperature', 'number', '°C', 'temperature', true, 1)`,
+            [channelId, sensorId, tenantId],
+          );
+          // 1815 shape: an uncompressed hypertable on `time`.
+          await owner.query(
+            `SELECT create_hypertable('"${schema}".sensor_metrics', 'time', migrate_data => true)`,
+          );
+          await owner.query(`GRANT USAGE, CREATE ON SCHEMA "${schema}" TO ${AGGREGATE_ROLE}`);
+          await owner.query(`GRANT SELECT ON "${schema}".sensor_metrics TO ${AGGREGATE_ROLE}`);
+
+          // The rollup in the provisioner's order (tenant-schema-provisioner.ts,
+          // "rollups are created HERE … before postMigrationHardening"):
+          // Timescale refuses a continuous aggregate on a hypertable that
+          // already has row security, so it is built from the SSoT definition,
+          // by the LOGIN aggregate owner, before RLS is armed.
+          await aggregate.query(`SET search_path TO "${schema}", public`);
+          await aggregate.query(CREATE_METRICS_1MIN);
+          // Tenant B carries the production tenant's legacy shape: a compressed
+          // (columnstore) sensor_metrics, which the RLS helper must skip
+          // without touching its policies — DDL there would abort every deploy.
+          if (schema === SCHEMA_B) {
+            await owner.query(
+              `ALTER TABLE "${schema}".sensor_metrics SET (timescaledb.compress, timescaledb.compress_segmentby = 'sensor_id')`,
+            );
+          }
+        },
       });
-      await ddl.initialize();
-      await ddl.destroy();
-      const { sensorId, channelId } = SOURCES[tenantId];
-      await admin.query(
-        `INSERT INTO "${schema}".sensors (id, tenant_id, name, serial_number, type, status)
-         VALUES ($1, $2, 'Probe', $3, 'temperature', 'active')`,
-        [sensorId, tenantId, `RLS-${schema}`],
-      );
-      await admin.query(
-        `INSERT INTO "${schema}".sensor_data_channels
-           (id, sensor_id, tenant_id, channel_key, display_label, data_type, unit, "dataPath",
-            is_enabled, display_order)
-         VALUES ($1, $2, $3, 'temperature', 'temperature', 'number', '°C', 'temperature', true, 1)`,
-        [channelId, sensorId, tenantId],
-      );
-      // 1815 shape: an uncompressed hypertable on `time`.
-      await admin.query(
-        `SELECT create_hypertable('"${schema}".sensor_metrics', 'time', migrate_data => true)`,
-      );
-      await admin.query(`GRANT USAGE, CREATE ON SCHEMA "${schema}" TO ${AGGREGATE_ROLE}`);
-      await admin.query(`GRANT SELECT ON "${schema}".sensor_metrics TO ${AGGREGATE_ROLE}`);
-
-      // The rollup in the provisioner's order (tenant-schema-provisioner.ts,
-      // "rollups are created HERE … before postMigrationHardening"): Timescale
-      // refuses a continuous aggregate on a hypertable that already has row
-      // security, so it is built from the SSoT definition, by the LOGIN
-      // aggregate owner, before RLS is armed.
-      await aggregate.query(`SET search_path TO "${schema}", public`);
-      await aggregate.query(CREATE_METRICS_1MIN);
-      // Tenant B carries the production tenant's legacy shape: a compressed
-      // (columnstore) sensor_metrics, which the RLS helper must skip without
-      // touching its policies — DDL there would abort every deploy.
-      if (schema === SCHEMA_B) {
-        await admin.query(
-          `ALTER TABLE "${schema}".sensor_metrics SET (timescaledb.compress, timescaledb.compress_segmentby = 'sensor_id')`,
-        );
-      }
-
-      const previousDdlAuthority = process.env['DB_MIGRATE_DDL_AUTHORITY'];
-      process.env['DB_MIGRATE_DDL_AUTHORITY'] = '1';
-      try {
-        const qr = admin.createQueryRunner();
-        await applyTenantRlsToSchema(qr, { schemaOverride: schema });
-        await qr.release();
-      } finally {
-        if (previousDdlAuthority === undefined) delete process.env['DB_MIGRATE_DDL_AUTHORITY'];
-        else process.env['DB_MIGRATE_DDL_AUTHORITY'] = previousDdlAuthority;
-      }
-
-      await admin.query(`GRANT USAGE ON SCHEMA "${schema}", sensor, public TO ${RUNTIME_ROLE}`);
-      await admin.query(
-        `GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA "${schema}" TO ${RUNTIME_ROLE}`,
-      );
+    } finally {
+      if (aggregate?.isInitialized) await aggregate.destroy();
     }
-    await aggregate.destroy();
-
-    runtime = new DataSource({
-      type: 'postgres',
-      ...harness.connectionOptions,
-      username: RUNTIME_ROLE,
-      password: runtimePassword,
-      name: `writer-rls-runtime-${randomBytes(4).toString('hex')}`,
-      entities: ENTITIES,
-      synchronize: false,
-      logging: false,
-    });
-    await runtime.initialize();
+    admin = stage.admin;
+    runtime = stage.runtime;
     writer = new SensorMetricWriterService(runtime);
   });
 
   afterAll(async () => {
-    if (runtime?.isInitialized) await runtime.destroy();
-    if (harness) await shutdownHarness(harness);
+    await stage?.shutdown();
   });
 
   async function storedValues(schema: string): Promise<number[]> {

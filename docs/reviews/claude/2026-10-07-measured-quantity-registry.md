@@ -87,24 +87,34 @@ Proof:
 
 The admin OpenAPI artifact was regenerated in this PR. See CONTRACT-LOW-011.
 
-## FARM-MEDIUM-363 — two services seed the default water-quality parameters (open)
+## FARM-MEDIUM-363 — two services seed the default water-quality parameters
 
 Two services seed a new tenant's water-quality parameter configs, from separate
 lists:
 
-- admin-api-service provisioning inserts 12 parameter configs straight into
-  farm's per-tenant `water_quality_parameter_configs`, with its own thresholds
-  and spellings (`mg/L CaCO₃`);
-- farm's onboarding handler then seeds its own 7 and skips the codes admin
-  already wrote.
+- admin-api-service provisioning had a saga step that inserted 12 parameter
+  configs straight into farm's per-tenant `water_quality_parameter_configs`,
+  with its own thresholds and spellings (`mg/L CaCO₃`), and deleted them again
+  on compensation;
+- farm's onboarding handler seeds its own 7 when it receives
+  `TenantOnboardingRequested`.
 
-So a tenant's defaults come from whichever list ran first, and the farm table
-has two writers.
+The finding first said admin's list wins. Reading the call sites corrected
+that: the step ran only when `skipSchemaCreation` was false, and the one caller
+(the provisioning workflow) passes true, which is also the default. So tenants
+got farm's set, and admin's was a second writer kept in code, not in use.
 
-Fix: farm owns the default set, built from the registry as the templates are.
-Admin publishes the onboarding request and writes nothing into farm's schema.
+Fix (closed):
 
-Owner: claude. Deadline: 2026-10-14. This is the next PR of this program.
+- the admin step, its 12-entry list and the `skipSchemaCreation` option, which
+  gated nothing else, are deleted;
+- farm's seeder, whose units come from the registry, is the one owner;
+- `tests/invariants/admin-no-tenant-table-writes.spec.ts` fails on any admin
+  raw-SQL write to a named table in a runtime-built schema. Run against the old
+  code, it reported both lines (the insert and the compensating delete).
+- The database explorer's generic row editor names no table and is not matched.
+
+No runtime behaviour changes. A new tenant still gets farm's set.
 
 ## FARM-MEDIUM-364 — manual-measurement and channel units outside the registry (open)
 

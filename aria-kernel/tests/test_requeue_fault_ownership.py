@@ -26,6 +26,7 @@ from aria_kernel.agent_invocations import (
     REQUEST_FAULT_RELEASE_REASONS,
     _request_fault_requeue_count,
 )
+from aria_kernel.request_admission import admit_request
 
 
 def _requeue(request_id: str, reason: str, n: int) -> list[dict[str, Any]]:
@@ -273,6 +274,7 @@ class ContractViolationReleaseEscalatesTest(unittest.TestCase):
                 must_satisfy=[{"id": "adjudicate", "description": "verdict with evidence"}],
                 allowed_scope=["human-required:AIR-x"],
                 base_dir=tools,
+                admission=admit_request("operator_cli.request", "human_required_adjudication", base_dir=tools),
             )
             request_id = str(request["request_id"])
             attempts = FREE_CONTRACT_VIOLATIONS + DEFAULT_MAX_REQUEUES + 1

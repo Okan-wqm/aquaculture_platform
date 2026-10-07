@@ -22,6 +22,7 @@ from . import _helpers  # noqa: F401
 from aria_kernel import cross_review_bridge
 from aria_kernel.bridge_exceptions import BridgeContractViolation
 from aria_kernel.plan_convergence import start_plan
+from aria_kernel.request_admission import admit_request
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -63,6 +64,7 @@ class TestCrossReviewEnvelopeMint(unittest.TestCase):
             evidence_refs=["fixture.py:1:ok"],
             allowed_scope=["fixture.py"],
             base_dir=base,
+            admission=admit_request("convergence_drainer.plan_step", "cross_review", base_dir=base),
         )
         self.assertEqual(request.get("role"), "cross_review")
         self.assertEqual(request.get("target_agent"), "aria-cross-reviewer")
@@ -84,6 +86,7 @@ class TestCrossReviewEnvelopeMint(unittest.TestCase):
             evidence_refs=["fixture.py:1:ok"],
             allowed_scope=["fixture.py"],
             base_dir=base,
+            admission=admit_request("convergence_drainer.plan_step", "cross_review", base_dir=base),
         )
         self.assertEqual(request.get("must_satisfy"), ms)
 
@@ -100,6 +103,7 @@ class TestCrossReviewEnvelopeMint(unittest.TestCase):
             evidence_refs=["fixture.py:1:ok"],
             allowed_scope=["fixture.py"],
             base_dir=base,
+            admission=admit_request("convergence_drainer.plan_step", "cross_review", base_dir=base),
         )
         prompt = request.get("suggested_prompt", "")
         self.assertIn("<untrusted_primary_plan", prompt)
@@ -126,6 +130,7 @@ class TestPrimaryEnvelopeImpossibleMint(unittest.TestCase):
                     evidence_refs=["fixture.py:1:ok"],
                     allowed_scope=["fixture.py"],
                     base_dir=base,
+                    admission=admit_request("convergence_drainer.plan_step", "primary_plan", base_dir=base),
                 )
             msg = str(ctx.exception)
             self.assertIn("primary_envelope_forbidden_on_state_DRAFT", msg)

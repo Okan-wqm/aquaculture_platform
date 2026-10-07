@@ -39,6 +39,7 @@ from aria_kernel.human_required import sweep_lease_lifecycle_for_human_required
 from aria_kernel.judge_fanout import CONSENSUS_ARBITRATION_ROLE, pending_arbitration_group_ids
 from aria_kernel.plan_016_metrics import compute_plan_016_metrics
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FIXTURE_REQUESTS = 6
@@ -155,6 +156,7 @@ class _Store(unittest.TestCase):
             cycle_id="cyc-1",
             target_sha="a" * 40,
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", role, base_dir=self.tools),
         )
         return str(row["request_id"])
 

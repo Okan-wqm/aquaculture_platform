@@ -23,6 +23,7 @@ from .agent_invocations import create_agent_invocation_request
 from .evidence_trust import forbidden_detector_scope
 from .ledger import load_segments
 from .must_satisfy import must_satisfy_item, product_defect_obligation, rule_premise_obligation
+from .request_admission import Admission, admit_request
 from .rule_contract import RuleContract, resolve_rule_contract
 from .tool_registry import ensure_tools_dir
 
@@ -258,6 +259,11 @@ def dispatch_judges_for_sample(
     minted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     contracts: dict[tuple[str, str], RuleContract | None] = {}
+    # ARIA-HIGH-364 — a new judge pair is discretionary. A role the door
+    # refused stays refused for this cycle (one snapshot per cycle), and a
+    # pair is minted whole or not at all: a finding the sampler draws again
+    # later must not be left with one judge.
+    refused: dict[str, str] = {}
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -282,6 +288,24 @@ def dispatch_judges_for_sample(
         if tool_id not in judged:
             judged[tool_id] = _judged_pairs(root, tool_id)
         finding_key = _finding_key(item)
+        admissions: dict[str, Admission] = {}
+        for role, agent in JUDGE_FANOUT:
+            if refused:
+                break
+            if (group, agent) in existing or (finding_key, agent) in judged[tool_id]:
+                continue
+            if max_pending_per_role is not None and pending.get(role, 0) >= max_pending_per_role:
+                continue
+            admission = admit_request("judge_fanout.sample", role, base_dir=root, cycle_id=sample.get("cycle_id"))
+            if not admission.admitted:
+                refused[role] = admission.refusal
+                break
+            admissions[role] = admission
+        throttled = next(iter(refused.values()), None)
+        if throttled is not None:
+            skipped.extend({"judgment_group_id": group, "target_agent": agent, "reason": throttled}
+                           for _role, agent in JUDGE_FANOUT)
+            continue
         for role, agent in JUDGE_FANOUT:
             if (group, agent) in existing:
                 skipped.append({"judgment_group_id": group, "target_agent": agent, "reason": "already_dispatched"})
@@ -314,6 +338,7 @@ def dispatch_judges_for_sample(
                 target_sha=target_sha,
                 base_dir=root,
                 context_repo_root=repo_root,
+                admission=admissions[role],
             )
             minted.append({
                 "request_id": req.get("request_id"),
@@ -465,10 +490,16 @@ def dispatch_arbiter_for_split_verdicts(
                 "reason": "already_dispatched",
             })
             continue
+        admission = _arbiter_admission(root, cycle_id)
+        if not admission.admitted:
+            skipped.append({"judgment_group_id": group, "target_agent": CONSENSUS_ARBITER_AGENT,
+                            "reason": admission.refusal})
+            break
         minted.append(_mint_arbiter(
             root,
             tool_id=tool_id,
             group=split,
+            admission=admission,
             prompt=_render_arbiter_prompt(split),
             criterion=(
                 "Aggregate the supplied judge verdicts and return "
@@ -482,10 +513,21 @@ def dispatch_arbiter_for_split_verdicts(
     return {"schema_version": 1, "minted_count": len(minted), "minted": minted, "skipped": skipped}
 
 
+def _arbiter_admission(root: Path, cycle_id: str | None) -> Admission:
+    """ARIA-HIGH-364 — an arbiter starts a third judgment: discretionary.
+
+    A refused group is not lost: split and anchor groups are re-derived from
+    the feedback ledger every cycle, and the refusal holds for the rest of
+    the cycle (one snapshot per cycle), so the arm stops asking.
+    """
+    return admit_request("judge_fanout.arbitration", CONSENSUS_ARBITRATION_ROLE, base_dir=root, cycle_id=cycle_id)
+
+
 def _mint_arbiter(
     root: Path,
     *,
     tool_id: str,
+    admission: Admission,
     group: dict[str, Any],
     prompt: str,
     criterion: str,
@@ -514,6 +556,7 @@ def _mint_arbiter(
         cycle_id=cycle_id,
         target_sha=target_sha,
         base_dir=root,
+        admission=admission,
     )
     return {
         "request_id": req.get("request_id"),
@@ -675,10 +718,16 @@ def dispatch_arbiter_for_anchor_groups(
                 "reason": "already_dispatched",
             })
             continue
+        admission = _arbiter_admission(root, cycle_id)
+        if not admission.admitted:
+            skipped.append({"judgment_group_id": group, "target_agent": CONSENSUS_ARBITER_AGENT,
+                            "reason": admission.refusal})
+            break
         minted.append(_mint_arbiter(
             root,
             tool_id=tool_id,
             group=candidate,
+            admission=admission,
             prompt=_render_anchor_prompt(candidate),
             criterion=(
                 "Judge the finding independently and return details.consensus "

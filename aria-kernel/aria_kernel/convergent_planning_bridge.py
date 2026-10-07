@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request
+from .request_admission import Admission
 from .plan_contract import render_plan_contract, require_plan_contract
 from .plan_convergence import start_plan
 from .planner_lessons import planner_lesson_obligations
@@ -87,6 +88,7 @@ def issue_challenger_envelope(
     cycle_id: str | None = None,
     context_source_paths: list[str] | None = None,
     remint_of: str | None = None,
+    admission: Admission,
 ) -> dict[str, Any]:
     """Issue the challenger planner envelope for a given convergence round.
 
@@ -128,4 +130,6 @@ def issue_challenger_envelope(
         plan_contract=render_plan_contract(base_dir),
         # ARIA-HIGH-355 — the step's dead or refused request this one replaces.
         remint_of=remint_of,
+        # ARIA-HIGH-364 — the producer's admission decision, carried to the mint.
+        admission=admission,
     )

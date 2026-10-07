@@ -19,6 +19,7 @@ from aria_kernel.agent_invocations import (
 )
 from aria_kernel.agent_surface import TERMINAL_REQUEST_STATES
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 def _seed_request(
@@ -42,6 +43,7 @@ def _seed_request(
         allowed_scope=["aria-kernel/**"],
         convergence_id=convergence_id,
         base_dir=tools,
+        admission=admit_request("operator_cli.request", role, base_dir=tools),
     )
 
 

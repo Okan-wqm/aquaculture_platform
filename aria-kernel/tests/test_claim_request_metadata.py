@@ -25,6 +25,7 @@ from aria_kernel.agent_invocations import (
 )
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.runtime_profile import set_profile
+from aria_kernel.request_admission import admit_request
 
 
 ARIA_KERNEL = Path(__file__).resolve().parent.parent
@@ -45,6 +46,7 @@ class ClaimRequestFusedReturnTests(unittest.TestCase):
             allowed_scope=["docs/"],
             evidence_refs=["docs/a.md"],
             base_dir=self.base,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.base),
         )
 
     def tearDown(self) -> None:
@@ -117,6 +119,7 @@ class ClaimRequestFusedReturnTests(unittest.TestCase):
             allowed_scope=["docs/"],
             evidence_refs=["docs/x.md"],
             base_dir=self.base,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.base),
         )
         r1 = claim_request(
             request_id=self.req["request_id"], agent_id="agent-1",

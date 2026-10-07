@@ -45,6 +45,7 @@ from aria_kernel.cycle_rhythm import MIN_CYCLE_INTERVAL_HOURS
 from aria_kernel.genesis_policy import rhythm_policy
 from aria_kernel.governance_reader import read_governance_rows
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _EXECUTOR = _REPO_ROOT / "tools" / "aria-poc" / "ci_executor.py"
@@ -59,6 +60,7 @@ def _seed(tools: Path, prompt: str) -> dict:
         allowed_scope=["aria-kernel/**"],
         convergence_id="conv-v12",
         base_dir=tools,
+        admission=admit_request("operator_cli.request", "challenger_plan", base_dir=tools),
     )
 
 

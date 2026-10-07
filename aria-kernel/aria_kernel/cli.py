@@ -70,6 +70,7 @@ from aria_kernel.mission import (
     transition_mission,
 )
 from aria_kernel.plan_round_controller import advance_plan_rounds
+from aria_kernel.request_admission import admit_request
 from aria_kernel.promotion_controller import promote_converged_plan_to_dispatch
 from aria_kernel.state_store import STATE_BRANCH
 from aria_kernel.plan_convergence import (
@@ -5218,6 +5219,9 @@ def _main(argv: list[str] | None = None) -> int:
                 round_number=args.round_number,
                 expected_output_path=args.expected_output_path,
                 base_dir=args.tools_dir,
+                # ARIA-HIGH-364 — an operator's mint: critical path, recorded.
+                # A role the table does not classify is refused by name here.
+                admission=admit_request("operator_cli.request", args.role, base_dir=args.tools_dir),
             )
         # Plan 024 §B-1 — `submit-result` dispatch removed alongside the
         # subparser. Operators use `agent submit-result` (strict path) or,
@@ -5707,6 +5711,10 @@ def _main(argv: list[str] | None = None) -> int:
                 evidence_refs=args.evidence_ref,
                 allowed_scope=args.allowed_scope,
                 base_dir=args.tools_dir,
+                # ARIA-HIGH-364 — an operator's mint: critical path, recorded.
+                admission=admit_request(
+                    "operator_cli.convergent_plan", "challenger_plan", base_dir=args.tools_dir,
+                ),
             )
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0

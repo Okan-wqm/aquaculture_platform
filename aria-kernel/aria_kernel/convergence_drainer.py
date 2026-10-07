@@ -85,6 +85,7 @@ from .plan_coverage import (
     parse_critic_adjudication,
 )
 from .plan_round_scope import plan_round_contract
+from .request_admission import Admission, admit_request
 from .step_request import StepRequestDisposition, step_request_disposition
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
@@ -152,6 +153,9 @@ class ConvergenceResult(TypedDict):
         # convergence is advancing across cycles; the orchestrator
         # skips implementation this cycle and resumes next cycle.
         "in_progress",
+        # ARIA-HIGH-364 — the door refused to START this plan this cycle
+        # (request_admission); nothing was started or minted.
+        "request_admission_throttled",
     ]
     unsatisfied_items: list[dict[str, Any]]
     request_ids: list[str]
@@ -280,6 +284,22 @@ _LAST_VERDICT_PROVENANCE: dict[str, Any] = {
     "branch": None,
     "verdict": None,
 }
+
+
+def _seed_producer(plan_seed: dict[str, Any]) -> str:
+    """ARIA-HIGH-364 — who asks to start this plan: an operator-signed request or ARIA.
+
+    The synthesizer stamps an operator-feedback plan's provenance with the
+    signed row it came from (``operator_feedback_ingestion.PROVENANCE_REF_PREFIX``,
+    verified at ingestion, ADR-0018); every other seed is ARIA's own.
+    """
+    from .operator_feedback_ingestion import PROVENANCE_REF_PREFIX
+
+    refs = plan_seed.get("provenance_refs") if isinstance(plan_seed, dict) else None
+    operator = isinstance(refs, list) and any(
+        isinstance(ref, str) and ref.startswith(PROVENANCE_REF_PREFIX) for ref in refs
+    )
+    return "convergence_drainer.operator_plan_seed" if operator else "convergence_drainer.plan_seed"
 
 
 def _persistence_path(root: Path, plan_id: str) -> Path:
@@ -627,8 +647,16 @@ def run_convergence_drainer(
         )
 
     def _mint_step(role: str, round_n: int, mint: Any, remint_of: str | None,
-                   disposition: StepRequestDisposition | None = None) -> str | None:
-        request = mint(remint_of)
+                   disposition: StepRequestDisposition | None = None,
+                   admission: Admission | None = None) -> str | None:
+        # ARIA-HIGH-364 — every envelope of a started plan is a step of work
+        # in flight: critical path, admitted and recorded, never throttled
+        # (throttling it would stall the plan that drains the backlog). The
+        # only other ticket is the seed's, decided before the plan started.
+        ticket = admission or admit_request(
+            "convergence_drainer.plan_step", role, base_dir=root, cycle_id=cycle_id,
+        )
+        request = mint(remint_of, ticket)
         request_id = request.get("request_id")
         if request_id:
             request_ids.append(str(request_id))
@@ -649,7 +677,8 @@ def run_convergence_drainer(
             )
         return str(request_id) if request_id else None
 
-    def _ensure_envelope(role: str, round_n: int, mint: Any | None) -> str | None:
+    def _ensure_envelope(role: str, round_n: int, mint: Any | None,
+                         seed_admission: Admission | None = None) -> str | None:
         """Idempotent envelope guarantee for one step (``step_request``).
 
         Returns the live request id, or a freshly minted one: the first, or a
@@ -663,7 +692,7 @@ def run_convergence_drainer(
         if disposition.kind == "live":
             return disposition.request_id
         if disposition.kind == "absent" and mint is not None:
-            return _mint_step(role, round_n, mint, None)
+            return _mint_step(role, round_n, mint, None, admission=seed_admission)
         if disposition.kind == "remint" and mint is not None:
             return _mint_step(role, round_n, mint, disposition.request_id, disposition)
         raise _EnvelopeDead(role, disposition)
@@ -870,7 +899,7 @@ def run_convergence_drainer(
                         if manifest_file.exists()
                         else "(closure manifest unavailable)"
                     )
-                    def mint_critic(remint_of: str | None) -> dict[str, Any]:
+                    def mint_critic(remint_of: str | None, admission: Admission) -> dict[str, Any]:
                         return issue_completeness_critic_envelope(
                             plan_id=plan_id,
                             round_number=round_n,
@@ -883,6 +912,7 @@ def run_convergence_drainer(
                             base_dir=base_dir,
                             target_sha=target_sha,
                             remint_of=remint_of,
+                            admission=admission,
                         )
 
                     # ARIA-HIGH-355 — the critic is annotation-only: its
@@ -1045,6 +1075,18 @@ def run_convergence_drainer(
             return _terminal_result(state, current_round)
 
         if plan_state is None:
+            # ARIA-HIGH-364 — starting a plan is new work: discretionary,
+            # decided BEFORE the plan exists so a throttled seed leaves no
+            # started plan behind (a started plan's rounds are critical path
+            # and would mint anyway). A seed from an operator-signed request
+            # is operator work and is never throttled. The synthesizer
+            # re-derives the candidate next cycle.
+            seed_ticket = admit_request(
+                _seed_producer(plan_seed), _STEP_ROLE_CHALLENGER, base_dir=root, cycle_id=cycle_id,
+            )
+            if not seed_ticket.admitted:
+                _advanced(seed_ticket.refusal, None, 1)
+                return _result("request_admission_throttled", rounds=0)
             start_convergent_plan_drafted_by_primary(
                 plan_id=plan_id,
                 plan_content=plan_seed,
@@ -1060,7 +1102,7 @@ def run_convergence_drainer(
             request_id = _ensure_envelope(
                 _STEP_ROLE_CHALLENGER,
                 1,
-                lambda remint_of: issue_challenger_envelope(
+                lambda remint_of, admission: issue_challenger_envelope(
                     plan_id=plan_id,
                     round_number=1,
                     must_satisfy=[*started_contract.must_satisfy, *coverage_carry, *spine_carry],
@@ -1073,7 +1115,9 @@ def run_convergence_drainer(
                     context_repo_root=workspace_root,
                     cycle_id=cycle_id,
                     remint_of=remint_of,
+                    admission=admission,
                 ),
+                seed_admission=seed_ticket,
             )
             _advanced("plan_started_and_challenger_minted", request_id, 1)
             return _result("in_progress", rounds=1)
@@ -1083,7 +1127,7 @@ def run_convergence_drainer(
             request_id = _ensure_envelope(
                 _STEP_ROLE_CHALLENGER,
                 current_round,
-                lambda remint_of: issue_challenger_envelope(
+                lambda remint_of, admission: issue_challenger_envelope(
                     plan_id=plan_id,
                     round_number=current_round,
                     must_satisfy=effective_must_satisfy,
@@ -1096,6 +1140,7 @@ def run_convergence_drainer(
                     context_repo_root=workspace_root,
                     cycle_id=cycle_id,
                     remint_of=remint_of,
+                    admission=admission,
                 ),
             )
             _advanced("await_challenger", request_id, current_round)
@@ -1105,7 +1150,7 @@ def run_convergence_drainer(
             request_id = _ensure_envelope(
                 _STEP_ROLE_CHALLENGER,
                 current_round,
-                lambda remint_of: issue_challenger_envelope(
+                lambda remint_of, admission: issue_challenger_envelope(
                     plan_id=plan_id,
                     round_number=current_round,
                     must_satisfy=effective_must_satisfy,
@@ -1118,6 +1163,7 @@ def run_convergence_drainer(
                     context_repo_root=workspace_root,
                     cycle_id=cycle_id,
                     remint_of=remint_of,
+                    admission=admission,
                 ),
             )
             _advanced("await_challenger_for_revision", request_id, current_round)
@@ -1137,7 +1183,7 @@ def run_convergence_drainer(
                 request_id = _ensure_envelope(
                     _STEP_ROLE_CROSS_REVIEW,
                     current_round,
-                    lambda remint_of: issue_cross_review_envelope(
+                    lambda remint_of, admission: issue_cross_review_envelope(
                         plan_id=plan_id,
                         round_number=current_round,
                         primary_revision_id=str(primary_revision_id),
@@ -1154,6 +1200,7 @@ def run_convergence_drainer(
                         context_repo_root=workspace_root,
                         cycle_id=cycle_id,
                         remint_of=remint_of,
+                        admission=admission,
                     ),
                 )
             except Exception as mint_exc:
@@ -1239,7 +1286,7 @@ def run_convergence_drainer(
                 request_id = _ensure_envelope(
                     _STEP_ROLE_PRIMARY,
                     next_round,
-                    lambda remint_of: issue_primary_envelope(
+                    lambda remint_of, admission: issue_primary_envelope(
                         plan_id=plan_id,
                         round_number=next_round,
                         must_satisfy=[*base_ms, *coverage_carry, *spine_carry, *contract_carry],
@@ -1252,6 +1299,7 @@ def run_convergence_drainer(
                         context_repo_root=workspace_root,
                         cycle_id=cycle_id,
                         remint_of=remint_of,
+                        admission=admission,
                     ),
                 )
             except BridgeContractViolation:

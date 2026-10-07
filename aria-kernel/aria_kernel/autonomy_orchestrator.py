@@ -194,6 +194,7 @@ def _drain_next_cycle_queue(
     daemon_agent_id: str,
     limit: int,
     workspace_root: str | Path | None = None,
+    cycle_id: str | None = None,
 ) -> int:
     # A queue item is consumed only after its agent request is appended.
     import json
@@ -222,6 +223,7 @@ def _drain_next_cycle_queue(
         create_agent_invocation_request,
         list_agent_invocation_requests,
     )
+    from .request_admission import admit_request
     from .tool_registry import append_tools_governance
 
     pending = read_pending(base_dir, limit=limit)
@@ -415,6 +417,15 @@ def _drain_next_cycle_queue(
             )
             consumed += 1
             continue
+        # ARIA-HIGH-364 — a projected queue item starts new work:
+        # discretionary. A refused item is NOT consumed, so the next drain
+        # offers it again; the refusal holds for the rest of this cycle (one
+        # snapshot per cycle), so the drain stops asking here.
+        admission = admit_request(
+            "next_cycle_queue.projection", "maintenance_utility", base_dir=base_dir, cycle_id=cycle_id,
+        )
+        if not admission.admitted:
+            break
         try:
             request = create_agent_invocation_request(
                 target_agent="aria-autonomy-planner",
@@ -427,6 +438,7 @@ def _drain_next_cycle_queue(
                 pressure_event_id=pressure_id or None,
                 remint_of=remint_of,
                 base_dir=base_dir,
+                admission=admission,
             )
         except Exception as exc:
             append_tools_governance(
@@ -1553,6 +1565,7 @@ def run_autonomy_orchestrator(
                     # itself in its first accepted response (RC-2,
                     # AIR-aria-autonomy-planner-5636a540ccaa).
                     workspace_root=Path(workspace_root) if workspace_root else root,
+                    cycle_id=cycle_id,
                 )
                 AutonomyStateReducer.transition(
                     root,

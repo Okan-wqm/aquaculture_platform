@@ -27,6 +27,7 @@ from aria_kernel.cross_review_bridge import (
 from aria_kernel.plan_convergence import _validate_cross_review_risk
 from aria_kernel.plan_coverage import adjudicate_waivers, parse_critic_adjudication
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.request_admission import admit_request
 
 MANIFEST = "aria-tools/coverage/plan-1-r1.json"
 
@@ -143,6 +144,7 @@ class CriticEnvelopeTests(unittest.TestCase):
                 closure_manifest_path=MANIFEST,
                 closure_manifest_hash="sha256:" + "1" * 64, waivers=[],
                 evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["aria-tools/**"],
+                admission=admit_request("convergence_drainer.plan_step", "completeness_critique"),
             )
         with self.assertRaisesRegex(GovernanceError, "closure_manifest_hash"):
             issue_completeness_critic_envelope(
@@ -151,6 +153,7 @@ class CriticEnvelopeTests(unittest.TestCase):
                 closure_manifest_hash="not-a-hash",
                 waivers=[{"node_id": "project:x", "reason": "r"}],
                 evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["aria-tools/**"],
+                admission=admit_request("convergence_drainer.plan_step", "completeness_critique"),
             )
 
     def test_prompt_carries_untrusted_delimiters_and_fail_closed_warning(self):

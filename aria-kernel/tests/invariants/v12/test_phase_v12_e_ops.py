@@ -57,6 +57,7 @@ from aria_kernel.agent_invocations import (
 from aria_kernel.doctor import run_doctor
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _POC = _REPO_ROOT / "tools" / "aria-poc"
@@ -110,6 +111,7 @@ class ControlFolds(_Store):
             target_agent="aria-challenger-planner", role="challenger_plan", suggested_prompt="p",
             must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="conv-1",
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools),
         )
         self.assertEqual(derive_request_state(request_id=req["request_id"], base_dir=self.tools), "PENDING")
         control.record_control("cancel", base_dir=self.tools, request_id=req["request_id"])
@@ -277,7 +279,7 @@ class TelemetryAndAssets(_Store):
         from aria_kernel.agent_invocations import create_agent_invocation_request
 
         create_agent_invocation_request(target_agent="aria-challenger-planner", role="challenger_plan", suggested_prompt="p",
-                                        must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="c", base_dir=self.tools)
+                                        must_satisfy=[{"id": "x", "description": "y"}], allowed_scope=["apps/**"], convergence_id="c", base_dir=self.tools, admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools))
         self.assertIn("aria_agent_requests", self._emitted_names())
         text = telemetry._prometheus(telemetry._store_metrics(self.tools))
         self.assertIn("aria_executor_paused 0", text.replace("{}", ""))

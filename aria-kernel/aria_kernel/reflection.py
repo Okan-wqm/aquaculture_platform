@@ -8,6 +8,7 @@ from typing import Any
 from .agent_eval import observe_agent_performance
 from .governance_reader import read_governance_rows
 from .ledger import append_declared_jsonl, load_jsonl_verified, read_jsonl
+from .request_admission_report import admission_cycle_summary, render_request_admission_section
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
@@ -172,6 +173,9 @@ def run_reflection(
         # in agent-result-bridge-status.jsonl. This is that ledger's first
         # reader.
         "bridge_health": _compute_bridge_health(root),
+        # ARIA-HIGH-364 — what the request-admission door measured and
+        # decided this cycle (drain, budget, per-role admitted/throttled).
+        "request_admission": admission_cycle_summary(root, cycle_id),
         "agent_performance": agent_performance,
         "next_cycle_plan": [
             {
@@ -1515,6 +1519,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any], *, repo_root: Pa
         *_render_experiment_night_section(reflection),
         *_render_watchdog_section(reflection),
         *_render_bridge_health_section(reflection),
+        *render_request_admission_section(reflection),
         "",
         "## Tool Health",
         "",

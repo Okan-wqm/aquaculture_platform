@@ -171,20 +171,28 @@ def propose_goldsets_for_labelled_tools(
         )
         if row is None:
             unchanged.append(tool_id)
+        else:
+            proposed.append(
+                {
+                    "tool_id": tool_id,
+                    "status": row.get("status"),
+                    "true_positive_count": row.get("true_positive_count"),
+                    "known_false_positive_count": row.get("known_false_positive_count"),
+                    "blocked_by": row.get("blocked_by", []),
+                }
+            )
+        # ARIA-HIGH-364 — the curation ask is derived from the tool's LATEST
+        # proposal, changed this cycle or not. It used to fire only on the
+        # cycle the proposal changed, so a curation the request-admission
+        # door refused would never have been asked again. The subject guard
+        # in dispatch_goldset_curation keeps the re-ask idempotent.
+        current = row if row is not None else latest.get(tool_id)
+        if current is None:
             continue
-        proposed.append(
-            {
-                "tool_id": tool_id,
-                "status": row.get("status"),
-                "true_positive_count": row.get("true_positive_count"),
-                "known_false_positive_count": row.get("known_false_positive_count"),
-                "blocked_by": row.get("blocked_by", []),
-            }
-        )
         try:
             request = dispatch_goldset_curation(
                 tool_id=tool_id,
-                proposal=row,
+                proposal=current,
                 cycle_id=cycle_id,
                 base_dir=root,
                 target_sha=target_sha,
@@ -245,6 +253,12 @@ def dispatch_goldset_curation(
     )
     if subject in already_asked:
         return None
+    # ARIA-HIGH-364 — curation starts new work: discretionary. A refusal
+    # raises RequestAdmissionThrottled (a GovernanceError, so the caller
+    # records it per tool) and the subject stays unasked for the next cycle.
+    from .request_admission import admit_request
+
+    admission = admit_request("goldset.curation", GOLDSET_CURATION_ROLE, base_dir=root, cycle_id=cycle_id)
     true_positive_count = proposal.get("true_positive_count")
     known_false_positive_count = proposal.get("known_false_positive_count")
     # ARIA-HIGH-354 — the curator is handed the corpus itself and the
@@ -301,6 +315,7 @@ def dispatch_goldset_curation(
         cycle_id=cycle_id,
         target_sha=target_sha,
         base_dir=root,
+        admission=admission,
     )
 
 

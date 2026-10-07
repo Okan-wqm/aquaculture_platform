@@ -57,6 +57,7 @@ from .agent_invocations import (
     derive_request_state,
 )
 from .agent_surface import allowed_targets_for_role
+from .request_admission import RequestAdmissionThrottled, admit_request
 from .belief_escalation import BELIEF_ESCALATION_KIND
 from .human_required import (
     OUTCOME_REFUSED,
@@ -409,6 +410,7 @@ def open_adjudication(
     panel_size: int = DEFAULT_PANEL_SIZE,
     reopen_of: str | None = None,
     attempt: int = 1,
+    cycle_id: str | None = None,
 ) -> dict[str, Any]:
     """Mint one adjudication envelope per distinct panel target.
 
@@ -438,6 +440,18 @@ def open_adjudication(
             f"{len(distinct_targets)}<{panel_size}"
         )
     panel = distinct_targets[:panel_size]
+    # ARIA-HIGH-364 — a panel is new work (about 18 envelopes a cycle into a
+    # 630-request backlog on 10-06): discretionary, and admitted whole —
+    # ``count`` is the panel, so no half-panel is ever minted. A refusal
+    # raises before any envelope or ledger row; the escalation keeps no
+    # panel row and the next sweep lists it again. Under this door the
+    # anchor_stale -> panel amplifier (ARIA-HIGH-360) is capped by the same
+    # drain budget.
+    admission = admit_request(
+        "human_required_panel.open", ADJUDICATION_ROLE, base_dir=root, cycle_id=cycle_id, count=len(panel),
+    )
+    if not admission.admitted:
+        raise RequestAdmissionThrottled(admission.refusal)
     request_ids: list[str] = []
     for target in panel:
         request = create_agent_invocation_request(
@@ -471,6 +485,7 @@ def open_adjudication(
             allowed_scope=[f"human-required:{escalation_request_id}"],
             evidence_refs=[f"human-required:{escalation_request_id}"],
             base_dir=root,
+            admission=admission,
         )
         request_ids.append(str(request["request_id"]))
     row = {
@@ -759,6 +774,7 @@ def _execute_panel_disposition(
     record: dict[str, Any],
     verdict: PanelVerdict,
     adjudication_ref: str | None = None,
+    cycle_id: str | None = None,
 ) -> dict[str, Any]:
     """Y7 (ORPHAN-708) — give a clearing verdict its effect on an
     operational death. Returns {"action": ..., ...}; the CALLER decides
@@ -818,6 +834,15 @@ def _execute_panel_disposition(
         )
         _stamp_escalated_to_operator(root, request_id, record, reason="dead_request_obligations_unmintable")
         return {"action": "escalated", "reason": "dead_request_obligations_unmintable"}
+    # ARIA-HIGH-364 — the successor's class is its role's: a dead plan step
+    # or implementation (and its reviews) is critical path, anything else is
+    # discretionary. A refused re-mint leaves the record OPEN; the next sweep
+    # folds the panel again and re-applies the disposition.
+    admission = admit_request(
+        "human_required_panel.remint", str(dead.get("role") or ""), base_dir=root, cycle_id=cycle_id,
+    )
+    if not admission.admitted:
+        return {"action": "throttled", "reason": admission.refusal}
     successor = create_agent_invocation_request(
         target_agent=str(dead.get("target_agent") or ""),
         role=str(dead.get("role") or ""),
@@ -837,6 +862,7 @@ def _execute_panel_disposition(
         target_sha=dead.get("target_sha"),
         remint_of=request_id,
         base_dir=root,
+        admission=admission,
     )
     return {"action": "reminted", "successor": successor.get("request_id"), "existing": False}
 
@@ -845,6 +871,7 @@ def adjudicate_human_required(
     *,
     escalation_request_id: str,
     base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
 ) -> PanelVerdict:
     """Fold the panel and, only on a clearing verdict, resolve the record.
 
@@ -1091,8 +1118,12 @@ def adjudicate_human_required(
     disposition_note = ""
     if operational and record:
         execution = _execute_panel_disposition(
-            root=root, record=record, verdict=verdict,
+            root=root, record=record, verdict=verdict, cycle_id=cycle_id,
         )
+        if execution.get("action") == "throttled":
+            # ARIA-HIGH-364 — the request-admission door refused the
+            # successor this cycle: nothing was minted, so nothing resolves.
+            return verdict
         if execution.get("action") == "escalated":
             # The record stays OPEN — a resolve vote with no actionable
             # disposition is not a recovery, and closing the record would
@@ -1177,7 +1208,7 @@ def _panel_is_terminally_dead(
 
 
 def sweep_human_required_adjudications(
-    *, base_dir: str | Path | None = None,
+    *, base_dir: str | Path | None = None, cycle_id: str | None = None,
 ) -> dict[str, Any]:
     """Open or fold an agent panel for every adjudicable open escalation.
 
@@ -1212,6 +1243,7 @@ def sweep_human_required_adjudications(
     reopened: list[str] = []
     reopen_exhausted: list[str] = []
     skipped: list[dict[str, str]] = []
+    panel_refusal: str | None = None
 
     try:
         escalations = list_human_required(base_dir=root)
@@ -1242,7 +1274,7 @@ def sweep_human_required_adjudications(
         try:
             if request_id in existing:
                 verdict = adjudicate_human_required(
-                    escalation_request_id=request_id, base_dir=root,
+                    escalation_request_id=request_id, base_dir=root, cycle_id=cycle_id,
                 )
                 folded.append(request_id)
                 if verdict.clears_escalation:
@@ -1260,13 +1292,16 @@ def sweep_human_required_adjudications(
                     # reason — at that point a human genuinely must act.
                     prior_rows = _panel_rows_for(root, request_id)
                     attempt = len(prior_rows) + 1
-                    if attempt - 1 <= MAX_PANEL_REOPENS:
+                    if panel_refusal is not None:
+                        skipped.append({"request_id": request_id, "reason": panel_refusal})
+                    elif attempt - 1 <= MAX_PANEL_REOPENS:
                         latest = prior_rows[-1]
                         open_adjudication(
                             escalation_request_id=request_id, record=record,
                             base_dir=root,
                             reopen_of=str(latest.get("ledger_hash") or ""),
                             attempt=attempt,
+                            cycle_id=cycle_id,
                         )
                         reopened.append(request_id)
                     else:
@@ -1279,9 +1314,19 @@ def sweep_human_required_adjudications(
                             },
                         )
                         reopen_exhausted.append(request_id)
+            elif panel_refusal is not None:
+                skipped.append({"request_id": request_id, "reason": panel_refusal})
             else:
-                open_adjudication(escalation_request_id=request_id, record=record, base_dir=root)
+                open_adjudication(escalation_request_id=request_id, record=record, base_dir=root,
+                                  cycle_id=cycle_id)
                 opened.append(request_id)
+        except RequestAdmissionThrottled as refusal:
+            # ARIA-HIGH-364 — the door's refusal holds for the cycle (one
+            # snapshot per cycle); the remaining escalations are not asked
+            # again and are listed by the next sweep. Folding answered
+            # panels continues: that drains, it does not mint.
+            panel_refusal = str(refusal)
+            skipped.append({"request_id": request_id, "reason": panel_refusal})
         except Exception as exc:
             skipped.append({"request_id": request_id, "reason": str(exc)[:200]})
 

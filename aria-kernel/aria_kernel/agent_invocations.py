@@ -24,6 +24,7 @@ from .genesis_lifecycle import verify_shadow_eval_proof
 from .must_satisfy import MUST_SATISFY_ID_FIELD, MUST_SATISFY_TEXT_FIELD, must_satisfy_text, validate_must_satisfy
 from .git_probe import refuse_shallow_checkout
 from .plan_round_scope import PLANNING_ROUND_ROLES, plan_round_contract, require_plan_round_envelope
+from .request_admission import Admission, check_admission_binding, require_admitted
 from .ledger import (
     SEGMENTED_LEDGERS,
     StateTransaction,
@@ -1355,6 +1356,11 @@ def create_agent_invocation_request(
     # can hand the agent a suite the plan ledger did not converge on.
     forbidden_scope: list[str] | None = None,
     commit_contract: dict[str, Any] | None = None,
+    # ARIA-HIGH-364 — the door's decision (`request_admission.admit_request`).
+    # Required with no default: a request no admission decided cannot be
+    # written. The 2026-10-06 store held 606 never-claimed and 836
+    # anchor-stale rows minted by eleven producers that never asked.
+    admission: Admission,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
     # envelope to a specific plan revision so I-V5.1-03 can assert
@@ -1370,6 +1376,7 @@ def create_agent_invocation_request(
         raise GovernanceError(f"unknown invocation role: {role}")
     if not target_agent.strip():
         raise GovernanceError("target_agent is required")
+    check_admission_binding(admission, role=role)
     root = ensure_tools_dir(base_dir)
     if not shadow_eval and _target_is_shadow(root, target_agent):
         raise GovernanceError(
@@ -1532,6 +1539,9 @@ def create_agent_invocation_request(
     existing_request = _find_request_by_id(root, request_id)
     if existing_request is not None:
         return existing_request
+    # ARIA-HIGH-364 — a NEW identity is written only under an admitted
+    # decision; re-requesting a sealed row (above) consumes no budget.
+    require_admitted(admission)
     # ARIA-HIGH-354 — what the submit law would refuse, the mint refuses:
     # outside the arbitration roles (whose subject IS a recorded artifact) a
     # state-store record is never admissible agent evidence, so an envelope
@@ -3340,10 +3350,14 @@ def _record_anchor_stale(
     )
 
 
+RequestLedgers = tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]
+
+
 def derive_request_states(
     *,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
+    _ledgers: RequestLedgers | None = None,
 ) -> dict[str, str]:
     """ORPHAN-HIGH-794 — derive EVERY request's state with ONE ledger load.
 
@@ -3354,10 +3368,13 @@ def derive_request_states(
     memory window where the OOM killer ended the nightly (2026-08-22
     11:40, runner unit killed mid-cycle). The batch form loads once and
     feeds the same authoritative fold; states are identical by
-    construction and pinned by an equivalence test.
+    construction and pinned by an equivalence test. ``_ledgers`` is a
+    caller that already loaded the same three ledgers (ARIA-HIGH-364: the
+    request-admission measurement reads their timestamps too, and a second
+    load of the 1,866-row request ledger is seconds of prompt-carrying rows).
     """
     root = ensure_tools_dir(base_dir)
-    ledgers = (
+    ledgers = _ledgers if _ledgers is not None else (
         load_segments(root, "agent_invocation_requests"),
         load_declared_jsonl(
             root / "agent-invocations" / "results.jsonl",

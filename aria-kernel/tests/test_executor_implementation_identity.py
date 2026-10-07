@@ -94,6 +94,7 @@ import ci_executor  # noqa: E402
 import ci_executor_drain as drain  # noqa: E402
 
 from aria_kernel.recovery import unresolved_intents as recovery_unresolved_intents  # noqa: E402
+from aria_kernel.request_admission import admit_request
 from tests._helpers.declared_fixtures import segmented_ledger_bytes  # noqa: E402
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit  # noqa: E402
 from tests._helpers.installation_credential import INSTALLATION_TOKEN  # noqa: E402
@@ -1692,6 +1693,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
                 plan_id=plan.plan_id, cross_review_revision_id=plan.revision_id, cross_review_summary_text="{}",
                 proposal_id="proposal-unstaged", change_id="chg-unstaged", branch="feature/not-the-kernels",
                 base_sha=self.base_sha, cycle_id=CYCLE_ID, base_dir=self.tools,
+                admission=admit_request("implementer.converged_plan", "implementation", base_dir=self.tools),
             )
         self.request_id = self.request["request_id"]
         self._install_implementer()

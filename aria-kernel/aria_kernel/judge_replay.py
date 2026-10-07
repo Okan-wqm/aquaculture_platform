@@ -25,7 +25,8 @@ from .feedback_store import (
 )
 from .adapter_findings import adapter_findings_by_fingerprint
 from .goldset import load_active_goldset
-from .judge_fanout import JUDGE_FANOUT, judge_request_fields
+from .judge_fanout import JUDGE_FANOUT, _existing_judge_dispatches, judge_request_fields
+from .request_admission import admit_request
 from .rule_contract import resolve_rule_contract
 from .tool_registry import ensure_tools_dir
 
@@ -42,6 +43,7 @@ def replay_judges_on_goldset(
     tool_id: str,
     base_dir: str | Path | None = None,
     target_sha: str | None = None,
+    cycle_id: str | None = None,
 ) -> dict[str, Any]:
     """Seed gold ground truth + mint judge envelopes for each gold item."""
     root = ensure_tools_dir(base_dir)
@@ -62,6 +64,13 @@ def replay_judges_on_goldset(
     seeded: list[str] = []
     unprovable: list[dict[str, str]] = []
     unjudgeable: list[dict[str, str]] = []
+    # ARIA-HIGH-364 — replay judges are discretionary. The replay used to
+    # re-call the mint for every gold item every cycle and lean on request-id
+    # idempotency; the door decides only what would be NEW, so the pairs
+    # already minted are skipped here by the fan-out's own key. A refusal
+    # holds for the cycle; the unminted items are walked again next cycle.
+    existing = _existing_judge_dispatches(root)
+    throttled: str | None = None
     # ARIA-HIGH-324 — a replayed judge is asked the live question: the gold
     # item's own adapter finding (rule, path, message), framed by its rule's
     # contract. An item whose finding or contract cannot be resolved is not
@@ -149,11 +158,19 @@ def replay_judges_on_goldset(
             "path": str(subject.get("path") or ""), "message": str(subject.get("message") or ""),
         }
         for role, agent in JUDGE_FANOUT:
+            if throttled is not None or (group, agent) in existing:
+                continue
+            admission = admit_request("judge_replay.goldset", role, base_dir=root, cycle_id=cycle_id)
+            if not admission.admitted:
+                throttled = admission.refusal
+                continue
             req = create_agent_invocation_request(
                 target_agent=agent, role=role, **judge_request_fields(item, contract),
                 finding_id=finding_id, tool_id=tool_id, run_id=run_id,
                 judgment_group_id=group, target_sha=target_sha, base_dir=root,
+                admission=admission,
             )
+            existing.add((group, agent))
             minted.append({"request_id": req.get("request_id"), "role": role, "judgment_group_id": group})
     return {
         "schema_version": 1, "status": "dispatched", "replayed_items": len(seeded),
@@ -163,6 +180,7 @@ def replay_judges_on_goldset(
         # report should carry, not a number that quietly reads zero.
         "unprovable_provenance": unprovable,
         "unjudgeable": unjudgeable,
+        "request_admission_throttled": throttled,
     }
 
 

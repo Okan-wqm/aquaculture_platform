@@ -44,7 +44,7 @@ const REGISTRY = join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl
  * next advisory with no safe remediation gets a dated, reviewed entry and the
  * ratchet moves to 1 in the same commit, never silently.
  */
-const MAX_EXCEPTIONS = 3;
+const MAX_EXCEPTIONS = 5;
 
 // 2026-09-16: 0 → 2, in the same commit as the two entries it admits.
 // GHSA-7w5x-hrqm-74c2 (nx toolchain, 15 packages) and GHSA-vwc7-r8mq-g2x9
@@ -60,6 +60,17 @@ const MAX_EXCEPTIONS = 3;
 // where the remaining paths are dev and build tooling whose fixes are
 // semver-majors or upstream releases. Tracked as SUPPLY-HIGH-017; the entry
 // expires 2026-11-03 and the ratchet drops by one when it goes.
+//
+// 2026-10-07: 3 → 5, in the same commit as the entries it admits and removes.
+// Removed: GHSA-7w5x-hrqm-74c2 and GHSA-vwc7-r8mq-g2x9 — nx 22.7.12 with the
+// smol-toml 1.9.0 override no longer reaches them (SUPPLY-HIGH-011/012 fixed).
+// Admitted, dev-only, root-full/aquamobil-full only, expiring 2026-11-07:
+// GHSA-82fw-gwwq-j7x9, GHSA-5gmw-xhrv-c9v3, GHSA-85c8-ppgw-ccpr (vitest 3 and
+// its tinypool 1.x; the fixes are vitest 4 / tinypool 2, which vitest 3 cannot
+// take — SUPPLY-HIGH-019) and GHSA-rj75-hqrm-r3gf (tailwind 3's
+// postcss-selector-parser 6; tailwind 4 is the fix — SUPPLY-MEDIUM-020). Every
+// production leg is clean. The ratchet returns to 1 when vitest 4 and tailwind
+// 4 land.
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ADVISORY_ID = /^GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}$/;

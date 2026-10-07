@@ -61,9 +61,9 @@ REPO_ROOT_ENV = "ARIA_REPO_ROOT"
 # manifest's `allowed_read_globs` for tool_id `outbox-adapter` exactly,
 # otherwise direct-CLI runs will drift from kernel-driven runs.
 #
-# Source of truth: `aria-tools/registry.json` row for `outbox-adapter`,
-# `allowed_read_globs` field. The invariant test
-# `tools/aria-poc/test_adapter_scope_narrow.py
+# Source of truth: the `outbox-adapter` row of the Plan 016 portfolio
+# (`aria_kernel/adapter_portfolio.py`), `allowed_read_globs` field. The invariant test
+# `tools/aria-poc/invariants/test_adapter_scope_narrow.py
 # ::test_outbox_adapter_scanned_globs_narrow` pins this list to the
 # manifest declaration; if the manifest changes, the test fails until
 # the adapter is updated.

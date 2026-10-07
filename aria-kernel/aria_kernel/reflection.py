@@ -8,6 +8,7 @@ from typing import Any
 from .agent_eval import observe_agent_performance
 from .governance_reader import read_governance_rows
 from .ledger import append_declared_jsonl, load_jsonl_verified, read_jsonl
+from .provider_outage_ledger import render_outage_section
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
@@ -359,7 +360,13 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
                     tier = "escalated"
             item["sla_tier"] = tier
             tiers[tier] = tiers.get(tier, 0) + 1
-    return {"open": len(items), "breaching_sla": breaching, "items": items[:5], "tiers": tiers}
+    # ARIA-HIGH-373 — the five-most-urgent cut above would hide a human-merge
+    # PR behind older escalations; those are listed in full, in their section.
+    from .human_required import HUMAN_MERGE_PR_KIND
+
+    human_merge = [item for item in items if (item.get("context") or {}).get("kind") == HUMAN_MERGE_PR_KIND]
+    return {"open": len(items), "breaching_sla": breaching, "items": items[:5], "tiers": tiers,
+            "human_merge": human_merge}
 
 
 def _summarize_findings(repo_root: Path) -> dict[str, Any]:
@@ -1408,6 +1415,12 @@ def _render_memory_learning_section(reflection: dict[str, Any]) -> list[str]:
     ]
 
 
+def _human_merge_lines(items: list[dict[str, Any]]) -> list[str]:
+    from .human_merge_surface import daily_report_lines
+
+    return daily_report_lines(items)
+
+
 def _write_daily_report(root: Path, reflection: dict[str, Any], *, repo_root: Path | None = None) -> None:
     day = str(reflection["recorded_at"])[:10]
     path = root / "reports" / "daily" / f"{day}.md"
@@ -1451,8 +1464,14 @@ def _write_daily_report(root: Path, reflection: dict[str, Any], *, repo_root: Pa
             ]
             or ["- (no operator-triage queue items)"]
         ),
+        # ARIA-HIGH-373 — the ARIA PRs waiting on a person's merge, each with
+        # its URL, CI state and why the merge lane cannot merge it.
+        *_human_merge_lines(hr.get("human_merge") or []),
         "",
         *_render_deadlines_section(root, repo_root),
+        # ARIA-HIGH-366 — every outage interval of the week, open or restored:
+        # the operator reads when ARIA paused and why, not a stall finding.
+        *render_outage_section(root),
         "## Coverage",
         "",
         f"- Git tracked: {file_counts.get('git_tracked', 0)}",

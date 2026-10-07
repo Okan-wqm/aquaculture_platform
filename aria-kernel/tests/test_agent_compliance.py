@@ -286,14 +286,13 @@ class LifecyclePreservationTests(unittest.TestCase):
         # ``rejection_reason``, no 11th state added). Plan 026R §C.5
         # expanded the list with bridge-aware acceptance states
         # (ACCEPTED_PENDING_BRIDGE + ACCEPTED_PENDING_BRIDGE_PERMANENT_
-        # FAIL). V10.5 Phase 3 (per ADR-0001) added EXTERNAL_OUTAGE
-        # for Anthropic API 529 transient outage handling.
-        # ORPHAN-MEDIUM-492 added ANCHOR_STALE (request minted against a
-        # tree the repo has moved off); count is now 14.
+        # FAIL). ORPHAN-MEDIUM-492 added ANCHOR_STALE (request minted
+        # against a tree the repo has moved off). ARIA-HIGH-366 retired
+        # EXTERNAL_OUTAGE (no producer ever wrote its claim event); count 13.
         self.assertNotIn("COMPLIANCE_REJECTED", DERIVED_STATES)
         self.assertIn("REJECTED", DERIVED_STATES)
-        self.assertEqual(len(DERIVED_STATES), 14)
-        self.assertIn("EXTERNAL_OUTAGE", DERIVED_STATES)
+        self.assertEqual(len(DERIVED_STATES), 13)
+        self.assertNotIn("EXTERNAL_OUTAGE", DERIVED_STATES)
         self.assertIn("ANCHOR_STALE", DERIVED_STATES)
 
 

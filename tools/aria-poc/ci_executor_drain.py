@@ -767,6 +767,29 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             k += 1
         return k
     inflight: list[dict] = []
+    # ARIA-HIGH-368 — this run's convergence advances (the cap's counter).
+    # Imported here: a drain needs the kernel anyway, a kernel-less import of
+    # this module does not.
+    from aria_kernel.executor_convergence import AdvanceBudget, advance_after_accepted_step
+
+    advance_budget = AdvanceBudget()
+
+    def _advance_plan(request: dict) -> None:
+        """One in-run convergence step for the plan ``request`` answered:
+        lease, deadline and cap gated, idempotent per (plan, role, round)."""
+        outcome = advance_after_accepted_step(
+            request=request, tools_dir=tools_dir, workspace_root=repo_root,
+            # The job ATTEMPT, not only the run: a re-run is another job.
+            run_id=f"{run_ref}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}",
+            budget=advance_budget,
+            # Read at the staging check itself, after the step's own work.
+            drain_remaining=lambda: _drain_budget_seconds() - (time.monotonic() - started),
+        )
+        _engine._stage(
+            f"drain_convergence_advance request_id={request.get('request_id')} "
+            f"status={outcome['status']} reason={outcome.get('reason') or '-'} "
+            f"verdict={outcome.get('verdict') or '-'} minted={','.join(outcome.get('minted_request_ids') or []) or '-'}"
+        )
 
     def _launch(request: dict, request_id: str, target_agent: str, worktree: Path | None,
                 batch: list[dict] | None = None) -> None:
@@ -912,6 +935,10 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             # the same identity the route is resolved from.
             if str(request.get("role") or "") in _PLANNING_LANE_ROLES:
                 planning_succeeded = True
+            # ARIA-HIGH-368 — the answer is in; take the plan's next step NOW,
+            # so the envelope it mints is claimed by this run's planning turn
+            # instead of waiting a cycle (a plan round measured ~18 h).
+            _advance_plan(request)
         else:
             failed += 1
             bucket["failed"] += 1

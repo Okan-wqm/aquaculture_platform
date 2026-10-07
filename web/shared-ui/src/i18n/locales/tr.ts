@@ -648,7 +648,12 @@ export const tr: Record<MessageKey, string> = {
   'timeRange.short.90d': '90 g',
   'timeRange.short.365d': '1 yıl',
   'timeRange.custom': 'Özel aralık',
+  'timeRange.label': 'Zaman aralığı',
+  'timeRange.defaultLabel': 'Varsayılan zaman aralığı',
+  'timeRange.from': 'Başlangıç',
+  'timeRange.to': 'Bitiş',
+  'timeRange.apply': 'Uygula',
   'timeRange.error.empty': 'Aralığın bitişi başlangıcından önce',
-  'timeRange.error.tooLong': 'Aralık bir yıldan uzun',
+  'timeRange.error.tooLong': 'Aralık {days} günden uzun',
   'timeRange.error.invalid': 'Bu bağlantıdaki aralık geçersiz',
 };

@@ -232,7 +232,7 @@ const ReadingsPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             <Select
-              aria-label="Trend dönemi"
+              aria-label={rangeLabels.label}
               options={READINGS_PRESETS.map((preset) => ({
                 value: preset,
                 label: rangeLabels.preset(preset),

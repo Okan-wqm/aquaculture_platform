@@ -39,6 +39,8 @@ import {
   YAxisConfig,
   WIDGET_TYPES,
   WIDGET_TIME_RANGE_PRESETS,
+  DEFAULT_WIDGET_TIME_RANGE,
+  parseWidgetTimeRange,
   REFRESH_INTERVALS,
   WIDGET_CATEGORIES,
 } from './types';
@@ -140,7 +142,9 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
   const [selectedChannelIds, setSelectedChannelIds] = useState<Set<string>>(
     new Set(editingWidget?.dataChannelIds || []),
   );
-  const [timeRange, setTimeRange] = useState<TimeRange>(editingWidget?.timeRange || 'live');
+  const [timeRange, setTimeRange] = useState<TimeRange>(
+    parseWidgetTimeRange(editingWidget?.timeRange),
+  );
   const rangeLabels = useTimeRangeLabels();
   const [refreshInterval, setRefreshInterval] = useState(editingWidget?.refreshInterval || 10000);
   const [expandedSensors, setExpandedSensors] = useState<Set<string>>(new Set());
@@ -179,7 +183,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
       setTitle('');
       setSelectedChannelIds(new Set());
       setSelectedProcessId(null);
-      setTimeRange('live');
+      setTimeRange(DEFAULT_WIDGET_TIME_RANGE);
       setRefreshInterval(10000);
       setExpandedSensors(new Set());
       // Reset Y-axis settings
@@ -193,7 +197,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
       setTitle(editingWidget.title);
       setSelectedChannelIds(new Set(editingWidget.dataChannelIds || []));
       setSelectedProcessId(editingWidget.processId || null);
-      setTimeRange(editingWidget.timeRange);
+      setTimeRange(parseWidgetTimeRange(editingWidget.timeRange));
       setRefreshInterval(editingWidget.refreshInterval);
       // Expand sensors that have selected channels
       if (editingWidget.selectedChannels) {
@@ -677,7 +681,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Time Range
+                  {rangeLabels.label}
                 </label>
                 <select
                   value={timeRange}

@@ -14,8 +14,7 @@ import { useScadaPackageStore } from '../../../store/scada';
 import {
   TRACE_COLORS,
   TREND_WIDGET_PRESETS,
-  DEFAULT_TREND_WIDGET_PRESET,
-  parseTrendWidgetPreset,
+  trendWidgetRangeOf,
   formatTimeLabel,
   generateDemoTraces,
   computeYDomain,
@@ -43,8 +42,7 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({
   const showGrid = (config.showGrid as boolean) ?? true;
   const showLegend = (config.showLegend as boolean) ?? true;
   const rangeLabels = useTimeRangeLabels();
-  const defaultRange =
-    parseTrendWidgetPreset(config.defaultRange ?? config.timeRange) ?? DEFAULT_TREND_WIDGET_PRESET;
+  const defaultRange = trendWidgetRangeOf(config);
 
   const [selectedRange, setSelectedRange] = useState<TrendWidgetPreset>(defaultRange);
   const rangeMs = presetDurationMs(selectedRange);

@@ -1,7 +1,12 @@
 import { plainToInstance } from 'class-transformer';
-import { validate } from 'class-validator';
+import { getMetadataStorage, validate } from 'class-validator';
 
-import { SaveDashboardLayoutInput } from '../dto/dashboard-layout.dto';
+import * as layoutDtos from '../dto/dashboard-layout.dto';
+import {
+  CreateSystemDefaultLayoutInput,
+  SaveDashboardLayoutInput,
+  WidgetTimeRangesConstraint,
+} from '../dto/dashboard-layout.dto';
 
 function layout(widgets: unknown[]): SaveDashboardLayoutInput {
   return plainToInstance(SaveDashboardLayoutInput, { name: 'Overview', widgets });
@@ -43,5 +48,30 @@ describe('SaveDashboardLayoutInput widget time ranges', () => {
     await expect(widgetErrors([{ id: 'ok', timeRange: '24h' }, widget])).resolves.toEqual([
       'widgetTimeRanges',
     ]);
+  });
+});
+
+describe('every layout input that writes widgets checks their ranges', () => {
+  const inputClasses = Object.values(layoutDtos).filter(
+    (value) => value !== WidgetTimeRangesConstraint,
+  );
+
+  it.each(inputClasses.map((input) => [input.name, input] as const))('%s', (_name, input) => {
+    const metadata = getMetadataStorage().getTargetValidationMetadatas(input, '', true, false);
+    const writesWidgets = metadata.some((entry) => entry.propertyName === 'widgets');
+    const checksRanges = metadata.some(
+      (entry) =>
+        entry.propertyName === 'widgets' && entry.constraintCls === WidgetTimeRangesConstraint,
+    );
+    expect(checksRanges).toBe(writesWidgets);
+  });
+
+  it('rejects a system default layout with a range no chart resolves', async () => {
+    const input = plainToInstance(CreateSystemDefaultLayoutInput, {
+      name: 'Default',
+      widgets: [{ id: 'w', timeRange: '12h' }],
+    });
+    const errors = await validate(input);
+    expect(errors.map((error) => error.property)).toContain('widgets');
   });
 });

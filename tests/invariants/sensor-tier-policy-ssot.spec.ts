@@ -22,7 +22,7 @@ function read(file: string): string {
 }
 
 function sensorServiceSources(): string[] {
-  return execFileSync('git', ['ls-files', 'apps/sensor-service/src/**/*.ts'], {
+  return execFileSync('git', ['ls-files', 'apps/sensor-service/src/*.ts'], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
   })

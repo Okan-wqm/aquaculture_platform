@@ -16,6 +16,8 @@ import type {
   HistoricalDataPoint,
 } from '../../types/scada-runtime.types';
 import { colors as themeColors } from '@aquaculture/shared-ui';
+import { presetDurationMs } from '@aquaculture/shared-contracts';
+import { DEFAULT_READINGS_PRESET } from '../readings/readingsModel';
 
 export interface TrendChannelSpec {
   channelKey: string;
@@ -31,7 +33,7 @@ export interface TrendChannelSpec {
 export interface MultiParameterTrendCardProps {
   sensorId: string;
   channels: readonly TrendChannelSpec[];
-  /** Window length in ms (default 24h — served from the metrics_1min tier). */
+  /** Window length in ms (default: the readings page's default preset). */
   rangeMs?: number;
   title?: string;
 }
@@ -77,7 +79,7 @@ function thresholdZones(thresholds: TrendChannelSpec['thresholds']): ChartLineZo
 export function MultiParameterTrendCard({
   sensorId,
   channels,
-  rangeMs = 24 * 60 * 60 * 1000,
+  rangeMs = presetDurationMs(DEFAULT_READINGS_PRESET),
   title,
 }: MultiParameterTrendCardProps) {
   const { series, loading, error } = useChannelSeries(sensorId, rangeMs);

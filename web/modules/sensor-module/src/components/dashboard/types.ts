@@ -1,7 +1,7 @@
 /**
  * Dashboard Widget Types
  */
-import type { RelativePresetKey } from '@aquaculture/shared-contracts';
+import { parsePresetKey, type RelativePresetKey } from '@aquaculture/shared-contracts';
 import { colors } from '@aquaculture/shared-ui';
 
 export type WidgetType =
@@ -35,6 +35,19 @@ export const WIDGET_TIME_RANGE_PRESETS = [
   '90d',
   '365d',
 ] as const satisfies readonly RelativePresetKey[];
+
+/** The range a new widget starts with. */
+export const DEFAULT_WIDGET_TIME_RANGE: TimeRange = 'live';
+
+/**
+ * A widget's range from anything that did not pass the save check — a layout
+ * stored before the API checked ranges, a form value. A value that is not a
+ * preset becomes the default here, at the edge, so it is shown, edited and
+ * saved back as that default instead of reaching a chart that cannot resolve it.
+ */
+export function parseWidgetTimeRange(value: unknown): TimeRange {
+  return parsePresetKey(value) ?? DEFAULT_WIDGET_TIME_RANGE;
+}
 
 /**
  * Available sensor metrics for visualization

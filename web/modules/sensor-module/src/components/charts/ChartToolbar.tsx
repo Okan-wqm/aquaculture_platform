@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useCallback, useRef } from 'react';
-import { Button, Input, useTimeRangeLabels } from '@aquaculture/shared-ui';
+import { Button, Input, useI18n, useTimeRangeLabels } from '@aquaculture/shared-ui';
 import { SCADA_RANGE_TOKENS, scadaRangePreset } from '@aquaculture/shared-contracts';
 import { ChartExport } from './ChartExport';
 import type {
@@ -129,6 +129,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
   /* ---- Resolved values ---- */
 
   const rangeLabels = useTimeRangeLabels();
+  const { t } = useI18n();
   const currentToken = typeof currentRange === 'string' ? currentRange : null;
   const currentPresetLabel =
     currentToken === null ? rangeLabels.custom : rangeLabels.preset(scadaRangePreset(currentToken));
@@ -244,7 +245,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
                 setShowPresetMenu(false);
               }}
             >
-              Custom range...
+              {rangeLabels.custom}
             </Button>
           </div>
         )}
@@ -271,23 +272,23 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
           className="flex items-center gap-1 px-2 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-sm"
           onClick={(e) => e.stopPropagation()}
         >
-          <span className="text-gray-500 dark:text-gray-400">From:</span>
+          <span className="text-gray-500 dark:text-gray-400">{rangeLabels.from}</span>
           <Input
             type="datetime-local"
             value={customFrom}
             onChange={(e) => setCustomFrom(e.target.value)}
           />
-          <span className="text-gray-500 dark:text-gray-400">To:</span>
+          <span className="text-gray-500 dark:text-gray-400">{rangeLabels.to}</span>
           <Input
             type="datetime-local"
             value={customTo}
             onChange={(e) => setCustomTo(e.target.value)}
           />
           <Button variant="primary" size="xs" type="button" onClick={applyCustomRange}>
-            Apply
+            {rangeLabels.apply}
           </Button>
           <Button variant="secondary" size="xs" type="button" onClick={() => setShowCustom(false)}>
-            Cancel
+            {t('common.cancel')}
           </Button>
         </div>
       )}

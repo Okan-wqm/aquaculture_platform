@@ -649,8 +649,13 @@ export const en = {
   'timeRange.short.90d': '90d',
   'timeRange.short.365d': '1y',
   'timeRange.custom': 'Custom range',
+  'timeRange.label': 'Time range',
+  'timeRange.defaultLabel': 'Default time range',
+  'timeRange.from': 'From',
+  'timeRange.to': 'To',
+  'timeRange.apply': 'Apply',
   'timeRange.error.empty': 'The range ends before it starts',
-  'timeRange.error.tooLong': 'The range is longer than one year',
+  'timeRange.error.tooLong': 'The range is longer than {days} days',
   'timeRange.error.invalid': 'The range in this link is not valid',
 } as const;
 

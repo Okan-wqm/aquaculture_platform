@@ -5,9 +5,15 @@
  * in the locale maps, so the readings page, the widget dashboard and the
  * SCADA charts say the same thing in the user's language.
  */
-import type { RelativePresetKey, TimeRangeError } from '@aquaculture/shared-contracts';
+import {
+  MAX_TIME_RANGE_MS,
+  type RelativePresetKey,
+  type TimeRangeError,
+} from '@aquaculture/shared-contracts';
 
 import { type MessageKey, useI18n } from '../i18n';
+
+const DAY_MS = 86_400_000;
 
 export const TIME_RANGE_PRESET_LABEL_KEYS: Readonly<Record<RelativePresetKey, MessageKey>> = {
   live: 'timeRange.preset.live',
@@ -47,6 +53,13 @@ export interface TimeRangeLabels {
   short: (key: RelativePresetKey) => string;
   error: (error: TimeRangeError) => string;
   custom: string;
+  /** Caption of a range control. */
+  label: string;
+  /** Caption of a control that sets the range a widget opens with. */
+  defaultLabel: string;
+  from: string;
+  to: string;
+  apply: string;
 }
 
 /** Localised words for presets and range errors. */
@@ -55,7 +68,14 @@ export function useTimeRangeLabels(): TimeRangeLabels {
   return {
     preset: (key) => t(TIME_RANGE_PRESET_LABEL_KEYS[key]),
     short: (key) => t(TIME_RANGE_SHORT_LABEL_KEYS[key]),
-    error: (error) => t(TIME_RANGE_ERROR_LABEL_KEYS[error]),
+    // The cap in the words is the cap the range check enforces.
+    error: (error) =>
+      t(TIME_RANGE_ERROR_LABEL_KEYS[error], { days: Math.floor(MAX_TIME_RANGE_MS / DAY_MS) }),
     custom: t('timeRange.custom'),
+    label: t('timeRange.label'),
+    defaultLabel: t('timeRange.defaultLabel'),
+    from: t('timeRange.from'),
+    to: t('timeRange.to'),
+    apply: t('timeRange.apply'),
   };
 }

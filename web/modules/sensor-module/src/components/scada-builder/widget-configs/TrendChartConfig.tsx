@@ -4,6 +4,7 @@ import {
   DEFAULT_TREND_WIDGET_PRESET,
   TREND_WIDGET_PRESETS,
   parseTrendWidgetPreset,
+  trendWidgetRangeOf,
 } from '../widget-renderers/trendChartUtils';
 import { TagBrowser } from '../TagBrowser';
 
@@ -65,7 +66,7 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       {/* Default time range */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
-          Default Time Range
+          {rangeLabels.defaultLabel}
         </label>
         <Select
           fullWidth
@@ -73,7 +74,7 @@ export const TrendChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange
             value: preset,
             label: rangeLabels.preset(preset),
           }))}
-          value={parseTrendWidgetPreset(config.defaultRange) ?? DEFAULT_TREND_WIDGET_PRESET}
+          value={trendWidgetRangeOf(config)}
           onChange={(e) =>
             onChange({
               defaultRange: parseTrendWidgetPreset(e.target.value) ?? DEFAULT_TREND_WIDGET_PRESET,

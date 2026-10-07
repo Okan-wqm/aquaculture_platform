@@ -7,6 +7,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { presetDurationMs } from '@aquaculture/shared-contracts';
 import {
   Activity,
   RefreshCw,
@@ -44,7 +45,7 @@ interface TrendMiniPanelProps {
 
 const TrendMiniPanel: React.FC<TrendMiniPanelProps> = ({ deviceCode, tagNames, onClose }) => {
   const endTime = useMemo(() => new Date(), []);
-  const startTime = useMemo(() => new Date(endTime.getTime() - 3_600_000), [endTime]);
+  const startTime = useMemo(() => new Date(endTime.getTime() - presetDurationMs('1h')), [endTime]);
 
   const trendQuery: TrendQuery = useMemo(
     () => ({

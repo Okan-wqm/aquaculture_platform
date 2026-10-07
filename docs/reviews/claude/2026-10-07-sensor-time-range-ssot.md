@@ -36,8 +36,22 @@ Fix:
   not cast.
 - A fixed SCADA window is a `{ from, to }` pair. `custom` is no longer a
   range value, so every resolver always has a window.
-- The demo template stores `24h`, the range it actually rendered.
-- `saveDashboardLayout` rejects a widget whose `timeRange` is not a preset.
+- The demo template stores `24h`, the range it rendered.
+- Every layout input that writes widgets (`saveDashboardLayout` and the
+  system-default layout) rejects a widget whose `timeRange` is not a preset;
+  a spec reads the validation metadata so a new input cannot skip the check.
+- Layouts stored before that check can still hold any JSON. The dashboard
+  parses each widget's range where the layout enters the page
+  (`useDashboardLayout`); a value that is not a preset becomes the named
+  default (`DEFAULT_WIDGET_TIME_RANGE`), is shown as such in the editor, and
+  is saved back as such. No chart receives an unparsed range, so
+  `presetDurationMs` never meets one. Production holds 0 layout rows.
+- The SCADA trend widget's editor and renderer read its range through one
+  function (`trendWidgetRangeOf`), so they agree on `defaultRange` and the
+  older `timeRange` key.
+- The range captions, the toolbar's custom-range strings and the readings
+  page's selector name come from the locale maps; the "too long" error takes
+  its day count from the same cap the check enforces.
 
 Behaviour is unchanged for every stored or offered value: golden tables in
 `sensor-time-range.spec.ts` and `trend-time-range.test.ts` pin the old
@@ -52,7 +66,33 @@ Proof:
   are exempted by name with a reason (see below).
 - `trend-time-range.test.ts` fails when a built-in template stores a range
   its widget does not offer (checked by restoring `'4h'`).
-- `dashboard-layout.dto.validation.spec.ts` covers the layout input check.
+- `dashboard-layout.dto.validation.spec.ts` covers the layout input check
+  and fails when any widget-writing input lacks it (checked by removing it
+  from the system-default input).
+- `useDashboardLayout.time-range.test.ts` fails when a stored range reaches
+  the page unparsed (checked by removing the parse from one load path).
+
+An independent review of the first version of this change found:
+
+- the unchecked system-default write path and the unparsed load;
+- easy evasions of the invariant: named duration constants, label records,
+  `Map` entries, `<option>` lists, minute fields, and files directly under
+  `src/` that its git pathspec skipped;
+- the remaining English and Turkish literals.
+
+All are fixed above. The invariant's exemptions are now pinned to the exact
+keys each file holds, and the review's evasions are fixtures it must flag.
+The same pathspec fault is fixed in `sensor-tier-policy-ssot.spec.ts`.
+
+Kept apart on purpose:
+
+- `RuntimeChart.tsx` offers the width of its live rolling buffer (1 to 240
+  minutes), not a history range; only `1h` overlaps the range table.
+- `PerformanceDashboardPage.tsx` in the admin panel ranges platform
+  metrics, not sensor readings.
+
+Deploy note: shared-ui is a federation singleton pinned at one version, so
+the shell and sensor-module must ship together.
 
 ## SENSOR-HIGH-153 — invented numbers on two routed pages (open)
 

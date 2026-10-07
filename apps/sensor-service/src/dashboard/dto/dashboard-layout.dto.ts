@@ -103,5 +103,6 @@ export class CreateSystemDefaultLayoutInput {
 
   @Field(() => GraphQLJSON)
   @IsArray()
+  @Validate(WidgetTimeRangesConstraint)
   widgets!: WidgetConfig[];
 }

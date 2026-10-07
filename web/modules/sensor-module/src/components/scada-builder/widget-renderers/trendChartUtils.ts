@@ -25,6 +25,17 @@ export type TrendWidgetPreset = (typeof TREND_WIDGET_PRESETS)[number];
 
 export const DEFAULT_TREND_WIDGET_PRESET: TrendWidgetPreset = '24h';
 
+/**
+ * The range a stored trend widget opens with. Its config is JSON: older
+ * widgets keep it under `timeRange`, newer ones under `defaultRange`, so the
+ * editor and the renderer both read it here and agree.
+ */
+export function trendWidgetRangeOf(config: Record<string, unknown>): TrendWidgetPreset {
+  return (
+    parseTrendWidgetPreset(config.defaultRange ?? config.timeRange) ?? DEFAULT_TREND_WIDGET_PRESET
+  );
+}
+
 /** A trend widget range from a stored widget config, or null when it is not one. */
 export function parseTrendWidgetPreset(value: unknown): TrendWidgetPreset | null {
   const key = parsePresetKey(value);

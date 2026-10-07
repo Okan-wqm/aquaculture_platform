@@ -18,6 +18,7 @@ import { useDataChannelList, DataChannel } from '../../hooks/useDataChannelList'
 import {
   WIDGET_TYPES,
   WIDGET_TIME_RANGE_PRESETS,
+  parseWidgetTimeRange,
   REFRESH_INTERVALS,
   WidgetType,
 } from '../dashboard/types';
@@ -57,7 +58,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
   );
   // Node data is untyped JSON: read the range through the shared parser.
   const [timeRange, setTimeRange] = useState<RelativePresetKey>(
-    parsePresetKey(data?.timeRange) ?? 'live',
+    parseWidgetTimeRange(data?.timeRange),
   );
   const rangeLabels = useTimeRangeLabels();
   const [refreshInterval, setRefreshInterval] = useState(
@@ -288,7 +289,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Time Range
+                {rangeLabels.label}
               </label>
               <select
                 value={timeRange}

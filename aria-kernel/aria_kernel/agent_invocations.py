@@ -2617,6 +2617,9 @@ HARNESS_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
     "provider_quota_unavailable:",
     "executor_uncaught_exit:",
     "human_required_record_unavailable:",
+    # ARIA-HIGH-366 — ``provider_unreachable:<provider>``: the vendor did not
+    # serve (429/529/network); an outage of the provider, never the request.
+    "provider_unreachable:",
     # Typed-judgment plan Phase 4b — the batch child's ONE call failed for
     # every request it served: the vendor's or the host's state.
     "judge_batch_call_failed:",
@@ -2896,16 +2899,6 @@ def derive_request_state(
         return CANCELLED_BY_OPERATOR_STATE
     if any(row.get("event") == "human_required" and row.get("request_id") == request_id for row in claims):
         return "HUMAN_REQUIRED"
-
-    # V10.5 Phase 3 (F-023, ADR-0001) — EXTERNAL_OUTAGE check AFTER
-    # HUMAN_REQUIRED to preserve HUMAN_REQUIRED stickiness. A transient
-    # Anthropic API 529 outage must NOT escape operator review. If the
-    # latest non-stale claim event for this request is api_backoff_exhausted,
-    # the request is in EXTERNAL_OUTAGE state (transient; reaped by
-    # external_outage_reaper after 30 min wall-clock).
-    latest_for_outage = _latest_claim_row(claims, request_id)
-    if latest_for_outage is not None and latest_for_outage.get("event") == "api_backoff_exhausted":
-        return "EXTERNAL_OUTAGE"
 
     # A durable prepared journal owns a commit-pending operation. Its lease
     # may expire while recovery is appending missing effects, but the request

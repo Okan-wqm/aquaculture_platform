@@ -65,6 +65,7 @@ from claude_runtime import (
     CLAUDE_MOCK_ENV_VAR,
     ClaudeAuthFailure,
     ClaudeCreditExhausted,
+    ClaudeProviderUnreachable,
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
     ClaudePolicyViolation,
@@ -2388,6 +2389,7 @@ def invoke_claude_cli(
         ClaudeUsageUnavailable,
         ClaudeAuthFailure,
         ClaudeCreditExhausted,
+        ClaudeProviderUnreachable,
         subprocess.TimeoutExpired,
     ) as exc:
         # ARIA-HIGH-002 — every terminal perimeter path writes exactly one
@@ -2406,6 +2408,15 @@ def invoke_claude_cli(
             contract = "tools/aria-poc/ci_executor_contract_proven.md"
             raise ClaudeCliUnavailable(f"{exc}; see {contract}") from exc
         raise
+    if completed.returncode == 0 and tools_dir is not None:
+        # ARIA-HIGH-366 — the vendor served this attempt: positive evidence
+        # that ends any outage of its provider (and resolves the item). The
+        # model that ANSWERED names the provider (ARIA-MEDIUM-171), not the
+        # profile's frontmatter, so a cross-vendor rung restores its vendor.
+        from aria_kernel.provider_outage_ledger import record_provider_restored
+
+        record_provider_restored(tools_dir, provider=_provider_for_model(completed.model), seam="spawn",
+                                 request_id=request_id)
     # Plan ARIA-V7 §2g v2 + V7.10 envelope-extraction fix.
     #
     # WHY: claude -p stream-json emits JSONL events
@@ -3213,7 +3224,11 @@ def _run_zai_as_claude_result(
             max_tokens=resolve_zai_max_tokens(dict(os.environ)),
         )
     except ZaiTransportUnavailable as exc:
-        raise ClaudeCliUnavailable(f"zai_transport_unavailable: {exc}") from exc
+        # ARIA-HIGH-366 — the same `unreachable` fact on the spawn lane's rung.
+        raise ClaudeProviderUnreachable(
+            f"zai_transport_unavailable: {exc}", provider=_provider_for_model(model), model=model,
+            detail={"signature": "zai_unreachable", "marker": str(exc)},
+        ) from exc
     auth_failure = None
     credit_exhaustion = None
     failure_class = None
@@ -3515,8 +3530,14 @@ def _invoke_native_zai(
         result_admission = "pending_native_submit"
         return 0
     except ZaiTransportUnavailable as exc:
+        # ARIA-HIGH-366 — the vendor was not reached (timeout, DNS, connection):
+        # an `unreachable` outage of Z.ai, cooled and released by name like a
+        # Claude 429, not the anonymous host failure it was.
         result_admission = "transport_unavailable"
-        raise ClaudeCliUnavailable("zai_native_execution_unavailable:" + str(exc)) from exc
+        raise ClaudeProviderUnreachable(
+            "zai_native_execution_unavailable:" + str(exc), provider=route["provider"], model=route["model"],
+            detail={"signature": "zai_unreachable", "marker": str(exc)},
+        ) from exc
     except (OSError, GovernanceError) as exc:
         result_admission = "control_or_transport_unavailable"
         # The kernel's own refusal text is a named reason, never vendor or
@@ -3540,6 +3561,28 @@ def _invoke_native_zai(
 _NATIVE_CLAUDE_ADMISSION_UNNAMED = "execution_unavailable"
 
 
+def _cool_provider(
+    *, tools_dir: Path, native_runtime: Any, exc: ClaudeAuthFailure | ClaudeCreditExhausted | ClaudeProviderUnreachable,
+    request_id: str, claim_id: str,
+) -> None:
+    """Record one provider detection on EITHER lane (ARIA-HIGH-366).
+
+    The cooldown is the native admission's back-off and the outage it opens
+    is what pauses every waiting timer. It used to be written on the native
+    lane only, so a spawn-lane exhaustion paused nothing; the window is the
+    native policy's when one is bound, else the same policy default the
+    worker lane reads (`provider_cooldown_seconds`).
+    """
+    from aria_kernel.provider_cooldown import provider_cooldown_seconds, record_provider_cooldown
+
+    record_provider_cooldown(
+        tools_dir, provider=exc.provider, model=exc.model,
+        cooldown_seconds=(native_runtime.policy.provider_cooldown_seconds if native_runtime is not None
+                          else provider_cooldown_seconds(_REPO_ROOT)),
+        request_id=request_id, claim_id=claim_id, detection=exc.detail,
+    )
+
+
 def _result_admission_for(exc: BaseException, current: str) -> str:
     """The attempt row's ``result_admission`` after ``exc`` ended the run.
 
@@ -3554,7 +3597,7 @@ def _result_admission_for(exc: BaseException, current: str) -> str:
         return current
     return {
         ClaudeAuthFailure: "auth_unavailable", ClaudeCreditExhausted: "quota_unavailable",
-        subprocess.TimeoutExpired: "timeout",
+        ClaudeProviderUnreachable: "provider_unreachable", subprocess.TimeoutExpired: "timeout",
     }.get(type(exc), "control_or_transport_unavailable")
 
 
@@ -4110,6 +4153,13 @@ def _admit_native_route(
         # attempt's ClaudeCreditExhausted is refused here without a probe.
         cooled_providers=active_provider_cooldowns(tools_dir),
     )
+    # ARIA-HIGH-366 — the admission is a detection seam too: a logged-out
+    # session (2026-09-18/19: 73 silent `native_runtime_admission_unavailable`
+    # releases) opens its outage here, and a session found logged in closes it.
+    from aria_kernel.provider_outage_seams import observe_native_admission
+
+    observe_native_admission(tools_dir, observations=admission.candidate_observations, request_id=request_id,
+                             cooldown_seconds=policy.provider_cooldown_seconds)
     return admission, contexts
 
 
@@ -5208,22 +5258,22 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         # calibration → gold-corpus chain stayed empty, because no signal named
         # the cause. The `::error::` is deliberate: this is the one failure a
         # human must clear, and the remedy travels with it.
+        # ARIA-HIGH-290 — a dead credential is a provider fact, answered like
+        # an exhausted quota: the provider is cooled (once per transition)
+        # and the next admission routes past it.
+        _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
+                       request_id=request_id, claim_id=claim_id)
+        from aria_kernel.provider_outage_ledger import outage_opened_by_claim
+
+        # ARIA-HIGH-366 — said once per outage: a re-probe that meets the
+        # standing outage was an `::error::` every 900 s; the open
+        # HUMAN_REQUIRED item carries the remedy until it is resolved.
         sys.stderr.write(
-            "::error::aria executor cannot authenticate the agent runtime: "
+            ("::error::" if outage_opened_by_claim(tools_dir, provider=exc.provider, claim_id=claim_id) else "")
+            + "aria executor cannot authenticate the agent runtime: "
             + _redact_lease_in_message(str(exc), lease_token)
             + ". No agent ran, so no result was submitted.\n"
         )
-        if native_runtime is not None:
-            # ARIA-HIGH-290 — a dead credential is a provider fact, answered
-            # like an exhausted quota: the provider is cooled (once per
-            # transition) and the next admission routes past it.
-            from aria_kernel.provider_cooldown import record_provider_cooldown
-
-            record_provider_cooldown(
-                tools_dir, provider=exc.provider, model=exc.model,
-                cooldown_seconds=native_runtime.policy.provider_cooldown_seconds,
-                request_id=request_id, claim_id=claim_id, detection=exc.detail,
-            )
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
@@ -5246,18 +5296,26 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         # exists at all: a raise with no handler left the claim CLAIMED for
         # the full lease window.
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
-        if native_runtime is not None:
-            from aria_kernel.provider_cooldown import record_provider_cooldown
-
-            record_provider_cooldown(
-                tools_dir, provider=exc.provider, model=exc.model,
-                cooldown_seconds=native_runtime.policy.provider_cooldown_seconds,
-                request_id=request_id, claim_id=claim_id, detection=exc.detail,
-            )
+        _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
+                       request_id=request_id, claim_id=claim_id)
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
             reason=f"provider_quota_unavailable:{exc.provider}",
+        )
+        return 1
+    except ClaudeProviderUnreachable as exc:
+        # ARIA-HIGH-366 — the vendor did not serve (429/529/network). Same
+        # three moves as a quota exhaustion: cool the provider (opening the
+        # `unreachable` outage once, which pauses every waiting timer), release
+        # harness-class under a reason that names it, submit nothing.
+        sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
+        _cool_provider(tools_dir=tools_dir, native_runtime=native_runtime, exc=exc,
+                       request_id=request_id, claim_id=claim_id)
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason=f"provider_unreachable:{exc.provider}",
         )
         return 1
     except ClaudeCliUnavailable as exc:
@@ -5327,6 +5385,14 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         return 1
 
     _stage(f"claude_returned_exit={cli_exit} request_id={request_id} role={request_envelope.get('role')}")
+    if native_runtime is not None and native_runtime.route["runtime"] != "claude":
+        # ARIA-HIGH-366 — the Codex/Z.ai vendor served this attempt (a Claude
+        # spawn restores inside `invoke_claude_cli`, where the answering
+        # model is known): its open outages end here.
+        from aria_kernel.provider_outage_ledger import record_provider_restored
+
+        record_provider_restored(tools_dir, provider=native_runtime.route["provider"], seam="spawn",
+                                 request_id=request_id)
     if _publication_window_refusal is not None:
         # (round 3) the quarantine was discarded above: no branch exists,
         # the retry stands on it again. Released harness-class, the

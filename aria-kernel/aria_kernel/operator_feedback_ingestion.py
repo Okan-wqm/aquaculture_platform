@@ -271,6 +271,8 @@ def ingest_operator_feedback(
             "subject_digest": digest, "finding_id": row["finding_id"],
             "grounding_digest": row["grounding_digest"], "expires_at": row["expires_at"],
             "priority": row["priority"], "request": row["request"], "authored_at": row["authored_at"],
+            # ARIA-HIGH-381 — the signed boundary, only when the row carries one.
+            **({"write_roots": list(row["write_roots"])} if "write_roots" in row else {}),
         })
     refused_ids: list[str] = []
     for row, reason in scan.refusals:
@@ -314,6 +316,7 @@ def ingest_operator_feedback(
         "row_ledger_hash": entry["ledger_hash"],
         "ingestion_ledger_hash": record.get("ledger_hash"),
         "title_hint": f"Operator request {entry['id']}",
+        **({"write_roots": entry["write_roots"]} if "write_roots" in entry else {}),
     } for entry in admitted)
     return OperatorFeedbackIngestion(
         ledger_hash=record.get("ledger_hash"), admitted=tuple(admitted),

@@ -23,7 +23,12 @@ fork:
 * every ref must match a closed safe path charset — a bad ref is a per-ref
   refusal named in the verdict (by hash, never echoed), not a crash;
 * a ref must name a file in the anchor commit's TREE (``git ls-tree``);
-* at least one surface must be writable
+* the grounded surfaces split into the WRITE set and the EVIDENCE set
+  (:func:`plan_write_scope.split_surfaces`, ARIA-HIGH-381): the operator's
+  signed ``write_roots`` when the request carries them, else the finding's
+  own fix target (a drift's copy side and its module); a cited surface
+  outside the write set is evidence the plan reads and never writes;
+* at least one WRITE surface must be writable
   (``implementation_safety.classify_declared_surface`` is None);
 * :func:`grounding_digest` hashes the admitted ref list; an operator request
   signs it at record time and admission refuses a mismatch, so refs that
@@ -72,12 +77,15 @@ FINDING_EVIDENCE_SELF_OUTPUT_ONLY = "finding_evidence_self_output_only"
 CHECKOUT_UNAVAILABLE = "checkout_unavailable"
 FINDING_EVIDENCE_UNTRACKED = "finding_evidence_untracked"
 FINDING_SURFACES_READONLY = "finding_surfaces_readonly"
+# ARIA-HIGH-381 — no grounded surface lies in the write set (the declared
+# roots, or the fix target's module): the request names nothing to change.
+FINDING_WRITE_SCOPE_EMPTY = "finding_write_scope_empty"
 GROUNDING_DIGEST_MISMATCH = "grounding_digest_mismatch"
 ADMISSION_REASONS: tuple[str, ...] = (
     FINDING_ID_MISSING, FINDING_ID_INVALID, FINDING_STORE_UNAVAILABLE, FINDING_STORE_UNREADABLE,
     FINDING_UNKNOWN, FINDING_NOT_OPEN, FINDING_EVIDENCE_UNAVAILABLE, FINDING_EVIDENCE_UNSAFE,
     FINDING_EVIDENCE_SELF_OUTPUT_ONLY, CHECKOUT_UNAVAILABLE, FINDING_EVIDENCE_UNTRACKED,
-    FINDING_SURFACES_READONLY, GROUNDING_DIGEST_MISMATCH,
+    FINDING_SURFACES_READONLY, FINDING_WRITE_SCOPE_EMPTY, GROUNDING_DIGEST_MISMATCH,
 )
 # The runner, not the request, failed: never spends an operator request.
 RUNNER_FAULT_REASONS: frozenset[str] = frozenset({
@@ -176,6 +184,10 @@ class FindingAdmission:
     reason: str | None
     evidence_refs: tuple[str, ...] = ()
     affected_surfaces: tuple[str, ...] = ()
+    # ARIA-HIGH-381 — cited, read-only: the grounded surfaces outside the
+    # write set, and the basis the split was made on (plan_write_scope).
+    evidence_surfaces: tuple[str, ...] = ()
+    write_basis: str | None = None
     refused_surfaces: tuple[tuple[str, str], ...] = ()
     refused_refs: tuple[tuple[str, str], ...] = ()
     grounding_digest: str | None = None
@@ -417,9 +429,14 @@ def _load_loop_history(repo_root: Path, tools_root: Path, now: datetime) -> tupl
 
 def admit_finding(
     context: GroundingContext, finding_id: Any, *, expected_digest: str | None = None,
+    write_roots: list[str] | None = None,
 ) -> FindingAdmission:
-    """Judge one F finding as a plan ground at the context's anchor commit."""
-    return _judge_finding(context, finding_id, frozenset({"OPEN"}), expected_digest)
+    """Judge one F finding as a plan ground at the context's anchor commit.
+
+    ``write_roots`` is the operator's signed boundary (ARIA-HIGH-381); None
+    derives the write set from the finding's own fix target.
+    """
+    return _judge_finding(context, finding_id, frozenset({"OPEN"}), expected_digest, write_roots)
 
 
 def closure_blocker(context: GroundingContext, finding_id: str) -> str | None:
@@ -436,15 +453,17 @@ def closure_blocker(context: GroundingContext, finding_id: str) -> str | None:
     """
     from .finding import BACKLOG_STATUSES
 
-    return _judge_finding(context, finding_id, BACKLOG_STATUSES, None).reason
+    return _judge_finding(context, finding_id, BACKLOG_STATUSES, None, None).reason
 
 
 def _judge_finding(
     context: GroundingContext, finding_id: Any, statuses: frozenset[str], expected_digest: str | None,
+    write_roots: list[str] | None,
 ) -> FindingAdmission:
     from .evidence_trust import is_self_output_ref
     from .implementation_safety import classify_declared_surface
     from .main_anchor import tracked_files_at
+    from .plan_write_scope import split_surfaces
 
     if not isinstance(finding_id, str) or not finding_id.strip():
         return FindingAdmission(None, FINDING_ID_MISSING)
@@ -487,9 +506,13 @@ def _judge_finding(
     if not grounded:
         return FindingAdmission(finding_id, FINDING_EVIDENCE_UNTRACKED,
                                 refused_refs=tuple(refused_refs), anchor_commit=commit)
+    # ARIA-HIGH-381 — only the write set is held to the writable test; an
+    # evidence surface is cited, never written, whatever its path.
+    split = split_surfaces([_ref_path(ref) for ref in grounded], record=record,
+                           write_roots=write_roots, repo_root=context.repo_root)
     writable: list[str] = []
     refused_surfaces: list[tuple[str, str]] = []
-    for surface in dict.fromkeys(_ref_path(ref) for ref in grounded):
+    for surface in split.write:
         why = classify_declared_surface(surface)
         if why is None:
             writable.append(surface)
@@ -499,7 +522,10 @@ def _judge_finding(
     verdict = dict(
         evidence_refs=tuple(grounded), refused_surfaces=tuple(refused_surfaces),
         refused_refs=tuple(refused_refs), grounding_digest=digest, anchor_commit=commit,
+        evidence_surfaces=split.evidence, write_basis=split.basis,
     )
+    if not split.write:
+        return FindingAdmission(finding_id, FINDING_WRITE_SCOPE_EMPTY, **verdict)
     if not writable:
         return FindingAdmission(finding_id, FINDING_SURFACES_READONLY, **verdict)
     if expected_digest is not None and expected_digest != digest:
@@ -630,8 +656,10 @@ def admit_candidate(candidate: Mapping[str, Any], context: GroundingContext) -> 
         return judge_loop_guards(context, admission) if admission.admitted else admission
     if source_type == PlanCandidateSource.OPERATOR_FEEDBACK.value:
         digest = candidate.get("grounding_digest")
+        roots = candidate.get("write_roots")
         return admit_finding(context, candidate.get("finding_id"),
-                             expected_digest=digest if isinstance(digest, str) else "")
+                             expected_digest=digest if isinstance(digest, str) else "",
+                             write_roots=list(roots) if isinstance(roots, (list, tuple)) else None)
     return None
 
 
@@ -649,6 +677,7 @@ __all__ = [
     "FINDING_STORE_UNREADABLE",
     "FINDING_SURFACES_READONLY",
     "FINDING_UNKNOWN",
+    "FINDING_WRITE_SCOPE_EMPTY",
     "GLOBAL_CAP_EXCEEDED",
     "GROUNDING_DIGEST_MISMATCH",
     "INTRINSIC_ADMISSION_REASONS",

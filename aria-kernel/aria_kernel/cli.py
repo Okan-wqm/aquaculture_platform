@@ -925,6 +925,11 @@ def build_parser() -> argparse.ArgumentParser:
     fb_request.add_argument("--expires-in-hours", type=int, default=None,
                             help="Signed expiry (default and maximum: the operator-act lifetime, 168h)")
     fb_request.add_argument("--request-id", default=None, help="Optional stable id (default OP-<uuid4>)")
+    # ARIA-HIGH-381 — the signed write boundary; a cited file outside every
+    # root is read-only evidence for the plan. Omitted: the finding's own fix
+    # target (a drift's copy side and its module) decides.
+    fb_request.add_argument("--write-root", action="append", default=None, dest="write_roots",
+                            help="Repository root the plan may change (repeatable)")
     # ADR-0023 — the only way the allowed-signers file or the namespace
     # registry changes: the operator signs the edited pair as the child of
     # the pair committed on main, with a key that parent enrols.
@@ -3673,6 +3678,7 @@ def _main(argv: list[str] | None = None) -> int:
             expires_in_hours=args.expires_in_hours,
             base_dir=args.tools_dir,
             repo_root=args.repo_root,
+            write_roots=args.write_roots,
         ), indent=2, sort_keys=True))
         return 0
 

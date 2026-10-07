@@ -54,7 +54,7 @@ class DependencyEvidenceScope(_ScopeBoundFixture):
 
     def test_the_record_names_the_imported_projects_roots_and_writes_none_of_them(self) -> None:
         scope = self._scope(self._farm_plan())
-        self.assertEqual(scope["schema_version"], 3)
+        self.assertEqual(scope["schema_version"], 4)
         self.assertEqual(scope["closure_roots"], ["apps/farm-service", "apps/gateway"])
         self.assertEqual(scope["dependency_roots"], ["libs/shared-lib"])
 
@@ -87,6 +87,7 @@ class ARecordThatPredatesD9(_ScopeBoundFixture):
         state = fold_plan_state(plan_id=plan_id, base_dir=self.tools)
         scope = dict(state["plan_started"]["admission_scope"])
         scope.pop("dependency_roots")
+        scope.pop("evidence_surfaces")  # ARIA-HIGH-381 — v4; a v2 record predates it too
         scope["schema_version"] = 2
         state["plan_started"] = {**state["plan_started"], "admission_scope": scope}
         return state

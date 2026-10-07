@@ -198,8 +198,9 @@ class SubjectPinPolicyTests(unittest.TestCase):
 
     def test_a_record_from_before_the_committed_policy_still_folds_and_pins_nothing(self) -> None:
         scope = self._scope()
-        # A v1 record carries neither the policy record nor the v3 dependency roots.
-        legacy = {key: value for key, value in scope.items() if key not in {"pin_policy", "dependency_roots"}}
+        # A v1 record carries neither the policy record, the v3 dependency roots nor the v4 evidence surfaces.
+        legacy = {key: value for key, value in scope.items()
+                  if key not in {"pin_policy", "dependency_roots", "evidence_surfaces"}}
         validate_admission_scope(dict(legacy, schema_version=1), self.seed)
         with self.assertRaisesRegex(GovernanceError, "policy_pins"):
             validate_admission_scope(dict(legacy, schema_version=1, policy_pins=["apps/auth-service"]), self.seed)

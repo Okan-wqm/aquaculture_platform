@@ -31,6 +31,11 @@ and the subject it names — or the reason there is none:
   origin, makes the finding :data:`SUBJECT_UNVERIFIABLE`. Text is never
   matched, so a trivial line elsewhere can never stand in for a deleted one.
 
+ARIA-HIGH-381 — a seed's surfaces are split the way admission splits them
+(:func:`plan_write_scope.split_surfaces`): ``affected_surfaces`` is the
+write set (one key change each), ``evidence_surfaces`` the cited files the
+plan reads and never writes (a drift's contract side in another module).
+
 A detector that raises or answers a non-object is :data:`SUBJECT_UNVERIFIABLE`
 with the error named (review M2): one finding's detector never aborts the
 synthesis that also carries the operator's request.
@@ -54,6 +59,7 @@ from typing import Any, Mapping
 from .finding import CLAIM_TYPES, SEVERITY_RANK
 from .finding_grounding import (
     FINDING_SURFACES_READONLY,
+    FINDING_WRITE_SCOPE_EMPTY,
     FindingAdmission,
     GroundingContext,
     _ref_path,
@@ -88,6 +94,7 @@ class FindingSeed:
     drift_class: str | None = None
     sides: tuple[tuple[str, str], ...] = ()
     moved: tuple[tuple[str, str], ...] = ()
+    evidence_surfaces: tuple[str, ...] = ()
 
     @property
     def state(self) -> str:
@@ -117,8 +124,10 @@ class FindingSeed:
         claim = (f"its {self.drift_class} sides {' and '.join(cited)} still diverge" if self.drift_class
                  else f"it cites {', '.join(cited)}")
         moved = "".join(f" Cited {old} moved to {new}." for old, new in self.moved)
-        summary = (f"Finding {self.finding_id} ({kind}) re-grounded at {at}: {claim}.{moved} "
-                   "Land the root-cause fix at these surfaces.")
+        read_only = (f" Read-only evidence, never written: {', '.join(self.evidence_surfaces)}."
+                     if self.evidence_surfaces else "")
+        summary = (f"Finding {self.finding_id} ({kind}) re-grounded at {at}: {claim}.{moved}{read_only} "
+                   f"Land the root-cause fix at {', '.join(self.affected_surfaces)}.")
         title = f"Remediate {self.finding_id} ({kind}) in {', '.join(self.affected_surfaces)}"
         key_changes = []
         for index, surface in enumerate(self.affected_surfaces, start=1):
@@ -237,12 +246,16 @@ def _reread_lines(
 
 
 def _seed(record: Mapping[str, Any], admission: FindingAdmission, refs: list[str],
-          moved: list[tuple[str, str]]) -> SeedVerdict:
+          moved: list[tuple[str, str]], repo_root: Path) -> SeedVerdict:
     from .implementation_safety import classify_declared_surface
+    from .plan_write_scope import split_surfaces
 
     refs = list(dict.fromkeys(refs))[:_SEED_REF_CAP]
-    surfaces = tuple(path for path in dict.fromkeys(_ref_path(ref) for ref in refs)
-                     if classify_declared_surface(path) is None)
+    # An F plan is unattended: no operator boundary, so the finding's own fix target decides.
+    split = split_surfaces([_ref_path(ref) for ref in refs], record=record, write_roots=None, repo_root=repo_root)
+    if not split.write:
+        return SeedVerdict(None, FINDING_WRITE_SCOPE_EMPTY, {"refs": refs, "write_basis": split.basis})
+    surfaces = tuple(path for path in split.write if classify_declared_surface(path) is None)
     if not surfaces:
         return SeedVerdict(None, FINDING_SURFACES_READONLY, {"refs": refs})
     severity, claim_type = record.get("severity"), record.get("claim_type")
@@ -253,7 +266,7 @@ def _seed(record: Mapping[str, Any], admission: FindingAdmission, refs: list[str
         claim_type=claim_type if claim_type in CLAIM_TYPES else None,
         drift_class=drift_class_of(record),
         sides=tuple((path, name) for path, name in subject_sides(record) if _SIDE_NAME_RE.fullmatch(name)),
-        moved=tuple(moved),
+        moved=tuple(moved), evidence_surfaces=split.evidence,
     ))
 
 
@@ -271,7 +284,7 @@ def seed_finding(context: GroundingContext, admission: FindingAdmission, *, prob
         refs, moved = _reread_lines(context, record, admission.evidence_refs, anchor)
         if refs is None:
             return SeedVerdict(None, SUBJECT_UNVERIFIABLE, moved)
-        return _seed(record, admission, refs, moved)
+        return _seed(record, admission, refs, moved, context.repo_root)
     detail = {"detector": record.get("originating_skill"), "detector_reason": verdict.get("reason"), "at": anchor}
     if verdict.get("verdict") == VERDICT_ABSENT:
         return SeedVerdict(None, SUBJECT_ABSENT, detail)
@@ -287,7 +300,7 @@ def seed_finding(context: GroundingContext, admission: FindingAdmission, *, prob
     by_path = {_ref_path(ref): ref for ref in refs}
     moved = [(old, by_path[_ref_path(old)]) for old in admission.evidence_refs
              if _ref_path(old) in by_path and by_path[_ref_path(old)] != old and _LINE_RE.search(old)]
-    return _seed(record, admission, refs, moved)
+    return _seed(record, admission, refs, moved, context.repo_root)
 
 
 def admit_and_seed(

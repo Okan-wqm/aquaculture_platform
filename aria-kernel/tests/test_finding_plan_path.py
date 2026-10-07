@@ -265,11 +265,12 @@ class SeedTests(_ProviderFixture):
         envelope = self.synthesize("cyc-drift")
         content = envelope.content
         self.assertEqual(content["evidence_refs"], [f"{_PAGE}:389", f"{_ENTITY}:18"])
-        self.assertEqual(content["affected_surfaces"], [_PAGE, _ENTITY])
+        # ARIA-HIGH-381 — the copy side is written; the contract it drifted from is cited, never written.
+        self.assertEqual(content["affected_surfaces"], [_PAGE])
         self.assertIn("`leave-filter-status`", content["summary"])
         self.assertIn("`LeaveRequestStatus`", content["summary"])
         self.assertIn(f"{_PAGE}:355 moved to {_PAGE}:389", content["summary"])
-        self.assertEqual([change["paths"] for change in content["key_changes"]], [[_PAGE], [_ENTITY]])
+        self.assertEqual([change["paths"] for change in content["key_changes"]], [[_PAGE]])
         self.assertEqual(len(self.rechecks), 1)
 
     def test_a_subject_that_no_longer_reproduces_is_not_planned_and_stays_open(self) -> None:

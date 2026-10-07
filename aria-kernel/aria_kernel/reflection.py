@@ -8,6 +8,7 @@ from typing import Any
 from .agent_eval import observe_agent_performance
 from .governance_reader import read_governance_rows
 from .ledger import append_declared_jsonl, load_jsonl_verified, read_jsonl
+from .provider_outage_ledger import render_outage_section
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
@@ -1468,6 +1469,9 @@ def _write_daily_report(root: Path, reflection: dict[str, Any], *, repo_root: Pa
         *_human_merge_lines(hr.get("human_merge") or []),
         "",
         *_render_deadlines_section(root, repo_root),
+        # ARIA-HIGH-366 — every outage interval of the week, open or restored:
+        # the operator reads when ARIA paused and why, not a stall finding.
+        *render_outage_section(root),
         "## Coverage",
         "",
         f"- Git tracked: {file_counts.get('git_tracked', 0)}",

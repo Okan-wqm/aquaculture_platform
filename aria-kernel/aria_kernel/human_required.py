@@ -498,6 +498,16 @@ def resolve_human_required(
             "panel_outcome": panel_outcome,
         },
     )
+    context = record.get("context") or {}
+    if context.get("kind") == "provider_outage" and resolved_by == RESOLVED_BY_OPERATOR:
+        # ARIA-HIGH-366 (PR #1835 review HIGH-2) — the operator closing an
+        # outage item attests the provider is back: the outage closes, so a
+        # provider nothing spawns again cannot hold every clock paused.
+        from .provider_outage_ledger import record_provider_restored
+
+        record_provider_restored(root, provider=str(context.get("provider")), seam="operator_attested",
+                                 request_id=request_id, kinds=frozenset({str(context.get("outage_kind"))}),
+                                 now=ts)
     return record
 
 

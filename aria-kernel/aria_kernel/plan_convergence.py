@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
 from .agent_priors import reviewer_names
 from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES
@@ -25,6 +25,9 @@ from .tool_registry import (
     parse_utc_stamp,
     utc_now,
 )
+
+if TYPE_CHECKING:
+    from .provider_clock import ProviderClock
 
 
 FINDING_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-(CRITICAL|HIGH|MEDIUM|LOW)-[0-9]{3,}$")
@@ -1047,6 +1050,8 @@ class OrphanReapDecision:
 def decide_orphan_reap(
     orphan: dict[str, Any],
     *,
+    clock: "ProviderClock",
+    awaits_provider: bool,
     reap_after_hours: int = ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
     now: datetime | None = None,
 ) -> OrphanReapDecision:
@@ -1074,14 +1079,26 @@ def decide_orphan_reap(
     event stream — which `_append_event` cannot produce, so the ledger has
     been corrupted or hand-written. That is not a scheduling question and the
     caller escalates it to a human instead of guessing in either direction.
+
+    ARIA-HIGH-365 (B2) — the age is PROVIDER-AVAILABLE time (``clock``, a
+    required argument so no caller can fall back to wall time): an
+    implementation request outstanding through a 3-day outage of the
+    implementer's provider was reaped to IMPLEMENTATION_REJECTED, a terminal,
+    though nothing could have answered it. ``age_hours`` is that age.
+    ``awaits_provider`` (review HIGH-1, ``outage_causality``) is whether the
+    plan's implementation request is still waiting on a provider; when it is
+    not, an outage explains nothing and the age is wall time.
     """
+    from .provider_clock import role_head_providers
+
     reference = now or datetime.now(timezone.utc)
+    providers = role_head_providers(["implementation"]) if awaits_provider else frozenset()
     for source in ("last_event_at", "first_event_at"):
         raw = orphan.get(source)
         parsed = parse_utc_stamp(raw) if isinstance(raw, str) and raw else None
         if parsed is None:
             continue
-        age = reference - parsed
+        age = clock.available_age(parsed, reference, providers)
         return OrphanReapDecision(
             decision=(
                 ORPHAN_DECISION_REAP
@@ -1123,8 +1140,12 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
     event is older than STALE_PLAN_MAX_AGE_HOURS is abandoned (recorded,
     reason carries the stall timestamp) and the scan moves on.
     """
+    from .outage_causality import request_awaits_provider
+    from .provider_clock import provider_clock, role_head_providers
+
     root = ensure_tools_dir(base_dir)
     last_seen = _last_event_at_by_plan(root)
+    clock = provider_clock(root)
     invocations: list[list[dict[str, Any]]] = []
     for plan_id in reversed(list_active_plans(base_dir=base_dir)):
         state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
@@ -1141,7 +1162,23 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
                 invocations.extend(load_jsonl(root / "agent-invocations" / name)
                                    for name in ("requests.jsonl", "claims.jsonl"))
             stall = _stall_cause(plan_id, requests=invocations[0], claims=invocations[1])
-            stall.update(last_event_at=stamp, max_age_hours=STALE_PLAN_MAX_AGE_HOURS)
+            # ARIA-HIGH-365 (B1) — the bound is on PROVIDER-AVAILABLE time:
+            # wall time minus the outage of the provider the plan's waiting
+            # request is routed to. A plan whose 72 h are a provider outage
+            # (measured: `stalled:provider_quota_unavailable:anthropic`) was
+            # not neglected; it is adopted and continues where it stopped.
+            # Review HIGH-1: only while that request is still WAITING on a
+            # provider (`outage_causality`); one a fallback rung answered and
+            # that died for its own reason is held to the wall clock.
+            waiting = request_awaits_provider(stall.get("request_id"), base_dir=root, claims=invocations[1])
+            available = clock.available_age(
+                parse_utc_stamp(stamp), datetime.now(timezone.utc),
+                role_head_providers([stall["role"]]) if waiting and stall.get("role") else frozenset(),
+            )
+            if available <= timedelta(hours=STALE_PLAN_MAX_AGE_HOURS):
+                return plan_id
+            stall.update(last_event_at=stamp, max_age_hours=STALE_PLAN_MAX_AGE_HOURS,
+                         provider_available_hours=round(available.total_seconds() / 3600.0, 3))
             abandon_plan(plan_id=plan_id, reason=f"stalled:{stall['cause']}", stall=stall, base_dir=base_dir)
             continue
         return plan_id
@@ -1338,7 +1375,12 @@ def abandon_plan(
         if existing:
             return _event_result(existing, idempotent=True)
         event = _append_event(root=root, plan_id=plan_id, event_type="plan_abandoned", payload=payload, idempotency_key=key)
-        return _event_result(event, idempotent=False)
+    # ARIA-HIGH-367 (H4) — the plan's unclaimed requests close with it, outside
+    # the plan lock (the claims ledger has its own transaction).
+    from .plan_request_closure import close_abandoned_plan_requests
+
+    close_abandoned_plan_requests(root, plan_ids=[plan_id])
+    return _event_result(event, idempotent=False)
 
 
 # =============================================================================

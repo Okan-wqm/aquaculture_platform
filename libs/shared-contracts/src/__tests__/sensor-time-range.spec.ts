@@ -81,6 +81,25 @@ describe('sensor-reading time range', () => {
     }
   });
 
+  it('reads only instants with an explicit offset, so a link means one window everywhere', () => {
+    expect(
+      parseTimeRangeParams({ from: '2026-09-16T00:00:00+03:00', to: '2026-09-17T00:00:00Z' }),
+    ).toEqual({
+      ok: true,
+      spec: {
+        kind: 'absolute',
+        startMs: Date.UTC(2026, 8, 15, 21),
+        endMs: Date.UTC(2026, 8, 17),
+      },
+    });
+    for (const from of ['2026-09-16T00:00', '2026-09-16', 'Sep 16 2026', '2026-09-16T00:00+0300']) {
+      expect([from, parseTimeRangeParams({ from, to: '2026-09-17T00:00:00Z' })]).toEqual([
+        from,
+        { ok: false, error: 'invalid' },
+      ]);
+    }
+  });
+
   it('reports a malformed link instead of showing something else', () => {
     expect(parseTimeRangeParams({})).toBeNull();
     expect(parseTimeRangeParams({ range: 'forever' })).toEqual({ ok: false, error: 'invalid' });

@@ -123,6 +123,18 @@ export type ParsedTimeRange =
   | { readonly ok: false; readonly error: TimeRangeError };
 
 /**
+ * An instant in a link: ISO-8601 with an explicit `Z` or `±hh:mm` offset.
+ * Anything else — a local time without an offset, which `Date.parse` would
+ * read in the browser's zone, or engine-specific text like `Sep 16 2026` — is
+ * not an instant, so the same link means the same window everywhere.
+ */
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function parseInstant(value: string | null | undefined): number {
+  return value && ISO_INSTANT.test(value) ? Date.parse(value) : Number.NaN;
+}
+
+/**
  * Read a range from URL parameters. Absent parameters are not an error (the
  * caller applies its default); present but malformed ones are, so a broken
  * link says so instead of quietly showing something else.
@@ -130,8 +142,8 @@ export type ParsedTimeRange =
 export function parseTimeRangeParams(params: TimeRangeParams): ParsedTimeRange | null {
   const { range, from, to } = params;
   if (from || to) {
-    const startMs = from ? Date.parse(from) : Number.NaN;
-    const endMs = to ? Date.parse(to) : Number.NaN;
+    const startMs = parseInstant(from);
+    const endMs = parseInstant(to);
     const spec: TimeRangeSpec = { kind: 'absolute', startMs, endMs };
     const resolved = resolveTimeRange(spec, endMs);
     return resolved.ok ? { ok: true, spec } : { ok: false, error: resolved.error };

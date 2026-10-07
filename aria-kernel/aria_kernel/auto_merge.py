@@ -132,7 +132,8 @@ class GitHubAdapter(Protocol):
     def get_merge_state(self, number: int) -> dict[str, Any] | None:
         """ARIA-HIGH-221 — where the PR stands with respect to merging:
         ``{"state", "head_sha", "in_merge_queue", "auto_merge_enabled",
-        "merge_commit_sha"}``, or ``None`` when nothing was observed."""
+        "merge_commit_sha", "merge_state_status", "base_sha"}``, or ``None``
+        when nothing was observed."""
         ...
 
 
@@ -615,6 +616,8 @@ def _evaluate_triple_gate(
     pr_number: int,
     head_sha: str,
     base_dir: str | Path | None,
+    workspace_root: str | Path | None = None,
+    live_base_sha: str | None = None,
 ) -> dict[str, Any]:
     """Plan 026R §D.4 — auto-merge triple-gate evaluator.
 
@@ -649,10 +652,25 @@ def _evaluate_triple_gate(
             f"triple_gate_change_committed_missing: change_id={change_id!r}"
         )
     elif committed.get("commit_sha") != head_sha:
-        reasons.append(
-            f"triple_gate_head_sha_commit_sha_mismatch: "
-            f"head={head_sha!r} change.commit={committed.get('commit_sha')!r}"
-        )
+        # ARIA-HIGH-374 — under strict protection an ARIA PR is mergeable
+        # only after main was merged into it, so its head is the delivered
+        # commit plus ARIA's own recorded, pure branch updates — or it is
+        # refused, as before, naming why (`branch_update_lineage`, the one
+        # verifier all three self-merge gates share).
+        from .branch_update_lineage import BranchUpdateLineageRefused, verify_branch_update_lineage
+
+        try:
+            if workspace_root is None or not live_base_sha:
+                raise BranchUpdateLineageRefused("workspace_or_live_base_unavailable")
+            verify_branch_update_lineage(
+                workspace=workspace_root, base_dir=base_dir, pr_number=pr_number, head_sha=head_sha,
+                delivered_sha=str(committed.get("commit_sha") or ""), live_base_sha=live_base_sha,
+            )
+        except BranchUpdateLineageRefused as exc:
+            reasons.append(
+                f"triple_gate_head_sha_commit_sha_mismatch: "
+                f"head={head_sha!r} change.commit={committed.get('commit_sha')!r} {exc.reason}"
+            )
     # Gate 2: change_validated row exists
     validated = _find_validated_for_change(tools_root, change_id)
     if validated is None:
@@ -935,6 +953,8 @@ class SnapshotGitHubAdapter:
             "in_merge_queue": False,
             "auto_merge_enabled": False,
             "merge_commit_sha": pr.get("merge_commit_sha"),
+            "merge_state_status": pr.get("mergeStateStatus") or pr.get("merge_state_status"),
+            "base_sha": pr.get("base_sha") or pr.get("baseRefOid"),
         }
 
 
@@ -1027,6 +1047,8 @@ class GhCliGitHubAdapter:
         pullRequest(number: $number) {
           state
           headRefOid
+          baseRefOid
+          mergeStateStatus
           isInMergeQueue
           autoMergeRequest { enabledAt }
           mergeCommit { oid }
@@ -1056,6 +1078,10 @@ class GhCliGitHubAdapter:
             "in_merge_queue": pull.get("isInMergeQueue") is True,
             "auto_merge_enabled": isinstance(pull.get("autoMergeRequest"), dict),
             "merge_commit_sha": _merge_commit_oid(pull.get("mergeCommit")),
+            # ARIA-HIGH-374 — GitHub's own mergeability verdict and the base
+            # it is judged against (`merge_lane_merge_state`).
+            "merge_state_status": str(pull.get("mergeStateStatus") or "").upper() or None,
+            "base_sha": pull.get("baseRefOid"),
         }
 
     def get_required_checks(self, base_branch: str) -> dict[str, Any]:

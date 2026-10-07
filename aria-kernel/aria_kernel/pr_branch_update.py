@@ -40,13 +40,11 @@ opened (``own_pr_delivery.aria_opened_prs``) on an ``aria-impl-*`` branch:
   attempt whose receipt never came (timeout) is answered from the PR's head
   on the next pass and never re-sent for the same triple.
 
-WHAT IT DOES NOT DO. An update changes the PR head, and every self-merge
-gate binds the head to the delivered commit (``change_committed.commit_sha``,
-the triple gate, the native merge context). An updated ARIA PR is therefore
-a human merge until the merge authority accepts ARIA's own recorded,
-server-made updates of a delivered commit — tracked as ARIA-HIGH-374
-(owner claude, deadline 2026-10-14). ``human_merge_surface`` names exactly
-that reason on the PR's HUMAN_REQUIRED item.
+AFTER THE UPDATE (ARIA-HIGH-374). An update changes the PR head, and every
+self-merge gate binds the evidence to the delivered commit. The gates accept
+the updated head only through ``branch_update_lineage``: each update commit
+must be one this ledger records (``request_branch_update``) and a pure merge
+of main. Anything else on the branch keeps the PR a person's merge.
 """
 from __future__ import annotations
 
@@ -210,6 +208,64 @@ def already_requested(*, pr_number: int, head_sha: str, base_sha: str, base_dir:
     return receipt is None or receipt.get("status") == "confirmed"
 
 
+def request_branch_update(
+    *,
+    pr_number: int,
+    head_sha: str,
+    base_sha: str,
+    environment: dict[str, str],
+    workspace_root: str | Path,
+    base_dir: str | Path | None,
+    runner: Callable[..., "subprocess.CompletedProcess[str]"] | None = None,
+) -> dict[str, Any]:
+    """The ONE ``update-branch`` call ARIA makes, bracketed by intent and receipt.
+
+    ARIA-HIGH-374 — the cycle's batch and the merge lane (for a ``BEHIND``
+    PR it would otherwise try to merge) both call this, so every update ARIA
+    asks for is on the external-effects ledger in one shape: the record
+    ``branch_update_lineage.verify_branch_update_lineage`` accepts an updated
+    head by. ``environment`` must carry an installation token
+    (``run_gh_write``).
+    """
+    from .github_writes import run_gh_write
+    from .recovery import record_intent, record_receipt
+
+    request_id = update_request_id(pr_number)
+    intent = record_intent(
+        request_id=request_id, effect_kind=EFFECT_KIND, target=f"pr#{pr_number}",
+        intended_postcondition={"pr_number": pr_number, "expected_head_sha": head_sha, "base_sha": base_sha},
+        base_dir=base_dir,
+    )
+    row = {"pr_number": pr_number, "head_sha": head_sha, "base_sha": base_sha}
+    try:
+        completed = run_gh_write(
+            ["api", "-X", "PUT", f"repos/{{owner}}/{{repo}}/pulls/{pr_number}/update-branch",
+             "-f", f"expected_head_sha={head_sha}"],
+            env=environment, cwd=workspace_root, timeout=GH_UPDATE_BRANCH_TIMEOUT_SECONDS, runner=runner,
+        )
+    except OSError as exc:
+        # Review LOW — `gh` missing or not executable: a failed request by
+        # name, never an exception that aborts the caller's phase.
+        record_receipt(operation_id=str(intent["operation_id"]), request_id=request_id,
+                       observed={"os_error": type(exc).__name__}, status="failed", base_dir=base_dir)
+        return {**row, "outcome": f"os_error:{type(exc).__name__}"}
+    except subprocess.TimeoutExpired:
+        # Unknown outcome: no receipt; the next pass answers it from the head.
+        return {**row, "outcome": "timed_out"}
+    except GovernanceError as exc:
+        record_receipt(operation_id=str(intent["operation_id"]), request_id=request_id,
+                       observed={"refused": str(exc)[:300]}, status="failed", base_dir=base_dir)
+        return {**row, "outcome": f"refused:{str(exc)[:200]}"}
+    accepted = completed.returncode == 0
+    first_error = ((completed.stderr or "").strip().splitlines() or [""])[0]
+    record_receipt(
+        operation_id=str(intent["operation_id"]), request_id=request_id,
+        observed={"returncode": completed.returncode, "stderr": [first_error] if first_error else []},
+        status="confirmed" if accepted else "failed", base_dir=base_dir,
+    )
+    return {**row, "outcome": "accepted" if accepted else f"failed:{first_error[:200]}"}
+
+
 def update_behind_aria_prs(
     *,
     cycle_id: str,
@@ -226,8 +282,6 @@ def update_behind_aria_prs(
         DeliveryCredentialError,
         hold_delivery_credentials,
     )
-    from .github_writes import run_gh_write
-    from .recovery import record_intent, record_receipt
     from .runtime_profile import ACTION_PERMISSIONS
 
     if profile not in ACTION_PERMISSIONS["pr_open"]:
@@ -276,55 +330,23 @@ def update_behind_aria_prs(
             return {"status": "credential_unavailable", "reason": str(exc)[:300], "requested": [], "skipped": skipped}
         environment = {**os.environ, **(dict(credential.env) if credential is not None else {})}
         for number, head, base in queue:
-            request_id = update_request_id(number)
-            intent = record_intent(
-                request_id=request_id, effect_kind=EFFECT_KIND, target=f"pr#{number}",
-                intended_postcondition={"pr_number": number, "expected_head_sha": head, "base_sha": base},
-                base_dir=base_dir,
-            )
-            try:
-                completed = run_gh_write(
-                    ["api", "-X", "PUT", f"repos/{{owner}}/{{repo}}/pulls/{number}/update-branch",
-                     "-f", f"expected_head_sha={head}"],
-                    env=environment, cwd=workspace_root, timeout=GH_UPDATE_BRANCH_TIMEOUT_SECONDS, runner=runner,
-                )
-            except OSError as exc:
-                # Review LOW — `gh` missing or not executable: a failed
-                # request by name, never an exception that aborts the phase
-                # before the human-merge surface runs.
-                record_receipt(operation_id=str(intent["operation_id"]), request_id=request_id,
-                               observed={"os_error": type(exc).__name__}, status="failed", base_dir=base_dir)
-                requested.append({"pr_number": number, "head_sha": head, "outcome": f"os_error:{type(exc).__name__}"})
-                continue
-            except subprocess.TimeoutExpired:
-                # Unknown outcome: no receipt; the next pass answers it from the head.
-                requested.append({"pr_number": number, "head_sha": head, "outcome": "timed_out"})
-                continue
-            except GovernanceError as exc:
-                record_receipt(operation_id=str(intent["operation_id"]), request_id=request_id,
-                               observed={"refused": str(exc)[:300]}, status="failed", base_dir=base_dir)
-                requested.append({"pr_number": number, "head_sha": head, "outcome": f"refused:{str(exc)[:200]}"})
-                continue
-            accepted = completed.returncode == 0
-            record_receipt(
-                operation_id=str(intent["operation_id"]), request_id=request_id,
-                observed={"returncode": completed.returncode,
-                          "stderr": (completed.stderr or "").strip().splitlines()[:1]},
-                status="confirmed" if accepted else "failed", base_dir=base_dir,
-            )
-            outcome = "accepted" if accepted else f"failed:{((completed.stderr or '').strip().splitlines() or [''])[0][:200]}"
-            requested.append({"pr_number": number, "head_sha": head, "base_sha": base, "outcome": outcome})
+            requested.append(request_branch_update(
+                pr_number=number, head_sha=head, base_sha=base, environment=environment,
+                workspace_root=workspace_root, base_dir=base_dir, runner=runner,
+            ))
     append_tools_governance(ensure_tools_dir(base_dir), UPDATE_REQUESTED_EVENT, {"cycle_id": cycle_id, "requested": requested})
     return {"status": "ran", "requested": requested, "skipped": skipped}
 
 
 __all__ = [
     "BEHIND",
+    "EFFECT_KIND",
     "BranchUpdateGrant",
     "GH_UPDATE_BRANCH_TIMEOUT_SECONDS",
     "MAX_UPDATES_PER_CYCLE",
     "UPDATE_REQUESTED_EVENT",
     "already_requested",
+    "request_branch_update",
     "update_behind_aria_prs",
     "update_request_id",
 ]

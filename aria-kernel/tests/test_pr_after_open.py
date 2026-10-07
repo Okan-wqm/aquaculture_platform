@@ -260,7 +260,8 @@ class HumanMergeSurfaceTests(_Store):
         records = self._records()
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["context"]["ci"]["state"], "green")
-        self.assertIn("behind_base_under_strict_protection", records[0]["context"]["not_self_mergeable_because"])
+        # ARIA-HIGH-374 — BEHIND is ARIA's to fix (the update), not a person's.
+        self.assertNotIn("behind_base_under_strict_protection", records[0]["context"]["not_self_mergeable_because"])
         lines = daily_report_lines(records)
         self.assertIn(f"#7 {URL} — CI green", lines[-1])
         self.assertIn("why: merge_route_human:lane=L2", lines[-1])
@@ -276,7 +277,8 @@ class HumanMergeSurfaceTests(_Store):
                                 reader=FakeReader(_live(headRefOid="d" * 40, mergeStateStatus="CLEAN")))
         why = self._records()[0]["context"]["not_self_mergeable_because"]
         self.assertFalse(any(reason.startswith("merge_route_human") for reason in why), why)
-        self.assertIn(f"head_is_not_the_delivered_commit:head={'d' * 12}:delivered={'a' * 12}:ARIA-HIGH-374", why)
+        # No checkout to walk the head's lineage in: named, never assumed.
+        self.assertIn(f"head_is_not_the_delivered_commit:head={'d' * 12}:delivered={'a' * 12}:no_checkout", why)
         surface_human_merge_prs(cycle_id="cyc-373b", base_dir=self.tools, reader=FakeReader(_live(state="CLOSED")))
         self.assertEqual(self._records(), [])
 

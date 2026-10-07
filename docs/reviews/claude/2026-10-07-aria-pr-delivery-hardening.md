@@ -160,15 +160,59 @@ the head is no longer the delivered commit, so every self-merge gate refuses it.
 Net effect: under `autonomous`, an L1 ARIA PR merges only if main did not move between the anchor
 commit and the merge.
 
-What is done here: the update never runs for a pending head, and ARIA-HIGH-373 names the
-condition on the PR's record (`behind_base_under_strict_protection`,
-`head_is_not_the_delivered_commit:…:ARIA-HIGH-374`). So a person sees it and merges.
+Fix (stacked on #1828, branch `fix/aria-merge-after-branch-update`).
 
-Not done: the merge authority accepting a head that is a server-made update recorded by ARIA,
-with a purity proof (`git merge-tree` of the recorded `(head, base)` equals the head's tree).
-This touches the triple gate, the native merge context and the implementation join in
-`merge_authority.py` and `auto_merge.py`, so it is a merge-authority change in its own right.
-Tracked here: owner claude, deadline 2026-10-14.
+- **One shared verifier:** `branch_update_lineage.verify_branch_update_lineage`. A head that
+  differs from the delivered commit is accepted only if every commit on its first-parent chain
+  back to the delivered commit meets all three conditions:
+  - it is a two-parent merge whose first parent ARIA asked GitHub to update (a
+    `pr_branch_update` intent with a `confirmed` receipt);
+  - its second parent descends from the recorded base and is contained in the live base;
+  - its tree equals `git merge-tree --write-tree` of those two parents.
+
+  Any other commit is refused by name: `unrecorded_commit`, `merged_base_not_main`,
+  `merge_not_clean`, `tree_differs_from_pure_merge`, or `commit_unreadable`. The walk is bounded
+  at 64 updates.
+
+- **The three gates use it:**
+  - the triple gate (`auto_merge._evaluate_triple_gate`, now given the checkout and the live
+    base);
+  - the native merge context (`merge_authority._capture_pre_merge_context`);
+  - the implementation join.
+
+  The evidence stays bound to the implementation pair (the delivered commit and its base). The
+  live pair (`merge_head_sha`, `merge_base_sha`) is what the snapshot, the branch-tip lock, the
+  PR diff and the read-only check read. The merged paths may only narrow the implementation's
+  paths, never widen them.
+
+- **Same rule in the surface:** `human_merge_surface` judges an updated head with the same
+  verifier. It fetches `refs/pull/<n>/head` by object id, without writing a ref.
+- **The merge lane reads `mergeStateStatus`** (`merge_lane_merge_state`) before any proof or
+  incident row:
+  - `BEHIND` asks for the update through the cycle's own call
+    (`pr_branch_update.request_branch_update`), once per (PR, head, base).
+  - `DIRTY` and `BLOCKED` are named skips. No incident is written.
+- **CI stays the merge authority's.** `evaluate_auto_merge` reads every check run on the live
+  head. Runs on the delivered commit do not count for the updated head.
+
+Tests: `tests/test_branch_update_lineage.py` has 12 tests.
+
+- Lineage: a recorded pure update passes. These are refused: an unrecorded push, an update ARIA
+  never asked for, a failed request, foreign content, a merged parent not on main.
+- The triple gate: passes after a pure update, and refuses foreign content.
+- The branch-tip lock on the merged pair.
+- The merge lane:
+  - `BEHIND` requests the update once and writes no incident;
+  - `DIRTY` and `BLOCKED` are skips.
+- Red checks on the live head.
+
+On the 371–373 head (`1f83bb1dc`), the gate and lane tests fail:
+
+- The lane goes on to the risk gate (`risk_policy_required_for_merge`) instead of skipping.
+- The triple gate and the evidence have no lineage inputs (`TypeError`).
+- The lineage tests cannot import their module.
+
+The red-check test pins behaviour that already held.
 
 ## Review corrections
 

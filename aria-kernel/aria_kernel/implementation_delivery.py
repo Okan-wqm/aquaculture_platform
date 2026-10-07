@@ -127,12 +127,15 @@ the request worktree:
    the window, refuses ``credential:credential_unavailable:…`` by name —
    the HOST's (``HOST_STAGES``), released harness-class like the
    admission; the pre-spawn admission (``admit_delivery_credentials``)
-   already refused a lane that cannot mint before any turn;
+   already refused a lane that cannot mint before any turn — but only
+   after (3c, ARIA-HIGH-371) ``pr_manager.prepare_pr_open`` has run every
+   check of the PR open, the live GATE_PRE_PR_OPEN perimeter included, so
+   a commit the plan's contract refuses is refused with nothing pushed;
 5. the push of the ``aria-impl-*`` branch to ``origin``, with the delivery
    credential's environment applied to that ONE git subprocess (the token
    never enters the sandbox; the agent has no push to make);
-6. the PR, through ``pr_manager.open_pr_for_action`` (base guard,
-   GATE_PRE_PR_OPEN, the change-id anchor, intent + receipt keyed on the
+6. the PR, through ``pr_manager.open_prepared_pr`` (the head 3c judged,
+   refused by name if it moved; the change-id anchor, intent + receipt keyed on the
    request), the credential applied to that ONE ``gh`` subprocess, bounded
    at ``pr_manager.GH_PR_CREATE_TIMEOUT_SECONDS``;
 7. the stamp: ``pr_url``, ``pr_number``, ``branch``, ``branch_tip_sha``,
@@ -218,8 +221,17 @@ from .validation_suite import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
 # minted after the gate, for the push and the PR), the push, the PR.
 DELIVERY_STAGES: tuple[str, ...] = (
     "branch_publication", "commit_identity", "admission", "change_ledger", "result_admissible",
-    "apply_gate", "change_validated", "credential", "push", "pr_open",
+    "apply_gate", "change_validated", "pre_pr_open", "credential", "push", "pr_open",
 )
+# ARIA-HIGH-371 — the GATE_PRE_PR_OPEN perimeter (`commit_contract_honoured`,
+# `pr_body_templating`, the secret scan, ...) and every other check of the PR
+# open, decided BEFORE the credential is minted and the branch is pushed
+# (`pr_manager.prepare_pr_open`). It ran inside `open_pr_for_action`, after
+# the push: a commit the plan's contract refuses — F-015's admits only
+# `refactor`/`test`/`chore` subjects without a trailer — left a pushed
+# `aria-impl-*` branch with no PR that no code deletes, and the requeue
+# collided on it. The request's stage: the commits and the body are its.
+PRE_PR_OPEN_STAGE = "pre_pr_open"
 # ARIA-MEDIUM-231 — the validated row that closes the change chain, written
 # after the commit row (it needs it) and before the credential, the push and
 # the PR: a chain that did not validate opens nothing. The request's stage,
@@ -699,7 +711,7 @@ def deliver_implementation(
     from .apply_engine import run_apply_gate
     from .change_ledger import emit_change_committed, emit_change_validated, verify_change_scope
     from .plan_convergence_bridge import verify_implementation_commit
-    from .pr_manager import open_pr_for_action
+    from .pr_manager import open_prepared_pr, prepare_pr_open
     from .recovery import record_intent, record_receipt
 
     workspace = Path(workspace_root).resolve()
@@ -883,6 +895,17 @@ def deliver_implementation(
             CHANGE_VALIDATED_STAGE, f"change_validated_refused:{exc.reason[:300]}",
         ) from exc
 
+    # 3c. ARIA-HIGH-371 — the PR open's checks, live perimeter included,
+    #     with no external effect: a refusal here pushes nothing, so no
+    #     orphan branch is left on the remote for the requeue to collide on.
+    try:
+        prepared_pr = prepare_pr_open(
+            proposal_id=proposal_id, workspace_root=workspace, base_dir=base_dir,
+            change_id=change_id, request_id=request_id,
+        )
+    except GovernanceErrorType as exc:
+        raise ImplementationDeliveryRefusal(PRE_PR_OPEN_STAGE, f"pre_pr_open_refused:{str(exc)[:300]}") from exc
+
     # 4. The credential, minted HERE (round 6): the hold brackets exactly
     #    the push and the PR opener — the window the lease is asked to
     #    cover — and revokes the lease however they exit. Until round 6
@@ -920,12 +943,11 @@ def deliver_implementation(
             status="confirmed", base_dir=base_dir,
         )
 
-        # 6. The PR, through the one sanctioned opener.
+        # 6. The PR, through the one sanctioned opener, at the head the
+        #    perimeter judged in 3c (a moved branch is refused by name).
         try:
-            opened = open_pr_for_action(
-                proposal_id=proposal_id, workspace_root=workspace, base_dir=base_dir, dry_run=False,
-                change_id=change_id, request_id=request_id,
-                command_environment=credential_environment or None,
+            opened = open_prepared_pr(
+                prepared_pr, base_dir=base_dir, command_environment=credential_environment or None,
             )
         except GovernanceErrorType as exc:
             raise ImplementationDeliveryRefusal("pr_open", f"pr_open_refused:{str(exc)[:300]}") from exc
@@ -995,6 +1017,7 @@ __all__ = [
     "DELIVERY_COMMIT_IDENTITY_SECONDS",
     "DELIVERY_RESULT_ADMISSIBLE_SECONDS",
     "HOST_STAGES",
+    "PRE_PR_OPEN_STAGE",
     "RESULT_ADMISSIBLE_STAGE",
     "AGENT_DISPOSITIONS_FIELD",
     "DELIVERY_STAGES",

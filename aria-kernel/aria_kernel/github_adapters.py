@@ -586,6 +586,32 @@ class RealChecksReader:
         return row if isinstance(row, dict) else None
 
 
+    def pr_delivery_state(self, pr_number: int) -> dict[str, Any] | None:
+        """ARIA-HIGH-372/373 — one PR's delivery facts in ONE read.
+
+        The state (open/merged/closed), its URL, head and base commits,
+        GitHub's own up-to-date verdict (``mergeStateStatus``: BEHIND under
+        strict protection means unmergeable until the branch is updated),
+        the check rollup the CI summary is computed from, and the labels.
+        None when gh does not answer: unobserved, never "open".
+        """
+        import json as _json
+        import subprocess as _subprocess
+
+        completed = _subprocess.run(
+            ["gh", "pr", "view", str(pr_number), "--json",
+             "number,state,url,headRefName,headRefOid,baseRefOid,mergeStateStatus,statusCheckRollup,labels"],
+            cwd=self._cwd, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            return None
+        try:
+            row = _json.loads(completed.stdout or "{}")
+        except _json.JSONDecodeError:
+            return None
+        return row if isinstance(row, dict) else None
+
+
 class RecordingChecksReader:
     """The observing profiles' reader: never touches the network, says so."""
 
@@ -602,6 +628,9 @@ class RecordingChecksReader:
         return None
 
     def pr_merge_state(self, pr_number: int) -> dict[str, Any] | None:
+        return None
+
+    def pr_delivery_state(self, pr_number: int) -> dict[str, Any] | None:
         return None
 
     def list_open_prs(self, *, limit: int = 30) -> list[dict[str, Any]]:

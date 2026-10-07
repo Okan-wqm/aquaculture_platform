@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -219,23 +220,57 @@ ARIA_PR_BASE = "main"
 REVERT_BRANCH_PREFIX = "aria/revert/"
 
 
-def open_pr_for_action(
+@dataclass(frozen=True)
+class _PrOpenInputs:
+    """Everything the pre-PR-open perimeter and the PR create read, resolved once."""
+
+    proposal: dict[str, Any]
+    action: dict[str, Any]
+    body: str
+    branch: str
+    head_sha: str
+    workspace_path: Path
+    perimeter_context: HardFailContext
+
+
+@dataclass(frozen=True)
+class PreparedPrOpen:
+    """ARIA-HIGH-371 — a PR whose every pre-open check has already passed.
+
+    WHY. The executor's delivery pushed the implementation branch FIRST and
+    only then called ``open_pr_for_action``, whose GATE_PRE_PR_OPEN perimeter
+    (``commit_contract_honoured``, ``pr_body_templating``, the secret scan,
+    ...) is the step that can refuse. A commit refused there — F-015's
+    contract admits only ``refactor``/``test``/``chore`` subjects without a
+    trailer (``plan_origin.commit_contract_for_plan``) — left a pushed
+    ``aria-impl-*`` branch with no PR, and no code path deletes one: the
+    next attempt collided on it (``implementation_branch_exists``). The
+    checks are now a value the delivery holds BEFORE it mints the push
+    credential (``prepare_pr_open``); the create (``open_prepared_pr``) can
+    only be called with one, and refuses when the branch moved since.
+    """
+
+    proposal_id: str
+    branch: str
+    head_sha: str
+    title: str
+    body: str
+    payload: Mapping[str, Any]
+    workspace_path: Path
+    request_id: str | None
+    assignment_id: str | None
+
+
+def _pr_open_inputs(
     *,
     proposal_id: str,
     workspace_root: str | Path,
-    base_dir: str | Path | None = None,
-    dry_run: bool = True,
-    base: str = ARIA_PR_BASE,
-    assignment_id: str | None = None,
-    change_id: str | None = None,
-    # ARIA-HIGH-124 — the executor's two facts for a PR it opens on an
-    # agent request's behalf, outside the sandbox: the request the
-    # intent/receipt rows are keyed on, and the delivery credential's
-    # environment, applied to the ONE `gh pr create` subprocess and to
-    # nothing else (never this process's environ, never a file).
-    request_id: str | None = None,
-    command_environment: Mapping[str, str] | None = None,
-) -> dict[str, Any]:
+    base_dir: str | Path | None,
+    dry_run: bool,
+    base: str,
+    assignment_id: str | None,
+    change_id: str | None,
+) -> _PrOpenInputs:
     # Plan 026R §D.3 — change_id binding. PR open is the strict-
     # pipeline tail; auto-merge §D.4 requires the PR to be bound
     # to a change-ledger row so the triple-gate (head_sha ==
@@ -430,6 +465,147 @@ def open_pr_for_action(
         ),
     )
 
+    return _PrOpenInputs(
+        proposal=proposal, action=action, body=body, branch=branch, head_sha=resolved_head_sha,
+        workspace_path=workspace_path, perimeter_context=perimeter_context,
+    )
+
+
+def _pr_payload(
+    inputs: _PrOpenInputs, *, assignment_id: str | None, change_id: str | None,
+    dry_run: bool, perimeter_summary: dict[str, Any] | None,
+) -> dict[str, Any]:
+    proposal, action = inputs.proposal, inputs.action
+    return {
+        "number": None,
+        "base_branch": ARIA_PR_BASE,
+        "head_sha": inputs.head_sha,
+        "base_sha": action.get("base_sha"),
+        "branch": inputs.branch,
+        "task_id": proposal.get("task_id"),
+        "proposal_id": proposal.get("proposal_id"),
+        # Plan 025 §E — assignment_id bridge between worker dispatch
+        # and the resulting PR. When the autonomous worker scheduler
+        # calls open_pr_for_action with assignment_id, the lifecycle
+        # row carries the bridge so worker_dispatch.pr_for_assignment
+        # can later resolve the PR for merge_if_green. Optional kwarg
+        # — proposal-only callers (the cycle pr_lifecycle phase) do
+        # not pass it; legacy rows return None from pr_for_assignment
+        # which fail-closes the merge path to verified_pending_merge.
+        "assignment_id": assignment_id,
+        # Plan 026R §D.3 — change_id anchor for auto-merge triple-gate.
+        "change_id": change_id,
+        "changed_files": action.get("changed_files", []),
+        "title": proposal.get("title"),
+        "body": inputs.body,
+        "dry_run": dry_run,
+        "perimeter_observation": perimeter_summary,
+    }
+
+
+def prepare_pr_open(
+    *,
+    proposal_id: str,
+    workspace_root: str | Path,
+    change_id: str,
+    base_dir: str | Path | None = None,
+    base: str = ARIA_PR_BASE,
+    assignment_id: str | None = None,
+    request_id: str | None = None,
+) -> PreparedPrOpen:
+    """ARIA-HIGH-371 — every check a live PR open makes, with no external effect.
+
+    The profile gate, the approval traceability join, the ready-for-PR
+    action, the body sections, the head resolution and the LIVE
+    GATE_PRE_PR_OPEN perimeter (``run_hard_fail_checks``): a refusal is the
+    same ``GovernanceError`` ``open_pr_for_action`` raised, now raised
+    before anything is pushed. Reads the local branch only.
+    """
+    inputs = _pr_open_inputs(
+        proposal_id=proposal_id, workspace_root=workspace_root, base_dir=base_dir, dry_run=False,
+        base=base, assignment_id=assignment_id, change_id=change_id,
+    )
+    _raise_if_perimeter_refused(run_hard_fail_checks(inputs.perimeter_context, gate=GATE_PRE_PR_OPEN))
+    return PreparedPrOpen(
+        proposal_id=proposal_id, branch=inputs.branch, head_sha=inputs.head_sha,
+        title=str(inputs.proposal.get("title")), body=inputs.body,
+        payload=_pr_payload(inputs, assignment_id=assignment_id, change_id=change_id,
+                            dry_run=False, perimeter_summary=None),
+        workspace_path=inputs.workspace_path, request_id=request_id, assignment_id=assignment_id,
+    )
+
+
+def open_prepared_pr(
+    prepared: PreparedPrOpen,
+    *,
+    base_dir: str | Path | None = None,
+    command_environment: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Open the PR a passed preparation names, at the head it was judged at.
+
+    The branch is re-read: a head that moved after the perimeter judged it
+    is not the head the perimeter passed, and is refused by name.
+    """
+    moved = subprocess.run(
+        ["git", "rev-parse", prepared.branch],
+        cwd=prepared.workspace_path, capture_output=True, text=True, check=False,
+    )
+    if moved.returncode != 0 or (moved.stdout or "").strip() != prepared.head_sha:
+        raise GovernanceError(
+            f"open_pr_head_moved_since_preparation: {prepared.branch!r} was judged at "
+            f"{prepared.head_sha} and reads {(moved.stdout or '').strip() or moved.returncode!r}"
+        )
+    proposal_id = prepared.proposal_id
+    return _create_pull_request(
+        payload=dict(prepared.payload),
+        branch=prepared.branch,
+        title=prepared.title,
+        body=prepared.body,
+        workspace_path=prepared.workspace_path,
+        effect_request_id=_effect_request_id(proposal_id, prepared.request_id),
+        intended_postcondition={"head_ref": prepared.branch, "base": ARIA_PR_BASE,
+                                "head_sha": prepared.head_sha, "proposal_id": proposal_id},
+        command_environment=command_environment,
+        base_dir=base_dir,
+        assignment_id=prepared.assignment_id,
+    )
+
+
+def open_pr_for_action(
+    *,
+    proposal_id: str,
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+    dry_run: bool = True,
+    base: str = ARIA_PR_BASE,
+    assignment_id: str | None = None,
+    change_id: str | None = None,
+    # ARIA-HIGH-124 — the executor's two facts for a PR it opens on an
+    # agent request's behalf, outside the sandbox: the request the
+    # intent/receipt rows are keyed on, and the delivery credential's
+    # environment, applied to the ONE `gh pr create` subprocess and to
+    # nothing else (never this process's environ, never a file).
+    request_id: str | None = None,
+    command_environment: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Preview (``dry_run``) or open a proposal's PR; the live open is
+    ``prepare_pr_open`` then ``open_prepared_pr`` (ARIA-HIGH-371)."""
+    if not dry_run:
+        if not change_id or not change_id.strip():
+            raise GovernanceError(
+                "open_pr_change_id_required: non-dry-run PR creation "
+                "requires change_id (auto-merge §D.4 triple-gate anchor)"
+            )
+        prepared = prepare_pr_open(
+            proposal_id=proposal_id, workspace_root=workspace_root, change_id=change_id, base_dir=base_dir,
+            base=base, assignment_id=assignment_id, request_id=request_id,
+        )
+        return open_prepared_pr(prepared, base_dir=base_dir, command_environment=command_environment)
+    inputs = _pr_open_inputs(
+        proposal_id=proposal_id, workspace_root=workspace_root, base_dir=base_dir, dry_run=True,
+        base=base, assignment_id=assignment_id, change_id=change_id,
+    )
+    perimeter_context = inputs.perimeter_context
     # RC-2 — the two modes, chosen by whether this call MUTATES anything, and
     # returning two different types so the choice cannot be undone downstream.
     #
@@ -448,71 +624,33 @@ def open_pr_for_action(
     # unsigned commit), and is NOT refused when the only refusals name inputs
     # this stage cannot supply. Those are reported as
     # `not_evaluable_at_this_stage` instead — visible, and not a refusal.
-    if dry_run:
-        observation = observe_perimeter(perimeter_context, gate=GATE_PRE_PR_OPEN)
-        if observation.refused:
-            raise GovernanceError(
-                PERIMETER_REFUSED_PREFIX
-                + ": "
-                + "; ".join(
-                    f"{verdict.name}:{verdict.reason}"
-                    for verdict in observation.refused
-                )
+    # The live open is `prepare_pr_open` + `open_prepared_pr` above
+    # (ARIA-HIGH-371): this tail is the preview, which never mutates GitHub.
+    observation = observe_perimeter(perimeter_context, gate=GATE_PRE_PR_OPEN)
+    if observation.refused:
+        raise GovernanceError(
+            PERIMETER_REFUSED_PREFIX
+            + ": "
+            + "; ".join(
+                f"{verdict.name}:{verdict.reason}"
+                for verdict in observation.refused
             )
-        perimeter_summary: dict[str, Any] | None = observation.summary
-    else:
-        _raise_if_perimeter_refused(run_hard_fail_checks(perimeter_context, gate=GATE_PRE_PR_OPEN))
-        perimeter_summary = None
-
-    payload = {
-        "number": None,
-        "base_branch": ARIA_PR_BASE,
-        "head_sha": resolved_head_sha,
-        "base_sha": action.get("base_sha"),
-        "branch": branch,
-        "task_id": proposal.get("task_id"),
-        "proposal_id": proposal_id,
-        # Plan 025 §E — assignment_id bridge between worker dispatch
-        # and the resulting PR. When the autonomous worker scheduler
-        # calls open_pr_for_action with assignment_id, the lifecycle
-        # row carries the bridge so worker_dispatch.pr_for_assignment
-        # can later resolve the PR for merge_if_green. Optional kwarg
-        # — proposal-only callers (the cycle pr_lifecycle phase) do
-        # not pass it; legacy rows return None from pr_for_assignment
-        # which fail-closes the merge path to verified_pending_merge.
-        "assignment_id": assignment_id,
-        # Plan 026R §D.3 — change_id anchor for auto-merge triple-gate.
-        "change_id": change_id,
-        "changed_files": action.get("changed_files", []),
-        "title": proposal.get("title"),
-        "body": body,
-        "dry_run": dry_run,
-        "perimeter_observation": perimeter_summary,
-    }
-    if dry_run:
-        row = record_pr_lifecycle(
-            payload, event="pr_dry_run", base_dir=base_dir,
-            assignment_id=assignment_id,
         )
-        row["body"] = body
-        # Plan 022 §C-4 — surface base_sha alongside head_sha so callers
-        # can verify provenance distinct-ness without re-reading the
-        # source payload. record_pr_lifecycle persists pr_number /
-        # head_sha / base_branch but drops base_sha.
-        row["base_sha"] = payload.get("base_sha")
-        return row
-    return _create_pull_request(
-        payload=payload,
-        branch=branch,
-        title=str(proposal.get("title")),
-        body=body,
-        workspace_path=workspace_path,
-        effect_request_id=_effect_request_id(proposal_id, request_id),
-        intended_postcondition={"head_ref": branch, "base": ARIA_PR_BASE, "head_sha": payload.get("head_sha"), "proposal_id": proposal_id},
-        command_environment=command_environment,
-        base_dir=base_dir,
+    payload = _pr_payload(
+        inputs, assignment_id=assignment_id, change_id=change_id,
+        dry_run=True, perimeter_summary=observation.summary,
+    )
+    row = record_pr_lifecycle(
+        payload, event="pr_dry_run", base_dir=base_dir,
         assignment_id=assignment_id,
     )
+    row["body"] = inputs.body
+    # Plan 022 §C-4 — surface base_sha alongside head_sha so callers
+    # can verify provenance distinct-ness without re-reading the
+    # source payload. record_pr_lifecycle persists pr_number /
+    # head_sha / base_branch but drops base_sha.
+    row["base_sha"] = payload.get("base_sha")
+    return row
 
 
 # Plan 022 §C-4 — robust GitHub PR URL regex. Matches https://github.com/

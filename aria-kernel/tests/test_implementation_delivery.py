@@ -206,8 +206,14 @@ class RefusalTests(unittest.TestCase):
         # never executes, and the `admission` — the job's window, the
         # validation sandbox — is decided before anything runs at all.
         self.assertEqual(DELIVERY_STAGES, ("branch_publication", "commit_identity", "admission", "change_ledger",
-                                           "result_admissible", "apply_gate", "change_validated", "credential",
-                                           "push", "pr_open"))
+                                           "result_admissible", "apply_gate", "change_validated", "pre_pr_open",
+                                           "credential", "push", "pr_open"))
+        # ARIA-HIGH-371 — the PR open's checks are decided before the
+        # credential and the push, so a refused commit leaves no branch.
+        self.assertEqual(delivery.PRE_PR_OPEN_STAGE, "pre_pr_open")
+        self.assertLess(DELIVERY_STAGES.index("pre_pr_open"), DELIVERY_STAGES.index("credential"))
+        self.assertLess(DELIVERY_STAGES.index("pre_pr_open"), DELIVERY_STAGES.index("push"))
+        self.assertNotIn(delivery.PRE_PR_OPEN_STAGE, delivery.HOST_STAGES)
         self.assertEqual(delivery.ADMISSION_STAGE, "admission")
         # (round 6) the credential is minted AFTER the gate and BEFORE the
         # push — where it is consumed; a lane that cannot mint there is the
@@ -948,7 +954,7 @@ class ARefusedChangeValidatedStopsThePrTests(_DeliveredBranch):
                                   return_value={"status": "ready_for_pr", "validation_gate_ref": "sha256:" + "d" * 64}), \
                 mock.patch.object(delivery, "_gate_validation_results", return_value=()), \
                 mock.patch.object(delivery, "hold_delivery_credentials", side_effect=hold), \
-                mock.patch.object(pr_manager, "open_pr_for_action", side_effect=lambda **kw: opened.append(kw)):
+                mock.patch.object(pr_manager, "prepare_pr_open", side_effect=lambda **kw: opened.append(kw)):
             refused = self._deliver(
                 request_id=self.request["request_id"], claim_id=self.claim["claim_id"],
                 agent_id=self.claim["agent_id"], envelope={}, output_path=self.output,
@@ -1494,6 +1500,36 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
         self.assertEqual(refusals[0]["details"]["consumer"], "executor_delivery")
         self.assertFalse((self.tools / "pr-lifecycle.jsonl").exists())
         self.assertFalse(self.hook_marker.exists())
+
+    def test_a_commit_the_plans_contract_refuses_is_refused_before_the_mint_and_the_push(self) -> None:
+        # ARIA-HIGH-371 — `commit_contract_honoured` is a GATE_PRE_PR_OPEN
+        # check, and that perimeter ran inside `open_pr_for_action`, AFTER
+        # the push: a commit the plan's contract refuses left a pushed
+        # `aria-impl-*` branch with no PR, which nothing deletes and the
+        # requeue collides on. The perimeter is now decided at `pre_pr_open`,
+        # before the lease is minted: nothing pushed, no `gh`, no branch.
+        contract = self.request["commit_contract"]
+        _git(["reset", "-q", "--hard", self.base], cwd=self.repo)
+        # The violation the contract names: a trailerless contract refuses a
+        # `fix` subject (the gate demands a trailer for it); a trailered one
+        # refuses a commit without the trailer.
+        subject = "fix" if contract["trailer"] is None else contract["commit_types"][0]
+        self.tip = _commit_signed_with(
+            self.repo, self.kernel_key, message=f"{subject}(farm-service): halve the sample interval\n\nWHY: the plan.\n",
+            path=self.source, body="export const sampleIntervalMs = 30000;\n",
+        )
+        with self.assertRaises(ImplementationDeliveryRefusal) as refused:
+            self._deliver(horizon_seconds=3600)
+        # The effects first: on the pre-371 order these are what failed (the
+        # branch was on the remote when the perimeter refused at `pr_open`).
+        self.assertEqual(self._log(self.push_log), [], "the refused branch was pushed")
+        self.assertEqual(_git(["show-ref", f"refs/heads/{self.ids['branch']}"], cwd=self.remote, check=False).returncode, 1)
+        self.assertEqual(self.mints, [], "no lease is minted for a PR the perimeter refuses")
+        self.assertEqual(self._log(self.gh_log), [])
+        self.assertEqual(refused.exception.stage, "pre_pr_open", refused.exception.reason)
+        self.assertIn("commit_contract_honoured:commit_contract_violated", refused.exception.reason)
+        self.assertNotIn(refused.exception.stage, delivery.HOST_STAGES, "a refused commit is the request's")
+        self.assertFalse((self.tools / "pr-lifecycle.jsonl").exists())
 
     def test_a_patch_that_carries_a_secret_shaped_string_is_refused_before_the_suite_the_mint_and_the_push(self) -> None:
         # ARIA-HIGH-124 (round 6) — the branch's WHOLE diff is scanned by

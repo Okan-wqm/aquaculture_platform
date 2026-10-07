@@ -189,6 +189,19 @@ class OriginAndContractTests(unittest.TestCase):
         self.assertIn("Never invent one", without)
         self.assertEqual(render_commit_contract_section(None), "")
 
+    def test_a_trailerless_section_names_the_refused_fix_subject_and_the_literal_command(self) -> None:
+        # ARIA-HIGH-371 — an F-origin plan (F-015) is a defect fix whose
+        # contract refuses a `fix` subject; the repository CLAUDE.md the
+        # agent also reads demands `fix(...)` + `Closes:`. The section must
+        # name the refused types, the precedence and one literal command.
+        f_origin = render_commit_contract_section(commit_contract_for_plan({"finding_id": "F-015"}, plan_id="p"))
+        self.assertIn("Refused for this origin: a subject opening with `fix`, `feat`, `security`", f_origin)
+        self.assertIn("replaces the repository CLAUDE.md commit format", f_origin)
+        self.assertIn('`git commit -m "refactor(<scope>): <subject>" -m "<why>"`', f_origin)
+        orphan = render_commit_contract_section(commit_contract_for_plan({"finding_id": "ORPHAN-HIGH-104"}, plan_id="p"))
+        self.assertNotIn("Refused for this origin", orphan)
+        self.assertIn('-m "Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-104"`', orphan)
+
 
 class CommitsAreJudgedTests(unittest.TestCase):
     ORPHAN = commit_contract_for_plan({"finding_id": "ORPHAN-HIGH-104"}, plan_id="plan-1")

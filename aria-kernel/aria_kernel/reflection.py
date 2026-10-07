@@ -359,7 +359,11 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
                     tier = "escalated"
             item["sla_tier"] = tier
             tiers[tier] = tiers.get(tier, 0) + 1
-    return {"open": len(items), "breaching_sla": breaching, "items": items[:5], "tiers": tiers}
+    # ARIA-HIGH-373 — the five-most-urgent cut above would hide a human-merge
+    # PR behind older escalations; those are listed in full, in their section.
+    human_merge = [item for item in items if (item.get("context") or {}).get("kind") == "human_merge_pr"]
+    return {"open": len(items), "breaching_sla": breaching, "items": items[:5], "tiers": tiers,
+            "human_merge": human_merge}
 
 
 def _normalize_finding_status(row: dict[str, Any]) -> str | None:
@@ -1439,6 +1443,12 @@ def _render_memory_learning_section(reflection: dict[str, Any]) -> list[str]:
     ]
 
 
+def _human_merge_lines(items: list[dict[str, Any]]) -> list[str]:
+    from .human_merge_surface import daily_report_lines
+
+    return daily_report_lines(items)
+
+
 def _write_daily_report(root: Path, reflection: dict[str, Any], *, repo_root: Path | None = None) -> None:
     day = str(reflection["recorded_at"])[:10]
     path = root / "reports" / "daily" / f"{day}.md"
@@ -1482,6 +1492,9 @@ def _write_daily_report(root: Path, reflection: dict[str, Any], *, repo_root: Pa
             ]
             or ["- (no operator-triage queue items)"]
         ),
+        # ARIA-HIGH-373 — the ARIA PRs waiting on a person's merge, each with
+        # its URL, CI state and why the merge lane cannot merge it.
+        *_human_merge_lines(hr.get("human_merge") or []),
         "",
         *_render_deadlines_section(root, repo_root),
         "## Coverage",

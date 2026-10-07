@@ -56,6 +56,7 @@ from .failure_attribution import (
     attribute_implementation_failure,
     attribute_self_revert,
 )
+from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
 from .ledger import LedgerIntegrityError, append_declared_jsonl, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref
 from .runtime_profile import enforce_profile_for_write
@@ -849,6 +850,9 @@ PLAN_SYNTHESIZER_SUBJECT = "kernel:plan_synthesizer"
 # tokens kept here: ``failure_attribution`` attributes a failure only when
 # its own evidence names the work (an allowlist of evidence), and every
 # other failure is recorded and kept off the scorecard.
+# ARIA-HIGH-375 — ``cross_review_self_agreement`` (a reviewer-independence
+# fault of the kernel's dispatch) is not on that allowlist, so it is never
+# the drafter's must-check lesson.
 #: The program plan's learning KPIs the recorded evidence cannot compute, and why.
 NOT_COMPUTABLE_KPIS: dict[str, str] = {
     "repeat_failure_rate_by_class_key": "plans record no class_key (tool:rule); the live split is by failure_mode",
@@ -923,6 +927,7 @@ def _performance_episodes(
     precedes it), an attributed self-revert superseding its merge."""
     drafters: dict[str, str] = {}
     implementers: dict[str, str] = {}
+    converged_episodes: dict[str, dict[str, Any]] = {}
     episodes: list[dict[str, Any]] = []
     for event in events:
         plan_id, kind, payload = str(event["plan_id"]), event["event_type"], event["payload"]
@@ -934,14 +939,23 @@ def _performance_episodes(
         elif kind in ("implementation_requested", "implementation_started"):
             implementers[plan_id] = str(payload["implementer_agent"])
         elif kind == "plan_evaluated" and payload["terminal_state"] == "CONVERGED":
-            episodes.append(_episode("drafter", drafter, plan_id, source, at, "converged", None))
+            converged = _episode("drafter", drafter, plan_id, source, at, "converged", None)
+            converged_episodes[plan_id] = converged
+            episodes.append(converged)
         elif kind == "plan_evaluated":
             # HUMAN_REQUIRED (the validator's only other terminal): the first
             # reason code, or the state itself when the evaluation named none.
             reasons = [*payload["reason_codes"], "human_required"]
+            failure_mode = str(reasons[0]).split(":", 1)[0].strip()
             attribution = attribute_evaluation(payload, plan_id=plan_id, drafter=drafter, ledgers=ledgers)
-            episodes.append(_episode("drafter", drafter, plan_id, source, at, "escalated",
-                                     str(reasons[0]).split(":", 1)[0].strip(), attribution=attribution))
+            # ARIA-HIGH-375 — a convergence the independence migration later
+            # withdrew (CONVERGED -> HUMAN_REQUIRED, self-agreement) was never
+            # the drafter's success: its escalation supersedes the credit.
+            withdrawn = converged_episodes.pop(plan_id, None) if (
+                failure_mode == CROSS_REVIEW_SELF_AGREEMENT_REASON) else None
+            episodes.append(_episode("drafter", drafter, plan_id, source, at, "escalated", failure_mode,
+                                     supersedes=withdrawn["episode_id"] if withdrawn else None,
+                                     attribution=attribution))
         elif kind == "plan_abandoned":
             # The stall reaper is the abandon writer; an abandon names no work.
             reason = str(payload["reason"]).split(":", 1)[0].strip()

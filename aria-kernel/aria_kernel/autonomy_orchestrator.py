@@ -64,7 +64,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
-from .autonomy_state import FUNNEL_RECORDED_DETAIL, PLAN_MINTED_PHASE, AutonomyStateReducer
+from .autonomy_state import (
+    FUNNEL_RECORDED_DETAIL,
+    PLAN_MINTED_PHASE,
+    PLAN_PRESSURE_SOURCE_DETAIL,
+    AutonomyStateReducer,
+)
 from .cycle import job_deadline_epoch
 from .file_lock import with_exclusive_lock
 from .next_cycle_queue import mark_consumed, read_pending
@@ -1966,6 +1971,10 @@ def run_autonomy_orchestrator(
                     profile=profile_snapshot,
                     details={
                         "plan_id": active_plan_id,
+                        # ARIA-HIGH-368 — the source this plan was minted
+                        # from, so the executor that converges it credits
+                        # the same source in the funnel.
+                        PLAN_PRESSURE_SOURCE_DETAIL: _v7_pressure_source_type,
                         "affected_surfaces_count": len(
                             _v7_plan_content.get("affected_surfaces", [])
                         ),
@@ -2140,6 +2149,27 @@ def run_autonomy_orchestrator(
                     _record_funnel_counter(
                         root, cycle_id=cycle_id, cycle_summary=cycle_summary, rejected=1,
                     )
+                    # ARIA-HIGH-368 — a plan this verdict left HUMAN_REQUIRED
+                    # (max rounds, a self-agreeing review, a dead envelope)
+                    # gets its ONE operator item, keyed by the plan: the same
+                    # item the executor records when it ends one.
+                    from .convergence_outcome import record_parked_plan
+                    from .ledger import LedgerIntegrityError
+
+                    try:
+                        cycle_summary["parked_plan"] = record_parked_plan(
+                            plan_id=str(convergence_result.get("plan_id") or active_plan_id),
+                            base_dir=root, verdict=str(arbiter_verdict), origin="cycle",
+                        ) is not None
+                    except (GovernanceError, LedgerIntegrityError, OSError) as _parked_exc:
+                        # A refused write (a frozen profile) or a store fault
+                        # is a row; the night's reflection still runs.
+                        append_tools_governance(
+                            root, "parked_plan_unrecorded",
+                            {"cycle_id": cycle_id, "error_class": type(_parked_exc).__name__,
+                             "error_message": str(_parked_exc)[:500]},
+                            bypass_profile_gate=True,
+                        )
                     # ORPHAN-HIGH-782 — the calibration reporter and the V6.4
                     # auto-promote attempt run on convergence-blocked nights
                     # too. This branch used to `continue` straight to

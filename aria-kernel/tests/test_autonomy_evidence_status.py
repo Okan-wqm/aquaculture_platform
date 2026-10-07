@@ -120,6 +120,7 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         f"{KERNEL}convergence_drainer.py",
         f"{KERNEL}evidence_validator.py",
         f"{KERNEL}plan_convergence.py",
+        f"{KERNEL}round_independence.py",
         f"{KERNEL}state_manifest.py",
         f"{KERNEL}budget.py",
         "tools/aria-poc/dispatch_failure.py",
@@ -280,6 +281,7 @@ EXPECTED_CONSUMERS = {
         f"{KERNEL}convergence_drainer.py", f"{KERNEL}evidence_validator.py",
         f"{KERNEL}genesis_lifecycle.py",
         f"{KERNEL}plan_convergence.py",
+        f"{KERNEL}round_independence.py",
         # Native runtime attempts read results to bind (budget.py) and to
         # reconcile (ci_executor.py) an attempt — decisions, not observations.
         f"{KERNEL}budget.py",

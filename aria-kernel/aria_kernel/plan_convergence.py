@@ -15,6 +15,7 @@ from typing import Any, Iterator
 
 from .agent_priors import reviewer_names
 from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES
+from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
 from .ledger import append_declared_jsonl, load_declared_jsonl, load_jsonl, load_jsonl_verified_text, verify_jsonl
 from .tool_registry import (
     GovernanceError,
@@ -746,6 +747,18 @@ def evaluate_plan(
     base_dir: str | Path | None = None,
     max_rounds: int = MAX_CROSS_REVIEW_ROUNDS,
 ) -> dict[str, Any]:
+    """Judge one round and record the verdict.
+
+    ARIA-HIGH-375 — a cross-reviewed round's independence is a GATE of this
+    decision, like the spine and the contract below, and it is derived HERE
+    (``round_independence``) so no caller can converge a round without it: a
+    round that would converge on a review that echoes the plans it reviewed
+    is recorded HUMAN_REQUIRED with ``CROSS_REVIEW_SELF_AGREEMENT_REASON`` in
+    the same single event. It used to be checked by the drainer AFTER this
+    function had written CONVERGED, so the plan stayed CONVERGED and the next
+    cycle's stranded-plan sweep offered it to the implementer by state alone;
+    the operator's `plan evaluate` and `plan advance-rounds` never checked it.
+    """
     _validate_id(plan_id, "plan_id")
     if not isinstance(round_number, int) or round_number <= 0:
         raise GovernanceError("round_number must be a positive integer")
@@ -796,6 +809,23 @@ def evaluate_plan(
                     decision["reason_codes"].append("max_rounds_reached")
             elif decision["terminal_state"] != "HUMAN_REQUIRED":
                 decision["terminal_state"] = "NEXT_ROUND_REQUIRED"
+        if decision["terminal_state"] == "CONVERGED" and cross_reviewed_round(state, round_number):
+            from .round_independence import round_independence_verdict
+
+            passed, violations = round_independence_verdict(
+                plan_id=plan_id, round_number=round_number, state=state, base_dir=root,
+            )
+            decision["gate_decisions"].append({
+                "gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": bool(passed),
+                "violation_reasons": list(violations),
+            })
+            # Only a cross-reviewed round that would CONVERGE is judged: a
+            # round going to another round is judged there, an escalated one
+            # is escalated, and a legacy critique-only round (V8
+            # `request_critics`) has no cross reviewer to be independent of.
+            if not passed:
+                decision["terminal_state"] = "HUMAN_REQUIRED"
+                decision["reason_codes"] = [CROSS_REVIEW_SELF_AGREEMENT_REASON]
         if decision["terminal_state"] == "NEXT_ROUND_REQUIRED":
             return {
                 "schema_version": 1,
@@ -1175,6 +1205,32 @@ class PlanStateRefused(GovernanceError):
 
 
 FORCED_MAX_ROUNDS_REASON = "max_rounds_reached"
+# ARIA-HIGH-375 — the independence gate `evaluate_plan` applies. A round that
+# fails it is escalated with `independence_check.CROSS_REVIEW_SELF_AGREEMENT_
+# REASON`, which the drainer maps to the `cross_review_self_agreement` verdict.
+CROSS_REVIEW_INDEPENDENCE_GATE = "cross_review_independence"
+
+
+def cross_reviewed_round(state: dict[str, Any], round_number: int) -> bool:
+    """Did ``round_number`` of this plan have a cross review? Only such a round
+    has a reviewer whose independence the gate can judge."""
+    return round_number in (state.get("cross_reviews") or {})
+
+
+def independence_violations(payload: dict[str, Any]) -> list[str]:
+    """The independence gate's violation reasons on one ``plan_evaluated``
+    payload, or [] when the evaluation carries no such gate."""
+    for gate in payload.get("gate_decisions") or []:
+        if isinstance(gate, dict) and gate.get("gate") == CROSS_REVIEW_INDEPENDENCE_GATE:
+            return [str(reason) for reason in gate.get("violation_reasons") or []]
+    return []
+
+
+def independence_gated(payload: dict[str, Any]) -> bool:
+    """Did this ``plan_evaluated`` payload pass through the independence gate?
+    A CONVERGED evaluation without it predates ARIA-HIGH-375."""
+    return any(isinstance(gate, dict) and gate.get("gate") == CROSS_REVIEW_INDEPENDENCE_GATE
+               for gate in payload.get("gate_decisions") or [])
 FORCED_ESCALATION_GATE = "forced_escalation"
 # ARIA-HIGH-370 (second review of #1829, M3) — who forced the escalation, on
 # the row itself. `plan force-human-required` writes exactly the row a kernel

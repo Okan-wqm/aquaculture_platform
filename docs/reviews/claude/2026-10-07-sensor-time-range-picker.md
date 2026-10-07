@@ -79,3 +79,38 @@ Proof, run with the browser zone set to Los Angeles, New York and Tokyo:
 
 The shared-ui hardcoded-text ratchet ceiling drops from 194 to 190, with the
 removed component.
+
+## Independent review → fixes
+
+An accessibility review of the first version found five medium and four low
+problems. All are fixed, each with a test:
+
+- A preset opened the custom section with the preset's clock times, so
+  picking 16 September from "live" applied a five-minute window. A preset
+  now opens with whole-day times.
+- A keyboard move clamped at today left a focus request pending, so a later
+  month button pulled focus into the grid. Focus requests are now counted,
+  and a request that changes nothing does not linger.
+- A window ending after today put the only tab stop on a disabled future
+  day. The initial focus is clamped to today.
+- Selection was not announced. Each day's name now says range start, range
+  end or in range; the grid is `aria-multiselectable`; and after the second
+  pick the hint reads the chosen days and the zone by its localised name.
+- A link without an offset was read in the browser's zone. That parser lives
+  in the time-range table, so the fix is there (SENSOR-MEDIUM-152): only ISO
+  instants with `Z` or `±hh:mm` are accepted.
+- PageUp/PageDown moved 30 days. They now move by calendar month, to the
+  month end when the same day does not exist, and Shift moves by year.
+- An error stayed after the times were fixed. Editing a time clears it, and
+  while it stands the inputs carry `aria-invalid` and point at it.
+- The separators were written in code. The range span, the trigger's name
+  and a day's notes now come from the locale maps, and the time inputs carry
+  the locale.
+- Picking the preset already shown wrote a duplicate history entry, and a
+  window starting after now was accepted. The first now changes nothing; the
+  second is refused with its own message.
+
+The review found nothing wrong in the zone arithmetic, the month buttons,
+the trigger and preset naming, or the URL hook's handling of other
+parameters. Three of the fixes were mutation-checked (whole-day times, the
+clamp, the focus request): each test fails without its fix.

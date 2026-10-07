@@ -56,4 +56,11 @@ describe('useTimeRangeSearchParams', () => {
       'sensor=s-1&range=30d',
     );
   });
+
+  it('adds no history entry when the range already in the URL is set again', () => {
+    const { result } = renderAt('/sensor/readings?range=7d');
+    const before = result.current.location.key;
+    act(() => result.current.range.setSpec({ kind: 'relative', preset: '7d' }));
+    expect(result.current.location.key).toBe(before);
+  });
 });

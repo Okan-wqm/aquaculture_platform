@@ -39,18 +39,25 @@ export function useTimeRangeSearchParams(defaultSpec: TimeRangeSpec): TimeRangeS
 
   const setSpec = useCallback(
     (next: TimeRangeSpec) => {
+      const nextParams = timeRangeToParams(next);
+      // The range already in the URL: no new history entry, so Back still
+      // goes where the user expects.
+      const unchanged = RANGE_PARAMS.every(
+        (name) => (searchParams.get(name) ?? undefined) === nextParams[name],
+      );
+      if (unchanged) return;
       setSearchParams((current) => {
         const updated = new URLSearchParams(current);
         for (const name of RANGE_PARAMS) {
           updated.delete(name);
         }
-        for (const [name, value] of Object.entries(timeRangeToParams(next))) {
+        for (const [name, value] of Object.entries(nextParams)) {
           updated.set(name, value);
         }
         return updated;
       });
     },
-    [setSearchParams],
+    [searchParams, setSearchParams],
   );
 
   if (parsed === null) {

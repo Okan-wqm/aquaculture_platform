@@ -20,7 +20,7 @@ function renderPicker(
       <TimeRangePicker
         value={value}
         onChange={onChange}
-        presets={['1h', '24h', '7d', '30d']}
+        presets={['live', '1h', '24h', '7d', '30d']}
         timeZone={ZONE}
         {...extra}
       />
@@ -152,5 +152,126 @@ describe('TimeRangePicker', () => {
     expect(document.activeElement).toBe(
       screen.getByRole('button', { name: /^Choose a time range/ }),
     );
+  });
+
+  // ── fixes from the accessibility review of this picker ──
+
+  it('picks whole days from a preset without the preset clock times leaking in', () => {
+    const onChange = renderPicker({ kind: 'relative', preset: 'live' });
+    const dialog = open();
+    fireEvent.click(day(dialog, /September 16, 2026/));
+    fireEvent.click(day(dialog, /September 16, 2026/));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    expect(onChange).toHaveBeenCalledWith({
+      kind: 'absolute',
+      startMs: Date.parse('2026-09-15T22:00:00Z'),
+      endMs: Date.parse('2026-09-16T22:00:00Z'),
+    });
+  });
+
+  it('keeps focus where it is when a move is clamped at today', () => {
+    renderPicker({ kind: 'relative', preset: '24h' });
+    const dialog = open();
+    const grid = within(dialog).getByRole('grid');
+    const todayButton = day(dialog, /September 20, 2026/);
+    todayButton.focus();
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(todayButton);
+    const previous = within(dialog).getByRole('button', { name: 'Previous month' });
+    previous.focus();
+    fireEvent.click(previous);
+    expect(document.activeElement).toBe(previous);
+  });
+
+  it('keeps an enabled tab stop when the window ends after today', () => {
+    renderPicker({
+      kind: 'absolute',
+      startMs: Date.parse('2026-09-18T00:00:00Z'),
+      endMs: Date.parse('2026-09-25T00:00:00Z'),
+    });
+    const dialog = open();
+    const stops = within(dialog)
+      .getAllByRole('button')
+      .filter((button) => button.getAttribute('tabindex') === '0');
+    expect(stops).toEqual([day(dialog, /September 20, 2026/)]);
+    expect(stops[0]).toBeEnabled();
+  });
+
+  it('announces the range start, end and the days between, and the chosen range', () => {
+    renderPicker({ kind: 'relative', preset: '24h' });
+    const dialog = open();
+    expect(within(dialog).getByRole('grid')).toHaveAttribute('aria-multiselectable', 'true');
+    fireEvent.click(day(dialog, /September 16, 2026/));
+    fireEvent.click(day(dialog, /September 19, 2026/));
+    expect(day(dialog, /September 16, 2026, range start$/)).toBeInTheDocument();
+    expect(day(dialog, /September 17, 2026, in range$/)).toBeInTheDocument();
+    expect(day(dialog, /September 19, 2026, range end$/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/^Sep 16, 2026 – Sep 19, 2026, times in .*\(Europe\/Oslo\)$/),
+    ).toBeInTheDocument();
+  });
+
+  it('pages by calendar month, and by year with Shift', () => {
+    renderPicker({
+      kind: 'absolute',
+      startMs: Date.parse('2026-08-30T22:00:00Z'),
+      endMs: Date.parse('2026-08-31T22:00:00Z'),
+    });
+    const dialog = open();
+    const grid = within(dialog).getByRole('grid');
+    day(dialog, /August 31, 2026/).focus();
+    fireEvent.keyDown(grid, { key: 'PageUp' });
+    // Same day of the previous month, not 30 days back (which stays in August).
+    expect(document.activeElement).toBe(day(dialog, /July 31, 2026/));
+    fireEvent.keyDown(grid, { key: 'PageUp', shiftKey: true });
+    expect(document.activeElement).toBe(day(dialog, /July 31, 2025/));
+  });
+
+  it('lands on the month end when the same day does not exist', () => {
+    renderPicker({
+      kind: 'absolute',
+      startMs: Date.parse('2026-03-30T22:00:00Z'),
+      endMs: Date.parse('2026-03-31T22:00:00Z'),
+    });
+    const dialog = open();
+    const grid = within(dialog).getByRole('grid');
+    day(dialog, /March 31, 2026/).focus();
+    fireEvent.keyDown(grid, { key: 'PageUp' });
+    expect(document.activeElement).toBe(day(dialog, /February 28, 2026/));
+  });
+
+  it('clears an error once the times are edited, and marks the inputs while it stands', () => {
+    renderPicker({ kind: 'relative', preset: '24h' });
+    const dialog = open();
+    fireEvent.click(day(dialog, /September 16, 2026/));
+    fireEvent.click(day(dialog, /September 16, 2026/));
+    fireEvent.change(within(dialog).getByLabelText('Start time'), { target: { value: '18:00' } });
+    fireEvent.change(within(dialog).getByLabelText('End time'), { target: { value: '06:00' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    const alert = within(dialog).getByRole('alert');
+    expect(within(dialog).getByLabelText('End time')).toHaveAttribute('aria-invalid', 'true');
+    expect(within(dialog).getByLabelText('End time')).toHaveAttribute('aria-describedby', alert.id);
+    fireEvent.change(within(dialog).getByLabelText('End time'), { target: { value: '20:00' } });
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+  });
+
+  it('refuses a window that starts after now', () => {
+    const onChange = renderPicker({ kind: 'relative', preset: '24h' });
+    const dialog = open();
+    fireEvent.click(day(dialog, /September 20, 2026/));
+    fireEvent.click(day(dialog, /September 20, 2026/));
+    fireEvent.change(within(dialog).getByLabelText('Start time'), { target: { value: '18:00' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('The range starts after now');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('records nothing when the range already shown is picked again', () => {
+    const onChange = renderPicker({ kind: 'relative', preset: '24h' });
+    const dialog = open();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Last 24 hours' }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

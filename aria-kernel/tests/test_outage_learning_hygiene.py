@@ -138,6 +138,27 @@ class H4AnAbandonedPlansQueueClosesWithIt(_Store):
         self.assertEqual(derive_request_state(request_id="AIR-legacy", base_dir=self.tools), "CANCELLED")
 
 
+class H4AHealedEscalationInAnAbandonedPlanCloses(_Store):
+    def test_review_medium_4(self) -> None:
+        start_plan(plan_id="plan-h", initial_revision_id="rev-0", base_dir=self.tools, plan_content={
+            "schema_version": 1, "title": "t", "summary": "s", "key_changes": ["c"],
+            "affected_surfaces": [{"paths": ["aria-kernel/aria_kernel/plan_convergence.py"]}],
+            "validation_commands": [{"cmd": "true"}], "evidence_refs": ["docs/aria/SPEC.md"],
+        })
+        self.request("AIR-healed")
+        for index in (1, 2, 3):
+            at = _iso(_T0 + timedelta(days=index))
+            self.claim_row(event="claimed", claim_id=f"CL-{index}", request_id="AIR-healed", agent_id="a",
+                           claimed_at=at, lease_expires_at=_iso(_T0 + timedelta(days=index, hours=1)))
+            self.claim_row(event="released", claim_id=f"CL-{index}", request_id="AIR-healed", agent_id="a",
+                           reason="claude_cli_exit_1", released_at=at)
+            self.claim_row(event="requeued" if index < 3 else "human_required", claim_id=f"CL-{index}",
+                           request_id="AIR-healed", reason="claude_cli_exit_1", requeue_count=index, at=at)
+        self.assertEqual(derive_request_state(request_id="AIR-healed", base_dir=self.tools), "PENDING")
+        abandon_plan(plan_id="plan-h", reason="stalled:no_consumer", base_dir=self.tools)
+        self.assertEqual(derive_request_state(request_id="AIR-healed", base_dir=self.tools), "CANCELLED")
+
+
 class M2AHarnessOnlyEscalationIsReDerived(_Store):
     def _released(self, request_id: str, reason: str, last_event: str) -> None:
         for index, event in enumerate(("requeued", "requeued", last_event), start=1):
@@ -183,6 +204,17 @@ class M1ALeaseAnOutageAteIsNotCharged(_Store):
         self.assertEqual((followup["reason"], followup["requeue_count"]),
                          ("lease_expired_during_provider_outage:anthropic", 0))
         self.assertEqual(derive_request_state(request_id="AIR-1", base_dir=self.tools), "REQUEUED")
+
+    def test_a_blip_that_ended_inside_the_lease_does_not_waive_the_charge(self) -> None:
+        """Review MEDIUM-3: a 2-minute outage, over before the lease ran out, is not the provider's."""
+        self.outage(_T0 + timedelta(minutes=10), _T0 + timedelta(minutes=12))
+        followup = self._reap()["requeued"][0]
+        self.assertEqual((followup["reason"], followup["requeue_count"]), ("lease_expired", 1))
+
+    def test_an_outage_covering_most_of_the_lease_owns_it_even_if_over(self) -> None:
+        self.outage(_T0 + timedelta(minutes=5), _T0 + timedelta(minutes=50))
+        followup = self._reap()["requeued"][0]
+        self.assertEqual(followup["requeue_count"], 0)
 
     def test_with_no_outage_the_lease_is_still_the_requests(self) -> None:
         followup = self._reap()["requeued"][0]

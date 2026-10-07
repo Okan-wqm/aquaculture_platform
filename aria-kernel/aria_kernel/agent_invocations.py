@@ -6640,6 +6640,12 @@ def _verified_evidence_target_sha(
     return verified
 
 
+# The share of a lease an outage must have covered to own its expiry when the
+# outage had already ended by then (review MEDIUM-3): half — more of the
+# lease was the provider's than the request's.
+LEASE_OUTAGE_MIN_SHARE = 0.5
+
+
 def _lease_expiry_reason(
     clock: "ProviderClock", claimed_at: datetime | None, expires: datetime, role: str,
 ) -> str:
@@ -6654,7 +6660,14 @@ def _lease_expiry_reason(
     from .provider_clock import role_head_providers
 
     providers = role_head_providers([role]) if role else frozenset()
-    if claimed_at is None or not providers or clock.covered(claimed_at, expires, providers).total_seconds() <= 0:
+    if claimed_at is None or not providers or expires <= claimed_at:
+        return "lease_expired"
+    # PR #1835 review MEDIUM-3 — ANY overlap used to waive the charge, so a
+    # 2-minute blip made a genuinely hung request un-chargeable forever. The
+    # outage must be standing when the lease ran out, or have eaten at least
+    # LEASE_OUTAGE_MIN_SHARE of the lease.
+    share = clock.covered(claimed_at, expires, providers) / (expires - claimed_at)
+    if not (clock.outage_active(providers, expires) or share >= LEASE_OUTAGE_MIN_SHARE):
         return "lease_expired"
     return f"lease_expired_during_provider_outage:{'+'.join(sorted(providers))}"
 

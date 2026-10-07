@@ -25,7 +25,10 @@ from .tool_registry import append_tools_governance, ensure_tools_dir
 
 PLAN_CLOSED_EVENT = "plan_closed"
 # The latest claim event of a request nobody holds (PENDING has none).
-_UNHELD_EVENTS: frozenset[str | None] = frozenset({None, "released", "requeued"})
+# `human_required` is unheld too (PR #1835 review MEDIUM-4): an escalation the
+# re-derivation healed derives PENDING/REQUEUED again and must close with its
+# ABANDONED plan; a standing one derives HUMAN_REQUIRED and is filtered below.
+_UNHELD_EVENTS: frozenset[str | None] = frozenset({None, "released", "requeued", "human_required"})
 
 
 def close_abandoned_plan_requests(

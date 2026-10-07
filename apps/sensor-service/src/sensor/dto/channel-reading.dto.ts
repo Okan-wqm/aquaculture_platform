@@ -200,7 +200,11 @@ export class ChannelSeriesResponse {
   @Field(() => AggregationInterval)
   resolution!: AggregationInterval;
 
-  /** The store the points were read from. */
+  /**
+   * The store the points were read from. In a zone whose offset is not a
+   * whole hour, the hours that straddle a local bucket boundary are read from
+   * the minute store on top of this one.
+   */
   @Field(() => MetricSourceTier)
   sourceTier!: MetricSourceTier;
 

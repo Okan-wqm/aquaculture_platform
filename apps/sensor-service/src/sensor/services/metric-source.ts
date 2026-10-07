@@ -155,27 +155,54 @@ export function planMetricRead(
 }
 
 /**
- * The bucket start and end expressions over a time expression, for the
- * plan's alignment. `refs` name the caller's bound parameters (the interval,
- * and the zone for local buckets). A local bucket's end comes from
- * `date_add` in the zone, so a 23- or 25-hour day ends where it really ends.
- * UTC buckets keep the zone-free `time_bucket`, exactly as before.
+ * How a series' bucket boundaries are placed.
+ *
+ * - `utc`: zone-free `time_bucket`, exactly as before.
+ * - `calendar`: local days and weeks — `time_bucket(width, t, zone)`, each
+ *   bucket ending where the next local day (or week) starts, so a 23- or
+ *   25-hour day is one bucket.
+ * - `origin`: widths under a day — fixed-length buckets counted from the local
+ *   midnight the window starts on. A zoned `time_bucket` would map the
+ *   repeated autumn hour onto the later instant and fold two quarter-hours
+ *   into one; fixed lengths never fold and never leave a false gap.
+ */
+export type SeriesBucketing = 'utc' | 'calendar' | 'origin';
+
+/** Calendar widths are the ones a local day boundary can shorten or lengthen. */
+const CALENDAR_INTERVALS: ReadonlySet<AggregationIntervalSql> = new Set(['1 day', '1 week']);
+
+export function bucketingFor(plan: MetricReadPlan): SeriesBucketing {
+  if (plan.alignment === 'utc') return 'utc';
+  return CALENDAR_INTERVALS.has(plan.interval) ? 'calendar' : 'origin';
+}
+
+/**
+ * The bucket start and end expressions over a time expression. `refs` name
+ * the caller's bound parameters: the interval, the zone, and the window start
+ * (whose local midnight is the origin of fixed-length local buckets).
  */
 export function seriesBucketExpressions(
-  alignment: MetricReadPlan['alignment'],
+  bucketing: SeriesBucketing,
   time: string,
-  refs: { readonly interval: string; readonly zone: string },
+  refs: { readonly interval: string; readonly zone: string; readonly windowStart: string },
 ): { bucket: string; bucketEnd: (bucket: string) => string } {
-  if (alignment === 'utc') {
-    return {
-      bucket: `time_bucket(${refs.interval}::interval, ${time})`,
-      bucketEnd: (bucket) => `${bucket} + ${refs.interval}::interval`,
-    };
+  const width = `${refs.interval}::interval`;
+  switch (bucketing) {
+    case 'utc':
+      return { bucket: `time_bucket(${width}, ${time})`, bucketEnd: (b) => `${b} + ${width}` };
+    case 'calendar':
+      return {
+        bucket: `time_bucket(${width}, ${time}, ${refs.zone})`,
+        bucketEnd: (b) => `date_add(${b}, ${width}, ${refs.zone})`,
+      };
+    case 'origin': {
+      const localMidnight = `((${refs.windowStart}::timestamptz AT TIME ZONE ${refs.zone})::date::timestamp AT TIME ZONE ${refs.zone})`;
+      return {
+        bucket: `time_bucket(${width}, ${time}, origin => ${localMidnight})`,
+        bucketEnd: (b) => `${b} + ${width}`,
+      };
+    }
   }
-  return {
-    bucket: `time_bucket(${refs.interval}::interval, ${time}, ${refs.zone})`,
-    bucketEnd: (bucket) => `date_add(${bucket}, ${refs.interval}::interval, ${refs.zone})`,
-  };
 }
 
 /**

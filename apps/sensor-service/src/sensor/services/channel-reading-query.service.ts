@@ -42,6 +42,7 @@ import {
   planMetricRead,
   RAW_METRIC_SOURCE,
   resolveExistingSource,
+  bucketingFor,
   scanStart,
   seriesBucketExpressions,
   tierOfSource,
@@ -192,7 +193,10 @@ export class ChannelReadingQueryService {
       validTenantId,
       async (qr) => {
         await qr.query(SERIES_TIMEOUT_SQL);
-        const seriesZone = await this.seriesTimeZones.validated(qr, candidate);
+        const seriesZone = await this.seriesTimeZones.validated(qr, candidate, {
+          start: validStart,
+          end: validEnd,
+        });
         const readPlan = planMetricRead(
           validStart,
           validEnd,
@@ -445,36 +449,46 @@ function seriesQuery(
   },
 ): { sql: string; params: unknown[] } {
   const { plan, source, minuteSource } = read;
-  const refs = { interval: '$1', zone: '$7' };
+  const bucketing = bucketingFor(plan);
+  // Parameters are numbered as they are bound, so only values the SQL uses
+  // are sent (an unreferenced parameter has no type Postgres could infer).
+  const params: unknown[] = [];
+  const bind = (value: unknown): string => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const interval = bind(plan.interval);
+  const sensor = bind(values.sensorId);
+  const tenant = bind(values.tenantId);
+  const channels = bind(values.channelIds);
+  const scanFrom = bind(scanStart(plan, source));
+  const end = bind(values.end);
+  const zone = bucketing === 'utc' ? '' : bind(values.zone);
+  const windowStart =
+    bucketing === 'origin' || (plan.boundaryMinutes && minuteSource !== null)
+      ? bind(values.windowStart)
+      : '';
+  const refs = { interval, zone, windowStart };
   const agg = bucketAggregateExpressions(source);
-  const filters = (alias: string, column: string, startRef: string): string =>
-    `${alias}.sensor_id = $2 AND ${alias}.tenant_id = $3 AND ${alias}.channel_id = ANY($4)
-       AND ${alias}.${column} >= ${startRef} AND ${alias}.${column} < $6`;
-  const params: unknown[] = [
-    plan.interval,
-    values.sensorId,
-    values.tenantId,
-    values.channelIds,
-    scanStart(plan, source),
-    values.end,
-  ];
-  if (plan.alignment === 'zone') params.push(values.zone);
+  const filters = (alias: string, column: string, from: string): string =>
+    `${alias}.sensor_id = ${sensor} AND ${alias}.tenant_id = ${tenant} AND ${alias}.channel_id = ANY(${channels})
+       AND ${alias}.${column} >= ${from} AND ${alias}.${column} < ${end}`;
 
   let from: string;
   let time: string;
   let where: string;
   if (plan.boundaryMinutes && minuteSource !== null) {
-    params.push(values.windowStart);
-    const local = (expr: string): string => seriesBucketExpressions('zone', expr, refs).bucket;
+    const bucketOf = (expr: string): string =>
+      seriesBucketExpressions(bucketing, expr, refs).bucket;
     const straddles = (hourStart: string): string =>
-      `${local(hourStart)} <> ${local(`${hourStart} + interval '59 minutes'`)}`;
+      `${bucketOf(hourStart)} <> ${bucketOf(`${hourStart} + interval '59 minutes'`)}`;
     const columns = 'channel_id, bucket, avg_value, min_value, max_value, sample_count, bad_count';
     from = `(
         SELECT ${columns} FROM ${source.table} h
-         WHERE ${filters('h', 'bucket', '$5')} AND NOT (${straddles('h.bucket')})
+         WHERE ${filters('h', 'bucket', scanFrom)} AND NOT (${straddles('h.bucket')})
         UNION ALL
         SELECT ${columns} FROM ${minuteSource.table} m
-         WHERE ${filters('m', 'bucket', '$8')}
+         WHERE ${filters('m', 'bucket', windowStart)}
            AND ${straddles("time_bucket('1 hour', m.bucket)")}
       ) s`;
     time = 's.bucket';
@@ -482,9 +496,9 @@ function seriesQuery(
   } else {
     from = `${source.table} s`;
     time = `s.${source.timeColumn}`;
-    where = `WHERE ${filters('s', source.timeColumn, '$5')}`;
+    where = `WHERE ${filters('s', source.timeColumn, scanFrom)}`;
   }
-  const { bucket, bucketEnd } = seriesBucketExpressions(plan.alignment, time, refs);
+  const { bucket, bucketEnd } = seriesBucketExpressions(bucketing, time, refs);
   const sql = `SELECT q.*, ${bucketEnd('q.bucket')} AS bucket_end
             FROM (
               SELECT s.channel_id AS channel_id,

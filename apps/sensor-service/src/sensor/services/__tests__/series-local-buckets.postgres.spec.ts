@@ -296,4 +296,47 @@ describe('sensor series in the site time zone (real TimescaleDB)', () => {
       (scenarios.kolkata.dayStarts?.[0]?.getTime() ?? 0);
     expect(total).toBe(span / (HOUR / 4));
   });
+
+  it.each([
+    ['15 minutes', 12],
+    ['1 hour', 12],
+  ])(
+    'counts each sample once at %s across the repeated autumn hour in Oslo',
+    async (interval, samples) => {
+      // Twelve hourly samples from the local midnight of the 25-hour day: the
+      // clock goes 03:00 → 02:00, so two samples share the local time 02:00.
+      const start = scenarios.oslo.dayStarts?.[1] ?? new Date();
+      const series = await service.getSeries(
+        scenarios.oslo.sensorId ?? '',
+        TENANT,
+        start,
+        new Date(start.getTime() + 12 * HOUR),
+        interval,
+      );
+      const points = series.channels[0]?.points ?? [];
+      const instants = points.map((point) => point.bucket.getTime());
+      expect(new Set(instants).size).toBe(points.length);
+      expect(points.map((point) => point.count)).toEqual(Array(samples).fill(1));
+    },
+  );
+
+  it('keeps 4-hour buckets contiguous across the repeated autumn hour in Oslo', async () => {
+    const start = scenarios.oslo.dayStarts?.[1] ?? new Date();
+    const series = await service.getSeries(
+      scenarios.oslo.sensorId ?? '',
+      TENANT,
+      start,
+      new Date(start.getTime() + 12 * HOUR),
+      '4 hours',
+    );
+    const points = series.channels[0]?.points ?? [];
+    expect(points.map((point) => point.count)).toEqual([4, 4, 4]);
+    // Fixed-length buckets from the local midnight: no fold, no false gap.
+    expect(points.map((point) => point.bucket.getTime() - start.getTime())).toEqual([
+      0,
+      4 * HOUR,
+      8 * HOUR,
+    ]);
+    expect(series.channels[0]?.gaps).toEqual([]);
+  });
 });

@@ -30,15 +30,28 @@ function makeService(requestTyped: jest.Mock): SeriesTimeZoneService {
   );
 }
 
-/** A query runner that knows the zones Postgres would list, with their offsets. */
-function postgresKnowing(offsets: Record<string, number>): QueryRunner {
-  return stub<QueryRunner>({
-    query: jest.fn().mockImplementation(async (_sql: string, params: unknown[]) => {
-      const offset = offsets[String(params[0])];
-      return offset === undefined ? [] : [{ offset_seconds: offset }];
-    }),
+/**
+ * A query runner standing in for Postgres: it knows the zones listed, and
+ * answers the offset query with the offsets each zone uses over a window.
+ */
+function postgresKnowing(offsets: Record<string, readonly number[]>): QueryRunner & {
+  query: jest.Mock;
+} {
+  const query = jest.fn().mockImplementation(async (sql: string, params: unknown[]) => {
+    const used = offsets[String(params[0])];
+    if (sql.includes('pg_timezone_names')) return used === undefined ? [] : [{ '?column?': 1 }];
+    const seconds = used ?? [];
+    return [
+      {
+        all_zero: seconds.every((offset) => offset === 0),
+        all_whole_hours: seconds.every((offset) => offset % 3600 === 0),
+      },
+    ];
   });
+  return stub<QueryRunner & { query: jest.Mock }>({ query });
 }
+
+const WINDOW = { start: new Date('2026-01-01T00:00:00Z'), end: new Date('2026-12-31T00:00:00Z') };
 
 const sites = (...entries: Array<[string, string | null]>): Map<string, string | null> =>
   new Map(entries);
@@ -91,7 +104,7 @@ describe('SeriesTimeZoneService', () => {
       const service = makeService(requestTyped);
       const candidate = await service.candidate(TENANT, sites(['s1', OSLO_SITE]));
       expect(candidate).toBeNull();
-      expect(await service.validated(postgresKnowing({}), candidate)).toEqual({
+      expect(await service.validated(postgresKnowing({}), candidate, WINDOW)).toEqual({
         displayTimeZone: 'UTC',
         source: SeriesTimeZoneSource.UNAVAILABLE,
         bucketZone: { kind: 'utc' },
@@ -101,31 +114,74 @@ describe('SeriesTimeZoneService', () => {
 
   it('checks the zone against Postgres and reads whether its offset is a whole hour', async () => {
     const service = makeService(jest.fn());
-    const pg = postgresKnowing({ 'Europe/Oslo': 7200, 'Asia/Kolkata': 19800, UTC: 0 });
+    const pg = postgresKnowing({
+      'Europe/Oslo': [3600, 7200],
+      'Asia/Kolkata': [19800],
+      'Australia/Lord_Howe': [39600, 37800],
+      'Etc/GMT': [0],
+    });
     expect(
-      await service.validated(pg, { zone: 'Europe/Oslo', source: SeriesTimeZoneSource.SITE }),
+      await service.validated(
+        pg,
+        { zone: 'Europe/Oslo', source: SeriesTimeZoneSource.SITE },
+        WINDOW,
+      ),
     ).toEqual({
       displayTimeZone: 'Europe/Oslo',
       source: SeriesTimeZoneSource.SITE,
       bucketZone: { kind: 'zoned', wholeHourOffset: true },
     });
     expect(
-      (await service.validated(pg, { zone: 'Asia/Kolkata', source: SeriesTimeZoneSource.SITE }))
-        .bucketZone,
+      (
+        await service.validated(
+          pg,
+          { zone: 'Asia/Kolkata', source: SeriesTimeZoneSource.SITE },
+          WINDOW,
+        )
+      ).bucketZone,
     ).toEqual({ kind: 'zoned', wholeHourOffset: false });
+    // +11 in summer but +10:30 in winter: not whole-hour over a year.
     expect(
-      (await service.validated(pg, { zone: 'UTC', source: SeriesTimeZoneSource.TENANT }))
-        .bucketZone,
+      (
+        await service.validated(
+          pg,
+          { zone: 'Australia/Lord_Howe', source: SeriesTimeZoneSource.SITE },
+          WINDOW,
+        )
+      ).bucketZone,
+    ).toEqual({ kind: 'zoned', wholeHourOffset: false });
+    // UTC under another name reads the cheap UTC way.
+    expect(
+      (
+        await service.validated(
+          pg,
+          { zone: 'Etc/GMT', source: SeriesTimeZoneSource.TENANT },
+          WINDOW,
+        )
+      ).bucketZone,
     ).toEqual({ kind: 'utc' });
+  });
+
+  it('asks Postgres whether it knows a zone once, not on every read', async () => {
+    const service = makeService(jest.fn());
+    const pg = postgresKnowing({ 'Europe/Oslo': [7200] });
+    const oslo = { zone: 'Europe/Oslo', source: SeriesTimeZoneSource.SITE };
+    await service.validated(pg, oslo, WINDOW);
+    await service.validated(pg, oslo, WINDOW);
+    const lookups = pg.query.mock.calls.filter(([sql]) =>
+      String(sql).includes('pg_timezone_names'),
+    );
+    expect(lookups).toHaveLength(1);
   });
 
   it('shows UTC as unavailable when Postgres does not know the zone farm named', async () => {
     const service = makeService(jest.fn());
     expect(
-      await service.validated(postgresKnowing({}), {
-        zone: 'America/Ciudad_Juarez',
-        source: SeriesTimeZoneSource.SITE,
-      }),
+      await service.validated(
+        postgresKnowing({}),
+        { zone: 'America/Ciudad_Juarez', source: SeriesTimeZoneSource.SITE },
+        WINDOW,
+      ),
     ).toEqual({
       displayTimeZone: 'UTC',
       source: SeriesTimeZoneSource.UNAVAILABLE,

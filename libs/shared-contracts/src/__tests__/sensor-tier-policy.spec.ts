@@ -264,6 +264,17 @@ describe('sensor-reading tier policy', () => {
         ]);
       });
 
+      it("keeps local buckets for the longest window, whose start a client's earlier now puts a moment past retention", () => {
+        const clientNow = NOW - 50;
+        const plan = planSeriesRead({
+          startMs: clientNow - MAX_SERIES_RANGE_MS,
+          endMs: clientNow,
+          nowMs: NOW,
+          zone: KOLKATA,
+        });
+        expect([plan.alignment, plan.boundaryMinutes]).toEqual(['zone', true]);
+      });
+
       it('never falls back to UTC for a window inside the minute rollup retention', () => {
         for (const zone of [OSLO, KOLKATA]) {
           for (const windowMs of ladderProbes) {

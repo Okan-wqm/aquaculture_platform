@@ -27,8 +27,8 @@ import {
 export interface TenantZoneMap {
   tenantZone: string;
   zoneOf(siteId: string | null | undefined): string;
-  /** Whether the site exists and is not deleted. */
-  knows(siteId: string): boolean;
+  /** The zone the site set itself; undefined when it inherits, is deleted or unknown. */
+  ownZoneOf(siteId: string): string | undefined;
 }
 
 @Injectable()
@@ -72,12 +72,17 @@ export class SiteTimeZoneService {
    * transaction or read).
    */
   async siteZones(manager: EntityManager, tenantId: string): Promise<TenantZoneMap> {
-    const tenantZone = await this.tenantZone(tenantId);
+    // Both reads go through the caller's manager: inside a tenant read or
+    // transaction a second pooled connection would only wait behind the first.
+    const localization: Array<{ timezone: string | null }> = await manager.query(
+      `SELECT timezone FROM farm.tenant_localization WHERE "tenantId" = $1`,
+      [tenantId],
+    );
+    const tenantZone = localization[0]?.timezone || DEFAULT_TENANT_TIMEZONE;
     const rows: Array<{ id: string; timezone: string | null }> = await manager.query(
       `SELECT id, timezone FROM "sites" WHERE "tenantId" = $1 AND "isDeleted" = false`,
       [tenantId],
     );
-    const live = new Set(rows.map((row) => row.id));
     const bySite = new Map<string, string>();
     for (const row of rows) {
       // NULL or empty = inherit. A zone the site wrote itself wins.
@@ -86,7 +91,7 @@ export class SiteTimeZoneService {
     return {
       tenantZone,
       zoneOf: (siteId) => (siteId ? (bySite.get(siteId) ?? tenantZone) : tenantZone),
-      knows: (siteId) => live.has(siteId),
+      ownZoneOf: (siteId) => bySite.get(siteId),
     };
   }
 }

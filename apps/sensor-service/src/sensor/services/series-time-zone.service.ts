@@ -36,6 +36,9 @@ const FARM_TIME_ZONE_TIMEOUT_MS = 1_500;
 /** Farm's answer changes when someone edits a site or the tenant; minutes are fine. */
 const FARM_ANSWER_TTL_MS = 5 * 60_000;
 const FARM_ANSWER_CACHE_LIMIT = 1_000;
+/** Whether Postgres knows a zone changes only when its tz data does. */
+const KNOWN_ZONE_TTL_MS = 60 * 60_000;
+const ZONE_CACHE_LIMIT = 1_000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -61,6 +64,7 @@ const UTC_SERIES_ZONE: SeriesTimeZone = {
 @Injectable()
 export class SeriesTimeZoneService {
   private readonly logger = new Logger(SeriesTimeZoneService.name);
+  private readonly knownZones = new Map<string, { known: boolean; expiresAt: number }>();
   private readonly farmAnswers = new Map<
     string,
     { expiresAt: number; answer: ResolveFarmTimeZonesResponse }
@@ -113,43 +117,77 @@ export class SeriesTimeZoneService {
    * The candidate checked against Postgres (`qr` is the series read), so
    * buckets and labels use a zone the database can compute in; UTC, marked
    * unavailable, when there is no candidate or Postgres does not know it.
+   *
+   * Whether the zone is UTC-like or whole-hour is read from the offsets it
+   * uses over the window, not today's: Lord Howe is +11 in summer and +10:30
+   * in winter, and Etc/GMT is UTC under another name.
    */
-  async validated(qr: QueryRunner, candidate: ZoneCandidate | null): Promise<SeriesTimeZone> {
+  async validated(
+    qr: QueryRunner,
+    candidate: ZoneCandidate | null,
+    window: { readonly start: Date; readonly end: Date },
+  ): Promise<SeriesTimeZone> {
     if (candidate === null) {
       return UTC_SERIES_ZONE;
     }
-    const offset = await this.knownZoneOffset(qr, candidate.zone);
-    if (offset === null) {
+    if (!(await this.isKnownZone(qr, candidate.zone))) {
       this.logger.warn(
         JSON.stringify({ event: 'series_time_zone_unknown_to_database', zone: candidate.zone }),
       );
       return UTC_SERIES_ZONE;
     }
+    const offsets = await this.offsetsOver(qr, candidate.zone, window);
     return {
       displayTimeZone: candidate.zone,
       source: candidate.source,
-      bucketZone: offset.utc
+      bucketZone: offsets.allZero
         ? { kind: 'utc' }
-        : { kind: 'zoned', wholeHourOffset: offset.wholeHour },
+        : { kind: 'zoned', wholeHourOffset: offsets.allWholeHours },
     };
   }
 
-  /** Postgres's view of a zone, or null when it does not know the name. */
-  private async knownZoneOffset(
+  /**
+   * Whether Postgres knows the zone. `pg_timezone_names` reads every zone file
+   * on each call, so the answer is kept per zone for an hour.
+   */
+  private async isKnownZone(qr: QueryRunner, zone: string): Promise<boolean> {
+    const cached = this.knownZones.get(zone);
+    if (cached !== undefined && cached.expiresAt > Date.now()) {
+      return cached.known;
+    }
+    const rows = (await qr.query(`SELECT 1 FROM pg_timezone_names WHERE name = $1`, [
+      zone,
+    ])) as unknown[];
+    const known = rows.length > 0;
+    if (this.knownZones.size >= ZONE_CACHE_LIMIT) {
+      const oldest = this.knownZones.keys().next().value;
+      if (oldest !== undefined) this.knownZones.delete(oldest);
+    }
+    this.knownZones.set(zone, { known, expiresAt: Date.now() + KNOWN_ZONE_TTL_MS });
+    return known;
+  }
+
+  /** The offsets the zone uses over the window, sampled daily and at its end. */
+  private async offsetsOver(
     qr: QueryRunner,
     zone: string,
-  ): Promise<{ utc: boolean; wholeHour: boolean } | null> {
+    window: { readonly start: Date; readonly end: Date },
+  ): Promise<{ allZero: boolean; allWholeHours: boolean }> {
     const rows = (await qr.query(
-      `SELECT EXTRACT(EPOCH FROM utc_offset)::int AS offset_seconds
-         FROM pg_timezone_names
-        WHERE name = $1`,
-      [zone],
-    )) as Array<{ offset_seconds: number }>;
+      `SELECT bool_and(o = 0) AS all_zero, bool_and(o % 3600 = 0) AS all_whole_hours
+         FROM (
+           SELECT EXTRACT(EPOCH FROM (t AT TIME ZONE $1) - (t AT TIME ZONE 'UTC'))::int AS o
+             FROM (
+               SELECT generate_series($2::timestamptz, $3::timestamptz, interval '1 day') AS t
+               UNION ALL SELECT $3::timestamptz
+             ) samples
+         ) offsets`,
+      [zone, window.start, window.end],
+    )) as Array<{ all_zero: boolean | null; all_whole_hours: boolean | null }>;
     const row = rows[0];
-    if (row === undefined) return null;
     return {
-      utc: zone === 'UTC' || zone === 'Etc/UTC',
-      wholeHour: row.offset_seconds % 3600 === 0,
+      allZero: row?.all_zero === true,
+      allWholeHours: row?.all_whole_hours !== false,
     };
   }
 

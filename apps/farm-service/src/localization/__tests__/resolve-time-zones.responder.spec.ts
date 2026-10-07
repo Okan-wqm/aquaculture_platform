@@ -30,7 +30,7 @@ const DELETED_SITE = '44444444-4444-4444-8444-444444444444';
 const ZONES: TenantZoneMap = {
   tenantZone: 'Europe/Istanbul',
   zoneOf: (siteId) => (siteId === OSLO_SITE ? 'Europe/Oslo' : 'Europe/Istanbul'),
-  knows: (siteId) => siteId === OSLO_SITE || siteId === INHERITING_SITE,
+  ownZoneOf: (siteId) => (siteId === OSLO_SITE ? 'Europe/Oslo' : undefined),
 };
 
 /**
@@ -84,14 +84,15 @@ describe('ResolveTimeZonesResponder', () => {
     expect(drain).toHaveBeenCalledTimes(1);
   });
 
-  it('names a zone for each live site asked about, and the tenant zone', async () => {
+  it('names the zone of each asked-about site that set its own, and the tenant zone', async () => {
     const reply = await responder.resolve({
       tenantId: TENANT_ID,
       siteIds: [OSLO_SITE, INHERITING_SITE, DELETED_SITE, 'not-a-uuid', OSLO_SITE],
     });
     expect(reply).toEqual({
       tenantZone: 'Europe/Istanbul',
-      siteZones: { [OSLO_SITE]: 'Europe/Oslo', [INHERITING_SITE]: 'Europe/Istanbul' },
+      // The inheriting site uses the tenant zone, so the caller can tell the two apart.
+      siteZones: { [OSLO_SITE]: 'Europe/Oslo' },
     });
     expect(isResolveFarmTimeZonesResponse(reply)).toBe(true);
   });

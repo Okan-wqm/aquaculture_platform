@@ -244,10 +244,16 @@ export function planSeriesRead(params: {
   const windowMs = params.endMs - params.startMs;
   const baseIndex = METRIC_TIERS.indexOf(tierForWindow(windowMs));
 
+  // A store still holds a window that starts within one of its buckets of its
+  // retention edge: retention drops whole chunks, never a partial bucket, and
+  // a client's "now" is a moment earlier than the server's.
+  const retains = (tier: MetricTier): boolean =>
+    tier.retention === null ||
+    params.startMs >= params.nowMs - tier.retention.ms - (tier.bucket?.ms ?? 0);
+
   let tierIndex = baseIndex;
   for (; tierIndex < METRIC_TIERS.length - 1; tierIndex++) {
-    const { retention } = METRIC_TIERS[tierIndex] ?? metricTier('day');
-    if (retention === null || params.startMs >= params.nowMs - retention.ms) break;
+    if (retains(METRIC_TIERS[tierIndex] ?? metricTier('day'))) break;
   }
 
   const displayMs =
@@ -273,22 +279,18 @@ export function planSeriesRead(params: {
   // local boundary come from the minute rollup. Where neither finer store
   // reaches back far enough, the buckets stay UTC and the plan says so.
   const zone = params.zone ?? { kind: 'utc' };
-  const retains = (name: MetricTierName): boolean => {
-    const { retention } = metricTier(name);
-    return retention === null || params.startMs >= params.nowMs - retention.ms;
-  };
   let alignment: SeriesReadPlan['alignment'] = zone.kind === 'zoned' ? 'zone' : 'utc';
   let boundaryMinutes = false;
   if (zone.kind === 'zoned') {
     if (METRIC_TIERS[tierIndex]?.tier === 'day') {
-      if (retains('hour')) {
+      if (retains(metricTier('hour'))) {
         tierIndex = METRIC_TIERS.indexOf(metricTier('hour'));
       } else {
         alignment = 'utc';
       }
     }
     if (METRIC_TIERS[tierIndex]?.tier === 'hour' && !zone.wholeHourOffset) {
-      if (retains('minute')) {
+      if (retains(metricTier('minute'))) {
         boundaryMinutes = true;
       } else {
         alignment = 'utc';

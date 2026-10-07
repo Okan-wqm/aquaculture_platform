@@ -33,8 +33,9 @@ export class FarmTimeZoneAuthorityUnavailableError extends Error {
  * Answered by SiteTimeZoneService, the resolver feeding uses, so a sensor
  * chart's day and a feeding day are the same day. Broker ACLs decide who may
  * publish the subject (services.yaml); caller identity is never read from
- * message headers. The reply names zones only for the sites asked about that
- * exist and are not deleted, so it cannot be used to list a tenant's sites.
+ * message headers. The reply names a zone only for each site asked about that
+ * set its own zone (and exists, not deleted); every other site uses the
+ * tenant zone. It cannot be used to list a tenant's sites.
  */
 @Injectable()
 export class ResolveTimeZonesResponder implements OnModuleInit, OnModuleDestroy {
@@ -76,7 +77,8 @@ export class ResolveTimeZonesResponder implements OnModuleInit, OnModuleDestroy 
           const zones = await this.siteTimeZones.siteZones(queryRunner.manager, request.tenantId);
           const siteZones: Record<string, string> = {};
           for (const siteId of siteIds) {
-            if (zones.knows(siteId)) siteZones[siteId] = zones.zoneOf(siteId);
+            const own = zones.ownZoneOf(siteId);
+            if (own !== undefined) siteZones[siteId] = own;
           }
           return { tenantZone: zones.tenantZone, siteZones };
         },

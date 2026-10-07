@@ -6,8 +6,8 @@
  * Sensor charts ask here instead of keeping a copy, so a feeding day and a
  * chart day cannot disagree.
  *
- * The reply carries zone names only, for the sites asked about that exist and
- * are not deleted. It never lists a tenant's sites.
+ * The reply carries zone names only: the tenant's, and each asked-about site's
+ * own zone. It never lists a tenant's sites.
  */
 export const FARM_TIME_ZONE_QUERY_SUBJECTS = {
   RESOLVE: 'request.farm.resolveTimeZones',
@@ -24,7 +24,10 @@ export interface ResolveFarmTimeZonesRequest {
 export interface ResolveFarmTimeZonesResponse {
   /** The tenant's zone: what a site without its own zone, or no site, uses. */
   tenantZone: string;
-  /** Zone per requested site that exists and is not deleted. */
+  /**
+   * Zone per requested site that set its own zone (and exists, not deleted).
+   * A site absent here — inheriting, deleted or unknown — uses `tenantZone`.
+   */
   siteZones: Record<string, string>;
 }
 

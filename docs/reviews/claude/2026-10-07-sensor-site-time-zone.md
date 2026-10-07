@@ -94,6 +94,39 @@ Proof:
 The nine-parameter `aggregatedReadings` read keeps UTC buckets. Its widget
 consumers move onto the channel series in phase 3d.
 
+### Independent review → fixes
+
+A sensor-domain review of the first version reported one high and five low
+problems. Each was checked against TimescaleDB or the code, and fixed with a
+test.
+
+- **Sub-day buckets in a daylight-saving zone (reported high).** The report
+  said a zoned `time_bucket` folds the repeated autumn hour at every width
+  under a day.
+  - Real TimescaleDB disagrees for 15 minutes and 1 hour: twelve hourly
+    samples across Oslo's 25-hour day come back as twelve buckets.
+  - It is right for 4 hours. Local 4-hour buckets turn into 5 and 3 hours,
+    and the `date_add` end then leaves a false gap.
+  - Widths under a day are now fixed-length buckets counted from the local
+    midnight the window starts on: they never fold and never leave a gap.
+    Local calendar buckets are kept for days and weeks.
+  - The spec covers 15 minutes, 1 hour and 4 hours across the autumn hour,
+    and the 4-hour case fails if calendar bucketing is restored.
+- **Zone checks on every read.** Whether Postgres knows a zone is now kept
+  for an hour per zone. Whether the zone is whole-hour or UTC-like is read
+  from the offsets it uses over the window, not today's. This covers Lord
+  Howe (+11 in summer, +10:30 in winter) and `Etc/GMT`.
+- **The longest window.** A 365-day window lost local buckets in half-hour
+  zones by milliseconds, because the client's now is earlier than the
+  server's. The tier policy now has one retention rule with one bucket of
+  slack (chunks drop whole), used by both rule 2 and rule 5.
+- **`SITE` for an inheriting site.** Farm now names a zone only for a site
+  that set its own, so an inheriting site reads as `TENANT`.
+- **`sourceTier` with boundary minutes.** Its description now says that the
+  minute store supplies the straddling hours.
+- **A second pooled connection in the farm responder.** `siteZones` reads
+  the tenant's zone through the caller's manager.
+
 ## SENSOR-MEDIUM-161 — a sensor's site is only format-checked (open)
 
 Registration takes any uuid as `siteId`. It never asks farm whether the site

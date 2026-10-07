@@ -179,7 +179,7 @@ class V9PressureSourceProvider:
         from ..plan_convergence import in_flight_plan_id
         from ..plan_slot_policy import SLOT_POLICY_EVENT, order_for_slot
         from ..operator_feedback_ingestion import bind_plan_synthesis, record_request_refused
-        from ..admission_lessons import RECURRING_FAILURE_PROBE, AdmissionHistory, admission_verdict
+        from ..admission_lessons import RECURRING_FAILURE_PROBE, AdmissionHistory, admission_verdict, record_probe
         from ..operator_request_spend import REQUEST_TEXT_UNUSABLE
         from ..plan_candidate_source import PlanCandidateSource
         from ..plan_synthesizer import (
@@ -280,6 +280,11 @@ class V9PressureSourceProvider:
                     grounding.update({"reason": lesson["reason"], "runner_fault": False, "lesson": lesson})
                 elif lesson is not None:
                     grounding["lesson_probe"] = lesson
+                    # One probe is one probe (second review of #1829, M5);
+                    # while a plan is in flight this envelope starts nothing
+                    # and the probe is not spent.
+                    if not in_flight:
+                        record_probe(base_dir=base_dir, lesson=lesson, cycle_id=cycle_id)
             if envelope is not None:
                 # Bind BEFORE announcing the selection: the synthesized content
                 # hash is what plan_started will record, and the pre-merge

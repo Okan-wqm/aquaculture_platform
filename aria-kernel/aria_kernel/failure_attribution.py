@@ -18,10 +18,13 @@ drafter's lesson). A failure is attributed only when:
 
 * ``gate_refusal`` / ``cross_review_rejection`` — the evaluator's own row
   (``plan_convergence.evaluate_plan``) names a code in
-  :data:`ATTRIBUTABLE_GATE_CODES`. A FORCED escalation (gate decision
-  ``human_escalation``) is the kernel's only when every code it carries is in
-  :data:`KERNEL_FORCED_CODES`; any other forced row is an operator's or an
-  unknown writer's act and is never attributed.
+  :data:`ATTRIBUTABLE_GATE_CODES`, and only when EVERY code on the row is one
+  of them or ``max_rounds_reached`` (second review, H-A: an environment
+  fault on the row makes the whole row the environment's). A FORCED
+  escalation (gate decision ``human_escalation``) is the kernel's only when a
+  kernel caller stamped it (``forced_by``, M3) and every code it carries is
+  in :data:`KERNEL_FORCED_CODES`; any other forced row — an operator's, or
+  one written before the stamp — is never attributed.
 * ``evidence_law`` — the dead step's latest request ended on a result the
   evidence law refused for the AGENT's citation (``agent_evidence_*``, minus
   the validator's own "could not verify" codes, which are harness class:
@@ -209,6 +212,26 @@ def _not_before(stamp: Any, reference: Any) -> bool:
     return stamp is None or reference is None or stamp >= reference
 
 
+#: Claim rows that end an attempt: a release, the requeue or escalation that
+#: follows it, and the lease reaper's ``stale`` row (which carries no reason).
+_ENDING_EVENTS = ("released", "human_required", "requeued", "stale")
+#: Release codes in fault domain ``request`` that still say nothing about the
+#: WORK. ``LEASE_EXPIRED`` is ``request`` in ``release_reason`` because its
+#: reader there is the requeue budget (a request that hangs every attempt
+#: must not retry forever); for attribution a hung attempt produced no
+#: judged output, so it ends the analysis (second review of #1829, M2).
+_SILENT_REQUEST_CODES: frozenset[str] = frozenset({"LEASE_EXPIRED"})
+
+
+def _ends_analysis(row: Mapping[str, Any]) -> bool:
+    """An attempt ending that names no work: a harness or unclassified fault,
+    an operator act, or a lease that ran out."""
+    if row.get("event") == "stale":
+        return True
+    code = parse_release_reason(str(row.get("reason") or "")).reason_code
+    return _fault_domain(row) != "request" or code in _SILENT_REQUEST_CODES
+
+
 def _fault_domain(row: Mapping[str, Any]) -> str:
     recorded = row.get("fault_domain")
     return str(recorded) if recorded else parse_release_reason(str(row.get("reason") or "")).fault_domain
@@ -232,17 +255,18 @@ def _dead_step_attribution(
         return None
     request_id = str(requests[-1].get("request_id"))
     agent = str(requests[-1].get("target_agent") or role)
-    releases = [row for row in ledgers.claims
-                if row.get("request_id") == request_id and row.get("event") in ("released", "human_required")]
-    if releases and _fault_domain(releases[-1]) != "request":
+    endings = [row for row in ledgers.claims
+               if row.get("request_id") == request_id and row.get("event") in _ENDING_EVENTS]
+    releases = [row for row in endings if row.get("event") in ("released", "human_required")]
+    if endings and _ends_analysis(endings[-1]):
         return None
     results = [row for row in ledgers.results if row.get("request_id") == request_id]
     if results and results[-1].get("status") == "rejected":
         rejected_at = _stamp(results[-1], "submitted_at", "recorded_at")
         # A release whose time (or the result's) cannot be read is counted as
         # after it: an unplaceable outage never leaves the agent blamed.
-        later_harness = [row for row in releases if _fault_domain(row) != "request"
-                         and _not_before(_stamp(row, "released_at", "at"), rejected_at)]
+        later_harness = [row for row in endings if _ends_analysis(row)
+                         and _not_before(_stamp(row, "released_at", "at", "stale_at"), rejected_at)]
         codes = [code for code in _result_codes(results[-1]) if attributable_rejection_code(code)]
         if later_harness or not codes:
             return None
@@ -274,11 +298,26 @@ def _forced(payload: Mapping[str, Any]) -> bool:
 def attribute_evaluation(
     payload: Mapping[str, Any], *, plan_id: str, drafter: str, ledgers: InvocationLedgersSource,
 ) -> Attribution | None:
-    """The attribution of a drafter episode that ended HUMAN_REQUIRED, or None."""
+    """The attribution of a drafter episode that ended HUMAN_REQUIRED, or None.
+
+    Second review of #1829 (H-A): the evaluator keeps every blocker on the
+    row, and a round-one plan goes HUMAN_REQUIRED for
+    ``coverage_environment_unable`` or ``architecture_spine_unavailable:*``
+    while a gate code that would only have asked for another round rides
+    along. So a row is judged WHOLE: an evaluator row is attributed only when
+    every code on it is an allowlisted gate code or ``max_rounds_reached``;
+    a forced row only when a kernel caller stamped it (``forced_by``, M3) and
+    every code is one that caller writes. One environment, unknown or
+    operator code leaves the whole row unattributed."""
+    from .plan_convergence import KERNEL_FORCERS
+
     codes = [str(raw) for raw in payload.get("reason_codes") or []]
     heads = [code.partition(":")[0].strip() for code in codes]
-    if _forced(payload) and not set(heads) <= KERNEL_FORCED_CODES:
-        return None  # an operator's (or any non-kernel writer's) escalation
+    if _forced(payload):
+        if payload.get("forced_by") not in KERNEL_FORCERS or not set(heads) <= KERNEL_FORCED_CODES:
+            return None  # an operator's escalation, or a row older than the stamp
+    elif not set(codes) <= ATTRIBUTABLE_GATE_CODES | {"max_rounds_reached"}:
+        return None
     for code, head in zip(codes, heads):
         if head == ENVELOPE_DEAD and code.partition(":")[2].strip():
             found = _dead_step_attribution(ledgers.get(), plan_id=plan_id, role=code.partition(":")[2].strip(),

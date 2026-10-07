@@ -89,7 +89,8 @@ class _Ledgers(unittest.TestCase):
             release_claim(claim_id=claim["claim_id"], agent_id="executor:test", lease_token=claim["lease_token"],
                           reason=str(release), base_dir=self.tools)
         force_plan_human_required(plan_id=plan_id, round_number=1,
-                                  reason_codes=["convergence_envelope_dead:challenger_plan"], base_dir=self.tools)
+                                  reason_codes=["convergence_envelope_dead:challenger_plan"], base_dir=self.tools,
+                                  forced_by="kernel:convergence_drainer")
 
     def episodes(self) -> dict[str, dict[str, Any]]:
         observe_agent_performance(base_dir=self.tools, cycle_id="cyc-370")
@@ -120,7 +121,8 @@ class EachEvidenceTypeAttributesTests(_Ledgers):
     def test_an_unresolved_cross_review_risk_is_a_cross_review_rejection(self) -> None:
         self.start("plan-cr")
         force_plan_human_required(plan_id="plan-cr", round_number=4,
-                                  reason_codes=["max_rounds_reached", "unresolved_material_risk"], base_dir=self.tools)
+                                  reason_codes=["max_rounds_reached", "unresolved_material_risk"], base_dir=self.tools,
+                                  forced_by="kernel:plan_round_controller")
         row = self.episodes()["plan-cr"]
         self.assertEqual((row["failure_mode"], row["attribution"]["evidence_type"]),
                          ("unresolved_material_risk", "cross_review_rejection"))

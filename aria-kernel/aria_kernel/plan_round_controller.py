@@ -75,6 +75,7 @@ def advance_plan_rounds(
                     round_number=round_number,
                     reason_codes=["max_rounds_reached", "unresolved_material_risk"],
                     base_dir=root,
+                    forced_by="kernel:plan_round_controller",
                 )
                 actions.append({"kind": "human_required", "result": forced})
                 return _result(plan_id, fold_plan_state(plan_id=plan_id, base_dir=root), "human_required", actions)

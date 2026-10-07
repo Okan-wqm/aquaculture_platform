@@ -1289,11 +1289,15 @@ def _named_line(lines: list[str], name: str, start: int) -> int | None:
     return None
 
 
-def _failing_signature(workflow_path: Any, failing_jobs: Any) -> dict[str, Any]:
+def _failing_signature(workflow_path: Any, failing_jobs: Any) -> dict[str, Any] | None:
     """ARIA-HIGH-370 (review of #1829, HIGH-3) — what a red run is about: its
     workflow file and the ``job::step`` pairs that failed. The run id is
     provenance; two red runs failing the same steps are one candidate for
-    ``admission_lessons``, and a different failing step is another."""
+    ``admission_lessons``, and a different failing step is another.
+
+    None when gh gave no job data (second review of #1829, M4): a
+    workflow-only key would merge every red run of the workflow, so the
+    identity is unknown and the attempt is not counted by the breaker."""
     from .text_safety import sanitize_untrusted_text
 
     failed: set[str] = set()
@@ -1306,7 +1310,7 @@ def _failing_signature(workflow_path: Any, failing_jobs: Any) -> dict[str, Any]:
             failed.add(f"{name}::")
         for step in steps:
             failed.add(f"{name}::{sanitize_untrusted_text(str(step), max_len=120)}")
-    return {"workflow_path": str(workflow_path), "failed": sorted(failed)}
+    return {"workflow_path": str(workflow_path), "failed": sorted(failed)} if failed else None
 
 
 def _workflow_evidence_refs(repo_root: Path, workflow_path: Any, failing_jobs: Any) -> list[str]:

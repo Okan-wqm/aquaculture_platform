@@ -13,15 +13,31 @@ episode with that mode and role that occurred BEFORE the fix is recorded
 unattributed, with ``voided_by`` naming the PR; one after the fix stands.
 Adding an entry is a reviewed code change, never a ledger write.
 
-:func:`gate_epoch` is a digest of the kernel modules whose rules decide
-whether work is refused (the evidence law, the plan contract, the release
-vocabulary, the envelope minters). Episodes carry the epoch they were
-recorded under; admission (``admission_lessons``) re-admits one probe of a
-refused candidate once the epoch has moved, because the gate that refused it
-may no longer refuse it.
+:func:`gate_epoch` is a digest of the GATE SEMANTICS: the normalized syntax
+tree (docstrings stripped; comments are not in the tree) of every function
+and table that decides whether submitted work is refused or a plan is
+escalated (:data:`GATE_DEFINITIONS`) — the evaluator and the gates that
+produce the allowlisted codes (``plan_convergence``,
+``architecture_spine_gate``, ``plan_contract``, ``must_satisfy``), the
+submission judge and the evidence law, the release vocabulary. Second review
+of #1829 (M1): the first version hashed seven whole files, missed the
+modules that produce the allowlisted codes, and moved on any comment edit.
+An AST digest moves exactly when gate code changes, with no version constant
+someone must remember to bump; ``tests/test_learning_attribution_review.py``
+pins that a comment leaves it unchanged and that every listed definition
+exists.
+
+Episodes carry the epoch they were RECORDED under. The failure's own epoch
+is not recoverable: the plan and invocation ledgers record no kernel commit.
+The recording time is a sound bound for its purpose: the observer runs in the
+reflection phase of the cycle that wrote (or first saw) the failure, so the
+recorded epoch is the failure's epoch unless a deploy landed in between, and
+then it is NEWER — which can only withhold an epoch probe until
+``PROBE_INTERVAL``, never grant one the gate change did not earn.
 """
 from __future__ import annotations
 
+import ast
 import hashlib
 from dataclasses import dataclass
 from functools import lru_cache
@@ -57,10 +73,22 @@ ATTRIBUTION_VOID: tuple[VoidEntry, ...] = (
               "the kernel seeded the plan with a pseudo-ref the evidence law refuses"),
 )
 
-#: The modules whose rules decide whether submitted work is refused.
-GATE_MODULES: tuple[str, ...] = (
-    "evidence_validator.py", "plan_contract.py", "release_reason.py", "agent_contract.py",
-    "convergent_planning_bridge.py", "cross_review_bridge.py", "plan_round_controller.py",
+#: (module, top-level name): the functions and tables of gate semantics.
+GATE_DEFINITIONS: tuple[tuple[str, str], ...] = (
+    ("plan_convergence", "evaluate_plan"), ("plan_convergence", "_evaluate_state"),
+    ("plan_convergence", "_evaluate_cross_review_state"), ("plan_convergence", "plan_body_refusals"),
+    ("plan_convergence", "force_plan_human_required"),
+    ("architecture_spine_gate", "_plan_comparison_obligation"),
+    ("plan_contract", "plan_contract_gate"), ("plan_contract", "plan_contract_violations"),
+    ("plan_contract", "PLAN_CONTRACT_REASONS"),
+    ("must_satisfy", "ARCHITECTURE_SPINE_KIND"), ("must_satisfy", "plan_contract_obligation"),
+    ("agent_invocations", "judge_claim_submission"),
+    ("agent_contract", "validate_response"), ("agent_contract", "enforce_separation_of_duties"),
+    ("agent_contract", "REASON_CLASSES"),
+    ("evidence_validator", "validate_agent_response_evidence"),
+    ("evidence_validator", "EVIDENCE_VERIFICATION_UNAVAILABLE_CODES"),
+    ("release_reason", "_LITERALS"), ("release_reason", "_PREFIXES"),
+    ("release_reason", "parse_release_reason"),
 )
 
 
@@ -74,13 +102,36 @@ def void_for(failure_mode: str, role: str, occurred_at: Any) -> VoidEntry | None
     return None
 
 
+def _strip_docstrings(tree: ast.AST) -> ast.AST:
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and body
+                and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            node.body = body[1:] or [ast.Pass()]
+    return tree
+
+
+def definition_digest(source: str, name: str) -> str:
+    """The normalized syntax of one top-level definition; KeyError when absent."""
+    for node in ast.parse(source).body:
+        targets = [node.name] if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) else [
+            target.id for target in getattr(node, "targets", [getattr(node, "target", None)])
+            if isinstance(target, ast.Name)]
+        if name in targets:
+            return ast.dump(_strip_docstrings(node), annotate_fields=True, include_attributes=False)
+    raise KeyError(f"gate definition {name!r} not found")
+
+
 @lru_cache(maxsize=1)
 def gate_epoch() -> str:
-    digest = hashlib.sha256()
     here = Path(__file__).resolve().parent
-    for name in GATE_MODULES:
-        digest.update(name.encode("utf-8") + b"\0" + (here / name).read_bytes())
+    digest = hashlib.sha256()
+    sources: dict[str, str] = {}
+    for module, name in GATE_DEFINITIONS:
+        source = sources.setdefault(module, (here / f"{module}.py").read_text(encoding="utf-8"))
+        digest.update(f"{module}:{name}\0".encode("utf-8") + definition_digest(source, name).encode("utf-8"))
     return "sha256:" + digest.hexdigest()
 
 
-__all__ = ["ATTRIBUTION_VOID", "GATE_MODULES", "VoidEntry", "gate_epoch", "void_for"]
+__all__ = ["ATTRIBUTION_VOID", "GATE_DEFINITIONS", "VoidEntry", "definition_digest", "gate_epoch", "void_for"]

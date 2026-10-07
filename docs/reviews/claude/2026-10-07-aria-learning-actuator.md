@@ -224,8 +224,57 @@ disagree with this one, this section wins.
 - **Calibration.** Only security-boundary and tenant-scoping still reach 10 labels with a
   recommendation. Both are surfaced as `security_tool_cut_is_operator_act`, and nothing is applied.
 
+### Second review corrections
+
+A second review of the fixes found 1 HIGH and 5 MEDIUM. Every test named below failed on a0e67fefc,
+with one exception: `test_a_terminal_lease_expiry_is_not_the_agents` only fails there because the
+old code lacks `forced_by`, so it stands as a regression guard.
+
+**H-A. An environment fault plus an allowlisted code still blamed the drafter.** An evaluator row
+is now judged as a whole: it is attributed only when every code on it is an allowlisted gate code
+or `max_rounds_reached`. Two rows that looked like gate failures are therefore now unattributed:
+
+- `[coverage_environment_unable, material_cross_review_risks_present]`;
+- `[architecture_spine_unavailable:git_timeout, plan_contract_incomplete]`.
+
+Without the environment fault, both plans would have gone to NEXT_ROUND.
+
+**M1. The gate epoch hashed the wrong modules.** The epoch is now a digest of the normalized syntax
+tree of named gate definitions (`attribution_void.GATE_DEFINITIONS`). That list covers:
+
+- the evaluator, `architecture_spine_gate`, `plan_contract` and `must_satisfy`, which produce the
+  allowlisted codes;
+- the submission judge, the evidence law and the release vocabulary.
+
+Docstrings are stripped and comments are not in the tree. Of the two options the review offered,
+I chose the syntax-tree digest over a version constant: it moves exactly when the gate code
+changes, and nobody has to remember to bump anything. A test pins both properties.
+
+The failure's own epoch cannot be recovered, because no ledger records the kernel commit. Recording
+time is still a sound bound. The observer runs in the cycle that saw the failure, so a later
+deploy can only make the stamp newer. A newer stamp can delay an epoch probe; it cannot grant one
+that the gate change did not earn.
+
+**M2. A lease expiry let an earlier rejection stand.** A lease expiry now ends the analysis: the
+reaper's `stale` row, or a `lease_expired` requeue or escalation. The global fault domain in
+`release_reason` stays `request`, because its reader there is the requeue budget. Only attribution
+treats it as silent.
+
+**M3. The operator could fake a kernel escalation.** `force_plan_human_required` now stamps
+`forced_by`. It is `operator` by default and on the CLI, and `kernel:<caller>` for the drainer, the
+round controller and converged delivery. Only kernel-stamped forced rows are attributed, and an
+unknown forcer is refused. Old rows without the stamp stay unattributed.
+
+**M4. A red run with no job data fell back to a workflow-only key.** In that case there is now no
+`failing_signature`, the identity is unknown, and the breaker does not count the attempt.
+
+**M5. The one probe was not counted.** Granted probes are recorded in `admission/probes.jsonl`
+(declared surface `admission_probes`). A second probe needs a full `PROBE_INTERVAL` since the first,
+or a different gate epoch. While a plan is in flight, a probe is not spent.
+
 ### Tests
 
 - `tests/test_learning_attribution.py` (10) and `tests/test_learning_attribution_review.py` (13).
+- `tests/test_learning_actuator_second_review.py` (10).
 - `tests/test_candidate_admission_lessons.py` (12).
 - `tests/test_calibration_actuator.py` (12).

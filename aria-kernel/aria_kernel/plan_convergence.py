@@ -1176,6 +1176,14 @@ class PlanStateRefused(GovernanceError):
 
 FORCED_MAX_ROUNDS_REASON = "max_rounds_reached"
 FORCED_ESCALATION_GATE = "forced_escalation"
+# ARIA-HIGH-370 (second review of #1829, M3) — who forced the escalation, on
+# the row itself. `plan force-human-required` writes exactly the row a kernel
+# caller writes, so the codes alone cannot say whether the kernel judged the
+# plan; the learning loop attributes a forced row only for a kernel caller.
+FORCED_BY_OPERATOR = "operator"
+KERNEL_FORCERS: frozenset[str] = frozenset({
+    "kernel:convergence_drainer", "kernel:plan_round_controller", "kernel:converged_delivery",
+})
 
 
 def force_plan_human_required(
@@ -1186,8 +1194,12 @@ def force_plan_human_required(
     active_gap_count: int = 0,
     from_states: frozenset[str] | None = None,
     base_dir: str | Path | None = None,
+    forced_by: str = FORCED_BY_OPERATOR,
 ) -> dict[str, Any]:
     """Escalate a plan to HUMAN_REQUIRED from a state the caller names.
+
+    ``forced_by`` is stamped on the row: a kernel caller names itself
+    (:data:`KERNEL_FORCERS`); every other caller is the operator's path.
 
     ARIA-HIGH-362 (review M3) — the from-state is checked INSIDE the plan
     lock, against the fold taken under it. It used to check only that the
@@ -1202,6 +1214,8 @@ def force_plan_human_required(
         raise GovernanceError("round_number must be a positive integer")
     if not reason_codes:
         raise GovernanceError("reason_codes must be non-empty")
+    if forced_by != FORCED_BY_OPERATOR and forced_by not in KERNEL_FORCERS:
+        raise GovernanceError(f"forced_by must be {FORCED_BY_OPERATOR!r} or one of {sorted(KERNEL_FORCERS)}")
     root = ensure_tools_dir(base_dir)
     # ARIA-HIGH-194 — the event says WHY it was forced, from the caller's own
     # codes. It used to stamp `gate: max_rounds, max_rounds_reached: true`
@@ -1218,6 +1232,7 @@ def force_plan_human_required(
             "reason_codes": reason_codes,
         }],
         "reason_codes": reason_codes,
+        "forced_by": forced_by,
     }
     key = _idempotency_key(plan_id, "force-human-required", payload)
     with _plan_lock(root):

@@ -657,6 +657,18 @@ export const en = {
   'timeRange.error.empty': 'The range ends before it starts',
   'timeRange.error.tooLong': 'The range is longer than {days} days',
   'timeRange.error.invalid': 'The range in this link is not valid',
+  'timeRange.picker.open': 'Choose a time range',
+  'timeRange.picker.presets': 'Quick ranges',
+  'timeRange.picker.calendar': 'Days',
+  'timeRange.picker.startTime': 'Start time',
+  'timeRange.picker.endTime': 'End time',
+  'timeRange.picker.prevMonth': 'Previous month',
+  'timeRange.picker.nextMonth': 'Next month',
+  'timeRange.picker.timeZone': 'Times are in {zone}',
+  'timeRange.picker.pickStart': 'Pick the first day',
+  'timeRange.picker.pickEnd': 'Pick the last day',
+  'timeRange.picker.incomplete': 'Pick both days and enter both times',
+  'timeRange.picker.noData': 'no data stored',
 } as const;
 
 export type MessageKey = keyof typeof en;

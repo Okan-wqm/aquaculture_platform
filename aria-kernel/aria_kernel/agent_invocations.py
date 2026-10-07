@@ -3466,6 +3466,7 @@ def next_pending_request(
     from a clean ledger.
     """
     from .evidence_probe import GitProbeSession
+    from .human_required_adjudication import adjudication_envelope_is_moot
 
     root = ensure_tools_dir(base_dir)
     repo_root = _anchor_repo_root(root)
@@ -3497,6 +3498,11 @@ def next_pending_request(
             continue
         state = states.get(str(request.get("request_id") or ""), "PENDING")
         if state not in {"PENDING", "REQUEUED"}:
+            continue
+        # ARIA-HIGH-360 — a panel envelope whose answer the adjudication
+        # sweep would never read (its escalation is resolved, handed to the
+        # operator, or of a kind no panel decides) is never handed out.
+        if adjudication_envelope_is_moot(root, request):
             continue
         if repo_root is not None:
             now = _utc_now_dt()

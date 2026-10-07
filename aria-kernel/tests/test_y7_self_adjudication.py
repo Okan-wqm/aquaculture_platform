@@ -12,8 +12,13 @@ Deliberate-breakage pins:
 - a resolve quorum with NO/SPLIT disposition on an operational kind does
   NOT close the record — it stamps escalate_operator (CRITICAL, loud);
 - quorum-refuse on an operational kind is the panel handing the item to a
-  human, stamped the same way; the sweep skips stamped records;
-- the anchor_stale kind is admitted TOGETHER with its producer, capped.
+  human, stamped the same way; the sweep skips stamped records.
+
+ARIA-HIGH-360 took ``anchor_stale`` out of the panel: an expiry is disposed of
+by the kernel's rule (``anchor_stale``, pinned in
+test_anchor_stale_disposition.py), so the pins below that admitted the kind and
+capped its records now pin that it is refused and that the lease sweep writes
+no panel question for it.
 """
 from __future__ import annotations
 
@@ -25,7 +30,6 @@ from pathlib import Path
 from aria_kernel import human_required_adjudication as hra
 from aria_kernel.draft_intent import BANNED_PHRASES_DEFAULT
 from aria_kernel.human_required import (
-    ANCHOR_STALE_SWEEP_CAP,
     record_human_required,
     sweep_lease_lifecycle_for_human_required,
 )
@@ -40,9 +44,7 @@ class VocabularyPins(unittest.TestCase):
             hra.PANEL_DISPOSITIONS,
             {"re_mint", "drop_with_reason", "escalate_operator"},
         )
-        self.assertEqual(
-            hra.OPERATIONAL_DISPOSITION_KINDS, {"lease_lifecycle", "anchor_stale"},
-        )
+        self.assertEqual(hra.OPERATIONAL_DISPOSITION_KINDS, {"lease_lifecycle"})
 
     def test_remint_budget_is_separate_from_panel_reopen_budget(self) -> None:
         # Two counters, deliberately NOT shared: a stale PANEL must not eat
@@ -50,11 +52,13 @@ class VocabularyPins(unittest.TestCase):
         self.assertEqual(hra.MAX_REQUEST_REMINTS, 2)
         self.assertEqual(hra.MAX_PANEL_REOPENS, 2)
 
-    def test_anchor_stale_kind_is_admitted(self) -> None:
+    def test_anchor_stale_kind_is_not_admitted(self) -> None:
+        # ARIA-HIGH-360 — an expiry is a fact the kernel disposes of by rule.
         verdict = hra.escalation_adjudicability(
             {"context": {"kind": "anchor_stale", "request_id": "AIR-x"}},
         )
-        self.assertTrue(verdict.adjudicable)
+        self.assertFalse(verdict.adjudicable)
+        self.assertEqual(verdict.reason, "context_kind_not_admitted:anchor_stale")
 
 
 class _PanelCase(unittest.TestCase):
@@ -287,6 +291,8 @@ class DropAndRefuse(_PanelCase):
 
 
 class AnchorStaleProducer(unittest.TestCase):
+    """The lease sweep's anchor pass, since ARIA-HIGH-360 the kernel's rule."""
+
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-y7-anchor-")
         self.tools = Path(self._tmp.name) / "aria-tools"
@@ -295,22 +301,24 @@ class AnchorStaleProducer(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def _seed_stale_request(self, request_id: str, *, remint_of: str | None = None) -> None:
+    def _seed_stale_request(
+        self, request_id: str, *, role: str = "maintenance_utility",
+        target_agent: str = "aria-autonomy-planner", remint_of: str | None = None,
+    ) -> None:
         requests_path = self.tools / "agent-invocations" / "requests.jsonl"
         requests_path.parent.mkdir(parents=True, exist_ok=True)
         row = {
             "$schema": "aria/agent-invocation-request/v1",
             "schema_version": 1,
             "request_id": request_id,
-            "role": "challenger_plan",
-            "target_agent": "aria-challenger-planner",
+            "role": role,
+            "target_agent": target_agent,
             "suggested_prompt": "stale work",
             "must_satisfy": [{"id": "S1", "description": "satisfy S1"}],
             "evidence_refs": [],
             "allowed_scope": ["aria-kernel/**"],
             "expected_output_path": str(self.tools / f"out-{request_id}.json"),
             "state": "pending",
-            # Far past the 3-day anchor window → derives ANCHOR_STALE.
             "created_at": "2026-08-01T00:00:00Z",
         }
         if remint_of:
@@ -333,27 +341,31 @@ class AnchorStaleProducer(unittest.TestCase):
             expected_surface="agent_invocation_claims",
         )
 
-    def test_stale_requests_gain_records_up_to_the_cap(self) -> None:
-        for n in range(ANCHOR_STALE_SWEEP_CAP + 2):
-            self._seed_stale_request(f"AIR-stale-{n}")
-        summary = sweep_lease_lifecycle_for_human_required(base_dir=self.tools)
-        anchor_records = [
-            r for r in summary["created"]
-            if (r.get("context") or {}).get("kind") == "anchor_stale"
-        ]
-        self.assertEqual(len(anchor_records), ANCHOR_STALE_SWEEP_CAP)
+    def _record(self, request_id: str) -> dict | None:
+        path = self.tools / "human-required" / f"{request_id}.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
-    def test_a_request_with_a_remint_successor_is_recovered_not_escalated(self) -> None:
+    def test_no_stale_request_becomes_a_panel_question(self) -> None:
+        self._seed_stale_request("AIR-stale-plan", role="challenger_plan",
+                                 target_agent="aria-challenger-planner")
+        self._seed_stale_request("AIR-stale-maint")
+        summary = sweep_lease_lifecycle_for_human_required(base_dir=self.tools)
+        self.assertEqual(summary["created"], [])
+        # The planning step is the convergence drainer's: no record at all.
+        self.assertIsNone(self._record("AIR-stale-plan"))
+        record = self._record("AIR-stale-maint")
+        self.assertEqual(record["status"], "resolved")
+        self.assertEqual(record["kernel_disposition"]["reason"], "role_not_remintable")
+        self.assertEqual(hra.sweep_human_required_adjudications(base_dir=self.tools)["opened"], [])
+
+    def test_a_request_with_a_remint_successor_is_recovered_not_recorded(self) -> None:
         self._seed_stale_request("AIR-stale-parent")
         self._seed_stale_request("AIR-stale-child", remint_of="AIR-stale-parent")
         summary = sweep_lease_lifecycle_for_human_required(base_dir=self.tools)
-        anchor_ids = {
-            r.get("request_id") for r in summary["created"]
-            if (r.get("context") or {}).get("kind") == "anchor_stale"
-        }
-        self.assertNotIn("AIR-stale-parent", anchor_ids)
-        reasons = {(s.get("request_id"), s.get("reason")) for s in summary["skipped"]}
-        self.assertIn(("AIR-stale-parent", "remint_successor_exists"), reasons)
+        disposed = {d["request_id"] for d in summary["anchor_stale"]["disposed"]}
+        self.assertNotIn("AIR-stale-parent", disposed)
+        self.assertIsNone(self._record("AIR-stale-parent"))
+        self.assertIn("AIR-stale-child", disposed)
 
 
 if __name__ == "__main__":

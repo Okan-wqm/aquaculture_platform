@@ -17,7 +17,7 @@ already dispatched is skipped.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .agent_invocations import create_agent_invocation_request
 from .evidence_trust import forbidden_detector_scope
@@ -191,11 +191,17 @@ def _judged_pairs(root: Path, tool_id: str) -> set[tuple[str, str]]:
     return pairs
 
 
-def pending_judge_counts(*, base_dir: str | Path | None = None) -> dict[str, int]:
+def pending_judge_counts(
+    *,
+    base_dir: str | Path | None = None,
+    states: Mapping[str, str] | None = None,
+) -> dict[str, int]:
     """Y2 (ORPHAN-704) — live (non-terminal) envelope count per judge role.
 
     Bounded to the anchor window: anything older is ANCHOR_STALE by
     definition, so deriving its state would only re-prove it dead.
+    ``states`` is a caller's own ``derive_request_states`` result, so a
+    sweep that already holds it does not load the ledgers again.
     """
     from datetime import datetime, timedelta, timezone
 
@@ -207,7 +213,8 @@ def pending_judge_counts(*, base_dir: str | Path | None = None) -> dict[str, int
     counts: dict[str, int] = {role: 0 for role, _ in JUDGE_FANOUT}
     # ORPHAN-HIGH-794 — one batch derivation instead of a per-row derive
     # (each of which reloaded all three ledgers — the OOM churn class).
-    states = derive_request_states(base_dir=root)
+    if states is None:
+        states = derive_request_states(base_dir=root)
     for row in list_agent_invocation_requests(base_dir=root):
         role = str(row.get("role") or "")
         if role not in counts:

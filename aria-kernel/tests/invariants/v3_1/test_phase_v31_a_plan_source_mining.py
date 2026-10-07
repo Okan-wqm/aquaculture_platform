@@ -86,7 +86,8 @@ class ConvertCandidateToPlanContentTests(unittest.TestCase):
         self.checkout.seed_finding("F-099", refs=[f"{GROUNDED_FILE}:346"])
 
     def _convert(self, candidate: dict):
-        from aria_kernel.finding_grounding import admit_candidate, admit_finding, load_grounding_context
+        from aria_kernel.finding_grounding import admit_finding, load_grounding_context
+        from aria_kernel.finding_seed import SubjectProbe, admit_and_seed
         from aria_kernel.plan_synthesizer import PlanEvidenceGround, convert_candidate_to_plan_content
 
         # ARIA-HIGH-260 — the aging F source is judged against the store's loop history.
@@ -94,9 +95,11 @@ class ConvertCandidateToPlanContentTests(unittest.TestCase):
         if candidate["source_type"] == "operator_feedback":
             # The digest the operator signed over the grounding (ADR-0018 B2).
             candidate = dict(candidate, grounding_digest=admit_finding(context, "F-099").grounding_digest)
+        # ARIA-HIGH-369 — an F plan is built from the finding's re-grounded seed.
+        admission, seeded = admit_and_seed(candidate, context, SubjectProbe({}))
         return convert_candidate_to_plan_content(
-            candidate, admission=admit_candidate(candidate, context),
-            ground=PlanEvidenceGround.of(self.checkout.repo),
+            candidate, admission=admission, ground=PlanEvidenceGround.of(self.checkout.repo),
+            seed=seeded.seed if seeded is not None else None,
         ).envelope
 
     def test_i_v31_a_02_handles_all_four_source_types(self) -> None:

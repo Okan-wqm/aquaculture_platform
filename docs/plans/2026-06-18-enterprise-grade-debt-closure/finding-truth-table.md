@@ -248,6 +248,7 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `SUPPLY-CRITICAL-018` | OPEN           | 2026-10-07   | claude                     | real-open                 |
 
 Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
 `ADMIN-CRITICAL-157` — `MessagingPage`'s Internal Note toggle set local state, styled the draft, and

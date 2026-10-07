@@ -222,7 +222,7 @@
     "@nestjs/typeorm": "^11.0.1",
     "@nestjs/websockets": "^11.2.7",
     "@opentelemetry/api": "^1.9.1",
-    "@opentelemetry/auto-instrumentations-node": "^0.78.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.81.0",
     "@opentelemetry/core": "^2.9.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.220.0",
     "@opentelemetry/resources": "^2.9.0",
@@ -282,16 +282,16 @@
     "@graphql-codegen/cli": "^7.0.0",
     "@graphql-codegen/typescript": "^6.0.0",
     "@nestjs/testing": "11.2.7",
-    "@nx/eslint": "22.7.8",
-    "@nx/eslint-plugin": "22.7.8",
-    "@nx/jest": "22.7.8",
-    "@nx/js": "22.7.8",
-    "@nx/nest": "22.7.8",
-    "@nx/node": "22.7.8",
-    "@nx/react": "22.7.8",
-    "@nx/vite": "22.7.8",
-    "@nx/vitest": "22.7.8",
-    "@nx/workspace": "22.7.8",
+    "@nx/eslint": "22.7.12",
+    "@nx/eslint-plugin": "22.7.12",
+    "@nx/jest": "22.7.12",
+    "@nx/js": "22.7.12",
+    "@nx/nest": "22.7.12",
+    "@nx/node": "22.7.12",
+    "@nx/react": "22.7.12",
+    "@nx/vite": "22.7.12",
+    "@nx/vitest": "22.7.12",
+    "@nx/workspace": "22.7.12",
     "@playwright/test": "^1.58.2",
     "@swc-node/register": "^1.10.0",
     "@swc/core": "^1.7.0",
@@ -334,7 +334,7 @@
     "jiti": "2.4.2",
     "jsonc-eslint-parser": "^2.1.0",
     "monaco-editor": "^0.53.0",
-    "nx": "22.7.8",
+    "nx": "22.7.12",
     "openapi-typescript": "^7.13.0",
     "prettier": "~3.6.2",
     "supertest": "^7.2.2",
@@ -403,11 +403,23 @@
     "ws": "^8.21.0",
     "vite": "^7.3.5",
     "@istanbuljs/load-nyc-config": {
-      "js-yaml": "^3.15.2"
+      "js-yaml": {
+        "argparse": "2.0.1"
+      }
     },
     "svgo": "^3.3.5",
     "js-yaml": "^4.3.2",
-    "adm-zip": "^0.6.1"
+    "adm-zip": "^0.6.1",
+    "proxy-addr": "^2.0.8",
+    "@nestjs/graphql": {
+      "@graphql-tools/utils": "12.0.3"
+    },
+    "nx": {
+      "smol-toml": "1.9.0"
+    },
+    "concurrently": {
+      "shell-quote": "1.11.0"
+    }
   },
   "optionalDependencies": {
     "@swc/core-linux-x64-gnu": "1.15.41"

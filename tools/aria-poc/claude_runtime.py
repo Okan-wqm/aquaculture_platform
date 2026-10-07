@@ -216,6 +216,25 @@ class ClaudeCreditExhausted(RuntimeError):
         self.detail = detail
 
 
+class ClaudeProviderUnreachable(RuntimeError):
+    """The vendor did not serve the attempt: HTTP 429/529/503 or a network loss.
+
+    ARIA-HIGH-366 — before this a bare 429 or a dropped connection read as
+    the generic ``native_runtime_execution_unavailable`` exit: harness-class,
+    so nothing burned, but nothing cooled the provider, opened an outage or
+    told anyone either, and every waiting timer kept running. Raised like
+    ClaudeCreditExhausted so the executors cool the provider (kind
+    ``unreachable``, signature ``claude_unreachable``) and release under
+    ``provider_unreachable:<provider>``.
+    """
+
+    def __init__(self, message: str, *, provider: str, model: str, detail: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.model = model
+        self.detail = detail
+
+
 class ClaudePolicyViolation(RuntimeError):
     """Environment or argv would violate ARIA's Claude runtime policy."""
 
@@ -242,6 +261,9 @@ class ClaudeRunResult:
     # run_with_model_fallback cross vendors on auth failure, on the rung the
     # role's routing ladder names; see AUTH_FAILURE_MARKERS.
     auth_failure: dict[str, Any] | None = None
+    # ARIA-HIGH-366 — the vendor-did-not-serve record (`extract_unreachable`),
+    # or None; run_with_model_fallback turns it into ClaudeProviderUnreachable.
+    unreachable: dict[str, Any] | None = None
     # ARIA-HIGH-002 — typed terminal classification of THIS result (auth
     # failure / credit-exhaustion markers, process exit), stamped by the
     # runtime through dispatch_failure.classify_dispatch_failure before the
@@ -1590,6 +1612,7 @@ def run_claude_exec(
             returncode=proc.returncode, stderr=proc.stderr, events=events,
             final_message=final_message,
         ),
+        unreachable=extract_unreachable(returncode=proc.returncode, stderr=proc.stderr, events=events),
     )
     # ARIA-HIGH-002 — stamp the typed classification on the result itself so
     # downstream consumers (drains, evidence surfaces) read one vocabulary
@@ -1762,11 +1785,10 @@ CLAUDE_EXHAUSTION_SIGNATURES: tuple[str, ...] = (
 #     names a credit/quota/billing problem.
 #
 # Transient signals ("overloaded", a bare per-minute rate limit / HTTP 429,
-# network/timeout) are in NEITHER set — they stay on the EXTERNAL_OUTAGE
-# requeue path (retry on the SAME model clears them), whereas credit exhaustion
-# is deterministic and provider-wide: it clears only when the provider's
-# quota comes back, which is why the executors requeue the request under a
-# provider cooldown instead of retrying it on any tier.
+# network/timeout) are in NEITHER set: they are the vendor not serving, not
+# its quota running out — `UNREACHABLE_MARKERS` below (ARIA-HIGH-366). The
+# "EXTERNAL_OUTAGE requeue path" an earlier note here named never existed
+# (nothing wrote `api_backoff_exhausted`); it was deleted with its reaper.
 CREDIT_ERROR_MARKERS: tuple[str, ...] = (
     "credit balance",          # "Your credit balance is too low"
     "insufficient credit",
@@ -1813,6 +1835,45 @@ AUTH_FAILURE_MARKERS: tuple[str, ...] = (
     "please run /login",
     "please log in",
 )
+
+
+# (4) PROVIDER UNREACHABLE — ARIA-HIGH-366. The vendor did not serve the
+# attempt: the CLI's "API Error: 429/529/503 ..." line, the error types the
+# API returns for them, or a connection that never completed. Matched only on
+# a NONZERO exit (an agent's answer about rate limiting must not read as the
+# vendor refusing it) and only after auth and credit, which name a cause an
+# operator must act on and take precedence.
+UNREACHABLE_MARKERS: tuple[str, ...] = (
+    "api error: 429", "api error: 529", "api error: 503", "api error: 502",
+    "rate_limit_error", "overloaded_error",
+    "api error (connection error", "connection error.", "econnrefused", "econnreset",
+    "enotfound", "etimedout", "eai_again", "socket hang up", "fetch failed",
+)
+
+
+def extract_unreachable(
+    *, returncode: int, stderr: str, events: tuple[dict[str, Any], ...],
+) -> dict[str, Any] | None:
+    """Name a vendor-did-not-serve failure, or return None (detection only).
+
+    Read from the CLI's ERROR channel only — stderr and the terminal
+    ``result`` event the CLI marks ``is_error`` — never from assistant text
+    (PR #1835 review MEDIUM-1): an implementer reporting "ECONNREFUSED
+    127.0.0.1:5432" about the code under test and then exiting nonzero would
+    otherwise cool Anthropic fleet-wide and loop uncharged.
+    """
+    if returncode == 0:
+        return None
+    channel = [stderr or ""]
+    for event in events:
+        if event.get("type") == "result" and event.get("is_error") is True:
+            channel.extend(str(event.get(key) or "") for key in ("result", "error"))
+    blob = "\n".join(channel).lower()
+    marker = next((m for m in UNREACHABLE_MARKERS if m in blob), None)
+    if marker is None:
+        return None
+    return {"kind": "unreachable", "signature": "claude_unreachable", "marker": marker,
+            "returncode": returncode}
 
 
 def extract_auth_failure(
@@ -1918,7 +1979,7 @@ def run_with_model_fallback(
                     f"are unavailable; remedy: {completed.auth_failure.get('remedy')}",
                     provider=_model_provider(cross), model=cross, detail=dict(retried.auth_failure),
                 )
-            return _stamp_model(_raise_if_exhausted(retried, model=cross, on_credit=on_credit), cross)
+            return _stamp_model(_raise_if_unserved(retried, model=cross, on_credit=on_credit), cross)
         raise ClaudeAuthFailure(
             f"claude_auth_failure: {completed.auth_failure.get('marker')} on {model!r}"
             + (" — a write-scope profile has no cross-vendor rung (the other "
@@ -1926,7 +1987,22 @@ def run_with_model_fallback(
             + f"; {completed.auth_failure.get('remedy')}",
             provider=_model_provider(model), model=model, detail=dict(completed.auth_failure),
         )
-    return _stamp_model(_raise_if_exhausted(completed, model=model, on_credit=on_credit), model)
+    return _stamp_model(_raise_if_unserved(completed, model=model, on_credit=on_credit), model)
+
+
+def _raise_if_unserved(
+    result: ClaudeRunResult, *, model: str, on_credit: Callable[[str, dict[str, Any]], None] | None,
+) -> ClaudeRunResult:
+    """Exhaustion first (an operator must act), then unreachable (ARIA-HIGH-366)."""
+    result = _raise_if_exhausted(result, model=model, on_credit=on_credit)
+    if result.unreachable is None:
+        return result
+    provider = _model_provider(model)
+    raise ClaudeProviderUnreachable(
+        f"provider_unreachable: provider={provider!r} model={model!r} — the vendor did not serve "
+        f"the attempt ({result.unreachable.get('marker')}); the request waits for it",
+        provider=provider, model=model, detail=dict(result.unreachable),
+    )
 
 
 def _stamp_model(result: ClaudeRunResult, model: str) -> ClaudeRunResult:

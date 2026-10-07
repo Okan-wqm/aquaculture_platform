@@ -59,6 +59,8 @@ BOUNDED_PER_REQUEST_SITES: dict[tuple[str, str], str] = {
         "the request ids of one adjudication panel",
     ("aria-kernel/aria_kernel/mission_dispatch.py", "in_flight_mission_request"):
         "only rows matching one mission's marker and contract are derived",
+    ("aria-kernel/aria_kernel/outage_causality.py", "request_awaits_provider"):
+        "one request: a stalled plan's newest request, or one orphaned plan's implementation request",
     ("aria-kernel/aria_kernel/step_request.py", "step_request_disposition"):
         "the requests of one (plan, role, round) step: at most 1 + MAX_STEP_REQUEST_REMINTS",
     ("aria-kernel/aria_kernel/review_runner.py", "run_review_runner"):

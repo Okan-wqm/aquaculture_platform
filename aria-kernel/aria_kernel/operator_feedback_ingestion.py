@@ -42,6 +42,8 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl
+from .operator_request_outage import surface_outage_expired_request
+from .operator_request_terms import REQUEST_EXPIRED
 from .operator_feedback_signature import (
     OPERATOR_FEEDBACK_LEDGER_NAME,
     is_operator_request_row,
@@ -242,6 +244,11 @@ def ingest_operator_feedback(
         if schema is not None:
             scan.drop(row, line_no, schema, signer=verdict.signer)
             scan.refusals.append((dict(row, _subject_digest=digest), schema))
+            if schema == REQUEST_EXPIRED:
+                # ARIA-HIGH-365 — the signed expiry stands (it bounds replay);
+                # an expiry an outage caused is put back to the operator, never
+                # spent in silence (`operator_request_outage`).
+                surface_outage_expired_request(root, row, now=moment)
             continue
         groups.setdefault(identifier, []).append((dict(row, _line_no=line_no, _signer=verdict.signer), digest))
     for offset, row in enumerate(tail, start=len(verified) + 1):

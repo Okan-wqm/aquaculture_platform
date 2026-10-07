@@ -140,6 +140,9 @@ _EXCEPTION_CLASSES: tuple[tuple[type[BaseException], DispatchFailureClass], ...]
     (claude_runtime.ClaudeCliUnavailable, "cli_unavailable"),
     (claude_runtime.ClaudeUsageUnavailable, "usage_unavailable"),
     (claude_runtime.ClaudeCreditExhausted, "credit_exhausted"),
+    # ARIA-HIGH-366 — the vendor did not serve (429/529/network): the
+    # host's view of a provider outage, retried when the provider is back.
+    (claude_runtime.ClaudeProviderUnreachable, "harness_unavailable"),
     (claude_runtime.ClaudePolicyViolation, "policy_violation"),
     (subprocess.TimeoutExpired, "timeout"),
 )
@@ -186,7 +189,7 @@ def classify_dispatch_failure(
             if isinstance(exception, exc_type):
                 return DispatchFailure(
                     failure_class=failure_class,
-                    retryable=failure_class == "timeout",
+                    retryable=failure_class in ("timeout", "harness_unavailable"),
                     detail_code=_detail_from_exception(exception, failure_class),
                     phase=phase,
                     exit_code=getattr(exception, "returncode", None),

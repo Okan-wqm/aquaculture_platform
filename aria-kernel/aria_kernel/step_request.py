@@ -50,11 +50,11 @@ LIVE_STEP_STATES: frozenset[str] = frozenset({
     "ACCEPTED_PENDING_BRIDGE",
 })
 
-# EXTERNAL_OUTAGE (a provider back-off the executor gave up on) has no wired
-# reaper: like a queue death it says nothing about the task, so the step mints
-# a successor. SUBMITTED (a legacy partial result) has no exit either; it is an
-# outcome the producer escalates.
-_EXTERNAL_DEATH_STATES: frozenset[str] = frozenset({"EXTERNAL_OUTAGE"})
+# SUBMITTED (a legacy partial result) has no exit; it is an outcome the
+# producer escalates. (EXTERNAL_OUTAGE was retired with its dead reaper,
+# ARIA-HIGH-366: a provider outage leaves the request live, and the
+# provider-available clock keeps it from aging into ANCHOR_STALE, so an
+# outage can no longer spend one of the step's successors.)
 
 # Successors one step may mint, across queue deaths and refused answers.
 MAX_STEP_REQUEST_REMINTS = 2
@@ -85,8 +85,8 @@ class StepRequestDisposition:
 def successor_eligible_states(role: str) -> frozenset[str]:
     """The newest-request states after which ``role``'s step mints a successor."""
     if role in PLANNING_ROUND_ROLES:
-        return frozenset({*REMINT_ELIGIBLE_DEAD_STATES, *_EXTERNAL_DEATH_STATES, "REJECTED"})
-    return frozenset({*REMINT_ELIGIBLE_DEAD_STATES, *_EXTERNAL_DEATH_STATES})
+        return frozenset({*REMINT_ELIGIBLE_DEAD_STATES, "REJECTED"})
+    return frozenset(REMINT_ELIGIBLE_DEAD_STATES)
 
 
 def step_request_disposition(

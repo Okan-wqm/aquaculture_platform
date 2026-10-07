@@ -2,6 +2,7 @@ import * as crypto from 'crypto';
 import {
   getTenantSchemaName,
   runInTenantRead,
+  SENSOR_SOURCE_SCHEMA,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
 
@@ -646,7 +647,7 @@ export class ProvisioningService {
 
     // Fingerprint duplicate check (with power-loss recovery - Fix 5)
     if (request.fingerprint.machineId) {
-      const existing = await runInTenantRead(this.dataSource, 'sensor', key.tenantId, async (qr) =>
+      const existing = await runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, key.tenantId, async (qr) =>
         tenantManagerRepo(qr.manager, EdgeDevice, key.tenantId)
           .createQueryBuilder('d')
           .andWhere("d.fingerprint->>'machineId' = :machineId", {

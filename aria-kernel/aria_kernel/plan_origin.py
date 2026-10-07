@@ -566,6 +566,28 @@ def render_commit_contract_section(contract: Any) -> str:
     else:
         lines.append("- No `Closes:` trailer exists for this origin; write none. Never invent one.")
     lines.append(f"- Commit subject types admitted: {types}")
+    # ARIA-HIGH-371 — the two lines above were the whole section, while the
+    # repository CLAUDE.md the agent also reads demands `fix(...)` plus a
+    # `Closes:` line for every fix. An F-origin plan (F-015, the first live
+    # delivery) IS a fix whose contract refuses exactly that: the agent was
+    # left to reconcile two contradicting instructions, and a `fix` subject
+    # is refused at pre-PR-open after the whole suite ran. The refused types,
+    # the subject shape, the precedence and one literal command are now
+    # printed, derived from the same contract the perimeter judges with.
+    refused = [kind for kind in COMMIT_TYPES if kind not in (contract.get("commit_types") or [])]
+    first = (contract.get("commit_types") or ["chore"])[0]
+    lines.append(f"- Subject line: `<type>(<scope>): <subject>` with `<type>` one of {types}, "
+                 "whatever the change does (a defect fix included)")
+    if refused:
+        lines.append("- Refused for this origin: a subject opening with "
+                     + ", ".join(f"`{kind}`" for kind in refused)
+                     + " — the commit-msg gate demands a `Closes:` trailer for those and this origin has none")
+    lines.append("- This contract replaces the repository CLAUDE.md commit format and `Closes:` rule for these "
+                 "commits; `commit_contract_honoured` refuses the delivery before the push otherwise")
+    example = f'git commit -m "{first}(<scope>): <subject>" -m "<why>"'
+    if trailer is not None:
+        example += f' -m "{trailer}"'
+    lines.append(f"- Exactly: `{example}`")
     return "\n".join(lines) + "\n\n"
 
 

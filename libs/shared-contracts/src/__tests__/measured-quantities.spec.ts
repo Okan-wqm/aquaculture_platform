@@ -9,6 +9,7 @@ import {
   measuredQuantity,
   parseQuantityId,
   QUANTITY_FAMILIES,
+  isLoopHomogeneous,
   readingParameterOfChannelKey,
   toCanonicalUnit,
   unitConversion,
@@ -181,6 +182,34 @@ describe('measured-quantity registry', () => {
     expect(toCanonicalUnit('ph', 'NBS', 7.9)).toBe(7.9);
     expect(toCanonicalUnit('waterLevel', '%', 40)).toBeNull();
     expect(unitConversion('salinity', 'ppt')).toEqual({ unit: 'ppt', factor: 1 });
+  });
+
+  it('lets only loop-uniform quantities be inherited from a system', () => {
+    const inherited = MEASURED_QUANTITIES.filter((quantity) => isLoopHomogeneous(quantity.id)).map(
+      (quantity) => quantity.id,
+    );
+    expect(inherited).toEqual([
+      'temperature',
+      'salinity',
+      'conductivity',
+      'specificConductance',
+      'alkalinity',
+      'calcium',
+      'hardness',
+      'tds',
+    ]);
+    // Gas exchange, biology and feeding make these differ tank to tank.
+    for (const local of [
+      'dissolvedOxygen',
+      'ph',
+      'co2',
+      'tan',
+      'nh3',
+      'h2s',
+      'nitriteN',
+    ] as const) {
+      expect(isLoopHomogeneous(local)).toBe(false);
+    }
   });
 
   it('parses a quantity id from untrusted input', () => {

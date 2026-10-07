@@ -92,6 +92,9 @@ export class SensorChannelDescriptionType {
   @Field(() => ID, { nullable: true })
   tankId!: string | null;
 
+  @Field(() => ID, { nullable: true, description: 'Non-tank water equipment (a tank is tankId)' })
+  equipmentId!: string | null;
+
   @Field(() => ID, { nullable: true })
   channelId!: string | null;
 

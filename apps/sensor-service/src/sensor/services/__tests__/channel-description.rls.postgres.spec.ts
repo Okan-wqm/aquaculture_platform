@@ -25,6 +25,8 @@ const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const SITE = 'c1c1c1c1-c1c1-4c1c-8c1c-c1c1c1c1c1c1';
 const SYSTEM = 'd2d2d2d2-d2d2-4d2d-8d2d-d2d2d2d2d2d2';
 const TANK = 'e3e3e3e3-e3e3-4e3e-8e3e-e3e3e3e3e3e3';
+/** A biofilter: non-tank water equipment, recorded as equipment, not as a tank. */
+const BIOFILTER = 'f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4';
 const ENTITIES = [Sensor, SensorDataChannel, SensorMetric, SensorProtocol, SensorTypeDefinition];
 
 const GOOD = 192;
@@ -60,12 +62,17 @@ describe('ChannelDescriptionService under FORCE RLS', () => {
           tenantId: string,
           active: boolean,
           channels: ChannelSeed[],
+          placement: { tank: string | null; equipment: string | null } = {
+            tank: TANK,
+            equipment: null,
+          },
         ): Promise<void> => {
           const [row] = await admin.query(
             `INSERT INTO "${schema}".sensors
-                 (tenant_id, name, serial_number, type, status, is_active, site_id, system_id, tank_id)
-               VALUES ($1, $2, $2, 'multi_parameter', 'active', $3, $4, $5, $6) RETURNING id`,
-            [tenantId, name, active, SITE, SYSTEM, TANK],
+                 (tenant_id, name, serial_number, type, status, is_active, site_id, system_id, tank_id,
+                  equipment_id)
+               VALUES ($1, $2, $2, 'multi_parameter', 'active', $3, $4, $5, $6, $7) RETURNING id`,
+            [tenantId, name, active, SITE, SYSTEM, placement.tank, placement.equipment],
           );
           sensorIds[name] = row.id;
           for (const channel of channels) {
@@ -117,7 +124,10 @@ describe('ChannelDescriptionService under FORCE RLS', () => {
           // A stored declaration the key does not allow reads as no quantity.
           { key: 'temperature', unit: '°C', declared: 'tan' },
         ]);
-        await sensor('retired', TENANT_A, false, [{ key: 'salinity', unit: 'ppt' }]);
+        await sensor('retired', TENANT_A, false, [{ key: 'salinity', unit: 'ppt' }], {
+          tank: null,
+          equipment: BIOFILTER,
+        });
         // Another tenant's rows inside this tenant's schema: only RLS hides them.
         await sensor('intruder', TENANT_B, true, [
           { key: 'ammonia', unit: 'mg/L', samples: [[1, 9.9, GOOD]] },
@@ -166,6 +176,7 @@ describe('ChannelDescriptionService under FORCE RLS', () => {
       siteId: SITE,
       systemId: SYSTEM,
       tankId: TANK,
+      equipmentId: null,
       enabled: true,
       quantity: 'tan',
       quantityFamily: 'ammonia',
@@ -200,6 +211,9 @@ describe('ChannelDescriptionService under FORCE RLS', () => {
       presence: 'FOUND',
       sensorActive: false,
       quantity: 'salinity',
+      // Non-tank water equipment, recorded as equipment.
+      tankId: null,
+      equipmentId: BIOFILTER,
     });
   });
 });

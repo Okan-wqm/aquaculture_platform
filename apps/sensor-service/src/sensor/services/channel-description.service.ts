@@ -34,6 +34,7 @@ interface DescriptionRow {
   site_id: string | null;
   system_id: string | null;
   tank_id: string | null;
+  equipment_id: string | null;
   channel_id: string | null;
   is_enabled: boolean | null;
   declared_quantity: string | null;
@@ -86,7 +87,7 @@ export class ChannelDescriptionService {
             (qr) =>
               qr.query(
                 `SELECT k.ord, s.id IS NOT NULL AS sensor_found, s.is_active,
-                        s.site_id, s.system_id, s.tank_id,
+                        s.site_id, s.system_id, s.tank_id, s.equipment_id,
                         c.id AS channel_id, c.is_enabled, c.declared_quantity, c.unit,
                         c.next_calibration_due, c.measurement_configured_at,
                         lv.value, lv.time, lv.quality_code
@@ -140,6 +141,7 @@ function describeRow(
     siteId: null,
     systemId: null,
     tankId: null,
+    equipmentId: null,
     channelId: null,
     enabled: null,
     quantity: null,
@@ -159,6 +161,7 @@ function describeRow(
     siteId: row.site_id,
     systemId: row.system_id,
     tankId: row.tank_id,
+    equipmentId: row.equipment_id,
   };
   if (row.channel_id === null) {
     return { ...absent, ...sensor, presence: 'NO_CHANNEL' };

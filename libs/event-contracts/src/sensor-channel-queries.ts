@@ -44,7 +44,7 @@ export type SensorSampleQuality = 'GOOD' | 'UNCERTAIN' | 'BAD';
  * describes was found: sensor fields need the sensor, channel fields the
  * channel, `latest*` a qualifying sample.
  *
- * - Location (`siteId`/`systemId`/`tankId`) is the device that owns the
+ * - Location (`siteId`/`systemId`/`tankId`/`equipmentId`) is the device that owns the
  *   channel — for MQTT parent/child devices, the parent, which is also where
  *   ingestion attributes the readings.
  * - `unit` is the unit the channel's values are in; null means the channel
@@ -66,6 +66,8 @@ export interface SensorChannelDescription extends SensorChannelKey {
   siteId: string | null;
   systemId: string | null;
   tankId: string | null;
+  /** Non-tank water equipment the device stands at (a tank is `tankId`). */
+  equipmentId: string | null;
   channelId: string | null;
   enabled: boolean | null;
   /** Effective measured quantity (registry id): declared, else named by the key. */
@@ -139,6 +141,7 @@ const DESCRIPTION_FIELDS = {
   siteId: nullable(isString),
   systemId: nullable(isString),
   tankId: nullable(isString),
+  equipmentId: nullable(isString),
   channelId: nullable(isString),
   enabled: nullable(isBoolean),
   quantity: nullable(isString),

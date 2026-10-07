@@ -240,6 +240,7 @@ export function SensorRegistrationWizard({
         siteId: parentDeviceInfo.siteId,
         departmentId: parentDeviceInfo.departmentId,
         systemId: parentDeviceInfo.systemId,
+        tankId: parentDeviceInfo.tankId,
         equipmentId: parentDeviceInfo.equipmentId,
         location: parentDeviceInfo.location,
       },

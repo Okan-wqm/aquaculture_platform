@@ -18,6 +18,7 @@ const found: SensorChannelDescription = {
   siteId: null,
   systemId: null,
   tankId: null,
+  equipmentId: null,
   channelId: '33333333-3333-4333-8333-333333333333',
   enabled: true,
   quantity: 'tan',

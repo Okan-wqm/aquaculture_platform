@@ -10,6 +10,7 @@ describe('toDescriptionType', () => {
       siteId: null,
       systemId: null,
       tankId: null,
+      equipmentId: null,
       channelId: 'c',
       enabled: true,
       quantity: 'ph',

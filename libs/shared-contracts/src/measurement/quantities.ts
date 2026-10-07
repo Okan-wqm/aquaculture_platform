@@ -55,6 +55,14 @@ interface QuantityDefinition {
    * the canonical unit: canonical = value × factor + offset.
    */
   readonly conversions?: readonly UnitConversion[];
+  /**
+   * The quantity is uniform across a recirculating loop: every tank of a
+   * system holds the value its sump or loop sensor reads, so a tank without its
+   * own source may inherit the system's (labelled as inherited). Gas exchange,
+   * biology and feeding make dissolved oxygen, pH, CO2, the nitrogen species
+   * and sulfide differ tank to tank; those are never inherited.
+   */
+  readonly loopHomogeneous?: true;
 }
 
 export interface UnitConversion {
@@ -85,6 +93,7 @@ export const MEASURED_QUANTITIES = [
       { unit: '°F', factor: 5 / 9, offset: -160 / 9 },
       { unit: 'K', factor: 1, offset: -273.15 },
     ],
+    loopHomogeneous: true,
   },
   {
     id: 'ph',
@@ -107,6 +116,7 @@ export const MEASURED_QUANTITIES = [
     spellings: ['ppt', '‰', 'g/kg', 'psu', 'PSU'],
     basis: null,
     readingParameter: 'salinity',
+    loopHomogeneous: true,
   },
   {
     id: 'conductivity',
@@ -114,6 +124,7 @@ export const MEASURED_QUANTITIES = [
     spellings: US_CM,
     basis: 'at sample temperature',
     conversions: EC_CONVERSIONS,
+    loopHomogeneous: true,
   },
   {
     id: 'specificConductance',
@@ -121,6 +132,7 @@ export const MEASURED_QUANTITIES = [
     spellings: US_CM,
     basis: 'compensated to 25 °C',
     conversions: EC_CONVERSIONS,
+    loopHomogeneous: true,
   },
   { id: 'tan', unit: 'mg/L', spellings: MG_L, basis: 'total ammonia as N' },
   { id: 'nh3', unit: 'mg/L', spellings: MG_L, basis: 'un-ionized ammonia as N' },
@@ -145,9 +157,21 @@ export const MEASURED_QUANTITIES = [
     basis: 'total sulfide as S',
     conversions: MG_TO_UG,
   },
-  { id: 'alkalinity', unit: 'mg/L CaCO3', spellings: CACO3, basis: 'as CaCO3' },
-  { id: 'calcium', unit: 'mg/L', spellings: MG_L, basis: 'as Ca' },
-  { id: 'hardness', unit: 'mg/L CaCO3', spellings: CACO3, basis: 'total hardness as CaCO3' },
+  {
+    id: 'alkalinity',
+    unit: 'mg/L CaCO3',
+    spellings: CACO3,
+    basis: 'as CaCO3',
+    loopHomogeneous: true,
+  },
+  { id: 'calcium', unit: 'mg/L', spellings: MG_L, basis: 'as Ca', loopHomogeneous: true },
+  {
+    id: 'hardness',
+    unit: 'mg/L CaCO3',
+    spellings: CACO3,
+    basis: 'total hardness as CaCO3',
+    loopHomogeneous: true,
+  },
   { id: 'co2', unit: 'mg/L', spellings: MG_L, basis: 'dissolved, as CO2' },
   {
     id: 'turbidity',
@@ -195,7 +219,13 @@ export const MEASURED_QUANTITIES = [
     conversions: [{ unit: 'kPa', factor: 10 }],
   },
   { id: 'orp', unit: 'mV', spellings: ['mV'], basis: null },
-  { id: 'tds', unit: 'ppm', spellings: ['ppm', 'mg/L', 'mg/l'], basis: null },
+  {
+    id: 'tds',
+    unit: 'ppm',
+    spellings: ['ppm', 'mg/L', 'mg/l'],
+    basis: null,
+    loopHomogeneous: true,
+  },
   { id: 'chlorine', unit: 'mg/L', spellings: MG_L, basis: 'free chlorine as Cl2' },
   { id: 'chloride', unit: 'mg/L', spellings: MG_L, basis: 'as Cl-' },
   { id: 'ozone', unit: 'mg/L', spellings: MG_L, basis: 'as O3' },
@@ -414,6 +444,12 @@ export function unitConversion(id: QuantityId, unit: string): UnitConversion | n
 export function toCanonicalUnit(id: QuantityId, unit: string, value: number): number | null {
   const conversion = unitConversion(id, unit);
   return conversion === null ? null : value * conversion.factor + (conversion.offset ?? 0);
+}
+
+/** Whether a tank may inherit this quantity from its system's source (see QuantityDefinition). */
+export function isLoopHomogeneous(id: QuantityId): boolean {
+  const quantity: QuantityDefinition = measuredQuantity(id);
+  return quantity.loopHomogeneous === true;
 }
 
 /** Whether `unit` is an accepted spelling of the quantity's unit. */

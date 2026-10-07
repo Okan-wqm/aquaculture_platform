@@ -19862,6 +19862,8 @@ export type SensorChannelDescriptionType = {
   /** When the unit or quantity last changed; latest* is never older */
   configuredAt?: Maybe<Scalars['DateTime']['output']>;
   enabled?: Maybe<Scalars['Boolean']['output']>;
+  /** Non-tank water equipment (a tank is tankId) */
+  equipmentId?: Maybe<Scalars['ID']['output']>;
   latestAt?: Maybe<Scalars['DateTime']['output']>;
   latestQuality?: Maybe<SampleQuality>;
   latestValue?: Maybe<Scalars['Float']['output']>;

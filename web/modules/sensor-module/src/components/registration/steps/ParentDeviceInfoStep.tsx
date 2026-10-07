@@ -8,6 +8,8 @@ import {
 } from '../../../hooks/useLocationHierarchy';
 import { useEquipmentList } from '../../../hooks/useEquipment';
 
+import { devicePlacement } from './devicePlacement';
+
 interface ParentDeviceInfoStepProps {
   values: Partial<ParentDeviceInfo>;
   onChange: (updates: Partial<ParentDeviceInfo>) => void;
@@ -50,6 +52,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
       departmentId: undefined,
       systemId: undefined,
       equipmentId: undefined,
+      tankId: undefined,
     });
   };
 
@@ -58,6 +61,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
       departmentId: departmentId || undefined,
       systemId: undefined,
       equipmentId: undefined,
+      tankId: undefined,
     });
   };
 
@@ -65,11 +69,12 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
     onChange({
       systemId: systemId || undefined,
       equipmentId: undefined,
+      tankId: undefined,
     });
   };
 
-  const handleEquipmentChange = (equipmentId: string) => {
-    onChange({ equipmentId: equipmentId || undefined });
+  const handleEquipmentChange = (unitId: string) => {
+    onChange(devicePlacement(equipment.find((unit) => unit.id === unitId)));
   };
 
   return (
@@ -264,7 +269,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
             </label>
             <select
               id="equipmentId"
-              value={values.equipmentId || ''}
+              value={values.tankId ?? values.equipmentId ?? ''}
               onChange={(e) => handleEquipmentChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
               disabled={!values.departmentId || equipLoading}

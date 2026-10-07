@@ -173,6 +173,7 @@ export {
   effectiveQuantity,
   readingParameterOfChannelKey,
   isAcceptedUnit,
+  isLoopHomogeneous,
   toCanonicalUnit,
   unitConversion,
 } from './measurement/quantities';

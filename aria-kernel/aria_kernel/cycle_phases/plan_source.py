@@ -176,6 +176,7 @@ class V9PressureSourceProvider:
     ) -> CyclePlanEnvelope | None:
         from ..finding_grounding import admit_candidate, load_grounding_context
         from ..operator_feedback_ingestion import bind_plan_synthesis, record_request_refused
+        from ..admission_lessons import recurring_attributed_refusal
         from ..operator_request_spend import REQUEST_TEXT_UNUSABLE
         from ..plan_candidate_source import PlanCandidateSource
         from ..plan_synthesizer import (
@@ -229,6 +230,15 @@ class V9PressureSourceProvider:
                     # The loop guard's evidence rides on the one skip event
                     # the candidate gets this cycle (ARIA-HIGH-260).
                     grounding["loop_guard"] = dict(admission.loop_guard)
+            if envelope is not None and candidate.get("source_type") != PlanCandidateSource.OPERATOR_FEEDBACK.value:
+                # ARIA-HIGH-370 — a candidate whose last attributed attempts all
+                # failed in one mode is refused unchanged; the lesson is the
+                # skip's evidence. An operator request is the operator's act
+                # and outranks this brake as it outranks the loop guards.
+                lesson = recurring_attributed_refusal(base_dir=base_dir, plan_content=envelope.content)
+                if lesson is not None:
+                    envelope = None
+                    grounding.update({"reason": lesson["reason"], "runner_fault": False, "lesson": lesson})
             if envelope is not None:
                 # Bind BEFORE announcing the selection: the synthesized content
                 # hash is what plan_started will record, and the pre-merge
@@ -251,10 +261,10 @@ class V9PressureSourceProvider:
                     },
                 )
                 return envelope
-            if conversion.skip_reason is not None:
+            if conversion.skip_reason is not None and "lesson" not in grounding:
                 grounding["reason"] = conversion.skip_reason
                 grounding["runner_fault"] = conversion.harness_fault
-            elif admission is not None:
+            elif admission is not None and "lesson" not in grounding:
                 grounding["reason"] = admission.reason or REQUEST_TEXT_UNUSABLE
                 grounding["runner_fault"] = admission.runner_fault
             append_tools_governance(

@@ -49,6 +49,14 @@ from pathlib import Path
 from typing import Any, Collection
 
 from .artifact_safety import assert_real_mode_env_safe
+from .failure_attribution import (
+    ABANDON_REASON,
+    Attribution,
+    InvocationLedgersSource,
+    attribute_implementation_failure,
+    attribute_plan_failure,
+    attribute_self_revert,
+)
 from .ledger import LedgerIntegrityError, append_declared_jsonl, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref
 from .runtime_profile import enforce_profile_for_write
@@ -838,13 +846,10 @@ PERFORMANCE_OBSERVED_KIND = "performance_observed"
 LESSON_EPISODE_THRESHOLD = 3
 #: A round-one plan no agent revised is the kernel's own seed.
 PLAN_SYNTHESIZER_SUBJECT = "kernel:plan_synthesizer"
-#: Failure modes that name the lane, not the work: nothing the agent produced
-#: was judged (an envelope nobody answered, a lease or poll that ran out, a
-#: reaped orphan). Recorded, and kept off the agent's scorecard.
-UNATTRIBUTABLE_FAILURE_MODES: frozenset[str] = frozenset({
-    "stalled", "convergence_envelope_dead", "no_claim_timeout", "in_flight_abandoned",
-    "ci_check_timeout", "orchestrator_restart_reaped_orphan", "cycle_budget_exhausted",
-})
+# ARIA-HIGH-370 — which failures are the agent's is no longer a list of lane
+# tokens kept here: ``failure_attribution`` attributes a failure only when
+# its own evidence names the work (an allowlist of evidence), and every
+# other failure is recorded and kept off the scorecard.
 #: The program plan's learning KPIs the recorded evidence cannot compute, and why.
 NOT_COMPUTABLE_KPIS: dict[str, str] = {
     "repeat_failure_rate_by_class_key": "plans record no class_key (tool:rule); the live split is by failure_mode",
@@ -882,21 +887,28 @@ def _attributed_reverts(root: Path) -> dict[str, dict[str, Any]]:
 def _episode(
     role: str, subject: str, plan_id: str, source: dict[str, str], occurred_at: Any,
     outcome: str, failure_mode: str | None, supersedes: str | None = None,
+    attribution: Attribution | None = None,
 ) -> dict[str, Any]:
+    """One episode. ARIA-HIGH-370: a failure is ``attributable`` only when
+    ``failure_attribution`` names the work from the failure's own evidence;
+    the attribution's mode replaces the lane token the reason started with."""
     canonical = json.dumps([role, plan_id, source], sort_keys=True).encode("utf-8")
     episode_id = "sha256:" + hashlib.sha256(canonical).hexdigest()
+    mode = attribution.failure_mode if attribution is not None else failure_mode
+    evidence = [source, *(dict(ref) for ref in attribution.evidence)] if attribution is not None else [source]
     return {
         "schema_version": 1, "row_id": episode_id, "row_type": PERFORMANCE_OBSERVED_KIND,
         "stream": "procedural", "kind": PERFORMANCE_OBSERVED_KIND, "episode_id": episode_id,
         "role": role, "subject": subject, "plan_id": plan_id, "outcome": outcome,
-        "success": failure_mode is None, "failure_mode": failure_mode,
-        "attributable": failure_mode not in UNATTRIBUTABLE_FAILURE_MODES,
-        "occurred_at": occurred_at, "evidence": [source], "supersedes": supersedes,
+        "success": failure_mode is None, "failure_mode": mode,
+        "attributable": failure_mode is None or attribution is not None,
+        "attribution": attribution.as_row() if attribution is not None else None,
+        "occurred_at": occurred_at, "evidence": evidence, "supersedes": supersedes,
     }
 
 
 def _performance_episodes(
-    events: list[dict[str, Any]], reverts: dict[str, dict[str, Any]],
+    events: list[dict[str, Any]], reverts: dict[str, dict[str, Any]], ledgers: InvocationLedgersSource,
 ) -> list[dict[str, Any]]:
     """Every finished episode in plan-ledger order: the drafter's at evaluation
     or abandonment, the implementer's at merge or rejection (a request always
@@ -918,15 +930,25 @@ def _performance_episodes(
         elif kind == "plan_evaluated":
             # HUMAN_REQUIRED (the validator's only other terminal): the first
             # reason code, or the state itself when the evaluation named none.
-            reason = [*payload["reason_codes"], "human_required"][0]
+            reasons = [*payload["reason_codes"], "human_required"]
+            attribution = attribute_plan_failure(
+                [str(code) for code in reasons], plan_id=plan_id, round_number=payload.get("round_number"),
+                drafter=drafter, ledgers=ledgers,
+            )
             episodes.append(_episode("drafter", drafter, plan_id, source, at, "escalated",
-                                     str(reason).split(":", 1)[0].strip()))
+                                     str(reasons[0]).split(":", 1)[0].strip(), attribution=attribution))
         elif kind == "plan_abandoned":
-            episodes.append(_episode("drafter", drafter, plan_id, source, at, "abandoned",
-                                     str(payload["reason"]).split(":", 1)[0].strip()))
+            reason = str(payload["reason"]).split(":", 1)[0].strip()
+            attribution = attribute_plan_failure([reason], plan_id=plan_id, round_number=None, drafter=drafter,
+                                                 ledgers=ledgers, named_by=ABANDON_REASON)
+            episodes.append(_episode("drafter", drafter, plan_id, source, at, "abandoned", reason,
+                                     attribution=attribution))
         elif kind == "implementation_rejected":
-            episodes.append(_episode("implementer", implementers[plan_id], plan_id, source, at,
-                                     "rejected", str(payload["rejection_class"])))
+            rejection = str(payload["rejection_class"])
+            episodes.append(_episode(
+                "implementer", implementers[plan_id], plan_id, source, at, "rejected", rejection,
+                attribution=attribute_implementation_failure(rejection, implementer=implementers[plan_id]),
+            ))
         elif kind == "implementation_merged":
             merged = _episode("implementer", implementers[plan_id], plan_id, source, at, "merged", None)
             episodes.append(merged)
@@ -936,17 +958,45 @@ def _performance_episodes(
                     "implementer", merged["subject"], plan_id,
                     {"surface": "enterprise_self_reverts", "id": str(revert["key"])}, revert["recorded_at"],
                     "self_reverted", f"self_revert:{revert['trigger']}", supersedes=merged["episode_id"],
+                    attribution=attribute_self_revert(str(revert["trigger"]), implementer=merged["subject"]),
                 ))
     return episodes
 
 
+def _judgement(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (row["failure_mode"], row["attributable"], json.dumps(row.get("attribution"), sort_keys=True))
+
+
 def _unrecorded_episodes(root: Path) -> list[dict[str, Any]]:
+    """The episodes to append: each one no row records yet, and each one a
+    recorded row judged differently (ARIA-HIGH-370 — the 19 drafter episodes
+    recorded before attribution existed). A re-judged episode keeps its
+    lineage (the first row's id), takes a new id, and supersedes the row it
+    corrects, so the ledger stays append-only and the current view is one
+    row per episode."""
     from .plan_convergence import events_file
 
-    recorded = {row["episode_id"] for row in _performance_rows(root)}
+    rows = _performance_rows(root)
+    recorded = {str(row["episode_id"]) for row in rows}
+    latest: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        latest[str(row.get("lineage_id") or row["episode_id"])] = row
     events = load_declared_jsonl(events_file(root), expected_surface="plan_convergence_events")
-    return [row for row in _performance_episodes(events, _attributed_reverts(root))
-            if row["episode_id"] not in recorded]
+    pending: list[dict[str, Any]] = []
+    for episode in _performance_episodes(events, _attributed_reverts(root), InvocationLedgersSource(root)):
+        lineage = str(episode["episode_id"])
+        current = latest.get(lineage)
+        if current is None:
+            pending.append(episode)
+            continue
+        if _judgement(current) == _judgement(episode):
+            continue
+        digest = hashlib.sha256(json.dumps([lineage, *_judgement(episode)]).encode("utf-8")).hexdigest()
+        rejudged = {**episode, "episode_id": "sha256:" + digest, "row_id": "sha256:" + digest,
+                    "lineage_id": lineage, "supersedes": str(current["episode_id"])}
+        if rejudged["episode_id"] not in recorded:
+            pending.append(rejudged)
+    return pending
 
 
 def _refuse(root: Path, cycle_id: str, reason: str, detail: str = "") -> dict[str, Any]:
@@ -1013,14 +1063,19 @@ def recurring_failure_modes(
 
     ``subject=None`` counts every subject of the role (a plan's outcome is the
     plan's, whoever drafted it); ``plan_ids`` limits the count to the episodes
-    of those plans (ARIA-HIGH-309, the planner's scope)."""
-    plans: dict[str, list[str]] = {}
+    of those plans (ARIA-HIGH-309, the planner's scope). ARIA-HIGH-370 — a
+    mode is counted per attributed role (``attributed_role``: the envelope
+    role whose work the evidence named, ``role`` itself for a row recorded
+    before attribution), so a challenger's refused output and the plan's own
+    refusal are two lessons for two envelopes."""
+    plans: dict[tuple[str, str], list[str]] = {}
     for row in list_performance_observations(base_dir=base_dir):
         if (row["role"] == role and (subject is None or row["subject"] == subject) and row["attributable"]
                 and not row["success"] and (plan_ids is None or row["plan_id"] in plan_ids)):
-            plans.setdefault(str(row["failure_mode"]), []).append(str(row["plan_id"]))
-    return [{"failure_mode": mode, "episodes": len(ids), "plan_ids": sorted(ids)}
-            for mode, ids in sorted(plans.items()) if len(ids) >= threshold]
+            attributed = str((row.get("attribution") or {}).get("role") or role)
+            plans.setdefault((str(row["failure_mode"]), attributed), []).append(str(row["plan_id"]))
+    return [{"failure_mode": mode, "attributed_role": attributed, "episodes": len(ids), "plan_ids": sorted(ids)}
+            for (mode, attributed), ids in sorted(plans.items()) if len(ids) >= threshold]
 
 
 def _repeat_failures(episodes: list[dict[str, Any]], role: str) -> dict[str, Any]:

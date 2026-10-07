@@ -149,7 +149,7 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
             },
             *contract.must_satisfy,
             # ARIA-HIGH-309 — the lessons recorded plans in this plan's scope teach.
-            *planner_lesson_obligations(base_dir=root, plan_id=plan_id),
+            *planner_lesson_obligations(base_dir=root, plan_id=plan_id, envelope_role=role),
         ],
         allowed_scope=list(contract.allowed_scope),
         evidence_refs=source_refs,

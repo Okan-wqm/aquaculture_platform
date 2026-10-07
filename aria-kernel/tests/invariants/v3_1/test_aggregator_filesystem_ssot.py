@@ -12,8 +12,9 @@ every reflection cycle.
 
 I-V3.1-06..09 invariants:
 
-  * I-V3.1-06 — aggregator reads findings from filesystem, not from
-    the (possibly-stale) ``_index.json`` snapshot.
+  * I-V3.1-06 — aggregator reads findings from the finding-event fold,
+    not from the (possibly-stale) ``_index.json`` snapshot nor from the
+    ``F-*.json`` files, which are frozen at mint (ARIA-MEDIUM-330).
   * I-V3.1-07 — aggregator reads debts from filesystem, not from the
     (possibly-stale) ``_index.json`` snapshot.
   * I-V3.1-08 — aggregator succeeds when ``_index.json`` files are
@@ -47,9 +48,8 @@ def _write_finding(
     status_value: str,
     created_at: str,
 ) -> None:
-    """Plan ARIA-V3.1 §2b — write a finding file using either the
-    ``status`` (F-001..F-007) or ``state`` (F-008+) schema variant.
-    """
+    """Write a frozen ``F-*.json`` finding file (what the mint leaves beside
+    the ledger, or a stray file no event emitted)."""
     findings_dir.mkdir(parents=True, exist_ok=True)
     row = {
         "$schema": "aria/finding/v1",
@@ -61,6 +61,32 @@ def _write_finding(
     (findings_dir / f"{finding_id}.json").write_text(
         json.dumps(row, indent=2), encoding="utf-8",
     )
+
+
+def _emit_into_ledger(findings_dir: Path, finding_id: str, *, created_at: str) -> None:
+    """A ``finding_emitted`` event plus the frozen ``F-*.json`` beside it,
+    laid out the way ``finding.emit_finding`` writes them."""
+    from tests._helpers.declared_fixtures import append_declared_fixture
+
+    _write_finding(
+        findings_dir, finding_id,
+        status_field="status", status_value="OPEN", created_at=created_at,
+    )
+    record = json.loads((findings_dir / f"{finding_id}.json").read_text(encoding="utf-8"))
+    append_declared_fixture(findings_dir / "finding-events.jsonl", {
+        "schema_version": 1, "event": "finding_emitted",
+        "event_id": f"finding:{finding_id}:emitted", "finding_id": finding_id, "record": record,
+    }, expected_surface="repo_finding_events")
+
+
+def _change_status(findings_dir: Path, finding_id: str, to_status: str) -> None:
+    from tests._helpers.declared_fixtures import append_declared_fixture
+
+    append_declared_fixture(findings_dir / "finding-events.jsonl", {
+        "schema_version": 1, "event": "finding_status_changed",
+        "event_id": f"finding:{finding_id}:status:{to_status}", "finding_id": finding_id,
+        "to_status": to_status, "reason": "fixture", "actor": "test",
+    }, expected_surface="repo_finding_events")
 
 
 def _write_debt(
@@ -84,35 +110,21 @@ def _write_debt(
 
 
 class AggregatorFilesystemSsot(unittest.TestCase):
-    # I-V3.1-06 — findings from filesystem, not stale index.
-    def test_i_v3_1_06_aggregator_reads_findings_from_filesystem(self) -> None:
+    # I-V3.1-06 — findings from the event fold, not the stale index
+    # (ARIA-MEDIUM-330: nor from the F-*.json files, which are frozen at mint).
+    def test_i_v3_1_06_aggregator_reads_findings_from_the_fold(self) -> None:
         from aria_kernel.reflection import _committed_findings_and_debts
 
         with tempfile.TemporaryDirectory(prefix="aria-v31-fs-find-") as tmp:
             repo = Path(tmp)
             findings = repo / "aria-findings"
-            # 3 findings on disk:
-            #  - F-001 OPEN (status schema)
-            #  - F-002 RESOLVED (status schema)
-            #  - F-003 OPEN (state schema — V3 plan style)
-            _write_finding(
-                findings, "F-001",
-                status_field="status", status_value="OPEN",
-                created_at="2026-05-10T00:00:00Z",
-            )
-            _write_finding(
-                findings, "F-002",
-                status_field="status", status_value="RESOLVED",
-                created_at="2026-05-11T00:00:00Z",
-            )
-            _write_finding(
-                findings, "F-003",
-                status_field="state", status_value="OPEN",
-                created_at="2026-05-12T00:00:00Z",
-            )
-            # Plan ARIA-V3.1 §2b — write a STALE _index.json that
-            # claims only F-001 exists. The fs-scan SSoT MUST
-            # ignore it and surface all 3 disk files.
+            # 3 findings in the ledger: F-001 OPEN, F-002 RESOLVED, F-003 OPEN.
+            _emit_into_ledger(findings, "F-001", created_at="2026-05-10T00:00:00Z")
+            _emit_into_ledger(findings, "F-002", created_at="2026-05-11T00:00:00Z")
+            _change_status(findings, "F-002", "RESOLVED")
+            _emit_into_ledger(findings, "F-003", created_at="2026-05-12T00:00:00Z")
+            # A STALE _index.json that claims only F-001 exists. The fold
+            # MUST ignore it and surface all 3 findings.
             (findings / "_index.json").write_text(
                 json.dumps({"findings": [{"finding_id": "F-001"}]}),
                 encoding="utf-8",
@@ -169,11 +181,7 @@ class AggregatorFilesystemSsot(unittest.TestCase):
             repo = Path(tmp)
             findings = repo / "aria-findings"
             debts = repo / "aria-debts"
-            _write_finding(
-                findings, "F-001",
-                status_field="status", status_value="OPEN",
-                created_at="2026-05-10T00:00:00Z",
-            )
+            _emit_into_ledger(findings, "F-001", created_at="2026-05-10T00:00:00Z")
             _write_debt(
                 debts, "DEBT-2026-05-01-001",
                 current_status="OPEN",
@@ -189,6 +197,34 @@ class AggregatorFilesystemSsot(unittest.TestCase):
             self.assertEqual(result["findings"]["open"], 1)
             self.assertEqual(result["debts"]["total"], 1)
             self.assertEqual(result["debts"]["open"], 1)
+
+    # ARIA-MEDIUM-330 — the fold, not the directory, says which findings
+    # exist and what state each is in.
+    def test_aggregator_counts_the_fold_not_the_files(self) -> None:
+        from aria_kernel.reflection import _committed_findings_and_debts
+
+        with tempfile.TemporaryDirectory(prefix="aria-fold-find-") as tmp:
+            repo = Path(tmp)
+            findings = repo / "aria-findings"
+            _emit_into_ledger(findings, "F-001", created_at="2026-05-10T00:00:00Z")
+            _emit_into_ledger(findings, "F-002", created_at="2026-05-11T00:00:00Z")
+            _change_status(findings, "F-002", "WITHDRAWN")
+            # A file no event emitted (the legacy seeder's F-101): not a finding.
+            _write_finding(
+                findings, "F-101",
+                status_field="status", status_value="OPEN",
+                created_at="2026-05-12T00:00:00Z",
+            )
+            result = _committed_findings_and_debts(
+                repo / "aria-tools", repo_root_override=repo,
+            )
+            self.assertEqual(result["findings"]["total"], 2)
+            # F-002.json still says OPEN (frozen at mint); the fold says WITHDRAWN.
+            self.assertEqual(result["findings"]["open"], 1)
+            self.assertEqual(
+                [row["finding_id"] for row in result["findings"]["recent"]],
+                ["F-002", "F-001"],
+            )
 
     # I-V3.1-09 — RESOLVED state visible in aggregator.
     def test_i_v3_1_09_resolved_state_visible_in_aggregator(self) -> None:

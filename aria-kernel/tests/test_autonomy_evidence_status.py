@@ -1534,6 +1534,12 @@ def alias_factory(root):
                 "judge calibration consumes samples for calibration statistics",
             ("finding_funnel", f"{KERNEL}judge_fanout.py", "consumer"):
                 "judge fanout selects samples but cannot authorize promotion",
+            # ARIA-HIGH-360 — the anchor-stale disposition reads settled
+            # fingerprints to decide whether an expired judge request's
+            # finding still needs that judge; it re-mints or drops a request,
+            # it cannot authorize promotion.
+            ("finding_funnel", f"{KERNEL}judge_subject_liveness.py", "consumer"):
+                "expired-judge liveness reads settled findings to re-ask a judge, never to promote",
             ("finding_funnel", f"{KERNEL}judge_replay.py", "consumer"):
                 "judge replay is a diagnostic comparison over prior rows",
             ("finding_funnel", f"{KERNEL}memory.py", "consumer"):

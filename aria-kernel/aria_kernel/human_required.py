@@ -23,9 +23,9 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
-from .agent_invocations import _request_event_count, derive_request_states
+from .agent_invocations import _claims_path, _request_event_count, derive_request_states
 from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl, load_segments
 from .notify import NOTIFY_WORST_CASE_SECONDS, notify_best_effort
 from .strict_jsonl_reader import read_strict_jsonl
@@ -197,9 +197,14 @@ def list_human_required(
 
 RESOLVED_BY_OPERATOR: str = "operator"
 RESOLVED_BY_AGENT_PANEL: str = "agent_panel"
+# The resolvers `resolve_human_required` admits. The kernel's own resolver
+# (`RESOLVED_BY_KERNEL`) is deliberately absent: it writes only through
+# `write_kernel_disposition`, which states the rule it applied, so no
+# caller can close a record as "the kernel" without saying what it decided.
 RESOLVED_BY_VALUES: frozenset[str] = frozenset({
     RESOLVED_BY_OPERATOR, RESOLVED_BY_AGENT_PANEL,
 })
+RESOLVED_BY_KERNEL: str = "kernel"
 
 # THE PANEL'S DECISION VOCABULARY — declared here, with the record schema.
 #
@@ -477,32 +482,115 @@ def resolve_human_required(
     return record
 
 
-# Y7 (ORPHAN-708) — per-sweep ceiling for anchor-stale escalations: bounds
-# panel inflow (each record costs a 3-envelope panel) while a legacy corpse
-# pile drains over nights instead of all at once.
-ANCHOR_STALE_SWEEP_CAP = 5
+# The status a kernel disposition leaves its record in. ``open`` is work no
+# producer will recover: the record stays on the operator's list (and the
+# SLA ladder) with the kernel's reason; no panel is ever opened for it, since
+# its kind is not adjudicable. ``resolved`` is work the kernel re-minted,
+# re-offered, or found closed, or that a named producer recovers.
+KERNEL_DISPOSITION_STATUSES: frozenset[str] = frozenset({"open", "resolved"})
+
+
+def write_kernel_disposition(
+    *,
+    item: Mapping[str, Any],
+    base_dir: str | Path | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Write what the kernel decided, by rule, about one expired request; None when already resolved.
+
+    ARIA-HIGH-360. A request that expired unclaimed is a fact about the
+    queue, and the kernel decides what happens to it
+    (``anchor_stale.dispose_anchor_stale_requests``). The decision belongs in
+    this directory, because that is where an operator looks for work that did
+    not happen. ``item`` carries ``request_id``, ``severity``, ``reason``,
+    ``context``, ``status`` (``KERNEL_DISPOSITION_STATUSES``) and
+    ``disposition``. A record an earlier sweep opened for a panel is updated
+    in place. The caller writes the governance rows and the notification for
+    the batch (one governance append verifies the whole chain, about 1.5 s on
+    the runner's 14.8 MB ledger). A kernel record never proves a panel
+    approval (``resolve_panel_adjudication_proof`` requires ``agent_panel``).
+    """
+    from .runtime_profile import enforce_profile_for_write
+
+    status = str(item["status"])
+    if status not in KERNEL_DISPOSITION_STATUSES:
+        raise GovernanceError(f"kernel disposition status must be one of {sorted(KERNEL_DISPOSITION_STATUSES)}")
+    enforce_profile_for_write("human_required", base_dir=base_dir)
+    root = ensure_tools_dir(base_dir)
+    ts = now or datetime.now(timezone.utc)
+    stamp = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+    request_id = str(item["request_id"])
+    disposition = dict(item["disposition"])
+    path = _human_required_path(root, request_id)
+    record: dict[str, Any] | None = None
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            loaded = None  # a corrupted file is rewritten, as record_human_required does
+        if isinstance(loaded, dict):
+            if loaded.get("status") == "resolved":
+                return None
+            record = loaded
+    if record is None:
+        sev = _resolve_severity(item.get("severity"))
+        record = {
+            "$schema": "aria/human-required/v1",
+            "schema_version": 1,
+            "request_id": request_id,
+            "severity": sev,
+            "reason": str(item["reason"]),
+            "recorded_at": stamp,
+            "sla_deadline": (ts + SLA_WINDOWS[sev]).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "context": dict(item["context"]),
+        }
+    note = f"kernel disposition {disposition.get('disposition')}: {disposition.get('reason')}"
+    record["status"] = status
+    record["kernel_disposition"] = disposition
+    if status == "resolved":
+        record["resolved_at"] = stamp
+        record["resolved_by"] = RESOLVED_BY_KERNEL
+        record["resolution_note"] = note
+    else:
+        record["reason"] = f"{record.get('reason') or item['reason']}; {note}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return record
 
 
 def sweep_lease_lifecycle_for_human_required(
     *,
     base_dir: str | Path | None = None,
     now: datetime | None = None,
-) -> dict[str, list[dict[str, Any]]]:
+) -> dict[str, Any]:
     """Find lease-lifecycle requests whose derived state is HUMAN_REQUIRED but
     have no corresponding `aria-tools/human-required/<request_id>.json` file yet.
-    Records one for each, returns the lists. Idempotent.
+    Records one for each, and disposes of every ANCHOR_STALE request by the
+    kernel's rule (``anchor_stale``). Idempotent.
     """
     root = ensure_tools_dir(base_dir)
+    # ARIA-HIGH-360 — the request, result and claim ledgers are read once
+    # for both passes and the anchor-stale disposition (each expiry's cause
+    # is on its claim row).
     requests = load_segments(root, "agent_invocation_requests")
+    claims = load_declared_jsonl(_claims_path(root), expected_surface="agent_invocation_claims")
+    ledgers = (
+        requests,
+        load_declared_jsonl(
+            root / "agent-invocations" / "results.jsonl", expected_surface="agent_invocation_results",
+        ),
+        claims,
+    )
     # ARIA-HIGH-358 — one ledger load for every request's state. The
     # per-request form reloaded the request, claim and result ledgers for
     # each row (1,866 rows at 0.96 s on 2026-10-06), so this sweep held
     # every cycle for ~30 min. Recording a human-required file below
-    # writes no request ledger, so the states stay current for both passes.
-    states = derive_request_states(base_dir=root)
+    # writes no request ledger, so the states stay current for both passes;
+    # a successor the anchor pass mints is a new PENDING row neither pass
+    # reads.
+    states = derive_request_states(base_dir=root, ledgers=ledgers)
     created: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
-    claims: list[dict[str, Any]] | None = None
     for request in requests:
         rid = request.get("request_id")
         if not rid:
@@ -514,11 +602,6 @@ def sweep_lease_lifecycle_for_human_required(
             skipped.append({"request_id": rid, "reason": "already_recorded"})
             continue
         # Look up the requeue count to surface in the reason text.
-        if claims is None:
-            claims = load_declared_jsonl(
-                root / "agent-invocations" / "claims.jsonl",
-                expected_surface="agent_invocation_claims",
-            )
         requeue_count = _request_event_count(claims, rid, "requeued")
         record = record_human_required(
             request_id=rid,
@@ -545,49 +628,18 @@ def sweep_lease_lifecycle_for_human_required(
         )
         created.append(record)
 
-    # Y7 (ORPHAN-708) — the OTHER operational death: an envelope nobody
-    # claimed before its anchor window closed. Pre-Y7 these died silently
-    # (296 measured on the second sealed night) — no record, no panel, the
-    # work just gone. Capped per sweep so a stale backlog drains gradually
-    # instead of flooding the panel queue; a request that already has a
-    # remint successor is recovered, not escalated.
-    anchor_created = 0
-    remint_successors = {
-        str(r.get("remint_of")) for r in requests if r.get("remint_of")
-    }
-    for request in requests:
-        if anchor_created >= ANCHOR_STALE_SWEEP_CAP:
-            break
-        rid = request.get("request_id")
-        if not rid:
-            continue
-        if rid in remint_successors:
-            skipped.append({"request_id": rid, "reason": "remint_successor_exists"})
-            continue
-        if states[rid] != "ANCHOR_STALE":
-            continue
-        existing = _human_required_path(root, rid)
-        if existing.exists():
-            continue
-        record = record_human_required(
-            request_id=rid,
-            severity=request.get("severity") or DEFAULT_SEVERITY,
-            reason=(
-                f"request {rid!r} died ANCHOR_STALE unclaimed; "
-                f"panel disposition required (re_mint / drop_with_reason)."
-            ),
-            context={
-                "kind": "anchor_stale",
-                "request_id": rid,
-                "role": request.get("role"),
-                "target_agent": request.get("target_agent"),
-            },
-            base_dir=root,
-            now=now,
-        )
-        created.append(record)
-        anchor_created += 1
-    return {"created": created, "skipped": skipped}
+    # Y7 (ORPHAN-708) recorded the OTHER operational death, an envelope
+    # nobody claimed before its anchor window closed, so the work was not
+    # silently lost; it also handed each record to a three-judge panel.
+    # ARIA-HIGH-360: that panel was three new requests on the queue that had
+    # just failed to reach the first one, and no panel ever decided. Expiry
+    # is a fact, so the kernel decides by rule and records the decision.
+    from .anchor_stale import dispose_anchor_stale_requests
+
+    anchor_stale = dispose_anchor_stale_requests(
+        root=root, requests=requests, states=states, claims=claims, now=now,
+    )
+    return {"created": created, "skipped": skipped, "anchor_stale": anchor_stale}
 
 
 # Plan 023 §B — consensus-failure escalation mapping.

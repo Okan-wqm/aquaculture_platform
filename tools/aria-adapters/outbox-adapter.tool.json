@@ -1,9 +1,9 @@
 {
   "tool_id": "outbox-adapter",
   "kind": "adapter",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "status": "SHADOW",
-  "declared_scope": ["apps/**/outbox/**/*.ts", "platform/libs/outbox/**/*.ts"],
+  "declared_scope": ["apps/*/src/**/*.ts"],
   "output_schema": {
     "type": "object",
     "required": ["observations", "findings", "read_paths", "evidence_sources"]
@@ -18,27 +18,19 @@
   "default_input": {
     "cycle_id": "outbox-default"
   },
-  "allowed_read_globs": ["apps/**/outbox/**/*.ts", "platform/libs/outbox/**/*.ts"],
+  "allowed_read_globs": ["apps/*/src/**/*.ts"],
   "forbidden_read_globs": [".git/**", "node_modules/**", "dist/**"],
   "claim_types": ["outbox_emission"],
   "owner": "platform",
   "rules": {
-    "transactional_outbox_violation": {
+    "domain_event_published_outside_outbox": {
       "claim_type": "wrong_code",
       "severity_cap": "HIGH",
-      "defect_claim": "An event is published with no surrounding transaction.",
+      "defect_claim": "A transactional write path in a service that registers the outbox publishes its domain event with eventBus.publish instead of OutboxPublisher.enqueue, so the event and the write can diverge.",
       "premises": [
-        "The cited publish emits a state-change event whose loss would leave another service inconsistent.",
-        "No transaction or durable outbox enqueue covers the write the event describes."
-      ]
-    },
-    "outbox_entity_base_missing": {
-      "claim_type": "wrong_code",
-      "severity_cap": "MEDIUM",
-      "defect_claim": "A publisher does not use the @platform/outbox abstraction.",
-      "premises": [
-        "The cited publisher emits a state-change event outside the @platform/outbox relay.",
-        "The file is not part of the outbox implementation itself."
+        "The method writes state inside a transaction (a query runner transaction or a transaction callback) before the cited publish.",
+        "The cited publish announces that write as a domain event other services act on, not telemetry or a log.",
+        "The service registers OutboxModule.forFeature, so OutboxPublisher.enqueue is available to this write path."
       ]
     }
   },
@@ -49,9 +41,5 @@
     "timeout_ms": 60000,
     "stdin_json": true
   },
-  "schema_version": 1,
-  "quarantine": {
-    "finding": "ARIA-MEDIUM-379",
-    "reason": "outbox_scope_reads_only_the_outbox_machinery: both rules look for eventBus.publish, and the declared scope holds only outbox directories, so every hit is the outbox relay or the sanctioned best-effort wrapper (3 of 3 on main 88878799e are false positives) while raw publishes in domain code are never read"
-  }
+  "schema_version": 1
 }

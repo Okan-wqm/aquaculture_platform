@@ -1,8 +1,9 @@
 """Plan 020 Phase 14 — outbox + cqrs adapter fixture tests.
 
 What this suite pins:
-- outbox_adapter detects publish-outside-transaction + publish-without-
-  outbox-import patterns.
+- outbox_adapter flags a domain event published with eventBus.publish in
+  a transactional write path of a service that registers the outbox
+  (ARIA-MEDIUM-379), and not the enqueue path.
 - cqrs_adapter detects controller direct repository call + repository
   injection patterns.
 """
@@ -27,53 +28,53 @@ def _make_repo() -> Path:
 
 
 class OutboxAdapterTests(unittest.TestCase):
+    """ARIA-MEDIUM-379 — the one outbox rule end to end through ``scan``; the
+    scope and the false-positive fixtures live in
+    ``tools/aria-poc/invariants/test_adapter_scope_narrow.py``."""
+
     def setUp(self) -> None:
         self.repo = _make_repo()
 
     def tearDown(self) -> None:
         shutil.rmtree(self.repo, ignore_errors=True)
 
-    def test_publish_outside_transaction_flagged(self) -> None:
-        # Plan 022 §C-7/§C-8 follow-up — fixture lives INSIDE the
-        # outbox surface (`apps/**/outbox/**`) so the manifest-narrow
-        # walker visits it. Pre-fix the adapter walked all of
-        # `apps/**/*.ts` and surfaced ~200 hr-service paths; the
-        # corrective narrowing requires fixtures to live inside the
-        # declared scope. The test still asserts both detection rules
-        # fire on the same content.
-        path = self.repo / "apps" / "x-service" / "src" / "outbox" / "publisher.ts"
-        path.parent.mkdir(parents=True)
-        path.write_text("""
-import { EventBus } from '@nestjs/cqrs';
-class P { constructor(private eventBus: EventBus) {}
-  do() { this.eventBus.publish(new SomeEvent()); }
-}
-""", encoding="utf-8")
-        result = outbox_scan(self.repo)
-        rules = {f["rule"] for f in result["findings"]}
-        self.assertIn("transactional_outbox_violation", rules)
-        self.assertIn("outbox_entity_base_missing", rules)
-        self.assertEqual(set(result["evidence_sources"]), {path.relative_to(self.repo).as_posix()})
+    def _seed(self, rel: str, text: str) -> Path:
+        path = self.repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
 
-    def test_clean_outbox_pattern_no_finding(self) -> None:
-        # Same scope-narrow rationale as above — fixture sits inside
-        # the manifest-scoped `apps/**/outbox/**` surface.
-        path = self.repo / "apps" / "y-service" / "src" / "outbox" / "ok.ts"
-        path.parent.mkdir(parents=True)
-        path.write_text("""
-import { OutboxPublisherService } from '@platform/outbox';
-class P { constructor(private outbox: OutboxPublisherService,
-                       private dataSource: any) {}
-  async do() {
-    await this.dataSource.transaction(async (em: any) => {
-      this.eventBus.publish(new E());
-    });
+    def test_raw_publish_after_a_committed_write_is_flagged(self) -> None:
+        self._seed("apps/x-service/src/outbox/x-outbox.module.ts",
+                   "export const M = OutboxModule.forFeature({ entity: XOutbox });\n")
+        path = self._seed("apps/x-service/src/things/handlers/create.handler.ts", """
+export class CreateHandler {
+  async execute(command: CreateCommand): Promise<Thing> {
+    await this.dataSource.transaction(async (manager) => manager.save(Thing, thing));
+    await this.eventBus.publish(createThingCreatedEvent(thing));
+    return thing;
   }
 }
-""", encoding="utf-8")
+""")
         result = outbox_scan(self.repo)
-        rules = {f["rule"] for f in result["findings"]}
-        self.assertNotIn("outbox_entity_base_missing", rules)
+        self.assertEqual({f["rule"] for f in result["findings"]}, {"domain_event_published_outside_outbox"})
+        self.assertEqual(set(result["evidence_sources"]), {path.relative_to(self.repo).as_posix()})
+
+    def test_enqueue_inside_the_transaction_is_clean(self) -> None:
+        self._seed("apps/x-service/src/outbox/x-outbox.module.ts",
+                   "export const M = OutboxModule.forFeature({ entity: XOutbox });\n")
+        self._seed("apps/x-service/src/things/handlers/create.handler.ts", """
+export class CreateHandler {
+  async execute(command: CreateCommand): Promise<Thing> {
+    await this.dataSource.transaction(async (manager) => {
+      await manager.save(Thing, thing);
+      await this.outboxPublisher.enqueue(createThingCreatedEvent(thing), manager);
+    });
+    return thing;
+  }
+}
+""")
+        self.assertEqual(outbox_scan(self.repo)["findings"], [])
 
 
 class CqrsAdapterTests(unittest.TestCase):

@@ -102,6 +102,35 @@ hit is the outbox implementation:
 About 28 non-test app files publish raw events, and none of them is read. The adapter is
 quarantined by name until its scope and rules are redesigned and their precision is measured.
 
+Fix (branch `fix/aria-adapter-precision`): `@platform/outbox`'s contract is that a command handler
+writing state inside a transaction enqueues its event with
+`OutboxPublisher.enqueue(event, queryRunner.manager)`, so the outbox row commits with the write.
+A raw `eventBus.publish` in that write path is a dual write. Before the commit, a rolled-back write
+still announces itself. After it, a crash loses the event while the change stands. The adapter now
+reads application source (`apps/*/src/**/*.ts`; tests, migrations and libraries stay out) and has
+one rule, `domain_event_published_outside_outbox`. It flags a non-comment `eventBus.publish(`
+inside a class method that writes in a transaction before the publish, in a service that registers
+`OutboxModule.forFeature`. The outbox directories are read only to find that registration. They
+are never judged.
+
+Measured on main `88878799e`: before, 3 hits, 0 real (0%). After, 9 hits, all real (100%):
+
+- 8 hr-service command handlers commit a query-runner transaction and then publish:
+  - end and start rotation;
+  - cancel and reject leave;
+  - certification expiry, add, renew and revoke.
+
+  The sibling `approve-leave-request` handler already enqueues through the outbox.
+
+- farm-service `auto-rule-trigger` publishes `TaskAssigned` inside its query-runner transaction.
+
+The scope invariant (`tools/aria-poc/invariants/test_adapter_scope_narrow.py`) pins the new
+scope to the manifest. It also pins one true-positive fixture and four false-positive ones: the
+enqueue path, a publish in a method with no transactional write, a service without the outbox,
+and the outbox implementation together with commented-out publishes. The quarantine block is
+removed. A quarantine a cycle already applied leaves only through the operator-approved
+`unquarantine_tool`.
+
 ## ARIA-MEDIUM-380
 
 `banned-phrase-adapter`'s tree scan reports 49 hits, and about 6 of them are real. That is far

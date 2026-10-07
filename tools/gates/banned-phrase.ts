@@ -58,12 +58,13 @@ import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
+import { isGatingExcuse, registeredFindingIds } from './banned-phrase-excuse';
+
 // Round-2 cluster-0: the -U0 added-line parser moved to the shared
 // git-diff-ranges module (SSOT — banned-construct.ts and
 // farm-service-enterprise-guardrails.ts consume the same parser, so a
 // hunk-header edge case can no longer be fixed in one gate and stay
 // broken in another).
-import { isGatingExcuse, registeredFindingIds } from './banned-phrase-excuse';
 import {
   addedLinesByFile,
   collectMergeIntroducedLines,

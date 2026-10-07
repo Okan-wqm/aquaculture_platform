@@ -306,11 +306,9 @@ class B2AnImplementationWaitingThroughAnOutageIsNotReaped(_Store):
         self.outage(self.t0 + timedelta(minutes=5), None)
         self.assertEqual(self._decide(self.t0 + timedelta(days=3)).decision, ORPHAN_DECISION_REAP)
 
-    def test_the_orchestrator_hands_the_reaper_the_ledger_clock(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "aria_kernel" / "autonomy_orchestrator.py").read_text()
-        self.assertIn("_orphan_clock = provider_clock(root)", source)
-        self.assertIn("clock=_orphan_clock", source)
-        self.assertIn("awaits_provider=request_awaits_provider(", source)
+    # The orchestrator's own reap path (fixture-driven, the real plan and
+    # ledger clock) is pinned in test_autonomy_orchestrator.py,
+    # TheStartupReaperCollectsAbandonmentNotLateness.
 
 
 class OperatorRequestExpiryIsPutBackNotSpentInSilence(_Store):

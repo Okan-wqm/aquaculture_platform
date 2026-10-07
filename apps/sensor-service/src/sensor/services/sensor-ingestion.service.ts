@@ -18,6 +18,7 @@
  * - Proper error types for client handling
  */
 
+import { runInTenantTransaction, SENSOR_SOURCE_SCHEMA } from '@aquaculture/backend-common/database';
 import { anchorFromDate, encodeSensorReadingId } from '@aquaculture/backend-common/sensor';
 import { Injectable, Logger, Optional, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
@@ -46,7 +47,12 @@ import { SensorMetricWriterService } from '../../ingestion/sensor-metric-writer.
 import { CalibrationService } from './calibration.service';
 import { DataQualityService } from './data-quality.service';
 import { ReadingMapperRegistry } from './reading-mapper.service';
-import { validateSensorId, validateTenantId, validateDataPath, MAX_DATA_PATH_DEPTH } from '../validation/input-sanitizer';
+import {
+  validateSensorId,
+  validateTenantId,
+  validateDataPath,
+  MAX_DATA_PATH_DEPTH,
+} from '../validation/input-sanitizer';
 import { withRetry, RetryableErrors, CircuitBreaker } from '../utils/retry.util';
 
 /**
@@ -242,24 +248,33 @@ export class SensorIngestionService {
     const saveResult = await withRetry(
       () =>
         this.databaseCircuitBreaker.execute(() =>
-          this.dataSource.transaction(async (manager) => {
-            // SENSOR-HIGH-085: no sensor_readings row is written — the reading is
-            // an as-of projection over sensor.sensor_metrics. The SensorReading
-            // event and the channel-keyed metric rows are both derived from the
-            // in-memory reading and enqueued/written INSIDE this transaction, so
-            // the SENSOR-CRITICAL-001 atomicity guarantee now spans enqueue +
-            // metrics (either both commit or neither) with no stored-row write.
-            await this.outboxPublisher.enqueue(this.buildReadingEvent(reading), manager);
-            const metrics = this.buildMetricInputs(
-              reading,
-              validatedData.readings,
-              channelsByParameter,
-            );
-            if (metrics.length > 0) {
-              await this.metricWriter.writeManaged(metrics, manager);
-            }
-            return reading;
-          }),
+          // The tenant boundary binds app.current_tenant: FORCE RLS on the
+          // tenant sensor_metrics admits rows only for the bound tenant
+          // (SENSOR-HIGH-145), and writeManaged refuses an unbound transaction.
+          runInTenantTransaction(
+            this.dataSource,
+            SENSOR_SOURCE_SCHEMA,
+            reading.tenantId,
+            async (queryRunner) => {
+              const manager = queryRunner.manager;
+              // SENSOR-HIGH-085: no sensor_readings row is written — the reading is
+              // an as-of projection over sensor.sensor_metrics. The SensorReading
+              // event and the channel-keyed metric rows are both derived from the
+              // in-memory reading and enqueued/written INSIDE this transaction, so
+              // the SENSOR-CRITICAL-001 atomicity guarantee now spans enqueue +
+              // metrics (either both commit or neither) with no stored-row write.
+              await this.outboxPublisher.enqueue(this.buildReadingEvent(reading), manager);
+              const metrics = this.buildMetricInputs(
+                reading,
+                validatedData.readings,
+                channelsByParameter,
+              );
+              if (metrics.length > 0) {
+                await this.metricWriter.writeManaged(metrics, manager);
+              }
+              return reading;
+            },
+          ),
         ),
       {
         maxRetries: 3,
@@ -341,10 +356,7 @@ export class SensorIngestionService {
     // Resolve the per-parameter channel map for each unique sensor ONCE. The
     // prefetchCalibrationConfigs()/applyCalibration() calls above warmed the
     // channel cache, so these resolve from cache — no extra DB round-trip.
-    const channelMapsBySensor = new Map<
-      string,
-      Map<SensorReadingParameter, SensorDataChannel>
-    >();
+    const channelMapsBySensor = new Map<string, Map<SensorReadingParameter, SensorDataChannel>>();
     for (const sensorId of sensorIds) {
       // Union of every parameter this sensor reports in the batch, so one
       // provisioning pass covers the whole chunk (SENSOR-HIGH-085 / B1).
@@ -382,43 +394,61 @@ export class SensorIngestionService {
 
     for (let i = 0; i < prepared.length; i += SensorIngestionService.BATCH_CHUNK_SIZE) {
       const chunk = prepared.slice(i, i + SensorIngestionService.BATCH_CHUNK_SIZE);
-      const chunkResult = await withRetry(
-        () =>
-          this.dataSource.transaction(async (manager) => {
-            // SENSOR-HIGH-085: no sensor_readings insert — each reading's event
-            // and its channel-keyed metric rows are derived from the in-memory
-            // reading and committed atomically per chunk (SENSOR-CRITICAL-001).
-            const chunkMetrics: SensorMetricInput[] = [];
-            for (const { entity, rawReadings } of chunk) {
-              await this.outboxPublisher.enqueue(this.buildReadingEvent(entity), manager);
-              const channelsByParameter = channelMapsBySensor.get(entity.sensorId);
-              if (channelsByParameter) {
-                chunkMetrics.push(
-                  ...this.buildMetricInputs(entity, rawReadings, channelsByParameter),
-                );
-              }
-            }
-            if (chunkMetrics.length > 0) {
-              await this.metricWriter.writeManaged(chunkMetrics, manager);
-            }
-          }),
-        {
-          maxRetries: 3,
-          initialDelayMs: 200,
-          maxDelayMs: 5000,
-          isRetryable: RetryableErrors.isTransientDatabaseError,
-          loggerName: 'SensorIngestion:batchInsert',
-        },
-      );
-
-      if (!chunkResult.success) {
-        this.logger.error(
-          `Batch ingest failed after retries at chunk offset ${i}: ${chunkResult.error?.message}`,
-        );
-        throw chunkResult.error;
+      // One transaction per (chunk, tenant): the tenant boundary binds
+      // app.current_tenant, which FORCE RLS on each tenant's sensor_metrics
+      // requires (SENSOR-HIGH-145), and one transaction can be bound to one
+      // tenant only.
+      const byTenant = new Map<string, typeof chunk>();
+      for (const item of chunk) {
+        const group = byTenant.get(item.entity.tenantId);
+        if (group) group.push(item);
+        else byTenant.set(item.entity.tenantId, [item]);
       }
+      for (const [tenantId, tenantChunk] of byTenant) {
+        const chunkResult = await withRetry(
+          () =>
+            runInTenantTransaction(
+              this.dataSource,
+              SENSOR_SOURCE_SCHEMA,
+              tenantId,
+              async (queryRunner) => {
+                const manager = queryRunner.manager;
+                // SENSOR-HIGH-085: no sensor_readings insert — each reading's event
+                // and its channel-keyed metric rows are derived from the in-memory
+                // reading and committed atomically per chunk (SENSOR-CRITICAL-001).
+                const chunkMetrics: SensorMetricInput[] = [];
+                for (const { entity, rawReadings } of tenantChunk) {
+                  await this.outboxPublisher.enqueue(this.buildReadingEvent(entity), manager);
+                  const channelsByParameter = channelMapsBySensor.get(entity.sensorId);
+                  if (channelsByParameter) {
+                    chunkMetrics.push(
+                      ...this.buildMetricInputs(entity, rawReadings, channelsByParameter),
+                    );
+                  }
+                }
+                if (chunkMetrics.length > 0) {
+                  await this.metricWriter.writeManaged(chunkMetrics, manager);
+                }
+              },
+            ),
+          {
+            maxRetries: 3,
+            initialDelayMs: 200,
+            maxDelayMs: 5000,
+            isRetryable: RetryableErrors.isTransientDatabaseError,
+            loggerName: 'SensorIngestion:batchInsert',
+          },
+        );
 
-      totalInserted += chunk.length;
+        if (!chunkResult.success) {
+          this.logger.error(
+            `Batch ingest failed after retries at chunk offset ${i}: ${chunkResult.error?.message}`,
+          );
+          throw chunkResult.error;
+        }
+
+        totalInserted += tenantChunk.length;
+      }
     }
 
     // Bulk update last seen for all sensors (more efficient)
@@ -557,7 +587,9 @@ export class SensorIngestionService {
       await this.sensorRepository.update({ id: sensorId }, { lastSeenAt: new Date() });
     } catch (error) {
       // Log but don't throw - this is a non-critical operation
-      this.logger.warn(`Failed to update lastSeenAt for sensor ${sensorId}: ${(error as Error).message}`);
+      this.logger.warn(
+        `Failed to update lastSeenAt for sensor ${sensorId}: ${(error as Error).message}`,
+      );
     }
   }
 
@@ -568,10 +600,7 @@ export class SensorIngestionService {
     if (sensorIds.length === 0) return;
 
     try {
-      await this.sensorRepository.update(
-        { id: In(sensorIds) },
-        { lastSeenAt: new Date() },
-      );
+      await this.sensorRepository.update({ id: In(sensorIds) }, { lastSeenAt: new Date() });
     } catch (error) {
       this.logger.warn(`Failed to bulk update lastSeenAt: ${(error as Error).message}`);
     }
@@ -636,7 +665,9 @@ export class SensorIngestionService {
       this.childSensorCache.set(cacheKey, children);
       return children;
     } catch (error) {
-      this.logger.error(`Failed to fetch child sensors for parent ${parentId}: ${(error as Error).message}`);
+      this.logger.error(
+        `Failed to fetch child sensors for parent ${parentId}: ${(error as Error).message}`,
+      );
       return [];
     }
   }

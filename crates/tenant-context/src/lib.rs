@@ -43,6 +43,17 @@ use uuid::Uuid;
 /// Crate version for diagnostic / drift-detection telemetry.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Session setting the platform's `tenant_isolation_policy` compares each
+/// row's tenant against. Identical to the TypeScript `RLS_TENANT_GUC`
+/// (libs/backend-common/src/database/rls/apply-tenant-rls.helper.ts); the
+/// shared fixture `tests/rls-gucs.json` pins both sides.
+pub const RLS_TENANT_GUC: &str = "app.current_tenant";
+
+/// Session setting that, when `on`, makes the tenant policy admit every
+/// row. A tenant write must hold it `off`. Identical to the TypeScript
+/// `RLS_BYPASS_GUC`, pinned by the same fixture.
+pub const RLS_BYPASS_GUC: &str = "app.bypass_rls";
+
 /// Errors raised by [`SchemaName::try_parse`] and friends.
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum TenantContextError {

@@ -32,6 +32,14 @@ from typing import Any, Iterable, Mapping
 # their findings differently, or not at all; a key invented for them here
 # would merge findings nobody proved to be the same subject.
 DRIFT_ORIGIN: str = "seed:drift-scan"
+# ARIA-MEDIUM-378 — a finding promoted from an adapter's output may carry the
+# subject its adapter declared (`subject` on the raw finding, `subject=<…>` in
+# the promoted record's facts). One defect that breaks two rules (a controller
+# that injects a repository AND calls it past the bus) yields two raw findings
+# and two promoted records; the shared subject makes them one subject here, so
+# the slot policy plans it once and a merge that fixes it closes both.
+CONSENSUS_ORIGIN: str = "ai_consensus:judgment_pipeline"
+ADAPTER_SUBJECT_FACT_PREFIX: str = "subject="
 SUBJECT_KEY_PREFIX: str = "subject_"
 # `seed_drift_findings.mint_candidates` writes each evidence summary as
 # "<declared name> values: <values>" and the claim summary as
@@ -69,6 +77,20 @@ def subject_key_from_evidences(
     return SUBJECT_KEY_PREFIX + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
+def adapter_subject_key(subject: str) -> str:
+    """The subject key of an adapter-declared subject (``<tool>:<defect class>:<file>``)."""
+    canonical = json.dumps({"adapter_subject": subject}, sort_keys=True, separators=(",", ":"))
+    return SUBJECT_KEY_PREFIX + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def _adapter_subject(record: Mapping[str, Any]) -> str | None:
+    for fact in record.get("facts") or []:
+        if isinstance(fact, str) and fact.startswith(ADAPTER_SUBJECT_FACT_PREFIX):
+            subject = fact[len(ADAPTER_SUBJECT_FACT_PREFIX):].strip()
+            return subject or None
+    return None
+
+
 def drift_class_of(record: Mapping[str, Any]) -> str | None:
     match = _CLAIM_DRIFT_CLASS_RE.match(str(record.get("claim_summary") or ""))
     return match.group(1) if match else None
@@ -76,6 +98,9 @@ def drift_class_of(record: Mapping[str, Any]) -> str | None:
 
 def finding_subject_key(record: Mapping[str, Any]) -> str | None:
     """The subject key of a stored finding record, derived from its own fields."""
+    if record.get("originating_skill") == CONSENSUS_ORIGIN:
+        subject = _adapter_subject(record)
+        return adapter_subject_key(subject) if subject is not None else None
     if record.get("originating_skill") != DRIFT_ORIGIN:
         return None
     drift_class = drift_class_of(record)
@@ -108,7 +133,10 @@ def findings_with_subject(
 
 
 __all__ = [
+    "ADAPTER_SUBJECT_FACT_PREFIX",
+    "CONSENSUS_ORIGIN",
     "DRIFT_ORIGIN",
+    "adapter_subject_key",
     "SUBJECT_KEY_PREFIX",
     "drift_class_of",
     "finding_subject_key",

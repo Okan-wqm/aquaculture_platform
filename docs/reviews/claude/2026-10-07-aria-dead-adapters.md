@@ -90,6 +90,20 @@ Not changed here: `PLAN_016_MVP_TOOL_IDS` still names `schema-drift-adapter` and
 `nats-cert-identity-adapter`. Neither has a manifest or code, and `adapter-portfolio status`
 already reports both as missing.
 
+### Review follow-ups (independent review of #1842)
+
+- M4: each controller cqrs flags breaks both rules, so it yields two findings, and two
+  promoted records would be two plans for one fix. Both findings now carry one adapter `subject`
+  (`cqrs-adapter:controller_layer_skip:<file>`). The consensus promotion records it as a
+  `subject=` fact, and `finding_subject.finding_subject_key` derives one key from that fact. The
+  ARIA-HIGH-363 subject dedupe (slot policy, merge closure) therefore collapses the two findings
+  through its existing path (`aria-kernel/tests/test_adapter_subject_key.py`).
+- A named quarantine must cite a finding that the review registry holds, that is unresolved (OPEN
+  or IN-PROGRESS), and whose evidence cites the tool's own manifest. The manifest sync checks
+  this before registering, so a manifest that fails is refused by name and never registered. The
+  completeness gate checks the same.
+- The banned-phrase adapter catches a gate timeout and reports the run `unavailable`.
+
 ## ARIA-MEDIUM-379
 
 `outbox-adapter` reads `apps/**/outbox/**` and `platform/libs/outbox/**` only

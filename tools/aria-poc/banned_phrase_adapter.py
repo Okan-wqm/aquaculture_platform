@@ -38,6 +38,7 @@ REPO_ROOT_ENV = "ARIA_REPO_ROOT"
 GATE_TS_NODE = Path("./node_modules/.bin/ts-node")
 GATE_TSCONFIG = Path("tools/gates/tsconfig.json")
 GATE_SCRIPT = Path("tools/gates/banned-phrase.ts")
+GATE_TIMEOUT_SECONDS = 60
 
 
 def _resolve_repo_root() -> Path:
@@ -62,13 +63,18 @@ def _invoke_banned_phrase_cli(repo_root: Path, mode: str = DEFAULT_MODE) -> tupl
     tsconfig = repo_root / GATE_TSCONFIG
     if not ts_node.exists() or not script.exists():
         return 127, f"banned-phrase CLI unavailable at {ts_node} / {script}"
-    proc = subprocess.run(
-        [str(ts_node), "--project", str(tsconfig), str(script), f"--mode={mode}"],
-        cwd=str(repo_root),
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    try:
+        proc = subprocess.run(
+            [str(ts_node), "--project", str(tsconfig), str(script), f"--mode={mode}"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=GATE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        # A gate that did not finish has no verdict: reported as
+        # `unavailable` by main(), never as a clean scan or a crash.
+        return 124, f"banned-phrase CLI timed out after {GATE_TIMEOUT_SECONDS}s"
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 

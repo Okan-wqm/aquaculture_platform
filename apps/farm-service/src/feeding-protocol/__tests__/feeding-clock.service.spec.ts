@@ -7,60 +7,12 @@
  * kullanıyordu. Oslo'daki bir tenant kendi 05:00'ında plan alıyor, kendi günü
  * bitmeden özet çıkıyor, rollup UTC gününe göre kayıyordu.
  *
- * Bu spec zon hiyerarşisini (site → tenant → UTC) ve yerel gün sınırlarını
- * pinler; `suspensionFor` artık ünitenin YEREL gününe göre karşılaştırır.
+ * Zon hiyerarşisi (site → tenant → UTC) artık
+ * `localization/__tests__/site-time-zone.service.spec.ts`'te; bu spec yerel gün
+ * sınırlarını pinler; `suspensionFor` artık ünitenin YEREL gününe göre karşılaştırır.
  */
-import { EntityManager, Repository } from 'typeorm';
-
 import { FeedingClockService } from '../services/feeding-clock.service';
-import { TenantLocalization } from '../entities/tenant-localization.entity';
 import { suspensionFor, zonedPartsIn, localDayBoundsUtc } from '../services/meal-schedule.util';
-import { stub } from '@aquaculture/testing';
-
-describe('FeedingClockService — zon hiyerarşisi (D-B4)', () => {
-  const TENANT = '11111111-1111-4111-8111-111111111111';
-
-  function makeService(tenantZone: string | null) {
-    const find = jest
-      .fn()
-      .mockResolvedValue(tenantZone ? [{ tenantId: TENANT, timezone: tenantZone }] : []);
-    // Cross-tenant projeksiyon repository'si ENJEKTE edilir (şema-nitelikli).
-    return new FeedingClockService(stub<Repository<TenantLocalization>>({ find }));
-  }
-
-  it('site kendi zonunu yazdıysa o kazanır', async () => {
-    const service = makeService('Europe/Oslo');
-    const manager = stub<EntityManager>({
-      query: jest.fn().mockResolvedValue([{ id: 'site-1', timezone: 'America/Santiago' }]),
-    });
-
-    const zones = await service.siteZones(manager, TENANT);
-    expect(zones.zoneOf('site-1')).toBe('America/Santiago');
-  });
-
-  it('site zonu NULL ise tenant zonundan DEVRALIR (kalıtım yapısal)', async () => {
-    const service = makeService('Europe/Oslo');
-    const manager = stub<EntityManager>({
-      query: jest.fn().mockResolvedValue([{ id: 'site-1', timezone: null }]),
-    });
-
-    const zones = await service.siteZones(manager, TENANT);
-    expect(zones.zoneOf('site-1')).toBe('Europe/Oslo');
-    // Bilinmeyen site de tenant tabanına düşer (sessiz UTC yok).
-    expect(zones.zoneOf('site-yok')).toBe('Europe/Oslo');
-  });
-
-  it('tenant lokalizasyonu hiç yazılmamışsa taban UTC', async () => {
-    const service = makeService(null);
-    const manager = stub<EntityManager>({
-      query: jest.fn().mockResolvedValue([{ id: 'site-1', timezone: null }]),
-    });
-
-    const zones = await service.siteZones(manager, TENANT);
-    expect(zones.tenantZone).toBe('UTC');
-    expect(zones.zoneOf('site-1')).toBe('UTC');
-  });
-});
 
 describe('FeedingClockService.clockIn — yerel gün ve saat', () => {
   it('UTC 22:30 iken Oslo (UTC+2, yaz) ERTESİ günü gösterir', () => {

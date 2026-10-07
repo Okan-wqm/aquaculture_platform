@@ -23,6 +23,7 @@ jest.mock('@aquaculture/backend-common/database', () => ({
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { FeedingClockService } from '../services/feeding-clock.service';
+import { SiteTimeZoneService } from '../../localization/services/site-time-zone.service';
 import { FeedingJobRunService } from '../services/feeding-job-run.service';
 import { realFinalizationService } from './helpers/meal-finalization-double';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
@@ -55,6 +56,7 @@ describe('FeedingCronV2Service.purgeTenantRetention', () => {
     realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
     stub<FeedingClockService>({}),
     stub<FeedingJobRunService>({ purgeOlderThanRetention: jest.fn().mockResolvedValue(0) }),
+    stub<SiteTimeZoneService>({}),
   );
 
   beforeEach(() => {

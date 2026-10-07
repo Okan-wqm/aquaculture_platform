@@ -66,6 +66,9 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
       './enums/messaging-media-mime',
       './ai/persona-id',
       './ai/persona-catalogue',
+      // The sensor-reading tier policy (SENSOR-MEDIUM-149): the series cap,
+      // store choice, interval whitelist and rollup windows the backend reads.
+      './sensor-readings/tier-policy',
       // The design palette (FE-MEDIUM-093): zero-dependency colour data the
       // browser reads through `web/shared-ui/src/styles/theme.ts` and the HTML
       // e-mail builders read directly, so both paint the product's colours.
@@ -75,6 +78,13 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
       // The product's severity ladder, so an incident is the same colour in the
       // mail, the alert list and the SCADA banner.
       './design/severity',
+      // The sensor-reading tier policy (SENSOR-MEDIUM-149): the series cap,
+      // store choice, interval whitelist and rollup windows the backend reads
+      // and the browser's range picker must agree with.
+      './sensor-readings/tier-policy',
+      // The sensor-reading time range: preset durations, range shape and URL
+      // form shared by every chart surface.
+      './sensor-readings/time-range',
     ]);
     const index = readFileSync(resolve(REPO_ROOT, 'libs/shared-contracts/src/index.ts'), 'utf8');
     const exportFroms = [

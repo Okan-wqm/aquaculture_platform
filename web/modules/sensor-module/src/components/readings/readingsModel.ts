@@ -3,7 +3,13 @@
  * the formatting, freshness and export rules live here so they are tested
  * once and the page/cards only render.
  */
-import type { ChannelLatestValue } from '../../graphql/channelReadings';
+import {
+  type RelativePresetKey,
+  resolveTimeRange,
+  type TimeRangeSpec,
+} from '@aquaculture/shared-contracts';
+
+import type { ChannelLatestValue, ChannelSeriesResponse } from '../../graphql/channelReadings';
 import type { RegisteredSensor } from '../../hooks/useSensorList';
 
 /** A value older than this is "stale": the device has stopped reporting. */
@@ -11,18 +17,28 @@ export const FRESH_WINDOW_MS = 5 * 60 * 1000;
 
 export type Freshness = 'live' | 'stale' | 'none';
 
-export const PERIODS = [
-  { value: '1h', label: 'Son 1 Saat', ms: 60 * 60 * 1000 },
-  { value: '6h', label: 'Son 6 Saat', ms: 6 * 60 * 60 * 1000 },
-  { value: '24h', label: 'Son 24 Saat', ms: 24 * 60 * 60 * 1000 },
-  { value: '7d', label: 'Son 7 Gün', ms: 7 * 24 * 60 * 60 * 1000 },
-  { value: '30d', label: 'Son 30 Gün', ms: 30 * 24 * 60 * 60 * 1000 },
-] as const;
+/**
+ * The relative ranges the readings page offers. Durations and words come
+ * from the shared time-range table (`@aquaculture/shared-contracts`) and the
+ * locale maps; this list only chooses which presets the page shows.
+ */
+export const READINGS_PRESETS = [
+  '1h',
+  '6h',
+  '24h',
+  '7d',
+  '30d',
+  '90d',
+  '365d',
+] as const satisfies readonly RelativePresetKey[];
 
-export type PeriodValue = (typeof PERIODS)[number]['value'];
+export type ReadingsPreset = (typeof READINGS_PRESETS)[number];
 
-export function periodMs(period: PeriodValue): number {
-  return PERIODS.find((entry) => entry.value === period)?.ms ?? PERIODS[2].ms;
+export const DEFAULT_READINGS_PRESET: ReadingsPreset = '24h';
+
+/** A readings preset from untrusted input (a select's value), or null. */
+export function parseReadingsPreset(value: unknown): ReadingsPreset | null {
+  return READINGS_PRESETS.find((preset) => preset === value) ?? null;
 }
 
 /**
@@ -98,32 +114,144 @@ export function channelFilterOptions(
     .sort((a, b) => a.label.localeCompare(b.label, 'tr'));
 }
 
-function csvCell(value: string): string {
-  return /[";\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+/** How a spreadsheet in the user's language reads a CSV: field separator and decimal mark. */
+export interface CsvFormat {
+  readonly separator: ';' | ',';
+  readonly decimal: ',' | '.';
+}
+
+/** Turkish spreadsheets split on `;` and read `,` as the decimal mark; English ones the reverse. */
+export function csvFormatFor(locale: string): CsvFormat {
+  return locale.startsWith('tr')
+    ? { separator: ';', decimal: ',' }
+    : { separator: ',', decimal: '.' };
+}
+
+/** A CSV field: text, or a number written with the locale's decimal mark at full precision. */
+type CsvField = string | number | null | undefined;
+
+function csvCell(field: CsvField, format: CsvFormat): string {
+  if (field === null || field === undefined) return '';
+  if (typeof field === 'number') {
+    return format.decimal === ',' ? String(field).replace('.', ',') : String(field);
+  }
+  // A spreadsheet runs a cell that starts with = + - @ (or a tab or return)
+  // as a formula; sensor names, labels and units are typed by tenants, so
+  // such text is written as text.
+  const text = /^[=+\-@\t\r]/.test(field) ? `'${field}` : field;
+  return text.includes('"') || text.includes(format.separator) || /[\r\n]/.test(text)
+    ? `"${text.replace(/"/g, '""')}"`
+    : text;
+}
+
+function csvText(rows: readonly CsvField[][], format: CsvFormat): string {
+  return rows
+    .map((row) => row.map((field) => csvCell(field, format)).join(format.separator))
+    .join('\n');
 }
 
 /**
- * The current values as CSV (`;`-separated, the Turkish Excel default), one
- * row per channel. Values are written with a dot decimal and full precision so
- * the file round-trips into any tool.
+ * The current values as CSV, one row per channel, in the user's spreadsheet
+ * format (separator and decimal mark) with full precision.
  */
 export function latestValuesCsv(
   sensors: readonly RegisteredSensor[],
   bySensor: ReadonlyMap<string, readonly ChannelLatestValue[]>,
+  locale: string,
 ): string {
-  const rows = [['Cihaz', 'Kanal', 'Anahtar', 'Değer', 'Birim', 'Zaman', 'Durum']];
+  const rows: CsvField[][] = [['Cihaz', 'Kanal', 'Anahtar', 'Değer', 'Birim', 'Zaman', 'Durum']];
   for (const sensor of sensors) {
     for (const channel of bySensor.get(sensor.id) ?? []) {
       rows.push([
         sensor.name,
         channel.displayLabel,
         channel.channelKey,
-        channel.value === null || channel.value === undefined ? '' : String(channel.value),
+        channel.value,
         unitOf(channel),
         channel.time ?? '',
         channel.alertLevel ? ALERT_LABELS[channel.alertLevel] : '',
       ]);
     }
   }
-  return rows.map((row) => row.map(csvCell).join(';')).join('\n');
+  return csvText(rows, csvFormatFor(locale));
+}
+
+/**
+ * The window to jump to when a range holds no data: the same length as the
+ * range shown, ending with the minute of the channel's last stored sample.
+ */
+export function rangeEndingAt(
+  lastSampleMs: number,
+  current: TimeRangeSpec,
+  nowMs: number,
+): TimeRangeSpec {
+  const shown = resolveTimeRange(current, nowMs);
+  if (!shown.ok) {
+    throw new Error(`The range shown is not valid: ${shown.error}`);
+  }
+  const endMs = Math.floor(lastSampleMs / 60_000) * 60_000 + 60_000;
+  return { kind: 'absolute', startMs: endMs - (shown.endMs - shown.startMs), endMs };
+}
+
+/** Column titles of a series export, in the user's language. */
+export interface SeriesCsvHeaders {
+  bucketUtc: string;
+  bucketLocal: string;
+  channel: string;
+  unit: string;
+  avg: string;
+  min: string;
+  max: string;
+  count: string;
+  badCount: string;
+}
+
+/**
+ * A series as CSV: one row per channel bucket, its UTC instant and its time
+ * in the series' display zone (so a spreadsheet and the chart agree), in the
+ * user's spreadsheet format.
+ */
+export function seriesCsv(
+  series: ChannelSeriesResponse,
+  headers: SeriesCsvHeaders,
+  locale: string,
+  /** The channels the chart shows; all when omitted. */
+  channelKeys?: ReadonlySet<string>,
+): string {
+  const local = new Intl.DateTimeFormat(locale, {
+    timeZone: series.displayTimeZone,
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
+  const rows: CsvField[][] = [
+    [
+      headers.bucketUtc,
+      headers.bucketLocal,
+      headers.channel,
+      headers.unit,
+      headers.avg,
+      headers.min,
+      headers.max,
+      headers.count,
+      headers.badCount,
+    ],
+  ];
+  for (const channel of series.channels) {
+    if (channelKeys !== undefined && !channelKeys.has(channel.channelKey)) continue;
+    for (const point of channel.points) {
+      const bucket = new Date(point.bucket);
+      rows.push([
+        bucket.toISOString(),
+        local.format(bucket),
+        channel.displayLabel,
+        channel.unitSymbol ?? channel.unit ?? '',
+        point.avg,
+        point.min,
+        point.max,
+        point.count,
+        point.badCount,
+      ]);
+    }
+  }
+  return csvText(rows, csvFormatFor(locale));
 }

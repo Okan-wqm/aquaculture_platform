@@ -2170,6 +2170,9 @@
     "SENSOR-HIGH-140",
     "SENSOR-HIGH-141",
     "SENSOR-HIGH-142",
+    "SENSOR-HIGH-145",
+    "SENSOR-HIGH-146",
+    "SENSOR-HIGH-148",
     "SENSOR-LOW-001",
     "SENSOR-LOW-002",
     "SENSOR-LOW-003",
@@ -2196,6 +2199,7 @@
     "SENSOR-LOW-024",
     "SENSOR-LOW-025",
     "SENSOR-LOW-026",
+    "SENSOR-LOW-147",
     "SENSOR-MEDIUM-001",
     "SENSOR-MEDIUM-002",
     "SENSOR-MEDIUM-003",
@@ -2404,6 +2408,6 @@
     "ULTRA-MEDIUM-052",
     "ULTRA-MEDIUM-053"
   ],
-  "rebuilt_at": "2026-10-07T09:59:13Z",
+  "rebuilt_at": "2026-10-07T13:18:02Z",
   "schema_version": 1
 }

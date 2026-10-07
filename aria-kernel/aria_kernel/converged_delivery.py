@@ -89,6 +89,11 @@ WITHHELD_ATTEMPT_UNRECORDED: str = "attempt_unrecorded"
 WITHHELD_NO_AUTHORITY: str = "no_implementation_authority"
 WITHHELD_CYCLE_BOUND: str = "per_cycle_bound"
 WITHHELD_WORKSPACE_DIRTY: str = "workspace_dirty"
+# ARIA-HIGH-375 — a CONVERGED plan whose converging evaluation predates the
+# independence gate, judged now and found self-agreeing: moved to
+# HUMAN_REQUIRED, never offered.
+WITHHELD_NOT_INDEPENDENT: str = "convergence_not_independent"
+INDEPENDENCE_MIGRATED_KIND: str = "converged_independence_migrated"
 
 
 def human_required_request_id(plan_id: str) -> str:
@@ -159,6 +164,67 @@ def converged_plan_ids(*, base_dir: Path) -> list[str]:
     return _plan_ledger_scan(base_dir)[0]
 
 
+def withhold_ungated_self_agreement(plan_id: str, *, base_dir: Path) -> bool:
+    """True when ``plan_id`` must not be offered because its convergence was
+    never independence-gated and fails the gate now (ARIA-HIGH-375).
+
+    Every evaluation since ARIA-HIGH-375 carries the gate, so this judges
+    only plans CONVERGED before it (or by a ledger written by hand). A plan
+    that fails is moved CONVERGED → HUMAN_REQUIRED under the plan lock, with
+    one operator item; the move is the migration's record, so a plan is
+    judged and moved at most once. A plan that passes stays CONVERGED.
+    """
+    from .convergence_outcome import record_parked_plan
+    from .plan_convergence import (
+        CROSS_REVIEW_SELF_AGREEMENT_REASON,
+        PlanStateRefused,
+        cross_reviewed_round,
+        fold_plan_state,
+        force_plan_human_required,
+        independence_gated,
+    )
+    from .round_independence import round_independence_verdict
+    from .tool_registry import append_tools_governance
+
+    state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+    if state.get("state") != "CONVERGED":
+        return False
+    converging = next(
+        (event.get("payload") or {} for event in reversed(state.get("events") or [])
+         if event.get("event_type") == "plan_evaluated"
+         and (event.get("payload") or {}).get("terminal_state") == "CONVERGED"),
+        None,
+    )
+    if converging is None or independence_gated(converging):
+        return False
+    round_number = int(converging.get("round_number") or state.get("current_round") or 1)
+    if not cross_reviewed_round(state, round_number):
+        # A legacy critique-only round: no cross reviewer, nothing to judge.
+        return False
+    passed, violations = round_independence_verdict(
+        plan_id=plan_id, round_number=round_number, state=state, base_dir=base_dir,
+    )
+    if passed:
+        return False
+    try:
+        force_plan_human_required(
+            plan_id=plan_id, round_number=round_number,
+            reason_codes=[CROSS_REVIEW_SELF_AGREEMENT_REASON],
+            from_states=frozenset({"CONVERGED"}), base_dir=base_dir,
+        )
+    except PlanStateRefused:
+        # Left CONVERGED under the lock (a mint got there first): what it is
+        # now is not an offer this path may make either.
+        return True
+    append_tools_governance(
+        base_dir, INDEPENDENCE_MIGRATED_KIND,
+        {"plan_id": plan_id, "round_number": round_number, "violation_reasons": violations},
+    )
+    record_parked_plan(plan_id=plan_id, base_dir=base_dir, verdict="cross_review_self_agreement",
+                       origin="converged_delivery")
+    return True
+
+
 def _withheld(plan_id: str, origin: str, reason: str, **extra: Any) -> dict[str, Any]:
     return {
         "terminal_state": "IMPLEMENTATION_REQUEST_REFUSED",
@@ -185,6 +251,9 @@ def _claim_attempt(
     state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
     if state.get("state") != "CONVERGED":
         return None, WITHHELD_NOT_CONVERGED
+    if withhold_ungated_self_agreement(plan_id, base_dir=base_dir):
+        # ARIA-HIGH-375 — the one door: no caller offers a self-agreeing plan.
+        return None, WITHHELD_NOT_INDEPENDENT
     attempts = state.get("implementation_delivery_attempts") or []
     if any(row.get("cycle_id") == cycle_id for row in attempts):
         return None, WITHHELD_OFFERED_THIS_CYCLE
@@ -547,6 +616,7 @@ def redeliver_stranded_converged_plans(
 
     report: dict[str, Any] = {
         "stranded": [], "offered": [], "escalated": [], "withheld": {}, "surfaced": [],
+        "independence_failed": [],
         "repaired": [], "authority": bool(runner.delivers_implementation),
     }
     converged, exhausted = _plan_ledger_scan(base_dir)
@@ -560,6 +630,13 @@ def redeliver_stranded_converged_plans(
     # Read once per sweep, and only when uncounted cycles will be noted.
     governance = load_jsonl(base_dir / "governance.jsonl") if converged and not report["authority"] else None
     for plan_id in converged:
+        # ARIA-HIGH-375 — the migration runs here, before anything is offered
+        # or escalated, and under every lane, including one without
+        # authority: a plan converged before the independence gate is judged
+        # by it once.
+        if withhold_ungated_self_agreement(plan_id, base_dir=base_dir):
+            report["independence_failed"].append(plan_id)
+            continue
         report["stranded"].append(plan_id)
         state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
         if len(counted_delivery_attempts(state)) >= MAX_DELIVERY_ATTEMPTS:
@@ -620,4 +697,5 @@ __all__ = [
     "live_implementation_request_ids",
     "note_uncounted_cycle",
     "redeliver_stranded_converged_plans",
+    "withhold_ungated_self_agreement",
 ]

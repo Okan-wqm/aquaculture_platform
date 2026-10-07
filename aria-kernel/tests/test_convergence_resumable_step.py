@@ -656,7 +656,7 @@ class CrossCycleConvergence(_StepCase):
         # no claim trail, so the independence gate (ARIA-HIGH-375, its own
         # tests in test_converged_independence_gate.py) is answered here: the
         # pin is a CONVERGED plan reached with zero polling governance rows.
-        with mock.patch.object(cd, "verify_independence", return_value=(True, [])):
+        with mock.patch("aria_kernel.round_independence.verify_independence", return_value=(True, [])):
             third = self.step()
         self.assertEqual(third["arbiter_verdict"], "converged")
         self.assertEqual(

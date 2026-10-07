@@ -88,22 +88,27 @@ def staging_worst_case_seconds(*, plan_id: str, tools_dir: Path) -> int:
     return int(len(commands) * math.ceil(timeout_ms / 1000) + overhead)
 
 
-def _record_funnel(*, tools_dir: Path, plan_id: str, cycle_id: str, source: str | None) -> str:
+def record_funnel(
+    *, tools_dir: Path, plan_id: str, cycle_id: str, source: str | None, counter: str = "converged",
+) -> str:
+    """One funnel count (``converged`` or ``rejected``) for the plan's minting
+    source; an unattributed plan is a governance row, never a guessed source."""
     from .knowledge_graph import effectiveness_writer_faults, record_pressure_source_outcome
     from .tool_registry import append_tools_governance
 
     if source is None:
         append_tools_governance(
-            tools_dir, FUNNEL_UNATTRIBUTED_KIND, {"cycle_id": cycle_id, "plan_id": plan_id},
+            tools_dir, FUNNEL_UNATTRIBUTED_KIND,
+            {"cycle_id": cycle_id, "plan_id": plan_id, "counter": counter},
         )
         return "unattributed"
     try:
-        record_pressure_source_outcome(base_dir=tools_dir, source_type=source, converged=1)
+        record_pressure_source_outcome(base_dir=tools_dir, source_type=source, **{counter: 1})
     except effectiveness_writer_faults() as exc:
         # The cycle's own handling of the same write (`_record_funnel_counter`).
         append_tools_governance(
             tools_dir, "pressure_source_outcome_failed",
-            {"cycle_id": cycle_id, "source_type": source, "counters": {"converged": 1},
+            {"cycle_id": cycle_id, "source_type": source, "counters": {counter: 1},
              "error_class": type(exc).__name__, "error_message": str(exc)[:500]},
             bypass_profile_gate=True,
         )
@@ -118,13 +123,16 @@ def run_executor_converged_seam(
     convergence_result: dict[str, Any],
     tools_dir: Path,
     workspace_root: Path,
-    drain_remaining_seconds: float | None,
+    drain_remaining: Callable[[], float] | None,
     deadline_epoch: float | None,
     now: Callable[[], float] = time.time,
     memory_hook: Any | None = None,
     runner: Any | None = None,
 ) -> dict[str, Any]:
-    """Funnel, memory hook, then the delivery offer — while the plan is CONVERGED."""
+    """Funnel, memory hook (and its replay), then the delivery offer — while
+    the plan is CONVERGED. ``drain_remaining`` is read at the staging check,
+    not before the memory work that precedes it."""
+    from .autonomy_state import AutonomyStateReducer
     from .converged_delivery import deliver_converged_plan
     from .cycle_phases import select_memory_hook, select_v9_implementation_runner
     from .cycle_phases.knowledge_signer import cycle_knowledge_signer
@@ -136,7 +144,7 @@ def run_executor_converged_seam(
     source = plan_pressure_source(tools_dir=tools_dir, plan_id=plan_id)
     report: dict[str, Any] = {
         "profile": profile,
-        "funnel": _record_funnel(tools_dir=tools_dir, plan_id=plan_id, cycle_id=cycle_id, source=source),
+        "funnel": record_funnel(tools_dir=tools_dir, plan_id=plan_id, cycle_id=cycle_id, source=source),
     }
     hook = memory_hook if memory_hook is not None else select_memory_hook(profile=profile)
     v9_runner = runner if runner is not None else select_v9_implementation_runner(profile=profile)
@@ -151,6 +159,13 @@ def run_executor_converged_seam(
                 profile=profile, signer_key_fp=signer.fingerprint,
             )
             report["memory_hook"] = str(memory.get("status") or "ok")
+            # The cycle's transition for the same record (`memory_hook_recorded`).
+            AutonomyStateReducer.transition(
+                tools_dir, cycle_id=cycle_id, phase="memory_hook_recorded",
+                status=report["memory_hook"], profile=profile,
+                details={"plan_id": plan_id, "convention_recorded": memory.get("convention_recorded"),
+                         "knowledge_signer": signer.status, "signer_key_fp": signer.fingerprint},
+            )
         except memory_hook_runtime_faults() as exc:
             # The cycle's guard (B1): a runtime fault of the memory pillar is a
             # row, never the end of the delivery that follows it.
@@ -160,12 +175,24 @@ def run_executor_converged_seam(
                 bypass_profile_gate=True,
             )
             report["memory_hook"] = f"failed:{type(exc).__name__}"
+        if signer.fingerprint is not None:
+            # B7 — rows an earlier run disclosed as needs_signing are completed
+            # under this run's signer, as the cycle's converged branch does.
+            replay: dict[str, Any] = {"status": "not_attempted"}
+            try:
+                replay.update(hook.complete_pending_observations(
+                    base_dir=tools_dir, signer_cycle_id=signer.cycle_id,
+                    signer_key_fp=signer.fingerprint, report=replay,
+                ))
+            except Exception as exc:  # noqa: BLE001 — the cycle's own guard on the replay
+                replay.update({"status": "callback_error", "error_class": type(exc).__name__})
+            report["memory_completion"] = replay.get("status")
         if not v9_runner.delivers_implementation:
             report["delivery"] = {"left_for_cycle_sweep": LEFT_NO_AUTHORITY}
             return report
         worst_case = staging_worst_case_seconds(plan_id=plan_id, tools_dir=tools_dir)
         remaining = [value for value in (
-            drain_remaining_seconds,
+            None if drain_remaining is None else drain_remaining(),
             None if deadline_epoch is None else deadline_epoch - now(),
         ) if value is not None]
         if remaining and min(remaining) < worst_case:
@@ -195,6 +222,7 @@ __all__ = [
     "LEFT_WINDOW",
     "STAGING_GIT_CALLS",
     "plan_pressure_source",
+    "record_funnel",
     "run_executor_converged_seam",
     "staging_worst_case_seconds",
 ]

@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any, Collection
 
 from .artifact_safety import assert_real_mode_env_safe
+from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
 from .ledger import LedgerIntegrityError, append_declared_jsonl, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref
 from .runtime_profile import enforce_profile_for_write
@@ -841,9 +842,14 @@ PLAN_SYNTHESIZER_SUBJECT = "kernel:plan_synthesizer"
 #: Failure modes that name the lane, not the work: nothing the agent produced
 #: was judged (an envelope nobody answered, a lease or poll that ran out, a
 #: reaped orphan). Recorded, and kept off the agent's scorecard.
+#: ARIA-HIGH-375 — `cross_review_self_agreement`: the independence gate
+#: found the round's REVIEW echoing the plans it reviewed. That is a routing
+#: and reviewer-independence fault of the kernel's dispatch, not something the
+#: drafter wrote, so it must never become the drafter's must-check lesson.
 UNATTRIBUTABLE_FAILURE_MODES: frozenset[str] = frozenset({
     "stalled", "convergence_envelope_dead", "no_claim_timeout", "in_flight_abandoned",
     "ci_check_timeout", "orchestrator_restart_reaped_orphan", "cycle_budget_exhausted",
+    CROSS_REVIEW_SELF_AGREEMENT_REASON,
 })
 #: The program plan's learning KPIs the recorded evidence cannot compute, and why.
 NOT_COMPUTABLE_KPIS: dict[str, str] = {

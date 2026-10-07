@@ -74,6 +74,7 @@ SKIP_JOB_DEADLINE = "job_deadline_reached"
 SKIP_ADVANCE_CAP = "advance_cap_reached"
 SKIP_PLAN_NOT_CONVERGING = "plan_not_converging"
 ADVANCE_FAILED = "advance_failed"
+SEAM_FAILED = "failed"
 
 
 @dataclass
@@ -122,7 +123,7 @@ def advance_after_accepted_step(
     workspace_root: Path,
     run_id: str,
     budget: AdvanceBudget,
-    drain_remaining_seconds: float | None,
+    drain_remaining: Callable[[], float] | None,
     environ: Mapping[str, str] | None = None,
     now: Callable[[], float] = time.time,
     converged_seam: Callable[..., dict[str, Any]] | None = None,
@@ -131,8 +132,12 @@ def advance_after_accepted_step(
 
     Returns the outcome: ``skipped`` with the gate that refused, ``failed``
     with the store fault, or ``advanced`` with the step's verdict, the
-    envelopes it minted and — when the plan converged — what the converged
-    seam did with it (``executor_converged_seam``).
+    envelopes it minted, what the converged seam did with a converged plan
+    (``executor_converged_seam``) and, for a plan the step ended, the
+    outcome rows the cycle would have written (``convergence_outcome``).
+    ``run_id`` names the job attempt (``<run_id>-<attempt>``): a re-run
+    attempt is a different job and must never share the first one's
+    per-cycle bookkeeping (an offer counted ``offered_this_cycle``).
     """
     from .bridge_exceptions import BridgeContractViolation
     from .convergence_drainer import run_convergence_drainer
@@ -193,19 +198,42 @@ def advance_after_accepted_step(
         minted_request_ids=list(result.get("request_ids") or []),
         to_state=fold_plan_state(plan_id=plan_id, base_dir=tools_dir).get("state"),
     )
+    store_faults = (GovernanceError, BridgeContractViolation, LedgerIntegrityError, OSError)
     if result["arbiter_verdict"] == "converged":
         if converged_seam is None:
             from .executor_converged_seam import run_executor_converged_seam as converged_seam
-        outcome["converged_seam"] = converged_seam(
-            plan_id=plan_id,
-            cycle_id=cycle_id,
-            convergence_result=result,
-            tools_dir=tools_dir,
-            workspace_root=workspace_root,
-            drain_remaining_seconds=drain_remaining_seconds,
-            deadline_epoch=deadline,
-            now=now,
-        )
+        try:
+            outcome["converged_seam"] = converged_seam(
+                plan_id=plan_id,
+                cycle_id=cycle_id,
+                convergence_result=result,
+                tools_dir=tools_dir,
+                workspace_root=workspace_root,
+                drain_remaining=drain_remaining,
+                deadline_epoch=deadline,
+                now=now,
+            )
+        except store_faults as exc:
+            # The plan is CONVERGED whatever the seam managed: the cycle's
+            # sweep offers it next. A store fault here ends THIS plan's seam,
+            # never the night's drain (the rest of the queue still runs).
+            outcome["converged_seam"] = {"status": SEAM_FAILED, "error_class": type(exc).__name__,
+                                         "error_message": str(exc)[:500]}
+    if outcome["to_state"] in TERMINAL_STATES:
+        from .convergence_outcome import report_executor_terminal
+        from .executor_converged_seam import plan_pressure_source
+        from .runtime_profile import get_profile
+
+        try:
+            outcome["reported"] = report_executor_terminal(
+                plan_id=plan_id, cycle_id=cycle_id, verdict=str(result["arbiter_verdict"]),
+                rounds=result.get("rounds_count"), tools_dir=tools_dir,
+                profile=get_profile(base_dir=tools_dir),
+                pressure_source=plan_pressure_source(tools_dir=tools_dir, plan_id=plan_id),
+            )
+        except store_faults as exc:
+            outcome["reported"] = {"status": SEAM_FAILED, "error_class": type(exc).__name__,
+                                   "error_message": str(exc)[:500]}
     append_tools_governance(tools_dir, ADVANCE_GOVERNANCE_KIND, {"cycle_id": cycle_id, **outcome})
     budget.outcomes.append(outcome)
     return outcome

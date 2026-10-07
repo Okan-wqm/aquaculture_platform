@@ -778,9 +778,12 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         """One in-run convergence step for the plan ``request`` answered:
         lease, deadline and cap gated, idempotent per (plan, role, round)."""
         outcome = advance_after_accepted_step(
-            request=request, tools_dir=tools_dir, workspace_root=repo_root, run_id=run_ref,
+            request=request, tools_dir=tools_dir, workspace_root=repo_root,
+            # The job ATTEMPT, not only the run: a re-run is another job.
+            run_id=f"{run_ref}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}",
             budget=advance_budget,
-            drain_remaining_seconds=_drain_budget_seconds() - (time.monotonic() - started),
+            # Read at the staging check itself, after the step's own work.
+            drain_remaining=lambda: _drain_budget_seconds() - (time.monotonic() - started),
         )
         _engine._stage(
             f"drain_convergence_advance request_id={request.get('request_id')} "

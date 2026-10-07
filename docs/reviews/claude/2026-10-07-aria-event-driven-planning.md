@@ -93,34 +93,61 @@ was bypassed one cycle later. Live store, 2026-10-07: no plan is in this state t
 Rule: a round whose cross review is not independent never reaches CONVERGED, so no path can
 deliver it.
 
-Fix, in the state machine rather than at each door:
+Fix (as corrected after review, see **Review corrections** below):
 
-- **Independence is a gate of the evaluation.** `plan_convergence.evaluate_plan(independence=)`
-  records `cross_review_independence` in `gate_decisions`, next to the spine and contract gates. A
-  round that would converge but failed the gate is written HUMAN_REQUIRED with reason
-  `cross_review_self_agreement`, in the same single `plan_evaluated` event. There is no window in
-  which the plan is CONVERGED. The drainer measures the round before it asks
-  (`_round_independence`), and `_derive_arbiter_verdict` maps the reason to the
-  `cross_review_self_agreement` verdict, so the cycle reads the same verdict it did before.
-- **Plans converged without the gate.** This covers the operator's `plan evaluate` /
-  `plan advance-rounds` and ledgers written before the gate existed. When the drainer next judges
-  such a plan and it fails, it is moved CONVERGED → HUMAN_REQUIRED under the plan lock
-  (`force_plan_human_required(from_states={"CONVERGED"})`).
-- **Why not a check inside `deliver_converged_plan`.** The verdict lives on the plan ledger, which
-  every door already reads through the CONVERGED state, so a state that cannot be reached covers
-  the sweep, the executor seam and the converging call with no per-door check. Recomputing the
-  check at the door would need the round's dispatch records at delivery time, and it would leave a
-  plan whose state says CONVERGED while it is undeliverable, which is the same mismatch again.
+- **Independence is a gate of the evaluation.** `plan_convergence.evaluate_plan` derives the
+  round's verdict itself (`round_independence.round_independence_verdict`) whenever its decision
+  would be CONVERGED, and records `cross_review_independence` in `gate_decisions`, next to the
+  spine and contract gates. A round that fails is written HUMAN_REQUIRED with reason
+  `cross_review_self_agreement`, in the same single `plan_evaluated` event. No caller can omit it:
+  the drainer, `plan evaluate` and `plan advance-rounds` all go through the same function.
+  The gate judges every round that had a cross review. A legacy critique-only round (V8
+  `request_critics`) has no cross reviewer to be independent of, and is not judged.
+  `_derive_arbiter_verdict` maps the reason to the `cross_review_self_agreement` verdict.
+- **Plans CONVERGED before the gate.** Their converging evaluation carries no independence
+  decision. `converged_delivery.withhold_ungated_self_agreement` judges such a plan. It runs in the
+  per-cycle sweep before anything is offered or escalated, under every lane including one
+  without authority, and again at the delivery door (`_claim_attempt`). A failure moves the plan
+  CONVERGED → HUMAN_REQUIRED under the plan lock and writes one operator item. That move is the
+  migration's own record, so each plan is moved at most once.
 
-Tests (`aria-kernel/tests/test_converged_independence_gate.py`, 5). Each fails on the pre-fix
-kernel: 5/5 red at `46d2e6a0c`.
+Tests: `aria-kernel/tests/test_converged_independence_gate.py`. The first five tests failed on
+the pre-fix kernel, 5/5 red at `46d2e6a0c`. `test_convergence_resumable_step` used to accept
+CONVERGED with a self-agreement verdict, which was exactly this defect; it now answers the gate.
 
-- A self-agreeing round is HUMAN_REQUIRED with the gate on record, and the next sweep offers
-  nothing.
-- `deliver_converged_plan` withholds it (`not_converged`).
-- The executor advance never reaches its converged seam.
-- A plan converged by `plan evaluate` leaves CONVERGED when judged and is not swept.
-- A clean round converges with `passed: true` recorded and is delivered.
+## Review corrections
 
-`test_convergence_resumable_step` used to accept CONVERGED with a self-agreement verdict, which is
-exactly this defect. It now answers the gate.
+The independent review of PR #1831 found no blocker. It raised one HIGH and three MEDIUM issues,
+plus three LOW items. Each is fixed on this branch.
+
+- **HIGH-1 (375): self-agreement scored as the drafter's failure.** `agent_eval` turns every
+  HUMAN_REQUIRED evaluation into a drafter `escalated` episode. `cross_review_self_agreement`
+  was attributable, so `recurring_failure_modes` would have handed the primary planner a
+  must-check for a reviewer-independence fault it cannot fix. It is now in
+  `UNATTRIBUTABLE_FAILURE_MODES`. One constant names it, in `independence_check`.
+- **MEDIUM-1 (375): the lazy migration never ran, and the operator paths bypassed the gate.**
+  The first version took the round's verdict as an optional parameter, so `plan evaluate` and
+  `advance-rounds` converged without it. It also repaired legacy plans only in `_terminal_result`,
+  which nothing calls on a terminal plan. `evaluate_plan` now derives the verdict itself (no
+  parameter), and the sweep plus the delivery door run the one-time migration. The earlier claim
+  that a self-agreeing CONVERGED state "cannot be reached" was false for those paths.
+- **MEDIUM-2 (368): a fault in the converged seam stopped the drain.** The seam is now called
+  inside the same store-fault tuple as the step (`GovernanceError`, `BridgeContractViolation`,
+  `LedgerIntegrityError`, `OSError`). A fault becomes `converged_seam.status = failed` on the
+  advance row, and the drain goes on. The plan stays CONVERGED for the cycle's sweep.
+- **MEDIUM-3 (368): plans the executor ended dropped out of the cycle's reporting.**
+  `convergence_outcome.report_executor_terminal` writes the cycle's own rows for any plan the
+  executor's step made terminal: `convergence_resolved` always, and for other verdicts also
+  `convergence_blocked`, the funnel's `rejected` count and the operator item. The job that ends a
+  plan reports it; the cycle never sees a terminal plan, so nothing is counted twice.
+  - `record_parked_plan` gives every HUMAN_REQUIRED plan exactly one operator item, keyed
+    `plan-human-required-<plan_id>`. The cycle's blocked branch, the executor and the legacy
+    migration all write the same key.
+  - The seam now also writes the `memory_hook_recorded` transition and runs
+    `complete_pending_observations` under its signer, as the cycle's converged branch does.
+  - Reflection and the daily report are cycle-scoped; they read the state rows above.
+- **LOW items:**
+  - `drain_remaining` is a callable read at the staging check.
+  - The executor id is `executor-<run_id>-<attempt>`.
+  - `round_dispatch_record_refused` is written once per (plan, round, role, reason), through
+    `append_tools_governance_once`.

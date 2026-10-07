@@ -154,7 +154,13 @@ class PlanConvergenceTests(unittest.TestCase):
         self.cross_review("task-p2c-1", "farm-expert", "primary_to_challenger", [])
         self.cross_review("task-c2p-1", "access-boundary-auditor", "challenger_to_primary", [])
         self.assertEqual(plan_status(plan_id="plan-1", base_dir=self.tools_dir)["state"], "CROSS_REVIEWED")
-        result = evaluate_plan(plan_id="plan-1", round_number=1, base_dir=self.tools_dir)
+        # ARIA-HIGH-375 — the independence gate is answered (native folds
+        # carry no dispatch trail; the gate's own tests are
+        # test_converged_independence_gate.py): the subject is zero risk.
+        from unittest import mock
+
+        with mock.patch("aria_kernel.round_independence.verify_independence", return_value=(True, [])):
+            result = evaluate_plan(plan_id="plan-1", round_number=1, base_dir=self.tools_dir)
         self.assertEqual(result["status"], "evaluated")
         self.assertEqual(result["event"]["payload"]["terminal_state"], "CONVERGED")
 

@@ -145,7 +145,7 @@ class _PlanCase(unittest.TestCase):
     def advance(self, request: dict, *, budget: ec.AdvanceBudget | None = None, environ=None, now=None) -> dict:
         return ec.advance_after_accepted_step(
             request=request, tools_dir=self.tools, workspace_root=self.root, run_id="run-1",
-            budget=budget or ec.AdvanceBudget(), drain_remaining_seconds=None,
+            budget=budget or ec.AdvanceBudget(), drain_remaining=None,
             environ=_LEASE if environ is None else environ,
             **({"now": now} if now is not None else {}),
         )
@@ -216,15 +216,43 @@ class ConvergedSeam(_PlanCase):
         self.advance(self.requests("challenger_plan")[0])
         self.answer_cross_review()
         seen: list[dict] = []
-        with mock.patch.object(cd, "verify_independence", return_value=(True, [])):
+        with mock.patch("aria_kernel.round_independence.verify_independence", return_value=(True, [])):
             outcome = ec.advance_after_accepted_step(
                 request=self.requests("cross_review")[0], tools_dir=self.tools, workspace_root=self.root,
-                run_id="run-1", budget=ec.AdvanceBudget(), drain_remaining_seconds=None, environ=_LEASE,
+                run_id="run-1", budget=ec.AdvanceBudget(), drain_remaining=None, environ=_LEASE,
                 converged_seam=lambda **kwargs: seen.append(kwargs) or {"captured": True},
             )
         self.assertEqual((outcome["verdict"], self.state()), ("converged", "CONVERGED"))
         self.assertEqual(len(seen), 1)
         self.seam_kwargs = seen[0]
+
+    def test_a_store_fault_inside_the_seam_ends_the_seam_not_the_drain(self) -> None:
+        from aria_kernel.tool_registry import GovernanceError
+
+        # A fresh store at the same CROSS_REVIEWED point, so the advance
+        # converges again with a seam that faults.
+        self.setUp_reviewed_again()
+
+        def faulting_seam(**_kwargs):
+            raise GovernanceError("converged_plan_body_unverifiable")
+
+        with mock.patch("aria_kernel.round_independence.verify_independence", return_value=(True, [])):
+            outcome = ec.advance_after_accepted_step(
+                request=self.requests("cross_review")[0], tools_dir=self.tools, workspace_root=self.root,
+                run_id="run-2-1", budget=ec.AdvanceBudget(), drain_remaining=None, environ=_LEASE,
+                converged_seam=faulting_seam,
+            )
+        self.assertEqual(outcome["status"], "advanced")
+        self.assertEqual(outcome["converged_seam"]["status"], ec.SEAM_FAILED)
+        self.assertEqual(outcome["converged_seam"]["error_class"], "GovernanceError")
+        self.assertEqual(outcome["reported"]["resolved"], "converged")
+
+    def setUp_reviewed_again(self) -> None:
+        self.tmp.cleanup()
+        _PlanCase.setUp(self)
+        self.answer_challenger()
+        self.advance(self.requests("challenger_plan")[0])
+        self.answer_cross_review()
 
     def seam(self, **overrides) -> dict:
         from aria_kernel.cycle_phases.memory import NoOpMemoryHook
@@ -253,7 +281,7 @@ class ConvergedSeam(_PlanCase):
 
         runner = mock.Mock(delivers_implementation=True)
         worst = staging_worst_case_seconds(plan_id="plan-1", tools_dir=self.tools)
-        for remaining in ({"drain_remaining_seconds": worst - 1},
+        for remaining in ({"drain_remaining": lambda: worst - 1},
                           {"deadline_epoch": 5000.0 + worst - 1, "now": lambda: 5000.0}):
             report = self.seam(runner=runner, **remaining)
             self.assertEqual(report["delivery"]["left_for_cycle_sweep"], LEFT_WINDOW)
@@ -351,7 +379,7 @@ class OneRunTakesThePlanToItsImplementationRequest(_PlanCase):
             ))
             # The kernel-native folds above carry no claim trail, so the
             # independence gate (tested on its own) is answered here.
-            stack.enter_context(mock.patch.object(cd, "verify_independence", return_value=(True, [])))
+            stack.enter_context(mock.patch("aria_kernel.round_independence.verify_independence", return_value=(True, [])))
             # Staging runs the plan's baseline suite; its ids are what the
             # implementation envelope carries.
             stack.enter_context(mock.patch("aria_kernel.apply_engine.stage_converged_plan_for_pr",
@@ -373,6 +401,15 @@ class OneRunTakesThePlanToItsImplementationRequest(_PlanCase):
         governance = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
         self.assertIn(ec.ADVANCE_GOVERNANCE_KIND, governance)
         self.assertIn("converged_in_executor_run", governance)
+        # The cycle never sees this plan again: the executor wrote its outcome
+        # row, under the job attempt's id.
+        from aria_kernel.autonomy_state import autonomy_state_path
+        from aria_kernel.ledger import load_jsonl
+
+        resolved = [row for row in load_jsonl(autonomy_state_path(self.tools))
+                    if row.get("phase") == "convergence_resolved"]
+        self.assertEqual([(row["status"], row["cycle_id"], row["details"]["origin"]) for row in resolved],
+                         [("converged", "executor-local-1", "executor")])
 
     def test_without_the_lease_the_run_leaves_the_next_step_to_the_cycle(self) -> None:
         self.drain(lease=False)

@@ -15817,7 +15817,7 @@ export type Query = {
   sensorsByProtocol: Array<RegisteredSensorType>;
   /** Weekly aggregate sentiment trends per channel (TENANT_ADMIN only) */
   sentimentTrends: Array<SentimentTrendType>;
-  /** The zone a page of these sensors' charts is shown and picked in (≤100): their shared site zone, else the tenant's */
+  /** The zone a page of these sensors' charts is shown and picked in (≤1000): their shared site zone, else the tenant's */
   seriesDisplayTimeZone: SeriesDisplayTimeZone;
   shift: Shift;
   shifts: ShiftConnection;

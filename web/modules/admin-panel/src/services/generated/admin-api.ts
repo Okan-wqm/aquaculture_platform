@@ -6785,13 +6785,13 @@ export interface components {
         CreateTenantNoteDto: {
             content: string;
             /** @enum {string} */
-            category?: "compliance" | "billing" | "support" | "general" | "technical";
+            category?: "compliance" | "general" | "billing" | "support" | "technical";
             isPinned?: boolean;
         };
         UpdateTenantNoteDto: {
             content?: string;
             /** @enum {string} */
-            category?: "compliance" | "billing" | "support" | "general" | "technical";
+            category?: "compliance" | "general" | "billing" | "support" | "technical";
             isPinned?: boolean;
         };
         UpdateTenantDto: {
@@ -8470,9 +8470,9 @@ export interface components {
             subject: string;
             description: string;
             /** @enum {string} */
-            category: "billing" | "general" | "technical" | "feature_request" | "bug_report" | "account";
+            category: "general" | "billing" | "technical" | "feature_request" | "bug_report" | "account";
             /** @enum {string} */
-            priority: "critical" | "high" | "low" | "medium";
+            priority: "critical" | "high" | "medium" | "low";
             /** @enum {string} */
             status: "resolved" | "open" | "closed" | "in_progress" | "waiting_customer";
             assignedTo?: string;
@@ -8509,18 +8509,18 @@ export interface components {
             subject: string;
             description: string;
             /** @enum {string} */
-            category?: "billing" | "general" | "technical" | "feature_request" | "bug_report" | "account";
+            category?: "general" | "billing" | "technical" | "feature_request" | "bug_report" | "account";
             /** @enum {string} */
-            priority?: "critical" | "high" | "low" | "medium";
+            priority?: "critical" | "high" | "medium" | "low";
             tags?: string[];
         };
         UpdateTicketDto: {
             subject?: string;
             description?: string;
             /** @enum {string} */
-            category?: "billing" | "general" | "technical" | "feature_request" | "bug_report" | "account";
+            category?: "general" | "billing" | "technical" | "feature_request" | "bug_report" | "account";
             /** @enum {string} */
-            priority?: "critical" | "high" | "low" | "medium";
+            priority?: "critical" | "high" | "medium" | "low";
             /** @enum {string} */
             status?: "resolved" | "open" | "closed" | "in_progress" | "waiting_customer";
             tags?: string[];
@@ -8536,7 +8536,7 @@ export interface components {
         };
         ChangePriorityDto: {
             /** @enum {string} */
-            priority: "critical" | "high" | "low" | "medium";
+            priority: "critical" | "high" | "medium" | "low";
         };
         TicketAttachmentResponseDto: {
             id: string;
@@ -8916,7 +8916,7 @@ export interface components {
             /** @enum {string} */
             eventType: "rate_limit_exceeded" | "suspicious_activity" | "failed_login" | "brute_force_attempt" | "unauthorized_access" | "privilege_escalation" | "data_exfiltration" | "malware_detected" | "api_abuse" | "sql_injection_attempt" | "xss_attempt" | "csrf_attempt" | "account_lockout" | "password_spray" | "credential_stuffing" | "session_hijacking" | "ip_blacklisted" | "geo_anomaly" | "device_anomaly" | "time_anomaly";
             /** @enum {string} */
-            threatLevel: "critical" | "high" | "low" | "medium";
+            threatLevel: "critical" | "high" | "medium" | "low";
             /** @enum {string} */
             status: "confirmed" | "detected" | "investigating" | "mitigated" | "false_positive" | "escalated";
             title: string;
@@ -8972,7 +8972,7 @@ export interface components {
             title: string;
             description: string;
             /** @enum {string} */
-            severity: "critical" | "high" | "low" | "medium";
+            severity: "critical" | "high" | "medium" | "low";
             /** @enum {string} */
             status: "open" | "closed" | "investigating" | "contained" | "eradicated" | "recovered";
             category: string;
@@ -9055,7 +9055,7 @@ export interface components {
             indicatorType: "email" | "domain" | "ip" | "cidr" | "url" | "hash" | "user_agent";
             value: string;
             /** @enum {string} */
-            threatLevel: "critical" | "high" | "low" | "medium";
+            threatLevel: "critical" | "high" | "medium" | "low";
             source: string;
             description?: string | null;
             threatTypes?: string[] | null;

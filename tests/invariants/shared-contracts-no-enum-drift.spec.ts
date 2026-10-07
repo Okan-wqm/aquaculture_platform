@@ -85,6 +85,9 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
       // The sensor-reading time range: preset durations, range shape and URL
       // form shared by every chart surface.
       './sensor-readings/time-range',
+      // Measured quantities: channel-key vocabulary, units and basis, read by
+      // the reading event, the sensor catalog and the farm templates.
+      './measurement/quantities',
     ]);
     const index = readFileSync(resolve(REPO_ROOT, 'libs/shared-contracts/src/index.ts'), 'utf8');
     const exportFroms = [

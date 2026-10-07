@@ -1,3 +1,5 @@
+import { CHANNEL_KEYS, channelKeyUnit } from '@aquaculture/shared-contracts';
+
 import { ChannelDataType } from '../../database/entities/sensor-data-channel.entity';
 import { SensorType } from '../../database/entities/sensor.entity';
 import {
@@ -42,6 +44,30 @@ describe('sensor-parameter-catalog SSoT (SENSOR-MEDIUM-065)', () => {
       expect(e.min).toBeLessThanOrEqual(e.max);
       expect(e.dataType).toBe(ChannelDataType.NUMBER);
       expect(e.key).toBe(e.key.toLowerCase());
+    }
+  });
+
+  it('names every registry spelling, in the registry unit, and nothing else', () => {
+    expect(Object.keys(SENSOR_PARAMETER_CATALOG).sort()).toEqual(Object.keys(CHANNEL_KEYS).sort());
+    for (const { key, unit } of listParameterCatalog()) {
+      expect(unit).toBe(channelKeyUnit(key));
+    }
+    // Spellings the reading event always carried are now registrable too.
+    expect(lookupParameter('waterlevel')).toEqual(lookupParameter('water_level'));
+    expect(lookupParameter('dissolvedoxygen')).toEqual(lookupParameter('do'));
+    // H2S is µg/L wherever it is named — the farm engine's unit, 1000× mg/L.
+    expect(lookupParameter('h2s')).toMatchObject({ unit: 'µg/L' });
+    expect(lookupParameter('constructor')).toBeUndefined();
+  });
+
+  it('gives one definition to every spelling of one quantity', () => {
+    for (const [key, meaning] of Object.entries(CHANNEL_KEYS)) {
+      const sibling = Object.entries(CHANNEL_KEYS).find(
+        ([, other]) =>
+          ('quantity' in other ? other.quantity : other.family) ===
+          ('quantity' in meaning ? meaning.quantity : meaning.family),
+      );
+      expect(lookupParameter(key)).toEqual(lookupParameter(sibling?.[0] ?? ''));
     }
   });
 });

@@ -1,3 +1,5 @@
+import { CHANNEL_KEYS, type ChannelKeyMeaning } from '@aquaculture/shared-contracts';
+
 import { SensorReadingParameter } from './sensor-events';
 
 /**
@@ -59,37 +61,17 @@ export const PARAMETER_BY_READING_FIELD: Readonly<
 );
 
 /**
- * channelKey (and its device-naming aliases) → canonical parameter. Keys are
- * lowercased. Consolidates the alias sets previously spread across the NATS
- * consumer switch and the sensor-parameter catalog.
+ * channelKey (and its device-naming aliases) → reading parameter, projected
+ * from the measured-quantity registry's channel-key table: a key the flat
+ * reading event carries names its parameter there. Keys are lowercased.
  */
-const PARAMETER_BY_CHANNEL_KEY: Readonly<Record<string, SensorReadingParameter>> = Object.freeze({
-  temperature: 'temperature',
-  temp: 'temperature',
-  water_temperature: 'temperature',
-  water_temp: 'temperature',
-  ph: 'ph',
-  ph_level: 'ph',
-  dissolved_oxygen: 'dissolvedOxygen',
-  dissolvedoxygen: 'dissolvedOxygen',
-  do: 'dissolvedOxygen',
-  do_level: 'dissolvedOxygen',
-  oxygen: 'dissolvedOxygen',
-  o2: 'dissolvedOxygen',
-  salinity: 'salinity',
-  salt: 'salinity',
-  ammonia: 'ammonia',
-  nh3: 'ammonia',
-  nitrite: 'nitrite',
-  no2: 'nitrite',
-  nitrate: 'nitrate',
-  no3: 'nitrate',
-  turbidity: 'turbidity',
-  ntu: 'turbidity',
-  water_level: 'waterLevel',
-  waterlevel: 'waterLevel',
-  level: 'waterLevel',
-});
+const PARAMETER_BY_CHANNEL_KEY: Readonly<Record<string, SensorReadingParameter>> = Object.freeze(
+  Object.fromEntries(
+    Object.entries(CHANNEL_KEYS).flatMap(([key, meaning]: [string, ChannelKeyMeaning]) =>
+      meaning.readingParameter === undefined ? [] : [[key, meaning.readingParameter]],
+    ),
+  ),
+);
 
 /**
  * Resolve a device/channel key to its canonical reading parameter, or undefined

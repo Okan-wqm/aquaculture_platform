@@ -362,7 +362,9 @@ class OneRunTakesThePlanToItsImplementationRequest(_PlanCase):
         output = Path(self.tmp.name) / "github-output.txt"
         output.write_text("", encoding="utf-8")
         env = {"GITHUB_OUTPUT": str(output), "RUNNER_TEMP": self.tmp.name, "MAX_REQUESTS_PER_RUN": "30",
-               "ARIA_DRAIN_BUDGET_SECONDS": "1000000", **(_LEASE if lease else {})}
+               "ARIA_DRAIN_BUDGET_SECONDS": "1000000",
+               # The job's run and attempt, pinned: CI sets its own.
+               "GITHUB_RUN_ID": "4242", "GITHUB_RUN_ATTEMPT": "2", **(_LEASE if lease else {})}
         policy = {"max_concurrent": 1, "worktree_per_request": False, "surplus_after_planning_turn": 0}
         with contextlib.ExitStack() as stack:
             stack.enter_context(mock.patch.dict(os.environ, env))
@@ -409,7 +411,7 @@ class OneRunTakesThePlanToItsImplementationRequest(_PlanCase):
         resolved = [row for row in load_jsonl(autonomy_state_path(self.tools))
                     if row.get("phase") == "convergence_resolved"]
         self.assertEqual([(row["status"], row["cycle_id"], row["details"]["origin"]) for row in resolved],
-                         [("converged", "executor-local-1", "executor")])
+                         [("converged", "executor-4242-2", "executor")])
 
     def test_without_the_lease_the_run_leaves_the_next_step_to_the_cycle(self) -> None:
         self.drain(lease=False)

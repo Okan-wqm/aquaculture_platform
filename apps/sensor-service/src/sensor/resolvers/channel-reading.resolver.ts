@@ -52,7 +52,7 @@ export class ChannelReadingResolver {
   @Query(() => SeriesDisplayTimeZone, {
     name: 'seriesDisplayTimeZone',
     description:
-      "The zone a page of these sensors' charts is shown and picked in (≤100): their shared site zone, else the tenant's",
+      "The zone a page of these sensors' charts is shown and picked in (≤1000): their shared site zone, else the tenant's",
   })
   async seriesDisplayTimeZone(
     @Args('sensorIds', { type: () => [ID] }) sensorIds: string[],

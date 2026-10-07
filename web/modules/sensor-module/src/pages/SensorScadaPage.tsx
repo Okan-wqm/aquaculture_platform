@@ -49,8 +49,6 @@ const SensorScadaPage: React.FC = () => {
     setSelectedProcessId,
   } = useScadaViewerStore();
 
-  // Trend panel state
-
   const { sensors, loading: sensorsLoading } = useSensorList();
 
   // Load active processes from API

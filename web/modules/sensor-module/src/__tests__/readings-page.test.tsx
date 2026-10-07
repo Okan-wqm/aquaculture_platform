@@ -111,6 +111,7 @@ describe('ReadingsPage', () => {
     zoneHook.mockReturnValue({
       zone: { displayTimeZone: 'Europe/Oslo', source: 'SITE' },
       loading: false,
+      error: null,
     });
   });
 
@@ -166,8 +167,24 @@ describe('ReadingsPage', () => {
   });
 
   it('offers no picker until the server names the zone to pick days in', () => {
-    zoneHook.mockReturnValue({ zone: null, loading: true });
+    zoneHook.mockReturnValue({ zone: null, loading: true, error: null });
     renderAt();
     expect(screen.queryByRole('button', { name: /Zaman aralığı seç/ })).toBeNull();
+  });
+
+  it('puts a broken link right when its default range is picked', () => {
+    renderAt('/sensor/readings?range=forever');
+    expect(screen.getByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Zaman aralığı seç: Son 24 saat/ }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Son 24 saat' }),
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('says so when the zone for the charts cannot be read', () => {
+    zoneHook.mockReturnValue({ zone: null, loading: false, error: 'gateway 502' });
+    renderAt();
+    expect(screen.getByRole('alert').textContent).toContain('gateway 502');
   });
 });

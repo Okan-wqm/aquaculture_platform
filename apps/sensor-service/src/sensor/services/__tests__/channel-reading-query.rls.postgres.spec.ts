@@ -322,7 +322,7 @@ describe('ChannelReadingQueryService under FORCE RLS (SENSOR-HIGH-138)', () => {
     expect(temperature?.points.map((point) => point.badCount)).toEqual([0, 0]);
   });
 
-  it('reports the stretches without data as gaps, one bucket wide or more', async () => {
+  it("reports the stretches longer than a channel's own rhythm as gaps", async () => {
     const start = new Date(now - 60 * 60_000);
     const end = new Date(now);
     const response = await service.getSeries(sensorIds[TENANT_A]!, TENANT_A, start, end);
@@ -331,13 +331,11 @@ describe('ChannelReadingQueryService under FORCE RLS (SENSOR-HIGH-138)', () => {
     expect(turbidity?.gaps).toEqual([{ start, end }]);
 
     const temperature = response.channels.find((channel) => channel.channelKey === 'temperature');
-    const [first, second] = temperature?.points ?? [];
-    // Before the first sample, and between the two samples ten minutes apart.
-    expect(temperature?.gaps[0]?.start).toEqual(start);
-    expect(temperature?.gaps).toContainEqual({
-      start: new Date((first?.bucket.getTime() ?? 0) + 60_000),
-      end: second?.bucket,
-    });
+    const [first] = temperature?.points ?? [];
+    // Quiet for most of the hour before its first sample. The two samples ten
+    // minutes apart are the channel's rhythm, not an outage, and the last one
+    // is two minutes old.
+    expect(temperature?.gaps).toEqual([{ start, end: first?.bucket }]);
   });
 
   it("finds where each channel's history starts and ends, within the tenant only", async () => {

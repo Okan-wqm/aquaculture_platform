@@ -705,6 +705,10 @@ export const en = {
   'series.csv.max': 'Maximum',
   'series.csv.count': 'Samples',
   'series.csv.badCount': 'Below good quality',
+  'series.csvFor': 'Export the {sensor} series',
+  'series.showLastDataFor': 'Show the last data of {sensor}',
+  'series.zoneLoadFailed': 'The time zone for these charts could not be read: {error}',
+  'timeRange.picker.inZone': '{range} ({zone})',
   'series.rangeInvalid':
     'The range in this link could not be used ({reason}); the default range is shown',
   'timeRange.picker.noData': 'no data stored',

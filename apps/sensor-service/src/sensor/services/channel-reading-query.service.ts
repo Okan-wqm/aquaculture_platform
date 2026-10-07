@@ -54,6 +54,12 @@ import {
 const SENSOR_SCHEMA = 'sensor';
 /** Same batch cap as latestReadingsBatch. */
 const MAX_SENSORS_PER_BATCH = 100;
+/**
+ * The page zone reads only each sensor's site: cheap, so a whole page asks
+ * at once. More than 100 distinct sites is mixed zones by definition, which
+ * the zone rule answers with the tenant zone.
+ */
+const MAX_SENSORS_PER_ZONE = 1_000;
 
 const ALERT_LEVELS: Readonly<Record<'normal' | 'warning' | 'critical', ChannelAlertLevel>> = {
   normal: ChannelAlertLevel.NORMAL,
@@ -275,9 +281,9 @@ export class ChannelReadingQueryService {
    * marked unavailable, when farm cannot answer.
    */
   async getDisplayTimeZone(sensorIds: string[], tenantId: string): Promise<SeriesDisplayTimeZone> {
-    if (sensorIds.length > MAX_SENSORS_PER_BATCH) {
+    if (sensorIds.length > MAX_SENSORS_PER_ZONE) {
       throw new BadRequestException(
-        `Maximum ${MAX_SENSORS_PER_BATCH} sensors can be queried at once`,
+        `Maximum ${MAX_SENSORS_PER_ZONE} sensors can be asked about at once`,
       );
     }
     const validTenantId = validateTenantId(tenantId);
@@ -349,6 +355,32 @@ export class ChannelReadingQueryService {
       const spanByChannel = new Map(spans.map((row) => [row.channel_id, row]));
       const recentByChannel = new Map(recent.map((row) => [row.channel_id, row.time]));
 
+      // A channel quiet longer than the freshness window has only its last
+      // daily bucket — a UTC midnight, up to a day before the real sample. Its
+      // last sample is narrowed inside that day from the finest rollup that
+      // still holds it (minute, else hour), so "last data" and the jump to it
+      // land on the sample's own minute.
+      const quiet = channels.flatMap((channel) => {
+        const lastDay = spanByChannel.get(channel.id)?.last_at;
+        return !recentByChannel.has(channel.id) && lastDay ? [{ id: channel.id, lastDay }] : [];
+      });
+      if (quiet.length > 0) {
+        const minute = await resolveExistingSource(qr, METRIC_ROLLUP_SOURCES.minute, this.logger);
+        const hour = await resolveExistingSource(qr, METRIC_ROLLUP_SOURCES.hour, this.logger);
+        const latestIn = (source: MetricSource, alias: string): string =>
+          `(SELECT MAX(${alias}.${source.timeColumn}) FROM ${source.table} ${alias}
+             WHERE ${alias}.channel_id = q.id AND ${alias}.tenant_id = $3
+               AND ${alias}.${source.timeColumn} >= q.last_day
+               AND ${alias}.${source.timeColumn} < q.last_day + interval '1 day')`;
+        const narrowed = (await qr.query(
+          `SELECT q.id AS channel_id,
+                  COALESCE(${latestIn(minute, 'm')}, ${latestIn(hour, 'h')}, q.last_day) AS last_at
+             FROM unnest($1::uuid[], $2::timestamptz[]) AS q(id, last_day)`,
+          [quiet.map((row) => row.id), quiet.map((row) => row.lastDay), validTenantId],
+        )) as Array<{ channel_id: string; last_at: Date }>;
+        for (const row of narrowed) recentByChannel.set(row.channel_id, row.last_at);
+      }
+
       return channels.map((channel) => {
         const span = spanByChannel.get(channel.id);
         return {
@@ -417,10 +449,14 @@ function toSeries(
 }
 
 /**
- * The stretches of [start, end) no bucket covers, at least one bucket wide.
- * Each bucket's start and end come from the database, which aligned them —
- * in a local zone a day is 23 or 25 hours at a daylight-saving change, so a
- * fixed width would report gaps that are not there.
+ * The stretches of [start, end) where a channel went quiet: longer than one
+ * and a half of its own steps between buckets.
+ *
+ * The step is the channel's typical spacing (median) — not the bucket width.
+ * A probe that samples every 30 minutes, charted in 15-minute buckets, fills
+ * every other bucket; that is its rhythm, not an outage. Bucket starts and
+ * ends come from the database, which aligned them, so a 23- or 25-hour local
+ * day is one step, not a gap.
  */
 export function gapsIn(
   buckets: readonly { bucket: Date; bucketEnd: Date }[],
@@ -432,20 +468,29 @@ export function gapsIn(
   if (first === undefined || last === undefined) {
     return [{ start, end }];
   }
+  const width = first.bucketEnd.getTime() - first.bucket.getTime();
+  const spacings: number[] = [];
+  for (let index = 1; index < buckets.length; index++) {
+    const previous = buckets[index - 1];
+    const next = buckets[index];
+    if (previous && next) spacings.push(next.bucket.getTime() - previous.bucket.getTime());
+  }
+  spacings.sort((a, b) => a - b);
+  const step = Math.max(width, spacings[Math.floor(spacings.length / 2)] ?? width);
+  const quiet = 1.5 * step;
+
   const gaps: TimeWindow[] = [];
-  const widthOf = (span: { bucket: Date; bucketEnd: Date }): number =>
-    span.bucketEnd.getTime() - span.bucket.getTime();
-  if (first.bucket.getTime() - start.getTime() >= widthOf(first)) {
+  if (first.bucket.getTime() - start.getTime() >= quiet) {
     gaps.push({ start, end: first.bucket });
   }
   for (let index = 1; index < buckets.length; index++) {
     const previous = buckets[index - 1];
     const next = buckets[index];
-    if (previous && next && next.bucket.getTime() > previous.bucketEnd.getTime()) {
+    if (previous && next && next.bucket.getTime() - previous.bucket.getTime() > quiet) {
       gaps.push({ start: previous.bucketEnd, end: next.bucket });
     }
   }
-  if (end.getTime() - last.bucketEnd.getTime() >= widthOf(last)) {
+  if (end.getTime() - last.bucketEnd.getTime() >= quiet) {
     gaps.push({ start: last.bucketEnd, end });
   }
   return gaps;

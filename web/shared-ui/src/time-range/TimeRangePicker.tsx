@@ -148,12 +148,17 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({
     dateStyle: 'medium',
     timeStyle: 'short',
   });
+  // A fixed window names its zone: a page whose charts sit in another zone
+  // still says which clock these days and times are read on.
   const triggerLabel =
     value.kind === 'relative'
       ? labels.preset(value.preset)
-      : t('timeRange.span', {
-          start: instantFormat.format(value.startMs),
-          end: instantFormat.format(value.endMs - MINUTE_MS),
+      : t('timeRange.picker.inZone', {
+          range: t('timeRange.span', {
+            start: instantFormat.format(value.startMs),
+            end: instantFormat.format(value.endMs - MINUTE_MS),
+          }),
+          zone: timeZone,
         });
   // The zone by its localised name, with its id for the unambiguous answer.
   const zoneName =
@@ -249,8 +254,11 @@ export const TimeRangePicker: React.FC<TimeRangePickerProps> = ({
                     type="button"
                     aria-pressed={current}
                     onClick={() => {
-                      // The range already shown: nothing changes, nothing is recorded.
-                      if (!current) onChange({ kind: 'relative', preset });
+                      // Always handed on: the page may be showing this preset
+                      // only as its default for a link it could not read, and
+                      // picking it is how that link is put right. Writing an
+                      // unchanged range twice is the URL hook's to ignore.
+                      onChange({ kind: 'relative', preset });
                       close();
                     }}
                     className={`rounded px-2 py-1.5 text-left text-sm hover:bg-primary-50 dark:hover:bg-primary-900/30 ${

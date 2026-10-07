@@ -87,7 +87,10 @@ export function useChannelLatestValues(
 
 export interface UseChannelSeriesResult {
   series: ChannelSeriesResponse | null;
+  /** No answer yet for this sensor. */
   loading: boolean;
+  /** A request is in flight — the series shown may be for the previous range. */
+  fetching: boolean;
   error: string | null;
 }
 
@@ -128,6 +131,7 @@ export function useChannelSeries(
   return {
     series: query.data ?? null,
     loading: query.isLoading,
+    fetching: query.isFetching,
     error: query.error ? query.error.message : null,
   };
 }
@@ -135,13 +139,17 @@ export function useChannelSeries(
 export interface UseSeriesDisplayTimeZoneResult {
   zone: SeriesDisplayTimeZone | null;
   loading: boolean;
+  error: string | null;
 }
+
+/** The server answers the page zone for up to this many sensors at once. */
+const DISPLAY_ZONE_BATCH = 1_000;
 
 /** The one zone a page of these sensors' charts is shown and picked in (server rule). */
 export function useSeriesDisplayTimeZone(
   sensorIds: readonly string[],
 ): UseSeriesDisplayTimeZoneResult {
-  const ids = useMemo(() => [...sensorIds].sort().slice(0, LATEST_VALUES_BATCH), [sensorIds]);
+  const ids = useMemo(() => [...sensorIds].sort().slice(0, DISPLAY_ZONE_BATCH), [sensorIds]);
   const query = useTenantQuery(
     ['sensor', 'series-display-time-zone', ids.join(',')],
     async () => {
@@ -153,21 +161,35 @@ export function useSeriesDisplayTimeZone(
     },
     { enabled: ids.length > 0, staleTime: 5 * 60_000 },
   );
-  return { zone: query.data ?? null, loading: query.isLoading };
+  return {
+    zone: query.data ?? null,
+    loading: query.isLoading,
+    error: query.error ? query.error.message : null,
+  };
 }
 
 /** First and last stored sample of each channel of the sensors, by channel id. */
 export function useChannelDataBounds(
   sensorIds: readonly string[],
 ): ReadonlyMap<string, ChannelDataBounds> {
-  const ids = useMemo(() => [...sensorIds].sort().slice(0, LATEST_VALUES_BATCH), [sensorIds]);
+  const ids = useMemo(() => [...sensorIds].sort(), [sensorIds]);
   const query = useTenantQuery(
     ['sensor', 'channel-data-bounds', ids.join(',')],
     async () => {
-      const result = await graphqlFetch<ChannelDataBoundsResult>(CHANNEL_DATA_BOUNDS_QUERY, {
-        sensorIds: ids,
-      });
-      return result.channelDataBounds;
+      // The backend caps one request at 100 sensors; a larger page asks in batches.
+      const batches: string[][] = [];
+      for (let index = 0; index < ids.length; index += LATEST_VALUES_BATCH) {
+        batches.push(ids.slice(index, index + LATEST_VALUES_BATCH));
+      }
+      const results = await Promise.all(
+        batches.map(async (batch) => {
+          const result = await graphqlFetch<ChannelDataBoundsResult>(CHANNEL_DATA_BOUNDS_QUERY, {
+            sensorIds: batch,
+          });
+          return result;
+        }),
+      );
+      return results.flatMap((result) => result.channelDataBounds);
     },
     { enabled: ids.length > 0, staleTime: 60_000 },
   );

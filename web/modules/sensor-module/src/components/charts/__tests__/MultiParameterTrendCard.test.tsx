@@ -20,6 +20,7 @@ vi.mock('../TrendChart', () => ({
       data-lines={JSON.stringify(props['lines'])}
       data-mode={String(props['mode'])}
       data-timezone={String(props['timeZone'])}
+      data-breaks={JSON.stringify(props['breaks'])}
     />
   ),
 }));
@@ -59,6 +60,7 @@ function mockSeries(
 ) {
   seriesMock.mockReturnValue({
     loading,
+    fetching: loading,
     error,
     // channelSeries shape: one entry per channel, points keyed by bucket.
     series: {
@@ -75,6 +77,7 @@ function mockSeries(
         {
           channelId: 'c-temperature',
           channelKey: 'temperature',
+          gaps: [{ start: '1970-01-01T06:00:00.000Z', end: '1970-01-01T08:00:00.000Z' }],
           points: hasData
             ? [{ bucket: '1970-01-01T00:00:01.000Z', avg: 22.5, min: 22, max: 23, count: 4 }]
             : [],
@@ -82,11 +85,12 @@ function mockSeries(
         {
           channelId: 'c-ph',
           channelKey: 'ph',
+          gaps: [],
           points: hasData
             ? [{ bucket: '1970-01-01T00:00:01.000Z', avg: 7.4, min: 7.3, max: 7.5, count: 4 }]
             : [],
         },
-        { channelId: 'c-do', channelKey: 'dissolved_oxygen', points: [] },
+        { channelId: 'c-do', channelKey: 'dissolved_oxygen', gaps: [], points: [] },
       ],
     },
   });
@@ -172,6 +176,44 @@ describe('MultiParameterTrendCard', () => {
   it('says when the site zone could not be read and times are in UTC', () => {
     mockSeries(false, null, true, 'UNAVAILABLE');
     renderCard();
-    expect(screen.getByRole('status').textContent).toBe('Saha saat dilimi okunamadı; saatler UTC');
+    expect(screen.getByText('Saha saat dilimi okunamadı; saatler UTC')).toBeTruthy();
+  });
+
+  it('breaks each line at the gaps the server reported for that channel', () => {
+    mockSeries();
+    renderCard();
+    const breaks = JSON.parse(
+      String(screen.getByTestId('trend-chart').getAttribute('data-breaks')),
+    );
+    expect(breaks).toEqual({
+      temperature: [Date.parse('1970-01-01T06:00:00.000Z')],
+      ph: [],
+      dissolved_oxygen: [],
+    });
+  });
+
+  it('never says "no data" before the answer for the range has arrived', () => {
+    seriesMock.mockReturnValue({ series: null, loading: true, fetching: true, error: null });
+    renderCard(CHANNELS, {
+      lastSampleAt: Date.parse('2026-09-19T14:02:30Z'),
+      onShowRange: vi.fn(),
+    });
+    expect(screen.queryByText('Bu aralıkta veri yok.')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Son veriyi göster' })).toBeNull();
+  });
+
+  it('judges "no data" by the channels it shows, not the sensor\'s others', () => {
+    mockSeries();
+    // Only dissolved oxygen is shown (the page filter); it has no points,
+    // though temperature and pH do.
+    renderCard([CHANNELS[2]!]);
+    expect(screen.getByText('Bu aralıkta veri yok.')).toBeTruthy();
+    expect(screen.queryByTestId('trend-chart')).toBeNull();
+  });
+
+  it("names the sensor in its buttons' accessible names", () => {
+    mockSeries();
+    renderCard(CHANNELS, { sensorName: 'Sonde A' });
+    expect(screen.getByRole('button', { name: 'Sonde A serisini dışa aktar' })).toBeTruthy();
   });
 });

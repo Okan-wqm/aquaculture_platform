@@ -704,6 +704,10 @@ export const tr: Record<MessageKey, string> = {
   'series.csv.max': 'En yüksek',
   'series.csv.count': 'Örnek',
   'series.csv.badCount': 'Kalitesi düşük',
+  'series.csvFor': '{sensor} serisini dışa aktar',
+  'series.showLastDataFor': '{sensor} için son veriyi göster',
+  'series.zoneLoadFailed': 'Grafiklerin saat dilimi okunamadı: {error}',
+  'timeRange.picker.inZone': '{range} ({zone})',
   'series.rangeInvalid':
     'Bu bağlantıdaki aralık kullanılamadı ({reason}); varsayılan aralık gösteriliyor',
   'timeRange.picker.noData': 'kayıtlı veri yok',

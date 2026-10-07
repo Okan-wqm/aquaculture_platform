@@ -98,7 +98,7 @@ describe('readingsModel', () => {
     ]);
   });
 
-  it('exports one CSV row per channel with full-precision values', () => {
+  it('exports one CSV row per channel, full precision, in the Turkish spreadsheet format', () => {
     const csv = latestValuesCsv(
       [sensor({})],
       new Map([
@@ -117,12 +117,26 @@ describe('readingsModel', () => {
           ],
         ],
       ]),
+      'tr',
     );
     expect(csv.split('\n')).toEqual([
       'Cihaz;Kanal;Anahtar;Değer;Birim;Zaman;Durum',
-      'Codex Su Sıcaklığı Simülatörü;Su Sıcaklığı;temperature;24.1;°C;2026-10-06T10:32:07.803Z;Normal',
-      'Codex Su Sıcaklığı Simülatörü;"Amonyak; NH3";ammonia;0.1137;mg/L;2026-10-06T10:32:07.803Z;Uyarı',
+      'Codex Su Sıcaklığı Simülatörü;Su Sıcaklığı;temperature;24,1;°C;2026-10-06T10:32:07.803Z;Normal',
+      'Codex Su Sıcaklığı Simülatörü;"Amonyak; NH3";ammonia;0,1137;mg/L;2026-10-06T10:32:07.803Z;Uyarı',
     ]);
+  });
+
+  it('writes text that a spreadsheet would run as a formula as text, but keeps numbers numbers', () => {
+    const csv = latestValuesCsv(
+      [sensor({ name: '=HYPERLINK("http://x","click")' })],
+      new Map([['s-1', [channel({ displayLabel: '@SUM(A1)', unit: '-1', value: -0.02 })]]]),
+      'en',
+    );
+    const row = csv.split('\n')[1] ?? '';
+    expect(row.startsWith(`"'=HYPERLINK(""http://x"",""click"")"`)).toBe(true);
+    expect(row).toContain(",'@SUM(A1),");
+    // A negative reading stays a number; an English spreadsheet reads ',' and '.'.
+    expect(row).toContain(',-0.02,');
   });
 });
 
@@ -196,6 +210,6 @@ describe('seriesCsv', () => {
     const [header, row] = csv.split('\n');
     expect(header).toBe('UTC;Yerel;Kanal;Birim;Ort;Min;Maks;Örnek;Düşük');
     // 21:00 UTC is midnight of the next day in Istanbul (UTC+3).
-    expect(row).toBe('2026-09-16T21:00:00.000Z;17.09.2026 00:00;Su Sıcaklığı;°C;24.1;24;24.3;60;2');
+    expect(row).toBe('2026-09-16T21:00:00.000Z;17.09.2026 00:00;Su Sıcaklığı;°C;24,1;24;24,3;60;2');
   });
 });

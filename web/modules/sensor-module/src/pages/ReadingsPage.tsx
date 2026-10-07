@@ -89,7 +89,7 @@ const ReadingsPage: React.FC = () => {
     setSpec: setRange,
   } = useTimeRangeSearchParams(DEFAULT_RANGE);
   const rangeLabels = useTimeRangeLabels();
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [autoRefresh, setAutoRefresh] = useState(true);
   const now = useNow();
 
@@ -106,15 +106,6 @@ const ReadingsPage: React.FC = () => {
   // zone, else the tenant's); the picker waits for it rather than guess.
   const displayZone = useSeriesDisplayTimeZone(ownerIds);
   const bounds = useChannelDataBounds(ownerIds);
-  const lastSampleBySensor = useMemo(() => {
-    const last = new Map<string, number>();
-    for (const channelBounds of bounds.values()) {
-      if (!channelBounds.lastSampleAt) continue;
-      const at = new Date(channelBounds.lastSampleAt).getTime();
-      last.set(channelBounds.sensorId, Math.max(at, last.get(channelBounds.sensorId) ?? at));
-    }
-    return last;
-  }, [bounds]);
   const dataBounds = useMemo(() => {
     const firsts: number[] = [];
     const lasts: number[] = [];
@@ -196,7 +187,7 @@ const ReadingsPage: React.FC = () => {
               leftIcon={<Download className="w-4 h-4" />}
               disabled={allChannels.length === 0}
               onClick={() =>
-                downloadCsv(latestValuesCsv(owners, latest.bySensor), 'sensor-okumalari')
+                downloadCsv(latestValuesCsv(owners, latest.bySensor, locale), 'sensor-okumalari')
               }
             >
               Dışa Aktar
@@ -275,6 +266,10 @@ const ReadingsPage: React.FC = () => {
                 timeZone={displayZone.zone.displayTimeZone}
                 dataBounds={dataBounds}
               />
+            ) : displayZone.error !== null ? (
+              <span role="alert" className="text-sm text-error-600 dark:text-error-400">
+                {t('series.zoneLoadFailed', { error: displayZone.error })}
+              </span>
             ) : (
               // The picker reads days in the site's zone; until the server
               // names it there is nothing honest to pick in.
@@ -326,7 +321,7 @@ const ReadingsPage: React.FC = () => {
               sensor={sensor}
               channels={channels}
               range={range}
-              lastSampleAt={lastSampleBySensor.get(sensor.id) ?? null}
+              bounds={bounds}
               onShowRange={setRange}
               now={now}
               defaultExpanded={visible.length <= 3}

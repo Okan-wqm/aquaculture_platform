@@ -4,7 +4,7 @@
  * values come from channelLatestValues / channelSeries — nothing is invented
  * client-side.
  */
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Clock, Radio, Server, Wifi, WifiOff } from 'lucide-react';
 
 import { MultiParameterTrendCard } from '../charts/MultiParameterTrendCard';
@@ -20,6 +20,7 @@ import {
   type Freshness,
 } from './readingsModel';
 import type { TimeRangeSpec } from '@aquaculture/shared-contracts';
+import type { ChannelDataBounds } from '../../graphql/channelReadings';
 
 const TILE_TONE: Readonly<Record<'NORMAL' | 'WARNING' | 'CRITICAL' | 'NONE', string>> = {
   NORMAL: 'border-gray-100 dark:border-gray-700',
@@ -89,8 +90,8 @@ export interface SensorReadingsCardProps {
   channels: readonly ChannelLatestValue[];
   /** The range every card charts, owned by the page. */
   range: TimeRangeSpec;
-  /** The sensor's last stored sample (ms), for the empty-range jump. */
-  lastSampleAt: number | null;
+  /** First and last stored sample per channel id (the page's bounds query). */
+  bounds: ReadonlyMap<string, ChannelDataBounds>;
   onShowRange: (range: TimeRangeSpec) => void;
   now: number;
   defaultExpanded?: boolean;
@@ -100,12 +101,21 @@ export const SensorReadingsCard: React.FC<SensorReadingsCardProps> = ({
   sensor,
   channels,
   range,
-  lastSampleAt,
+  bounds,
   onShowRange,
   now,
   defaultExpanded = true,
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  // The jump goes to the last sample of the channels shown (the parameter
+  // filter applies), not of a sibling the chart does not draw.
+  const lastSampleAt = useMemo(() => {
+    const instants = channels.flatMap((channel) => {
+      const last = bounds.get(channel.channelId)?.lastSampleAt;
+      return last ? [new Date(last).getTime()] : [];
+    });
+    return instants.length > 0 ? Math.max(...instants) : null;
+  }, [channels, bounds]);
   const lastAt = lastReportedAt(channels);
   const state = freshness(lastAt, now);
   const topic = sensor.protocolConfiguration?.['topic'];
@@ -169,6 +179,7 @@ export const SensorReadingsCard: React.FC<SensorReadingsCardProps> = ({
               </div>
               <MultiParameterTrendCard
                 sensorId={sensor.id}
+                sensorName={sensor.name}
                 range={range}
                 lastSampleAt={lastSampleAt}
                 onShowRange={onShowRange}

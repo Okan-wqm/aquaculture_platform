@@ -114,34 +114,66 @@ export function channelFilterOptions(
     .sort((a, b) => a.label.localeCompare(b.label, 'tr'));
 }
 
-function csvCell(value: string): string {
-  return /[";\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+/** How a spreadsheet in the user's language reads a CSV: field separator and decimal mark. */
+export interface CsvFormat {
+  readonly separator: ';' | ',';
+  readonly decimal: ',' | '.';
+}
+
+/** Turkish spreadsheets split on `;` and read `,` as the decimal mark; English ones the reverse. */
+export function csvFormatFor(locale: string): CsvFormat {
+  return locale.startsWith('tr')
+    ? { separator: ';', decimal: ',' }
+    : { separator: ',', decimal: '.' };
+}
+
+/** A CSV field: text, or a number written with the locale's decimal mark at full precision. */
+type CsvField = string | number | null | undefined;
+
+function csvCell(field: CsvField, format: CsvFormat): string {
+  if (field === null || field === undefined) return '';
+  if (typeof field === 'number') {
+    return format.decimal === ',' ? String(field).replace('.', ',') : String(field);
+  }
+  // A spreadsheet runs a cell that starts with = + - @ (or a tab or return)
+  // as a formula; sensor names, labels and units are typed by tenants, so
+  // such text is written as text.
+  const text = /^[=+\-@\t\r]/.test(field) ? `'${field}` : field;
+  return text.includes('"') || text.includes(format.separator) || /[\r\n]/.test(text)
+    ? `"${text.replace(/"/g, '""')}"`
+    : text;
+}
+
+function csvText(rows: readonly CsvField[][], format: CsvFormat): string {
+  return rows
+    .map((row) => row.map((field) => csvCell(field, format)).join(format.separator))
+    .join('\n');
 }
 
 /**
- * The current values as CSV (`;`-separated, the Turkish Excel default), one
- * row per channel. Values are written with a dot decimal and full precision so
- * the file round-trips into any tool.
+ * The current values as CSV, one row per channel, in the user's spreadsheet
+ * format (separator and decimal mark) with full precision.
  */
 export function latestValuesCsv(
   sensors: readonly RegisteredSensor[],
   bySensor: ReadonlyMap<string, readonly ChannelLatestValue[]>,
+  locale: string,
 ): string {
-  const rows = [['Cihaz', 'Kanal', 'Anahtar', 'Değer', 'Birim', 'Zaman', 'Durum']];
+  const rows: CsvField[][] = [['Cihaz', 'Kanal', 'Anahtar', 'Değer', 'Birim', 'Zaman', 'Durum']];
   for (const sensor of sensors) {
     for (const channel of bySensor.get(sensor.id) ?? []) {
       rows.push([
         sensor.name,
         channel.displayLabel,
         channel.channelKey,
-        channel.value === null || channel.value === undefined ? '' : String(channel.value),
+        channel.value,
         unitOf(channel),
         channel.time ?? '',
         channel.alertLevel ? ALERT_LABELS[channel.alertLevel] : '',
       ]);
     }
   }
-  return rows.map((row) => row.map(csvCell).join(';')).join('\n');
+  return csvText(rows, csvFormatFor(locale));
 }
 
 /**
@@ -176,19 +208,22 @@ export interface SeriesCsvHeaders {
 
 /**
  * A series as CSV: one row per channel bucket, its UTC instant and its time
- * in the series' display zone (so a spreadsheet and the chart agree).
+ * in the series' display zone (so a spreadsheet and the chart agree), in the
+ * user's spreadsheet format.
  */
 export function seriesCsv(
   series: ChannelSeriesResponse,
   headers: SeriesCsvHeaders,
   locale: string,
+  /** The channels the chart shows; all when omitted. */
+  channelKeys?: ReadonlySet<string>,
 ): string {
   const local = new Intl.DateTimeFormat(locale, {
     timeZone: series.displayTimeZone,
     dateStyle: 'short',
     timeStyle: 'short',
   });
-  const rows: string[][] = [
+  const rows: CsvField[][] = [
     [
       headers.bucketUtc,
       headers.bucketLocal,
@@ -202,6 +237,7 @@ export function seriesCsv(
     ],
   ];
   for (const channel of series.channels) {
+    if (channelKeys !== undefined && !channelKeys.has(channel.channelKey)) continue;
     for (const point of channel.points) {
       const bucket = new Date(point.bucket);
       rows.push([
@@ -209,13 +245,13 @@ export function seriesCsv(
         local.format(bucket),
         channel.displayLabel,
         channel.unitSymbol ?? channel.unit ?? '',
-        String(point.avg),
-        point.min === null || point.min === undefined ? '' : String(point.min),
-        point.max === null || point.max === undefined ? '' : String(point.max),
-        String(point.count),
-        String(point.badCount),
+        point.avg,
+        point.min,
+        point.max,
+        point.count,
+        point.badCount,
       ]);
     }
   }
-  return rows.map((row) => row.map(csvCell).join(';')).join('\n');
+  return csvText(rows, csvFormatFor(locale));
 }

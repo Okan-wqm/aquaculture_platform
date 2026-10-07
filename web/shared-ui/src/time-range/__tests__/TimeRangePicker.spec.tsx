@@ -111,7 +111,7 @@ describe('TimeRangePicker', () => {
       endMs: Date.parse('2026-09-18T06:01:00Z'),
     });
     expect(screen.getByRole('button', { name: /^Choose a time range/ })).toHaveTextContent(
-      /Sep 17, 2026, 2:00\sPM – Sep 18, 2026, 8:00\sAM/,
+      /Sep 17, 2026, 2:00\sPM – Sep 18, 2026, 8:00\sAM \(Europe\/Oslo\)/,
     );
     const dialog = open();
     expect(within(dialog).getByLabelText('Start time')).toHaveValue('14:00');
@@ -267,11 +267,11 @@ describe('TimeRangePicker', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('records nothing when the range already shown is picked again', () => {
+  it('hands a re-picked preset to the page, whose URL ignores an unchanged range', () => {
     const onChange = renderPicker({ kind: 'relative', preset: '24h' });
     const dialog = open();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Last 24 hours' }));
-    expect(onChange).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledWith({ kind: 'relative', preset: '24h' });
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

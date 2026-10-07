@@ -14,7 +14,7 @@
 import { type TimeRangeSpec } from '@aquaculture/shared-contracts';
 import { Button, useI18n } from '@aquaculture/shared-ui';
 import { Download } from 'lucide-react';
-import { useMemo } from 'react';
+import React, { useMemo } from 'react';
 
 import { TrendChart } from './TrendChart';
 import { useChannelSeries } from '../../hooks/useChannelReadings';
@@ -41,6 +41,8 @@ export interface TrendChannelSpec {
 
 export interface MultiParameterTrendCardProps {
   sensorId: string;
+  /** Names the card's controls for assistive technology. */
+  sensorName?: string;
   channels: readonly TrendChannelSpec[];
   /** The range to chart: a preset ending now, or a fixed window. */
   range: TimeRangeSpec;
@@ -91,6 +93,7 @@ function thresholdZones(thresholds: TrendChannelSpec['thresholds']): ChartLineZo
 
 export function MultiParameterTrendCard({
   sensorId,
+  sensorName,
   channels,
   range,
   lastSampleAt = null,
@@ -99,7 +102,13 @@ export function MultiParameterTrendCard({
 }: MultiParameterTrendCardProps) {
   const { locale, t } = useI18n();
   const labels = useSeriesLabels();
-  const { series, loading, error } = useChannelSeries(sensorId, range);
+  const { series, loading, fetching, error } = useChannelSeries(sensorId, range);
+  // Everything the card says — the chart, "no data", the export — is about the
+  // channels it shows (the page's parameter filter), not the sensor's others.
+  const shownKeys = useMemo(
+    () => new Set(channels.map((channel) => channel.channelKey)),
+    [channels],
+  );
 
   const lines: ChartLine[] = useMemo(
     () =>
@@ -112,9 +121,9 @@ export function MultiParameterTrendCard({
           color: channel.color ?? PALETTE[index % PALETTE.length]!,
           yAxis: unitScaleGroup(channel.unit),
           interpolation: 'linear',
-          // Every channel of the series shares the same buckets, so a bucket a
-          // channel lacks is a stretch with no data: the line breaks there
-          // (the gaps the server reports), and a lone bucket shows as a dot.
+          // Lines break only where the server reports this channel went
+          // quiet (its gaps, measured against its own rhythm); a lone bucket
+          // between two gaps shows as a dot.
           spanGaps: false,
           showIsolatedPoints: true,
           zones: zones.length > 0 ? zones : undefined,
@@ -124,18 +133,24 @@ export function MultiParameterTrendCard({
   );
 
   // Series come back keyed by channel; the chart lines are keyed by channelKey.
-  const customData = useMemo(() => {
+  const { customData, breaks } = useMemo(() => {
     const mapped: Record<string, HistoricalDataPoint[]> = {};
+    const stops: Record<string, number[]> = {};
     for (const channel of series?.channels ?? []) {
+      if (!shownKeys.has(channel.channelKey)) continue;
       mapped[channel.channelKey] = channel.points.map((point) => ({
         timestamp: new Date(point.bucket).getTime(),
         value: point.avg,
       }));
+      stops[channel.channelKey] = channel.gaps.map((gap) => new Date(gap.start).getTime());
     }
-    return mapped;
-  }, [series]);
+    return { customData: mapped, breaks: stops };
+  }, [series, shownKeys]);
 
   const hasAnyData = Object.values(customData).some((points) => points.length > 0);
+  // "No data" is said only about an answer for the range on screen, never
+  // while the first answer, or the answer for a new range, is on its way.
+  const settled = series !== null && !fetching;
   const lastSampleLabel =
     lastSampleAt === null
       ? null
@@ -144,6 +159,57 @@ export function MultiParameterTrendCard({
           dateStyle: 'medium',
           timeStyle: 'short',
         }).format(lastSampleAt);
+
+  // One of four states, in this order: the request failed, there is data to
+  // draw, the answer for this range is still coming, or the range is empty.
+  let body: React.ReactNode;
+  if (error) {
+    body = (
+      <p className="text-sm text-error-600 dark:text-error-400" role="alert">
+        {t('series.loadFailed', { error })}
+      </p>
+    );
+  } else if (hasAnyData) {
+    body = (
+      <TrendChart
+        mode="custom"
+        lines={lines}
+        customData={customData}
+        breaks={breaks}
+        timeZone={series?.displayTimeZone}
+        className="h-64"
+      />
+    );
+  } else if (!settled) {
+    body = (
+      <p className="py-8 text-center text-sm text-gray-400 dark:text-gray-500">
+        {t('series.loading')}
+      </p>
+    );
+  } else {
+    body = (
+      <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+        <p>{t('series.emptyRange')}</p>
+        {lastSampleAt !== null && lastSampleLabel !== null && (
+          <div className="mt-2 flex flex-col items-center gap-2">
+            <p>{t('series.lastSample', { time: lastSampleLabel })}</p>
+            {onShowRange && (
+              <Button
+                variant="secondary"
+                size="sm"
+                aria-label={
+                  sensorName ? t('series.showLastDataFor', { sensor: sensorName }) : undefined
+                }
+                onClick={() => onShowRange(rangeEndingAt(lastSampleAt, range, Date.now()))}
+              >
+                {t('series.showLastData')}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
@@ -157,17 +223,20 @@ export function MultiParameterTrendCard({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {loading && (
-            <span className="text-xs text-gray-400 dark:text-gray-500">{t('series.loading')}</span>
+          {(loading || fetching) && (
+            <span className="text-xs text-gray-400 dark:text-gray-500" aria-live="polite">
+              {t('series.loading')}
+            </span>
           )}
           {series && hasAnyData && (
             <Button
               variant="secondary"
               size="xs"
               leftIcon={<Download className="w-3 h-3" />}
+              aria-label={sensorName ? t('series.csvFor', { sensor: sensorName }) : undefined}
               onClick={() =>
                 downloadCsv(
-                  seriesCsv(series, labels.csvHeaders(series), locale),
+                  seriesCsv(series, labels.csvHeaders(series), locale, shownKeys),
                   `seri-${sensorId}`,
                 )
               }
@@ -178,48 +247,16 @@ export function MultiParameterTrendCard({
         </div>
       </div>
       {series?.displayTimeZoneSource === 'UNAVAILABLE' && (
-        <p className="mb-2 text-xs text-warning-700 dark:text-warning-400" role="status">
+        <p className="mb-2 text-xs text-warning-700 dark:text-warning-400">
           {t('series.zoneUnavailable')}
         </p>
       )}
       {series &&
         series.displayTimeZoneSource !== 'UNAVAILABLE' &&
         series.bucketTimeZone !== series.displayTimeZone && (
-          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400" role="status">
-            {t('series.utcBuckets')}
-          </p>
+          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">{t('series.utcBuckets')}</p>
         )}
-      {error ? (
-        <p className="text-sm text-error-600 dark:text-error-400" role="alert">
-          {t('series.loadFailed', { error })}
-        </p>
-      ) : hasAnyData ? (
-        <TrendChart
-          mode="custom"
-          lines={lines}
-          customData={customData}
-          timeZone={series?.displayTimeZone}
-          className="h-64"
-        />
-      ) : (
-        <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-          <p>{t('series.emptyRange')}</p>
-          {lastSampleAt !== null && lastSampleLabel !== null && (
-            <div className="mt-2 flex flex-col items-center gap-2">
-              <p>{t('series.lastSample', { time: lastSampleLabel })}</p>
-              {onShowRange && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => onShowRange(rangeEndingAt(lastSampleAt, range, Date.now()))}
-                >
-                  {t('series.showLastData')}
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      {body}
     </div>
   );
 }

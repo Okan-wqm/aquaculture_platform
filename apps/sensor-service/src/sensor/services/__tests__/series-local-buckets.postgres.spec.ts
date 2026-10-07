@@ -352,4 +352,11 @@ describe('sensor series in the site time zone (real TimescaleDB)', () => {
       source: SeriesTimeZoneSource.TENANT,
     });
   });
+
+  it("finds a quiet channel's last sample to the minute, not its UTC day", async () => {
+    const bounds = await service.getDataBounds([scenarios.kolkata.sensorId ?? ''], TENANT);
+    // Samples every 15 minutes up to the end of the third local day.
+    const lastSample = (scenarios.kolkata.dayStarts?.[3]?.getTime() ?? 0) - 15 * 60_000;
+    expect(bounds[0]?.lastSampleAt?.getTime()).toBe(lastSample);
+  });
 });

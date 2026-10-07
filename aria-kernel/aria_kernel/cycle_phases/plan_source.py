@@ -174,7 +174,9 @@ class V9PressureSourceProvider:
         base_dir: Path,
         profile: str,
     ) -> CyclePlanEnvelope | None:
-        from ..finding_grounding import admit_candidate, load_grounding_context
+        from ..finding_grounding import load_grounding_context
+        from ..finding_seed import SubjectProbe, admit_and_seed
+        from ..plan_slot_policy import SLOT_POLICY_EVENT, order_for_slot
         from ..operator_feedback_ingestion import bind_plan_synthesis, record_request_refused
         from ..operator_request_spend import REQUEST_TEXT_UNUSABLE
         from ..plan_candidate_source import PlanCandidateSource
@@ -202,12 +204,25 @@ class V9PressureSourceProvider:
         # ORPHAN-HIGH-519 — and every candidate's refs are judged at the one
         # commit the challenger request will name.
         ground = PlanEvidenceGround.of(workspace_root)
+        # ARIA-HIGH-369 — the one slot is offered in the slot policy's order
+        # (operator first, ARIA's own red workflows and cooling ones dropped,
+        # F collapsed by subject, F and the other automated sources taking
+        # turns), and what it dropped is disclosed once per synthesis.
+        slot = order_for_slot(candidates, findings=grounding_context.findings,
+                              history=grounding_context.loop_history)
+        append_tools_governance(base_dir, SLOT_POLICY_EVENT, {"cycle_id": cycle_id, **slot.disclosure()})
+        candidates = list(slot.ordered)
+        probe = SubjectProbe()
         for candidate in candidates:
             # One admission for every source that names an F finding (aging
-            # F findings and operator requests alike); None for sources that
-            # name none.
-            admission = admit_candidate(candidate, grounding_context)
-            conversion = convert_candidate_to_plan_content(candidate, admission=admission, ground=ground)
+            # F findings and operator requests alike), then its seed: the
+            # finding's evidence re-grounded at the anchor (ARIA-HIGH-369);
+            # None, None for sources that name none.
+            admission, seeded = admit_and_seed(candidate, grounding_context, probe)
+            conversion = convert_candidate_to_plan_content(
+                candidate, admission=admission, ground=ground,
+                seed=seeded.seed if seeded is not None else None,
+            )
             envelope = conversion.envelope
             attempted += 1
             grounding: dict[str, Any] = {}
@@ -225,6 +240,8 @@ class V9PressureSourceProvider:
                     "refused_surfaces": admission.refused_surface_records(),
                     "refused_refs": admission.refused_ref_records(),
                 })
+                if seeded is not None:
+                    grounding["seed"] = seeded.disclosure()
                 if admission.loop_guard is not None:
                     # The loop guard's evidence rides on the one skip event
                     # the candidate gets this cycle (ARIA-HIGH-260).

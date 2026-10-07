@@ -1542,6 +1542,21 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
         # rechecked with.
         workspace_root=context.workspace_root,
     )
+    # ARIA-HIGH-372 — main is strict (up-to-date required): ARIA's own
+    # behind-main, green PRs are updated by GitHub's update-branch on the
+    # delivery credential path, once per (head, base). ARIA-HIGH-373 — every
+    # open ARIA PR the merge lane cannot merge is ONE HUMAN_REQUIRED item
+    # (URL, CI state, why), resolved when GitHub reports it merged or closed.
+    from .human_merge_surface import surface_human_merge_prs
+    from .pr_branch_update import update_behind_aria_prs
+
+    scan_result["branch_updates"] = update_behind_aria_prs(
+        cycle_id=context.cycle_id, base_dir=context.base_dir, workspace_root=context.workspace_root,
+        reader=reader, profile=profile,
+    )
+    scan_result["human_merge"] = surface_human_merge_prs(
+        cycle_id=context.cycle_id, base_dir=context.base_dir, reader=reader,
+    )
     return scan_result
 
 

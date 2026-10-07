@@ -95,6 +95,11 @@ def open_human_required_record(request_id: str, *, base_dir: str | Path | None =
     return record
 
 
+def human_required_record_exists(request_id: str, *, base_dir: str | Path | None = None) -> bool:
+    """Whether ANY record (open or resolved) carries ``request_id``."""
+    return _human_required_path(ensure_tools_dir(base_dir), request_id).exists()
+
+
 def _resolve_severity(severity: str | None) -> str:
     if isinstance(severity, str):
         upper = severity.strip().upper()
@@ -197,13 +202,22 @@ def list_human_required(
 
 RESOLVED_BY_OPERATOR: str = "operator"
 RESOLVED_BY_AGENT_PANEL: str = "agent_panel"
+# ARIA-HIGH-373 — a record whose question GitHub itself answers: "a person
+# must merge this ARIA PR" is settled by the PR merging or closing, which
+# the kernel OBSERVES (`human_merge_surface`). Neither an operator's act on
+# the ledger nor a panel's decision, so it is its own resolver, admitted
+# only for the context kinds in `GITHUB_OBSERVABLE_CONTEXT_KINDS`: an
+# observation cannot close an escalation that asks for a judgment.
+RESOLVED_BY_GITHUB_OBSERVATION: str = "github_observation"
 # The resolvers `resolve_human_required` admits. The kernel's own resolver
 # (`RESOLVED_BY_KERNEL`) is deliberately absent: it writes only through
 # `write_kernel_disposition`, which states the rule it applied, so no
 # caller can close a record as "the kernel" without saying what it decided.
 RESOLVED_BY_VALUES: frozenset[str] = frozenset({
-    RESOLVED_BY_OPERATOR, RESOLVED_BY_AGENT_PANEL,
+    RESOLVED_BY_OPERATOR, RESOLVED_BY_AGENT_PANEL, RESOLVED_BY_GITHUB_OBSERVATION,
 })
+HUMAN_MERGE_PR_KIND: str = "human_merge_pr"
+GITHUB_OBSERVABLE_CONTEXT_KINDS: frozenset[str] = frozenset({HUMAN_MERGE_PR_KIND})
 RESOLVED_BY_KERNEL: str = "kernel"
 
 # THE PANEL'S DECISION VOCABULARY — declared here, with the record schema.
@@ -396,6 +410,11 @@ def resolve_human_required(
     record = json.loads(path.read_text(encoding="utf-8"))
     if record.get("status") == "resolved":
         return record
+    observed_kind = str((record.get("context") or {}).get("kind") or "")
+    if resolved_by == RESOLVED_BY_GITHUB_OBSERVATION and observed_kind not in GITHUB_OBSERVABLE_CONTEXT_KINDS:
+        raise GovernanceError(
+            f"human_required_github_observation_cannot_resolve_kind:{observed_kind!r}"
+        )
     ts = now or datetime.now(timezone.utc)
     record["status"] = "resolved"
     record["resolved_at"] = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -480,6 +499,33 @@ def resolve_human_required(
         },
     )
     return record
+
+
+def refresh_open_record_context(
+    *, request_id: str, context: dict[str, Any], base_dir: str | Path | None = None,
+) -> bool:
+    """Replace the ``context`` of an OPEN record whose facts moved; True when written.
+
+    ARIA-HIGH-373 — a human-merge record carries the PR's CI state and why
+    it is not self-mergeable, and both change while it waits (CI finishes,
+    the branch is updated). The record is the operator's triage page and the
+    daily report's line, so it carries the CURRENT facts; the reason, the
+    severity and the SLA clock stay as recorded. The context ``kind`` is
+    fixed: a refresh cannot turn one escalation into another.
+    """
+    root = ensure_tools_dir(base_dir)
+    path = _human_required_path(root, request_id)
+    if not path.exists():
+        return False
+    record = json.loads(path.read_text(encoding="utf-8"))
+    if record.get("status") != "open" or record.get("context") == context:
+        return False
+    if (record.get("context") or {}).get("kind") != context.get("kind"):
+        raise GovernanceError(f"human_required_context_kind_is_fixed:{request_id}")
+    record["context"] = context
+    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    append_tools_governance(root, "human_required_context_refreshed", {"request_id": request_id})
+    return True
 
 
 # The status a kernel disposition leaves its record in. ``open`` is work no

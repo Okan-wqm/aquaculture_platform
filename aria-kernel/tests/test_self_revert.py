@@ -1222,6 +1222,8 @@ class SelfRevertCycleWiringTests(unittest.TestCase):
                 mock.patch("aria_kernel.own_pr_ci.scan_repo_pr_health", return_value={}), \
                 mock.patch("aria_kernel.implementation_reconciler.reconcile_recorded_implementations",
                            return_value={}), \
+                mock.patch("aria_kernel.pr_branch_update.update_behind_aria_prs", return_value={}), \
+                mock.patch("aria_kernel.human_merge_surface.surface_human_merge_prs", return_value={}), \
                 mock.patch.object(self_revert, "run_self_revert_producer",
                                   return_value={"status": "ran"}) as producer:
             context = self._context(Path(tmp))

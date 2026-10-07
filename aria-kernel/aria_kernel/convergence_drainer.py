@@ -1276,6 +1276,7 @@ def run_convergence_drainer(
             round_number=current_round,
             reason_codes=[f"convergence_envelope_dead:{dead.role}"],
             base_dir=base_dir,
+            forced_by="kernel:convergence_drainer",
         )
         append_tools_governance(
             root,

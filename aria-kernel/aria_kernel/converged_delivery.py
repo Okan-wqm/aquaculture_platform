@@ -270,6 +270,7 @@ def escalate_exhausted_plan(
             reason_codes=[DELIVERY_EXHAUSTED_REASON],
             from_states=frozenset({"CONVERGED"}),
             base_dir=base_dir,
+            forced_by="kernel:converged_delivery",
         )
     except PlanStateRefused:
         latest = fold_plan_state(plan_id=plan_id, base_dir=base_dir).get("state")

@@ -2677,16 +2677,21 @@ def _agent_refusal_block(parsed: Any) -> dict[str, Any] | None:
     4 003-character replies whose refusal JSON sat past the cut. The builder
     now records what it parsed and the detector reads that record.
     """
-    from aria_kernel.agent_contract import REFUSAL_SCHEMA
+    from aria_kernel.agent_contract import REFUSAL_SCHEMA, REASON_CLASSES
 
     if not isinstance(parsed, dict) or REFUSAL_SCHEMA not in (
         parsed.get("$schema"), parsed.get("envelope"), parsed.get("schema"),
     ):
         return None
     summary = str(parsed.get("reason_summary") or parsed.get("reason") or "agent refused without summary")
+    # ARIA-HIGH-370 (review of #1829, M) — the class becomes the release
+    # reason (`agent_refused:<class>`) and from there a learning mode; an
+    # agent-written class outside the contract's closed set is `unspecified`,
+    # never free text on the ledger.
+    raw_class = str(parsed.get("reason_class") or "")
     return {
         "$schema": REFUSAL_SCHEMA,
-        "reason_class": str(parsed.get("reason_class") or "unspecified")[:64],
+        "reason_class": raw_class if raw_class in REASON_CLASSES else "unspecified",
         "reason_summary": _safe_agent_text_excerpt(summary, limit=AGENT_REFUSAL_SUMMARY_MAX_CHARS),
     }
 

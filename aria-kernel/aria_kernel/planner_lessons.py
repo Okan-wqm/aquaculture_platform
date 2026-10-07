@@ -14,6 +14,13 @@ the affected-surface paths. A recorded plan is in scope when it has the same
 origin class and a path that overlaps one of this plan's. At most
 ``MAX_PLANNER_LESSONS`` per envelope, the most frequent first, ties by mode.
 The obligation's text is the kernel's (``must_satisfy.observed_plan_failure_obligation``).
+
+ARIA-HIGH-370 — a lesson names the role whose work the failure's evidence
+named (``failure_attribution``). An envelope carries the plan's own lessons
+(role ``drafter``: a gate or the cross-review refused the plan, or an agent
+refused the request it was handed) and the lessons of ITS role (the
+challenger's refused outputs reach the next challenger envelope, not the
+primary's). The role rides as data (``attributed_role``).
 """
 from __future__ import annotations
 
@@ -64,8 +71,10 @@ def _plan_scopes(root: Path) -> dict[str, tuple[str, frozenset[str]]]:
     return scopes
 
 
-def planner_lesson_obligations(*, base_dir: str | Path | None, plan_id: str) -> list[dict[str, Any]]:
-    """The binding lessons a primary or challenger envelope for ``plan_id`` carries."""
+def planner_lesson_obligations(
+    *, base_dir: str | Path | None, plan_id: str, envelope_role: str,
+) -> list[dict[str, Any]]:
+    """The binding lessons a planning envelope of ``envelope_role`` for ``plan_id`` carries."""
     root = ensure_tools_dir_readonly(base_dir)
     scopes = _plan_scopes(root) if root is not None else {}
     own = scopes.get(plan_id)
@@ -75,7 +84,10 @@ def planner_lesson_obligations(*, base_dir: str | Path | None, plan_id: str) -> 
         other for other, (kind, roots) in scopes.items()
         if other != plan_id and kind == own[0] and _overlap(roots, own[1])
     }
-    recurring = recurring_failure_modes(base_dir=root, role=DRAFTER_ROLE, subject=None, plan_ids=in_scope)
+    recurring = [
+        lesson for lesson in recurring_failure_modes(base_dir=root, role=DRAFTER_ROLE, subject=None, plan_ids=in_scope)
+        if lesson["attributed_role"] in (DRAFTER_ROLE, envelope_role)
+    ]
     ranked = sorted(recurring, key=lambda lesson: (-lesson["episodes"], lesson["failure_mode"]))
     return [observed_plan_failure_obligation(**lesson) for lesson in ranked[:MAX_PLANNER_LESSONS]]
 

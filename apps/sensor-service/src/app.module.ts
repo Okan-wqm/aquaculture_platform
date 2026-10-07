@@ -52,6 +52,7 @@ import { DeploymentLog } from './automation/entities/deployment-log.entity';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { DashboardLayout } from './dashboard/entities/dashboard-layout.entity';
 import { CalibrationEvent } from './calibration/calibration-event.entity';
+import { ChannelQuantityDeclaration } from './database/entities/channel-quantity-declaration.entity';
 import { CalibrationModule } from './calibration/calibration.module';
 import { SensorDataChannel } from './database/entities/sensor-data-channel.entity';
 import { SensorProtocol } from './database/entities/sensor-protocol.entity';
@@ -212,6 +213,7 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
             Sensor,
             SensorProtocol,
             SensorDataChannel,
+            ChannelQuantityDeclaration,
             CalibrationEvent,
             VfdDevice,
             VfdReading,

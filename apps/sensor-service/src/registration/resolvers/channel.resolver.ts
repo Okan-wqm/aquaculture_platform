@@ -1,9 +1,10 @@
-import { Logger, UseGuards } from '@nestjs/common';
+import { Logger, ParseUUIDPipe, UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Float, ResolveField, Parent } from '@nestjs/graphql';
-import { Tenant, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { CurrentUser, Tenant, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { declarableQuantities } from '@aquaculture/shared-contracts';
 
+import { ChannelQuantityDeclaration } from '../../database/entities/channel-quantity-declaration.entity';
 import { SensorDataChannel, ChannelDataType } from '../../database/entities/sensor-data-channel.entity';
 import { SensorType } from '../../database/entities/sensor.entity';
 import { listParameterCatalog } from '../../common/sensor-parameter-catalog';
@@ -192,7 +193,8 @@ export class ChannelResolver {
   }
 
   /**
-   * Declare which measured quantity a channel reports (or clear it with null).
+   * Declare which measured quantity a channel reports, optionally with its unit.
+   * Recorded in the channel's declaration history with the caller as actor.
    * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
    */
   @Mutation(() => DataChannelType, { name: 'declareChannelQuantity' })
@@ -200,13 +202,39 @@ export class ChannelResolver {
   async declareChannelQuantity(
     @Args('input') input: DeclareChannelQuantityInput,
     @Tenant() tenantId: string,
+    @CurrentUser('sub') actorId: string,
   ): Promise<SensorDataChannel> {
     return this.managementService.declareQuantity(
       input.channelId,
       tenantId,
-      input.quantity ?? null,
+      actorId,
+      input.quantity,
       input.unit,
     );
+  }
+
+  /**
+   * Clear a channel's declared quantity, so its key's own meaning stands.
+   * SECURITY: Requires TENANT_ADMIN or MODULE_MANAGER
+   */
+  @Mutation(() => DataChannelType, { name: 'clearChannelQuantity' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async clearChannelQuantity(
+    @Args('channelId', { type: () => ID }, ParseUUIDPipe) channelId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser('sub') actorId: string,
+  ): Promise<SensorDataChannel> {
+    return this.managementService.clearQuantity(channelId, tenantId, actorId);
+  }
+
+  /** Who declared what a channel key measures, and when — newest first. */
+  @Query(() => [ChannelQuantityDeclaration], { name: 'channelQuantityDeclarations' })
+  async channelQuantityDeclarations(
+    @Args('sensorId', { type: () => ID }, ParseUUIDPipe) sensorId: string,
+    @Args('channelKey') channelKey: string,
+    @Tenant() tenantId: string,
+  ): Promise<ChannelQuantityDeclaration[]> {
+    return this.managementService.declarationHistory(tenantId, sensorId, channelKey);
   }
 
   // === Fields ===

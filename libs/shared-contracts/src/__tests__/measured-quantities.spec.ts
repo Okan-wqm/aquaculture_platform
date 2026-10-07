@@ -10,7 +10,52 @@ import {
   parseQuantityId,
   QUANTITY_FAMILIES,
   readingParameterOfChannelKey,
+  toCanonicalUnit,
+  unitConversion,
 } from '../measurement/quantities';
+
+/**
+ * Ids persisted in sensor_data_channels.declared_quantity and the declaration
+ * ledger. Append-only: renaming or removing one would turn stored
+ * declarations into "none".
+ */
+const PERSISTED_QUANTITY_IDS = [
+  'temperature',
+  'ph',
+  'dissolvedOxygen',
+  'oxygenSaturation',
+  'salinity',
+  'conductivity',
+  'specificConductance',
+  'tan',
+  'nh3',
+  'nh4',
+  'nh4Ion',
+  'nitriteN',
+  'nitriteIon',
+  'nitrateN',
+  'nitrateIon',
+  'h2s',
+  'totalSulfide',
+  'totalSulfideAsS',
+  'alkalinity',
+  'calcium',
+  'hardness',
+  'co2',
+  'turbidity',
+  'waterLevel',
+  'flowRate',
+  'pressure',
+  'barometricPressure',
+  'orp',
+  'tds',
+  'chlorine',
+  'chloride',
+  'ozone',
+  'humidity',
+  'batteryLevel',
+  'signalStrength',
+];
 
 describe('measured-quantity registry', () => {
   it('names each quantity once, and accepts its own canonical unit', () => {
@@ -70,7 +115,6 @@ describe('measured-quantity registry', () => {
     });
 
     it('takes a declared alternate the key is known to carry', () => {
-      expect(effectiveQuantity('do', 'oxygenSaturation')).toBe('oxygenSaturation');
       expect(effectiveQuantity('ec', 'specificConductance')).toBe('specificConductance');
       expect(effectiveQuantity('sulfide', 'totalSulfideAsS')).toBe('totalSulfideAsS');
       expect(effectiveQuantity('pressure', 'barometricPressure')).toBe('barometricPressure');
@@ -82,6 +126,8 @@ describe('measured-quantity registry', () => {
       expect(effectiveQuantity('ammonia', 'salinity')).toBeNull();
       expect(effectiveQuantity('ph', 'temperature')).toBeNull();
       expect(effectiveQuantity('chlorine', 'chloride')).toBeNull();
+      // % saturation would be published as mg/L dissolved oxygen by key.
+      expect(effectiveQuantity('do', 'oxygenSaturation')).toBeNull();
       expect(effectiveQuantity('ph', 'ph')).toBe('ph');
     });
 
@@ -94,6 +140,47 @@ describe('measured-quantity registry', () => {
 
   it('accepts the pH scale label the water-chemistry pages show as a pH unit', () => {
     expect(isAcceptedUnit('ph', 'NBS')).toBe(true);
+  });
+
+  it('keeps every persisted quantity id, each short enough for its column', () => {
+    const ids: string[] = MEASURED_QUANTITIES.map((quantity) => quantity.id);
+    expect(ids.slice(0, PERSISTED_QUANTITY_IDS.length)).toEqual(PERSISTED_QUANTITY_IDS);
+    for (const id of ids) {
+      expect(id.length).toBeLessThanOrEqual(32);
+    }
+  });
+
+  it('declares an alternate only where it lands on the key’s own reading parameter', () => {
+    // The flat event projects by key; a declaration must not move a value onto
+    // a parameter it is not (until the event carries the quantity).
+    for (const key of Object.keys(CHANNEL_KEYS)) {
+      const meaning = channelKeyMeaning(key);
+      if (meaning?.quantity === undefined) continue;
+      const own = measuredQuantity(meaning.quantity);
+      for (const alternate of meaning.alternates ?? []) {
+        const other = measuredQuantity(alternate);
+        expect({
+          key,
+          alternate,
+          field: 'readingParameter' in other ? other.readingParameter : undefined,
+        }).toEqual({
+          key,
+          alternate,
+          field: 'readingParameter' in own ? own.readingParameter : undefined,
+        });
+      }
+    }
+  });
+
+  it('converts a device unit to the canonical unit', () => {
+    expect(toCanonicalUnit('temperature', '°F', 212)).toBeCloseTo(100, 10);
+    expect(toCanonicalUnit('temperature', 'K', 273.15)).toBeCloseTo(0, 10);
+    expect(toCanonicalUnit('conductivity', 'mS/cm', 52)).toBe(52_000);
+    expect(toCanonicalUnit('waterLevel', 'm', 1.25)).toBe(125);
+    expect(toCanonicalUnit('h2s', 'mg/L', 0.015)).toBeCloseTo(15, 10);
+    expect(toCanonicalUnit('ph', 'NBS', 7.9)).toBe(7.9);
+    expect(toCanonicalUnit('waterLevel', '%', 40)).toBeNull();
+    expect(unitConversion('salinity', 'ppt')).toEqual({ unit: 'ppt', factor: 1 });
   });
 
   it('parses a quantity id from untrusted input', () => {

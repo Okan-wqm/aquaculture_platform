@@ -1991,6 +1991,19 @@ export type ChannelPage = {
   total: Scalars['Int']['output'];
 };
 
+/** Immutable record of one change to a channel’s declared quantity */
+export type ChannelQuantityDeclaration = {
+  channelId: Scalars['ID']['output'];
+  channelKey: Scalars['String']['output'];
+  declaredAt: Scalars['DateTime']['output'];
+  declaredBy: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  quantity?: Maybe<Scalars['String']['output']>;
+  reason: QuantityDeclarationReason;
+  sensorId: Scalars['ID']['output'];
+  unit?: Maybe<Scalars['String']['output']>;
+};
+
 export type ChannelSensorInfo = {
   id: Scalars['ID']['output'];
   name: Scalars['String']['output'];
@@ -4380,7 +4393,7 @@ export type DaySummary = {
 
 export type DeclareChannelQuantityInput = {
   channelId: Scalars['ID']['input'];
-  quantity?: InputMaybe<Scalars['String']['input']>;
+  quantity: Scalars['String']['input'];
   unit?: InputMaybe<Scalars['String']['input']>;
 };
 
@@ -9512,6 +9525,7 @@ export type Mutation = {
   /** @deprecated Use changeMyPassword. This compatibility alias will be removed after rollout. */
   changePassword: ChangeMyPasswordResponse;
   changeSubscriptionPlan: Subscription;
+  clearChannelQuantity: DataChannelType;
   clockIn: AttendanceRecord;
   clockOut: AttendanceRecord;
   cloneAutomationProgram: AutomationProgram;
@@ -10701,6 +10715,11 @@ export type MutationChangePasswordArgs = {
 
 export type MutationChangeSubscriptionPlanArgs = {
   input: ChangeSubscriptionPlanInput;
+};
+
+
+export type MutationClearChannelQuantityArgs = {
+  channelId: Scalars['ID']['input'];
 };
 
 
@@ -15375,6 +15394,11 @@ export type QualityRequirementsInput = {
   traceabilityRequired?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
+export type QuantityDeclarationReason =
+  | 'CLEARED'
+  | 'DECLARED'
+  | 'REDISCOVERY_CLEARED';
+
 export type Query = {
   activeEmployees: Array<Employee>;
   activeFeedingParameter?: Maybe<FeedingParameter>;
@@ -15455,6 +15479,7 @@ export type Query = {
   channelEligibleUsers: Array<PublicUserProfile>;
   /** Each enabled channel of the given sensors with its last-known value (≤100 sensors) */
   channelLatestValues: Array<ChannelLatestValue>;
+  channelQuantityDeclarations: Array<ChannelQuantityDeclaration>;
   /** Bucketed history of every enabled channel of one sensor over a time range */
   channelSeries: ChannelSeriesResponse;
   checkLeaveOverlap: LeaveOverlapResult;
@@ -16300,6 +16325,12 @@ export type QueryChannelDataBoundsArgs = {
 
 export type QueryChannelLatestValuesArgs = {
   sensorIds: Array<Scalars['ID']['input']>;
+};
+
+
+export type QueryChannelQuantityDeclarationsArgs = {
+  channelKey: Scalars['String']['input'];
+  sensorId: Scalars['ID']['input'];
 };
 
 
@@ -19818,7 +19849,6 @@ export type SensorDataChannel = {
   createdAt: Scalars['DateTime']['output'];
   dataPath?: Maybe<Scalars['String']['output']>;
   dataType: ChannelDataType;
-  declaredQuantity?: Maybe<Scalars['String']['output']>;
   description?: Maybe<Scalars['String']['output']>;
   discoveredAt?: Maybe<Scalars['DateTime']['output']>;
   discoverySource?: Maybe<DiscoverySource>;

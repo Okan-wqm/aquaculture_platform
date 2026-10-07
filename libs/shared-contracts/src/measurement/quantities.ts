@@ -50,12 +50,28 @@ interface QuantityDefinition {
   readonly basis: string | null;
   /** The flat reading-event parameter a value of this quantity lands on. */
   readonly readingParameter?: ReadingParameter;
+  /**
+   * Other units a device may report this quantity in, with the linear map to
+   * the canonical unit: canonical = value × factor + offset.
+   */
+  readonly conversions?: readonly UnitConversion[];
+}
+
+export interface UnitConversion {
+  readonly unit: string;
+  readonly factor: number;
+  readonly offset?: number;
 }
 
 const MG_L = ['mg/L', 'mg/l', 'ppm'] as const;
 const UG_L = ['µg/L', 'μg/L', 'ug/L', 'ppb'] as const;
 const CACO3 = ['mg/L CaCO3', 'mg/L CaCO₃', 'mg/L as CaCO3'] as const;
 const US_CM = ['µS/cm', 'μS/cm', 'uS/cm'] as const;
+const EC_CONVERSIONS = [
+  { unit: 'mS/cm', factor: 1000 },
+  { unit: 'S/m', factor: 10_000 },
+] as const satisfies readonly UnitConversion[];
+const MG_TO_UG = [{ unit: 'mg/L', factor: 1000 }] as const satisfies readonly UnitConversion[];
 
 /** Every quantity a channel can measure, with its canonical unit and accepted spellings. */
 export const MEASURED_QUANTITIES = [
@@ -65,6 +81,10 @@ export const MEASURED_QUANTITIES = [
     spellings: ['°C', 'C', 'degC', '℃'],
     basis: null,
     readingParameter: 'temperature',
+    conversions: [
+      { unit: '°F', factor: 5 / 9, offset: -160 / 9 },
+      { unit: 'K', factor: 1, offset: -273.15 },
+    ],
   },
   {
     id: 'ph',
@@ -88,12 +108,19 @@ export const MEASURED_QUANTITIES = [
     basis: null,
     readingParameter: 'salinity',
   },
-  { id: 'conductivity', unit: 'µS/cm', spellings: US_CM, basis: 'at sample temperature' },
+  {
+    id: 'conductivity',
+    unit: 'µS/cm',
+    spellings: US_CM,
+    basis: 'at sample temperature',
+    conversions: EC_CONVERSIONS,
+  },
   {
     id: 'specificConductance',
     unit: 'µS/cm',
     spellings: US_CM,
     basis: 'compensated to 25 °C',
+    conversions: EC_CONVERSIONS,
   },
   { id: 'tan', unit: 'mg/L', spellings: MG_L, basis: 'total ammonia as N' },
   { id: 'nh3', unit: 'mg/L', spellings: MG_L, basis: 'un-ionized ammonia as N' },
@@ -103,9 +130,21 @@ export const MEASURED_QUANTITIES = [
   { id: 'nitriteIon', unit: 'mg/L', spellings: MG_L, basis: 'nitrite as NO2-' },
   { id: 'nitrateN', unit: 'mg/L', spellings: MG_L, basis: 'nitrate as N' },
   { id: 'nitrateIon', unit: 'mg/L', spellings: MG_L, basis: 'nitrate as NO3-' },
-  { id: 'h2s', unit: 'µg/L', spellings: UG_L, basis: 'as H2S' },
-  { id: 'totalSulfide', unit: 'µg/L', spellings: UG_L, basis: 'total sulfide as H2S' },
-  { id: 'totalSulfideAsS', unit: 'µg/L', spellings: UG_L, basis: 'total sulfide as S' },
+  { id: 'h2s', unit: 'µg/L', spellings: UG_L, basis: 'as H2S', conversions: MG_TO_UG },
+  {
+    id: 'totalSulfide',
+    unit: 'µg/L',
+    spellings: UG_L,
+    basis: 'total sulfide as H2S',
+    conversions: MG_TO_UG,
+  },
+  {
+    id: 'totalSulfideAsS',
+    unit: 'µg/L',
+    spellings: UG_L,
+    basis: 'total sulfide as S',
+    conversions: MG_TO_UG,
+  },
   { id: 'alkalinity', unit: 'mg/L CaCO3', spellings: CACO3, basis: 'as CaCO3' },
   { id: 'calcium', unit: 'mg/L', spellings: MG_L, basis: 'as Ca' },
   { id: 'hardness', unit: 'mg/L CaCO3', spellings: CACO3, basis: 'total hardness as CaCO3' },
@@ -123,10 +162,38 @@ export const MEASURED_QUANTITIES = [
     spellings: ['cm'],
     basis: null,
     readingParameter: 'waterLevel',
+    conversions: [
+      { unit: 'm', factor: 100 },
+      { unit: 'mm', factor: 0.1 },
+    ],
   },
-  { id: 'flowRate', unit: 'L/min', spellings: ['L/min', 'l/min'], basis: null },
-  { id: 'pressure', unit: 'bar', spellings: ['bar'], basis: 'line pressure' },
-  { id: 'barometricPressure', unit: 'hPa', spellings: ['hPa', 'mbar'], basis: 'atmospheric' },
+  {
+    id: 'flowRate',
+    unit: 'L/min',
+    spellings: ['L/min', 'l/min'],
+    basis: null,
+    conversions: [
+      { unit: 'm3/h', factor: 1000 / 60 },
+      { unit: 'L/s', factor: 60 },
+    ],
+  },
+  {
+    id: 'pressure',
+    unit: 'bar',
+    spellings: ['bar'],
+    basis: 'line pressure',
+    conversions: [
+      { unit: 'kPa', factor: 0.01 },
+      { unit: 'psi', factor: 0.0689476 },
+    ],
+  },
+  {
+    id: 'barometricPressure',
+    unit: 'hPa',
+    spellings: ['hPa', 'mbar'],
+    basis: 'atmospheric',
+    conversions: [{ unit: 'kPa', factor: 10 }],
+  },
   { id: 'orp', unit: 'mV', spellings: ['mV'], basis: null },
   { id: 'tds', unit: 'ppm', spellings: ['ppm', 'mg/L', 'mg/l'], basis: null },
   { id: 'chlorine', unit: 'mg/L', spellings: MG_L, basis: 'free chlorine as Cl2' },
@@ -175,7 +242,12 @@ export type ChannelKeyMeaning =
       readonly family: QuantityFamily;
     };
 
-const OXYGEN = { quantity: 'dissolvedOxygen', alternates: ['oxygenSaturation'] } as const;
+// An optode often reports `do` as % saturation, but the flat reading event
+// projects `do` onto dissolved oxygen in mg/L by key; until the event carries
+// the declared quantity (SENSOR-MEDIUM-169), declaring saturation on a `do`
+// key would publish % as mg/L. An alternate must land on the key's own
+// reading parameter (registry spec).
+const OXYGEN = { quantity: 'dissolvedOxygen' } as const;
 const CONDUCTIVITY = { quantity: 'conductivity', alternates: ['specificConductance'] } as const;
 const SULFIDE = { quantity: 'totalSulfide', alternates: ['totalSulfideAsS'] } as const;
 
@@ -322,6 +394,26 @@ export function channelKeyUnit(channelKey: string): string | undefined {
     return measuredQuantity(meaning.quantity).unit;
   }
   return measuredQuantity(QUANTITY_FAMILIES[meaning.family].members[0]).unit;
+}
+
+/**
+ * How a value in `unit` maps to the quantity's canonical unit: identity for a
+ * spelling of the canonical unit, the declared conversion for another unit,
+ * null for a unit the quantity cannot be reported in.
+ */
+export function unitConversion(id: QuantityId, unit: string): UnitConversion | null {
+  const trimmed = unit.trim();
+  const quantity: QuantityDefinition = measuredQuantity(id);
+  if (quantity.spellings.includes(trimmed)) {
+    return { unit: quantity.unit, factor: 1 };
+  }
+  return quantity.conversions?.find((conversion) => conversion.unit === trimmed) ?? null;
+}
+
+/** A value in `unit` expressed in the quantity's canonical unit, or null if not convertible. */
+export function toCanonicalUnit(id: QuantityId, unit: string, value: number): number | null {
+  const conversion = unitConversion(id, unit);
+  return conversion === null ? null : value * conversion.factor + (conversion.offset ?? 0);
 }
 
 /** Whether `unit` is an accepted spelling of the quantity's unit. */

@@ -67,8 +67,10 @@ The other copies now derive from the registry:
     AMMONIA. A newly registered TAN child sensor stops publishing TAN as the
     event's `ammonia`. Existing sensors keep their stored type, see
     SENSOR-MEDIUM-169.
-  - Two spellings of one quantity share a definition, so `water_temp` reads
-    "Temperature".
+  - Two spellings of one quantity share a definition, so new discoveries label
+    them alike: `water_temperature`/`water_temp` "Temperature", `ph_level`
+    "pH", `ec` "Conductivity", `carbon_dioxide` "CO2". Existing channels keep
+    their labels.
 - **AI sensor tool.** An exact channel key takes its registry unit. Name
   fragments that name a registry quantity take that quantity's unit.
   - `pressure` is `bar`. A weather station's hPa is the key's declarable
@@ -147,17 +149,28 @@ Several copies of the vocabulary disagree with the registry:
   against the catalog's 0..40.
 - a second reading-field map in the gateway.
 
-They are listed in the gate's `KNOWN_COPIES`. Removing them is PR-5's work: the
-shared picker and readings read units from the catalog query.
+The frontend tables the gate's syntax rule can see are listed in its
+`KNOWN_COPIES`. The range table, the gateway map and the Map-tuple alias tables
+in `mcp/farm-management` (cycle-detector, cascade-predictor) have shapes the
+rule does not match. They are tracked here, not in the gate. Removing them is
+PR-5's work: the shared picker and readings read units from the catalog query.
 
 Owner: claude. Deadline: 2026-10-21.
 
 ## SENSOR-MEDIUM-169 — the flat event ignores a declared quantity (open)
 
-`parameterForChannelKey` reads the key alone. So a `do` channel declared as
-% saturation would still be published as dissolved oxygen. Child sensors
-registered before this PR also keep their AMMONIA type and publish TAN as
-`ammonia`.
+`parameterForChannelKey` reads the key alone, and so do the live projections:
+MQTT, NATS ingest, GraphQL ingest and the as-of readings.
+
+- A declaration therefore cannot move a value onto another reading parameter.
+  The registry offers no such alternate; its spec forbids one.
+- So a device that sends % saturation under `do` still lands on dissolved
+  oxygen, with no way to correct it.
+- Generic keys like `level` cannot be re-declared.
+- Child sensors registered before this PR keep their AMMONIA type and publish
+  TAN as `ammonia`.
+
+The alert engine reads these fields today.
 
 Fix: the reading event carries the channel's quantity before the alert engine
 reads NH3 or H2S (plan Faz 8).

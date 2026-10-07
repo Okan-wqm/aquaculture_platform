@@ -1,3 +1,4 @@
+import type { QuantityId } from '@aquaculture/shared-contracts';
 import { InputType, Field, ID, ObjectType, Float, Int } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
 import {
@@ -190,8 +191,9 @@ export class CreateDataChannelInput {
 }
 
 /**
- * Declare which measured quantity a channel reports (a registry quantity id),
- * or clear the declaration with null so the key's own meaning stands.
+ * Declare which measured quantity a channel reports (a registry quantity id).
+ * Clearing is its own mutation, so a client that omits the quantity cannot
+ * clear a declaration by accident.
  */
 @InputType()
 export class DeclareChannelQuantityInput {
@@ -199,11 +201,10 @@ export class DeclareChannelQuantityInput {
   @IsUUID()
   channelId!: string;
 
-  @Field(() => String, { nullable: true })
-  @IsOptional()
+  @Field(() => String)
   @IsString()
   @MaxLength(32)
-  quantity?: string | null;
+  quantity!: string;
 
   /**
    * The channel's unit in the same write, for a declaration that changes it
@@ -482,7 +483,7 @@ export class DataChannelType {
     nullable: true,
     description: 'The measured quantity an operator declared, when the key does not say',
   })
-  declaredQuantity?: string | null;
+  declaredQuantity?: QuantityId | null;
 
   @Field({ nullable: true })
   dataPath?: string;

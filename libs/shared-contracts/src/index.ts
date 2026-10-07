@@ -173,6 +173,8 @@ export {
   effectiveQuantity,
   readingParameterOfChannelKey,
   isAcceptedUnit,
+  toCanonicalUnit,
+  unitConversion,
 } from './measurement/quantities';
 export type {
   QuantityId,
@@ -181,4 +183,5 @@ export type {
   ReadingParameter,
   ChannelKeyMeaning,
   KnownChannelKey,
+  UnitConversion,
 } from './measurement/quantities';

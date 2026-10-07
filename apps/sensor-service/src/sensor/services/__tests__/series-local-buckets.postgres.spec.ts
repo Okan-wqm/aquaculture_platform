@@ -53,6 +53,11 @@ interface Scenario {
   dayStarts?: Date[];
 }
 
+// Every hook and test here drives a Postgres container; the 5 s default
+// would cut container shutdown short under load, as the other sensor
+// Postgres specs already allow for.
+jest.setTimeout(180_000);
+
 describe('sensor series in the site time zone (real TimescaleDB)', () => {
   let harness: HarnessContext;
   let admin: DataSource;

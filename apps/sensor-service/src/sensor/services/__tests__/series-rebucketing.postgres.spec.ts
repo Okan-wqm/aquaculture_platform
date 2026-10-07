@@ -35,6 +35,11 @@ const ENTITIES = [Sensor, SensorDataChannel, SensorMetric, SensorProtocol, Senso
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
+// Every hook and test here drives a Postgres container; the 5 s default
+// would cut container shutdown short under load, as the other sensor
+// Postgres specs already allow for.
+jest.setTimeout(180_000);
+
 describe('sensor series re-bucketing on rollups (real TimescaleDB)', () => {
   let harness: HarnessContext;
   let reads: DataSource;

@@ -653,6 +653,16 @@ function main(): void {
       violations.push(...scanFileAddedLinesOnly(f, added, ignoreExemptions));
     }
     violations.push(...scanRangeCommitBodies(baseRef, headRef));
+  } else if (mode === 'tree') {
+    // ARIA-MEDIUM-378 — every tracked file at HEAD, exemptions honoured: the
+    // scan the ARIA banned-phrase adapter runs each cycle. Staged mode, the
+    // adapter's former default, sees nothing in a cycle checkout.
+    const tracked = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z'], { encoding: 'utf8' })
+      .split('\0')
+      .filter((f) => f.length > 0);
+    for (const f of tracked) {
+      violations.push(...scanFile(f, ignoreExemptions));
+    }
   } else if (mode === 'commit') {
     violations.push(...scanCommitBody());
   } else if (mode === 'file') {

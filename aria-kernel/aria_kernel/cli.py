@@ -2337,10 +2337,11 @@ def build_parser() -> argparse.ArgumentParser:
         # E13-C11 — the backfill-window-metadata subcommand is gone: freshness
         # metadata is manifest-owned and derived by validate_tool_definition,
         # so there is nothing left to patch at runtime.
-        help="Plan 016 Faz F1 — MVP adapter registration + status.",
+        # ARIA-MEDIUM-378 — `register-mvp` is gone: it wrote stub-runner rows
+        # no workflow ever invoked; manifests are the only declaration.
+        help="Plan 016 Faz F1 — MVP adapter status.",
     )
     adapter_sub = adapter_parser.add_subparsers(dest="adapter_portfolio_command", required=True)
-    ap_register = add_subparser(adapter_sub, "register-mvp")
     ap_status = add_subparser(adapter_sub, "status")
     review_parser = add_subparser(sub, 
         "review",
@@ -5395,15 +5396,8 @@ def _main(argv: list[str] | None = None) -> int:
         parser.error("unknown budget command")
 
     if args.command == "adapter-portfolio":
-        from aria_kernel.adapter_portfolio import (
-            list_mvp_status,
-            register_mvp_adapters,
-        )
+        from aria_kernel.adapter_portfolio import list_mvp_status
 
-        if args.adapter_portfolio_command == "register-mvp":
-            result = register_mvp_adapters(base_dir=args.tools_dir)
-            print(json.dumps(result, indent=2, sort_keys=True))
-            return 0
         if args.adapter_portfolio_command == "status":
             result = list_mvp_status(base_dir=args.tools_dir)
             print(json.dumps(result, indent=2, sort_keys=True))

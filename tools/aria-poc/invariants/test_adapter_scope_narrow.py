@@ -12,8 +12,8 @@ These tests guarantee:
 
 * `outbox_adapter.SCANNED_GLOBS` (and its `_FALLBACK_SCANNED_GLOBS`
   internal alias) match the manifest exactly — neither broader nor
-  narrower than its committed declaration
-  (`aria_kernel.adapter_portfolio`) says.
+  narrower than its manifest
+  (`tools/aria-adapters/outbox-adapter.tool.json`) declares.
 * `outbox_adapter._iter_files` walks ONLY outbox subtrees, both in
   fallback mode (no `allowed_paths`) and in kernel-injection mode
   (`allowed_paths` supplied).
@@ -64,22 +64,12 @@ def _manifest_globs(tool_id: str) -> list[str]:
     gitignored registry ``registry_compiler`` builds at runtime. A fresh
     checkout and the CI job (whose bootstrap writes ``.aria-ci/tools``) have
     no such file, so both pins failed with FileNotFoundError wherever they
-    could run. The registry is compiled from these same
-    declarations: ``tools/aria-adapters/<tool_id>.tool.json`` for a
-    manifest adapter, and the Plan 016 portfolio row
-    (``adapter_portfolio._build_adapter_row``) for the MVP adapters that
-    have no manifest file.
+    could run. The registry is compiled from the manifests
+    (``tools/aria-adapters/<tool_id>.tool.json``), the only declaration an
+    adapter has since ARIA-MEDIUM-378 gave the Plan 016 portfolio adapters
+    manifests of their own.
     """
-    manifest = _MANIFEST_DIR / f"{tool_id}.tool.json"
-    if manifest.exists():
-        row = json.loads(manifest.read_text(encoding="utf-8"))
-    else:
-        from aria_kernel.adapter_portfolio import _MVP_ADAPTERS, _build_adapter_row
-
-        spec = next((s for s in _MVP_ADAPTERS if s["tool_id"] == tool_id), None)
-        if spec is None:
-            raise AssertionError(f"{tool_id} has neither a manifest nor a portfolio row")
-        row = _build_adapter_row(spec)
+    row = json.loads((_MANIFEST_DIR / f"{tool_id}.tool.json").read_text(encoding="utf-8"))
     globs = row.get("allowed_read_globs", [])
     if not isinstance(globs, list):
         raise AssertionError(f"{tool_id} allowed_read_globs is not a list")

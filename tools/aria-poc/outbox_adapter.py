@@ -17,7 +17,7 @@ Runner contract (ARIA tool_runner.run_tool):
                 evidence_sources[], cost_units, metadata}
 
 Scope discipline (single source of truth — Plan 022 §C-7/§C-8 follow-up):
-  The manifest (`aria-tools/registry.json`, tool_id outbox-adapter) declares
+  The manifest (`tools/aria-adapters/outbox-adapter.tool.json`) declares
   `allowed_read_globs = (apps/**/outbox/**/*.ts, platform/libs/outbox/**/*.ts)`.
   This adapter MUST NOT walk paths outside that surface; doing so produces
   scope_violation envelopes from `find_scope_violations` and quarantines
@@ -61,8 +61,8 @@ REPO_ROOT_ENV = "ARIA_REPO_ROOT"
 # manifest's `allowed_read_globs` for tool_id `outbox-adapter` exactly,
 # otherwise direct-CLI runs will drift from kernel-driven runs.
 #
-# Source of truth: the `outbox-adapter` row of the Plan 016 portfolio
-# (`aria_kernel/adapter_portfolio.py`), `allowed_read_globs` field. The invariant test
+# Source of truth: `tools/aria-adapters/outbox-adapter.tool.json`,
+# `allowed_read_globs` field. The invariant test
 # `tools/aria-poc/invariants/test_adapter_scope_narrow.py
 # ::test_outbox_adapter_scanned_globs_narrow` pins this list to the
 # manifest declaration; if the manifest changes, the test fails until
@@ -94,6 +94,31 @@ _SKIP_SUBSTRINGS: tuple[str, ...] = (
     ".spec.ts",
     ".test.ts",
 )
+
+
+def _line_of(content: str, pattern: re.Pattern[str]) -> int | None:
+    match = pattern.search(content)
+    return None if match is None else content[: match.start()].count("\n") + 1
+
+
+def _finding(rule: str, severity: str, rel: str, *, line: int | None, message: str) -> dict:
+    """The kernel's evidence contract (``evidence_validator``): id, path,
+    line and a per-finding ``evidence`` list. ARIA-MEDIUM-378 — the former
+    ``{"rule", "ref", "severity"}`` row carried no ``evidence``, the shape
+    that made the validator mark agent-harness-security's first real run
+    ``evidence_error`` and quarantine it (ARIA-HIGH-098)."""
+    location = rel if line is None else f"{rel}:{line}"
+    finding: dict = {
+        "id": f"{rule}:{location}",
+        "rule": rule,
+        "severity": severity,
+        "path": rel,
+        "message": message,
+        "evidence": [{"path": rel} if line is None else {"path": rel, "line": line}],
+    }
+    if line is not None:
+        finding["line"] = line
+    return finding
 
 
 def _resolve_repo_root() -> Path:
@@ -200,25 +225,27 @@ def scan(repo_root: Path, allowed_paths: Iterable[str] | None = None) -> dict:
         read_paths.append(rel)
         if not _PUBLISH_RE.search(content):
             continue
+        publish_line = _line_of(content, _PUBLISH_RE)
         # Rule 1: publish outside a transactional context.
         if not _TRANSACTION_RE.search(content):
-            findings.append({
-                "rule": "transactional_outbox_violation",
-                "ref": rel,
-                "severity": "HIGH",
-            })
+            findings.append(_finding(
+                "transactional_outbox_violation", "HIGH", rel, line=publish_line,
+                message="eventBus.publish called with no transaction in the file",
+            ))
         # Rule 2: publish without @platform/outbox import.
         if not _OUTBOX_IMPORT_RE.search(content):
-            findings.append({
-                "rule": "outbox_entity_base_missing",
-                "ref": rel,
-                "severity": "MEDIUM",
-            })
+            findings.append(_finding(
+                "outbox_entity_base_missing", "MEDIUM", rel, line=publish_line,
+                message="eventBus.publish in a file that does not import @platform/outbox",
+            ))
+    # Every file read is declared: the validator requires each evidence path
+    # to be a declared read path, so the former ``[:200]`` cap would make the
+    # self-report contradict any finding past the 200th file.
     envelope = {
         "observations": [],
         "findings": findings,
-        "read_paths": read_paths[:200],
-        "evidence_sources": [f["ref"] for f in findings],
+        "read_paths": sorted(read_paths),
+        "evidence_sources": sorted({f["path"] for f in findings}),
         "cost_units": len(read_paths),
         "metadata": {
             "rule_count": 2,

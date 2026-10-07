@@ -284,3 +284,35 @@ void test('staged mode mid-merge still refuses a banned phrase the merge itself 
     removeFixtureTree(root);
   }
 });
+
+// ---------------------------------------------------------
+// ARIA-MEDIUM-378 — tree mode: every tracked file, exemptions honoured
+// ---------------------------------------------------------
+
+void test('tree mode reports a phrase in any tracked file and skips exempt and untracked paths', () => {
+  const root = mkdtempSync(join(tmpdir(), 'aqua-banned-phrase-tree-'));
+  try {
+    runFixtureGit(root, ['init', '--quiet', '--initial-branch=main']);
+    // Assembled from fragments so this spec's own source does not trip the gate.
+    const phrase = ['tempo', 'rary'].join('');
+    writeFileSync(join(root, 'tracked.ts'), `export const id = 1; // ${phrase} id\n`, 'utf8');
+    runFixtureGit(root, ['add', 'tracked.ts']);
+    // CLAUDE.md is exempt; it is tracked, so only the exemption keeps it out.
+    writeFileSync(join(root, 'CLAUDE.md'), `${phrase} is a banned phrase.\n`, 'utf8');
+    runFixtureGit(root, ['add', 'CLAUDE.md']);
+    runFixtureGit(root, ['commit', '--quiet', '-m', 'fixture']);
+    writeFileSync(join(root, 'untracked.ts'), `// ${phrase}\n`, 'utf8');
+
+    const result = runScannerIn(root, ['--mode=tree']);
+    assert.strictEqual(
+      result.exitCode,
+      1,
+      `tree mode must report the tracked hit; got ${result.exitCode}`,
+    );
+    assert.match(result.stderr, /tracked\.ts:1:/);
+    assert.doesNotMatch(result.stderr, /CLAUDE\.md:/);
+    assert.doesNotMatch(result.stderr, /untracked\.ts:/);
+  } finally {
+    removeFixtureTree(root);
+  }
+});

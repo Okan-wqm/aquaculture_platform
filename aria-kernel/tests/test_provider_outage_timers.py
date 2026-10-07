@@ -73,6 +73,16 @@ class _Store(unittest.TestCase):
                                 expected_surface="agent_invocation_requests")
         return row
 
+    def _escalate(self, request_id: str) -> None:
+        """The request was claimed, ANSWERED and refused on its merits: escalated for its own reason."""
+        for event, extra in (("claimed", {"claimed_at": _iso(self.t0 + timedelta(minutes=2))}),
+                             ("human_required", {"at": _iso(self.t0 + timedelta(minutes=3)),
+                                                 "reason": "agent_refused:evidence", "requeue_count": 1})):
+            append_declared_fixture(self.tools / "agent-invocations" / "claims.jsonl", {
+                "schema_version": 1, "event": event, "claim_id": f"CL-{request_id}", "request_id": request_id,
+                **extra,
+            }, expected_surface="agent_invocation_claims")
+
     def release(self, request_id: str, reason: str, at: datetime) -> None:
         for event in ("claimed", "released"):
             append_declared_fixture(self.tools / "agent-invocations" / "claims.jsonl", {
@@ -154,6 +164,16 @@ class B1APlanWaitingThroughAnOutageIsAdoptedNotAbandoned(_Store):
         reasons = [row["reason"] for row in list_human_required(base_dir=self.tools)]
         self.assertEqual(len(reasons), 1, reasons)
         self.assertTrue(reasons[0].startswith("provider_unavailable:anthropic:quota"))
+
+    def test_a_fallback_served_refused_request_is_abandoned_though_the_head_is_out(self) -> None:
+        """Review HIGH-1: Anthropic lapsed, Z.ai served rung 2, the answer was refused on its merits."""
+        start_plan(plan_id="plan-o", initial_revision_id="rev-0", plan_content=_plan_content(), base_dir=self.tools)
+        self.request("AIR-1", role="primary_plan", created=self.t0)
+        self._escalate("AIR-1")
+        self.outage(self.t0 + timedelta(minutes=1), None)
+        with _Clock(self.t0 + timedelta(days=3, hours=2)):
+            self.assertIsNone(resume_candidate_plan_id(base_dir=self.tools))
+        self.assertEqual(fold_plan_state(plan_id="plan-o", base_dir=self.tools)["state"], "ABANDONED")
 
     def test_without_an_outage_the_stall_bound_still_abandons(self) -> None:
         self._started()
@@ -258,24 +278,39 @@ class B3ARequestWaitingThroughAnOutageKeepsItsAnchor(_Store):
 
 
 class B2AnImplementationWaitingThroughAnOutageIsNotReaped(_Store):
-    def test_the_reaper_spares_it_through_the_outage_and_counts_after(self) -> None:
-        from aria_kernel.plan_convergence import ORPHAN_DECISION_REAP, ORPHAN_DECISION_SPARE_RECENT
+    def _decide(self, now: datetime):
+        from aria_kernel.outage_causality import request_awaits_provider
         from aria_kernel.plan_convergence import decide_orphan_reap
         from aria_kernel.provider_clock import provider_clock
 
         orphan = {"plan_id": "plan-i", "state": "IMPLEMENTATION_REQUESTED", "last_event_at": _iso(self.t0)}
+        return decide_orphan_reap(orphan, clock=provider_clock(self.tools), now=now,
+                                  awaits_provider=request_awaits_provider("AIR-impl", base_dir=self.tools))
+
+    def test_the_reaper_spares_it_through_the_outage_and_counts_after(self) -> None:
+        from aria_kernel.plan_convergence import ORPHAN_DECISION_REAP, ORPHAN_DECISION_SPARE_RECENT
+
+        self.request("AIR-impl", role="implementation", plan_id="plan-i", created=self.t0)
         self.outage(self.t0 + timedelta(minutes=5), self.t0 + timedelta(days=3))
-        during = decide_orphan_reap(orphan, clock=provider_clock(self.tools), now=self.t0 + timedelta(days=3))
+        during = self._decide(self.t0 + timedelta(days=3))
         self.assertEqual(during.decision, ORPHAN_DECISION_SPARE_RECENT)
         self.assertLess(during.age_hours, 1)
-        after = decide_orphan_reap(orphan, clock=provider_clock(self.tools),
-                                   now=self.t0 + timedelta(days=4, hours=1))
-        self.assertEqual(after.decision, ORPHAN_DECISION_REAP)
+        self.assertEqual(self._decide(self.t0 + timedelta(days=4, hours=1)).decision, ORPHAN_DECISION_REAP)
+
+    def test_an_answered_request_is_reaped_on_wall_time_whatever_the_outage(self) -> None:
+        """Review HIGH-1: the outage did not cause a request that was answered and refused."""
+        from aria_kernel.plan_convergence import ORPHAN_DECISION_REAP
+
+        self.request("AIR-impl", role="implementation", plan_id="plan-i", created=self.t0)
+        self._escalate("AIR-impl")
+        self.outage(self.t0 + timedelta(minutes=5), None)
+        self.assertEqual(self._decide(self.t0 + timedelta(days=3)).decision, ORPHAN_DECISION_REAP)
 
     def test_the_orchestrator_hands_the_reaper_the_ledger_clock(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "aria_kernel" / "autonomy_orchestrator.py").read_text()
         self.assertIn("_orphan_clock = provider_clock(root)", source)
         self.assertIn("clock=_orphan_clock", source)
+        self.assertIn("awaits_provider=request_awaits_provider(", source)
 
 
 class OperatorRequestExpiryIsPutBackNotSpentInSilence(_Store):

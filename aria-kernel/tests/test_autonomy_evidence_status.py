@@ -1500,6 +1500,11 @@ def alias_factory(root):
             # ARIA-HIGH-367 — closing an ABANDONED plan's queue derives request
             # state to leave held claims alone; it reads the verdict, it
             # cannot render one.
+            # ARIA-HIGH-365 (PR #1835 review HIGH-1) — the outage-pause gate
+            # derives whether a request still waits on a provider; it reads
+            # the verdict, it cannot render one.
+            ("executor", f"{KERNEL}outage_causality.py", "consumer"):
+                "outage causality reads request state to gate a timer pause; it cannot accept a result",
             ("executor", f"{KERNEL}plan_request_closure.py", "consumer"):
                 "plan closure reads request state to cancel only unheld requests; it cannot accept a result",
             ("finding_funnel", f"{KERNEL}belief_escalation.py", "consumer"):

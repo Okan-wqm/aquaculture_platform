@@ -678,11 +678,11 @@ class OrphanReapWindowTests(unittest.TestCase):
         # ARIA-HIGH-365 — a store that saw no outage: available age = wall age.
         from aria_kernel.provider_clock import ProviderClock
         self.assertEqual(
-            decide_orphan_reap({"last_event_at": self._hours_ago(1)}, clock=ProviderClock(())).decision,
+            decide_orphan_reap({"last_event_at": self._hours_ago(1)}, clock=ProviderClock(()), awaits_provider=False).decision,
             ORPHAN_DECISION_SPARE_RECENT,
         )
         self.assertEqual(
-            decide_orphan_reap({"last_event_at": self._hours_ago(30)}, clock=ProviderClock(())).decision,
+            decide_orphan_reap({"last_event_at": self._hours_ago(30)}, clock=ProviderClock(()), awaits_provider=False).decision,
             ORPHAN_DECISION_REAP,
         )
 
@@ -707,13 +707,13 @@ class OrphanReapWindowTests(unittest.TestCase):
         stale = decide_orphan_reap({
             "last_event_at": "not-a-date",
             "first_event_at": self._hours_ago(30),
-        }, clock=ProviderClock(()))
+        }, clock=ProviderClock(()), awaits_provider=False)
         self.assertEqual(stale.decision, ORPHAN_DECISION_REAP)
         self.assertEqual(stale.age_source, "first_event_at")
         recent = decide_orphan_reap({
             "last_event_at": "not-a-date",
             "first_event_at": self._hours_ago(2),
-        }, clock=ProviderClock(()))
+        }, clock=ProviderClock(()), awaits_provider=False)
         self.assertEqual(recent.decision, ORPHAN_DECISION_SPARE_RECENT)
         self.assertEqual(recent.age_source, "first_event_at")
 
@@ -736,7 +736,7 @@ class OrphanReapWindowTests(unittest.TestCase):
             {},
         ):
             with self.subTest(orphan=orphan):
-                decision = decide_orphan_reap(orphan, clock=ProviderClock(()))
+                decision = decide_orphan_reap(orphan, clock=ProviderClock(()), awaits_provider=False)
                 self.assertEqual(
                     decision.decision, ORPHAN_DECISION_ESCALATE_UNDATEABLE,
                 )

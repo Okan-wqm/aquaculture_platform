@@ -1021,6 +1021,7 @@ def decide_orphan_reap(
     orphan: dict[str, Any],
     *,
     clock: "ProviderClock",
+    awaits_provider: bool,
     reap_after_hours: int = ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
     now: datetime | None = None,
 ) -> OrphanReapDecision:
@@ -1054,11 +1055,14 @@ def decide_orphan_reap(
     implementation request outstanding through a 3-day outage of the
     implementer's provider was reaped to IMPLEMENTATION_REJECTED, a terminal,
     though nothing could have answered it. ``age_hours`` is that age.
+    ``awaits_provider`` (review HIGH-1, ``outage_causality``) is whether the
+    plan's implementation request is still waiting on a provider; when it is
+    not, an outage explains nothing and the age is wall time.
     """
     from .provider_clock import role_head_providers
 
     reference = now or datetime.now(timezone.utc)
-    providers = role_head_providers(["implementation"])
+    providers = role_head_providers(["implementation"]) if awaits_provider else frozenset()
     for source in ("last_event_at", "first_event_at"):
         raw = orphan.get(source)
         parsed = parse_utc_stamp(raw) if isinstance(raw, str) and raw else None
@@ -1106,6 +1110,7 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
     event is older than STALE_PLAN_MAX_AGE_HOURS is abandoned (recorded,
     reason carries the stall timestamp) and the scan moves on.
     """
+    from .outage_causality import request_awaits_provider
     from .provider_clock import provider_clock, role_head_providers
 
     root = ensure_tools_dir(base_dir)
@@ -1132,9 +1137,13 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
             # request is routed to. A plan whose 72 h are a provider outage
             # (measured: `stalled:provider_quota_unavailable:anthropic`) was
             # not neglected; it is adopted and continues where it stopped.
+            # Review HIGH-1: only while that request is still WAITING on a
+            # provider (`outage_causality`); one a fallback rung answered and
+            # that died for its own reason is held to the wall clock.
+            waiting = request_awaits_provider(stall.get("request_id"), base_dir=root, claims=invocations[1])
             available = clock.available_age(
                 parse_utc_stamp(stamp), datetime.now(timezone.utc),
-                role_head_providers([stall["role"]]) if stall.get("role") else frozenset(),
+                role_head_providers([stall["role"]]) if waiting and stall.get("role") else frozenset(),
             )
             if available <= timedelta(hours=STALE_PLAN_MAX_AGE_HOURS):
                 return plan_id

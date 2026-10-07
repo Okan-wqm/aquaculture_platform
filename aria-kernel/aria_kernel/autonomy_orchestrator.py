@@ -1264,9 +1264,15 @@ def run_autonomy_orchestrator(
                 # ARIA-HIGH-365 (B2) — one provider-available clock for the
                 # whole scan: an implementation request outstanding through an
                 # outage of the implementer's provider is not an orphan.
+                from .agent_invocations import list_agent_invocation_requests
+                from .outage_causality import newest_request_id, request_awaits_provider
                 from .provider_clock import provider_clock
 
                 _orphan_clock = provider_clock(root)
+                # Review HIGH-1 — the pause applies only to an implementation
+                # request still waiting on a provider (`outage_causality`).
+                _orphan_requests = (list_agent_invocation_requests(base_dir=root)
+                                    if _orphans else [])
                 for _orphan in _orphans:
                     _orphan_plan_id = _orphan.get("plan_id")
                     if not isinstance(_orphan_plan_id, str) or not _orphan_plan_id:
@@ -1274,6 +1280,11 @@ def run_autonomy_orchestrator(
                     _orphan_decision = decide_orphan_reap(
                         _orphan,
                         clock=_orphan_clock,
+                        awaits_provider=request_awaits_provider(
+                            newest_request_id(_orphan_requests, plan_id=_orphan_plan_id,
+                                              role="implementation"),
+                            base_dir=root,
+                        ),
                         reap_after_hours=ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
                     )
                     if _orphan_decision.decision == ORPHAN_DECISION_ESCALATE_UNDATEABLE:

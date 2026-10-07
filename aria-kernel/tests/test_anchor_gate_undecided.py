@@ -46,6 +46,7 @@ from aria_kernel.agent_invocations import (
 )
 from aria_kernel.evidence_probe import PROBE_TIMEOUT, GitProbeSession
 from aria_kernel.ledger import load_declared_jsonl
+from aria_kernel.provider_clock import ProviderClock
 from aria_kernel.tool_registry import ensure_tools_dir
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -56,6 +57,11 @@ if str(_POC_DIR) not in sys.path:
 import ci_executor_drain  # noqa: E402
 
 _REAL_GIT = shutil.which("git")
+
+
+# ARIA-HIGH-365 — the anchor window is provider-available time; these
+# tests pin the git arms on a store that saw no outage (wall time).
+_NO_OUTAGE = ProviderClock(())
 
 
 def _short_session() -> GitProbeSession:
@@ -147,11 +153,11 @@ class TheVerdictIsTriState(unittest.TestCase):
         with _RepoWithTools() as (root, _tools, head):
             session = _short_session()
             current = _anchor_refusal_reason(
-                {"target_sha": head, "created_at": "2099-01-01T00:00:00Z"}, root, probes=session,
+                {"target_sha": head, "created_at": "2099-01-01T00:00:00Z"}, root, probes=session, clock=_NO_OUTAGE,
             )
             self.assertEqual(current, AnchorVerdict())
             missing = _anchor_refusal_reason(
-                {"target_sha": "0" * 40, "created_at": "2099-01-01T00:00:00Z"}, root, probes=session,
+                {"target_sha": "0" * 40, "created_at": "2099-01-01T00:00:00Z"}, root, probes=session, clock=_NO_OUTAGE,
             )
             self.assertEqual(missing, AnchorVerdict(refusal="anchor_unreachable"))
             self.assertEqual(session.stalled_attempts, 0)
@@ -161,7 +167,7 @@ class TheVerdictIsTriState(unittest.TestCase):
             with _StalledGit("cat-file"):
                 verdict = _anchor_refusal_reason(
                     {"target_sha": head, "created_at": "2099-01-01T00:00:00Z"},
-                    root, probes=_short_session(),
+                    root, probes=_short_session(), clock=_NO_OUTAGE,
                 )
             self.assertEqual(verdict, AnchorVerdict(undecided=PROBE_TIMEOUT))
             self.assertIsNone(verdict.refusal)
@@ -170,7 +176,7 @@ class TheVerdictIsTriState(unittest.TestCase):
             with _StalledGit("is-shallow-repository"):
                 verdict = _anchor_refusal_reason(
                     {"target_sha": "0" * 40, "created_at": "2099-01-01T00:00:00Z"},
-                    root, probes=_short_session(),
+                    root, probes=_short_session(), clock=_NO_OUTAGE,
                 )
             self.assertEqual(verdict, AnchorVerdict(undecided=PROBE_TIMEOUT))
 
@@ -179,7 +185,7 @@ class TheVerdictIsTriState(unittest.TestCase):
             with _StalledGit("cat-file"):
                 verdict = _anchor_refusal_reason(
                     {"target_sha": head, "created_at": "2000-01-01T00:00:00Z"},
-                    root, probes=_short_session(), max_age_seconds=1,
+                    root, probes=_short_session(), clock=_NO_OUTAGE, max_age_seconds=1,
                 )
             self.assertEqual(verdict, AnchorVerdict(refusal="anchor_expired"))
 

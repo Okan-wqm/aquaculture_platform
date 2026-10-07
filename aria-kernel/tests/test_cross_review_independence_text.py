@@ -53,7 +53,7 @@ from aria_kernel.agent_invocations import (  # noqa: E402
     claim_request,
     create_agent_invocation_request,
 )
-from aria_kernel.convergence_drainer import _accepted_output_text  # noqa: E402
+from aria_kernel.round_independence import accepted_output_text as _accepted_output_text  # noqa: E402
 from aria_kernel.cross_review_bridge import CROSS_REVIEW_ROLE  # noqa: E402
 from aria_kernel.independence_check import (  # noqa: E402
     CHALLENGER_ROLE,
@@ -92,7 +92,7 @@ class AcceptedOutputText(unittest.TestCase):
         `test_gate_accepted_result_binding.py` isolate the same seam.
         """
         with unittest.mock.patch(
-            "aria_kernel.convergence_drainer.accepted_result_for_request",
+            "aria_kernel.agent_invocations.accepted_result_for_request",
             return_value=accepted,
         ):
             return _accepted_output_text(

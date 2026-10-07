@@ -120,6 +120,7 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         f"{KERNEL}convergence_drainer.py",
         f"{KERNEL}evidence_validator.py",
         f"{KERNEL}plan_convergence.py",
+        f"{KERNEL}round_independence.py",
         f"{KERNEL}state_manifest.py",
         f"{KERNEL}budget.py",
         "tools/aria-poc/dispatch_failure.py",
@@ -280,6 +281,7 @@ EXPECTED_CONSUMERS = {
         f"{KERNEL}convergence_drainer.py", f"{KERNEL}evidence_validator.py",
         f"{KERNEL}genesis_lifecycle.py",
         f"{KERNEL}plan_convergence.py",
+        f"{KERNEL}round_independence.py",
         # Native runtime attempts read results to bind (budget.py) and to
         # reconcile (ci_executor.py) an attempt — decisions, not observations.
         f"{KERNEL}budget.py",
@@ -1194,25 +1196,6 @@ def overwrite_only(path):
         }
         self.assertEqual(observed, expected)
 
-    def test_external_outage_reaper_has_no_raw_open_writer(self) -> None:
-        repository = Path(__file__).resolve().parents[2]
-        relative = f"{KERNEL}external_outage_reaper.py"
-        tree = ast.parse(
-            (repository / relative).read_text(encoding="utf-8"),
-            filename=relative,
-        )
-        offenders = [
-            call.lineno
-            for call in ast.walk(tree)
-            if isinstance(call, ast.Call)
-            and _python_open_role(call) == "producer"
-        ]
-        self.assertEqual(
-            offenders,
-            [],
-            "declared claims ledger writes must use governed ledger primitives",
-        )
-
     def test_surface_scanner_derives_arbitrarily_named_joinpath_helpers(
         self,
     ) -> None:
@@ -1516,6 +1499,16 @@ def alias_factory(root):
             # is live; it reads the verdict, it cannot render one.
             ("executor", f"{KERNEL}converged_delivery.py", "consumer"):
                 "converged delivery reads request state to withhold a second mint; it cannot accept a result",
+            # ARIA-HIGH-367 — closing an ABANDONED plan's queue derives request
+            # state to leave held claims alone; it reads the verdict, it
+            # cannot render one.
+            # ARIA-HIGH-365 (PR #1835 review HIGH-1) — the outage-pause gate
+            # derives whether a request still waits on a provider; it reads
+            # the verdict, it cannot render one.
+            ("executor", f"{KERNEL}outage_causality.py", "consumer"):
+                "outage causality reads request state to gate a timer pause; it cannot accept a result",
+            ("executor", f"{KERNEL}plan_request_closure.py", "consumer"):
+                "plan closure reads request state to cancel only unheld requests; it cannot accept a result",
             ("finding_funnel", f"{KERNEL}belief_escalation.py", "consumer"):
                 "belief escalation observes feedback for a separate belief lane",
             ("finding_funnel", f"{KERNEL}calibration.py", "consumer"):
@@ -1735,12 +1728,6 @@ def alias_factory(root):
                     "executor",
                     "agent_invocation_results",
                     f"{KERNEL}cycle.py",
-                    "consumer",
-                ),
-                (
-                    "executor",
-                    "agent_invocation_results",
-                    f"{KERNEL}external_outage_reaper.py",
                     "consumer",
                 ),
             },

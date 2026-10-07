@@ -306,7 +306,7 @@ def observed_failure_obligation(
 
 
 def observed_plan_failure_obligation(
-    *, failure_mode: str, episodes: int, plan_ids: list[str], **data: Any,
+    *, failure_mode: str, episodes: int, plan_ids: list[str], attributed_role: str = "drafter", **data: Any,
 ) -> dict[str, Any]:
     """The obligation for one failure mode recorded plans in the planner's
     scope repeat (``planner_lessons.planner_lesson_obligations``).
@@ -315,21 +315,27 @@ def observed_plan_failure_obligation(
     abandon reason is free text any caller wrote. A mode in the kernel's
     token shape rides as data; any other is carried by its hash alone, so no
     sentence reaches a binding obligation (attack report R9). The
-    description is the kernel's, the same for every mode.
+    description is the kernel's, the same for every mode. ARIA-HIGH-370 — a
+    lesson attributed to an envelope role (not the plan itself) names that
+    role in its id, so one mode recurring for the plan and for the role is
+    two obligations, never a duplicate id.
     """
     digest = hashlib.sha256(failure_mode.encode("utf-8")).hexdigest()
     token = len(failure_mode) <= 64 and _REASON_CODE_RE.match(failure_mode) is not None
+    role_part = "" if attributed_role == "drafter" else attributed_role + ":"
     return must_satisfy_item(
-        id="observed_plan_failure:" + (failure_mode if token else "sha256:" + digest[:16]),
+        id="observed_plan_failure:" + role_part + (failure_mode if token else "sha256:" + digest[:16]),
         kind=OBSERVED_PLAN_FAILURE_KIND,
         description=(
             "Recorded plans of this plan's origin class on overlapping affected surfaces ended "
             "`episodes` times in the failure mode this obligation identifies (`failure_mode`, or "
-            "`failure_mode_sha256` alone when the recorded mode is not a kernel token); state in "
-            "the satisfaction matrix what in this plan prevents that outcome."
+            "`failure_mode_sha256` alone when the recorded mode is not a kernel token), attributed "
+            "to the work of `attributed_role`; state in the satisfaction matrix what in this plan "
+            "prevents that outcome."
         ),
         **({"failure_mode": failure_mode} if token else {}),
-        **{"failure_mode_sha256": "sha256:" + digest, "episodes": episodes, "plan_ids": list(plan_ids)},
+        **{"failure_mode_sha256": "sha256:" + digest, "episodes": episodes, "plan_ids": list(plan_ids),
+           "attributed_role": attributed_role},
         **data,
     )
 

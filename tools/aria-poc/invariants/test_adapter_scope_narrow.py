@@ -12,7 +12,8 @@ These tests guarantee:
 
 * `outbox_adapter.SCANNED_GLOBS` (and its `_FALLBACK_SCANNED_GLOBS`
   internal alias) match the manifest exactly — neither broader nor
-  narrower than `aria-tools/registry.json` declares.
+  narrower than its committed declaration
+  (`aria_kernel.adapter_portfolio`) says.
 * `outbox_adapter._iter_files` walks ONLY outbox subtrees, both in
   fallback mode (no `allowed_paths`) and in kernel-injection mode
   (`allowed_paths` supplied).
@@ -36,8 +37,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-# Make the aria-poc directory importable for direct adapter access.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Make the aria-poc directory importable for direct adapter access. This
+# module lives under invariants/ so the aria-kernel workflow's `unittest
+# discover tools/aria-poc/invariants` step runs it (ARIA-MEDIUM-377).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_harness_security_adapter import (  # type: ignore[import-not-found]
     SCANNED_GLOBS as HARNESS_SCANNED_GLOBS,
@@ -50,26 +53,37 @@ from outbox_adapter import (  # type: ignore[import-not-found]
 )
 
 
-# Repository root for this checkout — the `aria-tools/registry.json`
-# manifest lives here and is the single source of truth tests pin against.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_REGISTRY_PATH = _REPO_ROOT / "aria-tools" / "registry.json"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_MANIFEST_DIR = _REPO_ROOT / "tools" / "aria-adapters"
 
 
 def _manifest_globs(tool_id: str) -> list[str]:
-    """Read `aria-tools/registry.json` and return the tool's
-    `allowed_read_globs` list. Test scaffolding — not load-bearing
-    in production."""
-    payload = json.loads(_REGISTRY_PATH.read_text(encoding="utf-8"))
-    for tool in payload.get("tools", []):
-        if tool.get("tool_id") == tool_id:
-            globs = tool.get("allowed_read_globs", [])
-            if not isinstance(globs, list):
-                raise AssertionError(
-                    f"{tool_id} allowed_read_globs is not a list",
-                )
-            return [str(g) for g in globs]
-    raise AssertionError(f"{tool_id} not found in registry.json")
+    """The tool's ``allowed_read_globs`` from its COMMITTED declaration.
+
+    ARIA-MEDIUM-377 — this used to read ``aria-tools/registry.json``, the
+    gitignored registry ``registry_compiler`` builds at runtime. A fresh
+    checkout and the CI job (whose bootstrap writes ``.aria-ci/tools``) have
+    no such file, so both pins failed with FileNotFoundError wherever they
+    could run. The registry is compiled from these same
+    declarations: ``tools/aria-adapters/<tool_id>.tool.json`` for a
+    manifest adapter, and the Plan 016 portfolio row
+    (``adapter_portfolio._build_adapter_row``) for the MVP adapters that
+    have no manifest file.
+    """
+    manifest = _MANIFEST_DIR / f"{tool_id}.tool.json"
+    if manifest.exists():
+        row = json.loads(manifest.read_text(encoding="utf-8"))
+    else:
+        from aria_kernel.adapter_portfolio import _MVP_ADAPTERS, _build_adapter_row
+
+        spec = next((s for s in _MVP_ADAPTERS if s["tool_id"] == tool_id), None)
+        if spec is None:
+            raise AssertionError(f"{tool_id} has neither a manifest nor a portfolio row")
+        row = _build_adapter_row(spec)
+    globs = row.get("allowed_read_globs", [])
+    if not isinstance(globs, list):
+        raise AssertionError(f"{tool_id} allowed_read_globs is not a list")
+    return [str(g) for g in globs]
 
 
 def _make_repo() -> Path:

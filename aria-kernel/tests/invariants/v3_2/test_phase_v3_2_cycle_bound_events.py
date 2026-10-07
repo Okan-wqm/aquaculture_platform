@@ -90,6 +90,11 @@ CYCLE_INDEPENDENT_EVENT_KINDS: frozenset[str] = frozenset({
     "canonical_identity_offline_fallback",
     "gate_activity_visibility_restored",
     "l3_lane_classification_decided",
+    # ARIA-HIGH-366 — a provider outage is a fact about the vendor, not a
+    # cycle: it opens and closes across cycles and between them.
+    "provider_outage_opened",
+    "provider_restored",
+    "provider_outage_signal_unavailable",
 })
 
 

@@ -175,10 +175,23 @@ class PrBodyTests(WeaveTestBase):
         from aria_kernel import pr_manager
 
         tree = ast.parse(inspect.getsource(pr_manager))
-        opener = next(
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == "open_pr_for_action"
-        )
+        functions = {
+            node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+        }
+
+        def calls(name: str) -> set[str]:
+            return {
+                getattr(node.func, "id", None)
+                for node in ast.walk(functions[name])
+                if isinstance(node, ast.Call)
+            }
+
+        # ARIA-HIGH-371 — the body is built once, in ``_pr_open_inputs``, which
+        # both the live open (``open_pr_for_action``) and delivery's pre-push
+        # stage (``prepare_pr_open``) reach; the lookup is pinned there.
+        for entry in ("open_pr_for_action", "prepare_pr_open"):
+            self.assertIn("_pr_open_inputs", calls(entry), msg=entry)
+        opener = functions["_pr_open_inputs"]
         derived = [
             keyword
             for node in ast.walk(opener)
@@ -191,7 +204,7 @@ class PrBodyTests(WeaveTestBase):
         ]
         self.assertEqual(
             len(derived), 1,
-            "open_pr_for_action must pass mission_for_assignment(...) as the "
+            "the PR body builder must pass mission_for_assignment(...) as the "
             "body's mission_id, not a constant",
         )
 

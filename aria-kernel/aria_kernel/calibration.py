@@ -68,32 +68,56 @@ def _tool_recommendation(tool_id: str, metrics: dict[str, Any]) -> dict[str, Any
     }
 
 
+#: The producer's precision thresholds; the actuator's revert rule reads the
+#: same numbers (``calibration_actuator``): a raise bets precision stays at or
+#: above RAISE_AT, a cut bets it stays at or below CUT_AT.
+RAISE_AT_PRECISION = 0.85
+CUT_AT_PRECISION = 0.5
+RAISE_STEP = 5
+CUT_STEP = 10
+#: Review of #1829 (HIGH-4) — ten labels before any weight is recommended:
+#: at two, one label moves the point precision by 0.5 and the dial with it.
+MIN_LABELS = 10
+
+
 def _pressure_weight_recommendations(feedback_rows: list[dict[str, Any]], *, base_dir=None) -> list[dict[str, Any]]:
-    by_kind: dict[str, dict[str, int]] = {}
+    """One recommendation per dial the labels measure (ARIA-HIGH-370:
+    ``calibration_dials.feedback_dial``), read against that dial's CURRENT
+    value — a pressure source's effective weight, or a tool dial's weight
+    after the actuator's applications — never a default for a dial that
+    does not exist."""
+    from .calibration_dials import SOURCE_DIAL, TOOL_DIAL_NEUTRAL, feedback_dial, tool_pressure_weights
+
+    by_dial: dict[tuple[str, str], dict[str, int]] = {}
     for row in feedback_rows:
-        kind = str(row.get("metadata", {}).get("pressure_source") or row.get("tool_id") or "unknown")
+        dial = feedback_dial(row)
+        if dial is None:
+            continue
         verdict = str(row.get("verdict") or row.get("kind") or "")
-        bucket = by_kind.setdefault(kind, {"tp": 0, "fp": 0})
+        bucket = by_dial.setdefault(dial, {"tp": 0, "fp": 0})
         if verdict == "true_positive":
             bucket["tp"] += 1
         elif verdict == "false_positive":
             bucket["fp"] += 1
+    source_weights = _effective_source_weights(base_dir)
+    tool_weights = tool_pressure_weights(base_dir)
     recommendations = []
-    for kind, counts in sorted(by_kind.items()):
+    for (kind, name), counts in sorted(by_dial.items()):
         total = counts["tp"] + counts["fp"]
-        if total < 2:
+        if total < MIN_LABELS:
             continue
-        current = _effective_source_weights(base_dir).get(kind, 50)
+        current = source_weights[name] if kind == SOURCE_DIAL else tool_weights.get(name, TOOL_DIAL_NEUTRAL)
         precision = counts["tp"] / total
-        if precision >= 0.85:
-            recommended = min(100, current + 5)
-        elif precision <= 0.5:
-            recommended = max(10, current - 10)
+        if precision >= RAISE_AT_PRECISION:
+            recommended = min(100, current + RAISE_STEP)
+        elif precision <= CUT_AT_PRECISION:
+            recommended = max(10, current - CUT_STEP)
         else:
             continue
         recommendations.append(
             {
-                "source": kind,
+                "source": name,
+                "dial": kind,
                 "current_weight": current,
                 "recommended_weight": recommended,
                 "feedback_precision": round(precision, 3),

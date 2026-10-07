@@ -57,6 +57,11 @@ export interface TrendChartProps {
   initialRange?: ChartTimeRange;
   /** Custom mode: pre-fetched series data keyed by tagId. */
   customData?: Record<string, HistoricalDataPoint[]>;
+  /**
+   * IANA zone the time axis is drawn in (a site's zone). Without it uPlot
+   * draws the browser's zone, which is not the site's.
+   */
+  timeZone?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -82,9 +87,27 @@ function buildSeries(line: ChartLine, zones: ChartLineZone[] | undefined): uPlot
     points:
       line.interpolation === 'scatter'
         ? { show: true, size: 6, fill: line.color }
-        : { show: false },
+        : line.showIsolatedPoints
+          ? { show: true, size: 5, fill: line.color, filter: isolatedPointIndices }
+          : { show: false },
   };
 }
+
+/**
+ * The indices of values with no value on either side: a lone bucket between
+ * two gaps, which a line cannot draw. uPlot draws a point only at these.
+ */
+const isolatedPointIndices: uPlot.Series.Points.Filter = (u, seriesIdx) => {
+  const values = u.data[seriesIdx] ?? [];
+  const isolated: number[] = [];
+  for (let index = 0; index < values.length; index++) {
+    if (values[index] == null) continue;
+    const before = index === 0 ? null : values[index - 1];
+    const after = index === values.length - 1 ? null : values[index + 1];
+    if (before == null && after == null) isolated.push(index);
+  }
+  return isolated;
+};
 
 function buildPathBuilder(interpolation: LineInterpolation): uPlot.Series['paths'] | undefined {
   switch (interpolation) {
@@ -399,6 +422,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
   realtimeWindowMinutes = DEFAULT_REALTIME_WINDOW_MINUTES,
   initialRange = 'last1h',
   customData,
+  timeZone,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const uplotRef = useRef<uPlot | null>(null);
@@ -473,6 +497,9 @@ export const TrendChart: React.FC<TrendChartProps> = ({
         },
         scales: buildScales(options),
         axes: buildAxes(lines, options),
+        ...(timeZone === undefined
+          ? {}
+          : { tzDate: (seconds: number) => uPlot.tzDate(new Date(seconds * 1000), timeZone) }),
         series: [
           {}, // x-axis placeholder
           ...lines.map((line) => buildSeries(line, line.zones)),
@@ -480,7 +507,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
       };
     },
 
-    [lines, options],
+    [lines, options, timeZone],
   );
 
   /* ---- Create / recreate uPlot on mount and option changes ---- */

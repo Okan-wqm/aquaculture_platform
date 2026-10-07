@@ -15817,6 +15817,8 @@ export type Query = {
   sensorsByProtocol: Array<RegisteredSensorType>;
   /** Weekly aggregate sentiment trends per channel (TENANT_ADMIN only) */
   sentimentTrends: Array<SentimentTrendType>;
+  /** The zone a page of these sensors' charts is shown and picked in (≤100): their shared site zone, else the tenant's */
+  seriesDisplayTimeZone: SeriesDisplayTimeZone;
   shift: Shift;
   shifts: ShiftConnection;
   /** Semantic similarity search across messages */
@@ -17608,6 +17610,11 @@ export type QuerySensorsByProtocolArgs = {
 
 export type QuerySentimentTrendsArgs = {
   input: SentimentTrendsInput;
+};
+
+
+export type QuerySeriesDisplayTimeZoneArgs = {
+  sensorIds: Array<Scalars['ID']['input']>;
 };
 
 
@@ -20041,6 +20048,11 @@ export type SentimentTrendsInput = {
   channelId?: InputMaybe<Scalars['ID']['input']>;
   /** Number of weeks to look back (1-52) */
   weeks?: Scalars['Int']['input'];
+};
+
+export type SeriesDisplayTimeZone = {
+  displayTimeZone: Scalars['String']['output'];
+  source: SeriesTimeZoneSource;
 };
 
 /** Where a series display time zone came from */

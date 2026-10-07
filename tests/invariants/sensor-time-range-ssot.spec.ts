@@ -43,14 +43,6 @@ const NOT_RANGE_TABLES = new Map<string, { keys: readonly string[]; reason: stri
       reason: 'DAQ sampling interval and retention vocabulary, not a chart range',
     },
   ],
-  [
-    'web/modules/sensor-module/src/pages/SensorAnalyticsPage.tsx',
-    {
-      keys: ['30d', '7d', '90d'],
-      reason:
-        'SENSOR-HIGH-153: the page is invented data with an unwired selector; phase 3c backs it with real aggregates or unroutes it',
-    },
-  ],
 ]);
 
 /** Every key a range table could be keyed by: the presets and the SCADA tokens. */

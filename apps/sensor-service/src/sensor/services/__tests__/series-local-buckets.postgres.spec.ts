@@ -339,4 +339,17 @@ describe('sensor series in the site time zone (real TimescaleDB)', () => {
     ]);
     expect(series.channels[0]?.gaps).toEqual([]);
   });
+
+  it('gives a page one zone: the shared site zone, else the tenant zone', async () => {
+    const kolkata = scenarios.kolkata.sensorId ?? '';
+    const oslo = scenarios.oslo.sensorId ?? '';
+    expect(await service.getDisplayTimeZone([kolkata], TENANT)).toEqual({
+      displayTimeZone: 'Asia/Kolkata',
+      source: SeriesTimeZoneSource.SITE,
+    });
+    expect(await service.getDisplayTimeZone([kolkata, oslo], TENANT)).toEqual({
+      displayTimeZone: 'UTC',
+      source: SeriesTimeZoneSource.TENANT,
+    });
+  });
 });

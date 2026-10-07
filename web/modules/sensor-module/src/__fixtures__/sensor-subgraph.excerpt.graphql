@@ -212,7 +212,8 @@ input DisplaySettingsInput {
   decimalPlaces: Float
 }
 
-# Channel-generic reads (SENSOR-HIGH-138), copied from the emitted sensor SDL.
+# Channel-generic reads (SENSOR-HIGH-138), copied from the emitted sensor SDL
+# (dist/graphql/subgraphs/sensor.graphql, 2026-10-07).
 enum ChannelAlertLevel {
   NORMAL
   WARNING
@@ -240,20 +241,63 @@ type ChannelSeriesPoint {
   min: Float
   max: Float
   count: Int!
+  badCount: Int!
+}
+
+type TimeWindow {
+  start: DateTime!
+  end: DateTime!
 }
 
 type ChannelSeries {
   channelId: ID!
   channelKey: String!
+  displayLabel: String!
+  unit: String
+  unitSymbol: String
+  precision: Int
+  enabled: Boolean!
   points: [ChannelSeriesPoint!]!
+  gaps: [TimeWindow!]!
+}
+
+enum MetricSourceTier {
+  RAW
+  MINUTE
+  HOUR
+  DAY
+}
+
+enum SeriesTimeZoneSource {
+  SITE
+  TENANT
+  UNAVAILABLE
 }
 
 type ChannelSeriesResponse {
   sensorId: ID!
-  interval: String!
+  interval: String! @deprecated(reason: "Use resolution")
+  resolution: AggregationInterval!
+  sourceTier: MetricSourceTier!
+  bucketTimeZone: String!
+  displayTimeZone: String!
+  displayTimeZoneSource: SeriesTimeZoneSource!
+  maxRangeSeconds: Int!
   startTime: DateTime!
   endTime: DateTime!
   channels: [ChannelSeries!]!
+}
+
+type ChannelDataBounds {
+  sensorId: ID!
+  channelId: ID!
+  firstSampleAt: DateTime
+  lastSampleAt: DateTime
+}
+
+type SeriesDisplayTimeZone {
+  displayTimeZone: String!
+  source: SeriesTimeZoneSource!
 }
 
 enum AggregationInterval {
@@ -276,6 +320,8 @@ type Query {
     endTime: DateTime!
     interval: AggregationInterval
   ): ChannelSeriesResponse!
+  seriesDisplayTimeZone(sensorIds: [ID!]!): SeriesDisplayTimeZone!
+  channelDataBounds(sensorIds: [ID!]!): [ChannelDataBounds!]!
 }
 
 scalar DateTime

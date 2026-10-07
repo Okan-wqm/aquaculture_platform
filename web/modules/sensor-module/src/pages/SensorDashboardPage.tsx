@@ -321,13 +321,6 @@ const SensorDashboardPage: React.FC = () => {
             </Link>
             <span className="text-gray-500 dark:text-gray-400">|</span>
             <Link
-              to="/sensor/analytics"
-              className="text-xs text-info-600 dark:text-info-400 hover:text-info-700 dark:hover:text-info-200 hover:underline"
-            >
-              Analitik
-            </Link>
-            <span className="text-gray-500 dark:text-gray-400">|</span>
-            <Link
               to="/sensor/readings"
               className="text-xs text-info-600 dark:text-info-400 hover:text-info-700 dark:hover:text-info-200 hover:underline"
             >

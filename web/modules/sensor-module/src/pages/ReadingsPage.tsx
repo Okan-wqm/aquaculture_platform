@@ -18,9 +18,19 @@ import {
   Server,
   Wifi,
 } from 'lucide-react';
-import { presetDurationMs } from '@aquaculture/shared-contracts';
-import { Button, PageHeader, Select, Spinner, useTimeRangeLabels } from '@aquaculture/shared-ui';
+import type { TimeRangeSpec } from '@aquaculture/shared-contracts';
+import {
+  Button,
+  PageHeader,
+  Select,
+  Spinner,
+  TimeRangePicker,
+  useI18n,
+  useTimeRangeLabels,
+  useTimeRangeSearchParams,
+} from '@aquaculture/shared-ui';
 
+import { downloadCsv } from '../components/readings/downloadCsv';
 import { SensorReadingsCard } from '../components/readings/SensorReadingsCard';
 import {
   channelFilterOptions,
@@ -28,15 +38,20 @@ import {
   freshness,
   lastReportedAt,
   latestValuesCsv,
-  parseReadingsPreset,
   READINGS_PRESETS,
   readingOwners,
-  type ReadingsPreset,
 } from '../components/readings/readingsModel';
-import { useChannelLatestValues } from '../hooks/useChannelReadings';
+import {
+  useChannelDataBounds,
+  useChannelLatestValues,
+  useSeriesDisplayTimeZone,
+} from '../hooks/useChannelReadings';
 import { useSensorList } from '../hooks/useSensorList';
 
 const AUTO_REFRESH_MS = 30_000;
+
+/** What the page charts when its link names no range. */
+const DEFAULT_RANGE: TimeRangeSpec = { kind: 'relative', preset: DEFAULT_READINGS_PRESET };
 
 /** Ticks once a second so "12 sn önce" and the freshness badge stay current. */
 function useNow(): number {
@@ -46,17 +61,6 @@ function useNow(): number {
     return () => clearInterval(timer);
   }, []);
   return now;
-}
-
-function downloadCsv(content: string): void {
-  // Leading BOM so Excel opens the UTF-8 file with Turkish characters intact.
-  const blob = new Blob(['﻿', content], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `sensor-okumalari-${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 const StatCard: React.FC<{
@@ -78,8 +82,14 @@ const StatCard: React.FC<{
 
 const ReadingsPage: React.FC = () => {
   const [selectedChannel, setSelectedChannel] = useState('all');
-  const [period, setPeriod] = useState<ReadingsPreset>(DEFAULT_READINGS_PRESET);
+  // The range lives in the URL, so a link, a reload and Back show the same window.
+  const {
+    spec: range,
+    error: rangeError,
+    setSpec: setRange,
+  } = useTimeRangeSearchParams(DEFAULT_RANGE);
   const rangeLabels = useTimeRangeLabels();
+  const { t } = useI18n();
   const [autoRefresh, setAutoRefresh] = useState(true);
   const now = useNow();
 
@@ -92,6 +102,30 @@ const ReadingsPage: React.FC = () => {
   const owners = useMemo(() => readingOwners(sensors), [sensors]);
   const ownerIds = useMemo(() => owners.map((sensor) => sensor.id), [owners]);
   const latest = useChannelLatestValues(ownerIds, autoRefresh ? AUTO_REFRESH_MS : false);
+  // One zone for the page, by the server's rule (the sensors' shared site
+  // zone, else the tenant's); the picker waits for it rather than guess.
+  const displayZone = useSeriesDisplayTimeZone(ownerIds);
+  const bounds = useChannelDataBounds(ownerIds);
+  const lastSampleBySensor = useMemo(() => {
+    const last = new Map<string, number>();
+    for (const channelBounds of bounds.values()) {
+      if (!channelBounds.lastSampleAt) continue;
+      const at = new Date(channelBounds.lastSampleAt).getTime();
+      last.set(channelBounds.sensorId, Math.max(at, last.get(channelBounds.sensorId) ?? at));
+    }
+    return last;
+  }, [bounds]);
+  const dataBounds = useMemo(() => {
+    const firsts: number[] = [];
+    const lasts: number[] = [];
+    for (const channelBounds of bounds.values()) {
+      if (channelBounds.firstSampleAt) firsts.push(new Date(channelBounds.firstSampleAt).getTime());
+      if (channelBounds.lastSampleAt) lasts.push(new Date(channelBounds.lastSampleAt).getTime());
+    }
+    return firsts.length > 0 && lasts.length > 0
+      ? { firstMs: Math.min(...firsts), lastMs: Math.max(...lasts) }
+      : null;
+  }, [bounds]);
 
   const allChannels = useMemo(() => [...latest.bySensor.values()].flat(), [latest.bySensor]);
   const filterOptions = useMemo(() => channelFilterOptions(allChannels), [allChannels]);
@@ -161,7 +195,9 @@ const ReadingsPage: React.FC = () => {
               variant="primary"
               leftIcon={<Download className="w-4 h-4" />}
               disabled={allChannels.length === 0}
-              onClick={() => downloadCsv(latestValuesCsv(owners, latest.bySensor))}
+              onClick={() =>
+                downloadCsv(latestValuesCsv(owners, latest.bySensor), 'sensor-okumalari')
+              }
             >
               Dışa Aktar
             </Button>
@@ -231,21 +267,33 @@ const ReadingsPage: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            <Select
-              aria-label={rangeLabels.label}
-              options={READINGS_PRESETS.map((preset) => ({
-                value: preset,
-                label: rangeLabels.preset(preset),
-              }))}
-              value={period}
-              onChange={(event) => {
-                const next = parseReadingsPreset(event.target.value);
-                if (next !== null) setPeriod(next);
-              }}
-            />
+            {displayZone.zone ? (
+              <TimeRangePicker
+                value={range}
+                onChange={setRange}
+                presets={READINGS_PRESETS}
+                timeZone={displayZone.zone.displayTimeZone}
+                dataBounds={dataBounds}
+              />
+            ) : (
+              // The picker reads days in the site's zone; until the server
+              // names it there is nothing honest to pick in.
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                {ownerIds.length > 0 ? t('series.loading') : rangeLabels.label}
+              </span>
+            )}
           </div>
         </div>
       </div>
+
+      {rangeError !== null && (
+        <div
+          role="alert"
+          className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-3 text-sm text-warning-800 dark:text-warning-200"
+        >
+          {t('series.rangeInvalid', { reason: rangeLabels.error(rangeError) })}
+        </div>
+      )}
 
       {loading && visible.length === 0 && (
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
@@ -277,7 +325,9 @@ const ReadingsPage: React.FC = () => {
               key={sensor.id}
               sensor={sensor}
               channels={channels}
-              rangeMs={presetDurationMs(period)}
+              range={range}
+              lastSampleAt={lastSampleBySensor.get(sensor.id) ?? null}
+              onShowRange={setRange}
               now={now}
               defaultExpanded={visible.length <= 3}
             />

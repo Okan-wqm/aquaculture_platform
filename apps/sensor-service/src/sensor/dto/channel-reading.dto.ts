@@ -253,3 +253,14 @@ export class ChannelDataBounds {
   @Field(() => Date, { nullable: true })
   lastSampleAt?: Date;
 }
+
+/** The one zone a page of sensor charts is shown and picked in. */
+@ObjectType()
+export class SeriesDisplayTimeZone {
+  /** The sensors' shared site zone, else the tenant's (IANA); UTC when unavailable. */
+  @Field()
+  displayTimeZone!: string;
+
+  @Field(() => SeriesTimeZoneSource)
+  source!: SeriesTimeZoneSource;
+}

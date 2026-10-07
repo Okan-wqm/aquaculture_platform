@@ -73,7 +73,10 @@ export default defineConfig(({ mode }) => {
         // and tier policy) — path-aliased, as admin-panel and shared-ui do.
         '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
       },
-      dedupe: ['react', 'react-dom', '@xyflow/react'],
+      // The federation shares these as singletons at runtime; specs resolve
+      // shared-ui from source, so they must see the one copy too — a second
+      // react-router is a second Router context and shared-ui's hooks throw.
+      dedupe: ['react', 'react-dom', '@xyflow/react', 'react-router', 'react-router-dom'],
     },
     // Public folder is automatically copied to dist by Vite
     publicDir: 'public',

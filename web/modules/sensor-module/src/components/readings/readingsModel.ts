@@ -3,9 +3,13 @@
  * the formatting, freshness and export rules live here so they are tested
  * once and the page/cards only render.
  */
-import type { RelativePresetKey } from '@aquaculture/shared-contracts';
+import {
+  type RelativePresetKey,
+  resolveTimeRange,
+  type TimeRangeSpec,
+} from '@aquaculture/shared-contracts';
 
-import type { ChannelLatestValue } from '../../graphql/channelReadings';
+import type { ChannelLatestValue, ChannelSeriesResponse } from '../../graphql/channelReadings';
 import type { RegisteredSensor } from '../../hooks/useSensorList';
 
 /** A value older than this is "stale": the device has stopped reporting. */
@@ -134,6 +138,82 @@ export function latestValuesCsv(
         unitOf(channel),
         channel.time ?? '',
         channel.alertLevel ? ALERT_LABELS[channel.alertLevel] : '',
+      ]);
+    }
+  }
+  return rows.map((row) => row.map(csvCell).join(';')).join('\n');
+}
+
+/**
+ * The window to jump to when a range holds no data: the same length as the
+ * range shown, ending with the minute of the channel's last stored sample.
+ */
+export function rangeEndingAt(
+  lastSampleMs: number,
+  current: TimeRangeSpec,
+  nowMs: number,
+): TimeRangeSpec {
+  const shown = resolveTimeRange(current, nowMs);
+  if (!shown.ok) {
+    throw new Error(`The range shown is not valid: ${shown.error}`);
+  }
+  const endMs = Math.floor(lastSampleMs / 60_000) * 60_000 + 60_000;
+  return { kind: 'absolute', startMs: endMs - (shown.endMs - shown.startMs), endMs };
+}
+
+/** Column titles of a series export, in the user's language. */
+export interface SeriesCsvHeaders {
+  bucketUtc: string;
+  bucketLocal: string;
+  channel: string;
+  unit: string;
+  avg: string;
+  min: string;
+  max: string;
+  count: string;
+  badCount: string;
+}
+
+/**
+ * A series as CSV: one row per channel bucket, its UTC instant and its time
+ * in the series' display zone (so a spreadsheet and the chart agree).
+ */
+export function seriesCsv(
+  series: ChannelSeriesResponse,
+  headers: SeriesCsvHeaders,
+  locale: string,
+): string {
+  const local = new Intl.DateTimeFormat(locale, {
+    timeZone: series.displayTimeZone,
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
+  const rows: string[][] = [
+    [
+      headers.bucketUtc,
+      headers.bucketLocal,
+      headers.channel,
+      headers.unit,
+      headers.avg,
+      headers.min,
+      headers.max,
+      headers.count,
+      headers.badCount,
+    ],
+  ];
+  for (const channel of series.channels) {
+    for (const point of channel.points) {
+      const bucket = new Date(point.bucket);
+      rows.push([
+        bucket.toISOString(),
+        local.format(bucket),
+        channel.displayLabel,
+        channel.unitSymbol ?? channel.unit ?? '',
+        String(point.avg),
+        point.min === null || point.min === undefined ? '' : String(point.min),
+        point.max === null || point.max === undefined ? '' : String(point.max),
+        String(point.count),
+        String(point.badCount),
       ]);
     }
   }

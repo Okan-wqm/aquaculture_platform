@@ -5,7 +5,15 @@
  * TrendChart's custom mode: one series per parameter, dual y-axes (unit
  * similarity heuristics), colors from channel displaySettings with palette
  * fallback, and alert-threshold bands as value-range zones.
+ *
+ * It shows what the server says it returned — bucket width, store, the zone
+ * buckets were counted in — draws the time axis in the site's zone, breaks
+ * lines where a channel has no data, and on an empty range offers to jump to
+ * the channel's last stored data.
  */
+import { type TimeRangeSpec } from '@aquaculture/shared-contracts';
+import { Button, useI18n } from '@aquaculture/shared-ui';
+import { Download } from 'lucide-react';
 import { useMemo } from 'react';
 
 import { TrendChart } from './TrendChart';
@@ -16,8 +24,9 @@ import type {
   HistoricalDataPoint,
 } from '../../types/scada-runtime.types';
 import { colors as themeColors } from '@aquaculture/shared-ui';
-import { presetDurationMs } from '@aquaculture/shared-contracts';
-import { DEFAULT_READINGS_PRESET } from '../readings/readingsModel';
+import { downloadCsv } from '../readings/downloadCsv';
+import { rangeEndingAt, seriesCsv } from '../readings/readingsModel';
+import { useSeriesLabels } from '../readings/seriesLabels';
 
 export interface TrendChannelSpec {
   channelKey: string;
@@ -33,8 +42,12 @@ export interface TrendChannelSpec {
 export interface MultiParameterTrendCardProps {
   sensorId: string;
   channels: readonly TrendChannelSpec[];
-  /** Window length in ms (default: the readings page's default preset). */
-  rangeMs?: number;
+  /** The range to chart: a preset ending now, or a fixed window. */
+  range: TimeRangeSpec;
+  /** The sensor's last stored sample (ms), for the empty-range jump. */
+  lastSampleAt?: number | null;
+  /** Show another range — the page owns the range, so the card asks. */
+  onShowRange?: (range: TimeRangeSpec) => void;
   title?: string;
 }
 
@@ -79,10 +92,14 @@ function thresholdZones(thresholds: TrendChannelSpec['thresholds']): ChartLineZo
 export function MultiParameterTrendCard({
   sensorId,
   channels,
-  rangeMs = presetDurationMs(DEFAULT_READINGS_PRESET),
+  range,
+  lastSampleAt = null,
+  onShowRange,
   title,
 }: MultiParameterTrendCardProps) {
-  const { series, loading, error } = useChannelSeries(sensorId, rangeMs);
+  const { locale, t } = useI18n();
+  const labels = useSeriesLabels();
+  const { series, loading, error } = useChannelSeries(sensorId, range);
 
   const lines: ChartLine[] = useMemo(
     () =>
@@ -95,7 +112,11 @@ export function MultiParameterTrendCard({
           color: channel.color ?? PALETTE[index % PALETTE.length]!,
           yAxis: unitScaleGroup(channel.unit),
           interpolation: 'linear',
-          spanGaps: true,
+          // Every channel of the series shares the same buckets, so a bucket a
+          // channel lacks is a stretch with no data: the line breaks there
+          // (the gaps the server reports), and a lone bucket shows as a dot.
+          spanGaps: false,
+          showIsolatedPoints: true,
           zones: zones.length > 0 ? zones : undefined,
         };
       }),
@@ -115,25 +136,89 @@ export function MultiParameterTrendCard({
   }, [series]);
 
   const hasAnyData = Object.values(customData).some((points) => points.length > 0);
+  const lastSampleLabel =
+    lastSampleAt === null
+      ? null
+      : new Intl.DateTimeFormat(locale, {
+          timeZone: series?.displayTimeZone,
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        }).format(lastSampleAt);
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-      <div className="flex items-center justify-between mb-2">
-        <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-          {title ?? 'Parametre Trendleri'}
-        </h4>
-        {loading && <span className="text-xs text-gray-400 dark:text-gray-500">Yükleniyor…</span>}
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <div className="min-w-0">
+          <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            {title ?? t('series.title')}
+          </h4>
+          {series && (
+            <p className="text-xs text-gray-500 dark:text-gray-400">{labels.resolution(series)}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {loading && (
+            <span className="text-xs text-gray-400 dark:text-gray-500">{t('series.loading')}</span>
+          )}
+          {series && hasAnyData && (
+            <Button
+              variant="secondary"
+              size="xs"
+              leftIcon={<Download className="w-3 h-3" />}
+              onClick={() =>
+                downloadCsv(
+                  seriesCsv(series, labels.csvHeaders(series), locale),
+                  `seri-${sensorId}`,
+                )
+              }
+            >
+              {t('series.csv')}
+            </Button>
+          )}
+        </div>
       </div>
+      {series?.displayTimeZoneSource === 'UNAVAILABLE' && (
+        <p className="mb-2 text-xs text-warning-700 dark:text-warning-400" role="status">
+          {t('series.zoneUnavailable')}
+        </p>
+      )}
+      {series &&
+        series.displayTimeZoneSource !== 'UNAVAILABLE' &&
+        series.bucketTimeZone !== series.displayTimeZone && (
+          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400" role="status">
+            {t('series.utcBuckets')}
+          </p>
+        )}
       {error ? (
         <p className="text-sm text-error-600 dark:text-error-400" role="alert">
-          Trend verisi alınamadı: {error}
+          {t('series.loadFailed', { error })}
         </p>
       ) : hasAnyData ? (
-        <TrendChart mode="custom" lines={lines} customData={customData} className="h-64" />
+        <TrendChart
+          mode="custom"
+          lines={lines}
+          customData={customData}
+          timeZone={series?.displayTimeZone}
+          className="h-64"
+        />
       ) : (
-        <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
-          Seçilen aralıkta trend verisi yok.
-        </p>
+        <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+          <p>{t('series.emptyRange')}</p>
+          {lastSampleAt !== null && lastSampleLabel !== null && (
+            <div className="mt-2 flex flex-col items-center gap-2">
+              <p>{t('series.lastSample', { time: lastSampleLabel })}</p>
+              {onShowRange && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onShowRange(rangeEndingAt(lastSampleAt, range, Date.now()))}
+                >
+                  {t('series.showLastData')}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

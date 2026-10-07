@@ -518,6 +518,11 @@ export interface ChartLine {
   interpolation: LineInterpolation;
   lineWidth?: number;
   spanGaps?: boolean;
+  /**
+   * With gaps not spanned, draw a dot for a value whose neighbours are both
+   * missing — otherwise a lone bucket between two gaps has no line to show it.
+   */
+  showIsolatedPoints?: boolean;
   zones?: ChartLineZone[];
 }
 

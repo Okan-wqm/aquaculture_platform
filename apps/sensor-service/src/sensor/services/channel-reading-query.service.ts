@@ -24,6 +24,7 @@ import {
   ChannelSeries,
   ChannelSeriesResponse,
   metricSourceTierOf,
+  SeriesDisplayTimeZone,
   TimeWindow,
 } from '../dto/channel-reading.dto';
 import { SeriesTimeZoneService } from './series-time-zone.service';
@@ -266,6 +267,35 @@ export class ChannelReadingQueryService {
     return minute === RAW_METRIC_SOURCE
       ? { plan: { ...plan, boundaryMinutes: false }, source: RAW_METRIC_SOURCE, minuteSource: null }
       : { plan, source, minuteSource: minute };
+  }
+
+  /**
+   * The zone a page of these sensors' charts is shown and picked in, by the
+   * same rule a series uses: their shared site zone, else the tenant's; UTC,
+   * marked unavailable, when farm cannot answer.
+   */
+  async getDisplayTimeZone(sensorIds: string[], tenantId: string): Promise<SeriesDisplayTimeZone> {
+    if (sensorIds.length > MAX_SENSORS_PER_BATCH) {
+      throw new BadRequestException(
+        `Maximum ${MAX_SENSORS_PER_BATCH} sensors can be queried at once`,
+      );
+    }
+    const validTenantId = validateTenantId(tenantId);
+    const validSensorIds = sensorIds.map((id) => validateSensorId(id));
+    const siteBySensor = await runInTenantRead(
+      this.dataSource,
+      SENSOR_SCHEMA,
+      validTenantId,
+      (qr) => this.seriesTimeZones.sitesOf(qr, validSensorIds),
+    );
+    const candidate = await this.seriesTimeZones.candidate(validTenantId, siteBySensor);
+    // Only the zone's name and source are returned; the bucket facts (which
+    // depend on a window) are not, so the check is made at this instant.
+    const now = new Date();
+    const zone = await runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, (qr) =>
+      this.seriesTimeZones.validated(qr, candidate, { start: now, end: now }),
+    );
+    return { displayTimeZone: zone.displayTimeZone, source: zone.source };
   }
 
   /**

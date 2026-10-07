@@ -19,6 +19,7 @@ import {
   unitOf,
   type Freshness,
 } from './readingsModel';
+import type { TimeRangeSpec } from '@aquaculture/shared-contracts';
 
 const TILE_TONE: Readonly<Record<'NORMAL' | 'WARNING' | 'CRITICAL' | 'NONE', string>> = {
   NORMAL: 'border-gray-100 dark:border-gray-700',
@@ -86,7 +87,11 @@ export const ChannelTile: React.FC<{ channel: ChannelLatestValue; now: number }>
 export interface SensorReadingsCardProps {
   sensor: RegisteredSensor;
   channels: readonly ChannelLatestValue[];
-  rangeMs: number;
+  /** The range every card charts, owned by the page. */
+  range: TimeRangeSpec;
+  /** The sensor's last stored sample (ms), for the empty-range jump. */
+  lastSampleAt: number | null;
+  onShowRange: (range: TimeRangeSpec) => void;
   now: number;
   defaultExpanded?: boolean;
 }
@@ -94,7 +99,9 @@ export interface SensorReadingsCardProps {
 export const SensorReadingsCard: React.FC<SensorReadingsCardProps> = ({
   sensor,
   channels,
-  rangeMs,
+  range,
+  lastSampleAt,
+  onShowRange,
   now,
   defaultExpanded = true,
 }) => {
@@ -162,7 +169,9 @@ export const SensorReadingsCard: React.FC<SensorReadingsCardProps> = ({
               </div>
               <MultiParameterTrendCard
                 sensorId={sensor.id}
-                rangeMs={rangeMs}
+                range={range}
+                lastSampleAt={lastSampleAt}
+                onShowRange={onShowRange}
                 channels={channels.map((channel) => ({
                   channelKey: channel.channelKey,
                   displayLabel: channel.displayLabel,

@@ -5,7 +5,6 @@
  * Modes:
  *  1. Edit mode   — deterministic sine-wave demo data
  *  2. Simulation  — accumulates simTagValues over time from the store
- *  3. Preview     — uses useScadaTrend hook (mock data until backend ready)
  */
 
 import React, { memo, useMemo, useState, useCallback, useRef, useEffect } from 'react';

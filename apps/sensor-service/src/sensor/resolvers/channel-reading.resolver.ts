@@ -6,6 +6,7 @@ import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { AggregationInterval } from '../dto/aggregated-reading.dto';
 import {
   ChannelDataBounds,
+  SeriesDisplayTimeZone,
   ChannelLatestValue,
   ChannelSeriesResponse,
 } from '../dto/channel-reading.dto';
@@ -46,6 +47,18 @@ export class ChannelReadingResolver {
     interval?: AggregationInterval,
   ): Promise<ChannelSeriesResponse> {
     return this.channelReadings.getSeries(sensorId, tenantId, startTime, endTime, interval);
+  }
+
+  @Query(() => SeriesDisplayTimeZone, {
+    name: 'seriesDisplayTimeZone',
+    description:
+      "The zone a page of these sensors' charts is shown and picked in (≤100): their shared site zone, else the tenant's",
+  })
+  async seriesDisplayTimeZone(
+    @Args('sensorIds', { type: () => [ID] }) sensorIds: string[],
+    @Tenant() tenantId: string,
+  ): Promise<SeriesDisplayTimeZone> {
+    return this.channelReadings.getDisplayTimeZone(sensorIds, tenantId);
   }
 
   @Query(() => [ChannelDataBounds], {

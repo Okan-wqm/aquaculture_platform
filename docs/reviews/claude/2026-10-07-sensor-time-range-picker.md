@@ -3,12 +3,29 @@
 Phase 3b of the sensor-history plan. It builds on the time-range table
 (SENSOR-MEDIUM-152).
 
-## SENSOR-MEDIUM-157 — no way to view a chosen past window (open)
+## SENSOR-MEDIUM-157 — no way to view a chosen past window
 
-Stored readings can only be seen through presets that end now. The readings
-page holds its range in component state, so a link or a reload loses it.
-Phase 3c wires the page to the parts below and closes this finding (owner:
-claude, deadline 2026-10-21).
+Stored readings could only be seen through presets that end now, and the
+readings page held its range in component state, so a link or a reload lost
+it.
+
+Closed in phase 3c (`/sensor/readings`):
+
+- The range lives in the URL (`useTimeRangeSearchParams`). A malformed link
+  says so and shows the default range.
+- The page picks ranges with `TimeRangePicker` in one zone that the server
+  names (`seriesDisplayTimeZone`: the sensors' shared site zone, else the
+  tenant's). Until the server answers, no picker is shown, so no zone is
+  guessed.
+- A preset re-anchors at now and refreshes; a fixed window is fetched once.
+- Each chart:
+  - says its bucket width, its store and the zone buckets were counted in;
+  - draws its time axis in the site's zone;
+  - breaks lines where a channel has no data, marking a lone bucket with a
+    dot;
+  - offers the series as CSV, with UTC and local times.
+- An empty range shows the channel's last stored sample and a button that
+  jumps to a window of the same length ending there.
 
 ## SENSOR-MEDIUM-158 — no usable range picker or URL range state
 

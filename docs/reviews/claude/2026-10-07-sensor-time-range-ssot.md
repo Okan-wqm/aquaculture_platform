@@ -94,21 +94,25 @@ Kept apart on purpose:
 Deploy note: shared-ui is a federation singleton pinned at one version, so
 the shell and sensor-module must ship together.
 
-## SENSOR-HIGH-153 — invented numbers on two routed pages (open)
+## SENSOR-HIGH-153 — invented numbers on two routed pages
 
-Found while folding the ranges. Two routed sensor pages show generated
+Found while folding the ranges. Two routed sensor pages showed generated
 values as if measured:
 
-- `/sensor`: the SCADA page's trend panel reads `useScadaTrend`, which
-  never queries and draws a random walk from `generateMockData`.
+- `/sensor`: the SCADA page's trend panel read `useScadaTrend`, which never
+  queried and drew a random walk from `generateMockData`. It passed process
+  node ids as tag names, so no real data could ever have reached it.
 - `/sensor/analytics`: fixed totals, per-type counts and pond health scores,
   with a 7/30/90-day selector wired to nothing.
 
-Not in this change. Polishing the analytics selector's labels would dress up
-a page whose data is invented. Owner: claude. Deadline: 2026-10-21. Planned
-closure: phase 3c moves the trend panel onto `channelSeries` and either backs
-the analytics page with real aggregates or removes its route. The time-range
-invariant exempts `SensorAnalyticsPage.tsx` under this ID until then.
+Closed in phase 3c:
+
+- The trend panel and `useScadaTrend` are removed. The SCADA page's trend
+  button now opens `/sensor/readings`, where the channel series is real.
+- The analytics page, its route and the dashboard link to it are removed.
+  Real analytics need real aggregates, and a page of invented numbers is
+  worse than no page.
+- The time-range invariant drops its exemption for the analytics page.
 
 The other exemption, `DaqConfigPanel.tsx`, is not a chart range: its keys are
 the DAQ sampling and retention vocabulary.

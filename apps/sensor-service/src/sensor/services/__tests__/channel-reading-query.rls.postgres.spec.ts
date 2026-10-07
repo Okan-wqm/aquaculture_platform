@@ -1,16 +1,12 @@
-import { randomBytes } from 'node:crypto';
-
-import { applyTenantRlsToSchema, getTenantSchemaName } from '@aquaculture/backend-common/database';
-import {
-  bootPostgresContainer,
-  type HarnessContext,
-  shutdownHarness,
-} from '@platform/migration-harness';
 import type { CircuitBreakerService } from '@aquaculture/backend-common/resilience';
 import { stub } from '@aquaculture/testing';
 import type { NatsRequestReply } from '@platform/event-bus';
 import { DataSource } from 'typeorm';
 
+import {
+  bootSensorRlsHarness,
+  type SensorRlsHarness,
+} from '../../../__tests__/support/sensor-rls-postgres.harness';
 import { SensorDataChannel } from '../../../database/entities/sensor-data-channel.entity';
 import { SensorMetric } from '../../../database/entities/sensor-metric.entity';
 import { SensorProtocol } from '../../../database/entities/sensor-protocol.entity';
@@ -32,7 +28,6 @@ import { SeriesTimeZoneService } from '../series-time-zone.service';
 
 const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const RUNTIME_ROLE = 'sensor_channel_reads_rls_test';
 const ENTITIES = [Sensor, SensorDataChannel, SensorMetric, SensorProtocol, SensorTypeDefinition];
 
 interface ChannelSeed {
@@ -83,7 +78,7 @@ const CHANNELS: readonly ChannelSeed[] = [
 jest.setTimeout(180_000);
 
 describe('ChannelReadingQueryService under FORCE RLS (SENSOR-HIGH-138)', () => {
-  let harness: HarnessContext | undefined;
+  let stage: SensorRlsHarness | undefined;
   let runtime: DataSource | undefined;
   let service: ChannelReadingQueryService;
   const sensorIds: Record<string, string> = {};
@@ -92,93 +87,51 @@ describe('ChannelReadingQueryService under FORCE RLS (SENSOR-HIGH-138)', () => {
   const now = Date.now();
 
   beforeAll(async () => {
-    harness = await bootPostgresContainer({ startTimeoutMs: 120_000 });
-    const password = randomBytes(24).toString('hex');
-    const admin = harness.dataSource;
-
-    await admin.query('CREATE EXTENSION IF NOT EXISTS timescaledb');
-    await admin.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
-    await admin.query('CREATE SCHEMA sensor');
-    await admin.query(`CREATE ROLE ${RUNTIME_ROLE} LOGIN PASSWORD '${password}'`);
-
-    for (const tenantId of [TENANT_A, TENANT_B]) {
-      const schema = getTenantSchemaName(tenantId);
-      await admin.query(`CREATE SCHEMA "${schema}"`);
-      const ddl = new DataSource({
-        type: 'postgres',
-        ...harness.connectionOptions,
-        name: `channel-reads-ddl-${schema}`,
-        schema,
-        entities: ENTITIES,
-        synchronize: true,
-        logging: false,
-      });
-      await ddl.initialize();
-      await ddl.destroy();
-
-      const [sensor] = await admin.query(
-        `INSERT INTO "${schema}".sensors (tenant_id, name, serial_number, type, status)
-         VALUES ($1, 'Water quality sonde', $2, 'multi_parameter', 'active') RETURNING id`,
-        [tenantId, `WQ-${schema}`],
-      );
-      sensorIds[tenantId] = sensor.id;
-
-      for (const [order, channel] of CHANNELS.entries()) {
-        const [row] = await admin.query(
-          `INSERT INTO "${schema}".sensor_data_channels
-             (sensor_id, tenant_id, channel_key, display_label, data_type, unit, "dataPath",
-              "alertThresholds", "displaySettings", is_enabled, display_order)
-           VALUES ($1, $2, $3, $3, 'number', $4, $3, $5::jsonb, $6::jsonb, $7, $8)
-           RETURNING id`,
-          [
-            sensor.id,
-            tenantId,
-            channel.key,
-            channel.unit,
-            JSON.stringify(channel.thresholds),
-            JSON.stringify({ precision: 2 }),
-            channel.enabled ?? true,
-            order + 1,
-          ],
-        );
-        channelIds[tenantId] = { ...channelIdsOf(tenantId), [channel.key]: row.id };
-        // Oldest value first, 10 minutes apart; the last one is 2 minutes old.
-        for (const [index, value] of channel.values.entries()) {
-          const time = new Date(now - (channel.values.length - index) * 10 * 60_000 + 8 * 60_000);
-          await admin.query(
-            `INSERT INTO "${schema}".sensor_metrics
-               (time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code, source_protocol)
-             VALUES ($1, $2, $3, $4, $5, $5, 192, 'mqtt')`,
-            [time, sensor.id, row.id, tenantId, value],
-          );
-        }
-      }
-
-      const previousDdlAuthority = process.env['DB_MIGRATE_DDL_AUTHORITY'];
-      process.env['DB_MIGRATE_DDL_AUTHORITY'] = '1';
-      try {
-        const qr = admin.createQueryRunner();
-        await applyTenantRlsToSchema(qr, { schemaOverride: schema });
-        await qr.release();
-      } finally {
-        if (previousDdlAuthority === undefined) delete process.env['DB_MIGRATE_DDL_AUTHORITY'];
-        else process.env['DB_MIGRATE_DDL_AUTHORITY'] = previousDdlAuthority;
-      }
-      await admin.query(`GRANT USAGE ON SCHEMA "${schema}", sensor, public TO ${RUNTIME_ROLE}`);
-      await admin.query(`GRANT SELECT ON ALL TABLES IN SCHEMA "${schema}" TO ${RUNTIME_ROLE}`);
-    }
-
-    runtime = new DataSource({
-      type: 'postgres',
-      ...harness.connectionOptions,
-      username: RUNTIME_ROLE,
-      password,
-      name: `channel-reads-runtime-${randomBytes(4).toString('hex')}`,
+    stage = await bootSensorRlsHarness({
+      name: 'channel_reads',
+      tenants: [TENANT_A, TENANT_B],
       entities: ENTITIES,
-      synchronize: false,
-      logging: false,
+      beforeRls: async ({ admin, tenantId, schema }) => {
+        const [sensor] = await admin.query(
+          `INSERT INTO "${schema}".sensors (tenant_id, name, serial_number, type, status)
+             VALUES ($1, 'Water quality sonde', $2, 'multi_parameter', 'active') RETURNING id`,
+          [tenantId, `WQ-${schema}`],
+        );
+        sensorIds[tenantId] = sensor.id;
+
+        for (const [order, channel] of CHANNELS.entries()) {
+          const [row] = await admin.query(
+            `INSERT INTO "${schema}".sensor_data_channels
+                 (sensor_id, tenant_id, channel_key, display_label, data_type, unit, "dataPath",
+                  "alertThresholds", "displaySettings", is_enabled, display_order)
+               VALUES ($1, $2, $3, $3, 'number', $4, $3, $5::jsonb, $6::jsonb, $7, $8)
+               RETURNING id`,
+            [
+              sensor.id,
+              tenantId,
+              channel.key,
+              channel.unit,
+              JSON.stringify(channel.thresholds),
+              JSON.stringify({ precision: 2 }),
+              channel.enabled ?? true,
+              order + 1,
+            ],
+          );
+          channelIds[tenantId] = { ...channelIdsOf(tenantId), [channel.key]: row.id };
+          // Oldest value first, 10 minutes apart; the last one is 2 minutes old.
+          for (const [index, value] of channel.values.entries()) {
+            const time = new Date(now - (channel.values.length - index) * 10 * 60_000 + 8 * 60_000);
+            await admin.query(
+              `INSERT INTO "${schema}".sensor_metrics
+                   (time, sensor_id, channel_id, tenant_id, value, raw_value, quality_code, source_protocol)
+                 VALUES ($1, $2, $3, $4, $5, $5, 192, 'mqtt')`,
+              [time, sensor.id, row.id, tenantId, value],
+            );
+          }
+        }
+      },
     });
-    await runtime.initialize();
+    runtime = stage.runtime;
     // Farm names no site zone here: the tenant's (UTC) applies.
     service = new ChannelReadingQueryService(
       runtime,
@@ -194,8 +147,7 @@ describe('ChannelReadingQueryService under FORCE RLS (SENSOR-HIGH-138)', () => {
   });
 
   afterAll(async () => {
-    if (runtime?.isInitialized) await runtime.destroy();
-    if (harness) await shutdownHarness(harness);
+    await stage?.shutdown();
   });
 
   it('returns every enabled channel with its last value and alert level, in display order', async () => {

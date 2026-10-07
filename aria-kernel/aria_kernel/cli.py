@@ -2127,6 +2127,18 @@ def build_parser() -> argparse.ArgumentParser:
     rollback_build.add_argument("--head-sha", required=True)
     rollback_build.add_argument("--workspace-root", required=True)
     rollback_build.add_argument("--output-dir", required=True)
+    # The DLP `diff` surface, built from the workspace's own object store so
+    # the scanned text and produce_dlp_proof's touched-file scope check share
+    # one source (aria_kernel/readiness_diff_surface.py).
+    diff_surface = add_subparser(
+        readiness_sub,
+        "build-diff-surface",
+        help="Write a PR's unified diff (base...head) as the claim's DLP diff surface.",
+    )
+    diff_surface.add_argument("--workspace-root", required=True)
+    diff_surface.add_argument("--base-sha", required=True)
+    diff_surface.add_argument("--head-sha", required=True)
+    diff_surface.add_argument("--output", required=True)
     artifact_fetch = add_subparser(
         readiness_sub,
         "fetch-artifact",
@@ -3954,6 +3966,18 @@ def _main(argv: list[str] | None = None) -> int:
             output_dir=args.output_dir,
         )
         print(json.dumps(built, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "build-diff-surface":
+        from .readiness_diff_surface import build_diff_surface
+
+        surface = build_diff_surface(
+            workspace_root=args.workspace_root,
+            base_sha=args.base_sha,
+            head_sha=args.head_sha,
+            output_path=args.output,
+        )
+        print(json.dumps(surface, indent=2, sort_keys=True))
         return 0
 
     if args.command == "readiness" and args.readiness_command == "fetch-artifact":

@@ -1,4 +1,5 @@
 import {
+  CONTINUOUS_AGGREGATE_OWNER_READ_POLICY_NAME,
   getTenantSchemaName,
   listTenantSchemas,
   resolveDbMigrateAuthoritativeFromConfig,
@@ -207,6 +208,33 @@ export class ContinuousAggregateService implements OnApplicationBootstrap {
       } else if (owner !== SENSOR_CONTINUOUS_AGGREGATE_OWNER_ROLE) {
         violations.push(`${aggregate} owner=${owner}`);
       }
+    }
+
+    // Under row security the owner refreshes through its own read policy or
+    // not at all: without it every refresh materializes zero rows and marks
+    // the window done (SENSOR-HIGH-146). applyTenantRlsToSchema installs the
+    // policy when it arms RLS; this proves it did. Absent RLS (a legacy
+    // compressed hypertable) the GRANT alone is the read path.
+    const [rls]: Array<{ row_security: boolean; owner_policy: boolean }> = await queryRunner.query(
+      `SELECT c.relrowsecurity AS row_security,
+              EXISTS (
+                SELECT 1 FROM pg_policies p
+                 WHERE p.schemaname = $1
+                   AND p.tablename = 'sensor_metrics'
+                   AND p.policyname = $2
+                   AND p.cmd = 'SELECT'
+                   AND $3 = ANY (p.roles)
+              ) AS owner_policy
+         FROM pg_class c
+        WHERE c.oid = to_regclass(format('%I.sensor_metrics', $1::text))`,
+      [schema, CONTINUOUS_AGGREGATE_OWNER_READ_POLICY_NAME, SENSOR_CONTINUOUS_AGGREGATE_OWNER_ROLE],
+    );
+    if (rls === undefined) {
+      violations.push('sensor_metrics missing');
+    } else if (rls.row_security && !rls.owner_policy) {
+      violations.push(
+        `sensor_metrics has row security but no ${CONTINUOUS_AGGREGATE_OWNER_READ_POLICY_NAME} policy`,
+      );
     }
 
     if (violations.length > 0) {

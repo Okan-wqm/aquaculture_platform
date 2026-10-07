@@ -69,15 +69,18 @@ class FFindingEvidenceTests(unittest.TestCase):
         return fixture
 
     def _convert(self, fixture, finding_id: str):
-        from aria_kernel.finding_grounding import admit_candidate, load_grounding_context
+        from aria_kernel.finding_grounding import load_grounding_context
+        from aria_kernel.finding_seed import SubjectProbe, admit_and_seed
 
         candidate = {"source_type": PlanCandidateSource.F_FINDING.value, "candidate_id": finding_id,
                      "title_hint": "leaverequest UI drift"}
+        # ARIA-HIGH-260 — the aging source is judged against the store's loop
+        # history; ARIA-HIGH-369 — and planned from its re-grounded seed.
+        admission, seeded = admit_and_seed(
+            candidate, load_grounding_context(fixture.repo, tools_root=fixture.tools), SubjectProbe({}))
         return convert_candidate_to_plan_content(
-            # ARIA-HIGH-260 — the aging source is judged against the store's loop history.
-            candidate, admission=admit_candidate(
-                candidate, load_grounding_context(fixture.repo, tools_root=fixture.tools)),
-            ground=PlanEvidenceGround.of(fixture.repo),
+            candidate, admission=admission, ground=PlanEvidenceGround.of(fixture.repo),
+            seed=seeded.seed if seeded is not None else None,
         ).envelope
 
     def test_convert_f_finding_grounds_plan_in_code_not_json(self) -> None:

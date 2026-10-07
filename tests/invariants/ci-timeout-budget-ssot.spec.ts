@@ -47,18 +47,27 @@ const CI_FULL = '.github/workflows/ci-full.yml';
 const CI_AFFECTED = '.github/workflows/ci-affected.yml';
 
 /**
- * Wall clock of `ci-full.yml` job `test`, 14 completed runs measured 2026-08-06.
- * Minutes, decimal. `jobMax` is the job; `stepMax` is the `Run all tests` step alone;
- * `prologueMax` is everything outside that step (service-container pull and health
- * wait, checkout, setup-node, Nx cache restore, npm ci, Rust toolchain, coverage
- * verify, artifact upload).
+ * Wall clock of `ci-full.yml` job `test`, re-measured 2026-10-04 over the 14 newest
+ * completed runs whose `Run all tests` step finished (2026-08-31 .. 2026-09-13; the
+ * 2026-08-06 window read median 23.48 / max 29.05 / step max 25.9). Minutes, decimal.
+ * `jobMax` is the job; `stepMax` is the `Run all tests` step alone; `prologueMax` is
+ * everything outside that step (service-container pull and health wait, checkout,
+ * setup-node, Nx cache restore, npm ci, Rust toolchain, coverage verify, artifact
+ * upload) — the larger of the two windows.
+ *
+ * `stepKilledAt` / `jobKilledAt`: the three newest weekly runs (35497439697,
+ * 36304648357, 37188374410) were killed by the old 35-minute step budget with every
+ * finished target green and farm-service still running. The suite grew past the
+ * budget; a killed run's duration is a LOWER bound on its true duration, so the
+ * budgets must clear the kill point by the same factor as the measured maximum.
  */
 const MEASURED = {
-  jobMedian: 23.48,
-  jobP90: 25.68,
-  jobMax: 29.05,
-  jobKilledAt: 30.38,
-  stepMax: 25.9,
+  jobMedian: 30.79,
+  jobP90: 32.33,
+  jobMax: 34.43,
+  jobKilledAt: 39.25,
+  stepMax: 31.18,
+  stepKilledAt: 35.22,
   prologueMax: 4.3,
 } as const;
 
@@ -127,16 +136,19 @@ describe('CI timeout budgets are hang detectors, not performance budgets', () =>
     const jobBudget = budgetMinutes(testJob, `${CI_FULL}:test`);
     const stepBudget = budgetMinutes(runAllTests, `${CI_FULL}:test/Run all tests`);
 
-    expect(jobBudget).toBe(45);
-    expect(stepBudget).toBe(35);
+    expect(jobBudget).toBe(60);
+    expect(stepBudget).toBe(50);
 
     // The rule, not just the numbers — these fail for the real reason ("this budget is
     // 1.03x the p90, it is not a detector") rather than merely noticing an edit.
     expect(stepBudget).toBeGreaterThanOrEqual(MEASURED.stepMax * MIN_STEP_BUDGET_FACTOR);
     expect(jobBudget).toBeGreaterThanOrEqual(MEASURED.jobMax * MIN_JOB_BUDGET_FACTOR);
 
-    // Above the one run the old budget actually killed.
+    // Above the runs the old budget actually killed — by the same factor, because a
+    // kill point is only a lower bound on how long that run needed.
     expect(jobBudget).toBeGreaterThan(MEASURED.jobKilledAt);
+    expect(stepBudget).toBeGreaterThanOrEqual(MEASURED.stepKilledAt * MIN_STEP_BUDGET_FACTOR);
+    expect(jobBudget).toBeGreaterThanOrEqual(MEASURED.jobKilledAt * MIN_JOB_BUDGET_FACTOR);
 
     // Sanity on the recorded distribution itself, so a careless edit to MEASURED
     // cannot silence the rule by shrinking its own input.

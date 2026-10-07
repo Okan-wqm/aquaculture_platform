@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol
 
@@ -64,6 +64,7 @@ __all__ = [
     # ORPHAN-HIGH-519 — what a conversion returns, and where its refs are judged.
     "PlanCandidateConversion",
     "PlanEvidenceGround",
+    "F_FINDING_UNSEEDED",
 ]
 
 
@@ -635,38 +636,43 @@ def _attach_orphan_registry_evidence(
             c["evidence"] = ev
 
 
-def scan_f_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
-    """Plan ARIA-V9.4 source — F-* findings from ``aria-findings/*.json``.
+def scan_f_findings(findings: Mapping[str, Mapping[str, Any]] | None) -> list[dict[str, Any]]:
+    """Plan ARIA-V9.4 source — the F findings the finding-event fold holds.
 
-    Aging scan uses ``Path.stat().st_mtime`` ONLY — JSON body parse
-    is invoked at candidate-selection time, not at scan time
-    (perf HIGH-006 lazy-parse contract). Returns candidates oldest-first
-    (older = higher priority).
+    ARIA-MEDIUM-330 — candidates come from the fold
+    (``finding.fold_findings``), the one authority for which findings
+    exist. This scan used to glob ``F-*.json`` and age each file by its
+    mtime, so F-101/F-102, which the pre-ORPHAN-702 seeder wrote beside the
+    ledger, became candidates that admission then refused as
+    ``finding_unknown``, and a store restore that reset every mtime reset
+    every age. Age is the record's ``created_at``; an undateable record is
+    as young as now. Returns candidates oldest-first.
+
+    ``findings`` is the fold the synthesis already read
+    (``finding_grounding.load_grounding_context``, ADR-0018 D5: one fold per
+    synthesis), not a second read: the slot policy
+    (``plan_slot_policy.order_for_slot``) judges status against that same
+    fold, so the view that names the candidates and the view that drops the
+    ones not OPEN cannot disagree. None — no ledger, or one the context
+    refused — yields no candidates. Status stays the slot policy's and
+    admission's question.
     """
-    # D3 — resolve through the writer's own accessor: under a redirected
-    # state root the hand-built `workspace_root / "aria-findings"` pointed
-    # at a directory the emitter never writes, so aging F-findings could
-    # never become plan candidates on the runner.
-    from .finding import findings_dir as _findings_dir_accessor
+    from .tool_registry import parse_utc_stamp
 
-    findings_dir = _findings_dir_accessor(workspace_root)
-    if not findings_dir.is_dir():
-        return []
+    now = time.time()
     candidates: list[dict[str, Any]] = []
-    for p in findings_dir.glob("F-*.json"):
-        try:
-            mtime = p.stat().st_mtime
-        except OSError:
-            continue
+    for finding_id, record in sorted((findings or {}).items()):
+        stamp = record.get("created_at")
+        created = parse_utc_stamp(stamp) if isinstance(stamp, str) else None
+        created_epoch = created.timestamp() if created is not None else now
         candidates.append({
             "source_type": PlanCandidateSource.F_FINDING.value,
-            "candidate_id": p.stem,
-            "mtime": mtime,
-            "path": str(p),
-            "age_seconds": time.time() - mtime,
-            "title_hint": f"Process aging F-finding {p.stem}",
+            "candidate_id": finding_id,
+            "created_at": stamp,
+            "age_seconds": now - created_epoch,
+            "title_hint": f"Process aging F-finding {finding_id}",
         })
-    candidates.sort(key=lambda c: c["mtime"])  # oldest first
+    candidates.sort(key=lambda c: -c["age_seconds"])  # oldest first
     return candidates[:_MAX_CANDIDATES_PER_SOURCE]
 
 
@@ -1122,6 +1128,7 @@ def rank_candidate_sources(
     workspace_root: str | Path,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
+    findings: Mapping[str, Mapping[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     """Plan ARIA-V9.4 — scan all 5 sources + return ranked candidates.
 
@@ -1137,6 +1144,11 @@ def rank_candidate_sources(
     so the provider can bind the synthesis it selects to that scan (V9.5
     check 12) — and the failing-CI scanner, which discloses each red
     workflow it excludes once per cycle in that store (ADR-0019).
+
+    ``findings`` is the caller's finding fold, which the F_FINDING source
+    reads instead of folding the ledger again (ARIA-MEDIUM-330; see
+    :func:`scan_f_findings`). It is required, so no caller can rank F
+    candidates from one view and judge them against another.
     """
     workspace = Path(workspace_root).resolve()
     all_candidates: list[dict[str, Any]] = []
@@ -1148,11 +1160,14 @@ def rank_candidate_sources(
     def _scan_failing_ci(root: Path) -> list[dict[str, Any]]:
         return scan_failing_ci(root, base_dir=base_dir, cycle_id=cycle_id)
 
+    def _scan_f_findings(_root: Path) -> list[dict[str, Any]]:
+        return scan_f_findings(findings)
+
     for source_name, scanner in (
         (PlanCandidateSource.OPERATOR_FEEDBACK.value, _scan_operator_feedback),
         (PlanCandidateSource.FAILING_CI.value, _scan_failing_ci),
         (PlanCandidateSource.ORPHAN_FINDING.value, scan_orphan_findings),
-        (PlanCandidateSource.F_FINDING.value, scan_f_findings),
+        (PlanCandidateSource.F_FINDING.value, _scan_f_findings),
         (PlanCandidateSource.GITHUB_ISSUE.value, scan_github_issue_missions),
     ):
         t0 = time.monotonic()
@@ -1230,6 +1245,9 @@ class PlanCandidateConversion:
 
 
 _NO_PLAN = PlanCandidateConversion(None)
+# ARIA-HIGH-369 — an F_FINDING candidate reached conversion without the seed
+# ``finding_seed.admit_and_seed`` re-grounds it into; no template plan stands in.
+F_FINDING_UNSEEDED = "f_finding_unseeded"
 
 
 def _admit_plan_refs(refs: list[str], ground: PlanEvidenceGround) -> tuple[list[str], PlanCandidateConversion]:
@@ -1321,6 +1339,7 @@ def convert_candidate_to_plan_content(
     *,
     admission: "FindingAdmission | None" = None,
     ground: PlanEvidenceGround,
+    seed: "FindingSeed | None" = None,
 ) -> PlanCandidateConversion:
     """Plan ARIA-V3.1-A — convert one ranked candidate into a
     CyclePlanEnvelope (closes 6-validator audit C-5 + H-2 + H-8).
@@ -1338,6 +1357,14 @@ def convert_candidate_to_plan_content(
     ``skip_reason`` ``plan_evidence_inadmissible``. Where a plan came from
     (the operator's feedback row, the CI run) is ``provenance_refs``, never
     evidence: no challenger can cite either.
+
+    ARIA-HIGH-369 — ``seed`` is ``finding_seed.seed_finding``'s re-grounding
+    of the same finding at the anchor. An F_FINDING plan is built ONLY from
+    it — its refs as they stand now, its subject's sides, its title, summary
+    and one key change per surface — and converts to no plan
+    (:data:`F_FINDING_UNSEEDED`) without one; there is no template F plan. An
+    operator request cites the seed's refs when there is one (a moved line
+    re-anchored) and the refs it signed otherwise.
 
     The caller iterates to the next ranked candidate when no plan results
     (V3.1-A-3 iterative fallback) and emits one
@@ -1365,7 +1392,7 @@ def convert_candidate_to_plan_content(
       failing_jobs, head_sha, conclusion, created_at, title_hint }
     * `orphan_finding` — { candidate_id, severity, raw_id, heading_line,
       evidence, title_hint }
-    * `f_finding` — { candidate_id, mtime, path, age_seconds,
+    * `f_finding` — { candidate_id, created_at, age_seconds,
       title_hint }
     * `git_diff` — synthesized by V7GitDiffProvider, not by this
       function.
@@ -1403,6 +1430,8 @@ def convert_candidate_to_plan_content(
     if finding_sourced and (admission is None or not admission.admitted):
         return _NO_PLAN
     provenance_refs: list[str] = []
+    key_changes: list[dict[str, Any]] | None = None
+    signed_fallback: list[str] | None = None
     # Per-source content authoring. Each branch builds the same
     # canonical 7-field plan_content; only the textual hints differ.
     if source_type == PlanCandidateSource.OPERATOR_FEEDBACK.value:
@@ -1427,7 +1456,15 @@ def convert_candidate_to_plan_content(
             f"Operator text: {request}"
         )
         # The signed grounding is the evidence; the feedback row is provenance.
+        # ARIA-HIGH-369 review M1 — a seed may only move a SIGNED ref to its
+        # current line (never add a ref or a surface the operator did not
+        # sign), and when the moved refs are refused the signed ones are
+        # judged instead, so a seed can never get the request spent.
         evidence_refs = list(admission.evidence_refs)
+        if seed is not None and seed.finding_id == admission.finding_id:
+            moved_refs = list(seed.signed_refs_moved(admission.evidence_refs))
+            signed_fallback = evidence_refs if moved_refs != evidence_refs else None
+            evidence_refs = moved_refs
         provenance_refs = [f"{PROVENANCE_REF_PREFIX}{candidate_id}"]
         affected_surfaces = list(admission.affected_surfaces)
     elif source_type == PlanCandidateSource.FAILING_CI.value:
@@ -1469,20 +1506,27 @@ def convert_candidate_to_plan_content(
     else:  # F_FINDING
         if admission.finding_id != candidate_id:
             return _NO_PLAN
-        summary = (
-            f"Process aging F-finding {candidate_id}; verify status + "
-            "land remediation if OPEN."
-        )
-        # ORPHAN-312 / ARIA-HIGH-181 — the plan is grounded in the finding's
-        # REAL code references, never the finding JSON (self-output,
-        # gitignored, unresolvable at any SHA). ADR-0018 D5 moved that
-        # judgement into the shared admission: OPEN in the event fold, refs
-        # that are tracked files of this checkout, at least one writable
-        # surface. A finding that fails it never reaches this branch.
-        evidence_refs = list(admission.evidence_refs)
-        affected_surfaces = list(admission.affected_surfaces)
+        if seed is None or seed.finding_id != candidate_id:
+            return PlanCandidateConversion(None, F_FINDING_UNSEEDED)
+        # ORPHAN-312 / ARIA-HIGH-181 — grounded in the finding's REAL code
+        # references, never the finding JSON. ARIA-HIGH-369 — and as they
+        # stand at the anchor (the seed re-read every cited line, or asked the
+        # finding's own detector), with the plan's text built from the seed's
+        # ids, paths and side names instead of a template.
+        title_hint, summary, key_changes = seed.plan_text()
+        title_hint = sanitize_untrusted_text(title_hint, max_len=200)
+        summary = sanitize_untrusted_text(summary, max_len=2048)
+        key_changes = [{**change, "description": sanitize_untrusted_text(change["description"], max_len=1024)}
+                       for change in key_changes]
+        evidence_refs = list(seed.evidence_refs)
+        affected_surfaces = list(seed.affected_surfaces)
 
     evidence_refs, refusal = _admit_plan_refs(evidence_refs, ground)
+    if not evidence_refs and signed_fallback is not None:
+        moved_refusal = refusal
+        evidence_refs, refusal = _admit_plan_refs(signed_fallback, ground)
+        refusal = replace(refusal, refused_evidence_refs=moved_refusal.refused_evidence_refs
+                          + refusal.refused_evidence_refs)
     if not evidence_refs:
         return refusal
     if source_type == PlanCandidateSource.ORPHAN_FINDING.value:
@@ -1499,7 +1543,7 @@ def convert_candidate_to_plan_content(
         "title": title_hint,
         "summary": summary,
         "affected_surfaces": affected_surfaces,
-        "key_changes": [
+        "key_changes": key_changes if key_changes is not None else [
             {
                 "id": f"{candidate_id}-key-change-001",
                 "description": summary,

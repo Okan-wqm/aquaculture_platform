@@ -31,16 +31,14 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 
 import {
-  runInTenantTransaction,
-  runInTenantRead,
   BypassRlsService,
+  runInTenantRead,
+  runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
 } from '@aquaculture/backend-common/database';
 
 import type { AlarmHistoryFilter, AlarmInstance } from '../scada-types';
 import type { ScadaAlarm, ScadaAlarmChronicle } from '../entities/alarm.entity';
-
-/** Source schema that owns the cross-tenant SCADA persistence tables. */
-const SENSOR_SCHEMA = 'sensor';
 
 /* ------------------------------------------------------------------ */
 /*  Internal row shapes returned by raw SQL                            */
@@ -201,7 +199,7 @@ export class AlarmStorageService implements OnModuleInit {
       return;
     }
 
-    await runInTenantTransaction(this.dataSource, SENSOR_SCHEMA, tenantId, async (qr) => {
+    await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, async (qr) => {
       if (batch.upserts.length > 0) {
         await this.upsertAlarmsBatch(qr, tenantId, batch.upserts);
       }
@@ -336,7 +334,7 @@ export class AlarmStorageService implements OnModuleInit {
     try {
       const rows: AlarmRow[] = await runInTenantRead(
         this.dataSource,
-        SENSOR_SCHEMA,
+        SENSOR_SOURCE_SCHEMA,
         tenantId,
         (qr) =>
           qr.query(
@@ -424,7 +422,7 @@ export class AlarmStorageService implements OnModuleInit {
 
       const rows: AlarmRow[] = await runInTenantRead(
         this.dataSource,
-        SENSOR_SCHEMA,
+        SENSOR_SOURCE_SCHEMA,
         tenantId,
         (qr) =>
           qr.query(

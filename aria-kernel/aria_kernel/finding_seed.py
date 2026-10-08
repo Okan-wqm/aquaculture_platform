@@ -246,13 +246,19 @@ def _reread_lines(
 
 
 def _seed(record: Mapping[str, Any], admission: FindingAdmission, refs: list[str],
-          moved: list[tuple[str, str]], repo_root: Path) -> SeedVerdict:
+          moved: list[tuple[str, str]], repo_root: Path, fix_target: str | None = None) -> SeedVerdict:
     from .implementation_safety import classify_declared_surface
-    from .plan_write_scope import split_surfaces
+    from .plan_write_scope import WRITE_BASIS_DEFERRED, split_surfaces
 
     refs = list(dict.fromkeys(refs))[:_SEED_REF_CAP]
-    # An F plan is unattended: no operator boundary, so the finding's own fix target decides.
-    split = split_surfaces([_ref_path(ref) for ref in refs], record=record, write_roots=None, repo_root=repo_root)
+    # An F plan is unattended: no operator boundary, so the finding's own fix
+    # target decides — where the detector found the copy NOW when it was asked.
+    split = split_surfaces([_ref_path(ref) for ref in refs], record=record, write_roots=None,
+                           repo_root=repo_root, fix_target=fix_target)
+    if split.basis == WRITE_BASIS_DEFERRED:
+        # The copy side is defined but none of these refs is it: re-reading the
+        # cited lines cannot follow a renamed file, and only a detector can.
+        return SeedVerdict(None, SUBJECT_UNVERIFIABLE, {"cause": "fix_target_ungrounded", "refs": refs})
     if not split.write:
         return SeedVerdict(None, FINDING_WRITE_SCOPE_EMPTY, {"refs": refs, "write_basis": split.basis})
     surfaces = tuple(path for path in split.write if classify_declared_surface(path) is None)
@@ -300,7 +306,11 @@ def seed_finding(context: GroundingContext, admission: FindingAdmission, *, prob
     by_path = {_ref_path(ref): ref for ref in refs}
     moved = [(old, by_path[_ref_path(old)]) for old in admission.evidence_refs
              if _ref_path(old) in by_path and by_path[_ref_path(old)] != old and _LINE_RE.search(old)]
-    return _seed(record, admission, refs, moved, context.repo_root)
+    from .plan_write_scope import drift_fix_target
+
+    # The detector's matches are in the seeder's side order, so the copy is
+    # read from them: a renamed copy file is followed, never refused (review MEDIUM-3).
+    return _seed(record, admission, refs, moved, context.repo_root, fix_target=drift_fix_target(record, textual))
 
 
 def admit_and_seed(

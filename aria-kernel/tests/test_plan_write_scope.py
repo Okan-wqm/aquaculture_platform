@@ -147,21 +147,47 @@ class AnUnattendedDriftFinding(_F015):
 
 
 class TheSplitRule(_F015):
-    def test_the_seeder_writes_the_copy_side_first(self) -> None:
-        from aria_kernel.plan_write_scope import DRIFT_COPY_SIDES, DRIFT_SIDE_ORDER
+    def test_the_rule_table_is_the_seeder_s_own_side_order(self) -> None:
+        from aria_kernel.plan_write_scope import DRIFT_CLASS_SIDES, DRIFT_COPY_SIDES, DRIFT_SIDE_ORDER
 
         sys.path.insert(0, str(_SEEDER_DIR))
         import seed_drift_findings as seeder
 
         self.assertEqual(seeder.SIDE_KEYS, DRIFT_SIDE_ORDER)
-        for copy, contract in (("ui", "source"), ("ts", "sql")):
-            drift = {contract: {"reference": "b.ts:1", "declared_name": "B", "declared_values": []},
-                     copy: {"reference": "a.ts:1", "declared_name": "A", "declared_values": []}}
-            drift = {key: drift[key] for key in (contract, copy)}  # insertion order: contract first
-            for key in drift:
-                drift[key]["ref"] = drift[key]["reference"]
-            self.assertIn(copy, DRIFT_COPY_SIDES)
-            self.assertEqual(seeder.drift_evidences(drift)[0]["ref"], "a.ts:1")
+        side = {"reference": "x.ts:1", "ref": "x.ts:1", "name": "X", "declared_name": "X", "declared_values": []}
+        doc = {"drifts_above_threshold": [{"sql": dict(side, ref="s.sql:1", reference="s.sql:1"),
+                                           "ts": dict(side, ref="t.ts:1", reference="t.ts:1")}],
+               "frontend_dropdown_drifts": [{"source": dict(side, ref="e.ts:1", reference="e.ts:1"),
+                                             "ui": dict(side, ref="u.tsx:1", reference="u.tsx:1")}]}
+        written = {d["drift_class"]: [e["ref"] for e in seeder.drift_evidences(d)]
+                   for d in seeder.select_candidates(doc, limit=2)}
+        # Every class the seeder mints has its sides in the table, in the order it writes them.
+        self.assertEqual(written, {"enum_drift": ["t.ts:1", "s.sql:1"], "ui_option_drift": ["u.tsx:1", "e.ts:1"]})
+        self.assertEqual(set(DRIFT_CLASS_SIDES), set(written))
+        for drift_class, sides in DRIFT_CLASS_SIDES.items():
+            self.assertEqual(list(sides), sorted(sides, key=DRIFT_SIDE_ORDER.index), drift_class)
+        self.assertEqual(DRIFT_COPY_SIDES, {"ui_option_drift": "ui"})
+
+    def test_only_a_class_with_a_defined_copy_side_is_split(self) -> None:
+        # Review MEDIUM-1 — the usual fix of a TS enum against a SQL enum is a
+        # migration on the SQL side, so the SQL side is never made evidence-only.
+        from aria_kernel.plan_write_scope import WRITE_BASIS_UNDIVIDED, drift_fix_target, split_surfaces
+
+        ts_side, sql_side = "libs/shared-contracts/src/leave.ts", "apps/hr-service/src/migrations/1700-leave.ts"
+        record = {"originating_skill": "seed:drift-scan",
+                  "claim_summary": "enum_drift: 'leave' ts_value_not_in_db across 2 surfaces (cross_service=True)",
+                  "evidences": [{"ref": f"{ts_side}:3", "summary": "LeaveStatus values: ['A']"},
+                                {"ref": f"{sql_side}:9", "summary": "leave_status values: ['a']"}]}
+        self.assertIsNone(drift_fix_target(record))
+        split = split_surfaces([ts_side, sql_side], record=record, write_roots=None, repo_root=self.fx.repo)
+        self.assertEqual((split.write, split.evidence, split.basis), ((ts_side, sql_side), (), WRITE_BASIS_UNDIVIDED))
+        # The class that has a defined copy side is still split: F-015's ui_option_drift.
+        from aria_kernel.finding import fold_findings
+        from aria_kernel.plan_write_scope import WRITE_BASIS_FIX_TARGET
+
+        split = split_surfaces([_PAGE, _ENTITY], record=fold_findings(self.fx.repo)["F-015"], write_roots=None,
+                               repo_root=self.fx.repo)
+        self.assertEqual((split.write, split.evidence, split.basis), ((_PAGE,), (_ENTITY,), WRITE_BASIS_FIX_TARGET))
 
     def test_a_finding_that_names_no_fix_target_stays_undivided(self) -> None:
         from aria_kernel.plan_write_scope import WRITE_BASIS_UNDIVIDED, split_surfaces
@@ -169,6 +195,33 @@ class TheSplitRule(_F015):
         split = split_surfaces([_PAGE, _ENTITY], record={"originating_skill": "ai_consensus:judgment_pipeline"},
                                write_roots=None, repo_root=self.fx.repo)
         self.assertEqual((split.write, split.evidence, split.basis), ((_PAGE, _ENTITY), (), WRITE_BASIS_UNDIVIDED))
+
+
+class ACopySideThatWasRenamed(_F015):
+    """Review MEDIUM-3 — the copy file moves after the mint; only the contract still grounds."""
+
+    _RENAMED = "web/modules/hr-module/src/pages/leaves/LeaveRequestsPage.tsx"
+
+    def setUp(self) -> None:
+        super().setUp()
+        text = (self.fx.repo / _PAGE).read_text(encoding="utf-8")
+        self.fx.commit_files({_PAGE: None, self._RENAMED: text}, message="refactor(test): rename the page")
+        self.verdict = {"verdict": "reproduces", "reason": "subject_in_scan", "wire": "ok",
+                        "matches": [f"{self._RENAMED}:389", f"{_ENTITY}:18"]}
+
+    def test_the_unattended_plan_is_re_grounded_on_the_renamed_copy(self) -> None:
+        content = self.synthesize("cyc-renamed").content
+        self.assertEqual(content["affected_surfaces"], [self._RENAMED])
+        self.assertEqual([change["paths"] for change in content["key_changes"]], [[self._RENAMED]])
+        self.assertIn(f"{_ENTITY}:18", content["evidence_refs"])
+
+    def test_aria_s_lane_may_close_it_and_an_operator_request_is_refused_by_name(self) -> None:
+        from aria_kernel.finding_grounding import closure_blocker, load_grounding_context
+
+        self.assertIsNone(closure_blocker(load_grounding_context(self.fx.repo), "F-015"))
+        # Signed refs cannot follow a moved file, so the operator re-signs with --write-root.
+        with self.assertRaisesRegex(GovernanceError, "finding_write_scope_empty"):
+            self.request("OP-F015-renamed")
 
 
 if __name__ == "__main__":

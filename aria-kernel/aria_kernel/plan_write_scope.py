@@ -28,15 +28,24 @@ on one of three recorded bases:
   every other cited surface is evidence.
 * :data:`WRITE_BASIS_FIX_TARGET` — no declared roots (every request signed
   before this field existed, OP-F015 among them, and every unattended F
-  finding). A drift finding names its own fix target: the seeder writes the
-  drifting COPY side first (``ts`` before ``sql``, ``ui`` before ``source``,
-  :data:`DRIFT_SIDE_ORDER`), because the scanner judges the copy against the
-  contract (``ui_value_not_on_wire`` = the UI sends values the wire does not
-  carry). The surfaces in the copy's project (``impact_graph`` attribution)
-  are written; a cited surface in any other project is evidence. A contract
-  owned by another module is read, never rewritten to match its consumer.
-* :data:`WRITE_BASIS_UNDIVIDED` — a finding that names no fix target (not a
-  drift record): every cited surface stays writable, as before.
+  finding), and the finding's drift class has a copy side in
+  :data:`DRIFT_COPY_SIDES`, the one table of that rule. ``ui_option_drift``
+  is there: the scanner judges the UI's options against the wire contract
+  (``ui_value_not_on_wire`` = the UI sends values the wire does not carry), so
+  the UI is the copy. The surfaces in the copy's project (``impact_graph``
+  attribution) are written; a cited surface in any other project is evidence.
+* :data:`WRITE_BASIS_UNDIVIDED` — a finding with no defined copy side: not a
+  drift record, or a drift class absent from :data:`DRIFT_COPY_SIDES`.
+  ``enum_drift`` is absent on purpose (review MEDIUM-1): a TS enum against a
+  SQL enum is often fixed by a migration on the SQL side, so neither side is
+  evidence-only; every cited surface stays writable, as before.
+* :data:`WRITE_BASIS_DEFERRED` — the copy side is defined but none of the
+  surfaces handed in is it (its file was renamed or moved after the finding
+  was minted). The split cannot be made from these refs, so it is not made:
+  admission of an unattended F finding defers to the seed, which re-grounds
+  the copy through the finding's detector and splits there (review
+  MEDIUM-3). An operator request, whose signed refs cannot follow a moved
+  file, is refused instead.
 
 Why a signed field AND a derivation: the signature covers every field of a
 request row (``operator_request_signature.subject_signing_bytes``), so an
@@ -61,12 +70,16 @@ from typing import Any, Mapping
 WRITE_BASIS_DECLARED = "operator_declared"
 WRITE_BASIS_FIX_TARGET = "fix_target_module"
 WRITE_BASIS_UNDIVIDED = "undivided"
+WRITE_BASIS_DEFERRED = "fix_target_ungrounded"
 # The side order ``tools/aria-poc/seed_drift_findings.drift_evidences`` writes
-# (its ``SIDE_KEYS``; ``tests/test_plan_write_scope.py`` pins the two equal).
-# A drift carries either (ts, sql) or (ui, source); the first of the pair is
-# the copy the scanner judges against the second.
+# (its ``SIDE_KEYS``), and the sides each drift class the seeder mints carries
+# in that order (``select_candidates``); ``tests/test_plan_write_scope.py``
+# pins both against the seeder.
 DRIFT_SIDE_ORDER: tuple[str, ...] = ("ts", "sql", "ui", "source")
-DRIFT_COPY_SIDES: frozenset[str] = frozenset({"ts", "ui"})
+DRIFT_CLASS_SIDES: dict[str, tuple[str, ...]] = {"enum_drift": ("ts", "sql"), "ui_option_drift": ("ui", "source")}
+# THE rule: the drift classes whose copy side is defined, and which side it is.
+# A class absent here (``enum_drift``) names no fix target and stays undivided.
+DRIFT_COPY_SIDES: dict[str, str] = {"ui_option_drift": "ui"}
 # The signed request field, and its bound: a boundary is a handful of module
 # roots, never a file list long enough to smuggle a scope past review.
 WRITE_ROOTS_FIELD = "write_roots"
@@ -121,19 +134,39 @@ def _ref_path(ref: str) -> str:
     return head if sep and tail.isdigit() else ref
 
 
-def drift_fix_target(record: Mapping[str, Any]) -> str | None:
-    """The path of a drift finding's copy side, or None for a record that names no fix target.
-
-    Only a record the drift seeder minted (``finding_subject.DRIFT_ORIGIN``)
-    with a readable subject qualifies; its first evidence is the copy side.
-    """
-    from .finding_subject import DRIFT_ORIGIN, finding_subject_key
+def _copy_index(record: Mapping[str, Any]) -> tuple[int, int] | None:
+    """(the copy side's position, the side count) for a drift record with a defined copy side, else None."""
+    from .finding_subject import DRIFT_ORIGIN, drift_class_of, finding_subject_key
 
     if record.get("originating_skill") != DRIFT_ORIGIN or finding_subject_key(record) is None:
         return None
+    drift_class = drift_class_of(record)
+    copy = DRIFT_COPY_SIDES.get(drift_class or "")
+    if copy is None:
+        return None
+    sides = DRIFT_CLASS_SIDES[str(drift_class)]
     evidences = record.get("evidences")
-    first = evidences[0] if isinstance(evidences, list) and evidences else None
-    ref = first.get("ref") if isinstance(first, dict) else None
+    if not isinstance(evidences, list) or len(evidences) != len(sides):
+        return None
+    return sides.index(copy), len(sides)
+
+
+def drift_fix_target(record: Mapping[str, Any], refs: list[str] | tuple[str, ...] | None = None) -> str | None:
+    """The path of a drift finding's copy side, or None when its class defines none.
+
+    ``refs`` are the side refs as the finding's detector found them NOW, in
+    the seeder's writing order (``seed_drift_findings.judge_subject``); without
+    them the record's own evidence is read. The position comes from
+    :data:`DRIFT_CLASS_SIDES` and :data:`DRIFT_COPY_SIDES`, never assumed.
+    """
+    located = _copy_index(record)
+    if located is None:
+        return None
+    index, count = located
+    if refs is not None:
+        return _ref_path(str(refs[index]).strip()) if len(refs) >= count else None
+    entry = record["evidences"][index]
+    ref = entry.get("ref") if isinstance(entry, dict) else None
     return _ref_path(ref.strip()) if isinstance(ref, str) and ref.strip() else None
 
 
@@ -155,25 +188,37 @@ def split_surfaces(
     record: Mapping[str, Any],
     write_roots: list[str] | tuple[str, ...] | None,
     repo_root: str | Path,
+    fix_target: str | None = None,
 ) -> SurfaceSplit:
-    """Partition ``surfaces`` (in order) into the write set and the evidence set; see the module docstring."""
+    """Partition ``surfaces`` (in order) into the write set and the evidence set; see the module docstring.
+
+    ``fix_target`` is the copy side's path as re-grounded by the seed; None
+    reads it from the record.
+    """
     ordered = tuple(dict.fromkeys(surfaces))
     if write_roots:
         write = tuple(path for path in ordered if any(_under(path, root) for root in write_roots))
         return SurfaceSplit(write, tuple(p for p in ordered if p not in write), WRITE_BASIS_DECLARED)
-    target = drift_fix_target(record)
+    target = fix_target if fix_target is not None else drift_fix_target(record)
     if target is None:
+        if _copy_index(record) is not None:
+            # A defined copy side that no ref names any more: not "no fix target".
+            return SurfaceSplit((), ordered, WRITE_BASIS_DEFERRED)
         return SurfaceSplit(ordered, (), WRITE_BASIS_UNDIVIDED)
+    if target not in ordered:
+        return SurfaceSplit((), ordered, WRITE_BASIS_DEFERRED)
     module = _module_root(target, Path(repo_root))
     write = tuple(path for path in ordered if _under(path, module))
     return SurfaceSplit(write, tuple(p for p in ordered if p not in write), WRITE_BASIS_FIX_TARGET)
 
 
 __all__ = [
+    "DRIFT_CLASS_SIDES",
     "DRIFT_COPY_SIDES",
     "DRIFT_SIDE_ORDER",
     "MAX_WRITE_ROOTS",
     "WRITE_BASIS_DECLARED",
+    "WRITE_BASIS_DEFERRED",
     "WRITE_BASIS_FIX_TARGET",
     "WRITE_BASIS_UNDIVIDED",
     "WRITE_ROOTS_FIELD",

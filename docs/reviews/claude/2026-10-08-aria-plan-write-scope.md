@@ -37,18 +37,21 @@ Rule: write scope and evidence scope are distinct sets. A cited file is evidence
 surfaces the plan may change are write scope, and the conformance gate judges the diff against
 write scope only.
 
-### Fix
+### 381 fix
 
 New module `aria-kernel/aria_kernel/plan_write_scope.py`. `split_surfaces` partitions a finding's
 grounded surfaces once, at admission, on one of three recorded bases:
 
 - `operator_declared`: the request carries a signed `write_roots` list. A surface equal to or under
   a root is write scope; every other cited file is evidence.
-- `fix_target_module`: no declared roots. A drift finding names its own fix target. The seeder
-  writes the drifting copy first (`ts` before `sql`, `ui` before `source`), because the scanner
-  judges the copy against the contract. The surfaces in the copy's project are write scope, and a
-  cited file in another project is evidence.
-- `undivided`: the finding names no fix target, so every cited surface stays writable, as before.
+- `fix_target_module`: no declared roots, and the drift class has a copy side in
+  `DRIFT_COPY_SIDES`. Only `ui_option_drift` has one: the scanner judges the UI's options against
+  the wire contract, so the UI is the copy. The surfaces in the copy's project are write scope, and
+  a cited file in another project is evidence.
+- `undivided`: the finding names no copy side (not a drift, or a class such as `enum_drift`), so
+  every cited surface stays writable, as before.
+- `fix_target_ungrounded`: the copy side is defined but its file moved. See the review
+  corrections below.
 
 How the request carries the boundary, and why both mechanisms exist:
 
@@ -79,7 +82,7 @@ How the split reaches the plan and the gate:
 - The obligation's `paths`, the implementation `allowed_scope` and the change ledger's intended
   files therefore contain write scope only.
 
-### Proof
+### 381 proof
 
 `aria-kernel/tests/test_plan_write_scope.py` (9 tests) drives the production provider over the
 F-015 subject:
@@ -127,7 +130,7 @@ Root cause: the repository map (`twin`) carried no test fact per project.
 Rule: the map states every project's test targets and spec files. An empty list is rendered in
 words, never as a gap.
 
-### Fix
+### 382 fix
 
 - New module `aria-kernel/aria_kernel/twin_test_surface.py` reports, per project:
   - `test_targets`: every target named `test`, `test:*` or `test-*`, resolved the way nx resolves
@@ -146,7 +149,7 @@ words, never as a gap.
   row sealed from a v1 map has no such keys and renders exactly as it was sealed, so replay hashes
   still verify.
 
-### Proof
+### 382 proof
 
 `aria-kernel/tests/test_twin_test_surface.py` (6 tests), on a fixture shaped like hr-module (a
 `package.json`-only test target, two specs that test other files, and the page with no spec):
@@ -157,3 +160,66 @@ words, never as a gap.
 - `nx.includedScripts` narrows the inferred targets;
 - a refresh after a new spec and a new script equals a clean rebuild;
 - a v1 map is rebuilt whole.
+
+## Review corrections (PR #1859)
+
+An independent review found three MEDIUMs. All three are fixed in this PR.
+
+### MEDIUM-1 (381): the derived rule picked a side for `enum_drift`
+
+`drift_fix_target` always took the first evidence, and `DRIFT_COPY_SIDES` was never read. For a
+cross-service `enum_drift` (a TS enum against a SQL enum), the usual fix is a migration on the SQL
+side. The derived split made the SQL side evidence, so a plan could only remove values from the TS
+enum.
+
+- `DRIFT_COPY_SIDES` (`{"ui_option_drift": "ui"}`) is now the one table of the rule.
+  `DRIFT_CLASS_SIDES` records the sides each class carries, in the seeder's writing order. The copy
+  position comes from those two tables.
+- A class without a copy side, `enum_drift` included, stays `undivided`.
+- `test_the_rule_table_is_the_seeder_s_own_side_order` pins both tables against
+  `seed_drift_findings.select_candidates` and `drift_evidences`.
+  `test_only_a_class_with_a_defined_copy_side_is_split` covers both classes.
+
+### MEDIUM-2 (382): Rust and Python projects rendered "none"
+
+`sens-api-gateway`, the `crates-*` projects, `sensorprotocols-wasm-decoder-template` and
+`aria-kernel` rendered "test targets: none". That was a false explicit negative, the same failure
+ARIA-MEDIUM-382 is about.
+
+- A project with `Cargo.toml` gets a `cargo test` target. Its specs are the `.rs` files under a
+  `tests/` directory plus those holding a `#[cfg(test)]` module. `sens-api-gateway` now reports
+  250 spec files.
+- A project whose `pyproject.toml`, `setup.cfg` or `tox.ini` names pytest, or that has a
+  `pytest.ini` or a `tests/` directory of `test_*.py`, gets a `pytest` target. `aria-kernel` now
+  reports 792 `test_*.py` / `*_test.py` files.
+- A project with none of the manifests the map reads is `test_surface_modelled: false`. It renders
+  "not modelled", never "none" (for example `platform-cqrs`, `libs/sdk`).
+- Cost: the spec inventory is one `os.walk` that prunes dependency and build trees before entering
+  them. It takes 0.26 s on this repository, so the build and every refresh recompute it.
+  `_iter_test_files` (the TESTED_BY input) used four `rglob` passes that walked every
+  `node_modules` tree and filtered afterwards. It is now one pruned walk with the same result set
+  (2653 files here, 0.08 s), so a non-noop refresh no longer pays for the dependency tree.
+- Tests: `test_a_rust_crate_and_a_python_project_report_their_runners` and
+  `test_a_project_whose_manifest_is_not_read_says_not_modelled_never_none`.
+
+### MEDIUM-3 (381): a moved copy side was refused before the seed could re-ground it
+
+If `LeavesPage.tsx` was renamed, admission grounded only the contract, which lies outside the copy's
+module. Admission refused with `finding_write_scope_empty` before `seed_finding` could relocate the
+ref, and `closure_blocker` counted the finding as not closable.
+
+- `split_surfaces` returns `fix_target_ungrounded` when the copy side is defined but no surface
+  handed in is it.
+- `admit_unattended_finding` is used by the F-finding source and by `closure_blocker`. On that basis
+  it admits with an empty write set and leaves the split to the seed. The loop guard checks every
+  grounded surface, because the write set is not known yet.
+- The seed reads the copy from the detector's current matches (`drift_fix_target(record, refs)`,
+  in the seeder's side order), so the renamed file becomes the write surface. Without a detector,
+  the cited lines cannot follow a rename, and the seed reports the subject unverifiable
+  (`fix_target_ungrounded`) instead of guessing.
+- An operator request still refuses by name. Its signed refs cannot follow a moved file, so the
+  operator re-signs with `--write-root`.
+- Tests: `test_the_unattended_plan_is_re_grounded_on_the_renamed_copy` and
+  `test_aria_s_lane_may_close_it_and_an_operator_request_is_refused_by_name`.
+
+Proof: the six new tests above fail on the previous PR tip `7b30f70ea`.

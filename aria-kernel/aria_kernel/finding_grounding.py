@@ -436,7 +436,22 @@ def admit_finding(
     ``write_roots`` is the operator's signed boundary (ARIA-HIGH-381); None
     derives the write set from the finding's own fix target.
     """
-    return _judge_finding(context, finding_id, frozenset({"OPEN"}), expected_digest, write_roots)
+    return _judge_finding(context, finding_id, frozenset({"OPEN"}), expected_digest, write_roots, False)
+
+
+def admit_unattended_finding(context: GroundingContext, finding_id: Any) -> FindingAdmission:
+    """:func:`admit_finding` for ARIA's own lane, which may defer a moved copy side to the seed.
+
+    ARIA-HIGH-381 review MEDIUM-3 — a drift whose copy file was renamed
+    grounds only its contract here, and the contract is never the write set.
+    The unattended F source re-grounds the copy through the finding's
+    detector (``finding_seed``), so the admission is not the place to refuse
+    it: it admits with an empty write set and ``WRITE_BASIS_DEFERRED``, and the
+    seed splits (or says the subject is unverifiable). An operator request
+    cannot follow a moved file (its signed refs bound the plan), so it never
+    takes this path.
+    """
+    return _judge_finding(context, finding_id, frozenset({"OPEN"}), None, None, True)
 
 
 def closure_blocker(context: GroundingContext, finding_id: str) -> str | None:
@@ -453,17 +468,18 @@ def closure_blocker(context: GroundingContext, finding_id: str) -> str | None:
     """
     from .finding import BACKLOG_STATUSES
 
-    return _judge_finding(context, finding_id, BACKLOG_STATUSES, None, None).reason
+    # Closability is ARIA's own lane's question, so a moved copy side defers to the seed.
+    return _judge_finding(context, finding_id, BACKLOG_STATUSES, None, None, True).reason
 
 
 def _judge_finding(
     context: GroundingContext, finding_id: Any, statuses: frozenset[str], expected_digest: str | None,
-    write_roots: list[str] | None,
+    write_roots: list[str] | None, defer_moved_fix_target: bool,
 ) -> FindingAdmission:
     from .evidence_trust import is_self_output_ref
     from .implementation_safety import classify_declared_surface
     from .main_anchor import tracked_files_at
-    from .plan_write_scope import split_surfaces
+    from .plan_write_scope import WRITE_BASIS_DEFERRED, split_surfaces
 
     if not isinstance(finding_id, str) or not finding_id.strip():
         return FindingAdmission(None, FINDING_ID_MISSING)
@@ -524,6 +540,8 @@ def _judge_finding(
         refused_refs=tuple(refused_refs), grounding_digest=digest, anchor_commit=commit,
         evidence_surfaces=split.evidence, write_basis=split.basis,
     )
+    if split.basis == WRITE_BASIS_DEFERRED and defer_moved_fix_target:
+        return FindingAdmission(finding_id, None, **verdict)
     if not split.write:
         return FindingAdmission(finding_id, FINDING_WRITE_SCOPE_EMPTY, **verdict)
     if not writable:
@@ -609,7 +627,12 @@ def _loop_refusal(
                                           "until": (at + history.cool_off).isoformat()}
     # Guard 3 — originating-skill self-loop: an ARIA-originated finding whose plan would
     # modify ARIA's own code, or a finding emitted after ARIA merged a change on its evidence.
-    aria_surfaces = sorted(s for s in admission.affected_surfaces if s.startswith(SELF_CHANGE_ALLOWED_PREFIXES))
+    # A deferred write set (ARIA-HIGH-381) is not yet known, so every grounded surface counts.
+    from .plan_write_scope import WRITE_BASIS_DEFERRED
+
+    candidates = (admission.evidence_surfaces if admission.write_basis == WRITE_BASIS_DEFERRED
+                  else admission.affected_surfaces)
+    aria_surfaces = sorted(s for s in candidates if s.startswith(SELF_CHANGE_ALLOWED_PREFIXES))
     if origin(finding_id) not in EXTERNAL_ORIGINATING_SKILLS and aria_surfaces:
         return SELF_LOOP_ORIGIN_SURFACE, {"originating_skill": origin(finding_id) or None, "surfaces": aria_surfaces}
     created = _stamp((findings.get(finding_id) or {}).get("created_at"), now)
@@ -652,7 +675,7 @@ def admit_candidate(candidate: Mapping[str, Any], context: GroundingContext) -> 
 
     source_type = candidate.get("source_type")
     if source_type == PlanCandidateSource.F_FINDING.value:
-        admission = admit_finding(context, candidate.get("candidate_id"))
+        admission = admit_unattended_finding(context, candidate.get("candidate_id"))
         return judge_loop_guards(context, admission) if admission.admitted else admission
     if source_type == PlanCandidateSource.OPERATOR_FEEDBACK.value:
         digest = candidate.get("grounding_digest")
@@ -700,6 +723,7 @@ __all__ = [
     "PlanRecord",
     "admit_candidate",
     "admit_finding",
+    "admit_unattended_finding",
     "closure_blocker",
     "f_finding_loop_policy",
     "grounding_digest",

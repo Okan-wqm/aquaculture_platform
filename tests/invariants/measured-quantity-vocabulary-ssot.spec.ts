@@ -38,7 +38,6 @@ const KNOWN_COPIES: Readonly<Record<string, string>> = {
   'web/modules/sensor-module/src/components/dashboard/WidgetConfigModal.tsx': 'SENSOR-MEDIUM-168',
   'web/modules/sensor-module/src/graphql/aggregatedReadings.ts': 'SENSOR-MEDIUM-168',
   'web/modules/sensor-module/src/hooks/useSensorReadings.ts': 'SENSOR-MEDIUM-168',
-  'web/modules/sensor-module/src/pages/water-chemistry/mock/fixtures.ts': 'SENSOR-MEDIUM-168',
 };
 
 const meaningName = (meaning: ChannelKeyMeaning): string => meaning.quantity ?? meaning.family;

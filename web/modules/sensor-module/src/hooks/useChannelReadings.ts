@@ -95,7 +95,9 @@ export interface UseChannelSeriesResult {
 }
 
 /**
- * History of every channel of one sensor over a range. A preset ("last 24
+ * History of the channels of one sensor over a range — every channel, or only
+ * `channelKeys` (the server narrows it, so a water-chemistry tile charting one
+ * bound channel does not fetch the sensor's others). A preset ("last 24
  * hours") is re-anchored at now on every fetch and refreshed; a fixed window
  * is fetched once — nothing new arrives in the past.
  */
@@ -103,10 +105,11 @@ export function useChannelSeries(
   sensorId: string | null,
   range: TimeRangeSpec,
   refreshMs: number | false = 60_000,
+  channelKeys: readonly string[] | null = null,
 ): UseChannelSeriesResult {
   const rangeKey = JSON.stringify(timeRangeToParams(range));
   const query = useTenantQuery(
-    ['sensor', 'channel-series', sensorId, rangeKey],
+    ['sensor', 'channel-series', sensorId, rangeKey, channelKeys],
     async () => {
       const window = resolveTimeRange(range, Date.now());
       if (!window.ok) {
@@ -118,6 +121,7 @@ export function useChannelSeries(
         sensorId,
         startTime: new Date(window.startMs).toISOString(),
         endTime: new Date(window.endMs).toISOString(),
+        channelKeys,
       });
       return result.channelSeries;
     },

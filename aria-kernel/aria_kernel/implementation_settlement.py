@@ -42,6 +42,7 @@ from .implementation_rejections import (
     ImplementationSettlement,
     settlement_for_agent_refusal,
     settlement_for_delivery,
+    settlement_for_post_delivery,
     settlement_for_pre_spawn,
 )
 
@@ -190,12 +191,90 @@ def settle_orphaned_plan(*, plan_id: str, base_dir: Path) -> dict[str, Any]:
                    base_dir=root, plan_id=plan_id)
 
 
+def hand_over_delivered_implementation(
+    *, request_id: str, cause: str, pr_number: int, pr_url: str, branch: str, branch_tip_sha: str,
+    base_dir: Path,
+) -> dict[str, Any]:
+    """ARIA-HIGH-389 — a result refused AFTER the kernel's delivery opened its PR.
+
+    A retry cannot happen (the published branch collides), so the plan ends
+    here (``implementation_result_refused_after_delivery``, stage
+    ``post_delivery``, the PR's number on the event), and the live PR is
+    handed to a person as its ``human-merge-pr-<n>`` record
+    (``human_merge_surface.record_handed_over_pr``): GitHub-observable, so
+    the cycle's surface resolves it when the PR is merged or closed. The
+    record is written whatever the settlement's status: the PR is open
+    either way. The PR facts are the kernel's delivery's, never the agent's.
+    A person's merge of that PR is not yet folded onto the plan ledger
+    (ARIA-HIGH-390).
+    """
+    from .human_merge_surface import record_handed_over_pr
+    from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
+
+    root = ensure_tools_dir(base_dir)
+    outcome = _settle(settlement_for_post_delivery(request_id=request_id, cause=cause, pr_number=pr_number),
+                      base_dir=root)
+    from .agent_invocations import _find_request_by_id
+
+    # The change the kernel minted for this request (its implementation ids),
+    # the same id the PR's `opened` lifecycle row carries.
+    minted = (_find_request_by_id(root, request_id) or {}).get("implementation_ids") or {}
+    try:
+        outcome["handed_over"] = record_handed_over_pr(
+            pr_number=pr_number, pr_url=pr_url, branch=branch, head_sha=branch_tip_sha,
+            change_id=str(minted.get("change_id") or "") or None, plan_id=outcome.get("plan_id"), request_id=request_id, rejection_class=outcome["rejection_class"],
+            cause=outcome["cause"], settlement_status=outcome["status"], base_dir=root,
+        )
+    except (GovernanceError, OSError) as exc:
+        append_tools_governance(
+            root, SETTLEMENT_FAILED_KIND,
+            {**{key: value for key, value in outcome.items() if key != "status"}, "stage_failed": "hand_over",
+             "error_class": type(exc).__name__, "error_message": str(exc)[:500]},
+            bypass_profile_gate=True,
+        )
+        outcome["handed_over"] = None
+    return outcome
+
+
+def rejected_plan_for_change(change_id: str, *, base_dir: Path) -> dict[str, Any] | None:
+    """The settlement that ended the plan which minted ``change_id``, or None
+    while that plan is not IMPLEMENTATION_REJECTED (ARIA-HIGH-389).
+
+    Read by ``human_merge_surface`` for every open ARIA PR (whose ``opened``
+    row carries the change): a PR whose plan ended, by the executor's
+    hand-over or by the orphan reaper after a run that died past its
+    delivery, is a person's, because no merge lane merges from a rejected
+    plan (``merge_authority``). The plan state is the one source; the
+    change is the kernel's mint (the request's ``implementation_ids``).
+    """
+    from .agent_invocations import list_agent_invocation_requests
+    from .ledger import load_jsonl
+    from .plan_convergence import events_path, fold_plan_state
+    from .tool_registry import ensure_tools_dir
+
+    if not change_id:
+        return None
+    root = ensure_tools_dir(base_dir)
+    plan_ids = {str(row.get("convergence_id")) for row in list_agent_invocation_requests(base_dir=root)
+                if row.get("role") == "implementation" and row.get("convergence_id")
+                and (row.get("implementation_ids") or {}).get("change_id") == change_id}
+    for plan_id in sorted(plan_ids):
+        if fold_plan_state(plan_id=plan_id, base_dir=root).get("state") != "IMPLEMENTATION_REJECTED":
+            continue
+        rejected = [row.get("payload") or {} for row in load_jsonl(events_path(root))
+                    if row.get("plan_id") == plan_id and row.get("event_type") == "implementation_rejected"]
+        return {"plan_id": plan_id, **(rejected[-1] if rejected else {})}
+    return None
+
+
 __all__ = [
     "ALREADY_SETTLED",
     "FAILED",
     "NOT_AN_IMPLEMENTATION",
     "SETTLED",
     "SETTLEMENT_FAILED_KIND",
+    "hand_over_delivered_implementation",
+    "rejected_plan_for_change",
     "settle_agent_refusal",
     "settle_delivery_refusal",
     "settle_orphaned_plan",

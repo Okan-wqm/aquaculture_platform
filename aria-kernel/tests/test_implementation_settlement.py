@@ -357,3 +357,144 @@ class OrphanReapSettles(_ImplementationRequested):
         settle_agent_refusal(request_id=self.request_id, reason_class="safety", base_dir=self.tools)
         self.assertEqual(settle_orphaned_plan(plan_id="plan-1", base_dir=self.tools)["status"], ALREADY_SETTLED)
         self.assertEqual([row["payload"]["rejection_class"] for row in self._rejections()], [IMPLEMENTER_REFUSED])
+
+
+class PostDeliveryHandOver(_ImplementationRequested):
+    """ARIA-HIGH-389 — a result refused AFTER the kernel's delivery opened its PR
+    ends the plan once, with the PR on the event, and hands the live PR to a
+    person as its GitHub-observable human-merge record."""
+
+    PR = 4242
+
+    def _hand_over(self, cause: str) -> dict:
+        from aria_kernel.implementation_settlement import hand_over_delivered_implementation
+
+        return hand_over_delivered_implementation(
+            request_id=self.request_id, cause=cause, pr_number=self.PR,
+            pr_url=f"https://github.com/o/r/pull/{self.PR}", branch="aria-impl-1", branch_tip_sha="a" * 40,
+            base_dir=self.tools,
+        )
+
+    def _records(self) -> list[dict]:
+        from aria_kernel.human_required import list_human_required
+
+        return [row for row in list_human_required(base_dir=self.tools, include_resolved=True)
+                if (row.get("context") or {}).get("kind") == "human_merge_pr"]
+
+    def _change_id(self) -> str:
+        return str(self.requests("implementation")[0]["implementation_ids"]["change_id"])
+
+    def test_a_submit_that_timed_out_after_delivery_settles_the_lanes_and_hands_the_pr_over(self) -> None:
+        from aria_kernel.agent_invocations import derive_request_state
+
+        outcome = self._hand_over("submit_timeout")
+        self.assertEqual(outcome["status"], SETTLED)
+        self.assertEqual(self.state(), "IMPLEMENTATION_REJECTED")
+        payload = self.last_rejection()
+        self.assertEqual(
+            {key: payload[key] for key in ("rejection_class", "stage", "fault_domain", "cause", "request_id",
+                                           "pr_number")},
+            {"rejection_class": "implementation_result_refused_after_delivery", "stage": "post_delivery",
+             "fault_domain": "harness", "cause": "submit_timeout", "request_id": self.request_id,
+             "pr_number": self.PR},
+        )
+        self.assertTrue(failure_is_lane_fault({"event_type": "implementation_rejected", "payload": payload},
+                                              waited_since=None, at=None, clock=None))
+        [record] = self._records()
+        self.assertEqual(outcome["handed_over"], record["request_id"])
+        self.assertEqual(record["request_id"], f"human-merge-pr-{self.PR}")
+        self.assertEqual((record["context"]["pr_number"], record["context"]["change_id"],
+                          record["context"]["self_mergeable_now"]), (self.PR, self._change_id(), False))
+        self.assertEqual(record["context"]["not_self_mergeable_because"],
+                         ["implementation_settled_after_delivery:implementation_result_refused_after_delivery:"
+                          "submit_timeout"])
+        # The settlement closed the (released, unheld) request: no retry
+        # collides with the published branch.
+        self.assertEqual(derive_request_state(request_id=self.request_id, base_dir=self.tools), "CANCELLED")
+
+    def test_a_rejection_the_kernel_recorded_after_admitting_it_is_unclassified(self) -> None:
+        self._hand_over("agent_result_rejected")
+        self.assertEqual(self.last_rejection()["fault_domain"], "unclassified")
+
+    def test_a_second_hand_over_keeps_one_settlement_and_one_record(self) -> None:
+        first = self._hand_over("submit_rejected")
+        second = self._hand_over("submit_rejected")
+        self.assertEqual((first["status"], second["status"]), (SETTLED, ALREADY_SETTLED))
+        self.assertEqual(first["handed_over"], second["handed_over"])
+        self.assertEqual(len(self._records()), 1)
+        self.assertEqual(len([row for row in load_jsonl(events_path(self.tools))
+                              if row.get("event_type") == "implementation_rejected"]), 1)
+
+    def test_the_record_is_resolved_by_github_observing_the_merge(self) -> None:
+        from aria_kernel.human_required import RESOLVED_BY_GITHUB_OBSERVATION, resolve_human_required
+
+        record_id = self._hand_over("submit_timeout")["handed_over"]
+        resolved = resolve_human_required(request_id=record_id, resolved_by=RESOLVED_BY_GITHUB_OBSERVATION,
+                                          resolution_note="pr_merged_observed_on_github", base_dir=self.tools)
+        self.assertEqual(resolved["status"], "resolved")
+
+    def test_the_surface_keeps_a_pr_whose_plan_ended_with_a_person(self) -> None:
+        from aria_kernel.human_merge_surface import self_merge_refusals
+
+        opened = {"pr_number": self.PR, "change_id": self._change_id(),
+                  "merge_route": {"lane": "L0", "human_merge": False, "reason_codes": []}}
+        live = {"number": self.PR, "headRefOid": "a" * 40, "mergeStateStatus": "CLEAN", "labels": []}
+        before = self_merge_refusals(opened, live, base_dir=self.tools)
+        self.assertFalse([reason for reason in before if reason.startswith("implementation_settled_after_delivery")])
+        self._hand_over("submit_timeout")
+        self.assertIn("implementation_settled_after_delivery:implementation_result_refused_after_delivery:"
+                      "submit_timeout", self_merge_refusals(opened, live, base_dir=self.tools))
+
+    def test_a_pr_whose_plan_the_reaper_ended_is_kept_with_a_person_too(self) -> None:
+        # A run killed past its push never reaches the hand-over; the reaper's
+        # settlement ends the plan, and the surface reads the plan state.
+        from aria_kernel.human_merge_surface import self_merge_refusals
+
+        settle_orphaned_plan(plan_id="plan-1", base_dir=self.tools)
+        opened = {"pr_number": self.PR, "change_id": self._change_id(), "merge_route": {}}
+        live = {"number": self.PR, "headRefOid": "a" * 40, "mergeStateStatus": "CLEAN", "labels": []}
+        self.assertIn("implementation_settled_after_delivery:orchestrator_restart_reaped_orphan:authority_absent",
+                      self_merge_refusals(opened, live, base_dir=self.tools))
+
+
+class ExecutorHandsOverEveryRefusalAfterItsDelivery(unittest.TestCase):
+    """ARIA-HIGH-389 — every refusal exit the executor takes after the kernel's
+    delivery succeeded calls the hand-over; the guard is the delivery result."""
+
+    def test_every_exit_after_the_delivery_but_success_hands_the_pr_over(self) -> None:
+        import ast
+
+        from tests._helpers.executor_module import EXECUTOR_PATH
+
+        tree = ast.parse(EXECUTOR_PATH.read_text(encoding="utf-8"))
+        main = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_main")
+        delivered_at = next(node.lineno for node in ast.walk(main) if isinstance(node, ast.Assign)
+                            and any(isinstance(target, ast.Name) and target.id == "_delivered"
+                                    for target in node.targets)
+                            and isinstance(node.value, ast.Name) and node.value.id == "_delivery")
+
+        def hands_over(statement: ast.stmt) -> bool:
+            return (isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call)
+                    and getattr(statement.value.func, "id", None) == "_hand_over_after_delivery")
+
+        unguarded: list[int] = []
+        bodies = [getattr(node, field) for node in ast.walk(main) for field in ("body", "orelse", "handlers")
+                  if isinstance(getattr(node, field, None), list)]
+        for body in bodies:
+            for index, statement in enumerate(body):
+                if not isinstance(statement, ast.Return) or statement.lineno <= delivered_at:
+                    continue
+                if isinstance(statement.value, ast.Constant) and statement.value.value == 0:
+                    continue  # the success exit
+                if index == 0 or not hands_over(body[index - 1]):
+                    unguarded.append(statement.lineno)
+        self.assertEqual(unguarded, [])
+
+    def test_a_run_that_delivered_nothing_hands_nothing_over(self) -> None:
+        from tests._helpers.executor_module import load_ci_executor
+
+        executor = load_ci_executor("ci_executor_hand_over_guard")
+        with mock.patch("aria_kernel.implementation_settlement.hand_over_delivered_implementation") as hand_over:
+            executor._hand_over_after_delivery(tools_dir=None, request_id="AIR-x", delivered=None,
+                                               cause="submit_timeout")
+        hand_over.assert_not_called()

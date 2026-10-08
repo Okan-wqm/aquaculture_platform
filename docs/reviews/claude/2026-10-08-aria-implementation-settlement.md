@@ -168,9 +168,49 @@ with its reason.
     A settlement the store refused is `reap_failed_count`, beside its own failure row.
   - Tests: the reap of a plan waiting on the delivery authority under `standard` (kernel and
     orchestrator level), an answered request (`unclassified`), and an executor that settled first.
-- **Submit refused after delivery, tracked.** A result refused after a successful delivery (the PR
-  already open) is not settled; settling it needs a decision on the open PR. Tracked as
-  ARIA-HIGH-389 (owner claude, deadline 2026-10-15).
+- **Submit refused after delivery: ARIA-HIGH-389, closed below.**
+
+## ARIA-HIGH-389: a result refused after its delivery
+
+- **The defect.** The executor delivers before it submits: apply gate, push, PR. A refusal after
+  that left the plan `IMPLEMENTATION_REQUESTED` beside a live PR that nobody owned.
+  - The refusals are: the pre-submit check, the submit's timeout, its unanswered evidence probes,
+    its lease or transport, the kernel recording a rejection it had admitted at delivery, and the
+    native reconcile.
+  - A retry could not succeed, because the published branch collides. The plan waited for the
+    orphan reaper, and no merge lane takes a PR from a plan that is not `IMPLEMENTATION_RECORDED`.
+- **The rule.** Every such exit calls `_hand_over_after_delivery` after the claim's release. Its
+  guard is the kernel's `ImplementationDelivery` result, set only once the push and the PR
+  succeeded, never the agent's envelope.
+  - `implementation_settlement.hand_over_delivered_implementation` ends the plan once with
+    `implementation_result_refused_after_delivery` (stage `post_delivery`, the PR's number on the
+    event).
+  - It then hands the PR to a person as the PR's one `human-merge-pr-<n>` record, of kind
+    `human_merge_pr`.
+- **Fault domain.** The delivery already ran the submit's admissibility decision and the gate
+  passed, so none of these causes is the work's.
+  - The bound, the probes, the lease or transport: `harness`.
+  - The kernel disagreeing with itself, or a pre-submit failure on facts the kernel stamped, or the
+    native reconcile: `unclassified`.
+  - Neither cools a finding off.
+- **GitHub-observable.** The record is the one the cycle's human-merge surface keeps for every ARIA
+  PR that needs a person, refreshed with live CI and merge state.
+  - It is resolved by observation (`github_observation`) when the PR is merged or closed.
+  - `self_merge_refusals` names `implementation_settled_after_delivery:<class>:<cause>` for any
+    open ARIA PR whose plan (found through the PR's change) is `IMPLEMENTATION_REJECTED`.
+  - That also covers a run killed past its push, which the orphan reaper settles without a
+    hand-over.
+- **Not done here, tracked.** A person's merge of a handed-over PR resolves its record, but the
+  plan ledger keeps `IMPLEMENTATION_REJECTED` and the finding is not closed by the merge.
+  - Folding it in belongs to the one owner of "merged": ARIA-HIGH-390 (owner claude, deadline
+    2026-10-17).
+- **Detection.** A source pin fails the build if any exit of `_main` after the delivery, other
+  than the success exit, does not call the hand-over first.
+- **Tests.**
+  - Kernel: harness timeout with the PR on the event, record shape, request CANCELLED; an
+    unclassified rejection after admission; idempotent re-hand-over keeping one record; resolution
+    by GitHub observation; the surface's refusal reason after a hand-over and after a reap.
+  - Executor: the exit pin, and no hand-over without a delivery.
 
 ## Folded in from the ARIA-HIGH-387 (#1865) re-review
 

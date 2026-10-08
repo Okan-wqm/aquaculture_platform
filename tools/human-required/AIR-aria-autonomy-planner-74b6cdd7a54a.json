@@ -6,11 +6,33 @@
     "role": "maintenance_utility",
     "target_agent": "aria-autonomy-planner"
   },
+  "kernel_disposition": {
+    "closed_panel_request_ids": [
+      "AIR-aria-evidence-judge-fa81f68143af",
+      "AIR-aria-adversarial-judge-3e84748a78fb",
+      "AIR-aria-consensus-arbiter-a9986bbd15c6",
+      "AIR-aria-evidence-judge-340948387f51",
+      "AIR-aria-adversarial-judge-285779522df4",
+      "AIR-aria-consensus-arbiter-941113306ac8",
+      "AIR-aria-evidence-judge-340948387f51",
+      "AIR-aria-adversarial-judge-285779522df4",
+      "AIR-aria-consensus-arbiter-941113306ac8"
+    ],
+    "disposition": "expired_reoffered",
+    "expiry_fault_class": "unclassified",
+    "expiry_reason": "anchor_expired",
+    "queue_item_id": "qi-adaff6c97d5f",
+    "reason": "queue_item_reoffered",
+    "role": "maintenance_utility"
+  },
   "reason": "request 'AIR-aria-autonomy-planner-74b6cdd7a54a' died ANCHOR_STALE unclaimed; panel disposition required (re_mint / drop_with_reason).",
   "recorded_at": "2026-09-19T08:04:27Z",
   "request_id": "AIR-aria-autonomy-planner-74b6cdd7a54a",
+  "resolution_note": "kernel disposition expired_reoffered: queue_item_reoffered",
+  "resolved_at": "2026-10-08T04:59:23Z",
+  "resolved_by": "kernel",
   "schema_version": 1,
   "severity": "HIGH",
   "sla_deadline": "2026-09-22T08:04:27Z",
-  "status": "open"
+  "status": "resolved"
 }

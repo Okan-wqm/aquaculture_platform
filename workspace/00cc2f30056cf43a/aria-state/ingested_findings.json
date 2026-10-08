@@ -347,6 +347,7 @@
     "ARIA-HIGH-373",
     "ARIA-HIGH-374",
     "ARIA-HIGH-375",
+    "ARIA-HIGH-381",
     "ARIA-LOW-030",
     "ARIA-LOW-116",
     "ARIA-LOW-121",
@@ -437,6 +438,7 @@
     "ARIA-MEDIUM-378",
     "ARIA-MEDIUM-379",
     "ARIA-MEDIUM-380",
+    "ARIA-MEDIUM-382",
     "AUDIT-CRITICAL-001",
     "AUDIT-CRITICAL-002",
     "AUDIT-CRITICAL-003",
@@ -2445,6 +2447,6 @@
     "ULTRA-MEDIUM-052",
     "ULTRA-MEDIUM-053"
   ],
-  "rebuilt_at": "2026-10-07T23:34:16Z",
+  "rebuilt_at": "2026-10-08T05:26:47Z",
   "schema_version": 1
 }

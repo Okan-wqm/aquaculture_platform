@@ -6,7 +6,25 @@
     "role": "evidence_judgment",
     "target_agent": "aria-evidence-judge"
   },
-  "reason": "request 'AIR-aria-evidence-judge-e4e5dd19f539' died ANCHOR_STALE unclaimed; panel disposition required (re_mint / drop_with_reason).",
+  "kernel_disposition": {
+    "closed_panel_request_ids": [
+      "AIR-aria-evidence-judge-7e88cc7d29e5",
+      "AIR-aria-adversarial-judge-bf4480576a35",
+      "AIR-aria-consensus-arbiter-61a0bba638b5",
+      "AIR-aria-evidence-judge-3bf04a70a94c",
+      "AIR-aria-adversarial-judge-0be0b9cda27d",
+      "AIR-aria-consensus-arbiter-0c2f2947caa2",
+      "AIR-aria-evidence-judge-3bf04a70a94c",
+      "AIR-aria-adversarial-judge-0be0b9cda27d",
+      "AIR-aria-consensus-arbiter-0c2f2947caa2"
+    ],
+    "disposition": "expired_operator_required",
+    "expiry_fault_class": "unclassified",
+    "expiry_reason": "anchor_expired",
+    "reason": "producer_unverified:anchor_stale",
+    "role": "evidence_judgment"
+  },
+  "reason": "request 'AIR-aria-evidence-judge-e4e5dd19f539' died ANCHOR_STALE unclaimed; panel disposition required (re_mint / drop_with_reason).; kernel disposition expired_operator_required: producer_unverified:anchor_stale",
   "recorded_at": "2026-09-19T03:25:02Z",
   "request_id": "AIR-aria-evidence-judge-e4e5dd19f539",
   "schema_version": 1,

@@ -14252,9 +14252,13 @@ export type ParameterSendResult = {
 export type ParameterSourceStatus = {
   /** Null for a manual source */
   channel?: Maybe<BoundChannelStatus>;
+  /** The channel's newest sample in the parameter's unit; null for a manual source, without a sample, or when the channel unit cannot be carried into it */
+  latestValue?: Maybe<Scalars['Float']['output']>;
   /** Why the channel cannot feed the parameter here now; empty when it can */
   problems: Array<ChannelBindingProblem>;
   source: WaterQualityParamEquipment;
+  /** The unit of latestValue: the parameter’s own */
+  unit: Scalars['String']['output'];
 };
 
 export type ParameterTemplateResponse = {

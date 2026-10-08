@@ -20,6 +20,7 @@ import { DataSource } from 'typeorm';
 
 import {
   boundChannelStatus,
+  latestInParameterUnit,
   type ChannelBindingCheck,
   type ParameterSourceStatus,
 } from '../dto/parameter-source-status.response';
@@ -119,12 +120,20 @@ export class ListParameterSourcesAtPointHandler
       const description = byId.get(source.id);
       if (description === undefined) {
         // A manual source: nothing to describe.
-        return { source, channel: null, problems: [] };
+        return {
+          source,
+          channel: null,
+          problems: [],
+          latestValue: null,
+          unit: source.parameterConfig.unit,
+        };
       }
       return {
         source,
         channel: boundChannelStatus(description),
         problems: bindingProblems(source.parameterConfig, pointOf(source), description, farm),
+        latestValue: latestInParameterUnit(source.parameterConfig, description),
+        unit: source.parameterConfig.unit,
       };
     });
   }

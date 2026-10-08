@@ -23,7 +23,8 @@ measurement carries (`tankId`, `equipmentId` or `systemId`), by name. Closed by 
 - shared-ui `water-chemistry/sources/` (main barrel, no data hooks): the two read documents both
   remotes send (`parameterSourcesAtPoint`, `waterChemistryInputs`) and their result types derived
   from codegen; the problem vocabulary (`PROBLEM_FIX`, `problemText`, `bindingRefusal`); point
-  refs; `applyResolved`; `problemFixPath`; `ProblemChips` and `ParameterSourceTile`.
+  refs; `composePointInputs` (see the review section); `problemFixPath`; `ProblemChips` and
+  `ParameterSourceTile`.
   `DEFAULT_WATER_CHEMISTRY_INPUTS` moved here from the farm page.
 - farm-module owns every binding write and the quantity declaration.
 - sensor-module owns the live view and the channel-meaning fix (`ChannelQuantitySelect`).
@@ -66,7 +67,7 @@ text. A refusal shows by its stable code.
 
 ### Calculator
 
-`ValuesSourceBar`: Manual, or a system/tank. For a point, `applyResolved(manual, [set])` fills the
+`ValuesSourceBar`: Manual, or a system/tank. For a point, the shared composition (below) fills the
 covered fields; each shows its value, kind, age, window and problems, and can be corrected for
 the session. A covered field with no value is never filled: the charts are replaced by the list
 of missing values.
@@ -92,7 +93,7 @@ The mock store and everything that read it are deleted: `useWcCards`, `useWcSyst
 - alkalinity, calcium and volume come from the loop's DOSING set and are shown as the system's;
 - the system point has no TAN or H2S of its own, so it is listed as not drawn, with the reason.
 
-Monitoring calls `applyResolved` with `uncovered: 'missing'`: no measured value is ever
+Monitoring runs the same composition with no operator entries: no measured value is ever
 defaulted. `WcPointPanel` shows the chart, `ResultsPanel` and a tile per source
 (`parameterSourcesAtPoint`, 30 s). Each tile has a 24 h sparkline from `useChannelSeries`, narrowed
 to its channel by the server. A tile opens `MultiParameterTrendCard`. Only the chart type is
@@ -118,6 +119,63 @@ quantity. Parameter and source problems open the farm Parameters and Sources tab
 - FARM-MEDIUM-386 — targets and toxic limits have no per-system or per-species configuration;
   the monitoring zones use `DEFAULT_WATER_CHEMISTRY_INPUTS`.
 - FARM-LOW-387 — a source change made elsewhere shows up only on the 30 s refetch.
+
+## Independent review → fixes
+
+Two reviews of c0c2971e5 were BLOCKED. Each item became a finding, fixed in this PR.
+
+### FARM-HIGH-388 — the backend's verdict and problems were ignored
+
+A value the backend keeps but flags (`NOT_SAME_SAMPLE`, `NOT_AT_SAME_POINT`) fed the engine, and a
+REFUSED (or zero) volume scaled a dose. Now a covered field is used only when its input has a
+value and no problem. Otherwise it is "not usable", shown struck through with its problem,
+unless the operator corrects it for the session. The volume is used only when > 0 and its DOSING
+set is not REFUSED. A dose is offered only at a system whose DOSING set is READY. Fixtures use the
+backend's real shape.
+
+### FARM-HIGH-389 — defaults reached the calculator; two views, two answers
+
+`composePointInputs` (shared-ui) is now the one composition: a system reads its DOSING set; a tank
+its TOXICITY set and, from its loop's DOSING set (the tank's first system, `TANK_SYSTEMS_QUERY`),
+only alkalinity, calcium and volume. A field no set covers is missing unless the operator entered
+it. `engineRecordOf` lays the usable values over the settings (targets, limits, fish) and needs
+every measured field. A missing volume does not block the charts: dosing is off (no reagent is
+passed, the volume is never read). The calculator's input bar shows the point's fields read-only.
+
+### SENSOR-HIGH-182 — monitoring read only query data
+
+Each point is loading, not read (an outage: "the farm service did not answer"), or read. A failed
+refresh greys the point and says when its values were resolved; every panel shows that age.
+
+### FE-HIGH-320 — fix chips were not reachable by keyboard
+
+The selectable part of the tile is its own `<button>`; the chips sit beside it (keyboard-tested).
+
+### Mediums
+
+- SENSOR-MEDIUM-183: `FieldProvenanceChip` (shared-ui) shows each field's state, the loop or an
+  inherited point, its age, window and problems — in the calculator and the point panel.
+- FARM-MEDIUM-390: `parameterSourcesAtPoint` returns `latestValue` in the parameter's unit
+  (through the registry) and `unit`; tiles show it at the parameter's precision. The trend is
+  labelled with the channel's own unit.
+- FARM-MEDIUM-391: the dialog keys its dry run on the point's kind and id; the tab memoises the
+  point on the URL string.
+- FARM-MEDIUM-392: sources at every position are listed; the position select is for new binds.
+- SENSOR-MEDIUM-184: one `channelSeries(channelKeys)` request per sensor
+  (`useChannelSeriesBySensor`).
+- FARM-MEDIUM-393: the remaining binding-UI strings go through `t()` (en and tr).
+
+### Lows
+
+- The trend is drawn by bucket time, with gaps.
+- Field values use each field's decimals.
+- The volume reads "Configured".
+- Monitoring's results say where a dose is computed.
+- A system point says TAN and H2S are read at tanks.
+- Default targets and limits are disclosed on screen (FARM-MEDIUM-386).
+- Loading is shown as loading.
+- The channel-quantity gate uses the shared sensor mirror `SENSOR_MUTATION_ROLES`, parity-tested
+  against the resolver's `@Roles`.
 
 ## Verification
 

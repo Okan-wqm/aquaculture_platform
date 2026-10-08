@@ -6,7 +6,12 @@
  * the shared-contracts vocabulary (CHANNEL_BINDING_PROBLEMS), so the UI keys
  * its messages on one list.
  */
-import { CHANNEL_BINDING_PROBLEM, type ChannelBindingProblem } from '@aquaculture/shared-contracts';
+import {
+  CHANNEL_BINDING_PROBLEM,
+  convertUnit,
+  parseQuantityId,
+  type ChannelBindingProblem,
+} from '@aquaculture/shared-contracts';
 import { Field, Float, ID, ObjectType, registerEnumType } from '@nestjs/graphql';
 import type {
   SensorChannelDescription,
@@ -118,6 +123,40 @@ export class ParameterSourceStatus {
     description: 'Why the channel cannot feed the parameter here now; empty when it can',
   })
   problems!: ChannelBindingProblem[];
+
+  @Field(() => Float, {
+    nullable: true,
+    description:
+      "The channel's newest sample in the parameter's unit; null for a manual source, " +
+      'without a sample, or when the channel unit cannot be carried into it',
+  })
+  latestValue!: number | null;
+
+  @Field({ description: 'The unit of latestValue: the parameter’s own' })
+  unit!: string;
+}
+
+/**
+ * A channel's newest sample carried into the parameter's unit through the
+ * measured-quantity registry — the same conversion the reading resolver
+ * applies — so a source tile shows the parameter's value, in its unit, at
+ * its precision. Null when there is no sample, the parameter records no
+ * quantity, or a unit is not one of the quantity's.
+ */
+export function latestInParameterUnit(
+  parameter: { readonly effectiveQuantity: string | null; readonly unit: string },
+  channel: { readonly latestValue: number | null; readonly unit: string | null } | null,
+): number | null {
+  const quantity = parseQuantityId(parameter.effectiveQuantity);
+  if (
+    channel === null ||
+    channel.latestValue === null ||
+    channel.unit === null ||
+    quantity === null
+  ) {
+    return null;
+  }
+  return convertUnit(quantity, channel.unit, parameter.unit, channel.latestValue);
 }
 
 @ObjectType({ description: 'Whether a channel could be bound as a source, without binding it' })

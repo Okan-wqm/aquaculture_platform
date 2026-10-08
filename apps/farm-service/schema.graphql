@@ -2964,6 +2964,14 @@ type ParameterSourceStatus {
 
   """Why the channel cannot feed the parameter here now; empty when it can"""
   problems: [ChannelBindingProblem!]!
+
+  """
+  The channel's newest sample in the parameter's unit; null for a manual source, without a sample, or when the channel unit cannot be carried into it
+  """
+  latestValue: Float
+
+  """The unit of latestValue: the parameter’s own"""
+  unit: String!
 }
 
 """Why a sensor channel cannot feed a parameter at a point"""

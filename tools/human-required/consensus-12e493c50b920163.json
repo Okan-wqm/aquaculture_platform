@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "tenant-raw-query-missing-predicate:apps/sensor-service/src/archive/parquet/telemetry-parquet-exporter.service.ts:87",
+    "judgment_group_id": "judge:tenant-scoping-adapter:finding:e292b15b7caf9a45d31761e2c700940645298281eb1276fd71e16e1b44a8f819",
+    "kind": "consensus_escalation",
+    "run_id": "1fd3d726-b761-407a-961d-85db11d854af",
+    "tool_id": "tenant-scoping-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'tenant-raw-query-missing-predicate:apps/sensor-service/src/archive/parquet/telemetry-parquet-exporter.service.ts:87' (tool 'tenant-scoping-adapter', run '1fd3d726-b761-407a-961d-85db11d854af'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-08T18:20:57Z",
+  "request_id": "consensus-12e493c50b920163",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-15T18:20:57Z",
+  "status": "open"
+}

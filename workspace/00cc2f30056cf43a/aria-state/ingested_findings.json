@@ -565,6 +565,7 @@
     "DATA-MEDIUM-009",
     "DATA-MEDIUM-011",
     "DATA-MEDIUM-019",
+    "DATA-MEDIUM-020",
     "DEPLOY-CRITICAL-003",
     "DEPLOY-CRITICAL-004",
     "DEPLOY-CRITICAL-005",
@@ -903,6 +904,7 @@
     "FARM-HIGH-341",
     "FARM-HIGH-367",
     "FARM-HIGH-372",
+    "FARM-HIGH-373",
     "FARM-LOW-001",
     "FARM-LOW-050",
     "FARM-LOW-051",
@@ -973,6 +975,8 @@
     "FARM-LOW-353",
     "FARM-LOW-362",
     "FARM-LOW-370",
+    "FARM-LOW-376",
+    "FARM-LOW-377",
     "FARM-MEDIUM-002",
     "FARM-MEDIUM-003",
     "FARM-MEDIUM-004",
@@ -1126,6 +1130,9 @@
     "FARM-MEDIUM-368",
     "FARM-MEDIUM-369",
     "FARM-MEDIUM-371",
+    "FARM-MEDIUM-374",
+    "FARM-MEDIUM-375",
+    "FARM-MEDIUM-378",
     "FE-CRITICAL-001",
     "FE-CRITICAL-050",
     "FE-HIGH-001",
@@ -2480,6 +2487,6 @@
     "ULTRA-MEDIUM-052",
     "ULTRA-MEDIUM-053"
   ],
-  "rebuilt_at": "2026-10-08T16:06:10Z",
+  "rebuilt_at": "2026-10-08T18:42:34Z",
   "schema_version": 1
 }

@@ -1,0 +1,97 @@
+command: npm run type-check
+argv: ['npm', 'run', 'type-check']
+--- stdout ---
+
+> aquaculture-platform@1.0.0 type-check
+> node tools/scripts/type-check-all.mjs
+
+
+--- stderr ---
+type-check-all: 42 project tsconfigs, parallel=3
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/admin-api-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/ai-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/alert-engine/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/alert-engine/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/auth-service/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/ai-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/billing-service/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/admin-api-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/config-service/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/billing-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/db-migrate/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/auth-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/event-store-service/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/config-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/farm-service/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/db-migrate/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/gateway-api/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/event-store-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/hr-service/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/gateway-api/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/hydroponics-service/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/hr-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/messaging-service/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/hydroponics-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/notification-service/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/farm-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/observability-service/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/messaging-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/sensor-service/tsconfig.app.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/observability-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/alarm-core/tsconfig.lib.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/notification-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/aquaculture-engines/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/alarm-core/tsconfig.lib.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/event-contracts/tsconfig.lib.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/aquaculture-engines/tsconfig.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/farm-shared/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/farm-shared/tsconfig.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/migration-harness/tsconfig.lib.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/event-contracts/tsconfig.lib.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/mqtt-test-harness/tsconfig.lib.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/mqtt-test-harness/tsconfig.lib.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/node-components/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/migration-harness/tsconfig.lib.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/protocol-codec/tsconfig.lib.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/node-components/tsconfig.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/sensor-automation-types/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/protocol-codec/tsconfig.lib.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/sensor-contracts/tsconfig.lib.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/sensor-automation-types/tsconfig.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/shared-contracts/tsconfig.lib.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/shared-contracts/tsconfig.lib.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/storage/tsconfig.lib.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/sensor-contracts/tsconfig.lib.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/platform/libs/cqrs/tsconfig.lib.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/libs/storage/tsconfig.lib.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/platform/libs/pagination-contracts/tsconfig.lib.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/platform/libs/cqrs/tsconfig.lib.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/platform/libs/service-catalog/tsconfig.lib.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/apps/sensor-service/tsconfig.app.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/apps/aquamobil/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/platform/libs/pagination-contracts/tsconfig.lib.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/admin-panel/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/platform/libs/service-catalog/tsconfig.lib.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/dashboard/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/dashboard/tsconfig.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/farm-module/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/apps/aquamobil/tsconfig.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/hr-module/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/admin-panel/tsconfig.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/hydroponics-module/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/hr-module/tsconfig.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/messaging-module/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/hydroponics-module/tsconfig.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/sensor-module/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/messaging-module/tsconfig.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/tenant-admin/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/farm-module/tsconfig.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/shared-ui/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/shared-ui/tsconfig.json
+  [start] /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/shell/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/tenant-admin/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/shell/tsconfig.json
+  [ok]    /home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/web/modules/sensor-module/tsconfig.json
+
+type-check-all: all 42 projects green.
+

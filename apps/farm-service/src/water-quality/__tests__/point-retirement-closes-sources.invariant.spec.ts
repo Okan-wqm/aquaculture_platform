@@ -1,54 +1,29 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
+import * as ts from 'typescript';
+
+import { pointWrites, unclosedPointWrites } from './helpers/point-retirement-scan';
+
 /**
  * INVARIANT (FARM-HIGH-373, plan D12): every write that retires a measurement
- * point — a tank, system, equipment, department (its units) or site — closes
- * the water-quality sources standing there, in the same transaction, through
- * closeSourcesAtPoints.
+ * point — deletes or deactivates a tank, system, equipment or site, through an
+ * entity, a repository, a request payload under any name, or raw SQL — is
+ * followed, inside the same function, by closeSourcesAtPoints.
  *
- * A source left live at a retired point keeps counting as bound
- * (liveChannelSourceCount): its parameter's update, delete, declare, clear and
- * template overwrite then refuse with 409 forever, and no API can name the
- * source to unbind once the point is gone.
+ * - Without the close, a source left live at a retired point keeps counting as
+ *   bound: its parameter's update, delete, declare, clear and template
+ *   overwrite refuse with 409 forever, and no read names the source.
+ * - Before the write, or in another function, the close leaves a window: a
+ *   bind holding the point FOR SHARE commits a live source after the close.
  *
- * A file is a point retirer when it imports a point entity and writes a
- * retirement (isActive false, isDeleted true, softDelete) or deactivates a
- * point from a request payload (`input.isActive`, `updateData.isActive`,
- * `Object.assign(<point>, …)`). Files that retire something else while
- * importing a point entity are listed with the reason.
- *
- * Order matters too: the point row is written BEFORE its sources are closed.
- * A bind holds the point FOR SHARE; once the retiring write has taken the row,
- * a bind either committed before it (and is closed after it) or sees the point
- * gone. Closing first leaves a window in which a bind commits a live source at
- * a retired point.
+ * The scan is an AST walk with the type checker (helpers/point-retirement-scan):
+ * a write is recognised by the property it sets and the type it sets it on,
+ * never by a variable name.
  */
 const FARM_SRC = resolve(__dirname, '..', '..');
-
-const POINT_ENTITY_IMPORT = /\/(tank|system|equipment|site|department)\.entity'/;
-const RETIREMENT_WRITE =
-  /isActive\s*[:=]\s*false|isDeleted\s*[:=]\s*true|\.softDelete\(|\b(?:input|updateData)\.isActive\b|Object\.assign\(\s*(?:tank|system|site|equipment)\b/g;
-/** A department's own row and sub-equipment are not points (a department's units are). */
-const NOT_A_POINT_ROW = /^\s*(?:department|subEquipment)\./;
-const CLOSE_CALL = /closeSourcesAtPoints\(/g;
-
-/** Offsets of the point-retiring writes in a source (the department's own row excluded). */
-function pointWrites(source: string): number[] {
-  return [...source.matchAll(RETIREMENT_WRITE)]
-    .map((match) => match.index ?? 0)
-    .filter((offset) => {
-      const lineStart = source.lastIndexOf('\n', offset) + 1;
-      return !NOT_A_POINT_ROW.test(source.slice(lineStart, offset + 1));
-    });
-}
-
-const NOT_POINT_RETIREMENTS: Readonly<Record<string, string>> = {
-  'harvest/handlers/delete-harvest-record.handler.ts':
-    'soft-deletes harvest ledger rows; it reads the tank, it does not retire it',
-  'feeding/services/feeding-program.service.ts':
-    'removes a tank from a feeding program (feeding_program_tanks), not the tank',
-};
+const FARM_ROOT = resolve(FARM_SRC, '..');
+const POINT_ENTITY_IMPORT = /\/(tank|system|equipment|site)\.entity'/;
 
 function sourceFiles(dir: string, found: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -67,76 +42,133 @@ function sourceFiles(dir: string, found: string[] = []): string[] {
   return found;
 }
 
-function retiresPoint(source: string): boolean {
-  return POINT_ENTITY_IMPORT.test(source) && pointWrites(source).length > 0;
+function farmProgram(rootNames: string[]): ts.Program {
+  const config = ts.getParsedCommandLineOfConfigFile(
+    join(FARM_ROOT, 'tsconfig.app.json'),
+    {},
+    { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => undefined },
+  );
+  if (!config) throw new Error('cannot read apps/farm-service/tsconfig.app.json');
+  return ts.createProgram({ rootNames, options: { ...config.options, noEmit: true } });
 }
 
-/** Whether the last point write comes before the last closeSourcesAtPoints call. */
-function closesAfterWriting(source: string): boolean {
-  const closes = [...source.matchAll(CLOSE_CALL)].map((match) => match.index ?? 0);
-  return closes.length > 0 && Math.max(...pointWrites(source)) < Math.max(...closes);
+/** An in-memory program: point and non-point entities plus one snippet. */
+function scanSnippet(snippet: string): string[] {
+  const files: Record<string, string> = {
+    '/v/entities.ts': [
+      'export class Tank { isActive!: boolean; isDeleted!: boolean; }',
+      'export class Department { isActive!: boolean; }',
+      'export interface Repo<T> { update(c: unknown, v: Partial<T>): Promise<void>; }',
+      'export declare function closeSourcesAtPoints(...args: unknown[]): Promise<number>;',
+    ].join('\n'),
+    '/v/snippet.ts': [
+      "import { Tank, Department, Repo, closeSourcesAtPoints } from './entities';",
+      'declare const tank: Tank; declare const department: Department;',
+      'declare const repo: Repo<Tank>; declare const m: { query(sql: string): Promise<void> };',
+      'declare const data: { isActive?: boolean; name?: string };',
+      snippet,
+    ].join('\n'),
+  };
+  const options: ts.CompilerOptions = {
+    noEmit: true,
+    strict: true,
+    target: ts.ScriptTarget.ES2022,
+  };
+  const host = ts.createCompilerHost(options);
+  const defaultGet = host.getSourceFile.bind(host);
+  host.getSourceFile = (name, version, ...rest) =>
+    files[name] !== undefined
+      ? ts.createSourceFile(name, files[name], version, true)
+      : defaultGet(name, version, ...rest);
+  const defaultExists = host.fileExists.bind(host);
+  host.fileExists = (name) => files[name] !== undefined || defaultExists(name);
+  host.resolveModuleNames = (names) =>
+    names.map((name) => ({
+      resolvedFileName: name.replace('./', '/v/') + '.ts',
+      extension: '.ts',
+    }));
+  const program = ts.createProgram(['/v/snippet.ts'], options, host);
+  const source = program.getSourceFile('/v/snippet.ts');
+  if (!source) throw new Error('snippet program has no source');
+  return unclosedPointWrites(source, program.getTypeChecker()).map((write) => write.text);
 }
 
 describe('INVARIANT: retiring a measurement point closes its water-quality sources', () => {
-  const retirers = sourceFiles(FARM_SRC)
-    .map((file) => ({ file: relative(FARM_SRC, file), source: readFileSync(file, 'utf8') }))
-    .filter(({ source }) => retiresPoint(source));
+  describe('the scanner', () => {
+    it.each([
+      [
+        'a close before the write',
+        'async function f() { await closeSourcesAtPoints(); tank.isDeleted = true; }',
+      ],
+      [
+        'a close in another function',
+        'async function f() { tank.isActive = false; }\n' +
+          'async function g() { await closeSourcesAtPoints(); }',
+      ],
+      ['a payload under any name', 'async function f() { tank.isActive = data.isActive ?? true; }'],
+      ['Object.assign from a payload', 'async function f() { Object.assign(tank, data); }'],
+      ['a repository update', 'async function f() { await repo.update({}, { isActive: false }); }'],
+      [
+        'raw SQL',
+        'async function f() { await m.query(`UPDATE tanks SET "isActive" = false WHERE id = $1`); }',
+      ],
+    ])('flags %s', (_shape, snippet) => {
+      expect(scanSnippet(snippet)).toHaveLength(1);
+    });
 
-  it('finds the known point retirers (the scan is not vacuous)', () => {
-    const files = retirers.map(({ file }) => file);
-    for (const expected of [
-      'tank/handlers/delete-tank.handler.ts',
-      'system/handlers/delete-system.handler.ts',
-      'equipment/handlers/delete-equipment.handler.ts',
-      'department/handlers/delete-department.handler.ts',
-      'site/handlers/delete-site.handler.ts',
-      'system/handlers/update-system.handler.ts',
-      'site/handlers/update-site.handler.ts',
-      'equipment/handlers/update-equipment.handler.ts',
-    ]) {
-      expect(files).toContain(expected);
-    }
+    it.each([
+      [
+        'a write then a close in the same function',
+        'async function f() { tank.isActive = false; await closeSourcesAtPoints(); }',
+      ],
+      ['a non-point row', 'async function f() { department.isActive = false; }'],
+      ['activation', 'async function f() { tank.isActive = true; }'],
+      [
+        'a view built in memory',
+        'function f() { const view = new Tank(); view.isActive = data.isActive ?? false; }',
+      ],
+    ])('passes %s', (_shape, snippet) => {
+      expect(scanSnippet(snippet)).toEqual([]);
+    });
   });
 
-  it('every point retirer calls closeSourcesAtPoints', () => {
-    const offenders = retirers
-      .filter(({ file }) => !(file in NOT_POINT_RETIREMENTS))
-      .filter(({ source }) => !source.includes('closeSourcesAtPoints('))
-      .map(({ file }) => file);
-    expect(offenders).toEqual([]);
-  });
+  describe('farm-service', () => {
+    const candidates = sourceFiles(FARM_SRC).filter((file) =>
+      POINT_ENTITY_IMPORT.test(readFileSync(file, 'utf8')),
+    );
+    const program = farmProgram(candidates);
+    const checker = program.getTypeChecker();
+    const scanned = candidates.map((file) => {
+      const source = program.getSourceFile(file);
+      if (!source) throw new Error(`${file} not in the program`);
+      return { file: relative(FARM_SRC, file), source };
+    });
+    const writers = new Set(
+      scanned
+        .filter(({ source }) => pointWrites(source, checker).length > 0)
+        .map(({ file }) => file),
+    );
 
-  it('every point retirer writes the point before it closes the sources', () => {
-    const offenders = retirers
-      .filter(({ file }) => !(file in NOT_POINT_RETIREMENTS))
-      .filter(({ source }) => !closesAfterWriting(source))
-      .map(({ file }) => file);
-    expect(offenders).toEqual([]);
-  });
+    it('finds the known point retirers (the scan is not vacuous)', () => {
+      expect([...writers]).toEqual(
+        expect.arrayContaining([
+          'tank/handlers/delete-tank.handler.ts',
+          'system/handlers/delete-system.handler.ts',
+          'equipment/handlers/delete-equipment.handler.ts',
+          'department/handlers/delete-department.handler.ts',
+          'site/handlers/delete-site.handler.ts',
+          'system/handlers/update-system.handler.ts',
+          'site/handlers/update-site.handler.ts',
+          'equipment/handlers/update-equipment.handler.ts',
+        ]),
+      );
+    });
 
-  it('lists no exception that no longer matches', () => {
-    const files = new Set(retirers.map(({ file }) => file));
-    expect(Object.keys(NOT_POINT_RETIREMENTS).filter((file) => !files.has(file))).toEqual([]);
-  });
-
-  it('refuses a close placed before the point write', () => {
-    const point = "import { Site } from '../entities/site.entity';\n";
-    expect(
-      closesAfterWriting(`${point}site.isDeleted = true;\nawait closeSourcesAtPoints(m, t, p, u);`),
-    ).toBe(true);
-    expect(
-      closesAfterWriting(`${point}await closeSourcesAtPoints(m, t, p, u);\nsite.isDeleted = true;`),
-    ).toBe(false);
-  });
-
-  it('recognises a retirement write next to a point entity', () => {
-    expect(
-      retiresPoint(
-        "import { Tank } from '../entities/tank.entity';\nawait repo.update({ id }, { isActive: false });",
-      ),
-    ).toBe(true);
-    expect(
-      retiresPoint("import { Tank } from '../entities/tank.entity';\nreturn repo.find();"),
-    ).toBe(false);
+    it('closes the sources after every point write, in the same function', () => {
+      const violations = scanned.flatMap(({ file, source }) =>
+        unclosedPointWrites(source, checker).map(({ line, text }) => `${file}:${line} ${text}`),
+      );
+      expect(violations).toEqual([]);
+    });
   });
 });

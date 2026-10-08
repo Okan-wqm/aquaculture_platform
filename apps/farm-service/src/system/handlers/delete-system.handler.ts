@@ -132,6 +132,7 @@ export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand,
           ...unitPoints(deactivatedEquipmentIds),
         ],
         userId,
+        'all',
       );
 
       await this.auditLogService.logWithManager(queryRunner.manager, {

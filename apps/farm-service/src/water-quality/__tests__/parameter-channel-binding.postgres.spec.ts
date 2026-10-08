@@ -29,6 +29,11 @@ import { DeleteSystemCommand } from '../../system/commands/delete-system.command
 import { DeleteSystemHandler } from '../../system/handlers/delete-system.handler';
 import { DeleteTankCommand } from '../../tank/commands/delete-tank.command';
 import { DeleteTankHandler } from '../../tank/handlers/delete-tank.handler';
+import { UpdateEquipmentCommand } from '../../equipment/commands/update-equipment.command';
+import { UpdateEquipmentHandler } from '../../equipment/handlers/update-equipment.handler';
+import type { TankEquipmentAdapterService } from '../../equipment/services/tank-equipment-adapter.service';
+import { CreateParamEquipmentCommand } from '../commands/create-param-equipment.command';
+import { CreateParamEquipmentHandler } from '../handlers/create-param-equipment.handler';
 import { UpdateSystemCommand } from '../../system/commands/update-system.command';
 import { UpdateSystemHandler } from '../../system/handlers/update-system.handler';
 import { BindParameterChannelCommand } from '../commands/bind-parameter-channel.command';
@@ -249,9 +254,15 @@ describe('parameter channel binding — real Postgres', () => {
   const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 500));
 
   /** No live source at a retired point, and every row's validity window is ordered. */
-  async function expectNoLiveSourcesAt(column: string, id: string): Promise<void> {
+  async function expectNoLiveSourcesAt(
+    column: string,
+    id: string,
+    kind: 'any' | 'channel' = 'any',
+  ): Promise<void> {
+    const channelOnly = kind === 'channel' ? 'AND "channelKey" IS NOT NULL' : '';
     const [{ live, disordered }] = await ds().dataSource.query(
-      `SELECT count(*) FILTER (WHERE "unboundAt" IS NULL AND "${column}" = $1)::int AS live,
+      `SELECT count(*) FILTER (
+                WHERE "unboundAt" IS NULL AND "${column}" = $1 ${channelOnly})::int AS live,
               count(*) FILTER (WHERE "unboundAt" < "boundAt")::int AS disordered
          FROM "${ds().schema}".water_quality_param_equipment`,
       [id],
@@ -622,7 +633,7 @@ describe('parameter channel binding — real Postgres', () => {
     // Without the bind's point lock it would have committed by now, and the
     // retirement below would close it after the fact — or miss it.
     await finish(retiring, (runner) =>
-      closeSourcesAtPoints(runner.manager, TENANT, [{ kind: 'tank', id: tank }], USER),
+      closeSourcesAtPoints(runner.manager, TENANT, [{ kind: 'tank', id: tank }], USER, 'all'),
     );
     await expect(binding).rejects.toMatchObject({ code: 'POINT_RETIRED' });
     await expectNoLiveSourcesAt('tankId', tank);
@@ -638,7 +649,7 @@ describe('parameter channel binding — real Postgres', () => {
     await bind(topology.configs.ph, { kind: 'tank', id: tank }, key);
     // With unboundAt = now() this violates CHK_wqpe_unbound (unboundAt < boundAt).
     await finish(closing, (runner) =>
-      closeSourcesAtPoints(runner.manager, TENANT, [{ kind: 'tank', id: tank }], USER),
+      closeSourcesAtPoints(runner.manager, TENANT, [{ kind: 'tank', id: tank }], USER, 'all'),
     );
     await expectNoLiveSourcesAt('tankId', tank);
   });
@@ -673,7 +684,9 @@ describe('parameter channel binding — real Postgres', () => {
     await settle();
     // Had the replace locked the source rows before the point, this close
     // would wait on it while it waits on the point: a deadlock.
-    await finish(retiring, (runner) => closeSourcesAtPoints(runner.manager, TENANT, [point], USER));
+    await finish(retiring, (runner) =>
+      closeSourcesAtPoints(runner.manager, TENANT, [point], USER, 'all'),
+    );
     await expect(replacing).rejects.toMatchObject({ code: 'POINT_RETIRED' });
     await expectNoLiveSourcesAt('systemId', loop.systemId);
   });
@@ -691,6 +704,45 @@ describe('parameter channel binding — real Postgres', () => {
       ),
     );
     await expectNoLiveSourcesAt('systemId', loop.systemId);
+  });
+
+  it('keeps a unit’s manual plan across deactivation, closing only its channel sources', async () => {
+    const loop = await seedLoop(ds().dataSource, TENANT, topology, 'RAS-MAINT');
+    const unit = loop.equipmentId;
+    await inTenant(() =>
+      new CreateParamEquipmentHandler(ds().dataSource).execute(
+        new CreateParamEquipmentCommand(
+          TENANT,
+          { parameterConfigId: topology.configs.temperature, equipmentId: unit },
+          USER,
+        ),
+      ),
+    );
+    await bind(
+      topology.configs.ph,
+      { kind: 'equipment', id: unit },
+      channel('ph_maint', { equipmentId: unit, quantity: 'ph', unit: 'pH' }),
+    );
+    const setActive = (isActive: boolean): Promise<unknown> =>
+      inTenant(() =>
+        new UpdateEquipmentHandler(
+          ds().dataSource,
+          auditLog,
+          new OutboxPublisher(FarmOutbox),
+          collaborator<TankEquipmentAdapterService>({}, 'TankEquipmentAdapterService'),
+        ).execute(new UpdateEquipmentCommand(unit, { id: unit, isActive }, TENANT, USER)),
+      );
+    // Maintenance: deactivate, then reactivate.
+    await setActive(false);
+    await setActive(true);
+    const plan = await inTenant(() =>
+      new GetUnitMeasurementPlanHandler(ds().dataSource).execute(
+        new GetUnitMeasurementPlanQuery(TENANT, unit),
+      ),
+    );
+    expect(plan.planned).toBe(true);
+    expect(plan.entries.map((entry) => entry.parameter.id)).toEqual([topology.configs.temperature]);
+    await expectNoLiveSourcesAt('equipmentId', unit, 'channel');
   });
 
   it('accepts a spelling of the same unit despite measurements, and refuses another unit', async () => {

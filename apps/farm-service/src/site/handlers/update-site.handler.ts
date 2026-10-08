@@ -170,6 +170,7 @@ export class UpdateSiteHandler implements ICommandHandler<UpdateSiteCommand, Sit
           tenantId,
           [{ kind: 'site', id: updatedSite.id }],
           userId,
+          'channels',
         );
       }
 

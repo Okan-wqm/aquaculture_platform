@@ -163,20 +163,21 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
         );
       }
 
-      // Sources at the site point itself end with the site, cascade or not.
-      await closeSourcesAtPoints(
-        queryRunner.manager,
-        tenantId,
-        [{ kind: 'site', id: siteId }],
-        userId,
-      );
-
       site.isDeleted = true;
       site.deletedAt = new Date();
       site.deletedBy = userId;
       site.isActive = false;
       site.updatedBy = userId;
       const deletedSite = await siteRepository.save(site);
+      // Sources at the site point end with the site, cascade or not — after
+      // the site row is written, so a bind holding the site FOR SHARE has
+      // either committed (and is closed here) or will see the site gone.
+      await closeSourcesAtPoints(
+        queryRunner.manager,
+        tenantId,
+        [{ kind: 'site', id: siteId }],
+        userId,
+      );
 
       await this.auditLogService.logWithManager(queryRunner.manager, {
         tenantId,

@@ -16,6 +16,7 @@ import {
   UpdateResult,
 } from 'typeorm';
 
+import { closeSourcesAtPoints, unitPoints } from '../../water-quality/services/parameter-sources';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { Department } from '../../department/entities/department.entity';
@@ -191,6 +192,7 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
       }
 
       const { systemIds: _systemIds, id: _id, ...equipmentInput } = input;
+      const wasActive = equipment.isActive;
       Object.assign(equipment, {
         ...equipmentInput,
         code: equipmentInput.code ? equipmentInput.code.toUpperCase() : equipment.code,
@@ -198,6 +200,12 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
       });
 
       const persistedEquipment = await equipmentRepository.save(equipment);
+      // Deactivating retires the point: its water-quality sources end here,
+      // after the point row is written (FARM-HIGH-373, D12). Reactivation
+      // binds anew.
+      if (wasActive && !persistedEquipment.isActive) {
+        await closeSourcesAtPoints(queryRunner.manager, tenantId, unitPoints([persistedEquipment.id]), userId);
+      }
 
       if (hasParentEquipmentId && oldParentEquipmentId !== input.parentEquipmentId) {
         await this.recomputeSubEquipmentCount(equipmentRepository, oldParentEquipmentId);

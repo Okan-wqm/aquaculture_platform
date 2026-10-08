@@ -279,3 +279,33 @@ source and second position at an equipment point.
   re-spelled while the sensor service answers) and with the bind's locked point check removed
   (the tank retired meanwhile).
 - DBR-LOW-007: tracked as FARM-LOW-377. D12 deviation accepted, amended above, FARM-MEDIUM-378.
+
+### Second review round
+
+- FARM-HIGH-007, confirmed in prod (pH configs hold `''`, alkalinity and hardness hold
+  `mg/L CaCO₃`, both with measurements): the unit lock compared strings, so re-applying the
+  template or correcting the spelling was refused and the tenant stuck. One predicate,
+  `unitMeaningChanged` (`parameter-meaning.ts`), reads the registry: two spellings that map to
+  the same conversion onto the parameter's quantity are not a change; `°C` to `°F` is. The
+  config update, the template overwrite and the bound-channel check all use it.
+- DBR-MEDIUM-008: the site delete closed the site's sources before writing the site row; it
+  now writes first. The point-retirement invariant asserts, in every retirer, that the last
+  point write precedes the last `closeSourcesAtPoints`.
+- FARM-MEDIUM-008: deactivating a system, site or equipment through its update now closes
+  its sources (after the row is written), and the invariant counts payload deactivation
+  (`input.isActive`, `updateData.isActive`, `Object.assign(<point>, …)`). Chosen over keeping
+  bindings across deactivation because an inactive point is not a live point anywhere else:
+  the bind refuses it, `parameterSourcesAtPoint` 404s on it, and sources left there would keep
+  the parameter locked with no read that names them. Reactivation binds anew; history keeps
+  the old rows.
+- DBR-LOW-009: the races are forced, not left to chance. Over a second connection: a
+  retirement holds the tank while a bind waits on it (the bind is refused `POINT_RETIRED`, no
+  live source); a close whose transaction began before a bind commits (passes only with
+  `statement_timestamp()`); a system retirement holds the point while a replace waits (no
+  deadlock). Each fails with its fix reverted.
+- Stable codes for the UI (PR-5): `PARAMETER_SOURCE_ERROR` in shared-contracts
+  (`CHANNEL_BINDING_REFUSED`, `SOURCE_CONFLICT`, `BACKUP_NEEDS_PRIMARY`, `PARAMETER_CHANGED`,
+  `POINT_RETIRED`, `SOURCE_UNBOUND`, `PARAMETER_BOUND`, `PARAMETER_HAS_MEASUREMENTS`,
+  `CONCURRENT_WRITE`, `SENSOR_DIRECTORY_UNAVAILABLE`), thrown as `ParameterSourceError`
+  (a `FarmAppError`), so `extensions.code` carries them; a unique violation adds the key
+  columns to `extensions.context`.

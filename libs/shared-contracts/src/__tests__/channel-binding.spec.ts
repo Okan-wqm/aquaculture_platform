@@ -1,5 +1,6 @@
 import {
   CHANNEL_BINDING_PROBLEMS,
+  PARAMETER_SOURCE_ERROR,
   channelProblems,
   parameterProblems,
   type DescribedChannel,
@@ -99,6 +100,22 @@ describe('channel binding rule', () => {
       'CHANNEL_HAS_NO_UNIT',
       'CHANNEL_UNIT_NOT_CONVERTIBLE',
       'NOT_AT_POINT',
+    ]);
+  });
+
+  it('publishes the API refusal codes the binding UI branches on', () => {
+    // Append-only: GraphQL extensions.code of the parameter-source API.
+    expect(Object.values(PARAMETER_SOURCE_ERROR)).toEqual([
+      'CHANNEL_BINDING_REFUSED',
+      'SOURCE_CONFLICT',
+      'BACKUP_NEEDS_PRIMARY',
+      'PARAMETER_CHANGED',
+      'POINT_RETIRED',
+      'SOURCE_UNBOUND',
+      'PARAMETER_BOUND',
+      'PARAMETER_HAS_MEASUREMENTS',
+      'CONCURRENT_WRITE',
+      'SENSOR_DIRECTORY_UNAVAILABLE',
     ]);
   });
 });

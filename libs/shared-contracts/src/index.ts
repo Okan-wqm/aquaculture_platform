@@ -193,11 +193,13 @@ export type {
 export {
   CHANNEL_BINDING_PROBLEM,
   CHANNEL_BINDING_PROBLEMS,
+  PARAMETER_SOURCE_ERROR,
   channelProblems,
   parameterProblems,
 } from './measurement/channel-binding';
 export type {
   ChannelBindingProblem,
+  ParameterSourceErrorCode,
   BindableParameter,
   DescribedChannel,
 } from './measurement/channel-binding';

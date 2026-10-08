@@ -11,7 +11,7 @@
  * @module WaterQuality/Handlers
  */
 import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { DataSource } from 'typeorm';
@@ -39,6 +39,8 @@ import {
 } from '../services/parameter-sources';
 import { SensorChannelDirectory } from '../services/sensor-channel-directory.service';
 import { runSourceTransaction } from '../services/source-transaction';
+import { ParameterSourceError } from '../../common/errors/farm-errors';
+import { PARAMETER_SOURCE_ERROR } from '@aquaculture/shared-contracts';
 
 @Injectable()
 @CommandHandler(ReplaceParameterChannelCommand)
@@ -86,7 +88,11 @@ export class ReplaceParameterChannelHandler
         const live = await liveChannelSourcesAt(manager, tenantId, config.id, location);
         const old = live.find((candidate) => candidate.id === sourceId);
         if (old === undefined) {
-          throw new ConflictException('The source was unbound meanwhile; nothing was replaced');
+          throw new ParameterSourceError(
+            PARAMETER_SOURCE_ERROR.SOURCE_UNBOUND,
+            HttpStatus.CONFLICT,
+            'The source was unbound meanwhile; nothing was replaced',
+          );
         }
         if (
           live.some(
@@ -95,7 +101,11 @@ export class ReplaceParameterChannelHandler
               candidate.channelKey === channel.channelKey,
           )
         ) {
-          throw new ConflictException('This channel is already a source of the parameter here');
+          throw new ParameterSourceError(
+            PARAMETER_SOURCE_ERROR.SOURCE_CONFLICT,
+            HttpStatus.CONFLICT,
+            'This channel is already a source of the parameter here',
+          );
         }
         const problems = await assessChannel(
           manager,

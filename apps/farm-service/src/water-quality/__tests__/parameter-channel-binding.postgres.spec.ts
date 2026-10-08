@@ -16,9 +16,10 @@ import { withTenantContext } from '@aquaculture/backend-common/context';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { collaborator, stub } from '@aquaculture/testing';
-import { ConflictException, ForbiddenException, HttpException } from '@nestjs/common';
+import { ForbiddenException, HttpException } from '@nestjs/common';
 import type { SensorChannelDescription, SensorChannelKey } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
+import type { QueryRunner } from 'typeorm';
 
 import { createFixtureAuditLogService } from '../../__tests__/e2e/helpers/farm-tenant-fixture';
 import type { AuditLogService } from '../../database/services/audit-log.service';
@@ -28,6 +29,8 @@ import { DeleteSystemCommand } from '../../system/commands/delete-system.command
 import { DeleteSystemHandler } from '../../system/handlers/delete-system.handler';
 import { DeleteTankCommand } from '../../tank/commands/delete-tank.command';
 import { DeleteTankHandler } from '../../tank/handlers/delete-tank.handler';
+import { UpdateSystemCommand } from '../../system/commands/update-system.command';
+import { UpdateSystemHandler } from '../../system/handlers/update-system.handler';
 import { BindParameterChannelCommand } from '../commands/bind-parameter-channel.command';
 import {
   ClearParameterQuantityCommand,
@@ -64,7 +67,11 @@ import {
   ListParameterSourcesAtPointHandler,
 } from '../query-handlers/parameter-source-query.handlers';
 import type { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
-import { type MeasurementPoint, type SourceLocation } from '../services/parameter-sources';
+import {
+  closeSourcesAtPoints,
+  type MeasurementPoint,
+  type SourceLocation,
+} from '../services/parameter-sources';
 import type { SensorChannelDirectory } from '../services/sensor-channel-directory.service';
 
 import {
@@ -214,6 +221,32 @@ describe('parameter channel binding — real Postgres', () => {
     if (!(reason instanceof HttpException)) throw reason;
     expect([404, 409]).toContain(reason.getStatus());
   }
+
+  /** A second connection's transaction on the tenant schema, for forcing an interleaving. */
+  async function openTransaction(): Promise<QueryRunner> {
+    const runner = ds().dataSource.createQueryRunner();
+    await runner.connect();
+    await runner.startTransaction();
+    await runner.query(`SET LOCAL search_path TO "${ds().schema}", public`);
+    return runner;
+  }
+
+  /** Runs the last step of a held transaction and commits it. */
+  async function finish(
+    runner: QueryRunner | undefined,
+    last: (runner: QueryRunner) => Promise<unknown>,
+  ): Promise<void> {
+    if (runner === undefined) throw new Error('the interleaving never opened its transaction');
+    try {
+      await last(runner);
+      await runner.commitTransaction();
+    } finally {
+      await runner.release();
+    }
+  }
+
+  /** Long enough for the other connection to reach the lock it waits on. */
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 500));
 
   /** No live source at a retired point, and every row's validity window is ordered. */
   async function expectNoLiveSourcesAt(column: string, id: string): Promise<void> {
@@ -569,50 +602,126 @@ describe('parameter channel binding — real Postgres', () => {
     results.forEach(expectClientOutcome);
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     expect(results.find((result) => result.status === 'rejected')).toEqual(
-      expect.objectContaining({ reason: expect.any(ConflictException) }),
+      expect.objectContaining({ reason: expect.objectContaining({ code: 'SOURCE_CONFLICT' }) }),
     );
   });
 
-  it('races binds against deleting their tank: no deadlock, no 500, no live source left', async () => {
-    for (let round = 0; round < 5; round += 1) {
-      const tank = await seedTank(ds().dataSource, TENANT, topology, `RACE-TANK-${round}`, USER);
-      const key = channel(`ph_race_${round}`, { tankId: tank, quantity: 'ph', unit: 'pH' });
-      const results = await Promise.allSettled([
-        bind(topology.configs.ph, { kind: 'tank', id: tank }, key),
-        deleteTank(tank),
-      ]);
-      results.forEach(expectClientOutcome);
-      expect(results[1].status).toBe('fulfilled');
-      await expectNoLiveSourcesAt('tankId', tank);
-    }
+  it('blocks a bind on its point while a retirement holds it: the bind is refused, nothing stays live', async () => {
+    const tank = await seedTank(ds().dataSource, TENANT, topology, 'HELD-TANK', USER);
+    const key = channel('ph_held', { tankId: tank, quantity: 'ph', unit: 'pH' });
+    let retiring: QueryRunner | undefined;
+    // The tank's retirement starts while the bind waits on the sensor service:
+    // it writes the point row and holds it.
+    whileDescribing = async () => {
+      retiring = await openTransaction();
+      await retiring.query(`UPDATE tanks SET "isActive" = false WHERE id = $1`, [tank]);
+    };
+    const binding = bind(topology.configs.ph, { kind: 'tank', id: tank }, key);
+    binding.catch(() => undefined);
+    await settle();
+    // Without the bind's point lock it would have committed by now, and the
+    // retirement below would close it after the fact — or miss it.
+    await finish(retiring, (runner) =>
+      closeSourcesAtPoints(runner.manager, TENANT, [{ kind: 'tank', id: tank }], USER),
+    );
+    await expect(binding).rejects.toMatchObject({ code: 'POINT_RETIRED' });
+    await expectNoLiveSourcesAt('tankId', tank);
   });
 
-  it('races a replace against deleting its system: no deadlock, no 500, no live source left', async () => {
-    for (let round = 0; round < 3; round += 1) {
-      const loop = await seedLoop(ds().dataSource, TENANT, topology, `RAS-RACE-${round}`);
-      const point: MeasurementPoint = { kind: 'system', id: loop.systemId };
-      const bound = await bind(
-        topology.configs.ph,
-        point,
-        channel(`ph_loop_${round}`, { equipmentId: loop.equipmentId, quantity: 'ph', unit: 'pH' }),
+  it('stamps a close with its own statement time, never before a bind committed meanwhile', async () => {
+    const tank = await seedTank(ds().dataSource, TENANT, topology, 'CLOCK-TANK', USER);
+    const key = channel('ph_clock', { tankId: tank, quantity: 'ph', unit: 'pH' });
+    // The closing transaction starts first: its now() precedes the bind.
+    const closing = await openTransaction();
+    await closing.query('SELECT 1');
+    await settle();
+    await bind(topology.configs.ph, { kind: 'tank', id: tank }, key);
+    // With unboundAt = now() this violates CHK_wqpe_unbound (unboundAt < boundAt).
+    await finish(closing, (runner) =>
+      closeSourcesAtPoints(runner.manager, TENANT, [{ kind: 'tank', id: tank }], USER),
+    );
+    await expectNoLiveSourcesAt('tankId', tank);
+  });
+
+  it('takes the point before the source rows: a replace waits for a system retirement, no deadlock', async () => {
+    const loop = await seedLoop(ds().dataSource, TENANT, topology, 'RAS-HELD');
+    const point: MeasurementPoint = { kind: 'system', id: loop.systemId };
+    const bound = await bind(
+      topology.configs.ph,
+      point,
+      channel('ph_loop', { equipmentId: loop.equipmentId, quantity: 'ph', unit: 'pH' }),
+    );
+    const replacement = channel('ph_loop_new', {
+      equipmentId: loop.equipmentId,
+      quantity: 'ph',
+      unit: 'pH',
+    });
+    let retiring: QueryRunner | undefined;
+    whileDescribing = async () => {
+      retiring = await openTransaction();
+      await retiring.query(
+        `UPDATE systems SET "isDeleted" = true, "isActive" = false WHERE id = $1`,
+        [loop.systemId],
       );
-      const replacement = channel(`ph_loop_${round}_new`, {
-        equipmentId: loop.equipmentId,
-        quantity: 'ph',
-        unit: 'pH',
-      });
-      const results = await Promise.allSettled([
-        inTenant(() =>
-          new ReplaceParameterChannelHandler(ds().dataSource, directory, auditLog).execute(
-            new ReplaceParameterChannelCommand(TENANT, bound.id, replacement, USER),
-          ),
+    };
+    const replacing = inTenant(() =>
+      new ReplaceParameterChannelHandler(ds().dataSource, directory, auditLog).execute(
+        new ReplaceParameterChannelCommand(TENANT, bound.id, replacement, USER),
+      ),
+    );
+    replacing.catch(() => undefined);
+    await settle();
+    // Had the replace locked the source rows before the point, this close
+    // would wait on it while it waits on the point: a deadlock.
+    await finish(retiring, (runner) => closeSourcesAtPoints(runner.manager, TENANT, [point], USER));
+    await expect(replacing).rejects.toMatchObject({ code: 'POINT_RETIRED' });
+    await expectNoLiveSourcesAt('systemId', loop.systemId);
+  });
+
+  it('closes the sources of a system deactivated through its update', async () => {
+    const loop = await seedLoop(ds().dataSource, TENANT, topology, 'RAS-OFF');
+    await bind(
+      topology.configs.ph,
+      { kind: 'system', id: loop.systemId },
+      channel('ph_off', { equipmentId: loop.equipmentId, quantity: 'ph', unit: 'pH' }),
+    );
+    await inTenant(() =>
+      new UpdateSystemHandler(ds().dataSource, auditLog, new OutboxPublisher(FarmOutbox)).execute(
+        new UpdateSystemCommand({ id: loop.systemId, isActive: false }, TENANT, USER),
+      ),
+    );
+    await expectNoLiveSourcesAt('systemId', loop.systemId);
+  });
+
+  it('accepts a spelling of the same unit despite measurements, and refuses another unit', async () => {
+    await ds().dataSource.query(
+      `UPDATE "${ds().schema}".water_quality_parameter_configs SET unit = '' WHERE id = $1`,
+      [topology.configs.ph],
+    );
+    const [{ id: alkalinity }] = await ds().dataSource.query(
+      `INSERT INTO "${ds().schema}".water_quality_parameter_configs
+         ("tenantId", code, name, unit, "effectiveQuantity")
+       VALUES ($1, 'alkalinity', 'Alkalinity', 'mg/L CaCO₃', 'alkalinity') RETURNING id`,
+      [TENANT],
+    );
+    await ds().dataSource.query(
+      `INSERT INTO "${ds().schema}".water_quality_measurements
+         ("tenantId", "measuredAt", source, parameters, "overallStatus", "hasAlarm")
+       VALUES ($1, now(), 'manual', '{"ph": 7.2, "alkalinity": 120}'::jsonb, 'optimal', false)`,
+      [TENANT],
+    );
+    const updateUnit = (id: string, unit: string): Promise<unknown> =>
+      inTenant(() =>
+        new UpdateParameterConfigHandler(ds().dataSource, cache).execute(
+          new UpdateParameterConfigCommand(TENANT, id, { unit }, USER),
         ),
-        deleteSystem(loop.systemId),
-      ]);
-      results.forEach(expectClientOutcome);
-      expect(results[1].status).toBe('fulfilled');
-      await expectNoLiveSourcesAt('systemId', loop.systemId);
-    }
+      );
+    // Prod's old template spellings: '' for pH, 'mg/L CaCO₃' for alkalinity.
+    await updateUnit(topology.configs.ph, 'pH');
+    await updateUnit(alkalinity, 'mg/L CaCO3');
+    await expect(updateUnit(alkalinity, 'mg/L')).rejects.toMatchObject({
+      code: 'PARAMETER_HAS_MEASUREMENTS',
+    });
   });
 
   it('deleting a tank closes its sources in the deleting transaction, as history', async () => {

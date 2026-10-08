@@ -1,10 +1,12 @@
 import {
+  PARAMETER_SOURCE_ERROR,
   CHANNEL_BINDING_PROBLEM,
   channelProblems,
   type ChannelBindingProblem,
   type QuantityId,
 } from '@aquaculture/shared-contracts';
-import { BadRequestException, ConflictException } from '@nestjs/common';
+
+import { HttpStatus } from '@nestjs/common';
 import type { SensorChannelDescription, SensorChannelKey } from '@platform/event-contracts';
 import type { EntityManager } from 'typeorm';
 
@@ -12,6 +14,7 @@ import {
   ChannelSourcePriority,
   type WaterQualityParamEquipment,
 } from '../entities/water-quality-param-equipment.entity';
+import { ParameterSourceError } from '../../common/errors/farm-errors';
 import type { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
 
 import { type FarmPlacement, loadFarmPlacement, placedAt } from './channel-placement';
@@ -69,11 +72,17 @@ export function priorityConflict(
       (source) => source.sensorId === channel.sensorId && source.channelKey === channel.channelKey,
     )
   ) {
-    return new ConflictException('This channel is already a source of the parameter here');
+    return new ParameterSourceError(
+      PARAMETER_SOURCE_ERROR.SOURCE_CONFLICT,
+      HttpStatus.CONFLICT,
+      'This channel is already a source of the parameter here',
+    );
   }
   const holder = live.find((source) => source.priority === priority);
   if (holder !== undefined) {
-    return new ConflictException(
+    return new ParameterSourceError(
+      PARAMETER_SOURCE_ERROR.SOURCE_CONFLICT,
+      HttpStatus.CONFLICT,
       `The parameter already has a ${priority} source here; replace or unbind it first`,
     );
   }
@@ -81,7 +90,11 @@ export function priorityConflict(
     priority === ChannelSourcePriority.BACKUP &&
     !live.some((source) => source.priority === ChannelSourcePriority.PRIMARY)
   ) {
-    return new BadRequestException('A backup needs a primary source at the same place');
+    return new ParameterSourceError(
+      PARAMETER_SOURCE_ERROR.BACKUP_NEEDS_PRIMARY,
+      HttpStatus.BAD_REQUEST,
+      'A backup needs a primary source at the same place',
+    );
   }
   return null;
 }
@@ -113,7 +126,11 @@ export function assertParameterUnchanged(
   snapshot: QuantitySnapshot,
 ): void {
   if (!config.isActive) {
-    throw new ConflictException('The parameter was deactivated; nothing was bound');
+    throw new ParameterSourceError(
+      PARAMETER_SOURCE_ERROR.PARAMETER_CHANGED,
+      HttpStatus.CONFLICT,
+      'The parameter was deactivated; nothing was bound',
+    );
   }
   const now = quantitySnapshot(config);
   if (
@@ -122,7 +139,9 @@ export function assertParameterUnchanged(
     now.declaredQuantity !== snapshot.declaredQuantity ||
     now.effectiveQuantity !== snapshot.effectiveQuantity
   ) {
-    throw new ConflictException(
+    throw new ParameterSourceError(
+      PARAMETER_SOURCE_ERROR.PARAMETER_CHANGED,
+      HttpStatus.CONFLICT,
       'The parameter’s code, unit or quantity changed while binding; check the channel again',
     );
   }

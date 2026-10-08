@@ -1,7 +1,9 @@
 import { sanitizePgError } from '@aquaculture/backend-common/utils';
-import { ConflictException } from '@nestjs/common';
+import { PARAMETER_SOURCE_ERROR } from '@aquaculture/shared-contracts';
+import { HttpStatus } from '@nestjs/common';
 
 import { runRetryingTenantTransaction } from '../../common/database/retrying-tenant-transaction';
+import { ParameterSourceError } from '../../common/errors/farm-errors';
 import { type DataSource, QueryFailedError, type QueryRunner } from 'typeorm';
 
 /**
@@ -52,9 +54,12 @@ export function translateSourceWriteError(error: unknown): unknown {
     return error;
   }
   const columns = violatedKeyColumns(error);
-  return new ConflictException(
+  return new ParameterSourceError(
+    PARAMETER_SOURCE_ERROR.SOURCE_CONFLICT,
+    HttpStatus.CONFLICT,
     (columns !== null ? UNIQUE_RULES[columns] : undefined) ??
       'A concurrent change conflicts with this write; retry',
+    columns !== null ? { key: columns.split(',') } : undefined,
   );
 }
 

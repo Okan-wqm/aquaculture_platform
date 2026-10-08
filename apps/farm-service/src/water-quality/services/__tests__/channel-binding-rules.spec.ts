@@ -1,5 +1,4 @@
 import { stub } from '@aquaculture/testing';
-import { BadRequestException, ConflictException } from '@nestjs/common';
 import type { SensorChannelDescription } from '@platform/event-contracts';
 
 import {
@@ -99,40 +98,46 @@ describe('channel binding rules (farm side)', () => {
           key,
           ChannelSourcePriority.PRIMARY,
         ),
-      ).toBeInstanceOf(ConflictException);
-      expect(priorityConflict([], key, ChannelSourcePriority.BACKUP)).toBeInstanceOf(
-        BadRequestException,
-      );
+      ).toMatchObject({ code: 'SOURCE_CONFLICT' });
+      expect(priorityConflict([], key, ChannelSourcePriority.BACKUP)).toMatchObject({
+        code: 'BACKUP_NEEDS_PRIMARY',
+      });
       expect(
         priorityConflict(
           [live(ChannelSourcePriority.PRIMARY, 'ph'), live(ChannelSourcePriority.BACKUP, 'ph_2')],
           key,
           ChannelSourcePriority.BACKUP,
         ),
-      ).toBeInstanceOf(ConflictException);
+      ).toMatchObject({ code: 'SOURCE_CONFLICT' });
       expect(
         priorityConflict(
           [live(ChannelSourcePriority.PRIMARY, 'ph_new')],
           key,
           ChannelSourcePriority.BACKUP,
         ),
-      ).toBeInstanceOf(ConflictException);
+      ).toMatchObject({ code: 'SOURCE_CONFLICT' });
     });
   });
 
   describe('assertParameterUnchanged', () => {
     it('passes an unchanged active parameter and refuses one that changed meaning or was deactivated', () => {
       const snapshot = quantitySnapshot(ph);
-      expect(() => assertParameterUnchanged(ph, snapshot)).not.toThrow();
-      expect(() => assertParameterUnchanged(config({ unit: 'mV' }), snapshot)).toThrow(
-        ConflictException,
-      );
-      expect(() => assertParameterUnchanged(config({ declaredQuantity: 'ph' }), snapshot)).toThrow(
-        ConflictException,
-      );
-      expect(() => assertParameterUnchanged(config({ isActive: false }), snapshot)).toThrow(
-        /deactivated/,
-      );
+      const refusal = (changed: WaterQualityParameterConfig): unknown => {
+        try {
+          assertParameterUnchanged(changed, snapshot);
+        } catch (error) {
+          return error;
+        }
+        return null;
+      };
+      expect(refusal(ph)).toBeNull();
+      for (const changed of [
+        config({ unit: 'mV' }),
+        config({ declaredQuantity: 'ph' }),
+        config({ isActive: false }),
+      ]) {
+        expect(refusal(changed)).toMatchObject({ code: 'PARAMETER_CHANGED' });
+      }
     });
   });
 });

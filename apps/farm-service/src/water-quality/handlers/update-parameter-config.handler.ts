@@ -15,7 +15,7 @@
  * @module WaterQuality/Handlers
  */
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Not } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -23,9 +23,11 @@ import { UpdateParameterConfigCommand } from '../commands/update-parameter-confi
 import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
 import { declarableQuantitiesOfParameter } from '../data/parameter-quantities';
 import { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
-import { parameterHasMeasurements } from '../services/parameter-meaning';
+import { parameterHasMeasurements, unitMeaningChanged } from '../services/parameter-meaning';
 import { liveChannelSourceCount, lockParameterConfig } from '../services/parameter-sources';
 import { runSourceTransaction } from '../services/source-transaction';
+import { ParameterSourceError } from '../../common/errors/farm-errors';
+import { PARAMETER_SOURCE_ERROR } from '@aquaculture/shared-contracts';
 
 @Injectable()
 @CommandHandler(UpdateParameterConfigCommand)
@@ -72,9 +74,9 @@ export class UpdateParameterConfigHandler
 
       const meaningChanges =
         (payload.code !== undefined && payload.code !== config.code) ||
-        (payload.unit !== undefined && payload.unit !== config.unit);
+        (payload.unit !== undefined && unitMeaningChanged(config, config.unit, payload.unit));
       if (meaningChanges && (await parameterHasMeasurements(manager, tenantId, config.code))) {
-        throw new ConflictException(
+        throw new ParameterSourceError(PARAMETER_SOURCE_ERROR.PARAMETER_HAS_MEASUREMENTS, HttpStatus.CONFLICT, 
           `Measurements already record '${config.code}' in ${config.unit}; its code and unit are ` +
             'fixed. Create a new parameter for the new meaning.',
         );
@@ -84,7 +86,7 @@ export class UpdateParameterConfigHandler
         (meaningChanges || deactivates) &&
         (await liveChannelSourceCount(manager, tenantId, config.id)) > 0
       ) {
-        throw new ConflictException(
+        throw new ParameterSourceError(PARAMETER_SOURCE_ERROR.PARAMETER_BOUND, HttpStatus.CONFLICT, 
           'A sensor channel is bound to this parameter; unbind it before changing its code, ' +
             'unit or activity',
         );

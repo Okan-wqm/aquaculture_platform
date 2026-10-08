@@ -24,14 +24,17 @@ on:
   # ORPHAN-724 — the drain FOLLOWS the producer. Cycle and executor were
   # two unrelated crons: the night lost 1+ hours between seal and drain,
   # and every daytime cycle needed a human to dispatch the drain after it.
-  # workflow_run chains them — each completed cycle is followed by a
-  # drain — while the cron stays as the safety net for a night where the
-  # cycle lane itself never ran. The shared concurrency group already
+  # The cycle's `chain-executor` job dispatches this workflow when the
+  # cycle ends, while the cron stays as the safety net for a night where
+  # the cycle lane itself never ran. The shared concurrency group already
   # serializes the pair, and a cron firing mid-drain just waits in the
   # group's pending slot.
-  workflow_run:
-    workflows: ["aria-auto-cycle"]
-    types: [completed]
+  # ARIA-HIGH-386 — the edge used to be a `workflow_run` trigger. GitHub
+  # creates no `workflow_run` event for a run started with the job token,
+  # and the rhythm's `chain-next-cycle` and the dataflow watchdog both
+  # start the cycle that way, so every chained cycle ended without a
+  # drain (cycle 37728223278, 2026-10-08) and the loop stalled until a
+  # human dispatched it.
   schedule:
     # 02:00 UTC daily (off-hours for most ARIA contributors)
     # 29 past, not :00 — same top-of-hour congestion as the cycle cron;

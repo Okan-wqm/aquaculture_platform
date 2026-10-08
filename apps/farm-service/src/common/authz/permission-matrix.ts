@@ -503,6 +503,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   traceLot: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   treatmentApplications: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   treatmentChemicals: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  unitMeasurementPlan: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   upcomingHarvestPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   upcomingMaintenanceSchedules: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQuality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

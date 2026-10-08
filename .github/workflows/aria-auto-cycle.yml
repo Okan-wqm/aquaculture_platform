@@ -1155,3 +1155,30 @@ jobs:
         uses: ./.github/actions/release-aria-state-lease
         with:
           lease-token: ${{ steps.restore_state.outputs.writer-lease-token }}
+
+  # ORPHAN-724 / ARIA-HIGH-386 — the drain follows the producer. The edge is
+  # an explicit dispatch, not a `workflow_run` trigger on the executor:
+  # GitHub creates no `workflow_run` event for a run started with the job
+  # token, and the executor's `chain-next-cycle` and the dataflow watchdog
+  # both start this workflow that way, so every chained cycle ended with no
+  # drain after it (cycle 37728223278, 2026-10-08). A workflow_dispatch is
+  # the one event the job token may create. The executor's run waits in the
+  # shared concurrency group until this run has finished, the same order the
+  # trigger gave. A cancelled cycle is an operator stop, so it chains
+  # nothing.
+  chain-executor:
+    needs: cycle
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the drain that follows this cycle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh workflow run aria-agent-executor.yml --ref main --repo "${REPOSITORY}"
+          echo "::notice::chained the drain"

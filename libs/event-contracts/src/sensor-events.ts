@@ -1,3 +1,5 @@
+import type { ReadingParameter } from '@aquaculture/shared-contracts';
+
 import { BaseEvent } from './base-event';
 
 /**
@@ -9,20 +11,13 @@ import { BaseEvent } from './base-event';
  * potentially-many `readingXxx` fields the event is "about" without
  * having to introspect `Object.keys(...).filter(...)`.
  *
+ * The vocabulary is owned by the measured-quantity registry
+ * (`@aquaculture/shared-contracts`), whose channel-key table projects onto it.
  * The string literals match the existing flat-field names dropped of
  * the `reading` prefix — so a consumer can construct
  * `event['reading' + capitalise(parameter)]` to read the value.
  */
-export type SensorReadingParameter =
-  | 'temperature'
-  | 'ph'
-  | 'dissolvedOxygen'
-  | 'salinity'
-  | 'ammonia'
-  | 'nitrite'
-  | 'nitrate'
-  | 'turbidity'
-  | 'waterLevel';
+export type SensorReadingParameter = ReadingParameter;
 
 /**
  * Sensor Reading Event (v3 — federation correlation fields, Scope B Phase S1.1)

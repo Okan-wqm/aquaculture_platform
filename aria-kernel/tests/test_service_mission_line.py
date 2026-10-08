@@ -10,6 +10,7 @@ and a mission could not even NAME a service except inside free text.
 """
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -851,9 +852,16 @@ class DrainResolvesMissionMarkersTest(unittest.TestCase):
     def _drain_mission_item(self, *, evidence_refs: list[str] | None) -> tuple[dict, list, str]:
         from aria_kernel import autonomy_orchestrator as ao
 
+        from tests._helpers.git_fixtures import commit_files, make_local_git_repo
+
         with TemporaryDirectory() as tmp:
             root = Path(tmp) / "aria-tools"
             ensure_tools_dir(root)
+            # ARIA-HIGH-384 — the projection hands the planner only refs the
+            # agent law admits at the checkout HEAD, so the workspace is a
+            # repository and the cited file is committed in it.
+            workspace = make_local_git_repo(Path(tmp), name="repo")
+            commit_files(workspace, {"apps/auth-service/src/auth.service.ts": "line\n" * 12})
             opened = open_mission(
                 source_kind="service_hardening", source_id="auth-service",
                 repo_hash="rh-1", title="Harden auth-service",
@@ -892,7 +900,7 @@ class DrainResolvesMissionMarkersTest(unittest.TestCase):
                  patch("aria_kernel.agent_invocations.create_agent_invocation_request", fake_create), \
                  patch("aria_kernel.tool_registry.append_tools_governance", side_effect=record_governance):
                 ao._drain_next_cycle_queue(
-                    base_dir=root, daemon_agent_id="t", limit=1, workspace_root=root,
+                    base_dir=root, daemon_agent_id="t", limit=1, workspace_root=workspace,
                 )
         return captured, governance, opened["mission_id"]
 
@@ -915,7 +923,21 @@ class DrainResolvesMissionMarkersTest(unittest.TestCase):
         self.assertEqual(captured, {})
         self.assertEqual(governance, [("next_cycle_queue_item_unevidenced", {
             "queue_item_id": "qi-m1", "pressure_id": f"mission:{mission_id}", "source_cycle_id": "cyc-svc",
+            "provenance_refs": [], "refused_evidence_refs": [],
         })])
+
+    def test_a_missions_pr_and_branch_refs_never_reach_the_evidence_channel(self) -> None:
+        # ARIA-HIGH-384 — mission_reconcile records `pr:<n>` and
+        # `branch:<name>` on the mission; copied into evidence_refs they were
+        # refs no answer could cite. The law keeps the repo ref and names the
+        # rest in the prompt.
+        captured, _governance, _mission_id = self._drain_mission_item(
+            evidence_refs=["apps/auth-service/src/auth.service.ts:12", "pr:1700", "branch:fix/x"],
+        )
+
+        self.assertEqual(captured.get("evidence_refs"), ["apps/auth-service/src/auth.service.ts:12"])
+        refused = json.loads(captured["suggested_prompt"])["refused_evidence_refs"]
+        self.assertEqual(sorted(entry["ref"] for entry in refused), ["branch:fix/x", "pr:1700"])
 
 if __name__ == "__main__":
     unittest.main()

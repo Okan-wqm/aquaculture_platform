@@ -571,6 +571,41 @@ def _check_agent_ref(
         errors.append({"code": "agent_evidence_line_missing", "path": path, "line": line, "line_count": line_count})
 
 
+def agent_ref_shape_refusal(ref: Any) -> str | None:
+    """The rejection code the agent evidence law gives ``ref`` before it opens a checkout; ``None`` when the shape passes.
+
+    ARIA-HIGH-384 — the half of :func:`_check_agent_ref` that needs no
+    repository: a ledger pointer passes; a ref outside the ``path[:line]``
+    grammar is ``agent_evidence_ref_malformed``; a path that is absolute or
+    leaves the root is ``agent_evidence_path_escapes_workspace``; ARIA's own
+    output is ``agent_evidence_self_output``. Every ref this refuses, the
+    submit law refuses with the same code, so a kernel producer or mint that
+    asks this function can never hand an agent a ref its answer will be
+    rejected for citing. (An absolute path is refused here even when it would
+    resolve inside a checkout: the kernel names repo files repo-relatively,
+    and an absolute spelling names a host, not the tree at ``target_sha``.)
+    Existence and the blob at ``target_sha`` stay with
+    :func:`admissible_agent_evidence_refs`, which needs the checkout.
+    """
+    from .canonical_path import resolve_repo_relpath
+    from .evidence_trust import is_self_output_ref
+
+    if not isinstance(ref, str) or not ref.strip():
+        return "agent_evidence_ref_not_string"
+    if _is_ledger_pointer_ref(ref):
+        return None
+    parsed = _parse_agent_ref(ref)
+    if parsed is None:
+        return "agent_evidence_ref_malformed"
+    try:
+        resolve_repo_relpath(parsed[0])
+    except GovernanceError:
+        return "agent_evidence_path_escapes_workspace"
+    if is_self_output_ref(parsed[0]):
+        return "agent_evidence_self_output"
+    return None
+
+
 def _judge_agent_ref(
     ref: str,
     *,

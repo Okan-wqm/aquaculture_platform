@@ -287,8 +287,6 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
 | `ARIA-CRITICAL-216` | OPEN | 2026-09-26 | claude | real-open |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
-| `SENSOR-CRITICAL-143` | OPEN | 2026-10-06 | claude | real-open |
-| `PLAT-CRITICAL-923` | OPEN | 2026-10-08 | claude | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
 
 ## Mutation Rules
@@ -995,4 +993,10 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `real-open`.
 - `SUPPLY-CRITICAL-018`: registry state is `RESOLVED` with closing commit
   `f469a651b`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `SENSOR-CRITICAL-143`: registry state is `RESOLVED` with closing commit
+  `7d639e3b3`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `PLAT-CRITICAL-923`: registry state is `RESOLVED` with closing commit
+  `c2f09cea3`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.

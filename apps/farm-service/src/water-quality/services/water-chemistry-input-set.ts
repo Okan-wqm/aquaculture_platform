@@ -1,7 +1,8 @@
 import {
   COHERENCE_WINDOW_MS,
   engineUnit,
-  RECIRCULATING_SYSTEM_TYPES,
+  isRecirculating,
+  PAIRING_TOLERANCE_MS,
   WATER_CHEMISTRY_INPUT_SETS,
   type WaterChemistryInputSet,
   type WaterChemistryInputSpec,
@@ -19,7 +20,8 @@ import type { ReadingCandidate, ResolvedReading } from './reading-resolution';
  *   that does not recirculate, or whose volume is unknown or smaller than the
  *   water its own tanks hold (a recipe scaled to it would under-dose).
  * - INCOMPLETE: it applies, and an input has no usable value within its
- *   coherence window, or H2S was not read where its pH was.
+ *   coherence window, or H2S and its pH are not one water sample (another
+ *   point, or observed more than PAIRING_TOLERANCE_MS apart).
  * - READY: every input has a value, each within its window.
  */
 export const WATER_CHEMISTRY_VERDICT = {
@@ -54,6 +56,12 @@ export const WATER_CHEMISTRY_INPUT_PROBLEM = {
   NO_VALUE: 'NO_VALUE',
   /** The input was read at another point than the input it must be read with (H2S and its pH). */
   NOT_AT_SAME_POINT: 'NOT_AT_SAME_POINT',
+  /**
+   * The input and the input it must be read with were observed further apart
+   * than PAIRING_TOLERANCE_MS: not one water sample (the engine converts H2S
+   * at the pH it is given).
+   */
+  NOT_SAME_SAMPLE: 'NOT_SAME_SAMPLE',
 } as const;
 
 export type WaterChemistryInputProblem =
@@ -131,7 +139,7 @@ function loopProblems(loop: LoopFacts | null): WaterChemistrySetProblem[] {
     throw new Error('A set scaled by a loop volume was evaluated without its loop');
   }
   const problems: WaterChemistrySetProblem[] = [];
-  if (!RECIRCULATING_SYSTEM_TYPES.has(loop.type)) {
+  if (!isRecirculating(loop.type)) {
     problems.push(WATER_CHEMISTRY_SET_PROBLEM.SYSTEM_NOT_RECIRCULATING);
   }
   if (loop.volumeM3 === null || !(loop.volumeM3 > 0)) {
@@ -147,6 +155,25 @@ function chosenOf(input: InputFacts): ReadingCandidate | null {
   return input.reading === null ? null : input.reading.chosen;
 }
 
+/** Why two paired readings are not one water sample: another point, or too far apart in time. */
+function pairingProblems(
+  here: ReadingCandidate,
+  there: ReadingCandidate,
+): WaterChemistryInputProblem[] {
+  const problems: WaterChemistryInputProblem[] = [];
+  if (here.point.kind !== there.point.kind || here.point.id !== there.point.id) {
+    problems.push(WATER_CHEMISTRY_INPUT_PROBLEM.NOT_AT_SAME_POINT);
+  }
+  if (
+    here.observedAt === null ||
+    there.observedAt === null ||
+    Math.abs(here.observedAt.getTime() - there.observedAt.getTime()) > PAIRING_TOLERANCE_MS
+  ) {
+    problems.push(WATER_CHEMISTRY_INPUT_PROBLEM.NOT_SAME_SAMPLE);
+  }
+  return problems;
+}
+
 function inputStatus(input: InputFacts, all: readonly InputFacts[]): InputStatus {
   const problems: WaterChemistryInputProblem[] = [];
   if (input.parameter === null) {
@@ -154,15 +181,11 @@ function inputStatus(input: InputFacts, all: readonly InputFacts[]): InputStatus
   } else if (input.reading === null || input.reading.value === null) {
     problems.push(WATER_CHEMISTRY_INPUT_PROBLEM.NO_VALUE);
   }
-  const partner = all.find((other) => other.spec.engineInput === input.spec.samePointAs);
+  const partner = all.find((other) => other.spec.engineInput === input.spec.pairedWith);
   const here = chosenOf(input);
   const there = partner === undefined ? null : chosenOf(partner);
-  if (
-    here !== null &&
-    there !== null &&
-    (here.point.kind !== there.point.kind || here.point.id !== there.point.id)
-  ) {
-    problems.push(WATER_CHEMISTRY_INPUT_PROBLEM.NOT_AT_SAME_POINT);
+  if (here !== null && there !== null) {
+    problems.push(...pairingProblems(here, there));
   }
   return {
     ...input,

@@ -2386,8 +2386,9 @@ export type CloseEscapeIncidentInput = {
   recoveredCount?: InputMaybe<Scalars['Int']['input']>;
 };
 
-/** SHORT for pH, temperature, TAN and H2S; LONG for alkalinity, salinity, calcium */
+/** SHORT (4 h) pH, temperature, TAN, H2S; DAILY (24 h) alkalinity for dosing; LONG (48 h) salinity, calcium */
 export type CoherenceWindow =
+  | 'DAILY'
   | 'LONG'
   | 'SHORT';
 
@@ -25686,6 +25687,7 @@ export type WarehouseSummaryResponse = {
 /** Why one input cannot feed a water-chemistry calculation */
 export type WaterChemistryInputProblem =
   | 'NOT_AT_SAME_POINT'
+  | 'NOT_SAME_SAMPLE'
   | 'NO_PARAMETER'
   | 'NO_VALUE';
 

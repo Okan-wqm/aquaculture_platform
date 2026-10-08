@@ -5,6 +5,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import type { SensorChannelDescription, SensorChannelKey } from '@platform/event-contracts';
 import { DataSource, type EntityManager } from 'typeorm';
 
+import { isRecirculating } from '../data/water-chemistry-input-sets';
 import {
   MACHINE_MEASUREMENT_SOURCES,
   WaterQualityMeasurement,
@@ -220,9 +221,18 @@ function isChannelSource(source: WaterQualityParamEquipment): source is ChannelS
 
 /**
  * The location, then — when asked for — the places a loop-homogeneous value
- * may be inherited from: a tank's or equipment's system (when it is in
- * exactly one live system) and its site; a system's site. Read from farm's
- * topology now, the same arrangement placement uses.
+ * may be inherited from (D2, FARM-HIGH-381), read from farm's topology now
+ * (the arrangement placement uses):
+ *
+ * - a tank or equipment in exactly one live system: that system; then its
+ *   site only when the system's water does not recirculate — a RAS,
+ *   aquaponics or biofloc loop is isolated from site water (nitrification
+ *   consumes its alkalinity and calcium, its salinity drifts, its temperature
+ *   is its own), so the intake's value is not the loop's;
+ * - a tank or equipment in no live system: its site;
+ * - a tank or equipment in two or more live systems: nothing — which loop's
+ *   water it holds is not known;
+ * - a system: its site, only when its water does not recirculate.
  */
 async function readingChain(
   manager: EntityManager,
@@ -236,19 +246,27 @@ async function readingChain(
   }
   const ancestors: MeasurementPoint[] = [];
   if (point.kind === 'system') {
-    const farm = await loadFarmArrangement(manager, tenantId, { units: [], systems: [point.id] });
-    const siteId = farm.siteOfSystem.get(point.id);
-    if (siteId !== undefined) ancestors.push({ kind: 'site', id: siteId });
+    const loop = await loadFarmArrangement(manager, tenantId, { units: [], systems: [point.id] });
+    const siteId = loop.siteOfSystem.get(point.id);
+    const type = loop.typeOfSystem.get(point.id);
+    if (siteId !== undefined && type !== undefined && !isRecirculating(type)) {
+      ancestors.push({ kind: 'site', id: siteId });
+    }
   } else {
     const unit = await loadFarmArrangement(manager, tenantId, { units: [point.id], systems: [] });
-    const systems = [...(unit.systemsOfUnit.get(point.id) ?? [])];
-    const [systemId] = systems;
-    if (systems.length === 1 && systemId !== undefined) {
-      const loop = await loadFarmArrangement(manager, tenantId, { units: [], systems: [systemId] });
-      if (loop.siteOfSystem.has(systemId)) ancestors.push({ kind: 'system', id: systemId });
+    const linked = [...(unit.systemsOfUnit.get(point.id) ?? [])];
+    const loops = await loadFarmArrangement(manager, tenantId, { units: [], systems: linked });
+    const live = linked.filter((systemId) => loops.typeOfSystem.has(systemId));
+    if (live.length > 1) {
+      return [location];
     }
+    const [systemId] = live;
+    const type = systemId === undefined ? undefined : loops.typeOfSystem.get(systemId);
+    if (systemId !== undefined) ancestors.push({ kind: 'system', id: systemId });
     const siteId = unit.siteOfUnit.get(point.id);
-    if (siteId !== undefined) ancestors.push({ kind: 'site', id: siteId });
+    if (siteId !== undefined && (type === undefined || !isRecirculating(type))) {
+      ancestors.push({ kind: 'site', id: siteId });
+    }
   }
   return [location, ...ancestors.map(representativeLocation)];
 }

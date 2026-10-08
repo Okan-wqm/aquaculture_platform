@@ -78,7 +78,8 @@ registerEnumType(WATER_CHEMISTRY_INPUT_SET, {
 });
 registerEnumType(COHERENCE_WINDOW, {
   name: 'CoherenceWindow',
-  description: 'SHORT for pH, temperature, TAN and H2S; LONG for alkalinity, salinity, calcium',
+  description:
+    'SHORT (4 h) pH, temperature, TAN, H2S; DAILY (24 h) alkalinity for dosing; LONG (48 h) salinity, calcium',
 });
 registerEnumType(WATER_CHEMISTRY_VERDICT, {
   name: 'WaterChemistryVerdict',

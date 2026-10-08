@@ -3134,10 +3134,11 @@ type WaterChemistryInputStatus {
 }
 
 """
-SHORT for pH, temperature, TAN and H2S; LONG for alkalinity, salinity, calcium
+SHORT (4 h) pH, temperature, TAN, H2S; DAILY (24 h) alkalinity for dosing; LONG (48 h) salinity, calcium
 """
 enum CoherenceWindow {
   SHORT
+  DAILY
   LONG
 }
 
@@ -3146,6 +3147,7 @@ enum WaterChemistryInputProblem {
   NO_PARAMETER
   NO_VALUE
   NOT_AT_SAME_POINT
+  NOT_SAME_SAMPLE
 }
 
 """

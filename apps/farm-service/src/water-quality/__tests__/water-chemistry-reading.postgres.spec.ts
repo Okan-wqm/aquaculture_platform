@@ -57,7 +57,12 @@ import {
   shutdownSourceDatabase,
   type SourceDatabase,
 } from './helpers/source-database';
-import { seedSourceTopology, seedTank, type SourceTopology } from './helpers/source-topology';
+import {
+  seedLoop,
+  seedSourceTopology,
+  seedTank,
+  type SourceTopology,
+} from './helpers/source-topology';
 
 jest.setTimeout(180_000);
 
@@ -224,6 +229,12 @@ describe('water-chemistry reading — real Postgres', () => {
       ]),
     );
 
+  const setLoop = (systemId: string, type: string, volume: number | null): Promise<unknown> =>
+    ds().dataSource.query(
+      `UPDATE "${ds().schema}".systems SET type = $2, "totalVolumeM3" = $3 WHERE id = $1`,
+      [systemId, type, volume],
+    );
+
   const tankPoint = (): MeasurementPoint => ({ kind: 'tank', id: topology.tankId });
   const systemPoint = (): MeasurementPoint => ({ kind: 'system', id: topology.systemId });
 
@@ -347,31 +358,117 @@ describe('water-chemistry reading — real Postgres', () => {
     ]);
   });
 
-  it('resolves the toxicity inputs at a tank: READY, with temperature and salinity inherited', async () => {
-    // Salinity from a probe that stands at the site only (the intake), inherited by every loop.
+  it('never inherits from the site into a recirculating loop or its units; open water does', async () => {
+    const site: MeasurementPoint = { kind: 'site', id: topology.siteId };
+    // Intake probes at the site: the make-up water's salinity, alkalinity and temperature.
     await bind(
       configs.salinity,
-      { kind: 'site', id: topology.siteId },
+      site,
       channel('salinity', { quantity: 'salinity', unit: 'psu', latestValue: 33.5 }, SITE_SENSOR),
     );
-    await sample({ tankId: topology.tankId }, { total_ammonia_nitrogen: 0.8 }, HOUR);
     await bind(
-      configs.h2s,
-      tankPoint(),
+      configs.alkalinity,
+      site,
+      channel(
+        'alkalinity',
+        { quantity: 'alkalinity', unit: 'mg/L CaCO3', latestValue: 95 },
+        SITE_SENSOR,
+      ),
+    );
+    await bind(
+      topology.configs.temperature,
+      site,
+      channel('intake_temp', { quantity: 'temperature', unit: '°C', latestValue: 8 }, SITE_SENSOR),
+    );
+    // The RAS loop and its tank have no salinity of their own; the intake's is not theirs.
+    expect(await resolve(configs.salinity, tankPoint())).toMatchObject({
+      value: null,
+      unresolved: 'NO_SOURCE',
+    });
+    expect(await resolve(configs.salinity, systemPoint())).toMatchObject({
+      value: null,
+      unresolved: 'NO_SOURCE',
+    });
+    // Dosing a RAS loop on make-up-water alkalinity would mis-dose: INCOMPLETE, never READY.
+    await setLoop(topology.systemId, 'ras', 120);
+    const dosing = await inputsAt(systemPoint(), 'DOSING');
+    expect(dosing.verdict).toBe('INCOMPLETE');
+    expect(byInput(dosing)['alkalinityMg']).toEqual({
+      problems: ['NO_VALUE'],
+      value: null,
+      from: null,
+    });
+
+    // A flow-through loop's tank and a tank in no loop hold site water.
+    const open = await seedLoop(ds().dataSource, TENANT, topology, 'FT-1');
+    await setLoop(open.systemId, 'flow_through', null);
+    const openTank = await seedTank(
+      ds().dataSource,
+      TENANT,
+      topology,
+      'FT-TANK',
+      USER,
+      open.systemId,
+    );
+    const looseTank = await seedTank(ds().dataSource, TENANT, topology, 'LOOSE-TANK', USER);
+    for (const tank of [openTank, looseTank]) {
+      expect(await resolve(topology.configs.temperature, { kind: 'tank', id: tank })).toMatchObject(
+        {
+          value: 8,
+          inheritedFrom: 'site',
+          resolvedAt: { kind: 'site', id: topology.siteId },
+        },
+      );
+    }
+
+    // Water equipment in two live loops: whose water it holds is unknown, so nothing is inherited.
+    const biofilter: MeasurementPoint = { kind: 'equipment', id: topology.biofilterId };
+    expect(await resolve(topology.configs.temperature, biofilter)).toMatchObject({
+      inheritedFrom: 'system',
+    });
+    await ds().dataSource.query(
+      `INSERT INTO "${ds().schema}".equipment_systems ("tenantId", "equipmentId", "systemId")
+       VALUES ($1, $2, $3)`,
+      [TENANT, topology.biofilterId, open.systemId],
+    );
+    expect(await resolve(topology.configs.temperature, biofilter)).toMatchObject({
+      value: null,
+      unresolved: 'NO_SOURCE',
+    });
+    await ds().dataSource.query(
+      `DELETE FROM "${ds().schema}".equipment_systems WHERE "equipmentId" = $1 AND "systemId" = $2`,
+      [topology.biofilterId, open.systemId],
+    );
+  });
+
+  it('resolves the toxicity inputs at a tank: READY, temperature and salinity from its loop', async () => {
+    await bind(
+      configs.salinity,
+      systemPoint(),
+      channel('loop_salinity', {
+        equipmentId: topology.biofilterId,
+        quantity: 'salinity',
+        unit: 'psu',
+        latestValue: 34,
+      }),
+    );
+    await sample({ tankId: topology.tankId }, { total_ammonia_nitrogen: 0.8 }, HOUR);
+    const h2s = (latestAt: string): SensorChannelKey =>
       channel('h2s', {
         tankId: topology.tankId,
         quantity: 'h2s',
         unit: 'mg/L',
         latestValue: 0.002,
-      }),
-    );
+        latestAt,
+      });
+    await bind(configs.h2s, tankPoint(), h2s(ago(5 * MINUTE)));
     const result = await inputsAt(tankPoint(), 'TOXICITY');
     expect(result.verdict).toBe('READY');
     expect(result.problems).toEqual([]);
     expect(byInput(result)).toEqual({
       pH: { problems: [], value: 7.4, from: null },
       tempC: { problems: [], value: expect.closeTo(15, 6), from: 'system' },
-      salinity: { problems: [], value: 33.5, from: 'site' },
+      salinity: { problems: [], value: 34, from: 'system' },
       tan: { problems: [], value: 0.8, from: null },
       h2sUgL: { problems: [], value: expect.closeTo(2, 6), from: null },
     });
@@ -380,6 +477,17 @@ describe('water-chemistry reading — real Postgres', () => {
       coherenceWindow: 'SHORT',
       windowSeconds: 4 * 3600,
     });
+
+    // H2S taken 40 minutes from its pH is not one water sample.
+    h2s(ago(45 * MINUTE));
+    const apart = await inputsAt(tankPoint(), 'TOXICITY');
+    expect(apart.verdict).toBe('INCOMPLETE');
+    expect(byInput(apart)['h2sUgL']).toEqual({
+      problems: ['NOT_SAME_SAMPLE'],
+      value: expect.closeTo(2, 6),
+      from: null,
+    });
+    h2s(ago(5 * MINUTE));
   });
 
   it('is INCOMPLETE at a tank whose TAN sample is older than its window, saying why', async () => {
@@ -398,7 +506,7 @@ describe('water-chemistry reading — real Postgres', () => {
     expect(byInput(result)).toEqual({
       pH: { problems: ['NO_VALUE'], value: null, from: null },
       tempC: { problems: [], value: expect.closeTo(15, 6), from: 'system' },
-      salinity: { problems: [], value: 33.5, from: 'site' },
+      salinity: { problems: [], value: 34, from: 'system' },
       tan: { problems: ['NO_VALUE'], value: null, from: null },
       h2sUgL: { problems: ['NO_VALUE'], value: null, from: null },
     });
@@ -411,30 +519,24 @@ describe('water-chemistry reading — real Postgres', () => {
   it('resolves the dosing inputs at a system, and refuses a loop it cannot dose', async () => {
     await sample({ systemId: topology.systemId }, { alkalinity: 150 }, 2 * HOUR);
     await sample({ systemId: topology.systemId }, { calcium: 400 }, 30 * HOUR);
-    const setLoop = (type: string, volume: number | null): Promise<unknown> =>
-      ds().dataSource.query(
-        `UPDATE "${ds().schema}".systems SET type = $2, "totalVolumeM3" = $3 WHERE id = $1`,
-        [topology.systemId, type, volume],
-      );
-
-    await setLoop('ras', null);
+    await setLoop(topology.systemId, 'ras', null);
     const unknownVolume = await inputsAt(systemPoint(), 'DOSING');
     expect(unknownVolume).toMatchObject({ verdict: 'REFUSED', problems: ['VOLUME_MISSING'] });
     expect(byInput(unknownVolume)).toEqual({
       pH: { problems: [], value: 7.6, from: null },
       alkalinityMg: { problems: [], value: 150, from: null },
       tempC: { problems: [], value: expect.closeTo(15, 6), from: null },
-      salinity: { problems: [], value: 33.5, from: 'site' },
+      salinity: { problems: [], value: 34, from: null },
       caMgL: { problems: [], value: 400, from: null },
     });
 
     // Two tanks of π·2.5²·2 m³ each hold ≈ 78.5 m³.
-    await setLoop('ras', 30);
+    await setLoop(topology.systemId, 'ras', 30);
     const small = await inputsAt(systemPoint(), 'DOSING');
     expect(small).toMatchObject({ verdict: 'REFUSED', problems: ['VOLUME_BELOW_TANK_WATER'] });
     expect(small.tankWaterM3).toBeCloseTo(78.54, 1);
 
-    await setLoop('ras', 120);
+    await setLoop(topology.systemId, 'ras', 120);
     expect(await inputsAt(systemPoint(), 'DOSING')).toMatchObject({
       verdict: 'READY',
       problems: [],
@@ -442,12 +544,12 @@ describe('water-chemistry reading — real Postgres', () => {
       volumeM3: 120,
     });
 
-    await setLoop('flow_through', 120);
+    await setLoop(topology.systemId, 'flow_through', 120);
     expect(await inputsAt(systemPoint(), 'DOSING')).toMatchObject({
       verdict: 'REFUSED',
       problems: ['SYSTEM_NOT_RECIRCULATING'],
     });
-    await setLoop('ras', 120);
+    await setLoop(topology.systemId, 'ras', 120);
   });
 
   it('fails closed with SENSOR_DIRECTORY_UNAVAILABLE when the sensor service cannot describe', async () => {

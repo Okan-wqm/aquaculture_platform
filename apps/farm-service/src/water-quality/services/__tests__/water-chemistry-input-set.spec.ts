@@ -4,6 +4,7 @@ import { SystemType } from '../../../system/entities/system.entity';
 import {
   COHERENCE_WINDOW_MS,
   engineUnit,
+  PAIRING_TOLERANCE_MS,
   WATER_CHEMISTRY_INPUT_SETS,
   type WaterChemistryInputSet,
 } from '../../data/water-chemistry-input-sets';
@@ -15,6 +16,7 @@ const RAS: LoopFacts = { type: SystemType.RAS, volumeM3: 120, tankWaterM3: 80 };
 
 function answered(
   point: ReadingCandidate['point'] = { kind: 'tank', id: 'tank-1' },
+  observedAt: Date = AS_OF,
 ): ResolvedReading {
   return {
     value: 7.1,
@@ -28,7 +30,7 @@ function answered(
       sensorId: 'sensor-1',
       channelKey: 'ph',
       measurementId: null,
-      observedAt: AS_OF,
+      observedAt,
       quality: 'GOOD',
     },
     ageMs: 0,
@@ -91,7 +93,7 @@ describe('water-chemistry input sets (plan rev2 D3)', () => {
     expect(inherits).toEqual({ pH: false, tempC: true, salinity: true, tan: false, h2sUgL: false });
   });
 
-  it('reads pH, temperature, TAN and H2S within hours, alkalinity, salinity and calcium within days', () => {
+  it('reads pH, temperature, TAN and H2S within hours, dosing alkalinity within a day, salinity and calcium within two', () => {
     const windows = Object.fromEntries(
       [
         ...WATER_CHEMISTRY_INPUT_SETS.DOSING.inputs,
@@ -103,7 +105,7 @@ describe('water-chemistry input sets (plan rev2 D3)', () => {
       tempC: 4,
       tan: 4,
       h2sUgL: 4,
-      alkalinityMg: 48,
+      alkalinityMg: 24,
       salinity: 48,
       caMgL: 48,
     });
@@ -115,7 +117,7 @@ describe('water-chemistry input sets (plan rev2 D3)', () => {
     expect(evaluation.problems).toEqual([]);
     expect(evaluation.inputs.map((input) => input.windowMs)).toEqual([
       4 * 3_600_000,
-      48 * 3_600_000,
+      24 * 3_600_000,
       4 * 3_600_000,
       48 * 3_600_000,
       48 * 3_600_000,
@@ -166,5 +168,28 @@ describe('water-chemistry input sets (plan rev2 D3)', () => {
     expect(
       evaluation.inputs.find((input) => input.spec.engineInput === 'h2sUgL')?.problems,
     ).toEqual(['NOT_AT_SAME_POINT']);
+  });
+
+  it('wants H2S and its pH from one water sample: within 15 minutes of each other', () => {
+    const h2sAt = (minutesBefore: number): InputFacts[] =>
+      allAnswered('TOXICITY').map((input) =>
+        input.spec.engineInput === 'h2sUgL'
+          ? {
+              ...input,
+              reading: answered(
+                { kind: 'tank', id: 'tank-1' },
+                new Date(AS_OF.getTime() - minutesBefore * 60_000),
+              ),
+            }
+          : input,
+      );
+    const h2sProblems = (minutesBefore: number): readonly string[] =>
+      evaluateInputSet('TOXICITY', null, h2sAt(minutesBefore)).inputs.find(
+        (input) => input.spec.engineInput === 'h2sUgL',
+      )?.problems ?? ['missing input'];
+    expect(PAIRING_TOLERANCE_MS).toBe(15 * 60_000);
+    expect(h2sProblems(15)).toEqual([]);
+    expect(h2sProblems(16)).toEqual(['NOT_SAME_SAMPLE']);
+    expect(evaluateInputSet('TOXICITY', null, h2sAt(90)).verdict).toBe('INCOMPLETE');
   });
 });

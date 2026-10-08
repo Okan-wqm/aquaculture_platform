@@ -28,13 +28,26 @@ from typing import Any
 # be new. The threshold is what separates a stall from a small night.
 MIN_UPSTREAM_FOR_STALL: int = 10
 
-# The funnel's ordered stages, upstream first. Each pair is
-# (stage_name, counter_field); a stage is judged against the counter
-# immediately upstream of it, which is what makes "stalled" mean
+# The funnel's ordered stages, upstream first. Each entry is
+# (stage_name, counter_field, owner_paths); a stage is judged against the
+# counter immediately upstream of it, which is what makes "stalled" mean
 # "work arrives here and does not leave" rather than "this number is 0".
-FUNNEL_STAGES: tuple[tuple[str, str], ...] = (
-    ("convergence", "cycles_converged"),
-    ("merge", "cycles_merged"),
+#
+# ARIA-HIGH-384 — `owner_paths` is the repository code that moves work
+# through the stage, and it is the stall's EVIDENCE: the only refs a planner
+# asked "why does this stage convert nothing" can read and cite back at the
+# envelope's target_sha. The effectiveness ledger the counters live in is the
+# stall's provenance — a tools-root state record no agent can cite, which is
+# what made every pipeline_stalled request unanswerable.
+FUNNEL_STAGES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("convergence", "cycles_converged", (
+        "aria-kernel/aria_kernel/convergence_drainer.py",
+        "aria-kernel/aria_kernel/plan_convergence.py",
+    )),
+    ("merge", "cycles_merged", (
+        "aria-kernel/aria_kernel/converged_delivery.py",
+        "aria-kernel/aria_kernel/auto_merge.py",
+    )),
 )
 _UPSTREAM_FIELD: dict[str, str] = {
     "cycles_converged": "cycles_minted",
@@ -48,6 +61,7 @@ class FunnelStall:
     source_type: str
     upstream: int
     downstream: int
+    owner_paths: tuple[str, ...]
 
     @property
     def summary(self) -> str:
@@ -62,6 +76,7 @@ class FunnelStall:
             "source_type": self.source_type,
             "upstream": self.upstream,
             "downstream": self.downstream,
+            "owner_paths": list(self.owner_paths),
             "summary": self.summary,
         }
 
@@ -83,7 +98,7 @@ def detect_funnel_stalls(
         source = str(row.get("source_type") or "")
         if not source:
             continue
-        for stage, field in FUNNEL_STAGES:
+        for stage, field, owner_paths in FUNNEL_STAGES:
             upstream = int(row.get(_UPSTREAM_FIELD[field], 0) or 0)
             downstream = int(row.get(field, 0) or 0)
             if upstream >= min_upstream and downstream == 0:
@@ -91,6 +106,7 @@ def detect_funnel_stalls(
                     FunnelStall(
                         stage=stage, source_type=source,
                         upstream=upstream, downstream=downstream,
+                        owner_paths=owner_paths,
                     )
                 )
     return stalls

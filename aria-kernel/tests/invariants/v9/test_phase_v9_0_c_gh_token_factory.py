@@ -279,12 +279,21 @@ class TestV9TokenFactoryPublicApi(unittest.TestCase):
         revoke's own bounds (``INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS``,
         ``INSTALLATION_TOKEN_REVOKE_TIMEOUT_SECONDS``), which the delivery
         prices now that it mints the lease where it consumes it.
+
+        ARIA-HIGH-387 extends it by 2 — ``GitCommitIdentity``, the author
+        and committer a holder names to the mint so its commits carry them
+        (the executor's implementation identity names ``aria-implementer``;
+        the knowledge signer, which never commits, names none), and
+        ``CommitIdentityScopeRefused``, the mint's refusal to write one
+        anywhere but a linked worktree's own config.
         """
         self.assertEqual(
             set(_tf.__all__),
             {
                 "CONFIG_SCOPE_LOCAL",
                 "CONFIG_SCOPE_WORKTREE",
+                "CommitIdentityScopeRefused",
+                "GitCommitIdentity",
                 "GitSigningWiring",
                 "INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS",
                 "INSTALLATION_TOKEN_REVOKE_TIMEOUT_SECONDS",

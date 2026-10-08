@@ -46,6 +46,44 @@ export function isTerminalLifecycleState(state: DeviceLifecycleState): boolean {
   );
 }
 
+/**
+ * Which lifecycle states may hold an MQTT broker session — the ONE allow-list
+ * the CONNECT check and the per-message ACL both consult.
+ *
+ * A device is on the broker only once an operator (or an auto-approving tenant
+ * key) has put it into service: ACTIVE, or one of the states a device in
+ * service moves through on its own (OFFLINE, MAINTENANCE, ERROR). Everything
+ * else is refused: REGISTERED and PROVISIONING have not activated,
+ * PENDING_APPROVAL is awaiting the approval gate (self-registration still hands
+ * it a password — the agent contract requires one — so this predicate is what
+ * keeps it off the broker), REVOKED and DECOMMISSIONED are terminal.
+ *
+ * A Record over the enum, not a list: adding a lifecycle state is a compile
+ * error here until someone decides whether it may connect.
+ */
+const BROKER_SESSION_ALLOWED: Readonly<Record<DeviceLifecycleState, boolean>> = {
+  [DeviceLifecycleState.REGISTERED]: false,
+  [DeviceLifecycleState.PROVISIONING]: false,
+  [DeviceLifecycleState.PENDING_APPROVAL]: false,
+  [DeviceLifecycleState.ACTIVE]: true,
+  [DeviceLifecycleState.OFFLINE]: true,
+  [DeviceLifecycleState.MAINTENANCE]: true,
+  [DeviceLifecycleState.ERROR]: true,
+  [DeviceLifecycleState.REVOKED]: false,
+  [DeviceLifecycleState.DECOMMISSIONED]: false,
+};
+
+/** True when a device in `state` may connect to and publish on the broker. */
+export function mayHoldBrokerSession(state: DeviceLifecycleState): boolean {
+  // `=== true`: a value outside the enum (a hand-edited row) is refused.
+  return BROKER_SESSION_ALLOWED[state] === true;
+}
+
+/** The states {@link mayHoldBrokerSession} admits, for SQL filters. */
+export const BROKER_SESSION_STATES: readonly DeviceLifecycleState[] = Object.values(
+  DeviceLifecycleState,
+).filter(mayHoldBrokerSession);
+
 registerEnumType(DeviceLifecycleState, {
   name: 'DeviceLifecycleState',
   description: 'Lifecycle state of the edge device',

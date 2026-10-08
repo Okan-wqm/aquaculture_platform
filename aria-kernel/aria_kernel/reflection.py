@@ -97,7 +97,16 @@ def run_reflection(
     beliefs = _latest_by_id(
         load_jsonl_verified(root / "memory" / "beliefs.jsonl"), "belief_id"
     )
-    top_pressures = pressure_payload.get("pressures", [])[:3] if isinstance(pressure_payload.get("pressures"), list) else []
+    ranked_pressures = pressure_payload.get("pressures", []) if isinstance(pressure_payload.get("pressures"), list) else []
+    top_pressures = ranked_pressures[:3]
+    # ARIA-HIGH-384 review — the next cycle plans the top three pressures an
+    # agent can be handed evidence for; one with none (a PR, a ledger as its
+    # only origin) is passed over by name instead of taking a slot the drain
+    # can only consume as unevidenced. `top_pressures` stays the report's
+    # ranking, so the operator still sees it.
+    from .pressure_evidence import select_schedulable_pressures
+
+    planned_pressures, skipped_pressures = select_schedulable_pressures(ranked_pressures, slots=3)
     committed = _committed_findings_and_debts(root, repo_root_override=repo_root)
     human_required = _human_required_summary(root)
     phase_digest_summary = _phase_digest_summary(root)
@@ -188,8 +197,9 @@ def run_reflection(
                 # laundered the blocked state back into schedulable work.
                 "blocked_by": item.get("blocked_by", []),
             }
-            for item in top_pressures
+            for item in planned_pressures
         ],
+        "next_cycle_skipped": skipped_pressures,
     }
     if memory_learning_result is not None:
         reflection["memory_learning"] = memory_learning_result
@@ -205,6 +215,16 @@ def run_reflection(
     # writer side (queue-bloat protection — orchestrator drain is the
     # only sink). Pressure_id is the queue's idempotency key surface.
     from .next_cycle_queue import append_pending as _enqueue_next_cycle
+    from .tool_registry import append_tools_governance_once
+
+    # Every cycle's row carries `next_cycle_skipped`; governance names each
+    # standing skip once (ORPHAN-MEDIUM-730: a pressure passed over every
+    # night is one fact, not one row per night).
+    for skipped in skipped_pressures:
+        append_tools_governance_once(
+            root, "next_cycle_pressure_skipped", {"cycle_id": cycle_id, **skipped},
+            claim_keys=("pressure_id", "reason"),
+        )
     for item in reflection.get("next_cycle_plan", []):
         pressure_id = item.get("pressure_id")
         if not isinstance(pressure_id, str) or not pressure_id:

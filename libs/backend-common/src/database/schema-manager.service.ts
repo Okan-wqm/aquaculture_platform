@@ -269,12 +269,17 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     // (added by 1806000000000-ScadaTenantIsolation), exactly like
     // edge_device_directory. vfd_command_audit_logs is the append-only VFD
     // command audit ledger (cross-tenant, same class).
+    // SENSOR-HIGH-175: tenant_provisioning_key_directory routes a presented
+    // provisioning key (by a domain-separated hash of its digest) to its
+    // tenant for the public self-register endpoint; same class as
+    // edge_device_directory.
     infrastructureTables: [
       'migrations',
       'sensor_audit_logs',
       'sensor_outbox',
       'vfd_register_mappings',
       'edge_device_directory',
+      'tenant_provisioning_key_directory',
       'scada_alarms',
       'scada_alarm_chronicle',
       'scada_tag_history',

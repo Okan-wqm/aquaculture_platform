@@ -3,17 +3,14 @@ import type { TenantErasureRequestedEvent } from '@platform/event-contracts';
 import { DataSource, EntityManager } from 'typeorm';
 
 import { ErasedTenantTombstoneService } from '../erased-tenant-tombstone.service';
-import { MqttAuthCacheInvalidationHook } from '../mqtt-auth-cache-invalidation.hook';
 import { PublishedOutboxPurgeHook } from '../published-outbox-purge.hook';
-import { MqttAuthService } from '../../../edge-device/mqtt-auth.service';
 
 /**
  * Task 1.8 (100-tenant readiness plan): the sensor-service erasure
  * extensions. The published-outbox purge deletes ONLY published rows for
  * the erased tenant (pending rows — including the erasure's own proof —
- * must survive); the MQTT-auth cache invalidation drops every entry
- * mapping to the tenant; the tombstone makes ingress ACK-drop erased
- * tenants' late messages instead of recreating data.
+ * must survive); the tombstone makes ingress ACK-drop erased tenants'
+ * late messages instead of recreating data.
  */
 const TENANT = '11111111-1111-4111-8111-111111111111';
 
@@ -74,23 +71,6 @@ describe('PublishedOutboxPurgeHook (Task 1.8)', () => {
 
   it('carries a stable hookName folded into the proof hash', () => {
     expect(new PublishedOutboxPurgeHook().hookName).toBe('sensor-published-outbox-purge');
-  });
-});
-
-describe('MqttAuthCacheInvalidationHook (Task 1.8)', () => {
-  it('drops every MQTT auth cache entry mapping to the erased tenant', async () => {
-    const invalidate = jest.fn().mockReturnValue(2);
-    const mqttAuth = collaborator<MqttAuthService>(
-      { invalidateEntriesForTenant: invalidate },
-      'MqttAuthService',
-    );
-    const hook = new MqttAuthCacheInvalidationHook(mqttAuth);
-    const { manager } = makeManager();
-
-    await hook.onTenantErased(erasureEvent(false), manager);
-
-    expect(invalidate).toHaveBeenCalledWith(TENANT);
-    expect(hook.hookName).toBe('sensor-mqtt-auth-cache-invalidation');
   });
 });
 

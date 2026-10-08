@@ -109,7 +109,7 @@ const mockConfigService = {
 // MqttAuthService mock
 // ---------------------------------------------------------------------------
 const mockMqttAuthService = {
-  generateCredentials: jest.fn().mockReturnValue({
+  generateCredentials: jest.fn().mockResolvedValue({
     password: 'mqtt-plain-password',
     hash: '$7$101$fakesalt$fakehash',
   }),
@@ -207,12 +207,14 @@ describe('ProvisioningService - Config Management', () => {
         {
           provide: DeviceDirectoryService,
           useValue: {
-            upsert: jest.fn().mockResolvedValue(undefined),
+            // SENSOR-MEDIUM-004: device creation saves through the
+            // transaction's manager (the device and its route commit together).
+            saveNewDevice: jest.fn(
+              (device: EdgeDevice, manager: { save: (e: EdgeDevice) => Promise<EdgeDevice> }) =>
+                manager.save(device),
+            ),
             // SENSOR-CRITICAL-143: public lookups resolve through findDevice.
             findDevice: jest.fn(async () => deviceRepo.findOne({})),
-            lookupTenantId: jest.fn().mockResolvedValue(null),
-            backfill: jest.fn().mockResolvedValue(undefined),
-            remove: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],

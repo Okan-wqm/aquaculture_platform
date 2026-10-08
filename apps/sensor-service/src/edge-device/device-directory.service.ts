@@ -1,11 +1,9 @@
 import {
-  listActiveTenantSchemaIdentities,
   runInSourceRead,
   runInTenantRead,
-  runInTenantTransaction,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 
 import { EdgeDevice } from './entities/edge-device.entity';
@@ -29,14 +27,15 @@ export interface DeviceDirectoryEntry {
  * provisioning + MQTT-auth endpoints use it to resolve the tenant with a single
  * indexed query instead of a UNION-ALL scan across every tenant schema.
  *
- * The directory is a routing hint, not the source of truth: writers keep it in
- * sync inside the same transaction that mutates `edge_devices`, and readers
- * treat a miss as "fall back to the scan and backfill me".
+ * `edge_devices` is the source of truth; the directory is its routing index,
+ * written in the same transaction that creates the device (`saveNewDevice`,
+ * the only creation path) and backfilled once by migration 1822000000000 for
+ * devices created before every path wrote it. A miss is therefore a miss: the
+ * unauthenticated CONNECT path never scans tenants, so an unknown identifier
+ * costs one indexed read, not one transaction per tenant.
  */
 @Injectable()
 export class DeviceDirectoryService {
-  private readonly logger = new Logger(DeviceDirectoryService.name);
-
   // The directory column that a given edge_devices lookup column maps to.
   private static readonly COLUMN_MAP: Record<DirectoryLookupColumn, string> = {
     device_code: 'device_code',
@@ -58,8 +57,7 @@ export class DeviceDirectoryService {
 
   /**
    * Resolve the owning tenantId for a device by one of its public identifiers,
-   * in O(1) via the directory index. Returns null on a miss (caller falls back
-   * to the cross-schema scan).
+   * in O(1) via the directory index. Returns null on a miss.
    */
   async lookupTenantId(column: DirectoryLookupColumn, value: string): Promise<string | null> {
     const dirColumn = DeviceDirectoryService.COLUMN_MAP[column];
@@ -82,50 +80,50 @@ export class DeviceDirectoryService {
    * CONNECT / ACL hook and the public provisioning endpoints (SENSOR-CRITICAL-143).
    *
    * The directory names the tenant (runInSourceRead); the row is then read
-   * inside THAT tenant's boundary. On a directory miss every active tenant is
-   * read inside its own boundary — never one cross-schema UNION, which FORCE
-   * RLS on the deny-by-default pool answers with zero rows — and a hit
-   * backfills the directory.
+   * inside THAT tenant's boundary, so a directory row that names the wrong
+   * tenant resolves nothing. No directory row, no device.
    */
   async findDevice(column: DirectoryLookupColumn, value: string): Promise<EdgeDevice | null> {
-    const property = DeviceDirectoryService.ENTITY_PROPERTY[column];
-    const readIn = (tenantId: string): Promise<EdgeDevice | null> =>
-      runInTenantRead(this.dataSource, 'sensor', tenantId, (qr) =>
-        tenantManagerRepo(qr.manager, EdgeDevice).findOne({ where: { [property]: value } }),
-      );
-
     const tenantId = await this.lookupTenantId(column, value);
-    if (tenantId) {
-      const device = await readIn(tenantId);
-      if (device) {
-        return device;
-      }
-      // Stale directory entry (device moved / deleted): fall through.
+    if (!tenantId) {
+      return null;
     }
-
-    for (const identity of await listActiveTenantSchemaIdentities(this.dataSource)) {
-      const device = await readIn(identity.tenantId);
-      if (device) {
-        await this.backfill({
-          deviceId: device.id,
-          deviceCode: device.deviceCode,
-          mqttClientId: device.mqttClientId ?? null,
-          tenantId: device.tenantId,
-        });
-        return device;
-      }
-    }
-    return null;
+    const property = DeviceDirectoryService.ENTITY_PROPERTY[column];
+    return runInTenantRead(this.dataSource, 'sensor', tenantId, (qr) =>
+      tenantManagerRepo(qr.manager, EdgeDevice).findOne({ where: { [property]: value } }),
+    );
   }
 
   /**
-   * Insert or refresh the directory row for a device. Keyed on device_id so a
-   * re-registration or identifier change updates in place. Runs inside the
-   * caller's transaction when a manager is supplied.
+   * Persist a NEW device and publish its directory route through the same
+   * manager, so one transaction commits both or neither. Every device-creating
+   * path goes through here; a device that skipped the directory could never
+   * authenticate, because the CONNECT path does not scan tenants.
+   *
+   * The caller owns the transaction and must have opened it inside the
+   * device's tenant boundary (`runInTenantTransaction`): both tables carry the
+   * FORCED tenant-isolation policy.
    */
-  async upsert(entry: DeviceDirectoryEntry, manager?: EntityManager): Promise<void> {
-    const runner = manager ?? this.dataSource.manager;
-    await runner.query(
+  async saveNewDevice(device: EdgeDevice, manager: EntityManager): Promise<EdgeDevice> {
+    const saved = await manager.save(device);
+    await this.upsert(
+      {
+        deviceId: saved.id,
+        deviceCode: saved.deviceCode,
+        mqttClientId: saved.mqttClientId ?? null,
+        tenantId: saved.tenantId,
+      },
+      manager,
+    );
+    return saved;
+  }
+
+  /**
+   * Insert or refresh the directory row for a device, keyed on device_id, in
+   * the caller's tenant transaction.
+   */
+  private async upsert(entry: DeviceDirectoryEntry, manager: EntityManager): Promise<void> {
+    await manager.query(
       `INSERT INTO sensor.edge_device_directory
          (device_id, device_code, mqtt_client_id, tenant_id, updated_at)
        VALUES ($1, $2, $3, $4, now())
@@ -136,31 +134,5 @@ export class DeviceDirectoryService {
          updated_at = now()`,
       [entry.deviceId, entry.deviceCode, entry.mqttClientId ?? null, entry.tenantId],
     );
-  }
-
-  /**
-   * Best-effort backfill from a device row a scan just resolved. Never throws —
-   * the caller already has its answer; a directory hiccup must not fail the
-   * request. Self-heals the directory for the next lookup.
-   */
-  async backfill(entry: DeviceDirectoryEntry): Promise<void> {
-    try {
-      // The auth path that resolves a device has no request tenant; the write
-      // runs inside the device's own tenant boundary so the policy's
-      // WITH CHECK (tenant_id = current tenant) admits it.
-      await runInTenantTransaction(this.dataSource, 'sensor', entry.tenantId, (qr) =>
-        this.upsert(entry, qr.manager),
-      );
-    } catch (error) {
-      this.logger.warn(
-        `Directory backfill failed for device ${entry.deviceId}: ${(error as Error).message}`,
-      );
-    }
-  }
-
-  /** Remove a device from the directory (decommission / hard delete). */
-  async remove(deviceId: string, manager?: EntityManager): Promise<void> {
-    const runner = manager ?? this.dataSource.manager;
-    await runner.query(`DELETE FROM sensor.edge_device_directory WHERE device_id = $1`, [deviceId]);
   }
 }

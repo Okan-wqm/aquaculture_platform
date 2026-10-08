@@ -4,16 +4,14 @@
  * happens inside a tenant-isolation boundary:
  *   - the directory row through runInSourceRead (cross-tenant by design),
  *   - the device row inside the owning tenant's runInTenantRead,
- *   - a miss scans active tenants one boundary at a time and backfills
- *     inside the device's runInTenantTransaction.
+ *   - a miss is a miss: no tenant scan on the unauthenticated path; every
+ *     device is published to the directory by saveNewDevice when created.
  * The boundaries themselves are proven on real Postgres in
  * edge-mqtt-auth.rls.postgres.spec.ts; this spec pins the orchestration.
  */
 import {
-  listActiveTenantSchemaIdentities,
   runInSourceRead,
   runInTenantRead,
-  runInTenantTransaction,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
 
@@ -22,16 +20,15 @@ import { collaborator, stub } from '@aquaculture/testing';
 import type { DataSource, EntityManager } from 'typeorm';
 
 import { DeviceDirectoryService } from '../device-directory.service';
+import { EdgeDevice } from '../entities/edge-device.entity';
 import { MqttAuthService } from '../mqtt-auth.service';
 
 jest.mock('@aquaculture/backend-common/database', () => {
   const actual = jest.requireActual('@aquaculture/backend-common/database');
   return {
     ...actual,
-    listActiveTenantSchemaIdentities: jest.fn(),
     runInSourceRead: jest.fn(),
     runInTenantRead: jest.fn(),
-    runInTenantTransaction: jest.fn(),
     tenantManagerRepo: jest.fn(),
   };
 });
@@ -61,13 +58,6 @@ describe('DeviceDirectoryService (SENSOR-MEDIUM-004 / SENSOR-CRITICAL-143)', () 
     (tenantManagerRepo as jest.Mock).mockImplementation(() => ({
       findOne: jest.fn(async () => findOneByTenant.get(currentTenant) ?? null),
     }));
-    (runInTenantTransaction as jest.Mock).mockImplementation((_ds, _schema, _tenant, fn) =>
-      fn({ manager: { query: jest.fn().mockResolvedValue(undefined) } }),
-    );
-    (listActiveTenantSchemaIdentities as jest.Mock).mockResolvedValue([
-      { tenantId: TENANT_A, schemaName: 'tenant_aaaaaaaaaaaa4aaa' },
-      { tenantId: TENANT_B, schemaName: 'tenant_bbbbbbbbbbbb4bbb' },
-    ]);
   });
 
   it('resolves tenantId through the sanctioned source-schema read, by the mapped column', async () => {
@@ -92,51 +82,57 @@ describe('DeviceDirectoryService (SENSOR-MEDIUM-004 / SENSOR-CRITICAL-143)', () 
     await expect(svc.findDevice('mqtt_client_id', 'edge-1')).resolves.toBe(DEVICE);
     expect(runInTenantRead).toHaveBeenCalledTimes(1);
     expect((runInTenantRead as jest.Mock).mock.calls[0]?.[2]).toBe(TENANT_B);
-    expect(listActiveTenantSchemaIdentities).not.toHaveBeenCalled();
   });
 
-  it('on a miss reads each active tenant in its own boundary and backfills the hit', async () => {
+  it('on a directory miss returns null without opening any tenant boundary', async () => {
+    findOneByTenant.set(TENANT_A, DEVICE);
     findOneByTenant.set(TENANT_B, DEVICE);
     const svc = new DeviceDirectoryService(dataSource);
 
-    await expect(svc.findDevice('device_code', 'EDGE-1')).resolves.toBe(DEVICE);
-    expect((runInTenantRead as jest.Mock).mock.calls.map((call) => call[2])).toEqual([
-      TENANT_A,
-      TENANT_B,
-    ]);
-    expect(runInTenantTransaction).toHaveBeenCalledWith(
-      dataSource,
-      'sensor',
-      TENANT_B,
-      expect.any(Function),
-    );
+    await expect(svc.findDevice('device_code', 'EDGE-1')).resolves.toBeNull();
+    expect(runInTenantRead).not.toHaveBeenCalled();
   });
 
-  it('returns null when no tenant holds the device', async () => {
+  it('a directory row naming the wrong tenant resolves nothing', async () => {
+    directoryQuery.mockResolvedValue([{ tenant_id: TENANT_A }]);
+    findOneByTenant.set(TENANT_B, DEVICE);
     const svc = new DeviceDirectoryService(dataSource);
-    await expect(svc.findDevice('device_code', 'nope')).resolves.toBeNull();
+
+    await expect(svc.findDevice('mqtt_client_id', 'edge-1')).resolves.toBeNull();
+    expect((runInTenantRead as jest.Mock).mock.calls.map((call) => call[2])).toEqual([TENANT_A]);
   });
 
-  it('upserts through the supplied transactional manager, keyed on device_id', async () => {
-    const mgrQuery = jest.fn().mockResolvedValue(undefined);
+  it('saveNewDevice saves the device and its route through the SAME manager', async () => {
+    const device = Object.assign(new EdgeDevice(), { deviceCode: 'C1', mqttClientId: 'm1' });
+    const saved = Object.assign(new EdgeDevice(), {
+      id: 'd1',
+      tenantId: 't1',
+      deviceCode: 'C1',
+      mqttClientId: 'm1',
+    });
+    const save = jest.fn().mockResolvedValue(saved);
+    const query = jest.fn().mockResolvedValue(undefined);
     const svc = new DeviceDirectoryService(dataSource);
 
-    await svc.upsert(
-      { deviceId: 'd1', deviceCode: 'C1', mqttClientId: 'm1', tenantId: 't1' },
-      stub<EntityManager>({ query: mgrQuery }),
+    await expect(svc.saveNewDevice(device, stub<EntityManager>({ save, query }))).resolves.toBe(
+      saved,
     );
-    expect(mgrQuery).toHaveBeenCalledWith(
+    expect(save).toHaveBeenCalledWith(device);
+    expect(query).toHaveBeenCalledWith(
       expect.stringContaining('ON CONFLICT (device_id) DO UPDATE'),
       ['d1', 'C1', 'm1', 't1'],
     );
   });
 
-  it('backfill never throws even when the write fails', async () => {
-    (runInTenantTransaction as jest.Mock).mockRejectedValue(new Error('boom'));
+  it('saveNewDevice publishes no route when the device save fails', async () => {
+    const save = jest.fn().mockRejectedValue(new Error('23505'));
+    const query = jest.fn();
     const svc = new DeviceDirectoryService(dataSource);
+
     await expect(
-      svc.backfill({ deviceId: 'd', deviceCode: 'c', tenantId: TENANT_A }),
-    ).resolves.toBeUndefined();
+      svc.saveNewDevice(new EdgeDevice(), stub<EntityManager>({ save, query })),
+    ).rejects.toThrow('23505');
+    expect(query).not.toHaveBeenCalled();
   });
 });
 
@@ -144,7 +140,7 @@ describe('MQTT-auth negative-result cache bounds unknown-username floods (SENSOR
   function service(): { auth: MqttAuthService; findDevice: jest.Mock } {
     const findDevice = jest.fn().mockResolvedValue(null);
     const directory = collaborator<DeviceDirectoryService>(
-      { findDevice, lookupTenantId: jest.fn(), backfill: jest.fn() },
+      { findDevice },
       'DeviceDirectoryService',
     );
     return { auth: new MqttAuthService(new ConfigService({}), directory), findDevice };

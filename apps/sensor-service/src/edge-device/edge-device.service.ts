@@ -4,6 +4,7 @@ import {
   getTenantSchemaName,
   listTenantSchemas,
   pinTenantSchemaTransactionSearchPath,
+  runInTenantTransaction,
 } from '@aquaculture/backend-common/database';
 import {
   createStandardPaginatedResult,
@@ -30,8 +31,16 @@ import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
 
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
+import { DeviceDirectoryService } from './device-directory.service';
 import { DeviceIoConfig, IoType, IoDataType } from './entities/device-io-config.entity';
-import { EdgeDevice, DeviceLifecycleState, DeviceModel, isTerminalLifecycleState } from './entities/edge-device.entity';
+import {
+  BROKER_SESSION_STATES,
+  DeviceLifecycleState,
+  DeviceModel,
+  EdgeDevice,
+  isTerminalLifecycleState,
+  mayHoldBrokerSession,
+} from './entities/edge-device.entity';
 import { LoRaDevice, LoRaActivationMode, LoRaDeviceClass } from './entities/lora-device.entity';
 import { InstallerScriptService } from './installer-script.service';
 
@@ -330,6 +339,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     private readonly mqttClient: MqttClientService | null,
     private readonly installerScriptService: InstallerScriptService,
     private readonly configService: ConfigService,
+    private readonly deviceDirectory: DeviceDirectoryService,
   ) {
     // Start periodic cleanup of stale pending pings
     this.startPendingPingsCleanup();
@@ -497,7 +507,12 @@ export class EdgeDeviceService implements OnModuleDestroy {
       createdBy,
     });
 
-    const saved = await this.deviceRepository.save(device);
+    // SENSOR-MEDIUM-004: the device and its O(1) directory route commit in one
+    // tenant transaction. The broker auth hook resolves a device only through
+    // the directory, so a device saved without a route could never connect.
+    const saved = await runInTenantTransaction(this.dataSource, 'sensor', tenantId, (qr) =>
+      this.deviceDirectory.saveNewDevice(device, qr.manager),
+    );
     this.logger.log(`Registered new edge device: ${saved.deviceCode} (${saved.id})`);
     return saved;
   }
@@ -740,25 +755,10 @@ export class EdgeDeviceService implements OnModuleDestroy {
     // Update connection quality based on frequency of heartbeats
     device.connectionQuality = heartbeat.isOnline ? 100 : 0;
 
-    // Map status string to lifecycle state (skip DECOMMISSIONED/REVOKED — those are admin-only)
-    const status = heartbeat.status;
-    if (status === 'error') {
-      device.lifecycleState = DeviceLifecycleState.ERROR;
-    } else if (status === 'maintenance') {
-      device.lifecycleState = DeviceLifecycleState.MAINTENANCE;
-    } else if (status === 'offline' && device.lifecycleState === DeviceLifecycleState.ACTIVE) {
-      device.lifecycleState = DeviceLifecycleState.OFFLINE;
-    } else if (
-      heartbeat.isOnline &&
-      (device.lifecycleState === DeviceLifecycleState.OFFLINE ||
-        device.lifecycleState === DeviceLifecycleState.PROVISIONING)
-    ) {
-      // Transition to ACTIVE when device comes online from OFFLINE or PROVISIONING state
-      device.lifecycleState = DeviceLifecycleState.ACTIVE;
-    } else if (!heartbeat.isOnline && device.lifecycleState === DeviceLifecycleState.ACTIVE) {
-      // Transition to OFFLINE when device goes offline while in ACTIVE state
-      device.lifecycleState = DeviceLifecycleState.OFFLINE;
-    }
+    device.lifecycleState = EdgeDeviceService.heartbeatLifecycleState(
+      device.lifecycleState,
+      heartbeat,
+    );
 
     // Save using tenant-scoped query when available
     if (tenantSchema) {
@@ -794,6 +794,38 @@ export class EdgeDeviceService implements OnModuleDestroy {
       `BLOCKED: updateHeartbeat for device ${device.deviceCode ?? device.id} has no tenantSchema — would write to source schema`,
     );
     return device;
+  }
+
+  /**
+   * The lifecycle state a heartbeat moves a device to. Only a device already in
+   * service (mayHoldBrokerSession) is moved: the heartbeat is device-reported,
+   * and a device must never lift itself out of PENDING_APPROVAL, REGISTERED,
+   * REVOKED or DECOMMISSIONED into a state the broker admits (e.g. by
+   * reporting 'error'). DECOMMISSIONED/REVOKED stay admin-only.
+   */
+  private static heartbeatLifecycleState(
+    current: DeviceLifecycleState,
+    heartbeat: DeviceHeartbeat,
+  ): DeviceLifecycleState {
+    if (!mayHoldBrokerSession(current)) {
+      return current;
+    }
+    if (heartbeat.status === 'error') {
+      return DeviceLifecycleState.ERROR;
+    }
+    if (heartbeat.status === 'maintenance') {
+      return DeviceLifecycleState.MAINTENANCE;
+    }
+    if (heartbeat.status === 'offline' && current === DeviceLifecycleState.ACTIVE) {
+      return DeviceLifecycleState.OFFLINE;
+    }
+    if (heartbeat.isOnline && current === DeviceLifecycleState.OFFLINE) {
+      return DeviceLifecycleState.ACTIVE;
+    }
+    if (!heartbeat.isOnline && current === DeviceLifecycleState.ACTIVE) {
+      return DeviceLifecycleState.OFFLINE;
+    }
+    return current;
   }
 
   /**
@@ -834,18 +866,21 @@ export class EdgeDeviceService implements OnModuleDestroy {
         await qr.startTransaction();
         await pinTenantSchemaTransactionSearchPath(qr, 'sensor', schemaName);
 
+        // Only devices in service go OFFLINE (MAINTENANCE keeps its state). A
+        // deny-list here moved PENDING_APPROVAL / REGISTERED / REVOKED rows
+        // into OFFLINE — a state mayHoldBrokerSession admits — so a stale
+        // pending device would have been let onto the broker without approval.
         const result: unknown = await qr.query(
           `UPDATE edge_devices
            SET is_online = false,
                lifecycle_state = $1
            WHERE is_online = true
              AND last_seen_at < $2
-             AND lifecycle_state NOT IN ($3, $4)`,
+             AND lifecycle_state::text = ANY($3::text[])`,
           [
             DeviceLifecycleState.OFFLINE,
             cutoff.toISOString(),
-            DeviceLifecycleState.DECOMMISSIONED,
-            DeviceLifecycleState.MAINTENANCE,
+            BROKER_SESSION_STATES.filter((state) => state !== DeviceLifecycleState.MAINTENANCE),
           ],
         );
 

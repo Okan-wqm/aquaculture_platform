@@ -2,15 +2,15 @@
  * MqttAuthService Unit Tests
  *
  * Covers critical security paths:
- * - Device authentication (valid, invalid, revoked)
+ * - Device authentication (valid, invalid, lifecycle allow-list, client ID)
  * - Cross-tenant ACL enforcement
  * - Legacy edge/ topic handling
  * - Service account patterns
  * - Timing-safe comparison
- * - Tenant ID cache behaviour
  */
 
 import { createHash, timingSafeEqual, pbkdf2Sync, randomBytes } from 'crypto';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { EdgeDevice, DeviceLifecycleState } from '../entities/edge-device.entity';
@@ -26,12 +26,26 @@ const TENANT_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const DEVICE_UUID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const MQTT_CLIENT = 'edge-c2447348-pi-a36c09d4';
+const DEVICE_CODE = 'PI-A36C09D4';
+/** The client ID the edge gateway derives: `${username}-${deviceCode}`. */
+const OWN_CLIENT_ID = `${MQTT_CLIENT}-${DEVICE_CODE}`;
+
+/** Lifecycle states that may hold a broker session, and those that may not. */
+const IN_SERVICE_STATES = [
+  DeviceLifecycleState.ACTIVE,
+  DeviceLifecycleState.OFFLINE,
+  DeviceLifecycleState.MAINTENANCE,
+  DeviceLifecycleState.ERROR,
+];
+const NOT_IN_SERVICE_STATES = Object.values(DeviceLifecycleState).filter(
+  (state) => !IN_SERVICE_STATES.includes(state),
+);
 
 function makeDevice(overrides: Partial<EdgeDevice> = {}): EdgeDevice {
   const d = new EdgeDevice();
   d.id = DEVICE_UUID;
   d.tenantId = TENANT_A;
-  d.deviceCode = 'pi-a36c09d4';
+  d.deviceCode = DEVICE_CODE;
   d.deviceName = 'Test Device';
   d.lifecycleState = DeviceLifecycleState.ACTIVE;
   d.mqttClientId = MQTT_CLIENT;
@@ -86,10 +100,6 @@ function createService(
   // (SENSOR-CRITICAL-143); it misses by default.
   const directory = {
     findDevice: jest.fn().mockResolvedValue(null),
-    lookupTenantId: jest.fn().mockResolvedValue(null),
-    backfill: jest.fn().mockResolvedValue(undefined),
-    upsert: jest.fn().mockResolvedValue(undefined),
-    remove: jest.fn().mockResolvedValue(undefined),
   };
   return {
     service: new MqttAuthService(
@@ -128,17 +138,25 @@ describe('MqttAuthService', () => {
       const { service, directory } = createService();
       stubFindDevice(directory, device);
 
-      const result = await service.verifyDeviceCredentials(
-        MQTT_CLIENT,
-        password,
-        `${MQTT_CLIENT}-DEV01`,
-      );
+      const result = await service.verifyDeviceCredentials(MQTT_CLIENT, password, OWN_CLIENT_ID);
       expect(result).toBe(true);
+    });
+
+    it('accepts the bare username as client ID', async () => {
+      const password = 'my-secret-password';
+      const { service, directory } = createService();
+      stubFindDevice(directory, makeDevice({ mqttPasswordHash: hashPassword(password) }));
+
+      await expect(
+        service.verifyDeviceCredentials(MQTT_CLIENT, password, MQTT_CLIENT),
+      ).resolves.toBe(true);
     });
 
     it.each([
       ['the ingestion listener', 'aqua-sensor-service-main'],
       ['another gateway', 'edge-otherdev-RPI-01'],
+      ['a sibling suffix of its own username', `${MQTT_CLIENT}-PI-OTHER01`],
+      ['its username with a trailing dash', `${MQTT_CLIENT}-`],
       ['a missing client ID', undefined],
     ])(
       'rejects valid credentials under %s client ID (SENSOR-HIGH-144)',
@@ -151,9 +169,55 @@ describe('MqttAuthService', () => {
         await expect(
           service.verifyDeviceCredentials(MQTT_CLIENT, password, clientId),
         ).resolves.toBe(false);
-        expect(directory.findDevice).not.toHaveBeenCalled();
       },
     );
+
+    it.each(IN_SERVICE_STATES)('accepts a %s device with valid credentials', async (state) => {
+      const password = 'my-secret';
+      const { service, directory } = createService();
+      stubFindDevice(
+        directory,
+        makeDevice({ mqttPasswordHash: hashPassword(password), lifecycleState: state }),
+      );
+
+      await expect(
+        service.verifyDeviceCredentials(MQTT_CLIENT, password, OWN_CLIENT_ID),
+      ).resolves.toBe(true);
+    });
+
+    it.each(NOT_IN_SERVICE_STATES)(
+      'rejects a %s device even with a valid password (lifecycle allow-list)',
+      async (state) => {
+        const password = 'my-secret';
+        const { service, directory } = createService();
+        stubFindDevice(
+          directory,
+          makeDevice({ mqttPasswordHash: hashPassword(password), lifecycleState: state }),
+        );
+
+        await expect(
+          service.verifyDeviceCredentials(MQTT_CLIENT, password, OWN_CLIENT_ID),
+        ).resolves.toBe(false);
+      },
+    );
+
+    it('logs a refused CONNECT at debug with a username fingerprint, never the raw username', async () => {
+      const { service, directory } = createService();
+      stubFindDevice(directory, null);
+      const debug = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      const hostile = 'edge-x\n[FAKE] admin login ok';
+
+      await service.verifyDeviceCredentials(hostile, 'pw', hostile);
+
+      expect(warn).not.toHaveBeenCalled();
+      expect(debug).toHaveBeenCalledWith({
+        event: 'mqtt_device_auth_denied',
+        reason: 'device_not_found',
+        principal: MqttAuthService.principalFingerprint(hostile),
+      });
+      expect(JSON.stringify(debug.mock.calls)).not.toContain('FAKE');
+    });
 
     it('should reject invalid password', async () => {
       const hash = hashPassword('correct-password');
@@ -164,7 +228,7 @@ describe('MqttAuthService', () => {
       const result = await service.verifyDeviceCredentials(
         MQTT_CLIENT,
         'wrong-password',
-        `${MQTT_CLIENT}-DEV01`,
+        OWN_CLIENT_ID,
       );
       expect(result).toBe(false);
     });
@@ -181,52 +245,12 @@ describe('MqttAuthService', () => {
       expect(result).toBe(false);
     });
 
-    it('should reject revoked device', async () => {
-      const password = 'my-secret';
-      const hash = hashPassword(password);
-      const device = makeDevice({
-        mqttPasswordHash: hash,
-        lifecycleState: DeviceLifecycleState.REVOKED,
-      });
-      const { service, directory } = createService();
-      stubFindDevice(directory, device);
-
-      const result = await service.verifyDeviceCredentials(
-        MQTT_CLIENT,
-        password,
-        `${MQTT_CLIENT}-DEV01`,
-      );
-      expect(result).toBe(false);
-    });
-
-    it('should reject decommissioned device', async () => {
-      const password = 'my-secret';
-      const hash = hashPassword(password);
-      const device = makeDevice({
-        mqttPasswordHash: hash,
-        lifecycleState: DeviceLifecycleState.DECOMMISSIONED,
-      });
-      const { service, directory } = createService();
-      stubFindDevice(directory, device);
-
-      const result = await service.verifyDeviceCredentials(
-        MQTT_CLIENT,
-        password,
-        `${MQTT_CLIENT}-DEV01`,
-      );
-      expect(result).toBe(false);
-    });
-
     it('should reject device without password hash', async () => {
       const device = makeDevice({ mqttPasswordHash: undefined });
       const { service, directory } = createService();
       stubFindDevice(directory, device);
 
-      const result = await service.verifyDeviceCredentials(
-        MQTT_CLIENT,
-        'any',
-        `${MQTT_CLIENT}-DEV01`,
-      );
+      const result = await service.verifyDeviceCredentials(MQTT_CLIENT, 'any', OWN_CLIENT_ID);
       expect(result).toBe(false);
     });
 
@@ -263,40 +287,40 @@ describe('MqttAuthService', () => {
   // ─── verifyPassword (timing-safe) ──────────────────────────────────────
 
   describe('verifyPassword (timing-safe)', () => {
-    it('should return true for matching password', () => {
+    it('should return true for matching password', async () => {
       const { service } = createService();
       const password = 'test-timing-safe';
       const hash = hashPassword(password);
 
-      expect(service.verifyPassword(password, hash)).toBe(true);
+      await expect(service.verifyPassword(password, hash)).resolves.toBe(true);
     });
 
-    it('should return false for non-matching password', () => {
+    it('should return false for non-matching password', async () => {
       const { service } = createService();
       const hash = hashPassword('correct');
 
-      expect(service.verifyPassword('incorrect', hash)).toBe(false);
+      await expect(service.verifyPassword('incorrect', hash)).resolves.toBe(false);
     });
 
-    it('should return false for malformed hash (missing parts)', () => {
+    it('should return false for malformed hash (missing parts)', async () => {
       const { service } = createService();
-      expect(service.verifyPassword('any', '$7$101$salt')).toBe(false);
+      await expect(service.verifyPassword('any', '$7$101$salt')).resolves.toBe(false);
     });
 
-    it('should return false for hash with wrong prefix', () => {
+    it('should return false for hash with wrong prefix', async () => {
       const { service } = createService();
-      expect(service.verifyPassword('any', '$6$101$salt$hash')).toBe(false);
+      await expect(service.verifyPassword('any', '$6$101$salt$hash')).resolves.toBe(false);
     });
 
-    it('should return false for completely invalid hash', () => {
+    it('should return false for completely invalid hash', async () => {
       const { service } = createService();
-      expect(service.verifyPassword('any', 'not-a-hash')).toBe(false);
+      await expect(service.verifyPassword('any', 'not-a-hash')).resolves.toBe(false);
     });
 
-    it('should not throw on corrupt base64 data', () => {
+    it('should not throw on corrupt base64 data', async () => {
       const { service } = createService();
       // verifyPassword should catch and return false, not throw
-      expect(service.verifyPassword('any', '$7$101$!!!$!!!')).toBe(false);
+      await expect(service.verifyPassword('any', '$7$101$!!!$!!!')).resolves.toBe(false);
     });
   });
 
@@ -331,6 +355,41 @@ describe('MqttAuthService', () => {
       const topic = `tenants/${TENANT_B}/devices/${MQTT_CLIENT}/telemetry`;
       const result = await service.checkTopicAccess(MQTT_CLIENT, topic, 2);
       expect(result).toBe(false);
+    });
+
+    it.each(NOT_IN_SERVICE_STATES)(
+      'should DENY its own tenant topic to a %s device (same allow-list as CONNECT)',
+      async (state) => {
+        const { service, directory } = createService();
+        stubFindDeviceRepeated(
+          directory,
+          makeDevice({ tenantId: TENANT_A, lifecycleState: state }),
+        );
+
+        for (const deviceSegment of [MQTT_CLIENT, DEVICE_UUID]) {
+          await expect(
+            service.checkTopicAccess(
+              MQTT_CLIENT,
+              `tenants/${TENANT_A}/devices/${deviceSegment}/telemetry`,
+              2,
+            ),
+          ).resolves.toBe(false);
+        }
+      },
+    );
+
+    it('re-reads the device on every ACL check, so a state change applies to the next message', async () => {
+      const { service, directory } = createService();
+      directory.findDevice
+        .mockResolvedValueOnce(makeDevice({ tenantId: TENANT_A }))
+        .mockResolvedValueOnce(
+          makeDevice({ tenantId: TENANT_A, lifecycleState: DeviceLifecycleState.DECOMMISSIONED }),
+        );
+      const topic = `tenants/${TENANT_A}/devices/${DEVICE_UUID}/telemetry`;
+
+      await expect(service.checkTopicAccess(MQTT_CLIENT, topic, 2)).resolves.toBe(true);
+      await expect(service.checkTopicAccess(MQTT_CLIENT, topic, 2)).resolves.toBe(false);
+      expect(directory.findDevice).toHaveBeenCalledTimes(2);
     });
 
     it('should DENY when device not found in DB', async () => {
@@ -506,39 +565,29 @@ describe('MqttAuthService', () => {
   // ─── generateCredentials ───────────────────────────────────────────────
 
   describe('generateCredentials', () => {
-    it('should return password and hash in $7$ format', () => {
+    it('should return password and hash in $7$ format', async () => {
       const { service } = createService();
-      const { password, hash } = service.generateCredentials();
+      const { password, hash } = await service.generateCredentials();
 
       expect(password).toBeDefined();
       expect(password.length).toBeGreaterThan(0);
       expect(hash).toMatch(/^\$7\$/);
     });
 
-    it('should generate verifiable credentials', () => {
+    it('should generate verifiable credentials', async () => {
       const { service } = createService();
-      const { password, hash } = service.generateCredentials();
+      const { password, hash } = await service.generateCredentials();
 
-      expect(service.verifyPassword(password, hash)).toBe(true);
+      await expect(service.verifyPassword(password, hash)).resolves.toBe(true);
     });
 
-    it('should generate unique passwords each time', () => {
+    it('should generate unique passwords each time', async () => {
       const { service } = createService();
-      const c1 = service.generateCredentials();
-      const c2 = service.generateCredentials();
+      const c1 = await service.generateCredentials();
+      const c2 = await service.generateCredentials();
 
       expect(c1.password).not.toBe(c2.password);
       expect(c1.hash).not.toBe(c2.hash);
-    });
-  });
-
-  // ─── tenant cache behavior ─────────────────────────────────────────────
-
-  describe('tenant cache', () => {
-    it('should invalidate cache entry', () => {
-      const { service } = createService();
-      // invalidateTenantCache should not throw
-      expect(() => service.invalidateTenantCache('edge-test')).not.toThrow();
     });
   });
 });

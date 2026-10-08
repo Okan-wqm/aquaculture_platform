@@ -157,9 +157,14 @@ export class ProvisioningService {
       createdBy,
     });
 
+    // SENSOR-MEDIUM-004: the device and its O(1) directory route commit
+    // together — the unauthenticated lookup paths do not scan tenants, so a
+    // device without a route could never be resolved.
     let saved: EdgeDevice;
     try {
-      saved = await this.deviceRepository.save(device);
+      saved = await runInTenantTransaction(this.dataSource, 'sensor', tenantId, (qr) =>
+        this.deviceDirectory.saveNewDevice(device, qr.manager),
+      );
     } catch (error: any) {
       if (error?.code === '23505') { // PostgreSQL unique violation
         throw new ConflictException('Device code conflict, please retry');
@@ -167,14 +172,6 @@ export class ProvisioningService {
       throw error;
     }
     this.logger.log(`Created provisioned device ${deviceCode} for tenant ${tenantId}`);
-
-    // SENSOR-MEDIUM-004: publish the O(1) directory route for public lookups.
-    await this.deviceDirectory.upsert({
-      deviceId: saved.id,
-      deviceCode: saved.deviceCode,
-      mqttClientId: saved.mqttClientId ?? null,
-      tenantId,
-    });
 
     return await this.buildProvisioningResponse(saved, provisioningToken);
   }
@@ -386,7 +383,7 @@ export class ProvisioningService {
     }
 
     // Generate MQTT credentials
-    const { password: mqttPassword, hash: mqttPasswordHash } = this.generateMqttCredentials();
+    const { password: mqttPassword, hash: mqttPasswordHash } = await this.generateMqttCredentials();
 
     // Wrap in transaction to prevent partial activation
     // Set search_path to the device's tenant schema so TypeORM writes to the correct schema
@@ -439,7 +436,7 @@ export class ProvisioningService {
    * Generate MQTT credentials for a device
    * Uses MqttAuthService for consistent password hashing
    */
-  generateMqttCredentials(): { password: string; hash: string } {
+  generateMqttCredentials(): Promise<{ password: string; hash: string }> {
     return this.mqttAuthService.generateCredentials();
   }
 
@@ -670,7 +667,8 @@ export class ProvisioningService {
           this.logger.log(`Returning existing registration for device ${existing.deviceCode} (power-loss recovery)`);
           const config = await this.installerScriptService.getProvisioningConfig();
           // Regenerate MQTT credentials for the recovery
-          const { password: mqttPassword, hash: mqttPasswordHash } = this.generateMqttCredentials();
+          const { password: mqttPassword, hash: mqttPasswordHash } =
+            await this.generateMqttCredentials();
           existing.mqttPasswordHash = mqttPasswordHash;
           await runInTenantTransaction(this.dataSource, 'sensor', existing.tenantId, (qr) =>
             qr.manager.save(existing),
@@ -700,9 +698,15 @@ export class ProvisioningService {
     // Generate device code and MQTT credentials
     const deviceCode = this.generateDeviceCode();
     const mqttClientId = `edge-${key.tenantId.substring(0, 8)}-${deviceCode}`.toLowerCase();
-    const { password: mqttPassword, hash: mqttPasswordHash } = this.generateMqttCredentials();
+    const { password: mqttPassword, hash: mqttPasswordHash } = await this.generateMqttCredentials();
 
-    // Determine lifecycle state based on autoApprove
+    // Determine lifecycle state based on autoApprove. A PENDING_APPROVAL device
+    // still receives its MQTT password here: the edge agent's self-register
+    // contract (sens-api-gateway/src/provisioning.rs SelfRegisterResponse,
+    // `mqtt_password: String`) persists it once and has no later credential
+    // fetch. The broker refuses it until approval — mayHoldBrokerSession gates
+    // CONNECT and every ACL check — and the agent's reconnect loop succeeds
+    // once an operator approves.
     const lifecycleState = key.autoApprove
       ? DeviceLifecycleState.ACTIVE
       : DeviceLifecycleState.PENDING_APPROVAL;
@@ -733,25 +737,14 @@ export class ProvisioningService {
         securityLevel: 2,
       });
 
-      const saved = await transactionalManager.save(device);
+      // SENSOR-MEDIUM-004: the device and its directory route commit together.
+      const saved = await this.deviceDirectory.saveNewDevice(device, transactionalManager);
 
       // MQTT credentials INSIDE transaction so rollback on failure
       const mqttResult = await this.mqttAuthService.addDeviceCredentials(mqttClientId, mqttPasswordHash);
       if (!mqttResult) {
         throw new Error('Failed to write MQTT credentials');
       }
-
-      // SENSOR-MEDIUM-004: publish the directory route in the same transaction
-      // so a committed device is always resolvable in O(1).
-      await this.deviceDirectory.upsert(
-        {
-          deviceId: saved.id,
-          deviceCode: saved.deviceCode,
-          mqttClientId: saved.mqttClientId ?? null,
-          tenantId: key.tenantId,
-        },
-        transactionalManager,
-      );
 
       return saved;
     });

@@ -10,8 +10,20 @@
 import * as crypto from 'crypto';
 
 import { NotFoundException } from '@nestjs/common';
+import { stub } from '@aquaculture/testing';
+import type { DataSource } from 'typeorm';
 
 import { ProvisioningService } from '../provisioning.service';
+
+// The device row and its directory route commit in one tenant transaction;
+// the boundary is proven on real Postgres (edge-mqtt-auth.rls.postgres.spec).
+jest.mock('@aquaculture/backend-common/database', () => ({
+  ...jest.requireActual('@aquaculture/backend-common/database'),
+  runInTenantTransaction: jest.fn(
+    (_ds: unknown, _schema: string, _tenantId: string, fn: (qr: { manager: object }) => unknown) =>
+      fn({ manager: {} }),
+  ),
+}));
 import { TenantKeyService } from '../tenant-key.service';
 import { DeviceModel } from '../entities/edge-device.entity';
 
@@ -23,7 +35,6 @@ describe('Provisioning secrets at-rest hashing (SENSOR-MEDIUM-001)', () => {
     it('stores sha256(token) and returns the plaintext exactly once', async () => {
       const deviceRepository = {
         create: jest.fn((dto: Record<string, unknown>) => dto),
-        save: jest.fn(async (dto: Record<string, unknown>) => ({ id: 'device-1', ...dto })),
       };
       const installerScriptService = {
         buildInstallerUrl: jest.fn(async () => 'https://host/install/DEV-1'),
@@ -31,10 +42,12 @@ describe('Provisioning secrets at-rest hashing (SENSOR-MEDIUM-001)', () => {
       };
       const configService = { get: jest.fn((_k: string, fallback?: unknown) => fallback) };
 
-      const deviceDirectory = { upsert: jest.fn().mockResolvedValue(undefined) };
+      const deviceDirectory = {
+        saveNewDevice: jest.fn(async (dto: Record<string, unknown>) => ({ id: 'device-1', ...dto })),
+      };
       const service = new ProvisioningService(
         deviceRepository as never,
-        {} as never, // dataSource — unused on this path
+        stub<DataSource>({}), // consumed only by the mocked runInTenantTransaction
         configService as never,
         {} as never, // mqttAuthService
         installerScriptService as never,

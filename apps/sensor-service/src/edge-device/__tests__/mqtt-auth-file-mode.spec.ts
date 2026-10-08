@@ -33,9 +33,9 @@ describe('MqttAuthService legacy file mode guard (SENSOR-LOW-008)', () => {
     await expect(service.onModuleInit()).resolves.toBeUndefined();
   });
 
-  it('defaults to the DB-backed HTTP backend (600k iterations)', () => {
+  it('defaults to the DB-backed HTTP backend (600k iterations)', async () => {
     const service = buildService({});
-    const { hash } = service.generateCredentials();
+    const { hash } = await service.generateCredentials();
     // $7$<iterations>$<salt>$<hash>
     expect(hash.startsWith('$7$600000$')).toBe(true);
   });

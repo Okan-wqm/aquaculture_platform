@@ -43,7 +43,7 @@ from aria_kernel.implementation_delivery import (
 )
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
-from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+from tests._helpers.git_fixtures import _git, implementer_identity_args, make_repo_with_initial_commit
 from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 from tests._helpers.operator_acts import operator_set_profile
 
@@ -74,11 +74,12 @@ def _mint_signing_key(directory: Path, name: str) -> tuple[Path, str, str]:
 
 
 def _commit_signed_with(repo: Path, key: Path | None, *, message: str, path: str, body: str) -> str:
-    """One commit on the current branch, signed with ``key`` (None: unsigned)."""
+    """One commit on the current branch, signed with ``key`` (None: unsigned),
+    by the implementer identity the executor's hold wires (ARIA-HIGH-387)."""
     (repo / path).write_text(body, encoding="utf-8")
     _git(["add", path], cwd=repo)
     signing = ["-c", "gpg.format=ssh", "-c", f"user.signingkey={key}", "-c", "commit.gpgsign=true"] if key else []
-    _git([*signing, "commit", "-q", "-m", message], cwd=repo)
+    _git([*implementer_identity_args(), *signing, "commit", "-q", "-m", message], cwd=repo)
     return _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
 
 
@@ -1334,6 +1335,7 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
         message = f"{contract['commit_types'][0]}(farm-service): halve the sample interval\n\nWHY: the plan says so.\n" + (
             f"\n{contract['trailer']}\n" if contract["trailer"] else ""
         )
+        self.message = message
         self.tip = _commit_signed_with(self.repo, self.kernel_key, message=message, path=self.source,
                                        body="export const sampleIntervalMs = 30000;\n")
         self.output = Path(self.request["expected_output_path"])
@@ -1537,6 +1539,29 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
         self.assertIn("commit_contract_honoured:commit_contract_violated", refused.exception.reason)
         self.assertNotIn(refused.exception.stage, delivery.HOST_STAGES, "a refused commit is the request's")
         self.assertFalse((self.tools / "pr-lifecycle.jsonl").exists())
+
+    def test_a_commit_by_another_identity_is_refused_before_the_mint_and_the_push(self) -> None:
+        # ARIA-HIGH-387 (N1) — the hold makes `aria-implementer` the
+        # worktree's default identity; code the agent ran can still commit
+        # as somebody else (`author.*` in the sandbox's writable HOME, or
+        # `GIT_AUTHOR_*` in a subprocess). Every commit base..tip is judged
+        # at `pre_pr_open`: nothing pushed, no lease, no `gh`.
+        _git(["reset", "-q", "--hard", self.base], cwd=self.repo)
+        (self.repo / self.source).write_text("export const sampleIntervalMs = 30000;\n", encoding="utf-8")
+        _git(["add", self.source], cwd=self.repo)
+        _git([*implementer_identity_args(), "-c", "author.name=Evil", "-c", "author.email=evil@example.com",
+              "-c", "gpg.format=ssh", "-c", f"user.signingkey={self.kernel_key}", "-c", "commit.gpgsign=true",
+              "commit", "-q", "-m", self.message], cwd=self.repo)
+        self.tip = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+        with self.assertRaises(ImplementationDeliveryRefusal) as refused:
+            self._deliver(horizon_seconds=3600)
+        self.assertEqual(self._log(self.push_log), [], "the refused branch was pushed")
+        self.assertEqual(self.mints, [], "no lease is minted for a PR the perimeter refuses")
+        self.assertEqual(self._log(self.gh_log), [])
+        self.assertEqual(refused.exception.stage, "pre_pr_open", refused.exception.reason)
+        self.assertIn("commit_identity_is_the_kernels:commit_identity_foreign:", refused.exception.reason)
+        self.assertIn(":author=Evil <evil@example.com>", refused.exception.reason)
+        self.assertNotIn(refused.exception.stage, delivery.HOST_STAGES, "a foreign commit is the request's")
 
     def test_a_user_token_lease_is_refused_before_the_push(self) -> None:
         # Review H1 (ARIA-HIGH-371) — in `pat_fallback` mode the lease is a

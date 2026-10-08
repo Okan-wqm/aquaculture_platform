@@ -156,3 +156,33 @@ export type {
   TimeRangeParams,
   ParsedTimeRange,
 } from './sensor-readings/time-range';
+
+// ── Measured quantities ──
+// What a sensor channel measures, in which unit and on which basis, and which
+// device spellings name it — the vocabulary the reading event, the sensor
+// catalog and the farm water-quality templates derive from.
+export {
+  MEASURED_QUANTITIES,
+  QUANTITY_FAMILIES,
+  CHANNEL_KEYS,
+  measuredQuantity,
+  parseQuantityId,
+  channelKeyMeaning,
+  channelKeyUnit,
+  declarableQuantities,
+  effectiveQuantity,
+  readingParameterOfChannelKey,
+  isAcceptedUnit,
+  isLoopHomogeneous,
+  toCanonicalUnit,
+  unitConversion,
+} from './measurement/quantities';
+export type {
+  QuantityId,
+  MeasuredQuantity,
+  QuantityFamily,
+  ReadingParameter,
+  ChannelKeyMeaning,
+  KnownChannelKey,
+  UnitConversion,
+} from './measurement/quantities';

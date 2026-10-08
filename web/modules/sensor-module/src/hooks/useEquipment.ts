@@ -56,12 +56,11 @@ export interface Equipment {
     code: string;
     status: string;
   }>;
-  systemIds?: string[];
-  systems?: Array<{ systemId: string; [key: string]: unknown }>;
 }
 
 export interface EquipmentFilterInput {
   departmentId?: string;
+  systemId?: string;
   siteId?: string;
   equipmentTypeId?: string;
   status?: string;
@@ -70,7 +69,6 @@ export interface EquipmentFilterInput {
   isVisibleInSensor?: boolean;
   search?: string;
 }
-
 
 interface PaginatedEquipmentResponse {
   items: Equipment[];
@@ -84,7 +82,7 @@ interface PaginatedEquipmentResponse {
  */
 export function useEquipmentList(
   filter?: EquipmentFilterInput,
-  pagination?: { page?: number; limit?: number }
+  pagination?: { page?: number; limit?: number },
 ) {
   const { token, tenantId } = useAuth();
 
@@ -110,10 +108,9 @@ export function useEquipmentTypes(filter?: { category?: string; isActive?: boole
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'equipmentTypes', filter),
     queryFn: async () => {
-      const data = await graphqlFetch<{ equipmentTypes: EquipmentType[] }>(
-        EQUIPMENT_TYPES_QUERY,
-        { filter },
-      );
+      const data = await graphqlFetch<{ equipmentTypes: EquipmentType[] }>(EQUIPMENT_TYPES_QUERY, {
+        filter,
+      });
       return data.equipmentTypes;
     },
     staleTime: 60000, // 1 minute - types don't change often
@@ -130,10 +127,10 @@ export function useEquipment(id: string, includeRelations = false) {
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'equipment', id, includeRelations),
     queryFn: async () => {
-      const data = await graphqlFetch<{ equipment: Equipment }>(
-        EQUIPMENT_BY_ID_QUERY,
-        { id, includeRelations },
-      );
+      const data = await graphqlFetch<{ equipment: Equipment }>(EQUIPMENT_BY_ID_QUERY, {
+        id,
+        includeRelations,
+      });
       return data.equipment;
     },
     staleTime: 30000,
@@ -165,14 +162,17 @@ export function useEquipmentByDepartment(departmentId: string) {
  * Group equipment by category
  */
 export function groupEquipmentByCategory(equipment: Equipment[]): Record<string, Equipment[]> {
-  return equipment.reduce((acc, eq) => {
-    const category = eq.equipmentType?.category || 'other';
-    if (!acc[category]) {
-      acc[category] = [];
-    }
-    acc[category].push(eq);
-    return acc;
-  }, {} as Record<string, Equipment[]>);
+  return equipment.reduce(
+    (acc, eq) => {
+      const category = eq.equipmentType?.category || 'other';
+      if (!acc[category]) {
+        acc[category] = [];
+      }
+      acc[category].push(eq);
+      return acc;
+    },
+    {} as Record<string, Equipment[]>,
+  );
 }
 
 /**

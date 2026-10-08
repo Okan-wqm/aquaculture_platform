@@ -981,6 +981,30 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
             [{"kind": row["kind"], "details": row.get("details")} for row in rows[-12:]], sort_keys=True,
         )[:6000]
 
+    def test_a_checkout_with_no_ambient_identity_commits_as_the_kernel(self) -> None:
+        """ARIA-HIGH-387 — the commit step, end to end, on a host with no
+        git identity anywhere: the fixture's `--local` one and the suite's
+        hermetic global one are removed, and git may not guess one from the
+        host name (`user.useConfigOnly`). On main the agent's plain `git
+        commit` inside the real sandbox exits 128 "Author identity unknown";
+        here the hold's mint wired `aria-implementer` into the request
+        worktree and the delivered commit carries it as author AND
+        committer."""
+        _git(["config", "--local", "--remove-section", "user"], cwd=self.repo)
+        no_identity = self.root / "no-identity.gitconfig"
+        no_identity.write_text("[user]\n\tuseConfigOnly = true\n[commit]\n\tgpgsign = false\n", encoding="utf-8")
+        self.environment["GIT_CONFIG_GLOBAL"] = str(no_identity)
+        self._install_implementer()
+        completed, _worktree = self._run_in_request_worktree()
+        self.assertEqual(completed.returncode, 0, self._diagnostic(completed))
+        self.assertEqual(self.ai.derive_request_state(request_id=self.request_id, base_dir=self.tools), "ACCEPTED")
+        head = self._submitted_envelope()["details"]["implementation"]["branch_tip_sha"]
+        idents = _git(["log", "-1", "--format=%an <%ae>%n%cn <%ce>", head], cwd=self.repo).stdout.splitlines()
+        kernel = "aria-implementer <aria-implementer@users.noreply.github.com>"
+        self.assertEqual(idents, [kernel, kernel])
+        self.assertEqual(_git(["config", "--local", "--get-regexp", "^user\\.(name|email)$"], cwd=self.repo, check=False).stdout,
+                         "", "the revoke took the identity back out; the shared config never had it")
+
     def test_a_plain_commit_in_the_request_worktree_lands_the_impl_row(self) -> None:
         from aria_kernel.budget import read_cost_attribution
 

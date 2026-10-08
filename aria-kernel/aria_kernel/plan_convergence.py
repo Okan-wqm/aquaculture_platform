@@ -1737,8 +1737,14 @@ def settle_implementation_rejected(
     settlement: ImplementationSettlement,
     rejected_at: str,
     base_dir: str | Path | None = None,
+    settleable_states: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """ARIA-HIGH-388 — end a plan's implementation phase with a SETTLED rejection.
+
+    ``settleable_states`` narrows the states this settlement may end
+    (ARIA-HIGH-389: the orphan reap ends only the orphan states it scanned,
+    `_ORPHAN_PENDING_STATES`, so a plan that reached IMPLEMENTATION_RECORDED
+    between the scan and the settle is refused, not rejected beside its PR).
 
     The executor's terminal outcomes (``implementation_settlement``) write
     through here: the typed settlement (class, fault domain, stage, cause,
@@ -1753,7 +1759,7 @@ def settle_implementation_rejected(
 
     def _settleable(state: dict[str, Any]) -> None:
         _require_started(state, "settle implementation")
-        if state["state"] not in _SETTLEABLE_IMPLEMENTATION_STATES:
+        if state["state"] not in (settleable_states or _SETTLEABLE_IMPLEMENTATION_STATES):
             raise PlanStateRefused(f"implementation_already_settled: plan {plan_id!r} is {state['state']!r}")
 
     return _mutate(

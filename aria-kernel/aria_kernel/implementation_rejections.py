@@ -21,6 +21,7 @@ path and never flows through ``record_implementation_outcome`` validation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 # ARIA-HIGH-388 — the classes an executor-side terminal outcome settles with
@@ -31,6 +32,8 @@ IMPLEMENTATION_DELIVERY_UNCLASSIFIED = "implementation_delivery_unclassified"
 IMPLEMENTATION_REQUEST_INVALID = "implementation_request_invalid"
 PUSH_REFUSED = "push_refused"
 PR_OPEN_REFUSED = "pr_open_refused"
+# ARIA-HIGH-389 — a result refused AFTER its delivery opened the PR.
+IMPLEMENTATION_RESULT_REFUSED_AFTER_DELIVERY = "implementation_result_refused_after_delivery"
 
 
 # Closed set of rejection classes accepted by
@@ -83,6 +86,8 @@ VALID_IMPLEMENTATION_REJECTION_CLASSES: frozenset[str] = frozenset(
         IMPLEMENTATION_REQUEST_INVALID,
         PUSH_REFUSED,
         PR_OPEN_REFUSED,
+        # ARIA-HIGH-389 — the submit refused a result whose PR is already open.
+        IMPLEMENTATION_RESULT_REFUSED_AFTER_DELIVERY,
     }
 )
 
@@ -122,6 +127,7 @@ AGENT_REFUSAL_STAGE = "agent_refusal"
 PRE_SPAWN_STAGE = "pre_spawn"
 ORPHAN_REAP_STAGE = "orphan_reap"
 ORPHAN_REAPED = "orchestrator_restart_reaped_orphan"
+POST_DELIVERY_STAGE = "post_delivery"
 # Gate blockers that PROVE the agent's change is at fault: a regression
 # against the baseline the same suite measured (`validation.
 # compare_validation_groups`), and a suppression pattern in the agent's own
@@ -143,10 +149,17 @@ class ImplementationSettlement:
     stage: str
     cause: str
     request_id: str = ""
+    # ARIA-HIGH-389 — the PR the kernel's delivery opened before the result
+    # was refused; absent (and absent from the payload, so every earlier
+    # settlement keeps its shape and idempotency key) when nothing was opened.
+    pr_number: int | None = None
 
-    def payload(self) -> dict[str, str]:
-        return {"stage": self.stage, "fault_domain": self.fault_domain, "cause": self.cause,
-                "request_id": self.request_id}
+    def payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"stage": self.stage, "fault_domain": self.fault_domain, "cause": self.cause,
+                                   "request_id": self.request_id}
+        if self.pr_number is not None:
+            payload["pr_number"] = self.pr_number
+        return payload
 
 
 def _cause(reason: str) -> str:
@@ -221,3 +234,30 @@ def settlement_for_orphan(*, request_id: str, wait_cause: str, waiting: bool) ->
     """
     return ImplementationSettlement(ORPHAN_REAPED, FAULT_HARNESS if waiting else FAULT_UNCLASSIFIED,
                                     ORPHAN_REAP_STAGE, _cause(wait_cause), request_id)
+
+
+# ARIA-HIGH-389 — the executor's refusals AFTER a successful delivery (the
+# branch pushed, the PR open), by the cause the executor names. None of them
+# is the work's: the delivery already ran the submit's own admissibility
+# decision on this envelope (`implementation_delivery`, round 5) and the apply
+# gate passed. The submit's bound, its probes, its lease or transport and the
+# native reconcile are the lane's (`harness`); the kernel refusing what it
+# admitted minutes earlier, or the executor's pre-submit check failing on
+# facts the kernel stamped, is a disagreement it cannot attribute
+# (`unclassified`). An unknown cause is `unclassified`.
+POST_DELIVERY_FAULT_DOMAINS: dict[str, str] = {
+    "submit_timeout": FAULT_HARNESS,
+    "evidence_verification_unavailable": FAULT_HARNESS,
+    "submit_rejected": FAULT_HARNESS,
+    "agent_result_rejected": FAULT_UNCLASSIFIED,
+    "pre_submit_invalid": FAULT_UNCLASSIFIED,
+    "native_result_unreconciled": FAULT_UNCLASSIFIED,
+}
+
+
+def settlement_for_post_delivery(*, request_id: str, cause: str, pr_number: int) -> ImplementationSettlement:
+    """A result refused after its PR was opened: the plan ends, carrying the PR
+    (``human_merge_surface`` hands it to a person by that number)."""
+    return ImplementationSettlement(IMPLEMENTATION_RESULT_REFUSED_AFTER_DELIVERY,
+                                    POST_DELIVERY_FAULT_DOMAINS.get(cause, FAULT_UNCLASSIFIED),
+                                    POST_DELIVERY_STAGE, _cause(cause), request_id, pr_number)

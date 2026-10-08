@@ -2358,5 +2358,25 @@ class TheStartupReaperCollectsAbandonmentNotLateness(unittest.TestCase):
         self.assertEqual((summary["already_settled_count"], summary["spared_recent_count"]), (1, 0))
 
 
+    def test_a_plan_recorded_between_the_scan_and_the_reap_is_not_rejected(self) -> None:
+        """ARIA-HIGH-389 — the reap ends only the orphan states it scanned: a plan
+        whose outcome landed in between (RECORDED, its PR the merge lane's) stays."""
+        from aria_kernel.plan_convergence import record_implementation_outcome, record_implementation_started
+
+        record_implementation_started(plan_id="plan-729", claim_id="claim-1", implementer_agent="aria-implementer",
+                                      started_at="2026-08-12T10:00:00Z", base_dir=self.base)
+        record_implementation_outcome(
+            plan_id="plan-729", claim_id="claim-1", pr_url="https://github.com/o/r/pull/4242",
+            diff_hash="sha256:" + "c" * 64, branch_tip_sha="d" * 40, base_branch_sha="e" * 40,
+            validation_results=[], signer_key_fp="fp-1", completed_at="2026-08-12T10:30:00Z", base_dir=self.base,
+        )
+        events = self._run_with_orphan_age(30)  # the scan's row still says IMPLEMENTATION_REQUESTED
+        self.assertNotIn("implementation_orphan_reaped", [row.get("kind") for row in events])
+        self.assertEqual(fold_plan_state(plan_id="plan-729", base_dir=self.base)["state"], "IMPLEMENTATION_RECORDED")
+        summary = next(row["details"] for row in events
+                       if row.get("kind") == "implementation_orphans_reaped_summary")
+        self.assertEqual(summary["already_settled_count"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

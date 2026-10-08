@@ -108,8 +108,8 @@ describe('TenantPayloadCryptoService', () => {
     const ctB = await svc.encrypt(TENANT_B, 'B stays readable');
     await svc.encrypt(TENANT_A, 'A erased');
 
-    await svc.shred(TENANT_A);
-    await svc.shred(TENANT_A); // no-op second time
+    await expect(svc.shred(TENANT_A)).resolves.toBe(true);
+    await expect(svc.shred(TENANT_A)).resolves.toBe(false); // no-op second time
 
     expect(await svc.isShredded(TENANT_B)).toBe(false);
     expect(await svc.decrypt(TENANT_B, ctB)).toBe('B stays readable'); // other tenant intact

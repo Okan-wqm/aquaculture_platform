@@ -64,7 +64,8 @@ vi.mock('@aquaculture/farm-shared', () => ({
 import { WaterQualityRecordPage } from '../WaterQualityRecordPage';
 
 const PARAMETER = {
-  parameterConfig: {
+  required: true,
+  parameter: {
     id: 'p-1',
     code: 'temperature',
     name: 'Temperature',
@@ -80,7 +81,6 @@ const PARAMETER = {
     criticalMax: 20,
     enumValues: null,
     displayOrder: 1,
-    isRequired: true,
     chartColor: '#00f',
   },
 };
@@ -111,9 +111,9 @@ describe('WaterQualityRecordPage — queue-first contract (MOB-CRITICAL-021)', (
     h.isOnline = true;
     h.addToQueue.mockResolvedValue({ status: 'queued', id: 'op-1' });
     h.graphqlRequest.mockImplementation((_document: unknown, variables?: unknown) => {
-      const vars = (variables ?? {}) as { equipmentId?: string; filter?: unknown };
-      if (vars.equipmentId !== undefined) {
-        return Promise.resolve({ equipmentParameters: [PARAMETER] });
+      const vars = (variables ?? {}) as { unitId?: string; filter?: unknown };
+      if (vars.unitId !== undefined) {
+        return Promise.resolve({ unitMeasurementPlan: { planned: true, entries: [PARAMETER] } });
       }
       return Promise.resolve({ equipmentList: { items: [] } });
     });

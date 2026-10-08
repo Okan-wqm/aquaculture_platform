@@ -8,7 +8,18 @@ import { WaterQualityStatus, MeasurementSource } from '../entities/water-quality
 
 @InputType()
 export class WaterQualityFilterInput {
-  @Field(() => ID, { nullable: true, description: 'Tank ID' })
+  @Field(() => ID, {
+    nullable: true,
+    description: 'The unit (a tank or water equipment) the measurements were taken at',
+  })
+  @IsOptional()
+  @IsUUID()
+  unitId?: string;
+
+  @Field(() => ID, {
+    nullable: true,
+    description: 'A tank ID, matched by unit like unitId (the name predates water equipment)',
+  })
   @IsOptional()
   @IsUUID()
   tankId?: string;

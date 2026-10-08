@@ -109,6 +109,9 @@ export interface WaterQualityStatistics {
 }
 
 export interface WaterQualityFilters {
+  /** The unit (a tank or water equipment) the measurements were taken at. */
+  unitId?: string;
+  /** A tank's id, matched by unit like `unitId`. */
   tankId?: string;
   pondId?: string;
   siteId?: string;
@@ -570,19 +573,21 @@ export function useCreateWaterQuality() {
       }>(CREATE_WATER_QUALITY, { input });
       return response.createWaterQualityMeasurement;
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       // Invalidate related queries
       queryClient.invalidateQueries({
         queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'list'),
       });
+      // Every unit's latest/statistics: a non-tank unit's row has no tankId, so
+      // a key built from data.tankId missed the unit the measurement was for.
       queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'latest', data.tankId),
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'latest'),
       });
       queryClient.invalidateQueries({
         queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'critical'),
       });
       queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'statistics', data.tankId),
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'statistics'),
       });
     },
   });
@@ -678,14 +683,16 @@ export function useUpdateWaterQuality() {
       queryClient.invalidateQueries({
         queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'detail', data.id),
       });
+      // Every unit's latest/statistics: a non-tank unit's row has no tankId, so
+      // a key built from data.tankId missed the unit the measurement was for.
       queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'latest', data.tankId),
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'latest'),
       });
       queryClient.invalidateQueries({
         queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'critical'),
       });
       queryClient.invalidateQueries({
-        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'statistics', data.tankId),
+        queryKey: createTenantInvalidationKey(tenantId, 'waterQuality', 'statistics'),
       });
     },
   });

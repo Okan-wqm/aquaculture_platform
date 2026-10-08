@@ -7,7 +7,7 @@
  * @module WaterQuality
  */
 import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
-import { UseGuards, Logger } from '@nestjs/common';
+import { UseGuards, Logger, ParseUUIDPipe } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@platform/cqrs';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
@@ -41,6 +41,8 @@ import { GetParameterConfigQuery } from './queries/get-parameter-config.query';
 import { GetParameterConfigByCodeQuery } from './queries/get-parameter-config-by-code.query';
 import { ListParameterTemplatesQuery } from './queries/list-parameter-templates.query';
 import { ListParamEquipmentQuery } from './queries/list-param-equipment.query';
+import { GetUnitMeasurementPlanQuery } from './queries/get-unit-measurement-plan.query';
+import { UnitMeasurementPlan } from './dto/unit-measurement-plan.response';
 import { GetEquipmentParamsQuery } from './queries/get-equipment-params.query';
 import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
 import { Cacheable } from '../common/cache/cacheable.decorator';
@@ -301,6 +303,19 @@ export class WaterQualityParameterConfigResolver {
   ): Promise<WaterQualityParamEquipment[]> {
     this.logger.debug(`Getting equipment parameters for equipment: ${equipmentId}`);
     return this.queryBus.execute(new GetEquipmentParamsQuery(tenantId, equipmentId));
+  }
+
+  /**
+   * What to record at a unit (tank or water equipment): its plan, or every
+   * active parameter when it has none, each marked as the validator requires it.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Query(() => UnitMeasurementPlan, { name: 'unitMeasurementPlan' })
+  async getUnitMeasurementPlan(
+    @Args('unitId', { type: () => ID }, ParseUUIDPipe) unitId: string,
+    @CurrentTenant() tenantId: string,
+  ): Promise<UnitMeasurementPlan> {
+    return this.queryBus.execute(new GetUnitMeasurementPlanQuery(tenantId, unitId));
   }
 
   // -------------------------------------------------------------------------

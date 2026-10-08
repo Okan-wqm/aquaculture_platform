@@ -164,8 +164,9 @@ with its reason.
   - Still waiting on the lane is `harness`: never claimed, or last released for a harness cause
     (an outage, a missing delivery authority, a window). The cause is the wait's, e.g.
     `authority_absent`. Anything else (claimed and lost, answered) is `unclassified`.
-  - A request held by a live claim at the reap is named `claimed_in_flight`, `unclassified` (final
-    review R2: claim rows carry no reason, so it read `unclaimed`).
+  - A request whose claim lease ran out is named `claim_lease_expired`, `unclassified` (final review
+    R2: claim rows carry no reason, so it read `unclaimed`). One under a live lease is never reaped
+    (ARIA-HIGH-389, below).
   - The reap never judged an answer, so it is never `request` and never cools a finding off.
   - Folded into ARIA-HIGH-389, both pre-existing: the reaper ages a plan by its ledger events and
     ignores a live claim lease, so it can reap a plan mid-delivery; and the scan-to-settle window
@@ -211,12 +212,26 @@ with its reason.
   plan ledger keeps `IMPLEMENTATION_REJECTED` and the finding is not closed by the merge.
   - Folding it in belongs to the one owner of "merged": ARIA-HIGH-390 (owner claude, deadline
     2026-10-17).
+- **The reaper's two races with a delivery, folded in from the final review of ARIA-HIGH-388.**
+  - The reaper aged a plan by its ledger events, which a delivery in progress does not write. It
+    could reap a plan whose request held a live claim lease, and the PR that delivery opened then
+    sat on a rejected plan. `settle_orphaned_plan` now returns `in_flight` without settling while
+    the newest request is `CLAIMED` or `RUNNING` (an unexpired lease, or a submission in
+    progress). The orchestrator counts it as spared.
+  - The settle accepted `IMPLEMENTATION_RECORDED`, so a plan whose outcome landed between the scan
+    and the settle was rejected beside its PR. The orphan settlement now ends only the scanned
+    orphan states (`settleable_states=_ORPHAN_PENDING_STATES`, checked under the plan lock). A
+    recorded plan is `already_settled`.
+  - What remains: a claim taken in the instant between the lease check and the settle. Its PR
+    still reaches a person through the surface's reason above.
 - **Detection.** A source pin fails the build if any exit of `_main` after the delivery, other
   than the success exit, does not call the hand-over first.
 - **Tests.**
   - Kernel: harness timeout with the PR on the event, record shape, request CANCELLED; an
     unclassified rejection after admission; idempotent re-hand-over keeping one record; resolution
-    by GitHub observation; the surface's refusal reason after a hand-over and after a reap.
+    by GitHub observation; the surface's refusal reason after a hand-over and after a reap; a live
+    lease never reaped; an expired one reaped `claim_lease_expired`.
+  - Orchestrator: a plan recorded between the scan and the reap stays `IMPLEMENTATION_RECORDED`.
   - Executor: the exit pin, and no hand-over without a delivery.
 
 ## Folded in from the ARIA-HIGH-387 (#1865) re-review

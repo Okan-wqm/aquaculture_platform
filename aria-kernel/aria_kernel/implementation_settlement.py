@@ -52,6 +52,13 @@ ALREADY_SETTLED = "already_settled"
 NOT_AN_IMPLEMENTATION = "not_an_implementation_request"
 FAILED = "failed"
 CLAIMED_IN_FLIGHT = "claimed_in_flight"
+CLAIM_LEASE_EXPIRED = "claim_lease_expired"
+IN_FLIGHT = "in_flight"
+# ARIA-HIGH-389 — request states that hold an unexpired claim lease (or a
+# submission in progress): `agent_invocations.derive_request_state` derives
+# an expired lease STALE. A plan whose request is in one is mid-implementation
+# (mid-delivery, possibly with its PR opening) and is never reaped.
+LIVE_CLAIM_STATES = frozenset({"CLAIMED", "RUNNING"})
 
 
 def _plan_of(request_id: str, base_dir: Path) -> str | None:
@@ -71,7 +78,8 @@ SETTLE_LOCK_ATTEMPTS = 3
 SETTLE_LOCK_BACKOFF_SECONDS = 1.0
 
 
-def _settle_with_bounded_retry(*, plan_id: str, settlement: ImplementationSettlement, root: Path) -> dict[str, Any]:
+def _settle_with_bounded_retry(*, plan_id: str, settlement: ImplementationSettlement, root: Path,
+                               settleable_states: frozenset[str] | None = None) -> dict[str, Any]:
     import time
 
     from .plan_convergence import PlanLedgerLocked, settle_implementation_rejected
@@ -80,7 +88,7 @@ def _settle_with_bounded_retry(*, plan_id: str, settlement: ImplementationSettle
     while True:
         try:
             return settle_implementation_rejected(
-                plan_id=plan_id, settlement=settlement, base_dir=root,
+                plan_id=plan_id, settlement=settlement, base_dir=root, settleable_states=settleable_states,
                 rejected_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             )
         except PlanLedgerLocked:
@@ -90,7 +98,8 @@ def _settle_with_bounded_retry(*, plan_id: str, settlement: ImplementationSettle
             attempt += 1
 
 
-def _settle(settlement: ImplementationSettlement, *, base_dir: Path, plan_id: str | None = None) -> dict[str, Any]:
+def _settle(settlement: ImplementationSettlement, *, base_dir: Path, plan_id: str | None = None,
+            settleable_states: frozenset[str] | None = None) -> dict[str, Any]:
     from .ledger import LedgerIntegrityError
     from .plan_convergence import PlanLedgerLocked, PlanStateRefused
     from .tool_registry import append_tools_governance, ensure_tools_dir
@@ -102,7 +111,8 @@ def _settle(settlement: ImplementationSettlement, *, base_dir: Path, plan_id: st
         return {**outcome, "status": NOT_AN_IMPLEMENTATION}
     outcome["plan_id"] = plan_id
     try:
-        written = _settle_with_bounded_retry(plan_id=plan_id, settlement=settlement, root=root)
+        written = _settle_with_bounded_retry(plan_id=plan_id, settlement=settlement, root=root,
+                                             settleable_states=settleable_states)
     except PlanStateRefused as refused:
         return {**outcome, "status": ALREADY_SETTLED, "detail": str(refused)[:200]}
     except (PlanLedgerLocked, LedgerIntegrityError, OSError) as exc:
@@ -169,10 +179,11 @@ def _wait_of(request: dict[str, Any] | None, *, root: Path) -> tuple[str, bool]:
     last = reasoned[-1]["reason"] if reasoned else None
     if last is not None and parse_release_reason(last).fault_domain == "harness":
         return last, True
-    if state == "CLAIMED":
-        # Final review R2 — a claim row carries no reason; a request held by
-        # a live claim at the reap was in flight, not unclaimed.
-        return CLAIMED_IN_FLIGHT, False
+    if state == "STALE":
+        # Final review R2 — a claim row carries no reason; a request whose
+        # claim lease ran out was claimed and lost, not unclaimed. (A LIVE
+        # lease is never reaped: `settle_orphaned_plan`, ARIA-HIGH-389.)
+        return CLAIM_LEASE_EXPIRED, False
     return (last or "unclaimed"), state in WAITING_STATES
 
 
@@ -187,13 +198,25 @@ def settle_orphaned_plan(*, plan_id: str, base_dir: Path) -> dict[str, Any]:
     from .outage_causality import newest_request_id
     from .tool_registry import ensure_tools_dir
 
+    from .agent_invocations import derive_request_state
+    from .implementation_rejections import ORPHAN_REAPED
+    from .plan_convergence import _ORPHAN_PENDING_STATES
+
     root = ensure_tools_dir(base_dir)
     requests = list_agent_invocation_requests(base_dir=root)
     request_id = newest_request_id(requests, plan_id=plan_id, role="implementation")
     request = next((row for row in requests if row.get("request_id") == request_id), None)
+    # ARIA-HIGH-389 — the reaper ages a plan by its ledger events, which a
+    # delivery in progress does not write: a request under a live lease is
+    # in flight, its PR possibly opening, and is left to its executor.
+    if request_id and derive_request_state(request_id=request_id, base_dir=root) in LIVE_CLAIM_STATES:
+        return {"status": IN_FLIGHT, "plan_id": plan_id, "request_id": request_id,
+                "rejection_class": ORPHAN_REAPED, "cause": CLAIMED_IN_FLIGHT}
     cause, waiting = _wait_of(request, root=root)
+    # Only the orphan states the reaper scanned: a plan RECORDED in between
+    # (its outcome landed, its PR is the merge lane's) is refused.
     return _settle(settlement_for_orphan(request_id=request_id or "", wait_cause=cause, waiting=waiting),
-                   base_dir=root, plan_id=plan_id)
+                   base_dir=root, plan_id=plan_id, settleable_states=_ORPHAN_PENDING_STATES)
 
 
 def hand_over_delivered_implementation(
@@ -275,6 +298,7 @@ def rejected_plan_for_change(change_id: str, *, base_dir: Path) -> dict[str, Any
 __all__ = [
     "ALREADY_SETTLED",
     "FAILED",
+    "IN_FLIGHT",
     "NOT_AN_IMPLEMENTATION",
     "SETTLED",
     "SETTLEMENT_FAILED_KIND",

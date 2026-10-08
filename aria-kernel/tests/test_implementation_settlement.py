@@ -353,17 +353,32 @@ class OrphanReapSettles(_ImplementationRequested):
         self.assertTrue(failure_is_lane_fault({"event_type": "implementation_rejected", "payload": payload},
                                               waited_since=None, at=None, clock=None))
 
-    def test_a_request_claimed_at_the_reap_is_named_in_flight_not_unclaimed(self) -> None:
-        # Final review R2 — a claim row carries no reason; the reap of a held
-        # request was labelled `unclaimed`.
+    def test_a_request_under_a_live_lease_is_never_reaped(self) -> None:
+        # ARIA-HIGH-389 — the reaper ages a plan by ledger events, which a
+        # delivery in progress does not write; a live lease is in flight.
         from aria_kernel.agent_invocations import claim_request
+        from aria_kernel.implementation_settlement import IN_FLIGHT
         from tests._helpers.operator_acts import operator_set_profile
 
         operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         claim_request(request_id=self.request_id, agent_id="executor-test", base_dir=self.tools)
+        self.assertEqual(settle_orphaned_plan(plan_id="plan-1", base_dir=self.tools)["status"], IN_FLIGHT)
+        self.assertEqual(self.state(), "IMPLEMENTATION_REQUESTED")
+        self.assertEqual(self._rejections(), [])
+
+    def test_a_request_whose_lease_ran_out_is_reaped_as_claimed_and_lost(self) -> None:
+        # Final review R2 — a claim row carries no reason; this read `unclaimed`.
+        import time
+
+        from aria_kernel.agent_invocations import claim_request
+        from tests._helpers.operator_acts import operator_set_profile
+
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
+        claim_request(request_id=self.request_id, agent_id="executor-test", base_dir=self.tools, lease_seconds=1)
+        time.sleep(2.1)
         self.assertEqual(settle_orphaned_plan(plan_id="plan-1", base_dir=self.tools)["status"], SETTLED)
         payload = self.last_rejection()
-        self.assertEqual((payload["fault_domain"], payload["cause"]), ("unclassified", "claimed_in_flight"))
+        self.assertEqual((payload["fault_domain"], payload["cause"]), ("unclassified", "claim_lease_expired"))
 
     def test_an_executor_that_settled_first_leaves_the_reap_already_settled(self) -> None:
         settle_agent_refusal(request_id=self.request_id, reason_class="safety", base_dir=self.tools)

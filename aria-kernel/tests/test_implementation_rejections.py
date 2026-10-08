@@ -42,14 +42,23 @@ class ImplementationRejectionsSsotTests(unittest.TestCase):
             "autonomous_profile_preconditions_not_met",
             "orchestrator_restart_reaped_orphan",
             "commit_signature_unverified",
+            # ARIA-HIGH-388 — settled executor outcomes.
+            "implementer_refused",
+            "implementation_result_inadmissible",
+            "implementation_delivery_unclassified",
+            "implementation_request_invalid",
+            "push_refused",
+            "pr_open_refused",
+            # ARIA-HIGH-389
+            "implementation_result_refused_after_delivery",
         }
     )
 
-    def test_validation_set_membership_is_the_expected_24(self) -> None:
+    def test_validation_set_membership_is_the_expected_31(self) -> None:
         self.assertEqual(
             VALID_IMPLEMENTATION_REJECTION_CLASSES, self.EXPECTED_CLASSES
         )
-        self.assertEqual(len(VALID_IMPLEMENTATION_REJECTION_CLASSES), 24)
+        self.assertEqual(len(VALID_IMPLEMENTATION_REJECTION_CLASSES), 31)
 
     def test_validation_set_is_frozen(self) -> None:
         self.assertIsInstance(VALID_IMPLEMENTATION_REJECTION_CLASSES, frozenset)

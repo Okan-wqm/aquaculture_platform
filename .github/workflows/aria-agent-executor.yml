@@ -24,14 +24,17 @@ on:
   # ORPHAN-724 — the drain FOLLOWS the producer. Cycle and executor were
   # two unrelated crons: the night lost 1+ hours between seal and drain,
   # and every daytime cycle needed a human to dispatch the drain after it.
-  # workflow_run chains them — each completed cycle is followed by a
-  # drain — while the cron stays as the safety net for a night where the
-  # cycle lane itself never ran. The shared concurrency group already
+  # The cycle's `chain-executor` job dispatches this workflow when the
+  # cycle ends, while the cron stays as the safety net for a night where
+  # the cycle lane itself never ran. The shared concurrency group already
   # serializes the pair, and a cron firing mid-drain just waits in the
   # group's pending slot.
-  workflow_run:
-    workflows: ["aria-auto-cycle"]
-    types: [completed]
+  # ARIA-HIGH-386 — the edge used to be a `workflow_run` trigger. GitHub
+  # creates no `workflow_run` event for a run started with the job token,
+  # and the rhythm's `chain-next-cycle` and the dataflow watchdog both
+  # start the cycle that way, so every chained cycle ended without a
+  # drain (cycle 37728223278, 2026-10-08) and the loop stalled until a
+  # human dispatched it.
   schedule:
     # 02:00 UTC daily (off-hours for most ARIA contributors)
     # 29 past, not :00 — same top-of-hour congestion as the cycle cron;
@@ -275,7 +278,7 @@ jobs:
               # the state branch over the repository remote. Kept separate from
               # `github_artifact` because they are different credentials with
               # different blast radii.
-              network_policy=["github_artifact", "github_git"],
+              network_policy=["github_api", "github_artifact", "github_git"],
               network_enforcement_evidence=(
                   "state restore/publish limited to the aria/state branch over "
                   "the repository remote; artifact upload limited to the "
@@ -579,6 +582,18 @@ jobs:
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         uses: ./.github/actions/ensure-sandbox-backend
 
+      # ARIA-HIGH-383 — the validation room binds every toolchain the tree
+      # declares (`implementation_safety.validation_toolchains_for`): the
+      # root Cargo.toml declares cargo + rustc. This runner had none, so
+      # the first CONVERGED plan's implementer was refused before the
+      # spawn with `validation_toolchain_unresolvable:cargo` (run
+      # 37713931273). Same shared action the CI lanes use: the pinned
+      # channel, components and targets come from one manifest, and the
+      # action puts `$CARGO_HOME/bin` on the PATH the room resolves on.
+      - name: Provision the Rust toolchain the tree declares
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        uses: ./.github/actions/setup-rust-workspace
+
       # FAZ 5a — attestation producer on the executor lane too: the merge
       # A2 — the executor lane never provisioned the node deps the agent
       # validation commands need, so FAZ 5's pre-claim gate refused its
@@ -607,6 +622,11 @@ jobs:
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'
+          # ARIA-HIGH-368 — the restore's writer-lease verdict. The drain
+          # advances a plan's convergence in-run only while this job holds
+          # the aria/state writer lease (`executor_convergence`); the value
+          # is the public verdict, never the capability token.
+          ARIA_STATE_WRITER_LEASE: ${{ steps.restore_state.outputs.writer-lease }}
           # ARIA-HIGH-208 — the App a delivery mints its PR credential from.
           # ARIA_REQUIRE_MODE_A: that mint is Mode A or refuses by name; it
           # never copies the ambient GH_TOKEN (Mode B) into a PR's author.

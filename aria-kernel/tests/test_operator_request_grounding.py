@@ -25,6 +25,7 @@ from unittest import mock
 from aria_kernel import finding_grounding as fg
 from aria_kernel import operator_feedback_ingestion as ingestion
 from aria_kernel.cycle_phases.plan_source import V9PressureSourceProvider
+from aria_kernel.finding_seed import SubjectProbe, seed_finding
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.plan_synthesizer import (
     PlanEvidenceGround,
@@ -70,9 +71,13 @@ class _Fixture(unittest.TestCase):
         return fg.load_grounding_context(self.fx.repo, tools_root=self.fx.tools)
 
     def convert(self, candidate: dict, admission: fg.FindingAdmission | None = None):
-        """The converter at this checkout's HEAD; the plan, or None."""
+        """The converter at this checkout's HEAD, with the seed the provider would build; the plan, or None."""
+        seed = None
+        if admission is not None and admission.admitted:
+            # ARIA-HIGH-369 — an F plan is built from the finding's re-grounded seed, never a template.
+            seed = seed_finding(self.context(), admission, probe=SubjectProbe({})).seed
         return convert_candidate_to_plan_content(
-            candidate, admission=admission, ground=PlanEvidenceGround.of(self.fx.repo),
+            candidate, admission=admission, ground=PlanEvidenceGround.of(self.fx.repo), seed=seed,
         ).envelope
 
     def _candidate(self, finding_id: str, request_id: str, **record) -> dict:

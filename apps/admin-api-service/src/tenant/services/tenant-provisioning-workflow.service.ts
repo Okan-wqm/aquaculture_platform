@@ -453,7 +453,6 @@ export class TenantProvisioningWorkflowService {
           adminEmail,
           adminFirstName: this.getFirstName(tenant.primaryContact?.name),
           adminLastName: this.getLastName(tenant.primaryContact?.name),
-          skipSchemaCreation: true,
           finalizeActivation: false,
           operationId: run.id,
           idempotencyKeyBase: run.idempotencyKey,

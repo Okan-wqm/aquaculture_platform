@@ -275,6 +275,12 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   updateWorkOrder: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   verifyMeasurement: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   verifyWorkOrder: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  // Parameter channel binding + declared quantity (FARM-HIGH-373, FARM-MEDIUM-374).
+  bindParameterChannel: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  clearParameterQuantity: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  declareParameterQuantity: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  replaceParameterChannel: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  unbindParameterChannel: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
 });
 
 /**
@@ -503,6 +509,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   traceLot: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   treatmentApplications: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   treatmentChemicals: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  unitMeasurementPlan: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   upcomingHarvestPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   upcomingMaintenanceSchedules: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQuality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -518,6 +525,10 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   workOrderStatistics: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   workOrders: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   workers: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  // The bind's dry run: what a writer would be refused with.
+  checkParameterChannelBinding: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  parameterQuantityDeclarations: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  parameterSourcesAtPoint: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
 });
 
 /**

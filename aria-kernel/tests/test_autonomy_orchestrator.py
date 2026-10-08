@@ -1627,6 +1627,35 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             {"cycles_minted": 0, "cycles_converged": 0, "cycles_merged": 0, "cycles_rejected": 1},
         ])
 
+    def test_a_throttled_seed_is_neither_minted_nor_rejected(self) -> None:
+        """ARIA-HIGH-364 (re-review of #1833, MEDIUM-B) — the door refuses to
+        START the plan (here: work waited 48 h and nothing drained). The
+        refusal is decided before the funnel books the plan, so the
+        effectiveness ledger gets no row, convergence never starts, and the
+        refusal is one governance row."""
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+
+        from aria_kernel.ledger import load_jsonl
+
+        old = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        waiting = ([{"request_id": "p-0", "role": "evidence_judgment", "state": "pending", "created_at": old}], [], [])
+        calls: list[dict[str, Any]] = []
+
+        def _recording(**kwargs: Any) -> dict[str, Any]:
+            calls.append(kwargs)
+            return _fake_convergence_runner(**kwargs)
+
+        with patch("aria_kernel.request_drain_capacity._request_ledgers", return_value=waiting):
+            result = self._run(convergence_runner=_recording)
+        self.assertTrue(result["exits_clean"])
+        self.assertEqual(result["per_cycle"][0]["plan_seed_throttled"]["refusal"],
+                         "request_admission_throttled:executor_not_draining")
+        self.assertEqual(calls, [])
+        self.assertEqual(self._funnel_counters(self.base), {})
+        rows = [r for r in load_jsonl(self.base / "governance.jsonl") if r.get("kind") == "convergence_seed_throttled"]
+        self.assertEqual(len(rows), 1)
+
     def test_an_invalid_plan_counts_the_minted_plan_as_rejected(self) -> None:
         """The other non-converged exit: convergence_runner refuses the plan
         with GovernanceError. The plan was minted (the synthesizer yielded
@@ -2248,6 +2277,105 @@ class TheStartupReaperCollectsAbandonmentNotLateness(unittest.TestCase):
             if row.get("context", {}).get("plan_id") == "plan-729"
         ]
         self.assertEqual(len(escalations), 1, escalations)
+
+    def _open_implementer_outage(self, hours_ago: float) -> None:
+        """ARIA-HIGH-365 — the implementer's provider went out ``hours_ago`` and is still out."""
+        from datetime import datetime, timedelta, timezone
+
+        from aria_kernel.provider_clock import role_head_providers
+        from aria_kernel.provider_cooldown import record_provider_cooldown
+
+        (provider,) = tuple(role_head_providers(["implementation"]))
+        record_provider_cooldown(
+            self.base, provider=provider, model="opus", cooldown_seconds=900, request_id="AIR-out",
+            claim_id="CL-out", detection={"signature": "claude_credit_error"},
+            now=datetime.now(timezone.utc) - timedelta(hours=hours_ago),
+        )
+
+    def _mint_implementation_request(self) -> str:
+        """The envelope production mints before the plan's IMPLEMENTATION_REQUESTED event
+        (`cross_review_bridge.issue_implementation_envelope`); the fixture drives the event only."""
+        from tests._helpers.declared_fixtures import append_declared_fixture
+
+        append_declared_fixture(ensure_tools_dir(self.base) / "agent-invocations" / "requests.jsonl", {
+            "schema_version": 1, "request_id": "AIR-impl-729", "role": "implementation",
+            "target_agent": "aria-implementer", "convergence_id": "plan-729", "state": "pending",
+            "created_at": self._hours_ago(30),
+        }, expected_surface="agent_invocation_requests")
+        return "AIR-impl-729"
+
+    def test_a_request_waiting_through_a_provider_outage_is_spared(self) -> None:
+        """ARIA-HIGH-365 (B2) — 30 wall hours, 29 of them an outage of the implementer's
+        provider: the orchestrator's reap reads the ledger clock and spares the request."""
+        self._mint_implementation_request()
+        self._open_implementer_outage(29)
+        events = self._run_with_orphan_age(30)
+        self.assertNotIn("implementation_orphan_reaped", [row.get("kind") for row in events])
+        self.assertEqual(fold_plan_state(plan_id="plan-729", base_dir=self.base)["state"],
+                         "IMPLEMENTATION_REQUESTED")
+        summary = next(row["details"] for row in events
+                       if row.get("kind") == "implementation_orphans_reaped_summary")
+        self.assertEqual(summary["spared_recent_count"], 1)
+
+    def test_an_answered_request_is_reaped_whatever_the_outage(self) -> None:
+        """PR #1835 review HIGH-1 — a request answered and refused on its merits is not
+        waiting on a provider, so the outage pauses nothing and the wall clock reaps it."""
+        from tests._helpers.declared_fixtures import append_declared_fixture
+
+        request_id = self._mint_implementation_request()
+        append_declared_fixture(ensure_tools_dir(self.base) / "agent-invocations" / "claims.jsonl", {
+            "schema_version": 1, "event": "human_required", "claim_id": "CL-refused",
+            "request_id": request_id, "reason": "agent_refused:evidence", "requeue_count": 1,
+            "at": self._hours_ago(29),
+        }, expected_surface="agent_invocation_claims")
+        self._open_implementer_outage(29)
+        events = self._run_with_orphan_age(30)
+        self.assertIn("implementation_orphan_reaped", [row.get("kind") for row in events])
+
+    def test_a_request_waiting_on_the_delivery_authority_is_reaped_as_the_lanes(self) -> None:
+        """ARIA-HIGH-388 — under `standard` the implementation request is never handed
+        out (no apply_gate/pr_open authority); the reap settles it `harness` with the
+        wait's cause, so the finding is not cooled off by the lane's own refusal."""
+        self._mint_implementation_request()
+        events = self._run_with_orphan_age(30)
+        reaped = [row["details"] for row in events if row.get("kind") == "implementation_orphan_reaped"]
+        self.assertEqual([(row["fault_domain"], row["wait_cause"]) for row in reaped],
+                         [("harness", "authority_absent")])
+        self.assertEqual(fold_plan_state(plan_id="plan-729", base_dir=self.base)["state"],
+                         "IMPLEMENTATION_REJECTED")
+
+    def test_a_plan_the_executor_settled_first_is_counted_not_reaped(self) -> None:
+        """ARIA-HIGH-388 — the state is re-read under the plan lock: a plan the
+        executor settled between the scan and the reap is `already_settled`."""
+        from aria_kernel.implementation_settlement import settle_agent_refusal
+
+        request_id = self._mint_implementation_request()
+        settle_agent_refusal(request_id=request_id, reason_class="safety", base_dir=self.base)
+        events = self._run_with_orphan_age(30)
+        self.assertNotIn("implementation_orphan_reaped", [row.get("kind") for row in events])
+        summary = next(row["details"] for row in events
+                       if row.get("kind") == "implementation_orphans_reaped_summary")
+        self.assertEqual((summary["already_settled_count"], summary["spared_recent_count"]), (1, 0))
+
+
+    def test_a_plan_recorded_between_the_scan_and_the_reap_is_not_rejected(self) -> None:
+        """ARIA-HIGH-389 — the reap ends only the orphan states it scanned: a plan
+        whose outcome landed in between (RECORDED, its PR the merge lane's) stays."""
+        from aria_kernel.plan_convergence import record_implementation_outcome, record_implementation_started
+
+        record_implementation_started(plan_id="plan-729", claim_id="claim-1", implementer_agent="aria-implementer",
+                                      started_at="2026-08-12T10:00:00Z", base_dir=self.base)
+        record_implementation_outcome(
+            plan_id="plan-729", claim_id="claim-1", pr_url="https://github.com/o/r/pull/4242",
+            diff_hash="sha256:" + "c" * 64, branch_tip_sha="d" * 40, base_branch_sha="e" * 40,
+            validation_results=[], signer_key_fp="fp-1", completed_at="2026-08-12T10:30:00Z", base_dir=self.base,
+        )
+        events = self._run_with_orphan_age(30)  # the scan's row still says IMPLEMENTATION_REQUESTED
+        self.assertNotIn("implementation_orphan_reaped", [row.get("kind") for row in events])
+        self.assertEqual(fold_plan_state(plan_id="plan-729", base_dir=self.base)["state"], "IMPLEMENTATION_RECORDED")
+        summary = next(row["details"] for row in events
+                       if row.get("kind") == "implementation_orphans_reaped_summary")
+        self.assertEqual(summary["already_settled_count"], 1)
 
 
 if __name__ == "__main__":

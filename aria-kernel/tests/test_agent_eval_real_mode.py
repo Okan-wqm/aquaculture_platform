@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from aria_kernel import agent_eval
+from aria_kernel.failure_attribution import InvocationLedgersSource
 from aria_kernel.agent_eval import (
     LESSON_EPISODE_THRESHOLD,
     PERFORMANCE_SURFACE,
@@ -50,6 +51,7 @@ from aria_kernel.agent_eval import (
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.state_manifest import surface_by_name
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 PROCEDURAL = Path("memory") / "procedural.jsonl"
 MERGE_SHA = "a" * 40
@@ -326,7 +328,7 @@ class ImplementationEnvelopeCarriesTheLessonTests(unittest.TestCase):
         )
         # The three red-CI episodes, built by the kernel's own episode builder
         # and appended the way the observation appends them.
-        for row in agent_eval._performance_episodes(fixture_history(), {}):
+        for row in agent_eval._performance_episodes(fixture_history(), {}, InvocationLedgersSource(self.tools)):
             append_declared_jsonl(self.tools / PROCEDURAL, {**row, "recorded_at": "2026-09-08T00:00:00+00:00"},
                                   expected_surface=PERFORMANCE_SURFACE)
 
@@ -341,6 +343,7 @@ class ImplementationEnvelopeCarriesTheLessonTests(unittest.TestCase):
             plan_id="plan-k10", cross_review_revision_id="cr-1", cross_review_summary_text="{}",
             proposal_id="proposal-k10", change_id="chg-k10", branch="aria-impl-0123456789abcdef",
             base_sha="0" * 40, base_dir=self.tools, cycle_id="cyc-k10",
+            admission=admit_request("implementer.converged_plan", "implementation", base_dir=self.tools),
         )
 
         validate_request(row, base_dir=self.tools)

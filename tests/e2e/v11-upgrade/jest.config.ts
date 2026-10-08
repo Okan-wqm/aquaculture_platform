@@ -15,6 +15,7 @@ export default {
     '^@platform/cqrs$': '<rootDir>/../../../platform/libs/cqrs/src/index.ts',
     '^@platform/event-bus$': '<rootDir>/../../../platform/libs/event-bus/src/index.ts',
     '^@platform/event-contracts$': '<rootDir>/../../../libs/event-contracts/src/index.ts',
+    '^@aquaculture/shared-contracts$': '<rootDir>/../../../libs/shared-contracts/src/index.ts',
     // backend-common's tenant-aware-schemas.ts derives from the topology SSoT.
     '^@platform/service-catalog$':
       '<rootDir>/../../../platform/libs/service-catalog/src/index.ts',

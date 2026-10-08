@@ -7,14 +7,16 @@
  */
 import { ITenantCommand } from '@platform/cqrs';
 
+import type { MonitoringFrequency } from '../entities/water-quality-param-equipment.entity';
+
 /**
  * Payload for creating a parameter-equipment mapping
  */
 export interface CreateParamEquipmentPayload {
   parameterConfigId: string;
   equipmentId: string;
-  monitoringFrequency?: string;
-  sensorId?: string;
+  monitoringFrequency?: MonitoringFrequency;
+  sensorId?: string | null;
   alertEnabled?: boolean;
   notes?: string;
 }

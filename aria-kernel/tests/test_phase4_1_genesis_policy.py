@@ -148,6 +148,9 @@ class GenesisPolicyTests(unittest.TestCase):
                 # cycle._backlog_below_cap via rhythm_policy.
                 "rhythm",
                 "executor",  # Plan 032 Faz 032h — drain concurrency block
+                # ARIA-HIGH-364 — request_admission: drain budget and executor
+                # liveness, consumed by request_drain_capacity.
+                "request_admission",
                 # E24-a (ORPHAN-711) — watchdog_pull: runtime telemetry
                 # feed + detector thresholds, consumed by
                 # aria_watchdog.run_watchdog_sweep.

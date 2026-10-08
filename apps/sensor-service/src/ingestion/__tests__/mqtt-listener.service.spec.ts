@@ -12,7 +12,7 @@
  */
 
 import { ConfigService } from '@nestjs/config';
-import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
+import { DataSource, QueryRunner, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { getRequestContext } from '@aquaculture/backend-common/logging';
 
@@ -69,6 +69,7 @@ function createMockDataSource(): jest.Mocked<DataSource> {
       getMany: jest.fn().mockResolvedValue([]),
     }),
     find: jest.fn().mockResolvedValue([]),
+    findOne: jest.fn().mockResolvedValue(null),
     save: jest.fn().mockResolvedValue(undefined),
   };
   const queryRunner = {
@@ -106,6 +107,16 @@ function createMockDataSource(): jest.Mocked<DataSource> {
       save: jest.fn().mockResolvedValue(undefined),
     }),
   } as unknown as jest.Mocked<DataSource>;
+}
+
+/**
+ * The listener reloads the topic-resolved sensor through the tenant-scoped
+ * repository inside runInTenantRead (SENSOR-HIGH-137), so the reload answer
+ * is the manager repository's findOne.
+ */
+function mockTenantSensorReload(qr: QueryRunner, sensor: Sensor | null): void {
+  const repository = (qr.manager.getRepository as jest.Mock)();
+  (repository.findOne as jest.Mock).mockResolvedValue(sensor);
 }
 
 function createMockMqttClient(): jest.Mocked<MqttClientService> {
@@ -229,7 +240,6 @@ function buildService(
   };
   const service = new (MqttListenerService as any)(
     configService,
-    sensorRepo,
     dataSource,
     metricWriter, // metricWriter (SensorMetricWriterService)
     eventBus,
@@ -290,7 +300,7 @@ describe('MqttListenerService', () => {
       // Mock loadSensorFromCache
       const sensor = createSensor();
       const qr = dataSource.createQueryRunner();
-      (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
+      mockTenantSensorReload(qr, sensor);
 
       await callHandleMessage(
         service,
@@ -309,7 +319,7 @@ describe('MqttListenerService', () => {
 
       const sensor = createSensor();
       const qr = dataSource.createQueryRunner();
-      (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
+      mockTenantSensorReload(qr, sensor);
       // One enabled channel so saveReading actually produces a metric row
       // and reaches the writer.
       const channelRepo = (qr.manager.getRepository as jest.Mock)();
@@ -340,7 +350,7 @@ describe('MqttListenerService', () => {
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
       const sensor = createSensor();
       const qr = dataSource.createQueryRunner();
-      (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
+      mockTenantSensorReload(qr, sensor);
       metricWriter.writeManaged.mockResolvedValue(undefined);
 
       // Tombstone: buildService's `new`-based harness leaves it null; inject
@@ -365,7 +375,7 @@ describe('MqttListenerService', () => {
 
       const sensor = createSensor();
       const qr = dataSource.createQueryRunner();
-      (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
+      mockTenantSensorReload(qr, sensor);
       const channelRepo = (qr.manager.getRepository as jest.Mock)();
       channelRepo.find.mockResolvedValue([
         {
@@ -413,7 +423,7 @@ describe('MqttListenerService', () => {
 
       const sensor = createSensor({ protocolConfiguration: { topic, payloadFormat: 'json' } });
       const qr = dataSource.createQueryRunner();
-      (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
+      mockTenantSensorReload(qr, sensor);
 
       await callHandleMessage(service, topic, JSON.stringify({ ph: 7.2 }));
 
@@ -461,7 +471,7 @@ describe('MqttListenerService', () => {
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(cachedInfo);
 
       const qr = dataSource.createQueryRunner();
-      (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
+      mockTenantSensorReload(qr, sensor);
 
       await callHandleMessage(
         service,
@@ -481,7 +491,7 @@ describe('MqttListenerService', () => {
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(cachedInfo);
 
       const qr = dataSource.createQueryRunner();
-      (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
+      mockTenantSensorReload(qr, sensor);
 
       // Invalid JSON
       const loggerSpy = jest.spyOn((service as any).logger, 'warn');
@@ -510,7 +520,7 @@ describe('MqttListenerService', () => {
       sensorTopicCache!.getSensorByTopic.mockResolvedValue(cachedInfo);
 
       const qr = dataSource.createQueryRunner();
-      (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
+      mockTenantSensorReload(qr, sensor);
 
       const loggerSpy = jest.spyOn((service as any).logger, 'warn');
 
@@ -594,7 +604,7 @@ describe('MqttListenerService', () => {
 
       const sensor = createSensor();
       const qr = dataSource.createQueryRunner();
-      (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
+      mockTenantSensorReload(qr, sensor);
 
       await callHandleMessage(
         service,
@@ -622,19 +632,11 @@ describe('MqttListenerService', () => {
       expect(loggerSpy).toHaveBeenCalledWith(expect.stringContaining('No sensor found for topic'));
     });
 
-    it('should fall back to legacy cross-schema search when cache service is unavailable', async () => {
-      const { service, dataSource } = buildService({ sensorTopicCache: null });
-
-      // Mock the legacy path: dataSource.query returns tenant schemas
-      dataSource.query.mockResolvedValueOnce([{ schema_name: 'tenant_aaaaaaaaaaaa4aaa' }]);
-
-      // Mock createQueryRunner for legacy path
+    it('reloads the resolved sensor inside the owning tenant read boundary (SENSOR-HIGH-137)', async () => {
+      const { service, sensorTopicCache, dataSource } = buildService();
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
       const qr = dataSource.createQueryRunner();
-      // table check returns table exists
-      (qr.query as jest.Mock)
-        .mockResolvedValueOnce(undefined) // SET TRANSACTION READ ONLY
-        .mockResolvedValueOnce(undefined) // transaction-local search_path pin
-        .mockResolvedValueOnce([{ '1': 1 }]); // table check
+      mockTenantSensorReload(qr, createSensor());
 
       await callHandleMessage(
         service,
@@ -642,29 +644,30 @@ describe('MqttListenerService', () => {
         JSON.stringify({ value: 1 }),
       );
 
-      // Should have queried for tenant schemas
-      expect(dataSource.query).toHaveBeenCalledWith(
-        expect.stringContaining('information_schema.schemata'),
-      );
+      const repository = (qr.manager.getRepository as jest.Mock).mock.results[0]?.value;
+      expect(qr.manager.getRepository).toHaveBeenCalledWith(Sensor);
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: expect.objectContaining({ id: SENSOR_ID, tenantId: TENANT_ID }),
+      });
     });
 
-    it('should populate negative cache for unknown topics (legacy path)', async () => {
-      const { service, dataSource } = buildService({ sensorTopicCache: null });
-
-      // Mock the legacy path: no tenant schemas -> no sensor found
-      dataSource.query.mockResolvedValue([]);
-
-      const loggerSpy = jest.spyOn((service as any).logger, 'warn');
+    it('logs an error and evicts the mapping when the resolved sensor cannot be reloaded', async () => {
+      const { service, sensorTopicCache, dataSource, metricWriter } = buildService();
+      sensorTopicCache!.getSensorByTopic.mockResolvedValue(createCachedSensorInfo());
+      mockTenantSensorReload(dataSource.createQueryRunner(), null);
+      const errorSpy = jest.spyOn(service['logger'], 'error');
 
       await callHandleMessage(
         service,
-        'sensors/nonexistent/sensor/data',
+        `sensors/${TENANT_ID}/${SENSOR_ID}/data`,
         JSON.stringify({ value: 1 }),
       );
 
-      // Should have populated negative cache
-      const negativeCache = (service as any).topicNegativeCache as Map<string, number>;
-      expect(negativeCache.has('sensors/nonexistent/sensor/data')).toBe(true);
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('tenant-scoped reload returned no row'),
+      );
+      expect(sensorTopicCache!.invalidateSensor).toHaveBeenCalledWith(SENSOR_ID, TENANT_ID);
+      expect(metricWriter.writeManaged).not.toHaveBeenCalled();
     });
   });
 
@@ -678,7 +681,7 @@ describe('MqttListenerService', () => {
 
       const sensor = createSensor({ tenantId: TENANT_ID });
       const qr = dataSource.createQueryRunner();
-      (qr.manager.findOne as jest.Mock).mockResolvedValue(sensor);
+      mockTenantSensorReload(qr, sensor);
 
       // Should process without error
       await callHandleMessage(
@@ -1403,39 +1406,6 @@ describe('MqttListenerService', () => {
   });
 
   // ==================== 10. Topic Wildcard Matching ====================
-
-  describe('Topic wildcard matching', () => {
-    it('should match single-level wildcard (+)', () => {
-      const service = buildService().service;
-      const topicMatches = (service as any).topicMatches.bind(service);
-
-      expect(topicMatches('sensors/+/data', 'sensors/abc/data')).toBe(true);
-      expect(topicMatches('sensors/+/data', 'sensors/abc/other')).toBe(false);
-    });
-
-    it('should match multi-level wildcard (#)', () => {
-      const service = buildService().service;
-      const topicMatches = (service as any).topicMatches.bind(service);
-
-      expect(topicMatches('sensors/#', 'sensors/a/b/c')).toBe(true);
-      expect(topicMatches('sensors/#', 'sensors')).toBe(true);
-    });
-
-    it('should not match when pattern has more parts than topic', () => {
-      const service = buildService().service;
-      const topicMatches = (service as any).topicMatches.bind(service);
-
-      expect(topicMatches('sensors/a/b/c', 'sensors/a')).toBe(false);
-    });
-
-    it('should match exact topic without wildcards', () => {
-      const service = buildService().service;
-      const topicMatches = (service as any).topicMatches.bind(service);
-
-      expect(topicMatches('sensors/abc/data', 'sensors/abc/data')).toBe(true);
-      expect(topicMatches('sensors/abc/data', 'sensors/xyz/data')).toBe(false);
-    });
-  });
 
   // ==================== 11. I/O Data Throttle ====================
 

@@ -59,19 +59,24 @@ class OrchestratorOrphanReaperHookTests(unittest.TestCase):
     def test_i_v31_b3_01_orchestrator_invokes_orphan_scanner(self) -> None:
         """Plan ARIA-V3.1-B3-01 — source-substring test: the orchestrator
         body imports + calls scan_orphan_implementation_requests +
-        record_implementation_rejected."""
+        record_implementation_rejected.
+
+        ARIA-HIGH-388 — the reap goes through the one settlement writer
+        (``implementation_settlement.settle_orphaned_plan``), which writes
+        ``orchestrator_restart_reaped_orphan`` with a fault domain."""
         from aria_kernel import autonomy_orchestrator
+        from aria_kernel.implementation_rejections import ORPHAN_REAPED
         src = inspect.getsource(autonomy_orchestrator.run_autonomy_orchestrator)
         self.assertIn("scan_orphan_implementation_requests", src)
-        self.assertIn("record_implementation_rejected", src)
-        self.assertIn("orchestrator_restart_reaped_orphan", src)
+        self.assertIn("settle_orphaned_plan", src)
+        self.assertEqual(ORPHAN_REAPED, "orchestrator_restart_reaped_orphan")
         self.assertIn("implementation_orphan_reaped", src)
 
     def test_i_v31_b3_02_orphan_reaping_emits_governance_events(self) -> None:
         """Plan ARIA-V3.1-B3-02 + B3-03 — behavioral: when the scanner
         returns orphans, the orchestrator startup hook fires
-        record_implementation_rejected per orphan + emits
-        implementation_orphan_reaped + implementation_orphans_reaped_summary.
+        the settlement writer (settle_orphaned_plan, ARIA-HIGH-388) per
+        orphan + emits implementation_orphan_reaped + implementation_orphans_reaped_summary.
         """
         from aria_kernel.autonomy_orchestrator import run_autonomy_orchestrator
         from aria_kernel.runtime_profile import set_profile
@@ -83,16 +88,21 @@ class OrchestratorOrphanReaperHookTests(unittest.TestCase):
                 base_dir=base,
             )
             # Patch the scanner to return 2 synthetic orphans + patch
-            # record_implementation_rejected so we don't need to drive
+            # settle_orphaned_plan so we don't need to drive
             # the full state machine.
             recorded: list[dict] = []
-            def _fake_rejected(*, plan_id, rejection_class, rejected_at,
-                               base_dir=None):
+            # ARIA-HIGH-388 — the reaper's writer is the settlement.
+            def _fake_rejected(*, plan_id, base_dir=None):
                 recorded.append({
                     "plan_id": plan_id,
-                    "rejection_class": rejection_class,
+                    "rejection_class": "orchestrator_restart_reaped_orphan",
                 })
-                return {"event_type": "implementation_rejected"}
+                return {
+                    "status": "settled",
+                    "rejection_class": "orchestrator_restart_reaped_orphan",
+                    "fault_domain": "harness",
+                    "cause": "unclaimed",
+                }
             # ORPHAN-HIGH-729 — these stamps are now LOAD-BEARING, not
             # decoration. The reap is age-bounded by
             # `ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS`, so an orphan is only
@@ -109,7 +119,7 @@ class OrchestratorOrphanReaperHookTests(unittest.TestCase):
                      "last_event_at": "2026-05-19T00:01:00Z"},
                 ],
             ), patch(
-                "aria_kernel.plan_convergence.record_implementation_rejected",
+                "aria_kernel.implementation_settlement.settle_orphaned_plan",
                 side_effect=_fake_rejected,
             ):
                 run_autonomy_orchestrator(

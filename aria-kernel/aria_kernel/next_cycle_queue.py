@@ -50,6 +50,12 @@ __all__ = [
     "read_pending",
     "mark_consumed",
     "queue_path",
+    "REOFFERED",
+    "REOFFER_ALREADY_PENDING",
+    "REOFFER_NEVER_QUEUED",
+    "REOFFER_QUEUE_FULL",
+    "reoffer_item",
+    "defer_projection",
 ]
 
 
@@ -303,3 +309,97 @@ def mark_consumed(
             row,
             expected_surface="next_cycle_queue",
         )
+
+
+REOFFERED = "reoffered"
+REOFFER_ALREADY_PENDING = "already_pending"
+REOFFER_NEVER_QUEUED = "never_queued"
+REOFFER_QUEUE_FULL = "queue_full"
+
+
+def reoffer_item(
+    base_dir: str | Path | None,
+    *,
+    queue_item_id: str,
+    reason: str,
+) -> str:
+    """Make a consumed item pending again; ``REOFFERED`` or why it was not.
+
+    ARIA-HIGH-360 — the autonomy orchestrator consumes an item when it mints
+    the item's request, so a request that expired unclaimed left nothing to
+    re-offer it and the work was lost. The anchor-stale disposition puts the
+    item back; the orchestrator's projection then sees the dead request and
+    mints its successor under its own remint budget. ``_pending_from_rows``
+    returns an item's FIRST pending row while its latest row is pending, so
+    this row carries only the transition.
+
+    ``REOFFER_ALREADY_PENDING`` is the item already offered: a sweep that
+    re-offered it and crashed before recording that finds it so, and the
+    item is where the caller wants it (review of PR #1825). The caller hands
+    the work to the operator only for ``REOFFER_NEVER_QUEUED`` and
+    ``REOFFER_QUEUE_FULL``.
+    """
+    path = queue_path(base_dir)
+    with state_transaction([path]) as txn:
+        rows = load_declared_jsonl(path, expected_surface="next_cycle_queue")
+        mine = [row for row in rows if str(row.get("queue_item_id") or "") == queue_item_id]
+        if not any(row.get("state") == "pending" for row in mine):
+            return REOFFER_NEVER_QUEUED
+        if mine[-1].get("state") == "pending":
+            return REOFFER_ALREADY_PENDING
+        if len(_pending_from_rows(rows)) >= queue_depth():
+            return REOFFER_QUEUE_FULL
+        txn.append_declared_jsonl(
+            path,
+            {
+                "schema_version": 1,
+                "queue_item_id": queue_item_id,
+                "state": "pending",
+                "reoffered_reason": reason,
+                "recorded_at": utc_now(),
+            },
+            expected_surface="next_cycle_queue",
+        )
+        return REOFFERED
+
+
+def defer_projection(
+    base_dir: str | Path | None,
+    *,
+    queue_item_id: str,
+    reason: str,
+    budget: int,
+) -> int | None:
+    """Keep a pending item pending for one more drain; the deferral's ordinal, or ``None`` past ``budget``.
+
+    ARIA-HIGH-384 review — the drain leaves an item pending when the host
+    could not verify its evidence (the law's harness-class refusal, or an I/O
+    fault of the projection). Unbounded, an item whose host fault is
+    permanent sat in a queue-depth slot forever. Each deferral is a
+    ``state=pending`` row carrying ``deferred_reason`` (the item stays
+    pending; ``_pending_from_rows`` returns its first row), so the count
+    lives in the queue's own ledger and is read under the same transaction
+    that appends it. Past ``budget`` nothing is written: the caller consumes
+    the item and discloses it.
+    """
+    path = queue_path(base_dir)
+    with state_transaction([path]) as txn:
+        rows = load_declared_jsonl(path, expected_surface="next_cycle_queue")
+        prior = sum(
+            1 for row in rows
+            if str(row.get("queue_item_id") or "") == queue_item_id and row.get("deferred_reason")
+        )
+        if prior >= budget:
+            return None
+        txn.append_declared_jsonl(
+            path,
+            {
+                "schema_version": 1,
+                "queue_item_id": queue_item_id,
+                "state": "pending",
+                "deferred_reason": reason,
+                "recorded_at": utc_now(),
+            },
+            expected_surface="next_cycle_queue",
+        )
+        return prior + 1

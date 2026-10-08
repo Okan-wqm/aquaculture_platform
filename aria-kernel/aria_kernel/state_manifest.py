@@ -478,6 +478,10 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # request's admitted turns FROM this ledger before deciding the next one, so losing it
     # resets the cap, not only the record.
     StateSurface("hook_decisions", "hooks/decisions.jsonl", "ledger", "hooks", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
+    # ARIA-HIGH-364 — the request-admission door's decisions and per-cycle
+    # drain snapshots (request_admission.admit_request); read by the door
+    # itself and by the daily report's Request Admission section.
+    StateSurface("agent_invocation_admissions", "agent-invocations/admissions.jsonl", "ledger", "request_admission", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     StateSurface("agent_work_journal", "agent-invocations/work-journal.jsonl", "ledger", "work_journal", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     # Plan 032 Faz 032c — checkpoints (observation), sessions, external-effect intents/receipts and recovery decisions (write-driving).
     StateSurface("checkpoints_index", "checkpoints/index.jsonl", "ledger", "checkpoints", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
@@ -662,6 +666,12 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("calibration_judge", "calibration/judge-calibration.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("calibration_adapter_reports", "calibration/adapter-calibration-reports.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("calibration_recommendations", "calibration/recommendations.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # ARIA-HIGH-370 — the bounded calibration actuator's ledger: every
+    # application with its evidence, and its held / reverted judgement.
+    # ARIA-HIGH-370 (second review of #1829, M5) — every half-open probe the
+    # admission breaker granted, so one probe is one probe.
+    StateSurface("admission_probes", "admission/probes.jsonl", "ledger", "admission", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("calibration_auto_applied", "calibration/auto-applied.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="tool_governance", observe_class="mutation"),
     StateSurface("capability_gaps", "capability-gaps/gaps.jsonl", "ledger", "capability_gaps", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("proactive_priorities", "proactive/priorities.jsonl", "ledger", "proactive", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("problem_clusters", "problem_clusters.jsonl", "ledger", "clustering", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),

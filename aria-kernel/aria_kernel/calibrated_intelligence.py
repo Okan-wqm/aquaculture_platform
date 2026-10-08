@@ -83,19 +83,21 @@ def calibrated_multiplier(
 def source_feedback_counts(feedback_rows: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
     """tp/fp per pressure source, from the operator-feedback ledger.
 
-    Same row reading as calibration's recommendation pass (metadata's
-    pressure_source, falling back to tool_id) so the two views of the same
-    ledger cannot disagree about attribution.
+    The row reading is ``calibration_dials.feedback_dial``, the one the
+    recommendation pass uses, so the two views of the same ledger cannot
+    disagree about attribution. A row labelling an adapter's finding
+    measures that tool's dial, not a pressure source (ARIA-HIGH-370), and is
+    not counted here.
     """
+    from .calibration_dials import SOURCE_DIAL, feedback_dial
+
     by_source: dict[str, dict[str, int]] = {}
     for row in feedback_rows:
-        source = str(
-            (row.get("metadata") or {}).get("pressure_source")
-            or row.get("tool_id")
-            or "unknown"
-        )
+        dial = feedback_dial(row)
+        if dial is None or dial[0] != SOURCE_DIAL:
+            continue
         verdict = str(row.get("verdict") or row.get("kind") or "")
-        bucket = by_source.setdefault(source, {"tp": 0, "fp": 0})
+        bucket = by_source.setdefault(dial[1], {"tp": 0, "fp": 0})
         if verdict == "true_positive":
             bucket["tp"] += 1
         elif verdict == "false_positive":

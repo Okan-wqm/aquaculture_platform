@@ -18,6 +18,7 @@ import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { FeedingClockService } from '../services/feeding-clock.service';
+import { SiteTimeZoneService } from '../../localization/services/site-time-zone.service';
 import { FeedingJobRunService } from '../services/feeding-job-run.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
@@ -157,6 +158,7 @@ function makeHarness(fixture: SweepFixture) {
     realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
     stub<FeedingClockService>({}),
     stub<FeedingJobRunService>({}),
+    stub<SiteTimeZoneService>({}),
   );
 
   return {

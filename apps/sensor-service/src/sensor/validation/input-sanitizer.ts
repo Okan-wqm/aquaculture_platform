@@ -4,23 +4,19 @@
  * Prevents SQL injection, pattern injection, and other attacks
  */
 
+import {
+  AGGREGATION_INTERVAL_SQL,
+  type AggregationIntervalSql,
+} from '@aquaculture/shared-contracts';
 import { BadRequestException } from '@nestjs/common';
 
 /**
- * Aggregation interval whitelist
- * Only these values are allowed for TimescaleDB time_bucket
+ * Aggregation interval whitelist — only these values reach TimescaleDB
+ * time_bucket. Owned by the sensor-reading tier policy.
  */
-export const ALLOWED_AGGREGATION_INTERVALS = [
-  '1 minute',
-  '5 minutes',
-  '15 minutes',
-  '1 hour',
-  '4 hours',
-  '1 day',
-  '1 week',
-] as const;
+export const ALLOWED_AGGREGATION_INTERVALS = AGGREGATION_INTERVAL_SQL;
 
-export type SafeAggregationInterval = (typeof ALLOWED_AGGREGATION_INTERVALS)[number];
+export type SafeAggregationInterval = AggregationIntervalSql;
 
 /**
  * Maximum allowed depth for JSON path parsing

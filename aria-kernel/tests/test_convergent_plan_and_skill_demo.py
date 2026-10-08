@@ -26,6 +26,7 @@ from aria_kernel.skill_genesis import (
     sandbox_skill,
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 def _seed_tools() -> Path:
@@ -91,6 +92,7 @@ class ConvergentPlanBridgeTests(unittest.TestCase):
             allowed_scope=["aria-kernel/**"],
             evidence_refs=["docs/aria/SPEC.md:53"],
             base_dir=self.tools,
+            admission=admit_request("convergence_drainer.plan_step", "challenger_plan", base_dir=self.tools),
         )
         self.assertEqual(challenger["target_agent"], "aria-challenger-planner")
         self.assertEqual(challenger["role"], "challenger_plan")

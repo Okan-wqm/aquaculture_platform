@@ -75,11 +75,12 @@ export class TenantPayloadCryptoService {
    * shredded_at, so the DEK can never be unwrapped again. Idempotent — a
    * non-existent or already-shredded tenant is a no-op.
    */
-  async shred(tenantId: string): Promise<void> {
+  /** Destroys the tenant's DEK; resolves true when this call destroyed it. */
+  async shred(tenantId: string): Promise<boolean> {
     const row = await this.keyRepo.findOne({ where: { tenantId } });
     this.dekCache.delete(tenantId);
     if (!row || row.shreddedAt) {
-      return;
+      return false;
     }
     // Overwrite the wrapped DEK with unrecoverable random data (not just NULL) so
     // even a point-in-time DB backup taken after this cannot recover the key.
@@ -87,6 +88,7 @@ export class TenantPayloadCryptoService {
     row.shreddedAt = new Date();
     await this.keyRepo.save(row);
     this.logger.log(`crypto-shredded event-store payload key for tenant ${tenantId}`);
+    return true;
   }
 
   /** True once the tenant's key has been destroyed. */

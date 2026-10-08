@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import * as YAML from 'yaml';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const NX_VERSION = '22.7.8';
+const NX_VERSION = '22.7.12';
 const VITEST_VERSION = '3.2.7';
 const ROUTER_VERSION = '7.18.2';
 const API_EXTRACTOR_VERSION = '7.59.0';
@@ -93,6 +93,21 @@ const ROOT_SECURITY_FLOORS = {
   // GHSA-8436-99hf-9mmv, GHSA-rx4f-c7p8-82vq. @module-federation/dts-plugin
   // 2.8.2 pins undici exactly at 7.29.0, so only the override can lift it.
   undici: '7.29.1',
+  // GHSA-jqcg-44mw-7w3h (critical, fixed in 2.0.8): IP spoofing via an
+  // IPv4-mapped IPv6 trust subnet, under express's `trust proxy`.
+  'proxy-addr': '2.0.8',
+  // GHSA-7mx3-vvmw-hjmv (fixed in 12.0.1): prototype pollution in mergeDeep.
+  // @nestjs/graphql 13.4.5 pins 12.0.0 exactly; a scoped override lifts it.
+  '@graphql-tools/utils': '12.0.1',
+  // GHSA-pqg4-j6r4-53mv (critical, fixed in 1.11.0). concurrently 9.x pins
+  // 1.9.0 exactly; a scoped override lifts it.
+  'shell-quote': '1.11.0',
+  // GHSA-r4xh-jqrq-34v2 (fixed in 1.9.0). Every nx 22.7.x pins 1.6.1; a scoped
+  // override lifts it.
+  'smol-toml': '1.9.0',
+  // GHSA-qqmp-wf37-98f9: the instrumentations bundled before 0.81.0 put the
+  // database user name on every span as db.user.
+  '@opentelemetry/auto-instrumentations-node': '0.81.0',
 } as const satisfies Readonly<Record<string, SecurityFloor>>;
 
 interface RootFloorDeclaration {
@@ -117,6 +132,8 @@ const ROOT_FLOOR_DECLARATIONS: readonly RootFloorDeclaration[] = [
   { dependency: 'nodemailer', field: 'dependencies' },
   { dependency: 'piscina', field: 'dependencies' },
   { dependency: 'undici', field: 'overrides' },
+  { dependency: 'proxy-addr', field: 'overrides' },
+  { dependency: '@opentelemetry/auto-instrumentations-node', field: 'dependencies' },
 ];
 
 /**

@@ -3,7 +3,6 @@
  * Supports cascade soft delete of all related items
  */
 import {
-  runInTenantTransaction,
   tenantManagerRepo,
   TenantScopedRepository,
 } from '@aquaculture/backend-common/database';
@@ -13,10 +12,15 @@ import { toEventIso, SystemDeletedEvent, createBaseEvent } from '@platform/event
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, In } from 'typeorm';
 
+import { runRetryingTenantTransaction } from '../../common/database/retrying-tenant-transaction';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
+import {
+  closeSourcesAtPoints,
+  unitPoints,
+} from '../../water-quality/services/parameter-sources';
 import { DeleteSystemCommand } from '../commands/delete-system.command';
 import { System } from '../entities/system.entity';
 
@@ -37,7 +41,7 @@ export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand,
 
     this.logger.log(`Deleting system ${systemId} for tenant ${tenantId} (cascade: ${cascade})`);
 
-    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+    await runRetryingTenantTransaction(this.dataSource, tenantId, async (queryRunner) => {
       const systemRepository = tenantManagerRepo(queryRunner.manager, System, tenantId);
       const equipmentRepository = tenantManagerRepo(queryRunner.manager, Equipment, tenantId);
       const equipmentSystemRepository = tenantManagerRepo(
@@ -85,6 +89,10 @@ export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand,
         }
       }
 
+      // Systems this delete removes (a non-cascade delete has no children).
+      const removedSystemIds = [systemId, ...childSystems.map((child) => child.id)];
+
+      const deactivatedEquipmentIds: string[] = [];
       const equipmentSystems = await equipmentSystemRepository.find({
         where: { systemId, tenantId },
         relations: ['equipment'],
@@ -96,6 +104,7 @@ export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand,
         );
 
         const equipmentIds = equipmentSystems.map((es) => es.equipmentId);
+        deactivatedEquipmentIds.push(...equipmentIds);
         await equipmentRepository.update(
           { id: In(equipmentIds) },
           { isActive: false, updatedBy: userId },
@@ -110,6 +119,21 @@ export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand,
 
       system.softDelete(userId);
       const deletedSystem = await systemRepository.save(system);
+
+      // The removed systems and the equipment deactivated with them are no
+      // longer places a parameter is measured: their water-quality sources end
+      // here, kept as history (FARM-HIGH-373, D12). Tanks stay; their own
+      // sources stay with them.
+      await closeSourcesAtPoints(
+        queryRunner.manager,
+        tenantId,
+        [
+          ...removedSystemIds.map((id) => ({ kind: 'system' as const, id })),
+          ...unitPoints(deactivatedEquipmentIds),
+        ],
+        userId,
+        'all',
+      );
 
       await this.auditLogService.logWithManager(queryRunner.manager, {
         tenantId,

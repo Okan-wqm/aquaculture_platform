@@ -50,6 +50,14 @@ from collections.abc import Mapping, Sequence
 from . import command_policy as _command_policy
 from typing import Any, Callable, Mapping
 
+from .dependency_tree import (
+    DEPENDENCY_TREE_DIRNAME,
+    TOOL_CACHE_DIRNAMES,
+    dependency_mounts,
+    installed_checkout,
+    prepare_dependency_mountpoints,
+)
+from .gh_token_factory import GitCommitIdentity
 from .git_containment import GitContainment
 from .hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET
 from .mcp_broker import MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET
@@ -670,6 +678,28 @@ _SANDBOX_NETWORK_FILES: tuple[str, ...] = (
     "/etc/nsswitch.conf",
 )
 
+# ARIA-HIGH-361 — loopback names WITHOUT the network. `--unshare-net` leaves
+# the namespace its own loopback, but with no /etc/hosts `localhost` did not
+# resolve: vitest's startup died `getaddrinfo EAI_AGAIN localhost` inside
+# the validation sandbox, so no web test could run there. Naming loopback is
+# not a network permission. The kernel ships a hosts file that names only
+# loopback, and an nsswitch that consults only it, rather than the host's
+# files, which carry the host's own names and resolver.
+_SANDBOX_LOOPBACK_FILES: tuple[tuple[Path, str], ...] = tuple(
+    (Path(__file__).resolve().parent / "data" / "sandbox_etc" / name, f"/etc/{name}")
+    for name in ("hosts", "nsswitch.conf")
+)
+
+
+def _loopback_name_binds() -> list[str]:
+    """The no-network spawn's name files: the wrapper and the probe both use
+    this, so the probe cannot pass on a host where the wrapper would abort
+    on a missing bind source (ORPHAN-MEDIUM-452)."""
+    flags: list[str] = []
+    for source, target in _SANDBOX_LOOPBACK_FILES:
+        flags.extend(["--ro-bind", str(source), target])
+    return flags
+
 
 def _system_ro_binds() -> list[str]:
     """`--ro-bind` flags for the system paths that exist on THIS host.
@@ -725,6 +755,7 @@ def _bwrap_probe_argv() -> list[str]:
         "--proc", "/proc",
         "--dev", "/dev",
         *SANDBOX_TMP_MOUNT,
+        *_loopback_name_binds(),
         "--unshare-net",
         *VALIDATION_SANDBOX_CONTAINMENT_FLAGS,
         *(flag for flag in MANAGED_SPAWN_ISOLATION_FLAGS if flag not in VALIDATION_SANDBOX_CONTAINMENT_FLAGS),
@@ -959,7 +990,12 @@ def scope_directories(workspace: Path, write_scope: Sequence[str]) -> list[Path]
 # (`nx affected …`) could not start. The nearest ancestor `node_modules`
 # outside the workspace is bound read-only, so the walk inside answers what
 # the gate proved outside.
-DEPENDENCY_TREE_DIRNAME = "node_modules"
+#
+# ARIA-HIGH-361 — and mounted again INSIDE the workspace, root and nested
+# workspace trees at their own relative paths (`dependency_tree`): bound only
+# at the checkout's path, the workspace links resolved into the checkout's
+# hidden `libs/`/`tools/`, nested installs were missing, and
+# `<cwd>/node_modules/.bin/tsc` did not exist.
 
 
 def _is_socket(path: Path) -> bool:
@@ -997,11 +1033,20 @@ def kernel_root_ro_binds(workspace: Path) -> list[str]:
 
 
 def _dependency_tree_binds(workspace: Path) -> list[str]:
-    for ancestor in workspace.parents:
-        candidate = ancestor / DEPENDENCY_TREE_DIRNAME
-        if candidate.is_dir():
-            return ["--ro-bind", str(candidate), str(candidate)]
-    return []
+    checkout = installed_checkout(workspace)
+    if checkout is None:
+        return []
+    tree = checkout / DEPENDENCY_TREE_DIRNAME
+    flags = ["--ro-bind", str(tree), str(tree)]
+    try:
+        prepare_dependency_mountpoints(workspace)
+    except OSError as exc:
+        raise SandboxUnavailable(f"dependency_mountpoint_unavailable:{exc.filename}:{type(exc).__name__}") from exc
+    for mount in dependency_mounts(workspace):
+        flags.extend(["--ro-bind", str(mount.source), str(mount.mountpoint)])
+        for name in TOOL_CACHE_DIRNAMES:
+            flags.extend(["--tmpfs", str(mount.mountpoint / name)])
+    return flags
 
 
 def _workspace_binds(workspace: Path, write_scope: Sequence[str] | None) -> list[str]:
@@ -1211,6 +1256,7 @@ def _sandbox_argv(
             if Path(network_file).exists():
                 wrap.extend(["--ro-bind", network_file, network_file])
     else:
+        wrap.extend(_loopback_name_binds())
         wrap.append("--unshare-net")
     wrap.append("--")
     return wrap + list(argv)
@@ -1886,6 +1932,12 @@ class _PreMergeEvidence:
     # is the implementation base (where the head forked from it); main moves
     # ahead of it while the PR waits for the merge queue.
     live_base_sha: str | None = None
+    # ARIA-HIGH-374 — the pair GitHub MERGES: the live PR head and the base
+    # it forked from. It equals (head_sha, base_sha) unless ARIA's own pure
+    # branch updates sit between (`branch_update_lineage`, verified by the
+    # capture); None on evidence built before the field, read as equal.
+    merge_head_sha: str | None = None
+    merge_base_sha: str | None = None
     snapshot_hash: str | None = None
     scope_observed_at: str | None = None
     scope_ledger_tips: tuple[str, ...] = ()
@@ -1985,6 +2037,13 @@ class HardFailContext:
     # reports the check as not evaluable rather than as a refusal.
     commit_contract: dict[str, Any] | None = None
     branch_commits: tuple[dict[str, str], ...] | None = None
+    # ARIA-HIGH-387 — the identity every commit base..head must carry as
+    # author AND committer (``implementation_identity.
+    # IMPLEMENTER_COMMIT_IDENTITY`` for a machine-approved action, whose
+    # commits are the executor's implementer's), or None on a lane whose
+    # commits are a person's. Each ``branch_commits`` record then carries
+    # ``author`` / ``committer`` as git prints them (``<name> <<email>>``).
+    commit_identity: GitCommitIdentity | None = None
 
 
 @dataclass(frozen=True)
@@ -2133,10 +2192,12 @@ def _check_branch_tip_lock_and_recheck(context: HardFailContext) -> HardFailResu
     from .state_store import StateStoreError as _StateStoreError
     from .state_store import _git
 
+    merge_head = evidence.merge_head_sha if evidence.merge_head_sha is not None else evidence.head_sha
+    merge_base = evidence.merge_base_sha if evidence.merge_base_sha is not None else evidence.base_sha
     try:
-        for ref, expected in (("HEAD", evidence.head_sha),
-                              ("refs/heads/" + evidence.branch, evidence.head_sha),
-                              ("refs/heads/" + context.base_branch, evidence.base_sha)):
+        for ref, expected in (("HEAD", merge_head),
+                              ("refs/heads/" + evidence.branch, merge_head),
+                              ("refs/heads/" + context.base_branch, merge_base)):
             if _git(context.workspace_root, "rev-parse", "--verify", ref + "^{commit}").strip() != expected:
                 return _failed(name, "native_branch_tip_changed")
     except (OSError, _StateStoreError):
@@ -2739,6 +2800,32 @@ def _check_commit_contract_honoured(context: HardFailContext) -> HardFailResult:
     return _passed(name)
 
 
+def _check_commit_identity_is_the_kernels(context: HardFailContext) -> HardFailResult:
+    """ARIA-HIGH-387 — every commit base..head on a machine-approved branch
+    is authored AND committed by the kernel's implementer identity.
+
+    The identity mint makes that identity the worktree's default; it does
+    not make another one impossible. git's ``author.*``/``committer.*``
+    keys outrank ``user.*`` in any scope and ``GIT_AUTHOR_*`` outranks all
+    of them, the sandbox HOME is writable, and the agent runs code it wrote
+    — so the commits themselves are judged here, before the push, by the
+    one comparison the containment probe makes too
+    (``implementation_identity.foreign_commit_identities``). A lane whose
+    commits are a person's declares no identity and is not judged here.
+    """
+    from .implementation_identity import foreign_commit_identities
+
+    name = "commit_identity_is_the_kernels"
+    if context.commit_identity is None:
+        return _passed(name, "no_kernel_commit_identity:the_lane_commits_as_a_person")
+    if context.branch_commits is None:
+        return _failed(name, "branch_commits_absent")
+    foreign = foreign_commit_identities(context.branch_commits, expected=context.commit_identity)
+    if foreign:
+        return _failed(name, "commit_identity_foreign:" + ";".join(foreign)[:400])
+    return _passed(name)
+
+
 def _check_pr_body_templating(context: HardFailContext) -> HardFailResult:
     name = "pr_body_templating"
     body = context.pr_body
@@ -3015,6 +3102,18 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         ),
         closes_findings=("ARIA-HIGH-104",),
         check=_check_commit_contract_honoured,
+        gate=GATE_PRE_PR_OPEN,
+    ),
+    # ARIA-HIGH-387 — the 21st check. The implementer's commits carry the
+    # kernel's named identity, author and committer, every one of them.
+    HardFailCheck(
+        name="commit_identity_is_the_kernels",
+        description=(
+            "every commit base_sha..head on a machine-approved branch is authored "
+            "and committed by implementation_identity.IMPLEMENTER_COMMIT_IDENTITY"
+        ),
+        closes_findings=("ARIA-HIGH-387",),
+        check=_check_commit_identity_is_the_kernels,
         gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(

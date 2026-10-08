@@ -2722,6 +2722,17 @@ type WaterQualityParameterConfig {
   """Measurement unit, e.g. °C, mg/L, NTU"""
   unit: String!
 
+  """The measured quantity an operator declared, when the code does not say"""
+  declaredQuantity: String
+
+  """
+  The measured quantity the parameter records: declared, else named by its code
+  """
+  quantity: String
+
+  """When the code, unit or declared quantity last changed"""
+  quantityConfiguredAt: DateTime
+
   """Value data type"""
   dataType: ParameterDataType!
 
@@ -2783,6 +2794,8 @@ type WaterQualityParameterConfig {
   templateSource: String
   createdAt: DateTime!
   updatedAt: DateTime!
+  quantityFamily: String
+  declarableQuantities: [String!]!
 }
 
 """Data type of a water quality parameter value"""
@@ -2813,26 +2826,80 @@ type WaterQualityParamEquipment {
   id: ID!
   tenantId: String!
   parameterConfigId: String!
-  equipmentId: String!
 
-  """Whether this parameter-equipment mapping is active"""
-  isActive: Boolean!
+  """Site point"""
+  siteId: ID
 
-  """How often this parameter is monitored on the equipment"""
-  monitoringFrequency: MonitoringFrequency!
+  """System (loop) point"""
+  systemId: ID
 
-  """Linked sensor device UUID"""
+  """Tank point"""
+  tankId: ID
+
+  """Non-tank water equipment point"""
+  equipmentId: String
+
+  """Where at the point the source samples"""
+  position: MeasurementPosition!
+
+  """Sampling depth in metres"""
+  depthM: Float
+
+  """Sensor of a channel source"""
   sensorId: String
 
-  """Whether alerts are enabled for this mapping"""
-  alertEnabled: Boolean!
+  """Channel key of a channel source"""
+  channelKey: String
+
+  """Null for a manual source"""
+  priority: ChannelSourcePriority
+
+  """Whether this manual source is in the entry plan"""
+  isActive: Boolean!
+
+  """
+  How often this parameter is monitored on the equipment; null for a sensor channel
+  """
+  monitoringFrequency: MonitoringFrequency
+
+  """Whether alerts are enabled for this mapping; null for a sensor channel"""
+  alertEnabled: Boolean
 
   """Free-text notes for this mapping"""
   notes: String
+
+  """When the source started feeding the parameter at the point"""
+  boundAt: DateTime!
+
+  """Who bound it; null before tracking"""
+  boundBy: String
+
+  """When it stopped; null while live"""
+  unboundAt: DateTime
+
+  """Who or what unbound it"""
+  unboundBy: String
   parameterConfig: WaterQualityParameterConfig!
   equipment: EquipmentRef
   createdAt: DateTime!
   updatedAt: DateTime!
+}
+
+"""
+Where at a measurement point a source samples: representative, inlet or outlet
+"""
+enum MeasurementPosition {
+  REPRESENTATIVE
+  INLET
+  OUTLET
+}
+
+"""
+A channel source is the primary of its parameter at its point, or the backup
+"""
+enum ChannelSourcePriority {
+  PRIMARY
+  BACKUP
 }
 
 """Frequency at which a water quality parameter is monitored on equipment"""
@@ -2842,6 +2909,115 @@ enum MonitoringFrequency {
   DAILY
   WEEKLY
   ON_DEMAND
+}
+
+"""A bound sensor channel as the sensor service describes it now"""
+type BoundChannelStatus {
+  sensorId: ID!
+  channelKey: String!
+  presence: ChannelPresence!
+  sensorActive: Boolean
+  enabled: Boolean
+
+  """Effective measured quantity"""
+  quantity: String
+  quantityFamily: String
+  unit: String
+  latestValue: Float
+  latestAt: DateTime
+  latestQuality: SampleQuality
+
+  """When the unit or quantity last changed"""
+  configuredAt: DateTime
+
+  """Null: no calibration schedule"""
+  calibrationDueAt: DateTime
+}
+
+"""
+Whether a (sensorId, channelKey) names a live channel, or what is missing
+"""
+enum ChannelPresence {
+  FOUND
+  NO_SENSOR
+  NO_CHANNEL
+}
+
+"""OPC-UA quality band of a sample, classified by the sensor service"""
+enum SampleQuality {
+  GOOD
+  UNCERTAIN
+  BAD
+}
+
+"""A source of a parameter at a point, with its channel as it is now"""
+type ParameterSourceStatus {
+  source: WaterQualityParamEquipment!
+
+  """Null for a manual source"""
+  channel: BoundChannelStatus
+
+  """Why the channel cannot feed the parameter here now; empty when it can"""
+  problems: [ChannelBindingProblem!]!
+}
+
+"""Why a sensor channel cannot feed a parameter at a point"""
+enum ChannelBindingProblem {
+  PARAMETER_HAS_NO_QUANTITY
+  PARAMETER_UNIT_NOT_CONVERTIBLE
+  NO_SENSOR
+  NO_CHANNEL
+  SENSOR_INACTIVE
+  CHANNEL_DISABLED
+  CHANNEL_HAS_NO_QUANTITY
+  QUANTITY_MISMATCH
+  CHANNEL_HAS_NO_UNIT
+  CHANNEL_UNIT_NOT_CONVERTIBLE
+  NOT_AT_POINT
+}
+
+"""Whether a channel could be bound as a source, without binding it"""
+type ChannelBindingCheck {
+  channel: BoundChannelStatus!
+  problems: [ChannelBindingProblem!]!
+}
+
+"""An unbound channel source, and the backup promoted in its place"""
+type ParameterChannelUnbinding {
+  unbound: WaterQualityParamEquipment!
+  promoted: WaterQualityParamEquipment
+}
+
+"""Immutable record of one change to a parameter’s declared quantity"""
+type ParameterQuantityDeclaration {
+  id: ID!
+  parameterConfigId: ID!
+  code: String!
+  quantity: String
+  unit: String!
+  reason: ParameterQuantityDeclarationReason!
+  declaredBy: String!
+  declaredAt: DateTime!
+}
+
+enum ParameterQuantityDeclarationReason {
+  DECLARED
+  CLEARED
+}
+
+"""One parameter to record at a unit, and whether it is required there"""
+type UnitMeasurementPlanEntry {
+  parameter: WaterQualityParameterConfig!
+
+  """Whether a measurement at this unit must carry this parameter"""
+  required: Boolean!
+}
+
+"""What to record at a unit: its plan, or every active parameter"""
+type UnitMeasurementPlan {
+  """Whether the unit has a plan of its own"""
+  planned: Boolean!
+  entries: [UnitMeasurementPlanEntry!]!
 }
 
 type ParameterTemplateResponse {
@@ -2865,6 +3041,9 @@ type WaterQualityMeasurement {
   pondId: String
   siteId: String
   equipmentId: String
+
+  """System (loop) the sample was taken from"""
+  systemId: String
   measuredAt: DateTime!
   source: WaterQualityMeasurementSource!
   measuredBy: String
@@ -5788,12 +5967,16 @@ type Query {
   systemsByDepartment(departmentId: ID!): [SystemResponse!]!
   childSystems(parentSystemId: ID!): [SystemResponse!]!
   rootSystems(siteId: ID): [SystemResponse!]!
+  checkParameterChannelBinding(input: BindParameterChannelInput!): ChannelBindingCheck!
+  parameterSourcesAtPoint(point: MeasurementPointInput!): [ParameterSourceStatus!]!
+  parameterQuantityDeclarations(parameterConfigId: ID!): [ParameterQuantityDeclaration!]!
   parameterConfigs(filter: ParameterConfigFilterInput): [WaterQualityParameterConfig!]!
   parameterConfig(id: ID!): WaterQualityParameterConfig
   parameterConfigByCode(code: String!): WaterQualityParameterConfig
   parameterTemplates: [ParameterTemplateResponse!]!
   parameterEquipmentMappings(equipmentId: ID, parameterConfigId: ID, isActive: Boolean): [WaterQualityParamEquipment!]!
   equipmentParameters(equipmentId: ID!): [WaterQualityParamEquipment!]!
+  unitMeasurementPlan(unitId: ID!): UnitMeasurementPlan!
   waterQuality(id: ID!): WaterQualityMeasurement
   waterQualityMeasurements(filter: WaterQualityFilterInput): WaterQualityListResponse!
   latestWaterQuality(tankId: ID!): WaterQualityMeasurement
@@ -6249,6 +6432,35 @@ input SystemFilterInput {
   search: String
 }
 
+"""Bind a sensor channel as a source of a parameter at a point"""
+input BindParameterChannelInput {
+  parameterConfigId: ID!
+  point: MeasurementPointInput!
+
+  """Where at the point the channel samples; representative when omitted"""
+  position: MeasurementPosition
+
+  """Sampling depth in metres"""
+  depthM: Float
+  sensorId: ID!
+  channelKey: String!
+
+  """Primary unless given; a backup needs a primary at the same place"""
+  priority: ChannelSourcePriority
+}
+
+"""
+A measurement point: exactly one of a site, a system, a tank or non-tank water equipment
+"""
+input MeasurementPointInput {
+  siteId: ID
+  systemId: ID
+  tankId: ID
+
+  """Non-tank water equipment (a tank is tankId)"""
+  equipmentId: ID
+}
+
 input ParameterConfigFilterInput {
   """Filter by parameter group"""
   group: ParameterGroup
@@ -6261,7 +6473,12 @@ input ParameterConfigFilterInput {
 }
 
 input WaterQualityFilterInput {
-  """Tank ID"""
+  """The unit (a tank or water equipment) the measurements were taken at"""
+  unitId: ID
+
+  """
+  A tank ID, matched by unit like unitId (the name predates water equipment)
+  """
   tankId: ID
 
   """Havuz ID"""
@@ -7001,6 +7218,11 @@ type Mutation {
   updateSystem(input: UpdateSystemInput!): SystemResponse!
   deleteSystem(id: ID!, cascade: Boolean! = false): Boolean!
   restoreSystem(id: ID!): SystemResponse!
+  bindParameterChannel(input: BindParameterChannelInput!): WaterQualityParamEquipment!
+  unbindParameterChannel(sourceId: ID!): ParameterChannelUnbinding!
+  replaceParameterChannel(input: ReplaceParameterChannelInput!): WaterQualityParamEquipment!
+  declareParameterQuantity(input: DeclareParameterQuantityInput!): WaterQualityParameterConfig!
+  clearParameterQuantity(parameterConfigId: ID!): WaterQualityParameterConfig!
   createParameterConfig(input: CreateParameterConfigInput!): WaterQualityParameterConfig!
   updateParameterConfig(input: UpdateParameterConfigInput!): WaterQualityParameterConfig!
   deleteParameterConfig(id: ID!): Boolean!
@@ -9344,6 +9566,22 @@ input UpdateSystemInput {
   tankCount: Int
   id: ID!
   isActive: Boolean
+}
+
+"""Swap the channel of a bound source in one step, keeping its place"""
+input ReplaceParameterChannelInput {
+  """The live channel source to replace"""
+  sourceId: ID!
+  sensorId: ID!
+  channelKey: String!
+}
+
+"""Declare which measured quantity a parameter records"""
+input DeclareParameterQuantityInput {
+  parameterConfigId: ID!
+
+  """A measured-quantity id, e.g. tan, nh3, nitriteN"""
+  quantity: String!
 }
 
 input CreateParameterConfigInput {

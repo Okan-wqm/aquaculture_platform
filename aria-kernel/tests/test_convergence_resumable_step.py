@@ -652,13 +652,13 @@ class CrossCycleConvergence(_StepCase):
             plan_status(plan_id="plan-1", base_dir=self.tools)["state"], "CROSS_REVIEWED",
         )
         # Cycle 3: CROSS_REVIEWED → evaluate → terminal (schema v1: no
-        # coverage gate; zero risks converge). Independence may honestly
-        # downgrade (the kernel-native folds carry no claim trail), so the
-        # pin is: a TERMINAL verdict with zero polling governance rows.
-        third = self.step()
-        self.assertIn(
-            third["arbiter_verdict"], {"converged", "cross_review_self_agreement"},
-        )
+        # coverage gate; zero risks converge). The kernel-native folds carry
+        # no claim trail, so the independence gate (ARIA-HIGH-375, its own
+        # tests in test_converged_independence_gate.py) is answered here: the
+        # pin is a CONVERGED plan reached with zero polling governance rows.
+        with mock.patch("aria_kernel.round_independence.verify_independence", return_value=(True, [])):
+            third = self.step()
+        self.assertEqual(third["arbiter_verdict"], "converged")
         self.assertEqual(
             plan_status(plan_id="plan-1", base_dir=self.tools)["state"], "CONVERGED",
         )
@@ -737,29 +737,65 @@ class PlanContractCarriedToThePrimary(_StepCase):
 
 
 class DeadEnvelope(_StepCase):
-    def test_dead_envelope_forces_honest_terminal_not_an_orbit(self) -> None:
-        # Retry budgeting lives at the request layer (Y1) and bridge
-        # mints are idempotent, so a dead envelope cannot be re-minted —
-        # the step must escalate to a TERMINAL HUMAN_REQUIRED instead of
-        # returning in_progress forever.
+    """ARIA-HIGH-355 — a dead step envelope gets bounded successors, then a terminal.
+
+    The drainer used to escalate on the first non-live request. That buried
+    plans for queue mechanics (an anchor older than three days) and for an
+    answer the evidence law refused. The step now mints a successor with
+    `remint_of` lineage, within `MAX_STEP_REQUEST_REMINTS`, then escalates.
+    It never returns in_progress forever.
+    """
+
+    def _start(self) -> None:
         start_plan(
             plan_id="plan-1", initial_revision_id="rev-0",
             plan_content=self.plan(), base_dir=self.tools,
         )
-        first = self.step()
-        self.assertEqual(first["arbiter_verdict"], "in_progress")
-        with mock.patch.object(cd, "_live_request_id", return_value=None):
-            second = self.step()
-        self.assertNotEqual(second["arbiter_verdict"], "in_progress")
-        self.assertEqual(
-            plan_status(plan_id="plan-1", base_dir=self.tools)["state"], "HUMAN_REQUIRED",
-        )
+        self.assertEqual(self.step()["arbiter_verdict"], "in_progress")
+
+    def _step_with_every_request(self, state: str) -> dict:
+        from aria_kernel import agent_invocations as ai
+
+        with mock.patch.object(ai, "derive_request_state", return_value=state):
+            return self.step()
+
+    def challengers(self) -> list[dict]:
+        return [row for row in self.requests() if row["role"] == "challenger_plan"]
+
+    def test_a_dead_envelope_is_succeeded_then_escalated_never_orbited(self) -> None:
+        from aria_kernel.step_request import MAX_STEP_REQUEST_REMINTS
+
+        self._start()
+        for successor in range(1, MAX_STEP_REQUEST_REMINTS + 1):
+            result = self._step_with_every_request("ANCHOR_STALE")
+            self.assertEqual(result["arbiter_verdict"], "in_progress")
+            rows = self.challengers()
+            self.assertEqual(len(rows), successor + 1)
+            self.assertEqual(rows[-1]["remint_of"], rows[-2]["request_id"])
+        exhausted = self._step_with_every_request("ANCHOR_STALE")
+        self.assertNotEqual(exhausted["arbiter_verdict"], "in_progress")
+        self.assertEqual(plan_status(plan_id="plan-1", base_dir=self.tools)["state"], "HUMAN_REQUIRED")
         gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
-        self.assertIn("convergence_envelope_dead", gov)
+        self.assertEqual(gov.count('"kind":"convergence_envelope_reminted"'), MAX_STEP_REQUEST_REMINTS)
+        self.assertIn('"disposition":"exhausted"', gov)
         # Next cycle: terminal plan short-circuits — fresh plans are the
         # adopter's business, not this one's.
-        final = self.step()
-        self.assertNotEqual(final["arbiter_verdict"], "in_progress")
+        self.assertNotEqual(self.step()["arbiter_verdict"], "in_progress")
+
+    def test_a_refused_planner_answer_is_succeeded(self) -> None:
+        self._start()
+        self.assertEqual(self._step_with_every_request("REJECTED")["arbiter_verdict"], "in_progress")
+        rows = self.challengers()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1]["remint_of"], rows[0]["request_id"])
+
+    def test_an_outcome_no_successor_can_change_escalates_at_once(self) -> None:
+        self._start()
+        result = self._step_with_every_request("ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL")
+        self.assertNotEqual(result["arbiter_verdict"], "in_progress")
+        self.assertEqual(len(self.challengers()), 1)
+        gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
+        self.assertIn('"disposition":"outcome"', gov)
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ import { Type } from 'class-transformer';
 import GraphQLJSON from 'graphql-type-json';
 import { MeasurementSource } from '../entities/water-quality-measurement.entity';
 import { ValidateDynamicParameters } from '../validators/dynamic-parameters.validator';
+import { IsHumanMeasurementSource } from '../validators/human-measurement-source.validator';
 
 @InputType()
 export class BatchMeasurementItem {
@@ -54,6 +55,9 @@ export class CreateBatchWaterQualityInput {
 
   @Field(() => MeasurementSource, { defaultValue: MeasurementSource.MANUAL })
   @IsEnum(MeasurementSource)
+  // Same provenance gate as the single create: a person records manual and
+  // lab values; machine sources come only from the sensor ingest path.
+  @IsHumanMeasurementSource()
   source!: MeasurementSource;
 
   @Field(() => [BatchMeasurementItem])

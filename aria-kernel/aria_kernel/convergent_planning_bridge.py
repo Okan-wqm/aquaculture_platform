@@ -17,8 +17,10 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request
+from .request_admission import Admission
 from .plan_contract import render_plan_contract, require_plan_contract
-from .plan_convergence import start_plan
+from .plan_convergence import _planning_source_context, fold_plan_state, start_plan
+from .plan_round_scope import plan_round_contract
 from .planner_lessons import planner_lesson_obligations
 from .tool_registry import GovernanceError, ensure_tools_dir
 
@@ -86,6 +88,8 @@ def issue_challenger_envelope(
     context_repo_root: str | Path | None = None,
     cycle_id: str | None = None,
     context_source_paths: list[str] | None = None,
+    remint_of: str | None = None,
+    admission: Admission,
 ) -> dict[str, Any]:
     """Issue the challenger planner envelope for a given convergence round.
 
@@ -110,7 +114,7 @@ def issue_challenger_envelope(
         role=role,
         suggested_prompt=suggested_prompt,
         # ARIA-HIGH-309 — the lessons recorded plans in this plan's scope teach.
-        must_satisfy=[*must_satisfy, *planner_lesson_obligations(base_dir=base_dir, plan_id=plan_id)],
+        must_satisfy=[*must_satisfy, *planner_lesson_obligations(base_dir=base_dir, plan_id=plan_id, envelope_role=role)],
         allowed_scope=allowed_scope,
         evidence_refs=evidence_refs,
         convergence_id=plan_id,
@@ -125,4 +129,62 @@ def issue_challenger_envelope(
         # converge, rendered from this store — the rule and the refusal
         # read the same function.
         plan_contract=render_plan_contract(base_dir),
+        # ARIA-HIGH-355 — the step's dead or refused request this one replaces.
+        remint_of=remint_of,
+        # ARIA-HIGH-364 — the producer's admission decision, carried to the mint.
+        admission=admission,
     )
+
+
+def start_convergent_plan_with_challenger(
+    *,
+    plan_id: str,
+    plan_content: dict[str, Any],
+    initial_revision_id: str,
+    operator_must_satisfy: list[dict[str, Any]],
+    admission: Admission,
+    base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
+) -> dict[str, Any]:
+    """ARIA-MEDIUM-376 — the operator's one call: open the plan, then mint its round-1 challenger.
+
+    WHY. ``aria-kernel convergent-plan`` imported the legacy start-with-
+    envelope entry V8 deleted (B-V2-07: the plan content IS the primary's
+    draft, so round 1 mints no primary; I-V8.1-02 pins that it stays gone).
+    The import failed, so neither ``start`` nor ``issue-challenger`` could
+    run, and the operator had no path into the convergent loop outside a
+    cycle.
+
+    WHAT. The V8 shape the convergence drainer's seed branch runs, through
+    the same two primitives: ``start_convergent_plan_drafted_by_primary``,
+    then ``issue_challenger_envelope`` for round 1. The round's scope,
+    obligations and evidence are derived from the plan's own
+    ``plan_started`` record (``plan_round_contract``, ARIA-HIGH-345), never
+    from the caller; the operator's obligations are added to them.
+    """
+    from .convergence_drainer import _resolve_workspace_head_sha
+
+    started = start_convergent_plan_drafted_by_primary(
+        plan_id=plan_id,
+        plan_content=plan_content,
+        initial_revision_id=initial_revision_id,
+        base_dir=base_dir,
+        workspace_root=workspace_root,
+    )
+    state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+    contract = plan_round_contract(state)
+    refs, revision_hash, context_paths = _planning_source_context(state, list(contract.evidence_refs))
+    challenger = issue_challenger_envelope(
+        plan_id=plan_id,
+        round_number=1,
+        must_satisfy=[*contract.must_satisfy, *operator_must_satisfy],
+        evidence_refs=refs,
+        allowed_scope=list(contract.allowed_scope),
+        base_dir=base_dir,
+        plan_revision_hash=revision_hash,
+        target_sha=_resolve_workspace_head_sha(workspace_root),
+        context_repo_root=workspace_root,
+        context_source_paths=context_paths,
+        admission=admission,
+    )
+    return {"plan": started["plan"], "challenger_request": challenger}

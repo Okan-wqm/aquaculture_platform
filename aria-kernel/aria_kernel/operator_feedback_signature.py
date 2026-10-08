@@ -245,6 +245,7 @@ def record_operator_request(
     base_dir: str | Path | None = None,
     repo_root: str | Path = ".",
     subject_stream: TextIO | None = None,
+    write_roots: list[str] | None = None,
 ) -> dict[str, Any]:
     """The kernel-owned writer for the plan-request rows the synthesizer mines.
 
@@ -264,6 +265,13 @@ def record_operator_request(
     ADR-0023 — ``actor_class`` (T0 the operator, T1 a root session acting
     for the operator) is the signer's signed declaration of who signs, so a
     delegated request is recorded as delegated.
+
+    ARIA-HIGH-381 — ``write_roots`` is the operator's declared boundary: the
+    repository roots the plan may change. Every cited file outside them is
+    read-only evidence (``plan_write_scope``). It is signed with the row (the
+    signature covers every field), recorded only when given, so a request
+    signed without it keeps its bytes; a boundary that leaves no grounded
+    surface to change is refused here, before anything is signed.
     """
     from .finding_grounding import admit_finding, load_grounding_context
     from .operator_request_signature import (
@@ -306,7 +314,13 @@ def record_operator_request(
     hours = bound if expires_in_hours is None else expires_in_hours
     if isinstance(hours, bool) or not 0 < hours <= bound:
         raise GovernanceError(f"operator_request_expiry_out_of_range: {expires_in_hours!r}")
-    admission = admit_finding(load_grounding_context(repo_root), target)
+    if write_roots is not None:
+        from .plan_write_scope import write_roots_violation
+
+        violation = write_roots_violation(write_roots)
+        if violation is not None:
+            raise GovernanceError(f"operator_request_write_roots_invalid: {violation}")
+    admission = admit_finding(load_grounding_context(repo_root), target, write_roots=write_roots)
     if not admission.admitted:
         raise GovernanceError(f"operator_request_finding_not_a_plan_ground: {admission.reason}")
     authored = datetime.now(timezone.utc).replace(microsecond=0)
@@ -324,6 +338,7 @@ def record_operator_request(
         "priority": priority,
         "status": OPERATOR_REQUEST_STATUS_UNADDRESSED,
         "actor_class": actor_class,
+        **({"write_roots": list(write_roots)} if write_roots is not None else {}),
     }, signing_key=signing_key, signer_principal=signer_principal,
         subject_stream=subject_stream if subject_stream is not None else sys.stderr)
     verdict = verify_operator_request(row, allowed_signers=signers)
@@ -382,6 +397,11 @@ def operator_request_schema_reason(row: dict[str, Any], *, now: datetime, anchor
         return SCHEMA_INVALID
     if row["priority"] not in OPERATOR_REQUEST_PRIORITIES:
         return SCHEMA_INVALID
+    if "write_roots" in row:
+        from .plan_write_scope import write_roots_violation
+
+        if write_roots_violation(row["write_roots"]) is not None:
+            return SCHEMA_INVALID
     return request_terms_reason(row, now=now, audience=anchor.audience,
                                 max_hours=int(anchor.namespaces[SIGNATURE_NAMESPACE].expiry_hours or 0))
 

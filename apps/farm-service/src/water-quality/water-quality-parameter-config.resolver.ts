@@ -6,8 +6,19 @@
  *
  * @module WaterQuality
  */
-import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
-import { UseGuards, Logger } from '@nestjs/common';
+import {
+  Resolver,
+  Query,
+  Mutation,
+  Args,
+  ID,
+  Int,
+  ObjectType,
+  Field,
+  ResolveField,
+  Parent,
+} from '@nestjs/graphql';
+import { UseGuards, Logger, ParseUUIDPipe } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@platform/cqrs';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
@@ -41,9 +52,15 @@ import { GetParameterConfigQuery } from './queries/get-parameter-config.query';
 import { GetParameterConfigByCodeQuery } from './queries/get-parameter-config-by-code.query';
 import { ListParameterTemplatesQuery } from './queries/list-parameter-templates.query';
 import { ListParamEquipmentQuery } from './queries/list-param-equipment.query';
+import { GetUnitMeasurementPlanQuery } from './queries/get-unit-measurement-plan.query';
+import { UnitMeasurementPlan } from './dto/unit-measurement-plan.response';
 import { GetEquipmentParamsQuery } from './queries/get-equipment-params.query';
 import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
 import { Cacheable } from '../common/cache/cacheable.decorator';
+import {
+  declarableQuantitiesOfParameter,
+  parameterCodeFamily,
+} from './data/parameter-quantities';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -303,6 +320,35 @@ export class WaterQualityParameterConfigResolver {
     return this.queryBus.execute(new GetEquipmentParamsQuery(tenantId, equipmentId));
   }
 
+  /**
+   * What to record at a unit (tank or water equipment): its plan, or every
+   * active parameter when it has none, each marked as the validator requires it.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Query(() => UnitMeasurementPlan, { name: 'unitMeasurementPlan' })
+  async getUnitMeasurementPlan(
+    @Args('unitId', { type: () => ID }, ParseUUIDPipe) unitId: string,
+    @CurrentTenant() tenantId: string,
+  ): Promise<UnitMeasurementPlan> {
+    return this.queryBus.execute(new GetUnitMeasurementPlanQuery(tenantId, unitId));
+  }
+
+  // -------------------------------------------------------------------------
+  // MEASURED QUANTITY (mirrors the sensor DataChannelType fields)
+  // -------------------------------------------------------------------------
+
+  /** The family the code names without saying which member (e.g. ammonia); null otherwise. */
+  @ResolveField(() => String, { name: 'quantityFamily', nullable: true })
+  quantityFamily(@Parent() config: WaterQualityParameterConfig): string | null {
+    return parameterCodeFamily(config.code);
+  }
+
+  /** The quantities an operator may declare for this parameter. */
+  @ResolveField(() => [String], { name: 'declarableQuantities' })
+  declarableQuantities(@Parent() config: WaterQualityParameterConfig): string[] {
+    return [...declarableQuantitiesOfParameter(config.code)];
+  }
+
   // -------------------------------------------------------------------------
   // PARAM-EQUIPMENT MUTATIONS
   // -------------------------------------------------------------------------
@@ -342,16 +388,18 @@ export class WaterQualityParameterConfigResolver {
   }
 
   /**
-   * Hard-deletes a parameter-equipment mapping
+   * Removes a line from a unit's manual-entry plan. The row is unbound, not
+   * deleted: what was planned at a unit on a past date stays answerable.
    */
   @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteParamEquipmentMapping(
     @Args('id', { type: () => ID }) id: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
   ): Promise<boolean> {
     this.logger.log(`Deleting param-equipment mapping ${id} for tenant ${tenantId}`);
-    return this.commandBus.execute(new DeleteParamEquipmentCommand(tenantId, id));
+    return this.commandBus.execute(new DeleteParamEquipmentCommand(tenantId, id, user.sub));
   }
 
   /**

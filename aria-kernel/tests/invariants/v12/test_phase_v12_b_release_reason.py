@@ -29,6 +29,7 @@ from aria_kernel.agent_invocations import (
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.release_reason import FAULT_DOMAINS, RELEASE_REASON_CODES, parse_release_reason
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 class TheEnvelopeIsClosed(unittest.TestCase):
@@ -61,6 +62,7 @@ class RowsCarryTheEnvelope(unittest.TestCase):
                 target_agent="aria-challenger-planner", role="challenger_plan",
                 suggested_prompt="p", must_satisfy=[{"id": "r", "description": "c"}],
                 allowed_scope=["aria-kernel/**"], convergence_id="conv-1", base_dir=tools,
+                admission=admit_request("operator_cli.request", "challenger_plan", base_dir=tools),
             )
             claim = claim_request(request_id=req["request_id"], agent_id="w", base_dir=tools)
             release_claim(claim_id=claim["claim_id"], agent_id="w", lease_token=claim["lease_token"],

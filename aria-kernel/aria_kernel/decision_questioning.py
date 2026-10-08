@@ -49,6 +49,7 @@ from .agent_invocations import (
 )
 from .plan_convergence import events_path, fold_plan_state
 from .ledger import load_declared_jsonl
+from .request_admission import admit_request
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 QUESTIONING_ROLE = "verification"
@@ -142,6 +143,7 @@ def open_decision_questioning(
     base_dir: str | Path | None = None,
     sample_size: int = DEFAULT_SAMPLE_SIZE,
     target_agent: str | None = None,
+    cycle_id: str | None = None,
 ) -> dict[str, Any]:
     """Mint one ``verification`` envelope per sampled unquestioned decision.
 
@@ -170,8 +172,17 @@ def open_decision_questioning(
     sampled = sample_decisions(candidates, sample_size=sample_size)
 
     request_ids: list[str] = []
+    questioned: list[str] = []
+    throttled: str | None = None
     for decision in sampled:
         plan_id = decision["plan_id"]
+        # ARIA-HIGH-364 — re-questioning a closed decision starts new work:
+        # discretionary. A refused decision stays unquestioned, so the next
+        # cycle samples it again; the refusal holds for this cycle.
+        admission = admit_request("decision_questioning.open", QUESTIONING_ROLE, base_dir=root, cycle_id=cycle_id)
+        if not admission.admitted:
+            throttled = admission.refusal
+            break
         request = create_agent_invocation_request(
             target_agent=resolved_target,
             role=QUESTIONING_ROLE,
@@ -190,15 +201,18 @@ def open_decision_questioning(
             evidence_refs=[f"plan:{plan_id}"],
             convergence_id=plan_id,
             base_dir=root,
+            admission=admission,
         )
         request_ids.append(str(request["request_id"]))
+        questioned.append(plan_id)
 
     summary = {
         "$schema": "aria/decision-questioning/v1",
         "schema_version": 1,
         "unquestioned_decisions_seen": len(candidates),
-        "questioned": [row["plan_id"] for row in sampled],
+        "questioned": questioned,
         "request_ids": request_ids,
+        "request_admission_throttled": throttled,
         "target_agent": resolved_target,
         "sample_size": sample_size,
     }

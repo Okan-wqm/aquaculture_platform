@@ -1,781 +1,332 @@
 /**
- * Readings Page
+ * Readings Page — /sensor/readings
  *
- * Sensör okumaları ve canlı veri görüntüleme sayfası.
- * Cihazlara göre gruplandırılmış data channels.
+ * Live and historical values of every enabled data channel, per sensor.
+ * Values come from channelLatestValues (refreshed every 30 s) and the trend
+ * from channelSeries over the selected period (SENSOR-HIGH-138). The page
+ * previously rendered Math.random() values per sensor type, which is why a
+ * five-channel water-quality sonde showed a single invented temperature.
  */
-
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
+  AlertCircle,
   Calendar,
   Download,
   Filter,
-  Thermometer,
-  Droplets,
-  Gauge,
   RefreshCw,
-  AlertCircle,
-  Wifi,
-  WifiOff,
-  ChevronDown,
-  ChevronRight,
   Server,
-  Radio,
-  Clock,
-  TrendingUp,
-  TrendingDown,
-  Minus,
+  Wifi,
 } from 'lucide-react';
-import { MultiParameterTrendCard } from '../components/charts/MultiParameterTrendCard';
-import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
+import type { TimeRangeSpec } from '@aquaculture/shared-contracts';
 import {
-  DataTable,
-  type DataTableColumn,
-  Spinner,
-  PageHeader,
   Button,
+  PageHeader,
   Select,
+  Spinner,
+  TimeRangePicker,
+  useI18n,
+  useTimeRangeLabels,
+  useTimeRangeSearchParams,
 } from '@aquaculture/shared-ui';
 
-// ============================================================================
-// Types
-// ============================================================================
+import { downloadCsv } from '../components/readings/downloadCsv';
+import { SensorReadingsCard } from '../components/readings/SensorReadingsCard';
+import {
+  channelFilterOptions,
+  DEFAULT_READINGS_PRESET,
+  freshness,
+  lastReportedAt,
+  latestValuesCsv,
+  READINGS_PRESETS,
+  readingOwners,
+} from '../components/readings/readingsModel';
+import {
+  useChannelDataBounds,
+  useChannelLatestValues,
+  useSeriesDisplayTimeZone,
+} from '../hooks/useChannelReadings';
+import { useSensorList } from '../hooks/useSensorList';
 
-interface GroupedDevice {
-  parent: RegisteredSensor;
-  children: RegisteredSensor[];
+const AUTO_REFRESH_MS = 30_000;
+
+/** What the page charts when its link names no range. */
+const DEFAULT_RANGE: TimeRangeSpec = { kind: 'relative', preset: DEFAULT_READINGS_PRESET };
+
+/** Ticks once a second so "12 sn önce" and the freshness badge stay current. */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
 }
 
-interface SensorReading {
-  sensorId: string;
+const StatCard: React.FC<{
+  icon: React.ReactNode;
+  tone: string;
   value: number;
-  unit: string;
-  timestamp: string;
-  trend?: 'up' | 'down' | 'stable';
-  status: 'normal' | 'warning' | 'critical';
-}
-
-// Type to unit mapping
-const TYPE_UNITS: Record<string, string> = {
-  PH: 'pH',
-  TEMPERATURE: '°C',
-  DISSOLVED_OXYGEN: 'mg/L',
-  SALINITY: 'ppt',
-  TURBIDITY: 'NTU',
-  AMMONIA: 'mg/L',
-  NITRATE: 'mg/L',
-  NITRITE: 'mg/L',
-  CONDUCTIVITY: 'µS/cm',
-  WATER_LEVEL: 'm',
-  FLOW_RATE: 'L/min',
-  PRESSURE: 'bar',
-  VOLTAGE: 'V',
-  CURRENT: 'A',
-  POWER: 'W',
-  HUMIDITY: '%',
-  AIR_TEMPERATURE: '°C',
-  ORP: 'mV',
-  CO2: 'ppm',
-  CHLORINE: 'mg/L',
-};
-
-// Type display names
-const TYPE_NAMES: Record<string, string> = {
-  temperature: 'Sıcaklık',
-  dissolved_oxygen: 'Çözünmüş Oksijen',
-  ph: 'pH',
-  salinity: 'Tuzluluk',
-  turbidity: 'Bulanıklık',
-  ammonia: 'Amonyak',
-  nitrate: 'Nitrat',
-  nitrite: 'Nitrit',
-  conductivity: 'İletkenlik',
-  water_level: 'Su Seviyesi',
-  flow_rate: 'Akış Hızı',
-  pressure: 'Basınç',
-  voltage: 'Voltaj',
-  current: 'Akım',
-  power: 'Güç',
-  humidity: 'Nem',
-  air_temperature: 'Hava Sıcaklığı',
-  orp: 'ORP',
-  co2: 'CO2',
-  chlorine: 'Klor',
-  multi_parameter: 'Çoklu Parametre',
-  other: 'Diğer',
-};
-
-// ============================================================================
-// Components
-// ============================================================================
-
-const TypeIcon: React.FC<{ type: string; className?: string }> = ({
-  type,
-  className = 'w-4 h-4',
-}) => {
-  const normalizedType = type?.toLowerCase() || 'unknown';
-  const icons: Record<string, React.ReactNode> = {
-    temperature: <Thermometer className={`${className} text-accent-500`} />,
-    dissolved_oxygen: <Droplets className={`${className} text-info-500`} />,
-    ph: <Gauge className={`${className} text-accent-500`} />,
-    salinity: <Activity className={`${className} text-info-500`} />,
-    ammonia: <Activity className={`${className} text-warning-500`} />,
-    turbidity: <Activity className={`${className} text-warning-500`} />,
-    conductivity: <Activity className={`${className} text-primary-500`} />,
-    water_level: <Activity className={`${className} text-info-600 dark:text-info-400`} />,
-    flow_rate: <Activity className={`${className} text-info-500`} />,
-    pressure: <Gauge className={`${className} text-error-500`} />,
-    voltage: <Activity className={`${className} text-success-500`} />,
-    current: <Activity className={`${className} text-accent-500`} />,
-    power: <Activity className={`${className} text-accent-500`} />,
-  };
-
-  return (
-    <>
-      {icons[normalizedType] || (
-        <Activity className={`${className} text-gray-500 dark:text-gray-400`} />
-      )}
-    </>
-  );
-};
-
-const StatusBadge: React.FC<{ status: 'normal' | 'warning' | 'critical' }> = ({ status }) => {
-  const config = {
-    normal: {
-      label: 'Normal',
-      className: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
-    },
-    warning: {
-      label: 'Uyarı',
-      className: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
-    },
-    critical: {
-      label: 'Kritik',
-      className: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
-    },
-  };
-
-  const { label, className } = config[status];
-
-  return (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${className}`}
-    >
-      {label}
-    </span>
-  );
-};
-
-const TrendIcon: React.FC<{ trend?: 'up' | 'down' | 'stable' }> = ({ trend }) => {
-  if (trend === 'up') return <TrendingUp className="w-3 h-3 text-success-500" />;
-  if (trend === 'down') return <TrendingDown className="w-3 h-3 text-error-500" />;
-  return <Minus className="w-3 h-3 text-gray-500 dark:text-gray-400" />;
-};
-
-// Mock readings for demo (will be replaced with real-time data)
-const generateMockReading = (sensor: RegisteredSensor): SensorReading => {
-  const type = sensor.type?.toUpperCase() || 'OTHER';
-  const unit = sensor.unit || TYPE_UNITS[type] || '';
-
-  // Generate random value based on type
-  let value = 0;
-  switch (type.toLowerCase()) {
-    case 'temperature':
-      value = 20 + Math.random() * 10;
-      break;
-    case 'ph':
-      value = 6.5 + Math.random() * 2;
-      break;
-    case 'dissolved_oxygen':
-      value = 6 + Math.random() * 4;
-      break;
-    default:
-      value = Math.random() * 100;
-  }
-
-  // Determine status based on alert thresholds
-  let status: 'normal' | 'warning' | 'critical' = 'normal';
-  if (sensor.alertThresholds) {
-    const { warning, critical } = sensor.alertThresholds as {
-      warning?: { low?: number; high?: number };
-      critical?: { low?: number; high?: number };
-    };
-    if (critical?.low !== undefined && value < critical.low) status = 'critical';
-    else if (critical?.high !== undefined && value > critical.high) status = 'critical';
-    else if (warning?.low !== undefined && value < warning.low) status = 'warning';
-    else if (warning?.high !== undefined && value > warning.high) status = 'warning';
-  }
-
-  return {
-    sensorId: sensor.id,
-    value: Math.round(value * 100) / 100,
-    unit,
-    timestamp: new Date().toISOString(),
-    trend: ['up', 'down', 'stable'][Math.floor(Math.random() * 3)] as 'up' | 'down' | 'stable',
-    status,
-  };
-};
-
-// Device Group Card Component
-const DeviceGroupCard: React.FC<{
-  group: GroupedDevice;
-  readings: Map<string, SensorReading>;
-  defaultExpanded?: boolean;
-}> = ({ group, readings, defaultExpanded = true }) => {
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-  const { parent, children } = group;
-
-  const isConnected = parent.connectionStatus?.isConnected ?? false;
-  const protocolConfig = parent.protocolConfiguration as Record<string, unknown> | undefined;
-  const mqttTopic = protocolConfig?.topic as string | undefined;
-
-  const registeredSensorColumns: DataTableColumn<RegisteredSensor>[] = [
-    {
-      key: 'veriKanal',
-      header: 'Veri Kanalı',
-      render: (_value, child) => {
-        const type = child.type?.toLowerCase() || 'other';
-        return (
-          <div className="flex items-center gap-2">
-            <TypeIcon type={type} />
-            <span className="font-medium text-gray-900 dark:text-gray-100">{child.name}</span>
-          </div>
-        );
-      },
-    },
-    {
-      key: 'tip',
-      header: 'Tip',
-      render: (_value, child) => {
-        const type = child.type?.toLowerCase() || 'other';
-        const typeName = TYPE_NAMES[type] || child.type || 'Bilinmiyor';
-        return <>{typeName}</>;
-      },
-    },
-    {
-      key: 'dataPath',
-      header: 'Data Path',
-      render: (_value, child) => (
-        <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-gray-600 dark:text-gray-400">
-          {child.dataPath || '-'}
-        </code>
-      ),
-    },
-    {
-      key: 'deEr',
-      header: 'Değer',
-      align: 'right',
-      render: (_value, child) => {
-        const reading = readings.get(child.id);
-        return (
-          <>
-            {reading ? (
-              <span className="font-semibold text-gray-900 dark:text-gray-100">
-                {(reading.value ?? 0).toFixed(2)}{' '}
-                <span className="text-gray-500 dark:text-gray-400 font-normal">{reading.unit}</span>
-              </span>
-            ) : (
-              <span className="text-gray-500 dark:text-gray-400">-</span>
-            )}
-          </>
-        );
-      },
-    },
-    {
-      key: 'trend',
-      header: 'Trend',
-      align: 'center',
-      render: (_value, child) => {
-        const reading = readings.get(child.id);
-        return <>{reading && <TrendIcon trend={reading.trend} />}</>;
-      },
-    },
-    {
-      key: 'durum',
-      header: 'Durum',
-      align: 'center',
-      render: (_value, child) => {
-        const reading = readings.get(child.id);
-        return (
-          <>
-            {reading ? (
-              <StatusBadge status={reading.status} />
-            ) : (
-              <span className="text-gray-500 dark:text-gray-400 text-sm">Veri yok</span>
-            )}
-          </>
-        );
-      },
-    },
-  ];
-
-  return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-      {/* Device Header */}
-      <div
-        className="flex items-center gap-4 p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        <Button variant="ghost" size="sm">
-          {isExpanded ? (
-            <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-          ) : (
-            <ChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-          )}
-        </Button>
-
-        <div className="p-2 bg-info-50 dark:bg-info-900/20 rounded-lg">
-          <Server className="w-5 h-5 text-info-600 dark:text-info-400" />
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">
-              {parent.name}
-            </h3>
-            {isConnected ? (
-              <span className="flex items-center gap-1 px-2 py-0.5 bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 rounded-full text-xs font-medium">
-                <Wifi className="w-3 h-3" />
-                Bağlı
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-full text-xs font-medium">
-                <WifiOff className="w-3 h-3" />
-                Çevrimdışı
-              </span>
-            )}
-          </div>
-          {mqttTopic && (
-            <p className="text-sm text-gray-500 dark:text-gray-400 font-mono truncate mt-0.5">
-              <Radio className="w-3 h-3 inline mr-1" />
-              {mqttTopic}
-            </p>
-          )}
-        </div>
-
-        <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
-          <span className="flex items-center gap-1">
-            <Activity className="w-4 h-4" />
-            {children.length} kanal
-          </span>
-          {parent.connectionStatus?.lastTestedAt && (
-            <span className="flex items-center gap-1">
-              <Clock className="w-4 h-4" />
-              {new Date(parent.connectionStatus.lastTestedAt).toLocaleTimeString('tr-TR')}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Data Channels Table */}
-      {isExpanded && children.length > 0 && (
-        <>
-          <div className="border-t border-gray-100 dark:border-gray-700 p-4">
-            <MultiParameterTrendCard
-              sensorId={parent.id}
-              channels={children.map((child) => ({
-                channelKey: child.dataPath || child.name,
-                displayLabel: child.name,
-                unit: child.unit || TYPE_UNITS[child.type?.toLowerCase() || ''] || undefined,
-              }))}
-            />
-          </div>
-          <div className="border-t border-gray-100 dark:border-gray-700">
-            <DataTable<RegisteredSensor>
-              data={children}
-              columns={registeredSensorColumns}
-              keyExtractor={(child) => child.id}
-              emptyMessage="Veri kanalı yok"
-              searchable={false}
-              sortable={false}
-              stickyHeader={false}
-            />
-          </div>
-        </>
-      )}
-
-      {/* Empty Children State */}
-      {isExpanded && children.length === 0 && (
-        <div className="border-t border-gray-100 dark:border-gray-700 p-8 text-center text-gray-500 dark:text-gray-400">
-          <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
-          <p>Bu cihazda henüz veri kanalı tanımlanmamış</p>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// Standalone Sensor Card (for orphan sensors)
-const StandaloneSensorCard: React.FC<{
-  sensor: RegisteredSensor;
-  reading?: SensorReading;
-}> = ({ sensor, reading }) => {
-  const type = sensor.type?.toLowerCase() || 'other';
-  const typeName = TYPE_NAMES[type] || sensor.type || 'Bilinmiyor';
-  const isConnected = sensor.connectionStatus?.isConnected ?? false;
-
-  return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-      <div className="flex items-center gap-4">
-        <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
-          <TypeIcon type={type} className="w-6 h-6" />
-        </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-gray-900 dark:text-gray-100">{sensor.name}</h3>
-            {isConnected ? (
-              <Wifi className="w-4 h-4 text-success-500" />
-            ) : (
-              <WifiOff className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-            )}
-          </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{typeName}</p>
-        </div>
-        <div className="text-right">
-          {reading ? (
-            <>
-              <p className="text-xl font-bold text-gray-900 dark:text-gray-100">
-                {(reading.value ?? 0).toFixed(2)}{' '}
-                <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
-                  {reading.unit}
-                </span>
-              </p>
-              <StatusBadge status={reading.status} />
-            </>
-          ) : (
-            <p className="text-gray-500 dark:text-gray-400">Veri yok</p>
-          )}
-        </div>
+  label: string;
+}> = ({ icon, tone, value, label }) => (
+  <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+    <div className="flex items-center gap-3">
+      <div className={`p-2 rounded-lg ${tone}`}>{icon}</div>
+      <div>
+        <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
       </div>
     </div>
-  );
-};
-
-// ============================================================================
-// Readings Page
-// ============================================================================
+  </div>
+);
 
 const ReadingsPage: React.FC = () => {
-  const [selectedType, setSelectedType] = useState('all');
-  const [selectedPeriod, setSelectedPeriod] = useState('1h');
-  const [isAutoRefresh, setIsAutoRefresh] = useState(true);
-  const [readings, setReadings] = useState<Map<string, SensorReading>>(new Map());
+  const [selectedChannel, setSelectedChannel] = useState('all');
+  // The range lives in the URL, so a link, a reload and Back show the same window.
+  const {
+    spec: range,
+    error: rangeError,
+    setSpec: setRange,
+  } = useTimeRangeSearchParams(DEFAULT_RANGE);
+  const rangeLabels = useTimeRangeLabels();
+  const { locale, t } = useI18n();
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const now = useNow();
 
-  // Fetch real sensors from API
-  const { sensors, loading, error, refetch } = useSensorList();
-
-  // Group sensors by parent device
-  const groupedDevices = useMemo(() => {
-    const parents = sensors.filter((s) => s.isParentDevice);
-    const groups: GroupedDevice[] = parents.map((parent) => ({
-      parent,
-      children: sensors.filter((s) => s.parentId === parent.id),
-    }));
-
-    // Orphan sensors (not parent, no parentId) - standalone sensors
-    const orphans = sensors.filter((s) => !s.isParentDevice && !s.parentId);
-
-    return { groups, orphans };
-  }, [sensors]);
-
-  // Filter by type if selected
-  const filteredGroups = useMemo(() => {
-    if (selectedType === 'all') {
-      return groupedDevices;
+  const {
+    sensors,
+    loading: sensorsLoading,
+    error: sensorsError,
+    refetch: refetchSensors,
+  } = useSensorList();
+  const owners = useMemo(() => readingOwners(sensors), [sensors]);
+  const ownerIds = useMemo(() => owners.map((sensor) => sensor.id), [owners]);
+  const latest = useChannelLatestValues(ownerIds, autoRefresh ? AUTO_REFRESH_MS : false);
+  // One zone for the page, by the server's rule (the sensors' shared site
+  // zone, else the tenant's); the picker waits for it rather than guess.
+  const displayZone = useSeriesDisplayTimeZone(ownerIds);
+  const bounds = useChannelDataBounds(ownerIds);
+  const dataBounds = useMemo(() => {
+    const firsts: number[] = [];
+    const lasts: number[] = [];
+    for (const channelBounds of bounds.values()) {
+      if (channelBounds.firstSampleAt) firsts.push(new Date(channelBounds.firstSampleAt).getTime());
+      if (channelBounds.lastSampleAt) lasts.push(new Date(channelBounds.lastSampleAt).getTime());
     }
+    return firsts.length > 0 && lasts.length > 0
+      ? { firstMs: Math.min(...firsts), lastMs: Math.max(...lasts) }
+      : null;
+  }, [bounds]);
 
-    // Filter groups to only include children of selected type
-    const filtered = groupedDevices.groups
-      .map((group) => ({
-        ...group,
-        children: group.children.filter((child) => child.type?.toLowerCase() === selectedType),
-      }))
-      .filter((group) => group.children.length > 0);
+  const allChannels = useMemo(() => [...latest.bySensor.values()].flat(), [latest.bySensor]);
+  const filterOptions = useMemo(() => channelFilterOptions(allChannels), [allChannels]);
 
-    // Filter orphans
-    const filteredOrphans = groupedDevices.orphans.filter(
-      (s) => s.type?.toLowerCase() === selectedType,
-    );
+  const visible = useMemo(
+    () =>
+      owners
+        .map((sensor) => {
+          const channels = latest.bySensor.get(sensor.id) ?? [];
+          return {
+            sensor,
+            channels:
+              selectedChannel === 'all'
+                ? channels
+                : channels.filter((channel) => channel.channelKey === selectedChannel),
+          };
+        })
+        .filter((entry) => selectedChannel === 'all' || entry.channels.length > 0),
+    [owners, latest.bySensor, selectedChannel],
+  );
 
-    return { groups: filtered, orphans: filteredOrphans };
-  }, [groupedDevices, selectedType]);
+  const stats = useMemo(
+    () => ({
+      devices: owners.length,
+      channels: allChannels.length,
+      live: owners.filter(
+        (sensor) => freshness(lastReportedAt(latest.bySensor.get(sensor.id) ?? []), now) === 'live',
+      ).length,
+      warning: allChannels.filter((channel) => channel.alertLevel === 'WARNING').length,
+      critical: allChannels.filter((channel) => channel.alertLevel === 'CRITICAL').length,
+    }),
+    [owners, allChannels, latest.bySensor, now],
+  );
 
-  // Generate mock readings for demo
-  useEffect(() => {
-    const updateReadings = () => {
-      const newReadings = new Map<string, SensorReading>();
-      sensors.forEach((sensor) => {
-        if (!sensor.isParentDevice) {
-          newReadings.set(sensor.id, generateMockReading(sensor));
-        }
-      });
-      setReadings(newReadings);
-    };
-
-    updateReadings();
-  }, [sensors]);
-
-  // Auto-refresh effect
-  useEffect(() => {
-    if (!isAutoRefresh) return;
-
-    const interval = setInterval(() => {
-      refetch();
-      // Update readings with new mock data
-      const newReadings = new Map<string, SensorReading>();
-      sensors.forEach((sensor) => {
-        if (!sensor.isParentDevice) {
-          newReadings.set(sensor.id, generateMockReading(sensor));
-        }
-      });
-      setReadings(newReadings);
-    }, 30000); // Refresh every 30 seconds
-
-    return () => clearInterval(interval);
-  }, [isAutoRefresh, refetch, sensors]);
-
-  // Stats calculation
-  const stats = useMemo(() => {
-    const parentCount = groupedDevices.groups.length;
-    const channelCount = sensors.filter((s) => !s.isParentDevice).length;
-    const onlineCount = sensors.filter(
-      (s) => s.isParentDevice && s.connectionStatus?.isConnected,
-    ).length;
-    const warningCount = Array.from(readings.values()).filter((r) => r.status === 'warning').length;
-    const criticalCount = Array.from(readings.values()).filter(
-      (r) => r.status === 'critical',
-    ).length;
-
-    return { parentCount, channelCount, onlineCount, warningCount, criticalCount };
-  }, [groupedDevices, sensors, readings]);
+  const loading = sensorsLoading || (ownerIds.length > 0 && latest.loading);
+  const error = sensorsError ?? latest.error;
+  const refresh = (): void => {
+    void refetchSensors();
+    latest.refetch();
+  };
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <PageHeader
         title="Canlı Okumalar"
         description={
-          loading
-            ? 'Yükleniyor...'
-            : `${stats.parentCount} cihaz, ${stats.channelCount} veri kanalı`
+          loading ? 'Yükleniyor...' : `${stats.devices} cihaz, ${stats.channels} veri kanalı`
         }
         actions={
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => refetch()}
+            <Button
+              variant="secondary"
+              onClick={refresh}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+              leftIcon={<RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />}
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Yenile
-            </button>
-            <button
-              onClick={() => setIsAutoRefresh(!isAutoRefresh)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                isAutoRefresh
-                  ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
-              }`}
+            </Button>
+            <Button
+              variant={autoRefresh ? 'primary' : 'secondary'}
+              onClick={() => setAutoRefresh((on) => !on)}
+              aria-pressed={autoRefresh}
             >
-              <RefreshCw className={`w-4 h-4 ${isAutoRefresh ? 'animate-spin' : ''}`} />
-              {isAutoRefresh ? 'Otomatik (30s)' : 'Manuel'}
-            </button>
-            <Button variant="primary" leftIcon={<Download className="w-4 h-4" />}>
+              {autoRefresh ? 'Otomatik (30s)' : 'Manuel'}
+            </Button>
+            <Button
+              variant="primary"
+              leftIcon={<Download className="w-4 h-4" />}
+              disabled={allChannels.length === 0}
+              onClick={() =>
+                downloadCsv(latestValuesCsv(owners, latest.bySensor, locale), 'sensor-okumalari')
+              }
+            >
               Dışa Aktar
             </Button>
           </div>
         }
       />
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-info-50 dark:bg-info-900/20 rounded-lg">
-              <Server className="w-5 h-5 text-info-600 dark:text-info-400" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                {stats.parentCount}
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Cihaz</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-info-50 dark:bg-info-900/20 rounded-lg">
-              <Activity className="w-5 h-5 text-info-600 dark:text-info-400" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                {stats.channelCount}
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Veri Kanalı</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-success-50 dark:bg-success-900/20 rounded-lg">
-              <Wifi className="w-5 h-5 text-success-600 dark:text-success-400" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                {stats.onlineCount}
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Çevrimiçi</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-warning-50 dark:bg-warning-900/20 rounded-lg">
-              <AlertCircle className="w-5 h-5 text-warning-600 dark:text-warning-400" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                {stats.warningCount}
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Uyarı</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-error-50 dark:bg-error-900/20 rounded-lg">
-              <AlertCircle className="w-5 h-5 text-error-600 dark:text-error-400" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                {stats.criticalCount}
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Kritik</p>
-            </div>
-          </div>
-        </div>
+        <StatCard
+          icon={<Server className="w-5 h-5 text-info-600 dark:text-info-400" />}
+          tone="bg-info-50 dark:bg-info-900/20"
+          value={stats.devices}
+          label="Cihaz"
+        />
+        <StatCard
+          icon={<Activity className="w-5 h-5 text-info-600 dark:text-info-400" />}
+          tone="bg-info-50 dark:bg-info-900/20"
+          value={stats.channels}
+          label="Veri Kanalı"
+        />
+        <StatCard
+          icon={<Wifi className="w-5 h-5 text-success-600 dark:text-success-400" />}
+          tone="bg-success-50 dark:bg-success-900/20"
+          value={stats.live}
+          label="Veri Akan Cihaz"
+        />
+        <StatCard
+          icon={<AlertCircle className="w-5 h-5 text-warning-600 dark:text-warning-400" />}
+          tone="bg-warning-50 dark:bg-warning-900/20"
+          value={stats.warning}
+          label="Uyarı"
+        />
+        <StatCard
+          icon={<AlertCircle className="w-5 h-5 text-error-600 dark:text-error-400" />}
+          tone="bg-error-50 dark:bg-error-900/20"
+          value={stats.critical}
+          label="Kritik"
+        />
       </div>
 
-      {/* Error Message */}
       {error && (
-        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 flex items-center gap-3">
+        <div
+          role="alert"
+          className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 flex items-center gap-3"
+        >
           <AlertCircle className="w-5 h-5 text-error-500" />
           <div>
-            <p className="text-error-800 dark:text-error-200 font-medium">
-              Sensör verileri yüklenemedi
-            </p>
+            <p className="text-error-800 dark:text-error-200 font-medium">Okumalar yüklenemedi</p>
             <p className="text-error-600 dark:text-error-400 text-sm">{error}</p>
           </div>
-          <button
-            onClick={() => refetch()}
-            className="ml-auto px-3 py-1 bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 rounded hover:bg-error-200 dark:hover:bg-error-800/60"
-          >
+          <Button variant="secondary" size="sm" className="ml-auto" onClick={refresh}>
             Tekrar Dene
-          </button>
+          </Button>
         </div>
       )}
 
-      {/* Filters */}
       <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
         <div className="flex flex-col md:flex-row gap-4">
-          {/* Type Filter */}
           <div className="flex items-center gap-2">
             <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             <Select
-              options={[
-                { value: 'all', label: 'Tüm Tipler' },
-                { value: 'temperature', label: 'Sıcaklık' },
-                { value: 'dissolved_oxygen', label: 'Çözünmüş Oksijen' },
-                { value: 'ph', label: 'pH' },
-                { value: 'salinity', label: 'Tuzluluk' },
-                { value: 'turbidity', label: 'Bulanıklık' },
-                { value: 'ammonia', label: 'Amonyak' },
-                { value: 'conductivity', label: 'İletkenlik' },
-                { value: 'water_level', label: 'Su Seviyesi' },
-                { value: 'flow_rate', label: 'Akış Hızı' },
-                { value: 'pressure', label: 'Basınç' },
-                { value: 'voltage', label: 'Voltaj' },
-                { value: 'current', label: 'Akım' },
-                { value: 'power', label: 'Güç' },
-              ]}
-              value={selectedType}
-              onChange={(e) => setSelectedType(e.target.value)}
+              aria-label="Parametre"
+              options={[{ value: 'all', label: 'Tüm Parametreler' }, ...filterOptions]}
+              value={selectedChannel}
+              onChange={(event) => setSelectedChannel(event.target.value)}
             />
           </div>
-
-          {/* Period Filter */}
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            <Select
-              options={[
-                { value: '1h', label: 'Son 1 Saat' },
-                { value: '6h', label: 'Son 6 Saat' },
-                { value: '24h', label: 'Son 24 Saat' },
-                { value: '7d', label: 'Son 7 Gün' },
-                { value: '30d', label: 'Son 30 Gün' },
-              ]}
-              value={selectedPeriod}
-              onChange={(e) => setSelectedPeriod(e.target.value)}
-            />
+            {displayZone.zone ? (
+              <TimeRangePicker
+                value={range}
+                onChange={setRange}
+                presets={READINGS_PRESETS}
+                timeZone={displayZone.zone.displayTimeZone}
+                dataBounds={dataBounds}
+              />
+            ) : displayZone.error !== null ? (
+              <span role="alert" className="text-sm text-error-600 dark:text-error-400">
+                {t('series.zoneLoadFailed', { error: displayZone.error })}
+              </span>
+            ) : (
+              // The picker reads days in the site's zone; until the server
+              // names it there is nothing honest to pick in.
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                {ownerIds.length > 0 ? t('series.loading') : rangeLabels.label}
+              </span>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Loading State */}
-      {loading && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
-          <Spinner size="lg" color="inherit" className="mb-3" />
-          <p>Sensörler yükleniyor...</p>
+      {rangeError !== null && (
+        <div
+          role="alert"
+          className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-3 text-sm text-warning-800 dark:text-warning-200"
+        >
+          {t('series.rangeInvalid', { reason: rangeLabels.error(rangeError) })}
         </div>
       )}
 
-      {/* Empty State */}
-      {!loading && filteredGroups.groups.length === 0 && filteredGroups.orphans.length === 0 && (
+      {loading && visible.length === 0 && (
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+          <Spinner size="lg" color="inherit" className="mb-3" />
+          <p>Okumalar yükleniyor...</p>
+        </div>
+      )}
+
+      {!loading && visible.length === 0 && (
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
           <Activity className="w-12 h-12 mb-3 opacity-50" />
           <p className="text-lg font-medium">
-            {selectedType === 'all'
+            {selectedChannel === 'all'
               ? 'Henüz cihaz kaydedilmemiş'
-              : 'Bu tipte veri kanalı bulunamadı'}
+              : 'Bu parametreyi ölçen cihaz yok'}
           </p>
           <p className="text-sm mt-1">
-            {selectedType === 'all'
-              ? 'Yeni cihaz eklemek için Cihaz Yönetimi sayfasını kullanın'
-              : 'Farklı bir filtre seçin veya yeni cihaz ekleyin'}
+            {selectedChannel === 'all'
+              ? 'Yeni cihaz eklemek için Cihazlar sayfasını kullanın'
+              : 'Farklı bir parametre seçin'}
           </p>
         </div>
       )}
 
-      {/* Grouped Devices */}
-      {!loading && filteredGroups.groups.length > 0 && (
+      {visible.length > 0 && (
         <div className="space-y-4">
-          {filteredGroups.groups.map((group) => (
-            <DeviceGroupCard
-              key={group.parent.id}
-              group={group}
-              readings={readings}
-              defaultExpanded={filteredGroups.groups.length <= 3}
+          {visible.map(({ sensor, channels }) => (
+            <SensorReadingsCard
+              key={sensor.id}
+              sensor={sensor}
+              channels={channels}
+              range={range}
+              bounds={bounds}
+              onShowRange={setRange}
+              now={now}
+              defaultExpanded={visible.length <= 3}
             />
           ))}
-        </div>
-      )}
-
-      {/* Standalone Sensors */}
-      {!loading && filteredGroups.orphans.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            Bağımsız Sensörler
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredGroups.orphans.map((sensor) => (
-              <StandaloneSensorCard
-                key={sensor.id}
-                sensor={sensor}
-                reading={readings.get(sensor.id)}
-              />
-            ))}
-          </div>
         </div>
       )}
     </div>

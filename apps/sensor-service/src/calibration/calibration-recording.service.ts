@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 
@@ -9,6 +9,7 @@ import {
 
 import { CalibrationEvent } from './calibration-event.entity';
 import { RecordCalibrationInput } from './dto/calibration.dto';
+import { lockChannel } from '../registration/services/channel-row-lock';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -39,8 +40,6 @@ export class CalibrationRecordingService {
   constructor(
     @InjectRepository(CalibrationEvent)
     private readonly calibrationEventRepository: Repository<CalibrationEvent>,
-    @InjectRepository(SensorDataChannel)
-    private readonly channelRepository: Repository<SensorDataChannel>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -55,52 +54,50 @@ export class CalibrationRecordingService {
     actor: CalibrationActor,
     input: RecordCalibrationInput,
   ): Promise<SensorDataChannel> {
-    const channel = await this.channelRepository.findOne({
-      where: { id: input.channelId, tenantId },
-    });
-    if (!channel) {
-      throw new NotFoundException(`Channel with ID '${input.channelId}' not found`);
-    }
-
-    // Calibration only has meaning for numeric channels — the coefficients are
-    // applied as `raw * multiplier + offset` to a numeric reading.
-    if (channel.dataType !== ChannelDataType.NUMBER) {
-      throw new BadRequestException(
-        `Channel '${channel.channelKey}' is not numeric; calibration applies only to number channels`,
-      );
-    }
-
-    // A non-finite or zero multiplier would corrupt every reading (zero collapses
-    // all readings to the offset; NaN/Infinity poisons the data path).
-    if (!Number.isFinite(input.calibrationMultiplier) || input.calibrationMultiplier === 0) {
-      throw new BadRequestException('calibrationMultiplier must be a finite, non-zero number');
-    }
-    if (!Number.isFinite(input.calibrationOffset)) {
-      throw new BadRequestException('calibrationOffset must be a finite number');
-    }
-
-    // Per-channel interval: an explicit input wins; otherwise reuse the channel's
-    // stored interval. With neither set, no due date is computed — the channel
-    // stays "calibrated" rather than falsely showing "overdue".
-    const intervalDays = input.intervalDays ?? channel.calibrationIntervalDays ?? undefined;
-
-    const calibratedAt = new Date();
-    const nextCalibrationDue =
-      intervalDays != null
-        ? new Date(calibratedAt.getTime() + intervalDays * MS_PER_DAY)
-        : undefined;
-
-    const referenceValues = input.referenceValues?.map((p) => ({
-      raw: p.raw,
-      reference: p.reference,
-      ...(p.label !== undefined ? { label: p.label } : {}),
-    }));
-
-    // The event carries an explicit tenantId and the channel was loaded
-    // tenant-scoped above, so writing them through the transaction's EntityManager
-    // (manager.create/save with the entity class — never getRepository) keeps
-    // tenant isolation intact while making the two writes atomic.
+    // The read, the checks and both writes run under the channel row lock, so
+    // a concurrent edit or declaration can neither interleave nor be
+    // overwritten by a stale copy of the row (lockChannel).
     const updatedChannel = await this.dataSource.transaction(async (manager) => {
+      const channel = await lockChannel(manager, tenantId, input.channelId);
+
+      // Calibration only has meaning for numeric channels — the coefficients are
+      // applied as `raw * multiplier + offset` to a numeric reading.
+      if (channel.dataType !== ChannelDataType.NUMBER) {
+        throw new BadRequestException(
+          `Channel '${channel.channelKey}' is not numeric; calibration applies only to number channels`,
+        );
+      }
+
+      // A non-finite or zero multiplier would corrupt every reading (zero collapses
+      // all readings to the offset; NaN/Infinity poisons the data path).
+      if (!Number.isFinite(input.calibrationMultiplier) || input.calibrationMultiplier === 0) {
+        throw new BadRequestException('calibrationMultiplier must be a finite, non-zero number');
+      }
+      if (!Number.isFinite(input.calibrationOffset)) {
+        throw new BadRequestException('calibrationOffset must be a finite number');
+      }
+
+      // Per-channel interval: an explicit input wins; otherwise reuse the channel's
+      // stored interval. With neither set, no due date is computed — the channel
+      // stays "calibrated" rather than falsely showing "overdue".
+      const intervalDays = input.intervalDays ?? channel.calibrationIntervalDays ?? undefined;
+
+      const calibratedAt = new Date();
+      const nextCalibrationDue =
+        intervalDays != null
+          ? new Date(calibratedAt.getTime() + intervalDays * MS_PER_DAY)
+          : undefined;
+
+      const referenceValues = input.referenceValues?.map((p) => ({
+        raw: p.raw,
+        reference: p.reference,
+        ...(p.label !== undefined ? { label: p.label } : {}),
+      }));
+
+      // The event carries an explicit tenantId and the channel was loaded
+      // tenant-scoped above, so writing them through the transaction's EntityManager
+      // (manager.create/save with the entity class — never getRepository) keeps
+      // tenant isolation intact while making the two writes atomic.
       const event = manager.create(CalibrationEvent, {
         tenantId,
         channelId: channel.id,
@@ -130,7 +127,7 @@ export class CalibrationRecordingService {
     });
 
     this.logger.log(
-      `Recorded calibration for channel ${channel.channelKey} (${channel.id}) by ${actor.userId}`,
+      `Recorded calibration for channel ${updatedChannel.channelKey} (${updatedChannel.id}) by ${actor.userId}`,
     );
 
     return updatedChannel;

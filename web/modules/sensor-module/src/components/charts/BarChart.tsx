@@ -20,11 +20,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useTrendData, type TrendTimeRange } from '../../hooks/useTrendData';
-import type {
-  ChartTimeRange,
-  DaqAggregation,
-  HistoricalDataPoint,
-} from '../../types/scada-runtime.types';
+import type { DaqAggregation, HistoricalDataPoint } from '../../types/scada-runtime.types';
 import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
@@ -118,7 +114,7 @@ export interface BarChartProps {
   /** Stack bars on top of each other. Default: false. */
   stacked?: boolean;
   /** Time range for data query. Default: 'last1h'. */
-  timeRange?: ChartTimeRange | { from: Date; to: Date };
+  timeRange?: TrendTimeRange;
   /** Aggregation applied to historical data. */
   aggregation?: DaqAggregation;
   /** Color theme. Default: 'light'. */
@@ -148,14 +144,7 @@ export const BarChart: React.FC<BarChartProps> = ({
 }) => {
   const tagIds = useMemo(() => series.map((s) => s.tagId), [series]);
 
-  const trendRange = useMemo<TrendTimeRange>(() => {
-    if (typeof timeRange === 'object' && 'from' in timeRange) {
-      return timeRange as { from: Date; to: Date };
-    }
-    return timeRange as ChartTimeRange;
-  }, [timeRange]);
-
-  const { data, isLoading, error } = useTrendData(tagIds, trendRange, {
+  const { data, isLoading, error } = useTrendData(tagIds, timeRange, {
     aggregation,
   });
 

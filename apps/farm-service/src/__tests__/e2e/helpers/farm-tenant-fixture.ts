@@ -196,6 +196,15 @@ export const FIXTURE_ENTITIES = [
   FeedingMeal,
 ] as const;
 
+/**
+ * The production audit writer over the fixture DataSource, for suites whose
+ * handlers write farm_audit_logs in their transaction. The raw repository it
+ * needs is wired here, beside the batch writers', so specs never name one.
+ */
+export function createFixtureAuditLogService(dataSource: DataSource): AuditLogService {
+  return new AuditLogService(dataSource.getRepository(AuditLog));
+}
+
 /** The production command handlers a fixture needs to stock a tank. */
 export interface FixtureBatchWriters {
   createBatch: CreateBatchHandler;

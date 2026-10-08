@@ -99,6 +99,9 @@ class IssueChallengerCliStrictFieldsTests(unittest.TestCase):
         )
         # TypeError raise would surface as Python traceback in stderr.
         self.assertNotIn("TypeError", proc.stderr)
+        # ARIA-MEDIUM-376 — an ImportError also passed the line above; the
+        # subcommand must reach the kernel at all.
+        self.assertNotIn("ImportError", proc.stderr)
         self.assertNotIn("missing 3 required keyword-only arguments", proc.stderr)
 
 

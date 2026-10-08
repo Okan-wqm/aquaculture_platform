@@ -67,6 +67,14 @@ def plan_downstream_impact(
     changed_projects = sorted({project for _, project in resolved if project})
     unknown_files = [path for path, project in resolved if project is None]
     downstream = _reverse_closure(changed_projects, graph["dependencies"])
+    # ARIA-HIGH-357 — the projects the changed ones import directly: the
+    # contracts a change consumes (the generated GraphQL types a web module
+    # renders, the shared library a service calls). One hop, because that is
+    # where a consumed contract is declared; the closure above is unchanged.
+    closure = {*changed_projects, *downstream}
+    upstream = sorted({
+        dep for project in changed_projects for dep in graph["dependencies"].get(project, [])
+    } - closure)
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -80,6 +88,10 @@ def plan_downstream_impact(
         "project_roots": {
             name: graph["projects"][name]["root"]
             for name in [*changed_projects, *downstream] if name in graph["projects"]
+        },
+        "upstream_projects": upstream,
+        "upstream_project_roots": {
+            name: graph["projects"][name]["root"] for name in upstream if name in graph["projects"]
         },
         "unknown_files": unknown_files,
         "graph_source": graph["graph_source"],

@@ -2844,6 +2844,21 @@ enum MonitoringFrequency {
   ON_DEMAND
 }
 
+"""One parameter to record at a unit, and whether it is required there"""
+type UnitMeasurementPlanEntry {
+  parameter: WaterQualityParameterConfig!
+
+  """Whether a measurement at this unit must carry this parameter"""
+  required: Boolean!
+}
+
+"""What to record at a unit: its plan, or every active parameter"""
+type UnitMeasurementPlan {
+  """Whether the unit has a plan of its own"""
+  planned: Boolean!
+  entries: [UnitMeasurementPlanEntry!]!
+}
+
 type ParameterTemplateResponse {
   templateId: String!
   name: String!
@@ -5794,6 +5809,7 @@ type Query {
   parameterTemplates: [ParameterTemplateResponse!]!
   parameterEquipmentMappings(equipmentId: ID, parameterConfigId: ID, isActive: Boolean): [WaterQualityParamEquipment!]!
   equipmentParameters(equipmentId: ID!): [WaterQualityParamEquipment!]!
+  unitMeasurementPlan(unitId: ID!): UnitMeasurementPlan!
   waterQuality(id: ID!): WaterQualityMeasurement
   waterQualityMeasurements(filter: WaterQualityFilterInput): WaterQualityListResponse!
   latestWaterQuality(tankId: ID!): WaterQualityMeasurement
@@ -6261,7 +6277,12 @@ input ParameterConfigFilterInput {
 }
 
 input WaterQualityFilterInput {
-  """Tank ID"""
+  """The unit (a tank or water equipment) the measurements were taken at"""
+  unitId: ID
+
+  """
+  A tank ID, matched by unit like unitId (the name predates water equipment)
+  """
   tankId: ID
 
   """Havuz ID"""

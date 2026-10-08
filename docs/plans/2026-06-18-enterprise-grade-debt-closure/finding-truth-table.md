@@ -289,6 +289,7 @@ the placeholder, and the post-merge close ceremony records the main-reachable co
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-143` | OPEN | 2026-10-06 | claude | real-open |
 | `PLAT-CRITICAL-923` | OPEN | 2026-10-08 | claude | real-open |
+| `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
 
 ## Mutation Rules
 

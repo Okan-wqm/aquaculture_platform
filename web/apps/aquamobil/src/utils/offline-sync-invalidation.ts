@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 
 import type { OperationType } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { UNIT_MEASUREMENT_PLAN_QUERY_KEY } from '@/utils/unit-measurement-plan-query-key';
 
 // WHY: offline sync is the only write path when field users reconnect. Mapping
 // each synced mutation to tenant-scoped read models prevents DB-committed farm
@@ -24,7 +25,13 @@ const SYNC_INVALIDATION_SEGMENTS = {
   // warehouseSummary listede değil; plan + sayaç + biyokütle güncellenir.
   finalizeMeal: [['feedingDayPlans'], ['dailyOpsCounts'], ['tanks']],
   recordTransfer: [['tanks'], ['dailyOpsCounts'], ['stockEventsSummary'], ['ai']],
-  createWaterQuality: [['tanks'], ['equipment-params'], ['waterQuality'], ['dailyOpsCounts'], ['ai']],
+  createWaterQuality: [
+    ['tanks'],
+    [UNIT_MEASUREMENT_PLAN_QUERY_KEY],
+    ['waterQuality'],
+    ['dailyOpsCounts'],
+    ['ai'],
+  ],
   recordStockMovement: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],
   transferStock: [['stockEventsSummary'], ['stock-at-location'], ['warehouseSummary']],
   // MOB-HIGH-006: a synced offline ack must clear the unacked badge/banner

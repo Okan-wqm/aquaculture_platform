@@ -30,7 +30,8 @@ interface CacheDouble {
 }
 
 interface MappingRepoDouble {
-  find: jest.Mock;
+  /** The plan's codes, as mappedCodesForUnit's query returns them. */
+  codes: jest.Mock;
 }
 
 function makeService(opts: {
@@ -44,8 +45,19 @@ function makeService(opts: {
   const cache: CacheDouble = {
     getActiveConfigs: jest.fn().mockResolvedValue(opts.configs ?? []),
   };
-  const mappingRepo: MappingRepoDouble = {
-    find: jest.fn().mockResolvedValue([]),
+  // The unit's plan is read through mappedCodesForUnit(repository.manager, …):
+  // one query builder chain ending in getRawMany.
+  const codes = jest.fn().mockResolvedValue([]);
+  const query = {
+    innerJoin: () => query,
+    select: () => query,
+    where: () => query,
+    andWhere: () => query,
+    getRawMany: codes,
+  };
+  const mappingRepo: MappingRepoDouble & { manager: { createQueryBuilder: () => typeof query } } = {
+    codes,
+    manager: { createQueryBuilder: () => query },
   };
   const service = new WaterQualityValidationService(
     cache as unknown as ParameterConfigCacheService,
@@ -142,5 +154,40 @@ describe('WaterQualityValidationService strict mode', () => {
       field: 'temeprature',
       code: 'UNKNOWN_PARAMETER',
     });
+  });
+});
+
+describe('WaterQualityValidationService — the unit plan is advisory', () => {
+  const UNIT = '22222222-2222-4222-8222-222222222222';
+  const configs = [
+    { id: 'c-ph', code: 'ph', name: 'pH', dataType: ParameterDataType.NUMBER, isRequired: true },
+    {
+      id: 'c-tan',
+      code: 'total_ammonia_nitrogen',
+      name: 'TAN',
+      dataType: ParameterDataType.NUMBER,
+      isRequired: false,
+    },
+  ] as Partial<WaterQualityParameterConfig>[];
+
+  it('accepts a configured parameter outside the unit plan', async () => {
+    const { service, mappingRepo } = makeService({ configs });
+    mappingRepo.codes.mockResolvedValue([{ code: 'ph' }]);
+    const result = await service.validate(TENANT, { ph: 7.4, total_ammonia_nitrogen: 0.6 }, UNIT);
+    expect(result).toEqual({ valid: true, errors: [] });
+  });
+
+  it('accepts values for a unit nobody mapped, instead of rejecting every one', async () => {
+    const { service } = makeService({ configs });
+    const result = await service.validate(TENANT, { total_ammonia_nitrogen: 0.6 }, UNIT);
+    expect(result.valid).toBe(true);
+  });
+
+  it('still requires the plan’s required parameters', async () => {
+    const { service, mappingRepo } = makeService({ configs });
+    mappingRepo.codes.mockResolvedValue([{ code: 'ph' }]);
+    const result = await service.validate(TENANT, { total_ammonia_nitrogen: 0.6 }, UNIT);
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual([expect.objectContaining({ field: 'ph', code: 'REQUIRED' })]);
   });
 });

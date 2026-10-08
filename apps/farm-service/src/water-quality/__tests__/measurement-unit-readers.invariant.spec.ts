@@ -1,26 +1,47 @@
 /**
  * Invariant: no farm-service reader identifies a water-quality measurement's
- * unit by the `tankId` column alone.
+ * unit by one column (FARM-HIGH-367, FARM-HIGH-372).
  *
- * A measurement's unit is COALESCE(tankId, equipmentId): a tank is filed as
- * `tankId`, a biofilter or sump as `equipmentId`, and the old batch writer
- * filed tanks only as `equipmentId`. A reader keyed on `tankId` silently drops
- * every other row — the life-safety critical list did (FARM-HIGH-367). Readers
+ * A measurement's unit is COALESCE(tankId, equipmentId). Keying on `tankId`
+ * alone dropped every non-tank unit — the dashboard's critical list; keying on
+ * `equipmentId` alone made `update()` validate a tank row as unit-less. Readers
  * use measurement-unit-reader.ts (measurementUnitIdSql, measurementUnitMatchSql,
- * measurementUnitIdOf); this scan fails the build when a new one does not.
+ * measurementUnitIdOf), the one owner of the expression.
  *
- * Flagged, for every source file outside tests and migrations:
- * - a query builder over WaterQualityMeasurement whose alias's `tankId` is
- *   compared, grouped or joined on (selecting the column is allowed);
- * - raw SQL over `water_quality_measurements` that names `"tankId"`;
- * - a find over WaterQualityMeasurement (manager or injected repository)
- *   whose `where` names `tankId`.
+ * The scan (helpers/unit-key-scan.ts) walks the TypeScript AST with a type
+ * checker and flags, for the entity's unit columns and relations:
+ * - query-builder strings over an alias of the entity (any quote style), from
+ *   `createQueryBuilder(Entity, 'a')` or `repo.createQueryBuilder('a')` where
+ *   the repo is injected or comes from any repository accessor given the entity
+ *   (`getScopedRepository(…, Entity)`, `tenantManagerRepo(…, Entity)`, …);
+ * - raw SQL over `water_quality_measurements` naming a unit column;
+ * - object-form `where({ tankId })` on such a builder, and find-family `where`
+ *   (manager or repository form, `*By` included) naming a unit column or the
+ *   `tank` / `equipment` relation;
+ * - a read of `row.tankId` / `row.equipmentId` on a measurement, unless it is
+ *   written to or copied into a property of the same name (event payloads).
+ * Selecting a column into an array (`select(['wq.tankId'])`) is allowed.
  */
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
+import * as ts from 'typescript';
 
-const FARM_SRC = join(__dirname, '..', '..');
-const OWNER = join('water-quality', 'services', 'measurement-unit-reader.ts');
+import { ENTITY, unitKeyViolations, unitShapeOf, type UnitShape } from './helpers/unit-key-scan';
+
+jest.setTimeout(180_000);
+
+const FARM_ROOT = join(__dirname, '..', '..', '..');
+const FARM_SRC = join(FARM_ROOT, 'src');
+const ENTITY_FILE = join(
+  FARM_SRC,
+  'water-quality',
+  'entities',
+  'water-quality-measurement.entity.ts',
+);
+const EXEMPT = new Set([
+  ENTITY_FILE,
+  join(FARM_SRC, 'water-quality', 'services', 'measurement-unit-reader.ts'),
+]);
 
 function sourceFiles(dir: string): string[] {
   const files: string[] = [];
@@ -36,158 +57,173 @@ function sourceFiles(dir: string): string[] {
   return files;
 }
 
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
+function farmProgram(rootNames: string[]): ts.Program {
+  const config = ts.getParsedCommandLineOfConfigFile(
+    join(FARM_ROOT, 'tsconfig.app.json'),
+    {},
+    { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => undefined },
+  );
+  if (!config) throw new Error('cannot read apps/farm-service/tsconfig.app.json');
+  return ts.createProgram({ rootNames, options: { ...config.options, noEmit: true } });
 }
 
-interface Literal {
-  text: string;
-  /** The code just before the literal, trimmed (to tell a select item from a predicate). */
-  before: string;
-}
-
-function stringLiterals(source: string): Literal[] {
-  const literals: Literal[] = [];
-  const pattern = /'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
-  for (let match = pattern.exec(source); match !== null; match = pattern.exec(source)) {
-    literals.push({ text: match[0], before: source.slice(0, match.index).trimEnd().slice(-1) });
-  }
-  return literals;
-}
-
-/** The balanced `{…}` or `[…]` that starts at `open`. */
-function balanced(source: string, open: number): string {
-  const opener = source[open];
-  const closer = opener === '{' ? '}' : ']';
-  let depth = 0;
-  for (let i = open; i < source.length; i++) {
-    if (source[i] === opener) depth++;
-    if (source[i] === closer) depth--;
-    if (depth === 0) return source.slice(open, i + 1);
-  }
-  return source.slice(open);
-}
-
-function findWhereNamesTankId(source: string, callPattern: RegExp): boolean {
-  for (let match = callPattern.exec(source); match !== null; match = callPattern.exec(source)) {
-    const options = balanced(source, match.index + match[0].length - 1);
-    const where = /\bwhere\s*:\s*/.exec(options);
-    if (where === null) continue;
-    const clause = balanced(options, where.index + where[0].length);
-    if (/\btankId\b/.test(clause)) return true;
-  }
-  return false;
-}
-
-/** The ways `source` identifies a measurement's unit by `tankId` alone. */
-function unitKeyViolations(rawSource: string): string[] {
-  const source = stripComments(rawSource);
-  const violations: string[] = [];
-  const literals = stringLiterals(source);
-
-  const aliasPattern = /createQueryBuilder\(\s*WaterQualityMeasurement\s*,\s*'(\w+)'/g;
-  const aliases = new Set<string>();
-  for (let m = aliasPattern.exec(source); m !== null; m = aliasPattern.exec(source)) {
-    aliases.add(m[1] as string);
-  }
-  for (const alias of aliases) {
-    const column = new RegExp(`(\\b${alias}\\.tankId\\b|"${alias}"\\."tankId")`);
-    for (const literal of literals) {
-      if (!column.test(literal.text)) continue;
-      const selectItem = literal.text === `'${alias}.tankId'` && /[[,]/.test(literal.before);
-      if (!selectItem) violations.push(`query builder '${alias}': ${literal.text}`);
-    }
-  }
-
-  for (const literal of literals) {
-    if (/water_quality_measurements/.test(literal.text) && /"tankId"/.test(literal.text)) {
-      violations.push(`raw SQL: ${literal.text.replace(/\s+/g, ' ').slice(0, 120)}`);
-    }
-  }
-
-  const managerFind =
-    /\.(?:find|findOne|findAndCount|findBy|findOneBy|count|exists)\(\s*WaterQualityMeasurement\s*,\s*\{/g;
-  if (findWhereNamesTankId(source, managerFind)) {
-    violations.push('find(WaterQualityMeasurement) where names tankId');
-  }
-  const repository =
-    /@InjectRepository\(\s*WaterQualityMeasurement\s*\)\s*(?:private|public|protected|readonly|\s)*(\w+)/.exec(
-      source,
-    );
-  if (repository !== null) {
-    const repositoryFind = new RegExp(
-      `\\.${repository[1]}\\.(?:find|findOne|findAndCount|findBy|findOneBy|count|exists)\\(\\s*\\{`,
-      'g',
-    );
-    if (findWhereNamesTankId(source, repositoryFind)) {
-      violations.push(`${repository[1]}.find where names tankId`);
-    }
-  }
-  return violations;
+/** An in-memory program: the entity's unit shape plus one snippet. */
+function scanSnippet(snippet: string): string[] {
+  const files: Record<string, string> = {
+    '/v/entity.ts': [
+      `export class ${ENTITY} {`,
+      '  @Column() tankId?: string;',
+      "  @ManyToOne(() => Tank) @JoinColumn({ name: 'tankId' }) tank?: Tank;",
+      '  @Column() equipmentId?: string;',
+      "  @ManyToOne('Equipment') @JoinColumn({ name: 'equipmentId' }) equipment?: unknown;",
+      '}',
+      'export class FeedingRecord { tankId?: string; }',
+      'declare class Tank {}',
+      'declare function Column(): PropertyDecorator;',
+      'declare function ManyToOne(target: unknown): PropertyDecorator;',
+      'declare function JoinColumn(options: { name: string }): PropertyDecorator;',
+    ].join('\n'),
+    '/v/snippet.ts': [
+      `import { ${ENTITY}, FeedingRecord } from './entity';`,
+      'declare const m: any; declare const q: any; declare const id: string;',
+      'declare function validate(unit?: string): void;',
+      'declare function InjectRepository(e: unknown): ParameterDecorator;',
+      'declare function tenantManagerRepo(m: unknown, e: unknown): any;',
+      'declare function measurementUnitMatchSql(a: string, c: string): string;',
+      snippet,
+    ].join('\n'),
+  };
+  const options: ts.CompilerOptions = { experimentalDecorators: true, noEmit: true, strict: false };
+  const host = ts.createCompilerHost(options);
+  host.getSourceFile = (name, version) =>
+    files[name] !== undefined ? ts.createSourceFile(name, files[name], version, true) : undefined;
+  host.fileExists = (name) => files[name] !== undefined;
+  host.readFile = (name) => files[name];
+  host.resolveModuleNames = (names) =>
+    names.map((name) => ({
+      resolvedFileName: name.replace('./', '/v/') + '.ts',
+      extension: '.ts',
+    }));
+  const program = ts.createProgram(['/v/snippet.ts', '/v/entity.ts'], options, host);
+  const entity = program.getSourceFile('/v/entity.ts');
+  const source = program.getSourceFile('/v/snippet.ts');
+  if (!entity || !source) throw new Error('snippet program has no sources');
+  return unitKeyViolations(source, program.getTypeChecker(), unitShapeOf(entity)).map(
+    (v) => v.shape,
+  );
 }
 
 describe('measurement-unit readers invariant', () => {
-  describe('the detector', () => {
+  describe('the scanner', () => {
     it.each([
       [
-        'a query-builder predicate',
-        "m.createQueryBuilder(WaterQualityMeasurement, 'wq').where('wq.tankId = :tankId')",
+        'a single-quoted builder predicate',
+        `m.createQueryBuilder(${ENTITY}, 'wq').where('wq.tankId = :id');`,
       ],
       [
-        'a query-builder grouping',
-        "m.createQueryBuilder(WaterQualityMeasurement, 'wq').groupBy('wq.tankId')",
+        'a double-quoted builder predicate',
+        `m.createQueryBuilder(${ENTITY}, 'wq').where("wq.equipmentId = :id");`,
+      ],
+      ['a builder grouping', `m.createQueryBuilder(${ENTITY}, 'wq').groupBy('wq.tankId');`],
+      [
+        'a quoted derived-table join',
+        `m.createQueryBuilder(${ENTITY}, 'x').innerJoin('t', 't', \`t.id = "x"."tankId"\`);`,
       ],
       [
-        'a quoted query-builder join',
-        "m.createQueryBuilder(WaterQualityMeasurement, 'x').innerJoin('t', 't', `t.id = \"x\".\"tankId\"`)",
+        'double-quoted raw SQL',
+        `q.query("SELECT 1 FROM water_quality_measurements WHERE \\"tankId\\" = $1");`,
       ],
       [
-        'raw SQL',
-        'q.query(`SELECT 1 FROM water_quality_measurements m JOIN tanks t ON t.id = m."tankId"`)',
+        'template raw SQL',
+        'q.query(`SELECT 1 FROM water_quality_measurements m JOIN tanks t ON t.id = m."equipmentId"`);',
       ],
       [
-        'a manager find',
-        'm.findOne(WaterQualityMeasurement, { where: { tenantId, tankId }, order: { a: 1 } })',
+        'an injected repository builder',
+        `class S { constructor(@InjectRepository(${ENTITY}) private readonly repo: any) {} ` +
+          "f(): void { this.repo.createQueryBuilder('r').where('r.tankId = :id'); } }",
       ],
       [
-        'an injected repository find',
-        '@InjectRepository(WaterQualityMeasurement) private readonly repo: R; ' +
-          'f() { this.repo.find({ where: [{ tankId: x }] }); }',
+        'a tenantManagerRepo builder',
+        `tenantManagerRepo(m, ${ENTITY}).createQueryBuilder('t').andWhere('t.equipmentId = :id');`,
       ],
-    ])('flags %s keyed on tankId', (_label, source) => {
-      expect(unitKeyViolations(source)).not.toHaveLength(0);
+      [
+        'a getScopedRepository find',
+        `m.getScopedRepository(${ENTITY}).find({ where: { tankId: id } });`,
+      ],
+      [
+        'a repository findBy',
+        `const r = m.getScopedRepository(${ENTITY}); r.findBy({ equipmentId: id });`,
+      ],
+      [
+        'an object-form builder where',
+        `m.createQueryBuilder(${ENTITY}, 'wq').where({ tankId: id });`,
+      ],
+      [
+        'an object-form where on a builder variable',
+        `const qb = m.createQueryBuilder(${ENTITY}, 'wq'); qb.andWhere({ equipmentId: id });`,
+      ],
+      ['a relation-form find', `m.find(${ENTITY}, { where: { tank: { id } } });`],
+      [
+        'an array-form manager find',
+        `m.findOne(${ENTITY}, { where: [{ tenantId: id, tankId: id }] });`,
+      ],
+      [
+        'a row read keyed on equipmentId alone',
+        `function f(row: ${ENTITY}): void { validate(row.equipmentId); }`,
+      ],
+      [
+        'a hand-written coalesce',
+        `function f(row: ${ENTITY}): string | undefined { return row.tankId ?? row.equipmentId; }`,
+      ],
+    ])('flags %s', (_label, snippet) => {
+      expect(scanSnippet(snippet)).not.toHaveLength(0);
     });
 
-    it('allows selecting the column, a tank relation, and the shared helpers', () => {
-      const source = [
-        "m.createQueryBuilder(WaterQualityMeasurement, 'wq')",
+    it('allows a selected column, the helpers, column copies, writes and other entities', () => {
+      const snippet = [
+        `m.createQueryBuilder(${ENTITY}, 'wq')`,
         "  .select(['wq.id', 'wq.tankId', 'wq.equipmentId'])",
         "  .leftJoinAndSelect('wq.tank', 'tank')",
-        "  .andWhere(measurementUnitMatchSql('wq', '= :unitId'), { unitId })",
-        'm.find(WaterQualityMeasurement, { select: { tankId: true }, where: { tenantId } })',
+        "  .andWhere(measurementUnitMatchSql('wq', '= :unitId'), { unitId: id });",
+        `m.find(${ENTITY}, { select: { tankId: true }, where: { tenantId: id } });`,
+        `function copy(row: ${ENTITY}): object { return { tankId: row.tankId ?? null, equipmentId: row.equipmentId }; }`,
+        `function write(row: ${ENTITY}): void { row.tankId = id; }`,
+        "m.createQueryBuilder(FeedingRecord, 'fr').where('fr.tankId = :id');",
+        'function other(r: FeedingRecord): void { validate(r.tankId); }',
       ].join('\n');
-      expect(unitKeyViolations(source)).toEqual([]);
+      expect(scanSnippet(snippet)).toEqual([]);
     });
   });
 
-  it('no farm-service reader keys a measurement’s unit on tankId alone', () => {
-    const files = sourceFiles(FARM_SRC).filter((file) => relative(FARM_SRC, file) !== OWNER);
+  it('no farm-service reader keys a measurement’s unit on one column', () => {
+    const files = sourceFiles(FARM_SRC).filter((file) => !EXEMPT.has(file));
     const readers = files.filter((file) =>
-      /WaterQualityMeasurement|water_quality_measurements/.test(readFileSync(file, 'utf8')),
+      new RegExp(`${ENTITY}|water_quality_measurements`).test(readFileSync(file, 'utf8')),
     );
     // Non-vacuous: the scan reaches the readers this invariant exists for.
     expect(readers.map((file) => relative(FARM_SRC, file))).toEqual(
       expect.arrayContaining([
         join('water-quality', 'query-handlers', 'list-critical-water-quality.handler.ts'),
+        join('water-quality', 'water-quality.service.ts'),
         join('water-quality', 'services', 'water-temperature.service.ts'),
         join('batch', 'query-handlers', 'get-batch-traceability.handler.ts'),
       ]),
     );
-    const violations = readers.flatMap((file) =>
-      unitKeyViolations(readFileSync(file, 'utf8')).map(
-        (violation) => `${relative(FARM_SRC, file)}: ${violation}`,
-      ),
-    );
+    const program = farmProgram([ENTITY_FILE, ...readers]);
+    const entity = program.getSourceFile(ENTITY_FILE);
+    if (!entity) throw new Error('entity not in the program');
+    const unit: UnitShape = unitShapeOf(entity);
+    expect([...unit.columns].sort()).toEqual(['equipmentId', 'tankId']);
+    expect([...unit.relations].sort()).toEqual(['equipment', 'tank']);
+
+    const checker = program.getTypeChecker();
+    const violations = readers.flatMap((file) => {
+      const source = program.getSourceFile(file);
+      if (!source) throw new Error(`${file} not in the program`);
+      return unitKeyViolations(source, checker, unit).map(
+        (v) => `${relative(FARM_SRC, file)}:${v.line} ${v.shape}: ${v.text}`,
+      );
+    });
     expect(violations).toEqual([]);
   });
 });

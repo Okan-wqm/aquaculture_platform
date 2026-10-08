@@ -73,15 +73,14 @@ One owner: `measurement-unit-reader.ts` (beside the classifier, free of database
   `tankId rhs OR (tankId IS NULL AND equipmentId rhs)` so both column indexes serve it.
 - `measurementUnitIdOf(row)`: `tankId ?? equipmentId` for a loaded row.
 
-`measurement-unit-readers.invariant.spec.ts` scans farm-service and fails on a query builder,
-raw SQL or `find` over measurements keyed on `tankId` (selecting the column is allowed).
+`measurement-unit-readers.invariant.spec.ts` walks the TypeScript AST of farm-service with a
+type checker and fails on a reader keyed on either unit column alone (see FARM-HIGH-372
+below for the shapes).
 
 Readers changed:
 
 - `list-critical-water-quality.handler.ts` (the dashboard's life-safety list): latest row per
-  unit. The old join compared unquoted `latest.tankId`/`latest.maxDate`; Postgres folds them to
-  lowercase, and on Postgres 16 the generated SQL failed with `column latest.tankid does not
-exist` — the list errored on every call. The new SQL was run there too.
+  unit. Its join was also broken outright — FARM-HIGH-372 below.
 - `list-water-quality.handler.ts`: new `unitId` filter. `tankId` and `systemId` match by unit
   too: every caller passes a tank's id, and its batch-entered rows are its rows. Filters AND.
 - `get-latest-water-quality`, `get-water-quality-chart`, `get-tank-water-quality-statistics`:
@@ -113,6 +112,36 @@ Readers left, and why:
   (which carry both columns); MCP `detect-anomalies` labels rows by `tankId`, and its list
   filter now matches by unit.
 
+## FARM-HIGH-372 — the dashboard's critical list failed on every call
+
+`criticalWaterQuality` (the dashboard's life-safety widget) joined its "latest per tank"
+subquery on unquoted `latest.tankId` / `latest.maxDate`. TypeORM quotes the subquery's column
+aliases (`"tankId"`, `"maxDate"`) but rewrites references only for aliases that carry entity
+metadata (`QueryBuilder.js` 439-441), so the derived-table references stayed unquoted and
+Postgres folded them to lowercase. Run on Postgres 16, the generated SQL failed with `column
+latest.tankid does not exist`: the widget has never returned a row. The mocked unit specs
+were green because a mocked EntityManager returns whatever it is handed.
+
+### Fix
+
+- The join quotes `"latest"."unitId"` and `"latest"."maxDate"` and keys on the unit (above).
+- `unit-readers.postgres.spec.ts` (integration lane, Testcontainers) runs the critical list,
+  the list, latest and statistics on Postgres against a tank row, a non-tank row and an old
+  batch row filed as `equipmentId` only. With the old handler restored it fails with
+  `QueryFailedError: column latest.tankid does not exist`.
+- The invariant no longer greps text: it walks the AST with a type checker, keyed on the unit
+  columns and relations read from the entity's `@ManyToOne`/`@JoinColumn`, and flags
+  - query-builder strings over an entity alias in any quote style, the builder reached by
+    `createQueryBuilder(Entity, 'a')`, an injected repository, `getRepository(Entity)` or
+    `tenantManagerRepo(…, Entity)`;
+  - raw SQL over `water_quality_measurements` naming a unit column;
+  - object-form `where({ tankId })`, find-family `where` (manager, repository, `*By`) and the
+    relation form `where: { tank: { id } }`;
+  - a row read of `tankId` or `equipmentId` alone (the `update()` class) unless written or
+    copied into a property of the same name.
+- The spec flags a synthetic snippet of each shape, and fails with the old critical list and
+  the old `update()` validation restored.
+
 ## Independent review → fixes
 
 - HIGH — readers keyed on `tankId` dropped non-tank and batch-entered rows: the section above.
@@ -141,7 +170,8 @@ Proof:
   tank row's update validates against its tank.
 - `create-batch-water-quality.source.spec.ts`: machine sources refused in a batch.
 - `water-quality-unit-readers.spec.ts`: each reader's unit predicate is the shared one.
-- `measurement-unit-readers.invariant.spec.ts`: no farm reader keys on `tankId` alone.
+- `measurement-unit-readers.invariant.spec.ts`: no farm reader keys on one unit column.
+- `unit-readers.postgres.spec.ts`: the unit readers run and answer on Postgres.
 - farm-module `RecordTab.spec.tsx`: recent entries filter by `unitId`.
 - AquaMobil `WaterQualityRecordPage.spec.tsx`: the page reads the plan.
 

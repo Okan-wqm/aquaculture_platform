@@ -395,6 +395,10 @@ class AdmissionTests(_DeliveredBranch):
         if sandbox_backend() is None:
             self.skipTest("bwrap is not usable on this host")
         super().setUp()
+        # ARIA-HIGH-388 — the admission refuses a profile without the
+        # delivery's actions first (`authority_absent`); these tests are
+        # about the stages behind it, under the profile a delivery runs in.
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
 
     def test_the_delivery_refuses_deadline_insufficient_by_name_with_nothing_pushed(self) -> None:
         # The delivery's worst case for its staged suite (none staged here:
@@ -755,6 +759,9 @@ class ResultAdmissibilityTests(_DeliveredBranch):
         if sandbox_backend() is None:
             self.skipTest("bwrap is not usable on this host")
         super().setUp()
+        # ARIA-HIGH-388 — the profile a delivery runs in (`authority_absent`
+        # is refused at admission, ahead of the stage these tests pin).
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         # A request minted by production's bridge (the strict view needs
         # its must_satisfy and allowed_scope), claimed the way the executor
         # claims it, and a planned change that intends the file the tip

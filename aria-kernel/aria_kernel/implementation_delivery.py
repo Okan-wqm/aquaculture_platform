@@ -254,6 +254,11 @@ ADMISSION_STAGE = "admission"
 # push and the PR, is the HOST's too.
 CREDENTIAL_STAGE = "credential"
 HOST_STAGES: tuple[str, ...] = (ADMISSION_STAGE, CREDENTIAL_STAGE)
+# ARIA-HIGH-388 — the governed actions a delivery performs
+# (``runtime_profile.ACTION_PERMISSIONS``): the contained gate promotes the
+# staged action (``apply_gate``) and the opener opens the PR (``pr_open``).
+# The admission refuses a profile that holds neither, before the spawn.
+DELIVERY_ACTIONS: tuple[str, ...] = ("apply_gate", "pr_open")
 # The one field of the delivery the AGENT contributes (round 2): a sentence
 # per intended file it deliberately left untouched, read off the outcome
 # record and written on the change ledger's commit row by the executor.
@@ -599,7 +604,22 @@ def delivery_admission_refusal(
     could not fit then leaves no branch, and its harness-class retry stands
     on the branch again — and ``deliver_implementation`` asks again at its
     own entry (stage ``admission``).
+
+    * ``authority_absent:profile=<p>:missing=<actions>`` (ARIA-HIGH-388) —
+      the store's runtime profile does not hold the actions the delivery
+      performs (``DELIVERY_ACTIONS``). The strict ceiling expires with the
+      unlock ladder's evidence (72 h, ``autonomy_unlock``); a request minted
+      under strict and claimed after the drop spent a whole spawn and was
+      then refused at ``apply_gate`` as the REQUEST's fault. Decided here,
+      before the spawn, it is the host's: released harness-class, retried
+      once the authority is back.
     """
+    from .runtime_profile import get_profile, permitted_actions
+
+    profile = get_profile(base_dir=base_dir)
+    missing = sorted(set(DELIVERY_ACTIONS) - permitted_actions(profile))
+    if missing:
+        return f"authority_absent:profile={profile}:missing={','.join(missing)}"
     workspace = Path(workspace_root).resolve()
     commands, timeout_ms = _staged_suite(proposal_id=proposal_id, base_dir=base_dir)
     try:
@@ -1037,6 +1057,7 @@ __all__ = [
     "CREDENTIAL_STAGE",
     "DELIVERY_COMMIT_IDENTITY_SECONDS",
     "DELIVERY_RESULT_ADMISSIBLE_SECONDS",
+    "DELIVERY_ACTIONS",
     "HOST_STAGES",
     "PRE_PR_OPEN_STAGE",
     "RESULT_ADMISSIBLE_STAGE",

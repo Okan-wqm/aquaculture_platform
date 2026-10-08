@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "doc-staleness:missing:docs/HMI_TRANSFORMATION_PLAN.md:592:apps/sensor-service/src/modules/scada-runtime/daq-storage.service.ts",
+    "judgment_group_id": "judge:doc-staleness-adapter:finding:f89052d5daf5fd29f8301ad2b0e572876974997c7beb77a657fa28633d02af62",
+    "kind": "consensus_escalation",
+    "run_id": "8ad360dd-ff86-44d9-9818-a8c32cd97d95",
+    "tool_id": "doc-staleness-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'doc-staleness:missing:docs/HMI_TRANSFORMATION_PLAN.md:592:apps/sensor-service/src/modules/scada-runtime/daq-storage.service.ts' (tool 'doc-staleness-adapter', run '8ad360dd-ff86-44d9-9818-a8c32cd97d95'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-08T15:39:46Z",
+  "request_id": "consensus-be603451ffd1c29e",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-11T15:39:46Z",
+  "status": "open"
+}

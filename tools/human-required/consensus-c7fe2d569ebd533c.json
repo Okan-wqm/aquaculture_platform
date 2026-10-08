@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "doc-staleness:missing:docs/architecture/ADR-012-messaging-service.md:1842:apps/messaging-service/src/shared/guards/channel-member.guard.ts",
+    "judgment_group_id": "judge:doc-staleness-adapter:finding:12df58fa87057c336e763a9a13f15cb9278d9a2583b94b9666c5029188bc309c",
+    "kind": "consensus_escalation",
+    "run_id": "bda38d58-fb3d-403d-9db5-f63c1009d2fd",
+    "tool_id": "doc-staleness-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'doc-staleness:missing:docs/architecture/ADR-012-messaging-service.md:1842:apps/messaging-service/src/shared/guards/channel-member.guard.ts' (tool 'doc-staleness-adapter', run 'bda38d58-fb3d-403d-9db5-f63c1009d2fd'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-08T15:39:51Z",
+  "request_id": "consensus-c7fe2d569ebd533c",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-11T15:39:51Z",
+  "status": "open"
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "doc-staleness:missing:docs/db/18-final-review-report.md:85:apps/alert-engine/src/middleware/tenant-schema.middleware.ts",
+    "judgment_group_id": "judge:doc-staleness-adapter:finding:73c9ca7288cce5c7203efee3bc7be1b7aeb41f95e76594812961f96440fbba38",
+    "kind": "consensus_escalation",
+    "run_id": "8ad360dd-ff86-44d9-9818-a8c32cd97d95",
+    "tool_id": "doc-staleness-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'doc-staleness:missing:docs/db/18-final-review-report.md:85:apps/alert-engine/src/middleware/tenant-schema.middleware.ts' (tool 'doc-staleness-adapter', run '8ad360dd-ff86-44d9-9818-a8c32cd97d95'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-08T15:39:48Z",
+  "request_id": "consensus-bf0e0b3cf966119b",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-11T15:39:48Z",
+  "status": "open"
+}

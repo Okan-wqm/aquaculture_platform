@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "tenant-raw-query-missing-predicate:apps/sensor-service/src/edge-device/provisioning.service.ts:828",
+    "judgment_group_id": "judge:tenant-scoping-adapter:finding:1eb24cd45c81ce6e09c6d57d5817e01ef622de0b9dd11904e024140d89d2c14e",
+    "kind": "consensus_escalation",
+    "run_id": "1fd3d726-b761-407a-961d-85db11d854af",
+    "tool_id": "tenant-scoping-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'tenant-raw-query-missing-predicate:apps/sensor-service/src/edge-device/provisioning.service.ts:828' (tool 'tenant-scoping-adapter', run '1fd3d726-b761-407a-961d-85db11d854af'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-08T15:39:13Z",
+  "request_id": "consensus-9aba67aeac50dc78",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-15T15:39:13Z",
+  "status": "open"
+}

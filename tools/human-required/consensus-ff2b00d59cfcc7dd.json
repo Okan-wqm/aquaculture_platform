@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "lint-rules:security/detect-non-literal-fs-filename:apps/sensor-service/src/edge-device/mqtt-auth.service.ts:789:13",
+    "judgment_group_id": "judge:lint-rules-adapter:finding:049ce0cda4e06a3e4f7f3d2bd424bb7da4b47b708d7f9c4995267f8c30c64f18",
+    "kind": "consensus_escalation",
+    "run_id": "73d9aa06-d5ee-4551-a4f0-e877aa9f2b62",
+    "tool_id": "lint-rules-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'lint-rules:security/detect-non-literal-fs-filename:apps/sensor-service/src/edge-device/mqtt-auth.service.ts:789:13' (tool 'lint-rules-adapter', run '73d9aa06-d5ee-4551-a4f0-e877aa9f2b62'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-08T15:39:55Z",
+  "request_id": "consensus-ff2b00d59cfcc7dd",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-11T15:39:55Z",
+  "status": "open"
+}

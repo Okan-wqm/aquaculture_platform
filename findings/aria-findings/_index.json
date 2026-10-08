@@ -253,8 +253,8 @@
       "status": "OPEN"
     }
   ],
-  "generated_at": "2026-10-08T12:54:34Z",
+  "generated_at": "2026-10-08T15:56:14Z",
   "schema_version": 2,
   "source_ledger": "aria-findings/finding-events.jsonl",
-  "source_ledger_tip_hash": "sha256:7f1fad4cabecbdf97bea39e36e3d7ec0dab94765fb67768734f42c668a50490e"
+  "source_ledger_tip_hash": "sha256:40dc73b108c8fdeeefdd413f7b5a50ad30aeecadcc0e19b37c8b1d451e2ab951"
 }

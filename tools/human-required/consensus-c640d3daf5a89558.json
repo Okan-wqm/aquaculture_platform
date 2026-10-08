@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "tenant-repository-unscoped-read:apps/auth-service/src/modules/authentication/services/authentication.service.ts:1432",
+    "judgment_group_id": "judge:tenant-scoping-adapter:finding:2e129707f15d37b2c062710d7cdabe55f83e3d7f4417feaee2ccd2b5da5ec521",
+    "kind": "consensus_escalation",
+    "run_id": "0d7cb790-5703-427a-baa9-f10ccb94d3ff",
+    "tool_id": "tenant-scoping-adapter",
+    "uncertainty_reason": "low_confidence"
+  },
+  "reason": "AI consensus could not be reached (low_confidence) for finding 'tenant-repository-unscoped-read:apps/auth-service/src/modules/authentication/services/authentication.service.ts:1432' (tool 'tenant-scoping-adapter', run '0d7cb790-5703-427a-baa9-f10ccb94d3ff'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-08T15:39:01Z",
+  "request_id": "consensus-c640d3daf5a89558",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-15T15:39:01Z",
+  "status": "open"
+}

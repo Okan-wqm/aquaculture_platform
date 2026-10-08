@@ -6,7 +6,7 @@ import {
   type HarnessContext,
   shutdownHarness,
 } from '@platform/migration-harness';
-import { DataSource, type DataSourceOptions } from 'typeorm';
+import { DataSource, type DataSourceOptions, type EntitySchema } from 'typeorm';
 
 /**
  * One real-Postgres stage for sensor-service code that must work under the
@@ -19,6 +19,9 @@ import { DataSource, type DataSourceOptions } from 'typeorm';
  * by hand, and every copy was a place for the stage to drift from the
  * provisioner (role grants, RLS order, the mapping function).
  */
+
+/** An entity class (or schema) declaring `schema: 'sensor'`. */
+export type SourceEntity = EntitySchema | (new () => object);
 
 export interface SensorRlsTenantContext {
   readonly admin: DataSource;
@@ -41,6 +44,13 @@ export interface SensorRlsHarnessOptions {
    * refuses a continuous aggregate over a table with row security).
    */
   readonly beforeRls?: (tenant: SensorRlsTenantContext) => Promise<void>;
+  /**
+   * Cross-tenant tables in `sensor` (entities declaring `schema: 'sensor'`, e.g.
+   * the device and provisioning-key route directories): created, FORCE RLS
+   * armed by the same helper, and given the service's DML grants — the way
+   * they stand in production.
+   */
+  readonly sourceEntities?: readonly SourceEntity[];
 }
 
 export interface SensorRlsHarness {
@@ -87,21 +97,35 @@ export async function bootSensorRlsHarness(
       await ddl.destroy();
     }
 
-    const previousDdlAuthority = process.env['DB_MIGRATE_DDL_AUTHORITY'];
-    process.env['DB_MIGRATE_DDL_AUTHORITY'] = '1';
-    const qr = admin.createQueryRunner();
-    try {
-      await applyTenantRlsToSchema(qr, { schemaOverride: schema });
-    } finally {
-      await qr.release();
-      if (previousDdlAuthority === undefined) delete process.env['DB_MIGRATE_DDL_AUTHORITY'];
-      else process.env['DB_MIGRATE_DDL_AUTHORITY'] = previousDdlAuthority;
-    }
+    await armRls(admin, { schemaOverride: schema });
 
     await admin.query(`GRANT USAGE ON SCHEMA "${schema}", sensor, public TO ${runtimeRole}`);
+    // The DML set tenant-schema-privileges.ts grants `sensor_service` on every
+    // tenant table (DELETE included: tenant erasure deletes through it).
     await admin.query(
-      `GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA "${schema}" TO ${runtimeRole}`,
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "${schema}" TO ${runtimeRole}`,
     );
+  }
+
+  const sourceEntities = options.sourceEntities ?? [];
+  if (sourceEntities.length > 0) {
+    const sourceDdl = new DataSource({
+      type: 'postgres',
+      ...harness.connectionOptions,
+      name: `${options.name}-ddl-sensor`,
+      entities: [...sourceEntities],
+      synchronize: true,
+      logging: false,
+    });
+    await sourceDdl.initialize();
+    const sourceTables = sourceDdl.entityMetadatas.map((metadata) => metadata.tableName);
+    await sourceDdl.destroy();
+    await armRls(admin, { schemaOverride: 'sensor', includeTables: sourceTables });
+    for (const table of sourceTables) {
+      await admin.query(
+        `GRANT SELECT, INSERT, UPDATE, DELETE ON sensor."${table}" TO ${runtimeRole}`,
+      );
+    }
   }
 
   // The least-privilege mapping production serves through
@@ -129,7 +153,9 @@ export async function bootSensorRlsHarness(
     username: runtimeRole,
     password: runtimePassword,
     name: `${options.name}-runtime-${randomBytes(4).toString('hex')}`,
-    entities: options.entities,
+    entities: Array.isArray(options.entities)
+      ? [...options.entities, ...sourceEntities]
+      : [...Object.values(options.entities), ...sourceEntities],
     synchronize: false,
     logging: false,
   });
@@ -147,4 +173,21 @@ export async function bootSensorRlsHarness(
       await shutdownHarness(harness);
     },
   };
+}
+
+/** Arm FORCE RLS with the platform helper under db-migrate's DDL authority. */
+async function armRls(
+  admin: DataSource,
+  options: { schemaOverride: string; includeTables?: readonly string[] },
+): Promise<void> {
+  const previousDdlAuthority = process.env['DB_MIGRATE_DDL_AUTHORITY'];
+  process.env['DB_MIGRATE_DDL_AUTHORITY'] = '1';
+  const qr = admin.createQueryRunner();
+  try {
+    await applyTenantRlsToSchema(qr, options);
+  } finally {
+    await qr.release();
+    if (previousDdlAuthority === undefined) delete process.env['DB_MIGRATE_DDL_AUTHORITY'];
+    else process.env['DB_MIGRATE_DDL_AUTHORITY'] = previousDdlAuthority;
+  }
 }

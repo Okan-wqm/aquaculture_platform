@@ -994,3 +994,9 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
 - `SUPPLY-CRITICAL-018`: registry state is `RESOLVED` with closing commit
   `f469a651b`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.
+- `SENSOR-CRITICAL-143`: registry state is `RESOLVED` with closing commit
+  `7d639e3b3`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `PLAT-CRITICAL-923`: registry state is `RESOLVED` with closing commit
+  `c2f09cea3`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.

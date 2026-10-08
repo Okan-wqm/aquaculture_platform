@@ -1,3 +1,4 @@
+import { parseQuantityId, type QuantityId } from '@aquaculture/shared-contracts';
 import {
   ObjectType,
   Field,
@@ -225,6 +226,38 @@ export class SensorDataChannel {
   @Field({ nullable: true })
   @Column({ name: 'unit_symbol', length: 10, nullable: true })
   unitSymbol?: string;
+
+  /**
+   * The measured quantity an operator declared for this channel (a registry
+   * quantity id), or null when the key's own meaning stands. Needed where the
+   * key does not say which quantity it reports — `ammonia`/`nh3` (TAN, NH3-N or
+   * NH4-N) or a vendor key. Written only by ChannelManagementService's
+   * declaration path, with a ledger row (channel_quantity_declarations). Read
+   * through the registry: a stored value that is no longer a quantity id reads
+   * as no declaration, the same way on every path. Exposed on GraphQL by
+   * DataChannelType, with the effective quantity beside it.
+   */
+  @Column({
+    name: 'declared_quantity',
+    type: 'varchar',
+    length: 32,
+    nullable: true,
+    transformer: {
+      to: (value: QuantityId | null | undefined): QuantityId | null => value ?? null,
+      from: (value: unknown): QuantityId | null => parseQuantityId(value),
+    },
+  })
+  declaredQuantity?: QuantityId | null;
+
+  /**
+   * When the unit or the declared quantity last changed; null when not since
+   * tracking began. Samples carry no unit, so a sample older than this was
+   * reported under a different meaning: the channel description never pairs
+   * one with the current configuration. Set only by ChannelManagementService
+   * (markMeasurementChange).
+   */
+  @Column({ name: 'measurement_configured_at', type: 'timestamptz', nullable: true })
+  measurementConfiguredAt?: Date | null;
 
   // === Physical & Operational Bounds ===
 

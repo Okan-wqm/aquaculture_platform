@@ -17335,9 +17335,9 @@
             "type": "string",
             "enum": [
               "compliance",
+              "general",
               "billing",
               "support",
-              "general",
               "technical"
             ]
           },
@@ -17360,9 +17360,9 @@
             "type": "string",
             "enum": [
               "compliance",
+              "general",
               "billing",
               "support",
-              "general",
               "technical"
             ]
           },
@@ -23336,8 +23336,8 @@
           },
           "category": {
             "enum": [
-              "billing",
               "general",
+              "billing",
               "technical",
               "feature_request",
               "bug_report",
@@ -23349,8 +23349,8 @@
             "enum": [
               "critical",
               "high",
-              "low",
-              "medium"
+              "medium",
+              "low"
             ],
             "type": "string"
           },
@@ -23457,8 +23457,8 @@
           "category": {
             "type": "string",
             "enum": [
-              "billing",
               "general",
+              "billing",
               "technical",
               "feature_request",
               "bug_report",
@@ -23470,8 +23470,8 @@
             "enum": [
               "critical",
               "high",
-              "low",
-              "medium"
+              "medium",
+              "low"
             ]
           },
           "tags": {
@@ -23498,8 +23498,8 @@
           "category": {
             "type": "string",
             "enum": [
-              "billing",
               "general",
+              "billing",
               "technical",
               "feature_request",
               "bug_report",
@@ -23511,8 +23511,8 @@
             "enum": [
               "critical",
               "high",
-              "low",
-              "medium"
+              "medium",
+              "low"
             ]
           },
           "status": {
@@ -23577,8 +23577,8 @@
             "enum": [
               "critical",
               "high",
-              "low",
-              "medium"
+              "medium",
+              "low"
             ]
           }
         },
@@ -24998,8 +24998,8 @@
             "enum": [
               "critical",
               "high",
-              "low",
-              "medium"
+              "medium",
+              "low"
             ],
             "type": "string"
           },
@@ -25209,8 +25209,8 @@
             "enum": [
               "critical",
               "high",
-              "low",
-              "medium"
+              "medium",
+              "low"
             ],
             "type": "string"
           },
@@ -25532,8 +25532,8 @@
             "enum": [
               "critical",
               "high",
-              "low",
-              "medium"
+              "medium",
+              "low"
             ]
           },
           "source": {

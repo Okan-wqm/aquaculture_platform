@@ -34,6 +34,7 @@ const config: Config = {
     '^@platform/backend-common$': '<rootDir>/../libs/backend-common/src/index.ts',
     '^@platform/shared$': '<rootDir>/../libs/shared/src/index.ts',
     '^@platform/event-contracts$': '<rootDir>/../libs/event-contracts/src/index.ts',
+    '^@aquaculture/shared-contracts$': '<rootDir>/../libs/shared-contracts/src/index.ts',
     '^@platform/storage$': '<rootDir>/../libs/storage/src/index.ts',
     '^@platform/testing$': '<rootDir>/../libs/testing/src/index.ts',
     // platform/libs/* path aliases (declared in tsconfig.base.json paths

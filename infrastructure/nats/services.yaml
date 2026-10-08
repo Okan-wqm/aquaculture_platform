@@ -136,6 +136,7 @@ services:
   - events.platform.schema-migration.>
   - events.security.events.>
   - request.farm.validateSiteAssignment
+  - request.sensor.describeChannels
   - $JS.API.INFO
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>

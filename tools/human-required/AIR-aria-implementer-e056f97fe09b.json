@@ -1,0 +1,19 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "claim_id": "claim_8da85d84bf955b31",
+    "code": "agent_refused:safety",
+    "kind": "executor_escalation",
+    "reason_class": "safety",
+    "reason_summary": "All three key_changes were applied and all four declared validation commands exited 0, but the commit step cannot be reached: this worktree carries no git author identity (git commit exits 128, 'Author identity unknown'), and every route for the agent to supply one is refused by the command policy by name (git config = allowlist miss; git commit --author / -S = commit_identity deny), so completing the run would require circumventing the commit-identity perimeter.",
+    "request_id": "AIR-aria-implementer-e056f97fe09b",
+    "stage": "agent_refusal"
+  },
+  "reason": "agent_refused:safety: the agent refused the request; its summary is on the record",
+  "recorded_at": "2026-10-08T06:31:23Z",
+  "request_id": "AIR-aria-implementer-e056f97fe09b",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-15T06:31:23Z",
+  "status": "open"
+}

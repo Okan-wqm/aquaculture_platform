@@ -161,3 +161,44 @@ self-register succeeds with a valid key, a key routed at another tenant
 resolves nothing, revoked and expired keys are refused next to a live one, an
 unknown key is refused, and the backfill routes a legacy key. With the previous
 lookup four of the five cases fail.
+
+## PLAT-CRITICAL-923 — tenant erasure was a no-op under pool RLS (fixed)
+
+Raised by the final security review of PR #1805. The NATS handler reaches
+`TenantErasureTargetExecutor` with no request tenant, and every erasure target
+service runs `RlsModule.forPoolService`, whose checkout sets an empty tenant
+with bypass off. Under FORCE RLS and a NOBYPASSRLS role every erasure DELETE,
+post-erasure hook, proof read and outbox write therefore matched zero rows,
+while the hook names went into the proof hash as if the work had happened.
+
+Fix, once for every service and both modes: every executor transaction (the
+proof pre-check, the erasure itself, proof replay, blocked and failure
+emission) runs through one helper that calls `bindTenantRlsContext` for the
+erased tenant before anything else and reads the binding back. Hooks now
+return the rows (or keys) they removed; the executor logs each count and folds
+`hook:count` into the proof hash, so a hook that removed nothing shows in the
+attested material. No consumer recomputes the hash, so the proof shape is
+unchanged. `StoredEventsCryptoShredHook` reports 1 or 0 destroyed keys.
+
+Real-Postgres specs, NOBYPASSRLS non-owner role, no tenant on the pool:
+
+- sensor-service, tenant-schema-module: the erasure removes the tenant's
+  edge devices and both route-table rows and leaves the other tenant's rows.
+- config-service, source-schema-tenant-column: the erasure deletes the tenant's
+  rows by policy and leaves the other tenant's rows.
+
+With the binding removed both specs fail.
+
+## SENSOR-LOW-181 — key claim ignored revocation and expiry (fixed)
+
+`incrementUsedCount` re-checked only `max_devices`. It is now one conditional
+UPDATE that also requires `is_active` and an unexpired key, and exactly one
+claimed row; a key revoked, expired or exhausted between validation and
+registration claims nothing and the registration rolls back. Covered in
+`tenant-key-self-register.rls.postgres.spec.ts`.
+
+## SENSOR-MEDIUM-180 — no failure limiter before PBKDF2 (open)
+
+A flood of wrong-password CONNECTs naming a real device runs a 600k-iteration
+PBKDF2 per attempt on the libuv pool with no per-username limit. Owner claude,
+deadline 2026-10-28.

@@ -12,9 +12,16 @@ export { PublishedOutboxPurgeHook } from './published-outbox-purge.hook';
  * extension — the published-outbox purge and the edge route-directory purge
  * post-erasure hooks + the erased-tenant tombstone the ingress gate consults.
  *
- * There is no MQTT auth cache hook: MqttAuthService keeps no positive
- * device cache (every CONNECT and ACL check reads the device row), so an
- * erased tenant's devices stop resolving the moment their rows are gone.
+ * The hooks run inside the executor's erasure transaction, which is bound to
+ * the erased tenant's RLS context before anything else runs (the shared
+ * TenantErasureTargetExecutor); without that binding every DELETE under the
+ * pool's FORCE RLS matched zero rows. Each hook returns the rows it removed,
+ * which the proof records next to its name.
+ *
+ * There is no MQTT auth cache hook: MqttAuthService keeps no positive device
+ * cache (every CONNECT and ACL check reads the device row), so an erased
+ * tenant's devices stop resolving once the erasure has removed their rows and
+ * routes.
  */
 @Module({
   providers: [PublishedOutboxPurgeHook, EdgeRouteDirectoryPurgeHook, ErasedTenantTombstoneService],

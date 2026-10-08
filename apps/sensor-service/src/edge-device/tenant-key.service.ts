@@ -221,35 +221,29 @@ export class TenantKeyService {
   }
 
   /**
-   * Atomically increment the used_count for a tenant provisioning key.
-   * If maxDevices is set, only increments if used_count < max_devices (prevents TOCTOU race).
-   * Throws ConflictException if the limit has been reached.
+   * Claim one registration on a key, atomically, inside the registering
+   * transaction. The claim re-checks everything validateAndGetKey checked —
+   * active, not expired, under max_devices — in the same UPDATE, so a key
+   * revoked, expired or exhausted between validation and registration claims
+   * nothing and the registration rolls back (TOCTOU). Exactly one row must be
+   * claimed.
    */
-  async incrementUsedCount(
-    keyId: string,
-    maxDevices: number | null | undefined,
-    transactionalManager: EntityManager,
-  ): Promise<void> {
-    if (maxDevices) {
-      const result = await transactionalManager
-        .createQueryBuilder()
-        .update(TenantProvisioningKey)
-        .set({ usedCount: () => '"used_count" + 1' })
-        .where('id = :id AND ("max_devices" IS NULL OR "used_count" < "max_devices")', {
-          id: keyId,
-        })
-        .execute();
+  async incrementUsedCount(keyId: string, transactionalManager: EntityManager): Promise<void> {
+    const result = await transactionalManager
+      .createQueryBuilder()
+      .update(TenantProvisioningKey)
+      .set({ usedCount: () => '"used_count" + 1' })
+      .where(
+        'id = :id AND "is_active" AND ("expires_at" IS NULL OR "expires_at" > now()) ' +
+          'AND ("max_devices" IS NULL OR "used_count" < "max_devices")',
+        { id: keyId },
+      )
+      .execute();
 
-      if (result.affected === 0) {
-        throw new ConflictException('Maximum device limit reached for this key');
-      }
-    } else {
-      await transactionalManager
-        .createQueryBuilder()
-        .update(TenantProvisioningKey)
-        .set({ usedCount: () => '"used_count" + 1' })
-        .where('id = :id', { id: keyId })
-        .execute();
+    if (result.affected !== 1) {
+      throw new ConflictException(
+        'This installer key can no longer register devices (revoked, expired or at its limit)',
+      );
     }
   }
 }

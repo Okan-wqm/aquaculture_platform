@@ -719,7 +719,7 @@ export class ProvisioningService {
       const transactionalManager = qr.manager;
 
       // Atomically check and increment used count BEFORE device creation (prevents TOCTOU race + orphans)
-      await this.tenantKeyService.incrementUsedCount(key.id, key.maxDevices ?? null, transactionalManager);
+      await this.tenantKeyService.incrementUsedCount(key.id, transactionalManager);
 
       // Create the device record AFTER the maxDevices check
       const device = this.deviceRepository.create({

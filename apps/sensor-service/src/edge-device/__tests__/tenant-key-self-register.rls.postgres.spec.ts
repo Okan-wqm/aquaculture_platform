@@ -1,8 +1,17 @@
 import { createHash, randomBytes } from 'node:crypto';
 
-import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { applyTenantRlsToSchema, getTenantSchemaName } from '@aquaculture/backend-common/database';
+import {
+  applyTenantRlsToSchema,
+  getTenantSchemaName,
+  runInTenantTransaction,
+} from '@aquaculture/backend-common/database';
 import { collaborator, stub, stubMember } from '@aquaculture/testing';
 import {
   bootPostgresContainer,
@@ -295,6 +304,49 @@ describe('tenant-key self-register under FORCE RLS (SENSOR-HIGH-175)', () => {
     ).resolves.toMatchObject({ tenant_id: TENANT_B });
   });
 
+  it('claims a registration only on a key that is still active and unexpired (TOCTOU)', async () => {
+    const schemaB = getTenantSchemaName(TENANT_B);
+    const keyId = async (token: string): Promise<string> => {
+      const found: Array<{ id: string }> = await admin!.query(
+        `SELECT id FROM "${schemaB}".tenant_provisioning_keys WHERE key_token = $1`,
+        [createHash('sha256').update(token).digest('hex')],
+      );
+      return found[0]!.id;
+    };
+    const claim = (id: string): Promise<void> =>
+      runInTenantTransaction(runtime!, 'sensor', TENANT_B, (qr) =>
+        tenantKeys.incrementUsedCount(id, qr.manager),
+      );
+
+    // Validated while live, then revoked / expired before the claim runs.
+    const revoked = await keyId(await createKey(TENANT_B, {}));
+    await admin!.query(
+      `UPDATE "${schemaB}".tenant_provisioning_keys SET is_active = false WHERE id = $1`,
+      [revoked],
+    );
+    await expect(claim(revoked)).rejects.toBeInstanceOf(ConflictException);
+
+    const expired = await keyId(await createKey(TENANT_B, {}));
+    await admin!.query(
+      `UPDATE "${schemaB}".tenant_provisioning_keys SET expires_at = now() - interval '1 minute'
+        WHERE id = $1`,
+      [expired],
+    );
+    await expect(claim(expired)).rejects.toBeInstanceOf(ConflictException);
+
+    const exhausted = await keyId(await createKey(TENANT_B, { maxDevices: 1 }));
+    await claim(exhausted);
+    await expect(claim(exhausted)).rejects.toBeInstanceOf(ConflictException);
+
+    const live = await keyId(await createKey(TENANT_B, {}));
+    await claim(live);
+    const used: Array<{ used_count: number }> = await admin!.query(
+      `SELECT used_count FROM "${schemaB}".tenant_provisioning_keys WHERE id = $1`,
+      [live],
+    );
+    expect(used).toEqual([{ used_count: 1 }]);
+  });
+
   it('denies a key with no route (unknown key)', async () => {
     await expect(
       provisioning.selfRegisterDevice(request(randomBytes(32).toString('hex'), 'machine-x')),
@@ -328,10 +380,11 @@ describe('tenant-key self-register under FORCE RLS (SENSOR-HIGH-175)', () => {
         GROUP BY tenant_id ORDER BY tenant_id`,
     );
     // A: 2 keys from the tests above (one route was pointed at B, see test 2);
-    // B: revoked + expired + live + legacy, plus A's misrouted one.
+    // B: revoked + expired + live + legacy, the four claim-test keys, plus A's
+    // misrouted one.
     expect(routes).toEqual([
       { tenant_id: TENANT_A, n: '1' },
-      { tenant_id: TENANT_B, n: '5' },
+      { tenant_id: TENANT_B, n: '9' },
     ]);
   });
 });

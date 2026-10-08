@@ -31,9 +31,12 @@ const OUTBOX_TABLE = 'sensor_outbox';
 export class PublishedOutboxPurgeHook implements TenantErasurePostErasureHook {
   readonly hookName = 'sensor-published-outbox-purge';
 
-  async onTenantErased(event: TenantErasureRequestedEvent, manager: EntityManager): Promise<void> {
+  async onTenantErased(
+    event: TenantErasureRequestedEvent,
+    manager: EntityManager,
+  ): Promise<number> {
     if (event.dryRun) {
-      return; // Dry-run must not mutate the outbox.
+      return 0; // Dry-run must not mutate the outbox.
     }
     const result = await manager.query(
       `DELETE FROM "${OUTBOX_SCHEMA}"."${OUTBOX_TABLE}"
@@ -46,5 +49,6 @@ export class PublishedOutboxPurgeHook implements TenantErasurePostErasureHook {
         `Purged ${deleted} published outbox rows for erased tenant ${event.tenantId.slice(0, 8)}…`,
       );
     }
+    return deleted;
   }
 }

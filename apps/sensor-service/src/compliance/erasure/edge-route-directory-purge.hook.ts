@@ -23,21 +23,27 @@ const ROUTE_TABLES = ['edge_device_directory', 'tenant_provisioning_key_director
 export class EdgeRouteDirectoryPurgeHook implements TenantErasurePostErasureHook {
   readonly hookName = 'sensor-edge-route-directory-purge';
 
-  async onTenantErased(event: TenantErasureRequestedEvent, manager: EntityManager): Promise<void> {
+  async onTenantErased(
+    event: TenantErasureRequestedEvent,
+    manager: EntityManager,
+  ): Promise<number> {
     if (event.dryRun) {
-      return; // Dry-run must not mutate the routes.
+      return 0; // Dry-run must not mutate the routes.
     }
+    let total = 0;
     for (const table of ROUTE_TABLES) {
       const result: unknown = await manager.query(
         `DELETE FROM "sensor"."${table}" WHERE "tenant_id" = $1`,
         [event.tenantId],
       );
       const deleted = Array.isArray(result) ? Number(result[1] ?? 0) : 0;
+      total += deleted;
       if (deleted > 0) {
         new Logger(EdgeRouteDirectoryPurgeHook.name).log(
           `Purged ${deleted} ${table} rows for erased tenant ${event.tenantId.slice(0, 8)}…`,
         );
       }
     }
+    return total;
   }
 }

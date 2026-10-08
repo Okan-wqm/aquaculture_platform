@@ -55,7 +55,7 @@ describe('PublishedOutboxPurgeHook (Task 1.8)', () => {
     const hook = new PublishedOutboxPurgeHook();
     const { manager, queries } = makeManager();
 
-    await hook.onTenantErased(erasureEvent(false), manager);
+    await expect(hook.onTenantErased(erasureEvent(false), manager)).resolves.toBe(3);
 
     expect(queries).toHaveLength(1);
     expect(queries[0]!.sql).toContain('DELETE FROM "sensor"."sensor_outbox"');
@@ -81,7 +81,8 @@ describe('EdgeRouteDirectoryPurgeHook (SENSOR-HIGH-175)', () => {
     const hook = new EdgeRouteDirectoryPurgeHook();
     const { manager, queries } = makeManager();
 
-    await hook.onTenantErased(erasureEvent(false), manager);
+    // makeManager answers every DELETE with 3 affected rows.
+    await expect(hook.onTenantErased(erasureEvent(false), manager)).resolves.toBe(6);
 
     expect(queries.map((q) => q.sql)).toEqual([
       'DELETE FROM "sensor"."edge_device_directory" WHERE "tenant_id" = $1',

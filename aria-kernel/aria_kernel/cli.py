@@ -1413,6 +1413,15 @@ def build_parser() -> argparse.ArgumentParser:
     comp_list.add_argument("--rejected-only", action="store_true")
     comp_list.add_argument("--limit", type=int, default=None)
 
+    # ARIA-025-D1 — judge replay operator verb (gold-set recall).
+    judge_parser = add_subparser(sub, "judge")
+    judge_sub = judge_parser.add_subparsers(dest="judge_command", required=True)
+    judge_replay = add_subparser(judge_sub, "replay")
+    judge_replay.add_argument("--tool-id", default=None,
+        help="Replay one tool's gold corpus; without it every registered tool is walked.")
+    judge_replay.add_argument("--target-sha", default=None)
+    judge_replay.add_argument("--cycle-id", default=None)
+
     # Plan 020 Phase 6.C — agent eval harness CLI.
     eval_parser = add_subparser(sub, "agent-eval")
     eval_sub = eval_parser.add_subparsers(dest="agent_eval_command", required=True)
@@ -4374,6 +4383,46 @@ def _main(argv: list[str] | None = None) -> int:
             limit=args.limit,
         )
         print(json.dumps(rows, indent=2, sort_keys=True))
+        return 0
+
+    # ARIA-025-D1 — judge replay operator verb dispatch.
+    if args.command == "judge" and args.judge_command == "replay":
+        from .judge_calibration import score_judges
+        from .judge_replay import REPLAY_GROUP_PREFIX, replay_judges_on_goldset
+        from .tool_registry import list_tools
+
+        if args.tool_id:
+            tool_ids = [args.tool_id]
+        else:
+            tool_ids = [
+                str(tool.get("tool_id") or "")
+                for tool in list_tools(base_dir=args.tools_dir)
+            ]
+            tool_ids = [tool_id for tool_id in tool_ids if tool_id]
+        replayed: list[dict[str, Any]] = []
+        for tool_id in tool_ids:
+            try:
+                result = replay_judges_on_goldset(
+                    tool_id=tool_id,
+                    base_dir=args.tools_dir,
+                    target_sha=args.target_sha,
+                    cycle_id=args.cycle_id,
+                )
+                replayed.append({"tool_id": tool_id, **result})
+            except GovernanceError as exc:
+                replayed.append({
+                    "tool_id": tool_id, "status": "blocked", "reason": str(exc)[:200],
+                })
+        # The read path is score_judges (pure): compute_judge_calibration
+        # appends an audit row per call and the cycle phase owns that append.
+        recall_prefix = (
+            f"{REPLAY_GROUP_PREFIX}{args.tool_id}:" if args.tool_id else REPLAY_GROUP_PREFIX
+        )
+        recall = score_judges(
+            base_dir=args.tools_dir, judgment_group_prefix=recall_prefix,
+        )
+        payload = {"status": "completed", "replayed": replayed, "replay_recall": recall}
+        print(json.dumps(payload, indent=2, sort_keys=True, default=str))
         return 0
 
     # Plan 020 Phase 6.C — agent eval CLI dispatch.

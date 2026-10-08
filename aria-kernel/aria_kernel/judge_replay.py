@@ -184,9 +184,21 @@ def replay_judges_on_goldset(
     }
 
 
-def compute_replay_recall(*, base_dir: str | Path | None = None, min_samples: int = 1) -> dict[str, Any]:
-    """Judge recall over the gold-set replay alone (judgment_group_prefix='replay:')."""
+def compute_replay_recall(
+    *,
+    base_dir: str | Path | None = None,
+    min_samples: int = 1,
+    tool_id: str | None = None,
+) -> dict[str, Any]:
+    """Judge recall over the gold-set replay alone (judgment_group_prefix='replay:').
+
+    ``tool_id`` scopes the recall to one tool's replay groups
+    (``replay:<tool_id>:``); without it the verdict blends every tool's
+    gold corpus — the aggregate the cycle phase reports, and the wrong
+    number for a per-tool operator question.
+    """
     from .judge_calibration import compute_judge_calibration
+    prefix = f"{REPLAY_GROUP_PREFIX}{tool_id}:" if tool_id else REPLAY_GROUP_PREFIX
     return compute_judge_calibration(
-        base_dir=base_dir, judgment_group_prefix=REPLAY_GROUP_PREFIX, min_samples=min_samples,
+        base_dir=base_dir, judgment_group_prefix=prefix, min_samples=min_samples,
     )

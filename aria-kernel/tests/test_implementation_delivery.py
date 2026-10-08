@@ -396,6 +396,10 @@ class AdmissionTests(_DeliveredBranch):
         if sandbox_backend() is None:
             self.skipTest("bwrap is not usable on this host")
         super().setUp()
+        # ARIA-HIGH-388 — the admission refuses a profile without the
+        # delivery's actions first (`authority_absent`); these tests are
+        # about the stages behind it, under the profile a delivery runs in.
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
 
     def test_the_delivery_refuses_deadline_insufficient_by_name_with_nothing_pushed(self) -> None:
         # The delivery's worst case for its staged suite (none staged here:
@@ -756,6 +760,9 @@ class ResultAdmissibilityTests(_DeliveredBranch):
         if sandbox_backend() is None:
             self.skipTest("bwrap is not usable on this host")
         super().setUp()
+        # ARIA-HIGH-388 — the profile a delivery runs in (`authority_absent`
+        # is refused at admission, ahead of the stage these tests pin).
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
         # A request minted by production's bridge (the strict view needs
         # its must_satisfy and allowed_scope), claimed the way the executor
         # claims it, and a planned change that intends the file the tip
@@ -1555,6 +1562,28 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
         self.assertIn("commit_identity_is_the_kernels:commit_identity_foreign:", refused.exception.reason)
         self.assertIn(":author=Evil <evil@example.com>", refused.exception.reason)
         self.assertNotIn(refused.exception.stage, delivery.HOST_STAGES, "a foreign commit is the request's")
+
+    def test_an_operator_approval_does_not_switch_the_implementers_identity_check_off(self) -> None:
+        # ARIA-HIGH-388 (#1865 review L1) — the approver-keyed lookup
+        # (`pr_manager._commit_identity_for_proposal`) names no identity once
+        # an operator approves the proposal. The delivery knows these commits
+        # are its implementer's and names the identity itself, so a foreign
+        # commit is still refused at `pre_pr_open`.
+        from unittest import mock
+
+        _git(["reset", "-q", "--hard", self.base], cwd=self.repo)
+        (self.repo / self.source).write_text("export const sampleIntervalMs = 30000;\n", encoding="utf-8")
+        _git(["add", self.source], cwd=self.repo)
+        _git([*implementer_identity_args(), "-c", "author.name=Evil", "-c", "author.email=evil@example.com",
+              "-c", "gpg.format=ssh", "-c", f"user.signingkey={self.kernel_key}", "-c", "commit.gpgsign=true",
+              "commit", "-q", "-m", self.message], cwd=self.repo)
+        self.tip = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+        with mock.patch("aria_kernel.pr_manager._commit_identity_for_proposal", return_value=None):
+            with self.assertRaises(ImplementationDeliveryRefusal) as refused:
+                self._deliver(horizon_seconds=3600)
+        self.assertEqual(self._log(self.push_log), [], "the refused branch was pushed")
+        self.assertEqual(refused.exception.stage, "pre_pr_open", refused.exception.reason)
+        self.assertIn("commit_identity_is_the_kernels:commit_identity_foreign:", refused.exception.reason)
 
     def test_a_user_token_lease_is_refused_before_the_push(self) -> None:
         # Review H1 (ARIA-HIGH-371) — in `pat_fallback` mode the lease is a

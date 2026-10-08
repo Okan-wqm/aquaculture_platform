@@ -107,6 +107,14 @@ APPLY_GATE_REJECTION_CLASSES: frozenset[str] = frozenset({
     "path_escape_outside_workspace", "validation_failed", "forbidden_scope_violation",
     "prompt_injection_detected", "dependency_pinning_unsafe", "implementer_turn_budget_exhausted",
     "gh_api_scope_violation",
+    # ARIA-HIGH-388 — the one settled executor outcome the kernel verifies
+    # against the implementer's own output: a result whose every rejection
+    # code is the agent's (`implementation_rejections.settlement_for_delivery`).
+    # Every unverified settlement (`implementer_refused`,
+    # `implementation_delivery_unclassified`) and every harness one
+    # (`push_refused`, `pr_open_refused`, `implementation_request_invalid`)
+    # is deliberately absent.
+    "implementation_result_inadmissible",
 })
 
 _TOKEN_RE = re.compile(r"^[a-z][a-z0-9_]*$")

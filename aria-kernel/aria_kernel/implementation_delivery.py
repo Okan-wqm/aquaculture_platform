@@ -254,6 +254,11 @@ ADMISSION_STAGE = "admission"
 # push and the PR, is the HOST's too.
 CREDENTIAL_STAGE = "credential"
 HOST_STAGES: tuple[str, ...] = (ADMISSION_STAGE, CREDENTIAL_STAGE)
+# ARIA-HIGH-388 — the governed actions a delivery performs
+# (``runtime_profile.ACTION_PERMISSIONS``): the contained gate promotes the
+# staged action (``apply_gate``) and the opener opens the PR (``pr_open``).
+# The admission refuses a profile that holds neither, before the spawn.
+DELIVERY_ACTIONS: tuple[str, ...] = ("apply_gate", "pr_open")
 # The one field of the delivery the AGENT contributes (round 2): a sentence
 # per intended file it deliberately left untouched, read off the outcome
 # record and written on the change ledger's commit row by the executor.
@@ -570,6 +575,24 @@ def _staged_suite(*, proposal_id: str, base_dir: str | Path | None) -> tuple[lis
     return commands, int(action.get("validation_timeout_ms") or CANONICAL_VALIDATION_TIMEOUT_MS)
 
 
+def delivery_authority_refusal(*, base_dir: str | Path | None) -> str | None:
+    """``authority_absent:profile=<p>:missing=<actions>`` when the store's
+    runtime profile lacks ``DELIVERY_ACTIONS``, else None (ARIA-HIGH-388).
+
+    The ONE authority check of an implementation request, asked at three
+    points that must agree: the queue's selection, before any claim
+    (``implementation_dispatch``); the executor, before it mints an identity
+    or a delivery credential; and the delivery's own admission.
+    """
+    from .runtime_profile import get_profile, permitted_actions
+
+    profile = get_profile(base_dir=base_dir)
+    missing = sorted(set(DELIVERY_ACTIONS) - permitted_actions(profile))
+    if missing:
+        return f"authority_absent:profile={profile}:missing={','.join(missing)}"
+    return None
+
+
 def delivery_admission_refusal(
     *,
     workspace_root: str | Path,
@@ -599,7 +622,19 @@ def delivery_admission_refusal(
     could not fit then leaves no branch, and its harness-class retry stands
     on the branch again — and ``deliver_implementation`` asks again at its
     own entry (stage ``admission``).
+
+    * ``authority_absent:profile=<p>:missing=<actions>`` (ARIA-HIGH-388) —
+      the store's runtime profile does not hold the actions the delivery
+      performs (``DELIVERY_ACTIONS``). The strict ceiling expires with the
+      unlock ladder's evidence (72 h, ``autonomy_unlock``); a request minted
+      under strict and claimed after the drop spent a whole spawn and was
+      then refused at ``apply_gate`` as the REQUEST's fault. Decided here,
+      before the spawn, it is the host's: released harness-class, retried
+      once the authority is back.
     """
+    refused_authority = delivery_authority_refusal(base_dir=base_dir)
+    if refused_authority is not None:
+        return refused_authority
     workspace = Path(workspace_root).resolve()
     commands, timeout_ms = _staged_suite(proposal_id=proposal_id, base_dir=base_dir)
     try:
@@ -901,9 +936,15 @@ def deliver_implementation(
     #     branch reaches GitHub without a PR. The local branch is kept for
     #     the HUMAN_REQUIRED escalation every request-class refusal gets.
     try:
+        # ARIA-HIGH-388 (#1865 review L1) — these commits are the implementer's
+        # by construction (the executor stood the sandbox on the kernel's
+        # identity), whoever approved the proposal: an operator's later
+        # `approve_proposal` must not deliver them unchecked.
+        from .implementation_identity import IMPLEMENTER_COMMIT_IDENTITY
+
         prepared_pr = prepare_pr_open(
             proposal_id=proposal_id, workspace_root=workspace, base_dir=base_dir,
-            change_id=change_id, request_id=request_id,
+            change_id=change_id, request_id=request_id, expected_commit_identity=IMPLEMENTER_COMMIT_IDENTITY,
         )
     except GovernanceErrorType as exc:
         raise ImplementationDeliveryRefusal(PRE_PR_OPEN_STAGE, f"pre_pr_open_refused:{str(exc)[:300]}") from exc
@@ -1037,6 +1078,8 @@ __all__ = [
     "CREDENTIAL_STAGE",
     "DELIVERY_COMMIT_IDENTITY_SECONDS",
     "DELIVERY_RESULT_ADMISSIBLE_SECONDS",
+    "DELIVERY_ACTIONS",
+    "delivery_authority_refusal",
     "HOST_STAGES",
     "PRE_PR_OPEN_STAGE",
     "RESULT_ADMISSIBLE_STAGE",

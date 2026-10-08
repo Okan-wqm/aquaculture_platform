@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator
 
 from .agent_priors import reviewer_names
-from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES
+from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES, ImplementationSettlement
 from .independence_check import CROSS_REVIEW_SELF_AGREEMENT_REASON
 from .ledger import append_declared_jsonl, load_declared_jsonl, load_jsonl, load_jsonl_verified_text, verify_jsonl
 from .tool_registry import (
@@ -1233,6 +1233,11 @@ def _stall_cause(
     return {"cause": cause, **envelope, "request_id": newest.get("request_id"), "role": newest.get("role")}
 
 
+class PlanLedgerLocked(GovernanceError):
+    """ARIA-HIGH-388 — another writer holds the plan ledger's lock: a store
+    condition a caller may report and retry, told apart from a refused write."""
+
+
 class PlanStateRefused(GovernanceError):
     """ARIA-HIGH-362 (review M3) — a guarded transition found the plan in another state.
 
@@ -1721,6 +1726,47 @@ def record_implementation_rejected(
     )
 
 
+_SETTLEABLE_IMPLEMENTATION_STATES = frozenset({
+    "IMPLEMENTATION_REQUESTED", "IMPLEMENTATION_IN_FLIGHT", "IMPLEMENTATION_RECORDED",
+})
+
+
+def settle_implementation_rejected(
+    *,
+    plan_id: str,
+    settlement: ImplementationSettlement,
+    rejected_at: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """ARIA-HIGH-388 — end a plan's implementation phase with a SETTLED rejection.
+
+    The executor's terminal outcomes (``implementation_settlement``) write
+    through here: the typed settlement (class, fault domain, stage, cause,
+    request) is the payload, and the state is checked INSIDE the plan lock,
+    so a reaper or a second settle that got there first is
+    :class:`PlanStateRefused` (the caller reports it), never a misread state.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(rejected_at, "rejected_at")
+    payload = {"rejection_class": settlement.rejection_class, "rejected_at": rejected_at,
+               **settlement.payload()}
+
+    def _settleable(state: dict[str, Any]) -> None:
+        _require_started(state, "settle implementation")
+        if state["state"] not in _SETTLEABLE_IMPLEMENTATION_STATES:
+            raise PlanStateRefused(f"implementation_already_settled: plan {plan_id!r} is {state['state']!r}")
+
+    return _mutate(
+        plan_id=plan_id,
+        command_name="settle-implementation-rejected",
+        canonical_payload={key: value for key, value in payload.items() if key != "rejected_at"},
+        event_type="implementation_rejected",
+        payload=payload,
+        base_dir=base_dir,
+        validator=_settleable,
+    )
+
+
 # =============================================================================
 # End Plan ARIA-V9.2 implementation-phase public API
 # =============================================================================
@@ -2096,7 +2142,7 @@ def _plan_lock(root: Path) -> Iterator[None]:
         except FileExistsError:
             if _reap_stale_lock(lock_path):
                 continue
-            raise GovernanceError("plans/events.jsonl is locked")
+            raise PlanLedgerLocked("plans/events.jsonl is locked")
     try:
         os.write(fd, json.dumps(payload, sort_keys=True).encode("utf-8"))
         yield

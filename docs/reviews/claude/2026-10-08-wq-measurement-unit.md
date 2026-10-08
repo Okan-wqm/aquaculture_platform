@@ -104,11 +104,11 @@ Readers left, and why:
 - `ai-query.projections.ts`, `get-water-quality-overview.responder.ts`: they drop no row;
   they project the stored `tankId` into the AI contract field `tankId`, so a non-tank row
   reaches the assistant with `tankId` null. Carrying the unit needs a contract field
-  (`@platform/event-contracts` and ai-service) — open; needs a tracked finding.
+  (`@platform/event-contracts` and ai-service) — open as FARM-MEDIUM-369.
 - HistoryTab's unit column shows `m.tankId`; the measurement type exposes no unit field.
-  Rows of a tank entered through the old batch form show `-` — open; needs a tracked finding.
+  Rows of a tank entered through the old batch form show `-` — open as FARM-LOW-370 (PR-5).
 - The system readers take a system's units from `tanks.systemId` only (not equipment-table
-  tanks nor `equipment_systems`) — pre-existing, open; needs a tracked finding.
+  tanks nor `equipment_systems`) — pre-existing, open as FARM-MEDIUM-371 (PR-4).
 - Outside farm-service: alert-engine already reads `tankId ?? equipmentId` from the events
   (which carry both columns); MCP `detect-anomalies` labels rows by `tankId`, and its list
   filter now matches by unit.
@@ -144,3 +144,9 @@ Proof:
 - `measurement-unit-readers.invariant.spec.ts`: no farm reader keys on `tankId` alone.
 - farm-module `RecordTab.spec.tsx`: recent entries filter by `unitId`.
 - AquaMobil `WaterQualityRecordPage.spec.tsx`: the page reads the plan.
+
+## Open, tracked (owner claude, deadline 2026-10-22)
+
+- **FARM-MEDIUM-369:** the AI query and overview replies name a unit only by `tankId`.
+- **FARM-LOW-370:** the history table's unit column reads `tankId` only (PR-5).
+- **FARM-MEDIUM-371:** system readers take a system's units from `tanks.systemId` only (PR-4).

@@ -126,22 +126,48 @@ export function engineUnit(spec: WaterChemistryInputSpec): string {
 }
 
 /**
- * System types whose water recirculates through one loop volume, isolated from
- * the site's water: a dose computed for `totalVolumeM3` stays in the water it
- * was computed for, and nitrification, make-up and the loop's own heating
- * make its alkalinity, calcium, salinity and temperature its own — so neither
- * the loop nor its units inherit a value from the site (D2, FARM-HIGH-381).
- * Flow-through, raceway, pond and cage water leaves or is open; hatchery,
- * nursery and other say nothing about recirculation: refused for dosing until
- * the system is typed, and treated as open water for inheritance.
+ * What a system's type says about its water, for every type (a `Record` over
+ * the enum: a new SystemType does not compile until it is classified here).
+ *
+ * - RECIRCULATING: one loop volume isolated from the site's water. A dose
+ *   computed for `totalVolumeM3` stays in the water it was computed for, and
+ *   nitrification, make-up and the loop's own heating make its alkalinity,
+ *   calcium, salinity and temperature its own — so neither the loop nor its
+ *   units inherit a value from the site (D2, FARM-HIGH-381).
+ * - OPEN: the water is the site's water passing through or standing in it
+ *   (flow-through, raceway, pond, cage), so a unit may inherit the site's value.
+ * - UNDECLARED: the type says nothing about recirculation (a hatchery, a
+ *   nursery and "other" are often recirculating — a smolt hatchery loop at
+ *   12 °C fed by a 6 °C intake). Neither dosed nor inherited from the site
+ *   until the system is typed (FARM-MEDIUM-383).
  */
-export const RECIRCULATING_SYSTEM_TYPES: ReadonlySet<SystemType> = new Set([
-  SystemType.RAS,
-  SystemType.AQUAPONICS,
-  SystemType.BIOFLOC,
-]);
+export const SYSTEM_WATER = {
+  RECIRCULATING: 'RECIRCULATING',
+  OPEN: 'OPEN',
+  UNDECLARED: 'UNDECLARED',
+} as const;
 
-/** Whether a system's water recirculates (see RECIRCULATING_SYSTEM_TYPES). */
+export type SystemWater = (typeof SYSTEM_WATER)[keyof typeof SYSTEM_WATER];
+
+export const SYSTEM_WATER_OF_TYPE: Readonly<Record<SystemType, SystemWater>> = {
+  [SystemType.RAS]: SYSTEM_WATER.RECIRCULATING,
+  [SystemType.AQUAPONICS]: SYSTEM_WATER.RECIRCULATING,
+  [SystemType.BIOFLOC]: SYSTEM_WATER.RECIRCULATING,
+  [SystemType.FLOW_THROUGH]: SYSTEM_WATER.OPEN,
+  [SystemType.POND]: SYSTEM_WATER.OPEN,
+  [SystemType.CAGE]: SYSTEM_WATER.OPEN,
+  [SystemType.RACEWAY]: SYSTEM_WATER.OPEN,
+  [SystemType.HATCHERY]: SYSTEM_WATER.UNDECLARED,
+  [SystemType.NURSERY]: SYSTEM_WATER.UNDECLARED,
+  [SystemType.OTHER]: SYSTEM_WATER.UNDECLARED,
+};
+
+/** Whether a system's water recirculates: the only systems a dosing recipe applies to. */
 export function isRecirculating(type: SystemType): boolean {
-  return RECIRCULATING_SYSTEM_TYPES.has(type);
+  return SYSTEM_WATER_OF_TYPE[type] === SYSTEM_WATER.RECIRCULATING;
+}
+
+/** Whether a system holds the site's water: the only systems whose units inherit from the site. */
+export function holdsSiteWater(type: SystemType): boolean {
+  return SYSTEM_WATER_OF_TYPE[type] === SYSTEM_WATER.OPEN;
 }

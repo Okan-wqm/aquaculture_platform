@@ -29,10 +29,12 @@ marks `loopHomogeneous` — the system it belongs to and its site, labelled inhe
 read from farm's topology now (`loadFarmArrangement`, the read placement uses too, which now
 also returns each system's type). After review (FARM-HIGH-381):
 
-- a recirculating loop (RAS, aquaponics, biofloc — `isRecirculating`, the set DOSING refuses by)
-  and its units never inherit from the site;
-- a unit in a non-recirculating system inherits from the system, then the site; a unit in no
-  system from the site;
+- every system type is classified in `SYSTEM_WATER_OF_TYPE`, a `Record` over `SystemType` (a
+  new type does not compile until classified): RECIRCULATING (RAS, aquaponics, biofloc), OPEN
+  (flow-through, raceway, pond, cage) or UNDECLARED (hatchery, nursery, other);
+- a unit inherits from its system, then from the site only when that system is OPEN; a system
+  point inherits from the site only when it is OPEN; a unit in no system inherits from the site
+  (FARM-HIGH-381, FARM-MEDIUM-383);
 - a unit in two or more live systems inherits nothing.
 
 A site has no manual samples (a sample names a tank, equipment or system), and an inlet/outlet
@@ -142,6 +144,14 @@ The engine converts H2S at the pH it is given; the set allowed the two 4 h apart
 be observed within 15 minutes (unit spec at 15 and 16 minutes; postgres: 45 minutes apart is
 INCOMPLETE with `NOT_SAME_SAMPLE`).
 
+### FARM-MEDIUM-383 — an undeclared system took the site's water
+
+Site inheritance was a deny-list: every type outside the recirculating set inherited, so a
+hatchery, nursery or "other" system (often recirculating — a smolt hatchery loop at 12 °C off a
+6 °C intake) took the intake temperature. It is an allow-list now (OPEN only), over an
+exhaustive classification of the enum. Proof: a hatchery loop and its tank resolve no
+temperature while the site has one; the unit spec pins every type's class.
+
 ### Dosing alkalinity within a day
 
 Accepted advisory: DOSING reads alkalinity within 24 h (`DAILY`); salinity and calcium keep 48
@@ -150,7 +160,7 @@ h. `CoherenceWindow` gains `DAILY` and `WaterChemistryInputProblem` gains `NOT_S
 
 ## Decisions to confirm
 
-- The windows (4 h, 24 h, 48 h), the pairing tolerance (15 min) and the recirculating types
-  (RAS, aquaponics, biofloc; hatchery, nursery and other refused for dosing until typed, and
-  open water for inheritance) are one-line constants in the input-set table.
+- The windows (4 h, 24 h, 48 h), the pairing tolerance (15 min) and the system-type classes
+  (hatchery, nursery and other are UNDECLARED: neither dosed nor inheriting site water until
+  typed) are one-line entries in the input-set table.
 - "Too small" is a volume below the water the loop's own active tanks hold.

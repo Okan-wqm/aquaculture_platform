@@ -5,7 +5,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import type { SensorChannelDescription, SensorChannelKey } from '@platform/event-contracts';
 import { DataSource, type EntityManager } from 'typeorm';
 
-import { isRecirculating } from '../data/water-chemistry-input-sets';
+import { holdsSiteWater } from '../data/water-chemistry-input-sets';
 import {
   MACHINE_MEASUREMENT_SOURCES,
   WaterQualityMeasurement,
@@ -225,14 +225,16 @@ function isChannelSource(source: WaterQualityParamEquipment): source is ChannelS
  * (the arrangement placement uses):
  *
  * - a tank or equipment in exactly one live system: that system; then its
- *   site only when the system's water does not recirculate — a RAS,
- *   aquaponics or biofloc loop is isolated from site water (nitrification
- *   consumes its alkalinity and calcium, its salinity drifts, its temperature
- *   is its own), so the intake's value is not the loop's;
+ *   site only when the system's type says it holds site water (OPEN in
+ *   SYSTEM_WATER_OF_TYPE: flow-through, raceway, pond, cage). A
+ *   recirculating loop is isolated from site water (nitrification consumes
+ *   its alkalinity and calcium, its salinity drifts, its temperature is its
+ *   own), and a hatchery, nursery or "other" system may be one, so neither
+ *   takes the intake's value (FARM-HIGH-381, FARM-MEDIUM-383);
  * - a tank or equipment in no live system: its site;
  * - a tank or equipment in two or more live systems: nothing — which loop's
  *   water it holds is not known;
- * - a system: its site, only when its water does not recirculate.
+ * - a system: its site, only when its type says it holds site water.
  */
 async function readingChain(
   manager: EntityManager,
@@ -249,7 +251,7 @@ async function readingChain(
     const loop = await loadFarmArrangement(manager, tenantId, { units: [], systems: [point.id] });
     const siteId = loop.siteOfSystem.get(point.id);
     const type = loop.typeOfSystem.get(point.id);
-    if (siteId !== undefined && type !== undefined && !isRecirculating(type)) {
+    if (siteId !== undefined && type !== undefined && holdsSiteWater(type)) {
       ancestors.push({ kind: 'site', id: siteId });
     }
   } else {
@@ -264,7 +266,7 @@ async function readingChain(
     const type = systemId === undefined ? undefined : loops.typeOfSystem.get(systemId);
     if (systemId !== undefined) ancestors.push({ kind: 'system', id: systemId });
     const siteId = unit.siteOfUnit.get(point.id);
-    if (siteId !== undefined && (type === undefined || !isRecirculating(type))) {
+    if (siteId !== undefined && (type === undefined || holdsSiteWater(type))) {
       ancestors.push({ kind: 'site', id: siteId });
     }
   }

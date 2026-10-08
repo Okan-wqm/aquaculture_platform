@@ -4,7 +4,10 @@ import { SystemType } from '../../../system/entities/system.entity';
 import {
   COHERENCE_WINDOW_MS,
   engineUnit,
+  holdsSiteWater,
+  isRecirculating,
   PAIRING_TOLERANCE_MS,
+  SYSTEM_WATER_OF_TYPE,
   WATER_CHEMISTRY_INPUT_SETS,
   type WaterChemistryInputSet,
 } from '../../data/water-chemistry-input-sets';
@@ -122,6 +125,32 @@ describe('water-chemistry input sets (plan rev2 D3)', () => {
       48 * 3_600_000,
       48 * 3_600_000,
     ]);
+  });
+
+  it('classifies every system type: only open water is inherited from the site, only a loop dosed', () => {
+    const byWater = (water: string): SystemType[] =>
+      Object.values(SystemType).filter((type) => SYSTEM_WATER_OF_TYPE[type] === water);
+    expect(byWater('RECIRCULATING')).toEqual([
+      SystemType.RAS,
+      SystemType.BIOFLOC,
+      SystemType.AQUAPONICS,
+    ]);
+    expect(byWater('OPEN')).toEqual([
+      SystemType.FLOW_THROUGH,
+      SystemType.POND,
+      SystemType.CAGE,
+      SystemType.RACEWAY,
+    ]);
+    expect(byWater('UNDECLARED')).toEqual([
+      SystemType.HATCHERY,
+      SystemType.NURSERY,
+      SystemType.OTHER,
+    ]);
+    for (const type of Object.values(SystemType)) {
+      expect(isRecirculating(type) && holdsSiteWater(type)).toBe(false);
+    }
+    expect(holdsSiteWater(SystemType.HATCHERY)).toBe(false);
+    expect(isRecirculating(SystemType.HATCHERY)).toBe(false);
   });
 
   it('refuses a dosing recipe for water that leaves, or a loop of unknown or too small volume', () => {

@@ -1,0 +1,45 @@
+{
+  "$schema": "aria/agent-response/v1",
+  "agent_id": "ci-executor:gha-37753152453",
+  "claim_id": "claim_a790fea329181818",
+  "details": {
+    "agent_confidence_source": "self_reported",
+    "agent_contract_hash": "sha256:0a6e814cc8172156b992ec574de930b4bfab2de5bc0e76a0836989f6fc27bad1",
+    "agent_dispatch_model": "glm-5.3",
+    "agent_subagent_type": "aria-adversarial-judge",
+    "agent_text": "```json\n{\n  \"$schema\": \"aria/agent-response/v1\",\n  \"request_id\": \"AIR-aria-adversarial-judge-06667ffa72e5\",\n  \"claim_id\": \"doc-staleness:missing:docs/adr/_draft/028-sensor-payload-raw-value-contract.md:39:libs/event-contracts/src/upcasters/sensor-payload-v1-to-v2.ts\",\n  \"agent_id\": \"aria-adversarial-judge\",\n  \"role\": \"adversarial_judgment\",\n  \"status\": \"submitted\",\n  \"output_path\": \"/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/.aria-state-store/tools/agent-invocations/outputs/general/round-na-adversarial_judgment-AIR-aria-adversarial-judge-06667ffa72e5.md\",\n  \"satisfaction_matrix\": [\n    {\n      \"id\": \"verdict\",\n      \"verdict\": \"satisfied\",\n      \"note\": \"Independent read (anchored on the doc's TS-Side Scope Revision section before the Decision section, per reverse-order discipline) confirms the doc references the upcaster path in its Decision block around line 39 and the doc's own revision narrative corroborates that no such TS file exists; answered true_positive with file:line evidence below.\",\n      \"evidence_refs\": [\n        \"docs/adr/_draft/028-sensor-payload-raw-value-contract.md:39\",\n        \"docs/adr/_draft/028-sensor-payload-raw-value-contract.md\"\n      ]\n    }\n  ],\n  \"evidence_refs\": [\n    \"docs/adr/_draft/028-sensor-payload-raw-value-contract.md:39\",\n    \"docs/adr/_draft/028-sensor-payload-raw-value-contract.md\"\n  ],\n  \"details\": {\n    \"verdict\": {\n      \"tool_id\": \"doc-staleness-adapter\",\n      \"finding_id\": \"doc-staleness:missing:docs/adr/_draft/028-sensor-payload-raw-value-contract.md:39:libs/event-contracts/src/upcasters/sensor-payload-v1-to-v2.ts\",\n      \"verdict\": \"true_positive\",\n      \"judge_id\": \"aria-adversarial-judge\",\n      \"model\": \"glm-5.3\",\n      \"confidence\": 0.8,\n      \"rationale\": \"Task: falsify, if possible, the adapter's claim that an Accepted ADR cites a source path that does not resolve at the snapshot. Why it matters: ADR-028 carries Status 'Accepted' (promoted by commit 6411233a6c5c per recent intent), so its Decision section is normative reading for anyone touching the sensor payload contract; a dead reference there sends an implementer hunting for libs/event-contracts/src/upcasters/sensor-payload-v1-to-v2.ts and away from where the logic actually lives, and the misdirection is invisible until someone greps and comes up empty. Falsification attempts, all of which failed: (1) 'the reference is design-aspirational, not a staleness defect' \u2014 rejected: the Decision item is written as landed fact ('Upcaster (libs/event-contracts/src/upcasters/sensor-payload-v1-to-v2.ts) \u2014 when a V1 event arrives, raw_value = value mapping produces a V2 struct tagged with source: UpcastedFromV1'), and the doc's own TS-Side Scope Revision states the upcaster/downcaster/payloadVersion discriminator 'all belong to the edge-device -> MQTT payload trust boundary' with 'The Rust sidecar implements them in payload.rs::validate (commit a3ab0c23)' and the NestJS mirror 'tracked separately as ORPHAN-016' \u2014 the doc's internal narrative independently corroborates that no TS upcaster file exists, which is the missing path the adapter reports. (2) 'the scope revision already self-corrects the doc, so the finding adds nothing' \u2014 rejected as a defense: the revision contextualizes but does not remove or rewrite the Decision item, so the reference still dead-ends a reader; that bears on severity (medium is appropriate for a doc-only defect in an otherwise self-aware ADR), not on whether the rule doc_references_missing_path fires. (3) 'the excerpt cannot establish missingness' \u2014 this route provides no file tools, so the path itself could not be stat'd independently; however the provided excerpt (lines 1-115, carrying both the reference near the cited line 39 and the scope revision) was enough to corroborate the adapter's account from inside the document, so no further read was required. Precision caveat: the adapter's phrase 'no longer exists' may overstate history \u2014 the scope-revision account sugg...",
+    "counter_evidence_refs": [],
+    "runtime_attempt_ledger_hash": "sha256:1514685b492a52ccb3834b34d65659d997f51e1fb2163fc4289015c280e0f1a2",
+    "verdict": {
+      "confidence": 0.8,
+      "evidence_refs": [
+        "docs/adr/_draft/028-sensor-payload-raw-value-contract.md:39",
+        "docs/adr/_draft/028-sensor-payload-raw-value-contract.md"
+      ],
+      "finding_id": "doc-staleness:missing:docs/adr/_draft/028-sensor-payload-raw-value-contract.md:39:libs/event-contracts/src/upcasters/sensor-payload-v1-to-v2.ts",
+      "judge_id": "aria-adversarial-judge",
+      "model": "glm-5.3",
+      "rationale": "Task: falsify, if possible, the adapter's claim that an Accepted ADR cites a source path that does not resolve at the snapshot. Why it matters: ADR-028 carries Status 'Accepted' (promoted by commit 6411233a6c5c per recent intent), so its Decision section is normative reading for anyone touching the sensor payload contract; a dead reference there sends an implementer hunting for libs/event-contracts/src/upcasters/sensor-payload-v1-to-v2.ts and away from where the logic actually lives, and the misdirection is invisible until someone greps and comes up empty. Falsification attempts, all of which failed: (1) 'the reference is design-aspirational, not a staleness defect' \u2014 rejected: the Decision item is written as landed fact ('Upcaster (libs/event-contracts/src/upcasters/sensor-payload-v1-to-v2.ts) \u2014 when a V1 event arrives, raw_value = value mapping produces a V2 struct tagged with source: UpcastedFromV1'), and the doc's own TS-Side Scope Revision states the upcaster/downcaster/payloadVersion discriminator 'all belong to the edge-device -> MQTT payload trust boundary' with 'The Rust sidecar implements them in payload.rs::validate (commit a3ab0c23)' and the NestJS mirror 'tracked separately as ORPHAN-016' \u2014 the doc's internal narrative independently corroborates that no TS upcaster file exists, which is the missing path the adapter reports. (2) 'the scope revision already self-corrects the doc, so the finding adds nothing' \u2014 rejected as a defense: the revision contextualizes but does not remove or rewrite the Decision item, so the reference still dead-ends a reader; that bears on severity (medium is appropriate for a doc-only defect in an otherwise self-aware ADR), not on whether the rule doc_references_missing_path fires. (3) 'the excerpt cannot establish missingness' \u2014 this route provides no file tools, so the path itself could not be stat'd independently; however the provided excerpt (lines 1-115, carrying both the reference near the cited line 39 and the scope revision) was enough to corroborate the adapter's account from inside the document, so no further read was required. Precision caveat: the adapter's phrase 'no longer exists' may overstate history \u2014 the scope-revision account suggests the TS file was never created rather than deleted \u2014 but that changes the finding's wording, not its outcome: an Accepted ADR's Decision block cites a path that does not resolve at the snapshot SHA. Downstream surface affected: readers/implementers of the sensor payload V1/V2 contract (edge-agent and sensor-service teams) and the eventual ORPHAN-016 implementer, who would otherwise mirror the wrong locus. Verdict: true_positive. Confidence 0.8 rather than higher because the missing-path half rests on the adapter's existence check plus documentary corroboration, not an independent filesystem stat.",
+      "tool_id": "doc-staleness-adapter",
+      "verdict": "true_positive"
+    }
+  },
+  "evidence_refs": [
+    "docs/adr/_draft/028-sensor-payload-raw-value-contract.md:39",
+    "docs/adr/_draft/028-sensor-payload-raw-value-contract.md"
+  ],
+  "request_id": "AIR-aria-adversarial-judge-06667ffa72e5",
+  "role": "adversarial_judgment",
+  "satisfaction_matrix": [
+    {
+      "evidence_refs": [
+        "docs/adr/_draft/028-sensor-payload-raw-value-contract.md:39",
+        "docs/adr/_draft/028-sensor-payload-raw-value-contract.md"
+      ],
+      "id": "verdict",
+      "note": "Independent read (anchored on the doc's TS-Side Scope Revision section before the Decision section, per reverse-order discipline) confirms the doc references the upcaster path in its Decision block around line 39 and the doc's own revision narrative corroborates that no such TS file exists; answered true_positive with file:line evidence below.",
+      "verdict": "satisfied"
+    }
+  ],
+  "status": "submitted"
+}

@@ -936,9 +936,15 @@ def deliver_implementation(
     #     branch reaches GitHub without a PR. The local branch is kept for
     #     the HUMAN_REQUIRED escalation every request-class refusal gets.
     try:
+        # ARIA-HIGH-388 (#1865 review L1) — these commits are the implementer's
+        # by construction (the executor stood the sandbox on the kernel's
+        # identity), whoever approved the proposal: an operator's later
+        # `approve_proposal` must not deliver them unchecked.
+        from .implementation_identity import IMPLEMENTER_COMMIT_IDENTITY
+
         prepared_pr = prepare_pr_open(
             proposal_id=proposal_id, workspace_root=workspace, base_dir=base_dir,
-            change_id=change_id, request_id=request_id,
+            change_id=change_id, request_id=request_id, expected_commit_identity=IMPLEMENTER_COMMIT_IDENTITY,
         )
     except GovernanceErrorType as exc:
         raise ImplementationDeliveryRefusal(PRE_PR_OPEN_STAGE, f"pre_pr_open_refused:{str(exc)[:300]}") from exc

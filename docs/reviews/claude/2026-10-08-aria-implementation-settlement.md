@@ -162,3 +162,26 @@ with its reason.
 - **Submit refused after delivery, tracked.** A result refused after a successful delivery (the PR
   already open) is not settled; settling it needs a decision on the open PR. Tracked as
   ARIA-HIGH-389 (owner claude, deadline 2026-10-15).
+
+## Folded in from the ARIA-HIGH-387 (#1865) re-review
+
+- **L1, closed: an operator approval switched the implementer's identity check off.**
+  - `pr_manager._commit_identity_for_proposal` names the implementer's identity only for a machine
+    approval. After an operator's `approve_proposal` on a converged proposal, the implementer's
+    commits were delivered unchecked.
+  - The delivery knows these commits are the implementer's, so it now passes
+    `IMPLEMENTER_COMMIT_IDENTITY` to `prepare_pr_open(expected_commit_identity=…)` itself,
+    whoever approved.
+  - Test: with the approver-keyed lookup returning nothing, a foreign commit is still refused at
+    `pre_pr_open`. The same test fails on the code before this change.
+
+## Operator notes
+
+- **L2: a manual `pr open` with human commits on a machine-approved branch is refused.**
+  - Since ARIA-HIGH-387, every commit on such a branch must be authored and committed by the
+    implementer identity (`commit_identity_is_the_kernels`).
+  - An operator hand-fix, or a branch-updater merge from main, is therefore refused
+    `commit_identity_foreign`.
+  - To ship such a branch, approve the proposal as an operator (`approve_proposal`). A manual
+    `pr open` is then no longer held to the implementer identity. The implementation delivery
+    still is: it names that identity itself (L1).

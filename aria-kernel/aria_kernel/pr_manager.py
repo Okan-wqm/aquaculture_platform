@@ -302,6 +302,7 @@ def _pr_open_inputs(
     base: str,
     assignment_id: str | None,
     change_id: str | None,
+    expected_commit_identity: GitCommitIdentity | None = None,
 ) -> _PrOpenInputs:
     # Plan 026R §D.3 — change_id binding. PR open is the strict-
     # pipeline tail; auto-merge §D.4 requires the PR to be bound
@@ -497,7 +498,11 @@ def _pr_open_inputs(
         ),
         # ARIA-HIGH-387 — every one of those commits authored and committed
         # by the kernel's implementer identity, on a machine-approved action.
-        commit_identity=_commit_identity_for_proposal(proposal),
+        # ARIA-HIGH-388 (#1865 review L1) — a caller that KNOWS whose commits
+        # these are (the implementation delivery: its implementer's) names
+        # the identity itself, so an operator's later approval of the same
+        # proposal cannot switch the check off.
+        commit_identity=expected_commit_identity or _commit_identity_for_proposal(proposal),
     )
 
     return _PrOpenInputs(
@@ -547,8 +552,13 @@ def prepare_pr_open(
     base: str = ARIA_PR_BASE,
     assignment_id: str | None = None,
     request_id: str | None = None,
+    expected_commit_identity: GitCommitIdentity | None = None,
 ) -> PreparedPrOpen:
     """ARIA-HIGH-371 — every check a live PR open makes, with no external effect.
+
+    ``expected_commit_identity`` (ARIA-HIGH-388) — the identity every branch
+    commit must carry, named by a caller that knows it; without it the
+    proposal's approver decides (``_commit_identity_for_proposal``).
 
     The profile gate, the approval traceability join, the ready-for-PR
     action, the body sections, the head resolution and the LIVE
@@ -559,6 +569,7 @@ def prepare_pr_open(
     inputs = _pr_open_inputs(
         proposal_id=proposal_id, workspace_root=workspace_root, base_dir=base_dir, dry_run=False,
         base=base, assignment_id=assignment_id, change_id=change_id,
+        expected_commit_identity=expected_commit_identity,
     )
     _raise_if_perimeter_refused(run_hard_fail_checks(inputs.perimeter_context, gate=GATE_PRE_PR_OPEN))
     return PreparedPrOpen(

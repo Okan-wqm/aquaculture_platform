@@ -1563,6 +1563,28 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
         self.assertIn(":author=Evil <evil@example.com>", refused.exception.reason)
         self.assertNotIn(refused.exception.stage, delivery.HOST_STAGES, "a foreign commit is the request's")
 
+    def test_an_operator_approval_does_not_switch_the_implementers_identity_check_off(self) -> None:
+        # ARIA-HIGH-388 (#1865 review L1) — the approver-keyed lookup
+        # (`pr_manager._commit_identity_for_proposal`) names no identity once
+        # an operator approves the proposal. The delivery knows these commits
+        # are its implementer's and names the identity itself, so a foreign
+        # commit is still refused at `pre_pr_open`.
+        from unittest import mock
+
+        _git(["reset", "-q", "--hard", self.base], cwd=self.repo)
+        (self.repo / self.source).write_text("export const sampleIntervalMs = 30000;\n", encoding="utf-8")
+        _git(["add", self.source], cwd=self.repo)
+        _git([*implementer_identity_args(), "-c", "author.name=Evil", "-c", "author.email=evil@example.com",
+              "-c", "gpg.format=ssh", "-c", f"user.signingkey={self.kernel_key}", "-c", "commit.gpgsign=true",
+              "commit", "-q", "-m", self.message], cwd=self.repo)
+        self.tip = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+        with mock.patch("aria_kernel.pr_manager._commit_identity_for_proposal", return_value=None):
+            with self.assertRaises(ImplementationDeliveryRefusal) as refused:
+                self._deliver(horizon_seconds=3600)
+        self.assertEqual(self._log(self.push_log), [], "the refused branch was pushed")
+        self.assertEqual(refused.exception.stage, "pre_pr_open", refused.exception.reason)
+        self.assertIn("commit_identity_is_the_kernels:commit_identity_foreign:", refused.exception.reason)
+
     def test_a_user_token_lease_is_refused_before_the_push(self) -> None:
         # Review H1 (ARIA-HIGH-371) — in `pat_fallback` mode the lease is a
         # user token. The PR create runs only on an installation token, so

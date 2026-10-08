@@ -110,8 +110,6 @@ own tenant; against the previous service both cases fail.
 
 Still open, tracked:
 
-- SENSOR-HIGH-175 — tenant provisioning-key lookup is FORCE-RLS blind
-  (`tenant-key.service.ts`, pooled UNION), so self-register still fails.
 - SENSOR-MEDIUM-176 — a suspended/archived tenant's devices authenticate on a
   directory hit.
 - SENSOR-MEDIUM-177 — two concurrent activations with one token can both
@@ -132,3 +130,34 @@ refuses `/mqtt/` from outside), while the production bootstrap gate accepts
 `MQTT_AUTH_SECRET` as if it protected them. Fix options: a dedicated
 internal-only listener for `/mqtt/*`, or a broker transport that carries a
 credential (mTLS); then an absent header becomes a denial.
+
+## SENSOR-HIGH-175 — provisioning keys could not be found (fixed)
+
+Self-register and the tenant installer looked a key up through one pooled UNION
+over every tenant's `tenant_provisioning_keys`. Under FORCE RLS that saw zero
+rows, so every key was "invalid" and auto-provisioning never worked.
+
+Fix, same shape as the device directory:
+
+- `sensor.tenant_provisioning_key_directory` (cross-tenant, FORCE RLS,
+  MODULE_SCHEMAS infrastructure table) maps `route_hash` to `key_id` and
+  `tenant_id`, nothing else. `route_hash` is a domain-separated sha256 of the
+  key's sha256: neither the key nor the at-rest digest.
+- `TenantKeyService` is the one writer: `createTenantKey` writes the key and
+  its route in one tenant transaction; `revokeTenantKey` updates the key in its
+  tenant boundary (the route stays, so a revoked key reads as revoked). There
+  is no rotation path; expiry is decided at read time.
+- `validateAndGetKey` reads the route with `runInSourceRead` and the key inside
+  the routed tenant's `runInTenantRead`. A miss, or a route naming a tenant
+  that does not hold the key, denies. The UNION scan is gone.
+- Migration 1823000000000 creates and arms the table (source pass) and routes
+  existing keys (tenant passes, `app.bypass_rls` transaction-local).
+- `EdgeRouteDirectoryPurgeHook` deletes the erased tenant's rows from both
+  route tables. Neither was covered before: sensor-service's erasure empties
+  only the tenant schema.
+
+`tenant-key-self-register.rls.postgres.spec.ts` (non-owner role, FORCE RLS):
+self-register succeeds with a valid key, a key routed at another tenant
+resolves nothing, revoked and expired keys are refused next to a live one, an
+unknown key is refused, and the backfill routes a legacy key. With the previous
+lookup four of the five cases fail.

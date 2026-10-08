@@ -2,6 +2,7 @@ import { collaborator, stub, stubMember } from '@aquaculture/testing';
 import type { TenantErasureRequestedEvent } from '@platform/event-contracts';
 import { DataSource, EntityManager } from 'typeorm';
 
+import { EdgeRouteDirectoryPurgeHook } from '../edge-route-directory-purge.hook';
 import { ErasedTenantTombstoneService } from '../erased-tenant-tombstone.service';
 import { PublishedOutboxPurgeHook } from '../published-outbox-purge.hook';
 
@@ -9,7 +10,8 @@ import { PublishedOutboxPurgeHook } from '../published-outbox-purge.hook';
  * Task 1.8 (100-tenant readiness plan): the sensor-service erasure
  * extensions. The published-outbox purge deletes ONLY published rows for
  * the erased tenant (pending rows — including the erasure's own proof —
- * must survive); the tombstone makes ingress ACK-drop erased tenants'
+ * must survive); the route purge drops the tenant's rows from the two
+ * cross-tenant directories; the tombstone makes ingress ACK-drop erased tenants'
  * late messages instead of recreating data.
  */
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -71,6 +73,30 @@ describe('PublishedOutboxPurgeHook (Task 1.8)', () => {
 
   it('carries a stable hookName folded into the proof hash', () => {
     expect(new PublishedOutboxPurgeHook().hookName).toBe('sensor-published-outbox-purge');
+  });
+});
+
+describe('EdgeRouteDirectoryPurgeHook (SENSOR-HIGH-175)', () => {
+  it("deletes the erased tenant's device and provisioning-key routes, inside the tx", async () => {
+    const hook = new EdgeRouteDirectoryPurgeHook();
+    const { manager, queries } = makeManager();
+
+    await hook.onTenantErased(erasureEvent(false), manager);
+
+    expect(queries.map((q) => q.sql)).toEqual([
+      'DELETE FROM "sensor"."edge_device_directory" WHERE "tenant_id" = $1',
+      'DELETE FROM "sensor"."tenant_provisioning_key_directory" WHERE "tenant_id" = $1',
+    ]);
+    expect(queries.every((q) => q.params[0] === TENANT)).toBe(true);
+    expect(hook.hookName).toBe('sensor-edge-route-directory-purge');
+  });
+
+  it('is a no-op on dry-run', async () => {
+    const hook = new EdgeRouteDirectoryPurgeHook();
+    const { manager, queries } = makeManager();
+
+    await hook.onTenantErased(erasureEvent(true), manager);
+    expect(queries).toHaveLength(0);
   });
 });
 

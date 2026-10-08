@@ -4222,7 +4222,6 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "tool" and args.tool_command == "fixture-refresh":
         from .fixture_runner import refresh_fixture_suite
         from .ledger import LedgerReadLimitError, LedgerRowTooLargeError
-        from .tool_registry import list_tools
 
         rows = list_tools(base_dir=args.tools_dir)
         if args.tool_id:

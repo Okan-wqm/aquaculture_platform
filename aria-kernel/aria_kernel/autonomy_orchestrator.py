@@ -72,7 +72,7 @@ from .autonomy_state import (
 )
 from .cycle import job_deadline_epoch
 from .file_lock import with_exclusive_lock
-from .next_cycle_queue import mark_consumed, read_pending
+from .next_cycle_queue import defer_projection, mark_consumed, read_pending
 from .reflection import run_reflection
 from .reflection_inputs import pedagogy_lint_snapshot, producer_reflection_kwargs
 from .tool_registry import GovernanceError
@@ -436,21 +436,36 @@ def _drain_next_cycle_queue(
         # and disclosed by name, and it is queued again once its source holds
         # evidence (a mission when its work records refs, a pressure when a
         # cycle stores its payload).
-        if not evidence_refs and kernel_contract is None and projection is not None and projection.harness_fault:
-            # The host could not verify, which says nothing about the source:
-            # the item stays pending and is asked again (the same split
-            # ORPHAN-HIGH-519 draws for a plan candidate).
-            append_tools_governance(
-                base_dir,
-                "next_cycle_queue_item_evidence_unverifiable",
-                {
-                    "queue_item_id": qid,
-                    "pressure_id": pressure_id or None,
-                    "source_cycle_id": source_cycle or None,
-                    "target_sha": target_sha,
-                    PROMPT_REFUSED_EVIDENCE_KEY: list(projection.refused_evidence),
-                },
+        if projection is not None and (
+            projection.fault is not None
+            or (not evidence_refs and kernel_contract is None and projection.harness_fault)
+        ):
+            # The host could not verify (or the projection hit an I/O fault),
+            # which says nothing about the source: the item stays pending and
+            # is asked again (the split ORPHAN-HIGH-519 draws for a plan
+            # candidate) — a bounded number of times, so a permanent host
+            # fault cannot hold a queue-depth slot forever.
+            disclosure = {
+                "queue_item_id": qid,
+                "pressure_id": pressure_id or None,
+                "source_cycle_id": source_cycle or None,
+                "target_sha": target_sha,
+                "fault": projection.fault,
+                "budget": _MAX_QUEUE_ITEM_UNVERIFIABLE_DEFERRALS,
+                PROMPT_REFUSED_EVIDENCE_KEY: list(projection.refused_evidence),
+            }
+            ordinal = defer_projection(
+                base_dir, queue_item_id=qid, reason=NEXT_CYCLE_ITEM_EVIDENCE_UNVERIFIABLE,
+                budget=_MAX_QUEUE_ITEM_UNVERIFIABLE_DEFERRALS,
             )
+            if ordinal is None:
+                mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
+                append_tools_governance(base_dir, NEXT_CYCLE_ITEM_EVIDENCE_UNVERIFIABLE_EXHAUSTED, disclosure)
+                consumed += 1
+            else:
+                append_tools_governance(
+                    base_dir, NEXT_CYCLE_ITEM_EVIDENCE_UNVERIFIABLE, {**disclosure, "deferral": ordinal},
+                )
             continue
         if not evidence_refs and kernel_contract is None:
             mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
@@ -464,8 +479,8 @@ def _drain_next_cycle_queue(
                     # ARIA-HIGH-384 — WHY nothing was citable: the refs the
                     # law refused and where the pressure came from, so a
                     # source with no repo anchor is named, not just dropped.
-                    PROMPT_PROVENANCE_REFS_KEY: list(prompt.get(PROMPT_PROVENANCE_REFS_KEY) or []),
-                    PROMPT_REFUSED_EVIDENCE_KEY: list(prompt.get(PROMPT_REFUSED_EVIDENCE_KEY) or []),
+                    PROMPT_PROVENANCE_REFS_KEY: list(projection.provenance_refs) if projection else [],
+                    PROMPT_REFUSED_EVIDENCE_KEY: list(projection.refused_evidence) if projection else [],
                 },
             )
             consumed += 1
@@ -510,6 +525,13 @@ def _drain_next_cycle_queue(
     return consumed
 
 
+
+# ARIA-HIGH-384 review — how many drains a queue item may stay pending
+# because the host could not verify its evidence, before it is consumed and
+# disclosed under its own name (`next_cycle_queue.defer_projection`).
+_MAX_QUEUE_ITEM_UNVERIFIABLE_DEFERRALS = 3
+NEXT_CYCLE_ITEM_EVIDENCE_UNVERIFIABLE = "next_cycle_queue_item_evidence_unverifiable"
+NEXT_CYCLE_ITEM_EVIDENCE_UNVERIFIABLE_EXHAUSTED = "next_cycle_queue_item_evidence_unverifiable_exhausted"
 
 # Y3 (ORPHAN-703) — successor budget for dead projected-queue envelopes,
 # mirroring DEFAULT_MAX_REQUEUES: two lineage steps then an exhausted

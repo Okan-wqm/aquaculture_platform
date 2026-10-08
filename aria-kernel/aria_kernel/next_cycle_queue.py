@@ -55,6 +55,7 @@ __all__ = [
     "REOFFER_NEVER_QUEUED",
     "REOFFER_QUEUE_FULL",
     "reoffer_item",
+    "defer_projection",
 ]
 
 
@@ -360,3 +361,45 @@ def reoffer_item(
             expected_surface="next_cycle_queue",
         )
         return REOFFERED
+
+
+def defer_projection(
+    base_dir: str | Path | None,
+    *,
+    queue_item_id: str,
+    reason: str,
+    budget: int,
+) -> int | None:
+    """Keep a pending item pending for one more drain; the deferral's ordinal, or ``None`` past ``budget``.
+
+    ARIA-HIGH-384 review — the drain leaves an item pending when the host
+    could not verify its evidence (the law's harness-class refusal, or an I/O
+    fault of the projection). Unbounded, an item whose host fault is
+    permanent sat in a queue-depth slot forever. Each deferral is a
+    ``state=pending`` row carrying ``deferred_reason`` (the item stays
+    pending; ``_pending_from_rows`` returns its first row), so the count
+    lives in the queue's own ledger and is read under the same transaction
+    that appends it. Past ``budget`` nothing is written: the caller consumes
+    the item and discloses it.
+    """
+    path = queue_path(base_dir)
+    with state_transaction([path]) as txn:
+        rows = load_declared_jsonl(path, expected_surface="next_cycle_queue")
+        prior = sum(
+            1 for row in rows
+            if str(row.get("queue_item_id") or "") == queue_item_id and row.get("deferred_reason")
+        )
+        if prior >= budget:
+            return None
+        txn.append_declared_jsonl(
+            path,
+            {
+                "schema_version": 1,
+                "queue_item_id": queue_item_id,
+                "state": "pending",
+                "deferred_reason": reason,
+                "recorded_at": utc_now(),
+            },
+            expected_surface="next_cycle_queue",
+        )
+        return prior + 1

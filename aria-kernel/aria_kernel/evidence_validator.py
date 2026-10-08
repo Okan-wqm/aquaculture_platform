@@ -7,7 +7,16 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .evidence_probe import GitProbeSession
-from .evidence_trust import EVIDENCE_REF_RE, EvidencePolicy, classify_evidence_ref, parse_evidence_ref
+from .evidence_trust import (
+    EVIDENCE_REF_RE,
+    PATH_KIND_FILE,
+    PATH_KIND_UNRESOLVABLE,
+    EvidencePolicy,
+    classify_evidence_ref,
+    evidence_file_line_count,
+    parse_evidence_ref,
+    stat_evidence_path,
+)
 from .canonical_path import lexical_repo_path
 from .tool_health import SELF_OUTPUT_MARKERS, find_scope_violations
 from .tool_registry import GovernanceError
@@ -283,7 +292,13 @@ def validate_evidence_path(
     if scope_violations:
         errors.append({"code": "evidence_scope_violation", "path": rel_str})
         return envelope
-    if not absolute.exists() or not absolute.is_file():
+    path_stat = stat_evidence_path(absolute)
+    if path_stat.kind == PATH_KIND_UNRESOLVABLE:
+        # ARIA-HIGH-384 review — a stat that cannot answer is a named
+        # refusal, never an OSError out of the validator.
+        errors.append({"code": "evidence_path_unresolvable", "path": raw_path_str, "error": path_stat.error})
+        return envelope
+    if path_stat.kind != PATH_KIND_FILE:
         errors.append({"code": "evidence_path_missing", "path": raw_path_str})
         return envelope
     if require_repo_verified and target_sha is None:
@@ -309,8 +324,10 @@ def validate_evidence_path(
     if not isinstance(line, int) or line <= 0:
         errors.append({"code": "evidence_line_invalid", "path": path, "line": line})
         return envelope
-    line_count = len(absolute.read_text(encoding="utf-8", errors="replace").splitlines())
-    if line > line_count:
+    line_count = evidence_file_line_count(absolute)
+    if line_count is None:
+        errors.append({"code": "evidence_path_unresolvable", "path": path, "error": "unreadable"})
+    elif line > line_count:
         errors.append({"code": "evidence_line_missing", "path": path, "line": line})
     return envelope
 
@@ -557,7 +574,13 @@ def _check_agent_ref(
     if not allow_self_output and rel_str.startswith(SELF_OUTPUT_MARKERS):
         errors.append({"code": "agent_evidence_self_output", "path": rel_str})
         return
-    if not absolute.exists() or not absolute.is_file():
+    path_stat = stat_evidence_path(absolute)
+    if path_stat.kind == PATH_KIND_UNRESOLVABLE:
+        # ARIA-HIGH-384 review — ENAMETOOLONG (a 400-char SARIF URI) used to
+        # raise out of here, through the autonomy drain and the whole run.
+        errors.append({"code": "agent_evidence_path_unresolvable", "path": path, "error": path_stat.error})
+        return
+    if path_stat.kind != PATH_KIND_FILE:
         errors.append({"code": "agent_evidence_path_missing", "path": path})
         return
     checked.append(rel_str)
@@ -566,9 +589,17 @@ def _check_agent_ref(
     if line <= 0:
         errors.append({"code": "agent_evidence_line_invalid", "path": path, "line": line})
         return
-    line_count = len(absolute.read_text(encoding="utf-8", errors="replace").splitlines())
+    line_count = evidence_file_line_count(absolute)
+    if line_count is None:
+        errors.append({"code": "agent_evidence_path_unresolvable", "path": path, "error": "unreadable"})
+        return
     if line > line_count:
         errors.append({"code": "agent_evidence_line_missing", "path": path, "line": line, "line_count": line_count})
+
+
+# NAME_MAX of every file system a checkout lives on here (ext4, xfs, btrfs,
+# overlayfs): a ref with a longer component names no file any tree can hold.
+MAX_PATH_COMPONENT_BYTES = 255
 
 
 def agent_ref_shape_refusal(ref: Any) -> str | None:
@@ -577,8 +608,10 @@ def agent_ref_shape_refusal(ref: Any) -> str | None:
     ARIA-HIGH-384 — the half of :func:`_check_agent_ref` that needs no
     repository: a ledger pointer passes; a ref outside the ``path[:line]``
     grammar is ``agent_evidence_ref_malformed``; a path that is absolute or
-    leaves the root is ``agent_evidence_path_escapes_workspace``; ARIA's own
-    output is ``agent_evidence_self_output``. Every ref this refuses, the
+    leaves the root is ``agent_evidence_path_escapes_workspace``; a path with a
+    component longer than ``MAX_PATH_COMPONENT_BYTES`` is
+    ``agent_evidence_path_unresolvable``; ARIA's own output is
+    ``agent_evidence_self_output``. Every ref this refuses, the
     submit law refuses with the same code, so a kernel producer or mint that
     asks this function can never hand an agent a ref its answer will be
     rejected for citing. (An absolute path is refused here even when it would
@@ -598,9 +631,13 @@ def agent_ref_shape_refusal(ref: Any) -> str | None:
     if parsed is None:
         return "agent_evidence_ref_malformed"
     try:
-        resolve_repo_relpath(parsed[0])
+        canonical = resolve_repo_relpath(parsed[0])
     except GovernanceError:
         return "agent_evidence_path_escapes_workspace"
+    if any(len(part.encode("utf-8")) > MAX_PATH_COMPONENT_BYTES for part in canonical.split("/")):
+        # No checkout can hold such a name; the submit law's stat refuses it
+        # under the same code (ENAMETOOLONG).
+        return "agent_evidence_path_unresolvable"
     if is_self_output_ref(parsed[0]):
         return "agent_evidence_self_output"
     return None

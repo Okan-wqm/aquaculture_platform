@@ -77,12 +77,38 @@ fix reuses both rather than adding a second rule.
   only the refs `admissible_agent_evidence_refs` admits at the envelope's `target_sha`. This
   applies to pressure items and mission items alike (tier 2).
   - The pressure's `reason`, its `provenance_refs` and every refused ref go into the prompt
-    as data.
+    as data, sanitized inside an `<untrusted_pressure_context>` block under a stated security
+    contract (the shape `cross_review_bridge` uses). The reason can be external text: a SARIF
+    message or an MCP runtime-signal summary.
   - A stored payload from before this fix is judged the same way, so it can no longer mint.
   - If no ref is admitted, the item is disclosed as `next_cycle_queue_item_unevidenced`,
     with its refused refs and provenance.
-  - If the only refusals come from a host that could not verify, the item stays pending
-    (`next_cycle_queue_item_evidence_unverifiable`) instead of being spent.
+  - If the only refusals come from a host that could not verify, or the projection hits an
+    I/O fault, the item stays pending (`next_cycle_queue_item_evidence_unverifiable`) instead
+    of being spent. `next_cycle_queue.defer_projection` counts these deferrals in the queue
+    ledger. After three, the item is consumed and disclosed as
+    `next_cycle_queue_item_evidence_unverifiable_exhausted`, so a permanent host fault cannot
+    hold a queue-depth slot.
+- The law names a stat that cannot answer (tier 1). Python 3.12's `Path.exists` raises
+  `ENAMETOOLONG` on a component past NAME_MAX, and SARIF URIs (up to 400 characters) and
+  runtime-signal code refs (uncapped) reach the law. The OSError escaped the drain and the
+  whole orchestrator run, and the unconsumed item killed every later run.
+  - `evidence_trust.stat_evidence_path` is now the only stat the law makes: in
+    `classify_evidence_ref`, the agent check and the tool-output check. Any `OSError` other
+    than absence becomes `agent_evidence_path_unresolvable` / `evidence_path_unresolvable`
+    (grade `invalid`).
+  - The shape law refuses a component longer than 255 bytes under the same code.
+  - `project_refs_for_agent` contains an `OSError` to its own item (kept pending, bounded). The
+    catch is the I/O class only, so a programming error still raises.
+- Reflection plans only pressures an agent can be handed evidence for (tier 2).
+  - Before, `next_cycle_plan` was the top three pressures, citable or not. `post_merge_ci`
+    `pr-1671` took a slot every cycle and was then consumed as unevidenced.
+  - `pressure_evidence.select_schedulable_pressures` now takes the next-ranked citable
+    pressure.
+  - Each pressure passed over is named in the reflection row (`next_cycle_skipped`, with its
+    provenance), and once in governance (`next_cycle_pressure_skipped`).
+  - The report's `top_pressures` keeps the full ranking, so the operator still sees PR reds
+    and contradictions.
 
 Detection (tier 3): `aria-kernel/tests/test_pressure_evidence_citable.py`.
 
@@ -93,14 +119,20 @@ Detection (tier 3): `aria-kernel/tests/test_pressure_evidence_citable.py`.
 - It checks that the shape law never refuses a relative ref the submit law would admit.
 - It confirms the mission lane: `pr:<n>` and `branch:<name>` never reach `evidence_refs`
   (`test_service_mission_line.py`).
+- It pins each source's exact evidence and provenance.
+- It covers the over-long path (shape law, submit law, classifier, tool-output check and
+  the drain), a contained projection `OSError`, the bounded deferral,
+  `agent_evidence_verification_unavailable`, the untrusted block, and reflection passing
+  over uncitable pressures.
 
-Against main's producers and projection it fails 21 checks (tests and subtests). With the fix it passes.
+Against main's producers and projection it fails 21 checks (tests and subtests). Against the
+first head of PR #1863 (`c487b16cc`), the review-round tests fail 11. With the fix it passes.
 
-Not changed: the PR-sourced pressures (`own_pr_ci`, `post_merge_ci`, `repo_pr_health`),
-`contradiction` and `uncertainty_repeat` have no repository anchor. A PR head is not the tree
-at `target_sha`, and their ledgers record no code refs. Their queue items are now consumed
-and disclosed as `next_cycle_queue_item_unevidenced`, with their provenance named. Before
-this fix they minted requests no answer could satisfy.
+The PR-sourced pressures (`own_pr_ci`, `post_merge_ci`, `repo_pr_health`), `contradiction`
+and `uncertainty_repeat` have no repository anchor: a PR head is not the tree at
+`target_sha`, and their ledgers record no code refs. That is their nature, not a gap. They
+are operator-facing: the daily report ranks them in `top_pressures`, and reflection names
+them in `next_cycle_skipped` instead of planning work no agent could ground.
 
 ## ARIA-MEDIUM-385
 

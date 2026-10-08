@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import re
+import stat as _stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -108,6 +110,57 @@ def is_self_output_ref(ref: str) -> bool:
     return any(f"{canonical}/".startswith(prefix) for prefix in SELF_OUTPUT_PREFIXES)
 
 
+# ARIA-HIGH-384 review — a stat that cannot answer is a verdict about the
+# PATH, never an exception out of the law. Python 3.12's ``Path.exists`` and
+# ``is_file`` ignore only ENOENT/ENOTDIR/EBADF/ELOOP; a component longer than
+# NAME_MAX (a 400-char SARIF URI, an uncapped runtime-signal code ref) raises
+# ENAMETOOLONG, which escaped the law, the autonomy drain and the whole
+# orchestrator run, and left the item to kill every later run.
+PATH_KIND_FILE = "file"
+PATH_KIND_DIR = "dir"
+PATH_KIND_ABSENT = "absent"
+PATH_KIND_UNRESOLVABLE = "unresolvable"
+_ABSENT_ERRNOS: frozenset[int] = frozenset({errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP})
+
+
+@dataclass(frozen=True)
+class PathStat:
+    """What one stat of an evidence path says: ``kind`` and, when it could not answer, why."""
+
+    kind: str
+    error: str | None = None
+
+
+def stat_evidence_path(absolute: Path) -> PathStat:
+    """The kind of ``absolute`` — file, dir, absent, or unresolvable (with the errno name).
+
+    THE stat of the evidence law: ``classify_evidence_ref``,
+    ``evidence_validator._check_agent_ref`` and the tool-output check all ask
+    it, so no ref reaches an ``OSError`` the law did not name. What
+    ``Path.exists`` treats as absence stays absence; any other ``OSError``
+    (ENAMETOOLONG, EACCES, EIO) is ``unresolvable``.
+    """
+    try:
+        mode = absolute.stat().st_mode
+    except OSError as exc:
+        if exc.errno in _ABSENT_ERRNOS:
+            return PathStat(PATH_KIND_ABSENT)
+        return PathStat(PATH_KIND_UNRESOLVABLE, errno.errorcode.get(exc.errno or 0, type(exc).__name__))
+    if _stat.S_ISREG(mode):
+        return PathStat(PATH_KIND_FILE)
+    if _stat.S_ISDIR(mode):
+        return PathStat(PATH_KIND_DIR)
+    return PathStat(PATH_KIND_ABSENT)
+
+
+def evidence_file_line_count(absolute: Path) -> int | None:
+    """Lines in the file at ``absolute``, or ``None`` when it cannot be read."""
+    try:
+        return len(absolute.read_text(encoding="utf-8", errors="replace").splitlines())
+    except OSError:
+        return None
+
+
 @dataclass(frozen=True)
 class EvidenceEnvelope:
     canonical_ref: str
@@ -196,10 +249,16 @@ def classify_evidence_ref(
         if any(canonical_ref.startswith(prefix) for prefix in SELF_OUTPUT_PREFIXES)
         else None
     )
-    is_file = absolute.exists() and absolute.is_file()
-    is_dir = absolute.exists() and absolute.is_dir()
+    path_stat = stat_evidence_path(absolute)
+    if path_stat.kind == PATH_KIND_UNRESOLVABLE:
+        validation_errors = (*validation_errors, f"path_unresolvable:{path_stat.error}")
+    is_file = path_stat.kind == PATH_KIND_FILE
+    is_dir = path_stat.kind == PATH_KIND_DIR
     exists = is_file or is_dir
     content_hash = _file_sha256(absolute) if is_file else None
+    if is_file and content_hash is None:
+        validation_errors = (*validation_errors, "path_unresolvable:unreadable")
+        is_file = exists = False
     # The baseline is resolved ONCE per decision (cached on the session):
     # `None` when the caller threaded no target at all, a readable commit,
     # or a resolution that says WHY the workspace cannot read it.
@@ -363,8 +422,12 @@ def _canonicalize(raw_path: str, root: Path) -> tuple[str, Path, tuple[str, ...]
     return canonical, absolute, ()
 
 
-def _file_sha256(path: Path) -> str:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+def _file_sha256(path: Path) -> str | None:
+    """The file's content address, or ``None`` when its bytes cannot be read."""
+    try:
+        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
 
 
 def _resolve_baseline(
@@ -507,6 +570,13 @@ __all__ = [
     "OUTSIDE_DECLARED_SCOPE_CLASS",
     "EvidenceEnvelope",
     "EvidencePolicy",
+    "PATH_KIND_ABSENT",
+    "PATH_KIND_DIR",
+    "PATH_KIND_FILE",
+    "PATH_KIND_UNRESOLVABLE",
+    "PathStat",
+    "evidence_file_line_count",
+    "stat_evidence_path",
     "GitProbeSession",
     "EVIDENCE_REF_RE",
     "SELF_OUTPUT_PREFIXES",

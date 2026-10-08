@@ -936,7 +936,9 @@ class DrainResolvesMissionMarkersTest(unittest.TestCase):
         )
 
         self.assertEqual(captured.get("evidence_refs"), ["apps/auth-service/src/auth.service.ts:12"])
-        refused = json.loads(captured["suggested_prompt"])["refused_evidence_refs"]
+        from tests._helpers.pressure_prompt import untrusted_pressure_context
+
+        refused = untrusted_pressure_context(captured["suggested_prompt"])["refused_evidence_refs"]
         self.assertEqual(sorted(entry["ref"] for entry in refused), ["branch:fix/x", "pr:1700"])
 
 if __name__ == "__main__":

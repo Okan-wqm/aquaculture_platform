@@ -186,3 +186,18 @@ export type {
   KnownChannelKey,
   UnitConversion,
 } from './measurement/quantities';
+
+// ── Channel binding ──
+// Whether a sensor channel can feed a water-chemistry parameter, and the
+// reason codes the binding UI shows when it cannot.
+export {
+  CHANNEL_BINDING_PROBLEM,
+  CHANNEL_BINDING_PROBLEMS,
+  channelProblems,
+  parameterProblems,
+} from './measurement/channel-binding';
+export type {
+  ChannelBindingProblem,
+  BindableParameter,
+  DescribedChannel,
+} from './measurement/channel-binding';

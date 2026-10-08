@@ -1,6 +1,6 @@
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { NotFoundException } from '@nestjs/common';
-import { type EntityManager, type FindOptionsWhere, IsNull } from 'typeorm';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { type EntityManager, type FindOptionsWhere, IsNull, Not } from 'typeorm';
 
 import {
   MeasurementPosition,
@@ -161,6 +161,74 @@ export async function unbindSources(
     .where('"tenantId" = :tenantId', { tenantId })
     .andWhere('"id" IN (:...sourceIds)', { sourceIds: [...sourceIds] })
     .andWhere('"unboundAt" IS NULL')
+    .execute();
+  return result.affected ?? 0;
+}
+
+/** The live channel sources of a parameter at a location, locked FOR UPDATE (the caller holds the parameter lock). */
+export async function liveChannelSourcesAt(
+  manager: EntityManager,
+  tenantId: string,
+  parameterConfigId: string,
+  location: SourceLocation,
+): Promise<WaterQualityParamEquipment[]> {
+  return tenantManagerRepo(manager, WaterQualityParamEquipment, tenantId).find({
+    where: { ...liveAtLocation(parameterConfigId, location), channelKey: Not(IsNull()) },
+    order: { boundAt: 'ASC' },
+    lock: { mode: 'pessimistic_write' },
+  });
+}
+
+/** A live channel source by id, or 404; a manual source is refused (it is a plan line). */
+export async function findLiveChannelSource(
+  manager: EntityManager,
+  tenantId: string,
+  sourceId: string,
+): Promise<WaterQualityParamEquipment> {
+  const source = await tenantManagerRepo(manager, WaterQualityParamEquipment, tenantId).findOne({
+    where: { id: sourceId, unboundAt: IsNull() },
+  });
+  if (source === null) {
+    throw new NotFoundException(`No live parameter source '${sourceId}' in this tenant`);
+  }
+  if (source.channelKey === null) {
+    throw new BadRequestException('This is a manual plan line, not a channel source');
+  }
+  return source;
+}
+
+/**
+ * Closes every live source at these points — manual plan lines and channel
+ * sources alike — in the caller's transaction: a deleted tank or system is no
+ * longer a place a parameter is measured (plan D12). The rows stay as history.
+ */
+export async function closeSourcesAtPoints(
+  manager: EntityManager,
+  tenantId: string,
+  points: readonly MeasurementPoint[],
+  unboundBy: string,
+): Promise<number> {
+  const ids = (kind: MeasurementPointKind): string[] =>
+    points.filter((point) => point.kind === kind).map((point) => point.id);
+  const byKind = {
+    siteId: ids('site'),
+    systemId: ids('system'),
+    tankId: ids('tank'),
+    equipmentId: ids('equipment'),
+  };
+  const clauses = Object.entries(byKind)
+    .filter(([, list]) => list.length > 0)
+    .map(([column]) => `"${column}" IN (:...${column})`);
+  if (clauses.length === 0) {
+    return 0;
+  }
+  const result = await manager
+    .createQueryBuilder()
+    .update(WaterQualityParamEquipment)
+    .set({ unboundAt: () => 'now()', unboundBy })
+    .where('"tenantId" = :tenantId', { tenantId })
+    .andWhere('"unboundAt" IS NULL')
+    .andWhere(`(${clauses.join(' OR ')})`, byKind)
     .execute();
   return result.affected ?? 0;
 }

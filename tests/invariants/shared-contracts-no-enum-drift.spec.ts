@@ -98,6 +98,10 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
       // Measured quantities: channel-key vocabulary, units and basis, read by
       // the reading event, the sensor catalog and the farm templates.
       './measurement/quantities',
+      // Channel binding (FARM-HIGH-373): whether a sensor channel can feed a
+      // water-chemistry parameter, and the problem codes the binding UI shows —
+      // decided once for the farm commands and the browser alike.
+      './measurement/channel-binding',
     ]);
     const index = readFileSync(resolve(REPO_ROOT, 'libs/shared-contracts/src/index.ts'), 'utf8');
     const exportFroms = [

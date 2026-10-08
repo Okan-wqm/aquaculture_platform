@@ -1,38 +1,20 @@
 /**
  * The parameter-source writers and readers on real PostgreSQL (FARM-HIGH-373).
  *
- * The tenant schema is derived from the entities (synchronize into `farm`,
- * then LIKE … INCLUDING ALL, as tenant schemas are cloned) and then migrated
- * by 1822000000000, which adds what LIKE does not copy (the quantity trigger).
- * The writers run through the real tenant transaction, so the generated point
+ * The tenant schema is production-shaped (helpers/source-database.ts). The
+ * writers run through the real tenant transaction, so the generated point
  * key, the live-row uniques, the CHECKs and the parameter lock are the ones
  * production runs against.
  */
 import 'reflect-metadata';
-import { randomBytes } from 'crypto';
 
 import { withTenantContext } from '@aquaculture/backend-common/context';
-import {
-  createTenantConnectionBootstrap,
-  getTenantSchemaName,
-} from '@aquaculture/backend-common/database';
-import {
-  bootPostgresContainer,
-  HarnessContext,
-  shutdownHarness,
-} from '@platform/migration-harness';
-import { DataSource } from 'typeorm';
+import type { DataSource } from 'typeorm';
 
-import { FIXTURE_ENTITIES } from '../../__tests__/e2e/helpers/farm-tenant-fixture';
-import { createTenantSchemaDerived } from '../../__tests__/e2e/helpers/tenant-schema-harness';
-import { ExtendParamEquipmentToChannelSources1822000000000 } from '../../database/migrations/1822000000000-ExtendParamEquipmentToChannelSources';
 import { BulkMapParamsEquipmentCommand } from '../commands/bulk-map-params-equipment.command';
 import { CreateParamEquipmentCommand } from '../commands/create-param-equipment.command';
 import { DeleteParamEquipmentCommand } from '../commands/delete-param-equipment.command';
-import { ParameterQuantityDeclaration } from '../entities/parameter-quantity-declaration.entity';
-import { WaterQualityMeasurement } from '../entities/water-quality-measurement.entity';
 import { WaterQualityParamEquipment } from '../entities/water-quality-param-equipment.entity';
-import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
 import { BulkMapParamsEquipmentHandler } from '../handlers/bulk-map-params-equipment.handler';
 import { CreateParamEquipmentHandler } from '../handlers/create-param-equipment.handler';
 import { DeleteParamEquipmentHandler } from '../handlers/delete-param-equipment.handler';
@@ -40,6 +22,11 @@ import { ListParamEquipmentQuery } from '../queries/list-param-equipment.query';
 import { ListParamEquipmentHandler } from '../query-handlers/list-param-equipment.handler';
 import { mappedCodesForUnit } from '../services/measurement-plan';
 
+import {
+  bootSourceDatabase,
+  shutdownSourceDatabase,
+  type SourceDatabase,
+} from './helpers/source-database';
 import { seedSourceTopology, type SourceTopology } from './helpers/source-topology';
 
 jest.setTimeout(180_000);
@@ -47,52 +34,20 @@ jest.setTimeout(180_000);
 const TENANT = '5b9c2a10-7c1d-4e2f-8a3b-9c0d1e2f3a4b';
 const USER = 'e1e1e1e1-e1e1-4e1e-8e1e-e1e1e1e1e1e1';
 
-const SOURCE_ENTITIES = [
-  ...FIXTURE_ENTITIES,
-  WaterQualityMeasurement,
-  WaterQualityParameterConfig,
-  WaterQualityParamEquipment,
-  ParameterQuantityDeclaration,
-];
-
 describe('parameter sources — real Postgres', () => {
-  let pg: HarnessContext;
+  let database: SourceDatabase | undefined;
   let dataSource: DataSource;
+  let schema: string;
   let topology: SourceTopology;
-  const schema = getTenantSchemaName(TENANT);
 
   beforeAll(async () => {
-    pg = await bootPostgresContainer({ startTimeoutMs: 120_000 });
-    await pg.dataSource.query('CREATE SCHEMA farm');
-    await pg.dataSource.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
-    dataSource = new DataSource({
-      type: 'postgres',
-      ...pg.connectionOptions,
-      name: `farm-service-wq-sources-${randomBytes(4).toString('hex')}`,
-      entities: SOURCE_ENTITIES,
-      synchronize: true,
-      logging: false,
-      extra: { options: '-c search_path=farm,public' },
-    });
-    await dataSource.initialize();
-    const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
-    new TenantConnectionBootstrap(dataSource).onModuleInit();
-    await createTenantSchemaDerived(dataSource, schema);
-    const runner = dataSource.createQueryRunner();
-    try {
-      await runner.query(`SET search_path TO "${schema}", public`);
-      await runner.startTransaction();
-      await new ExtendParamEquipmentToChannelSources1822000000000().up(runner);
-      await runner.commitTransaction();
-    } finally {
-      await runner.release();
-    }
+    database = await bootSourceDatabase(TENANT);
+    ({ dataSource, schema } = database);
     topology = await seedSourceTopology(dataSource, schema, TENANT, USER);
   });
 
   afterAll(async () => {
-    if (dataSource?.isInitialized) await dataSource.destroy();
-    await shutdownHarness(pg);
+    await shutdownSourceDatabase(database);
   });
 
   const create = (

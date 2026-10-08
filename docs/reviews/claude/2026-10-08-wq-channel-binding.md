@@ -110,3 +110,105 @@ sources only. farm-module's plan panel names a tank line from the unit list.
 
 `down` reverts only a schema whose rows still have the legacy shape; otherwise it refuses
 rather than drop sources and history.
+
+## PR-3.2: binding commands
+
+### One rule, decided in three places the same way
+
+- `libs/shared-contracts/src/measurement/channel-binding.ts` owns the vocabulary
+  (`CHANNEL_BINDING_PROBLEM`, append-only) and the channel rule `channelProblems`: the parameter
+  records a quantity in a unit of it; the channel exists, its sensor is active, it is enabled,
+  it reports EXACTLY that quantity (no derivation: TAN is not NH3-N) in a convertible unit.
+- Farm adds placement (`channel-placement.ts`): a sensor naming a unit stands at that unit, at
+  the systems farm puts the unit in and at the unit's site — farm topology outranks the
+  sensor's own `systemId` (D12). A sensor naming no unit stands at its system, else its site.
+  A loop sensor does not stand at one of the loop's tanks; inheritance is PR-4's reading rule.
+- The bind, its dry run and every read of a bound source apply the same
+  `bindingProblems`; read-time problems are authoritative (D12).
+
+### The sensor channel directory
+
+`SensorChannelDirectory` is the only farm caller of `request.sensor.describeChannels`: through
+`NatsRequestReply` behind a fail-closed circuit breaker (3 s), chunked at
+`MAX_DESCRIBED_CHANNELS`, the reply checked with `isDescribeSensorChannelsResponse` and
+`describesRequest`, no cache. Anything else is a 503; nothing is decided on a guess.
+
+### Serialization
+
+Every write to a parameter's sources or meaning — bind, unbind (with promotion), replace,
+declare, clear, the plan-line writers, config create/update/delete, template overwrite —
+runs in `runSourceTransaction`: the tenant transaction, the parameter row `FOR UPDATE`
+first, deadlocks (40P01) and serialization failures (40001) retried twice, then 409; unique
+violations answered as 409 naming the rule. The bind reads the parameter and point first
+(404s), asks the directory outside any connection, then in the transaction re-checks the
+parameter's code/unit/quantity snapshot (409 on change), takes the point `FOR SHARE` (a
+concurrent tank or system delete waits and then closes the new source), applies the rule
+(400 with the codes) and the priority rules, inserts and writes the audit row.
+
+### Lifecycle (D12)
+
+- Deleting a tank closes its sources; deleting a system closes the sources at it, at its
+  cascaded children and at the equipment it deactivates — in the deleting transaction, as
+  history.
+- A parameter's code, unit and activity are fixed while a channel is bound (Q8): update,
+  delete and template overwrite refuse (409); declare and clear refuse too.
+- A tank moving to another system closes nothing: its own sources stay valid, and a system
+  source whose sensor stood at that tank now reads `NOT_AT_POINT` at every read. Finding such
+  sources inside the tank edit would need the sensor's location, which farm does not copy
+  and cannot fetch inside that transaction; the read-time rule is the authority for it.
+
+### GraphQL API (for PR-5)
+
+Mutations (TENANT_ADMIN, MODULE_MANAGER):
+
+- `bindParameterChannel(input: BindParameterChannelInput!): WaterQualityParamEquipment!` —
+  `{ parameterConfigId, point: MeasurementPointInput, position?, depthM?, sensorId,
+channelKey, priority? }`; a refusal is a 400 whose `problems` carries the codes.
+- `unbindParameterChannel(sourceId: ID!): ParameterChannelUnbinding!` (`unbound`,
+  `promoted`).
+- `replaceParameterChannel(input: { sourceId, sensorId, channelKey }):
+WaterQualityParamEquipment!`.
+- `declareParameterQuantity(input: { parameterConfigId, quantity }):
+WaterQualityParameterConfig!`, `clearParameterQuantity(parameterConfigId: ID!)`.
+
+Queries:
+
+- `checkParameterChannelBinding(input: BindParameterChannelInput!): ChannelBindingCheck!`
+  (TENANT_ADMIN, MODULE_MANAGER) — `{ channel: BoundChannelStatus, problems }`, no write. A
+  query, not a mutation: it changes nothing.
+- `parameterSourcesAtPoint(point: MeasurementPointInput!): [ParameterSourceStatus!]!` —
+  every live source at the point with `channel` (presence, sensorActive, enabled, quantity,
+  quantityFamily, unit, latestValue/At/Quality, configuredAt, calibrationDueAt) and
+  `problems`.
+- `parameterQuantityDeclarations(parameterConfigId: ID!)` — the declaration history.
+- `WaterQualityParameterConfig` gains `declaredQuantity`, `quantity`, `quantityFamily`,
+  `declarableQuantities`, `quantityConfiguredAt`.
+
+`ChannelBindingProblem`: `PARAMETER_HAS_NO_QUANTITY`, `PARAMETER_UNIT_NOT_CONVERTIBLE`,
+`NO_SENSOR`, `NO_CHANNEL`, `SENSOR_INACTIVE`, `CHANNEL_DISABLED`, `CHANNEL_HAS_NO_QUANTITY`,
+`QUANTITY_MISMATCH`, `CHANNEL_HAS_NO_UNIT`, `CHANNEL_UNIT_NOT_CONVERTIBLE`, `NOT_AT_POINT`.
+
+### Proof
+
+- `extend-param-equipment-to-channel-sources.migration.postgres.spec.ts`: up, re-run,
+  post-condition, skipped schema; legacy tank moved and sensor link cleared; every CHECK and
+  unique refuses its statement; quantity backfill, one-active-per-quantity index, trigger;
+  measurement pairs; `down` refuses a used schema and reverts a legacy one.
+- `parameter-sources.postgres.spec.ts`: plan lines at a tank point, unbind-as-history,
+  bulk-map.
+- `parameter-channel-binding.postgres.spec.ts`: bind with audit; refusal codes (mismatch,
+  disabled + misplaced, family undeclared); topology placement over the sensor's systemId;
+  one primary, backup needs primary, channel once, promotion on unbind; replace; dry run and
+  read-time problems after a channel is disabled; declare (not declarable, duplicate quantity
+  409, ledger, stamp) and the bound-parameter refusals; tank closure; the real
+  `DeleteSystemHandler` closing system and equipment sources.
+- Unit specs: the directory (chunking, fail-closed breaker, malformed or foreign replies),
+  placement, the farm rules, the input conversion, the shared rule.
+
+## Open, tracked
+
+- **FARM-LOW-376:** no writer files a measurement at a system point (PR-4/PR-5).
+- **DATA-MEDIUM-020:** the drift validator's expand-awareness (architectural-arbiter).
+- Plan items owned by later PRs, not this one: the reading resolver and inheritance (PR-4),
+  the temperature read switch and the one-temperature-channel-per-sensor bind refusal (PR-3b,
+  D13), the binding UI (PR-5), the contract migration (D11).

@@ -5,13 +5,16 @@
  *
  * @module WaterQuality/Handlers
  */
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { DeleteParameterConfigCommand } from '../commands/delete-parameter-config.command';
 import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
 import { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
+import { liveChannelSourceCount, lockParameterConfig } from '../services/parameter-sources';
+import { runSourceTransaction } from '../services/source-transaction';
 
 @Injectable()
 @CommandHandler(DeleteParameterConfigCommand)
@@ -21,8 +24,7 @@ export class DeleteParameterConfigHandler
   private readonly logger = new Logger(DeleteParameterConfigHandler.name);
 
   constructor(
-    @InjectRepository(WaterQualityParameterConfig)
-    private readonly configRepository: Repository<WaterQualityParameterConfig>,
+    @InjectDataSource() private readonly dataSource: DataSource,
     private readonly configCache: ParameterConfigCacheService,
   ) {}
 
@@ -31,19 +33,18 @@ export class DeleteParameterConfigHandler
 
     this.logger.log(`Soft-deleting parameter config ${configId} for tenant ${tenantId}`);
 
-    const config = await this.configRepository.findOne({
-      where: { id: configId, tenantId },
+    await runSourceTransaction(this.dataSource, tenantId, async (queryRunner) => {
+      const manager = queryRunner.manager;
+      const config = await lockParameterConfig(manager, tenantId, configId);
+      // A bound channel feeds this parameter: end it first (plan Q8).
+      if ((await liveChannelSourceCount(manager, tenantId, config.id)) > 0) {
+        throw new ConflictException(
+          'A sensor channel is bound to this parameter; unbind it before deleting the parameter',
+        );
+      }
+      config.isActive = false;
+      await tenantManagerRepo(manager, WaterQualityParameterConfig, tenantId).save(config);
     });
-
-    if (!config) {
-      throw new NotFoundException(
-        `Parameter config with ID '${configId}' not found for this tenant`,
-      );
-    }
-
-    config.isActive = false;
-
-    await this.configRepository.save(config);
 
     this.configCache.invalidate(tenantId);
 

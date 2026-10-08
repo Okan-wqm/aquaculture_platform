@@ -6,7 +6,18 @@
  *
  * @module WaterQuality
  */
-import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
+import {
+  Resolver,
+  Query,
+  Mutation,
+  Args,
+  ID,
+  Int,
+  ObjectType,
+  Field,
+  ResolveField,
+  Parent,
+} from '@nestjs/graphql';
 import { UseGuards, Logger, ParseUUIDPipe } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@platform/cqrs';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
@@ -46,6 +57,10 @@ import { UnitMeasurementPlan } from './dto/unit-measurement-plan.response';
 import { GetEquipmentParamsQuery } from './queries/get-equipment-params.query';
 import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
 import { Cacheable } from '../common/cache/cacheable.decorator';
+import {
+  declarableQuantitiesOfParameter,
+  parameterCodeFamily,
+} from './data/parameter-quantities';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -316,6 +331,22 @@ export class WaterQualityParameterConfigResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<UnitMeasurementPlan> {
     return this.queryBus.execute(new GetUnitMeasurementPlanQuery(tenantId, unitId));
+  }
+
+  // -------------------------------------------------------------------------
+  // MEASURED QUANTITY (mirrors the sensor DataChannelType fields)
+  // -------------------------------------------------------------------------
+
+  /** The family the code names without saying which member (e.g. ammonia); null otherwise. */
+  @ResolveField(() => String, { name: 'quantityFamily', nullable: true })
+  quantityFamily(@Parent() config: WaterQualityParameterConfig): string | null {
+    return parameterCodeFamily(config.code);
+  }
+
+  /** The quantities an operator may declare for this parameter. */
+  @ResolveField(() => [String], { name: 'declarableQuantities' })
+  declarableQuantities(@Parent() config: WaterQualityParameterConfig): string[] {
+    return [...declarableQuantitiesOfParameter(config.code)];
   }
 
   // -------------------------------------------------------------------------

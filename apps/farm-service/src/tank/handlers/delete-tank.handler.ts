@@ -14,6 +14,7 @@ import { defaultFarmStockProjectionForDirectHandlerConstruction } from '../../co
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
+import { closeSourcesAtPoints } from '../../water-quality/services/parameter-sources';
 import { DeleteTankCommand } from '../commands/delete-tank.command';
 import { Tank } from '../entities/tank.entity';
 
@@ -73,6 +74,9 @@ export class DeleteTankHandler implements ICommandHandler<DeleteTankCommand, boo
 
       const saved = await tankRepository.save(tank);
       await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, [saved.id]);
+      // A deleted tank is no longer a place a parameter is measured: its
+      // water-quality sources end with it, kept as history (FARM-HIGH-373, D12).
+      await closeSourcesAtPoints(queryRunner.manager, tenantId, [{ kind: 'tank', id }], userId);
 
       await this.auditLogService.logWithManager(queryRunner.manager, {
         tenantId,

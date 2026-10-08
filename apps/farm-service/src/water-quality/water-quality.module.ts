@@ -15,6 +15,7 @@
  * @module WaterQuality
  */
 import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -41,6 +42,7 @@ import { FeedingProtocolCoreModule } from '../feeding-protocol/feeding-protocol-
 // Resolvers
 import { WaterQualityResolver } from './water-quality.resolver';
 import { WaterQualityParameterConfigResolver } from './water-quality-parameter-config.resolver';
+import { ParameterChannelBindingResolver } from './parameter-channel-binding.resolver';
 
 // Parameter Config Command Handlers
 import {
@@ -53,6 +55,11 @@ import {
   UpdateParamEquipmentHandler,
   DeleteParamEquipmentHandler,
   BulkMapParamsEquipmentHandler,
+  BindParameterChannelHandler,
+  UnbindParameterChannelHandler,
+  ReplaceParameterChannelHandler,
+  DeclareParameterQuantityHandler,
+  ClearParameterQuantityHandler,
 } from './handlers';
 
 // Parameter Config Query Handlers
@@ -63,6 +70,7 @@ import { ParameterConfigCacheService } from './services/parameter-config-cache.s
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
 import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
+import { SensorChannelDirectory } from './services/sensor-channel-directory.service';
 
 // Phase 7.5 — event handler that auto-seeds default WQ parameter
 // configs when a new tenant is provisioned. The handler also runs
@@ -87,6 +95,11 @@ const CommandHandlers = [
   UpdateParamEquipmentHandler,
   DeleteParamEquipmentHandler,
   BulkMapParamsEquipmentHandler,
+  BindParameterChannelHandler,
+  UnbindParameterChannelHandler,
+  ReplaceParameterChannelHandler,
+  DeclareParameterQuantityHandler,
+  ClearParameterQuantityHandler,
 ];
 
 @Module({
@@ -114,6 +127,8 @@ const CommandHandlers = [
     RegulatoryModule,
     EquipmentModule,
     FinanceModule,
+    // SensorChannelDirectory asks the sensor service through a fail-closed breaker.
+    CircuitBreakerModule,
   ],
   controllers: [GetWaterQualityOverviewResponder, WaterQualityAiQueryResponder],
   providers: [
@@ -133,6 +148,9 @@ const CommandHandlers = [
     TenantOnboardingEventHandler,
     WaterQualityResolver,
     WaterQualityParameterConfigResolver,
+    ParameterChannelBindingResolver,
+    // The only farm caller of request.sensor.describeChannels (FARM-HIGH-373).
+    SensorChannelDirectory,
     ...CommandHandlers,
     ...WaterQualityQueryHandlers,
   ],

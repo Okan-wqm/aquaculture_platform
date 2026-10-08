@@ -2813,19 +2813,21 @@ type WaterQualityParamEquipment {
   id: ID!
   tenantId: String!
   parameterConfigId: String!
-  equipmentId: String!
+  equipmentId: String
 
   """Whether this parameter-equipment mapping is active"""
   isActive: Boolean!
 
-  """How often this parameter is monitored on the equipment"""
-  monitoringFrequency: MonitoringFrequency!
+  """
+  How often this parameter is monitored on the equipment; null for a sensor channel
+  """
+  monitoringFrequency: MonitoringFrequency
 
   """Linked sensor device UUID"""
   sensorId: String
 
-  """Whether alerts are enabled for this mapping"""
-  alertEnabled: Boolean!
+  """Whether alerts are enabled for this mapping; null for a sensor channel"""
+  alertEnabled: Boolean
 
   """Free-text notes for this mapping"""
   notes: String

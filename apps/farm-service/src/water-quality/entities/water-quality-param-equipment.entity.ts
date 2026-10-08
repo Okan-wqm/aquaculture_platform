@@ -98,9 +98,16 @@ export class WaterQualityParamEquipment {
   @Column('uuid')
   parameterConfigId!: string;
 
-  @Field()
-  @Column('uuid')
-  equipmentId!: string;
+  /**
+   * The non-tank water equipment the parameter is monitored at. Nullable
+   * ahead of the expand migration that adds the other measurement points
+   * (site, system, tank): the schema-drift validator refuses a boot whose
+   * entity declares NOT NULL over a nullable column, so the entity relaxes
+   * one release before the DDL does (plan D9, Release A).
+   */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'uuid', nullable: true })
+  equipmentId!: string | null;
 
   // -------------------------------------------------------------------------
   // MONITORING SETTINGS
@@ -110,21 +117,30 @@ export class WaterQualityParamEquipment {
   @Column({ default: true })
   isActive!: boolean;
 
-  @Field(() => MonitoringFrequency, { description: 'How often this parameter is monitored on the equipment' })
+  /** Manual-entry cadence; null on a channel source, which reports continuously (plan D14). */
+  @Field(() => MonitoringFrequency, {
+    nullable: true,
+    description: 'How often this parameter is monitored on the equipment; null for a sensor channel',
+  })
   @Column({
     type: 'enum',
     enum: MonitoringFrequency,
     default: MonitoringFrequency.ON_DEMAND,
+    nullable: true,
   })
-  monitoringFrequency!: MonitoringFrequency;
+  monitoringFrequency!: MonitoringFrequency | null;
 
   @Field({ nullable: true, description: 'Linked sensor device UUID' })
   @Column({ type: 'uuid', nullable: true })
   sensorId?: string;
 
-  @Field({ description: 'Whether alerts are enabled for this mapping' })
-  @Column({ default: true })
-  alertEnabled!: boolean;
+  /** Null on a channel source: its alerts are the sensor channel's (plan D14). */
+  @Field(() => Boolean, {
+    nullable: true,
+    description: 'Whether alerts are enabled for this mapping; null for a sensor channel',
+  })
+  @Column({ type: 'boolean', default: true, nullable: true })
+  alertEnabled!: boolean | null;
 
   @Field({ nullable: true, description: 'Free-text notes for this mapping' })
   @Column({ type: 'text', nullable: true })

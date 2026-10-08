@@ -25500,16 +25500,16 @@ export type WaterQualityMeasurementSource =
   | 'SENSOR_TRIGGERED';
 
 export type WaterQualityParamEquipment = {
-  /** Whether alerts are enabled for this mapping */
-  alertEnabled: Scalars['Boolean']['output'];
+  /** Whether alerts are enabled for this mapping; null for a sensor channel */
+  alertEnabled?: Maybe<Scalars['Boolean']['output']>;
   createdAt: Scalars['DateTime']['output'];
   equipment?: Maybe<EquipmentRef>;
-  equipmentId: Scalars['String']['output'];
+  equipmentId?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   /** Whether this parameter-equipment mapping is active */
   isActive: Scalars['Boolean']['output'];
-  /** How often this parameter is monitored on the equipment */
-  monitoringFrequency: MonitoringFrequency;
+  /** How often this parameter is monitored on the equipment; null for a sensor channel */
+  monitoringFrequency?: Maybe<MonitoringFrequency>;
   /** Free-text notes for this mapping */
   notes?: Maybe<Scalars['String']['output']>;
   parameterConfig: WaterQualityParameterConfig;

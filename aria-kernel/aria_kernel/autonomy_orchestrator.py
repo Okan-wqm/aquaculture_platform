@@ -72,7 +72,7 @@ from .autonomy_state import (
 )
 from .cycle import job_deadline_epoch
 from .file_lock import with_exclusive_lock
-from .next_cycle_queue import mark_consumed, read_pending
+from .next_cycle_queue import defer_projection, mark_consumed, read_pending
 from .reflection import run_reflection
 from .reflection_inputs import pedagogy_lint_snapshot, producer_reflection_kwargs
 from .tool_registry import GovernanceError
@@ -206,6 +206,12 @@ def _drain_next_cycle_queue(
 
     from .convergence_drainer import _resolve_workspace_head_sha
     from .pressure import explain_pressure
+    from .pressure_evidence import (
+        PROMPT_PROVENANCE_REFS_KEY,
+        PROMPT_REFUSED_EVIDENCE_KEY,
+        project_pressure_for_agent,
+        project_refs_for_agent,
+    )
 
     # The commit the agent's evidence will be graded against.
     #
@@ -223,6 +229,9 @@ def _drain_next_cycle_queue(
     # carried the baseline and the other did not; the same helper now serves
     # both.
     target_sha = _resolve_workspace_head_sha(workspace_root)
+    # The tree the agent law reads refs in: the checkout `target_sha` was
+    # resolved from (the resolver's own fallback is the working directory).
+    projection_root = Path(workspace_root) if workspace_root else Path.cwd()
 
     from .agent_invocations import (
         create_agent_invocation_request,
@@ -326,6 +335,9 @@ def _drain_next_cycle_queue(
         # evidence (the self-change contract requires `details.evidence_paths`);
         # the generic projection has only the refs resolved here.
         kernel_contract = None
+        # ARIA-HIGH-384 — the source record's candidate refs, judged by the
+        # agent law at this envelope's target_sha (`pressure_evidence`).
+        projection = None
         if pressure_id.startswith("mission:"):
             # A mission-selection item: the queue key is the mission marker,
             # and the mission row itself carries the evidence refs its work
@@ -340,10 +352,16 @@ def _drain_next_cycle_queue(
             except GovernanceError:
                 mission_row = None
             if mission_row:
-                evidence_refs = [
-                    str(ref) for ref in (mission_row.get("evidence_refs") or [])
-                    if isinstance(ref, str) and ref
-                ]
+                # A mission's refs accumulate from its work, `pr:<n>` and
+                # `branch:<name>` among them (mission_reconcile); only what
+                # the law admits is evidence.
+                projection = project_refs_for_agent(
+                    mission_row.get("evidence_refs") or [],
+                    workspace_root=projection_root,
+                    target_sha=target_sha,
+                )
+                evidence_refs = list(projection.evidence_refs)
+                prompt.update(projection.prompt_fields())
                 try:
                     contract = contract_for_mission(
                         mission_row=mission_row, queue_item_id=qid, source_cycle_id=source_cycle or None,
@@ -391,13 +409,22 @@ def _drain_next_cycle_queue(
                 pressure_record = explain_pressure(
                     cycle_id=source_cycle, pressure_id=pressure_id, base_dir=base_dir,
                 )
-                evidence_refs = [
-                    str(path) for path in pressure_record.get("evidence") or []
-                    if isinstance(path, str) and path
-                ]
             except (ValueError, OSError):
                 # No stored pressure payload for that cycle: no evidence.
-                evidence_refs = []
+                pressure_record = None
+            if pressure_record is not None:
+                # ARIA-HIGH-384 — the envelope carries only the refs the
+                # agent law admits at THIS envelope's target_sha (the function
+                # the submit path asks); the pressure's reason, provenance and
+                # every refused ref travel as prompt data the planner reads
+                # and never cites. Copying `evidence` verbatim minted
+                # `knowledge-graph/...jsonl:<source>` and `pr-<n>:<sha>` refs
+                # whose every answer was refused.
+                projection = project_pressure_for_agent(
+                    pressure_record, workspace_root=projection_root, target_sha=target_sha,
+                )
+                evidence_refs = list(projection.evidence_refs)
+                prompt.update(projection.prompt_fields())
         # ARIA-HIGH-243 — the queue marker (`qi-<hex>`) never enters the
         # evidence channel. The mint used to fall back to it as the sole ref,
         # against the rule above: the planner cites only the envelope's refs,
@@ -409,6 +436,37 @@ def _drain_next_cycle_queue(
         # and disclosed by name, and it is queued again once its source holds
         # evidence (a mission when its work records refs, a pressure when a
         # cycle stores its payload).
+        if projection is not None and (
+            projection.fault is not None
+            or (not evidence_refs and kernel_contract is None and projection.harness_fault)
+        ):
+            # The host could not verify (or the projection hit an I/O fault),
+            # which says nothing about the source: the item stays pending and
+            # is asked again (the split ORPHAN-HIGH-519 draws for a plan
+            # candidate) — a bounded number of times, so a permanent host
+            # fault cannot hold a queue-depth slot forever.
+            disclosure = {
+                "queue_item_id": qid,
+                "pressure_id": pressure_id or None,
+                "source_cycle_id": source_cycle or None,
+                "target_sha": target_sha,
+                "fault": projection.fault,
+                "budget": _MAX_QUEUE_ITEM_UNVERIFIABLE_DEFERRALS,
+                PROMPT_REFUSED_EVIDENCE_KEY: list(projection.refused_evidence),
+            }
+            ordinal = defer_projection(
+                base_dir, queue_item_id=qid, reason=NEXT_CYCLE_ITEM_EVIDENCE_UNVERIFIABLE,
+                budget=_MAX_QUEUE_ITEM_UNVERIFIABLE_DEFERRALS,
+            )
+            if ordinal is None:
+                mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
+                append_tools_governance(base_dir, NEXT_CYCLE_ITEM_EVIDENCE_UNVERIFIABLE_EXHAUSTED, disclosure)
+                consumed += 1
+            else:
+                append_tools_governance(
+                    base_dir, NEXT_CYCLE_ITEM_EVIDENCE_UNVERIFIABLE, {**disclosure, "deferral": ordinal},
+                )
+            continue
         if not evidence_refs and kernel_contract is None:
             mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
             append_tools_governance(
@@ -418,6 +476,11 @@ def _drain_next_cycle_queue(
                     "queue_item_id": qid,
                     "pressure_id": pressure_id or None,
                     "source_cycle_id": source_cycle or None,
+                    # ARIA-HIGH-384 — WHY nothing was citable: the refs the
+                    # law refused and where the pressure came from, so a
+                    # source with no repo anchor is named, not just dropped.
+                    PROMPT_PROVENANCE_REFS_KEY: list(projection.provenance_refs) if projection else [],
+                    PROMPT_REFUSED_EVIDENCE_KEY: list(projection.refused_evidence) if projection else [],
                 },
             )
             consumed += 1
@@ -462,6 +525,13 @@ def _drain_next_cycle_queue(
     return consumed
 
 
+
+# ARIA-HIGH-384 review — how many drains a queue item may stay pending
+# because the host could not verify its evidence, before it is consumed and
+# disclosed under its own name (`next_cycle_queue.defer_projection`).
+_MAX_QUEUE_ITEM_UNVERIFIABLE_DEFERRALS = 3
+NEXT_CYCLE_ITEM_EVIDENCE_UNVERIFIABLE = "next_cycle_queue_item_evidence_unverifiable"
+NEXT_CYCLE_ITEM_EVIDENCE_UNVERIFIABLE_EXHAUSTED = "next_cycle_queue_item_evidence_unverifiable_exhausted"
 
 # Y3 (ORPHAN-703) — successor budget for dead projected-queue envelopes,
 # mirroring DEFAULT_MAX_REQUEUES: two lineage steps then an exhausted

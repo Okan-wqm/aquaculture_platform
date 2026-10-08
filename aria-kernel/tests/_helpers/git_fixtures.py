@@ -103,6 +103,26 @@ def make_repo_with_initial_commit(
     return repo
 
 
+def commit_files(repo: Path, files: dict[str, str], *, message: str = "fixture: add files") -> str:
+    """Write ``files`` (path → content) into ``repo``, commit them, and return the new HEAD.
+
+    For tests whose subject grades refs against a committed tree (the agent
+    evidence law, ARIA-HIGH-384): a ref is admissible only when its blob is
+    at the target commit, so the fixture commits what it cites.
+    """
+    for rel, content in files.items():
+        path = repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        _git(["add", str(rel)], cwd=repo)
+    _git(
+        ["-c", "user.email=fixture@aria.test", "-c", "user.name=Aria Fixture",
+         "commit", "-q", "-m", message],
+        cwd=repo,
+    )
+    return _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+
+
 def implementer_identity_args() -> list[str]:
     """``git -c`` args that commit as the kernel's implementer identity
     (ARIA-HIGH-387): a fixture standing in for the implementer's commit on a

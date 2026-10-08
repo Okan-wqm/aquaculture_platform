@@ -1,3 +1,5 @@
+import { CHANNEL_KEYS } from '@aquaculture/shared-contracts';
+
 import type { SensorReadingEvent, SensorReadingParameter } from '../sensor-events';
 import {
   canonicalChannelKeyForParameter,
@@ -142,5 +144,48 @@ describe('sensor-reading-parameters SSoT (SENSOR-MEDIUM-066/068)', () => {
         expect(canonicalChannelKeyForParameter(parameter)).toMatch(/^[a-z][a-z_]*$/);
       }
     });
+  });
+
+  it('carries exactly the channel keys it carried before the quantity registry owned them', () => {
+    // The wire projection did not change when the alias table moved to the
+    // registry: these 25 spellings, each to the same parameter, and no other
+    // key (nh4, tan, h2s, alkalinity, … name quantities the event cannot carry).
+    const carried = Object.fromEntries(
+      Object.keys(CHANNEL_KEYS)
+        .map((key) => [key, parameterForChannelKey(key)] as const)
+        .filter(([, parameter]) => parameter !== undefined),
+    );
+    expect(carried).toEqual({
+      temperature: 'temperature',
+      temp: 'temperature',
+      water_temperature: 'temperature',
+      water_temp: 'temperature',
+      ph: 'ph',
+      ph_level: 'ph',
+      dissolved_oxygen: 'dissolvedOxygen',
+      dissolvedoxygen: 'dissolvedOxygen',
+      do: 'dissolvedOxygen',
+      do_level: 'dissolvedOxygen',
+      oxygen: 'dissolvedOxygen',
+      o2: 'dissolvedOxygen',
+      salinity: 'salinity',
+      salt: 'salinity',
+      ammonia: 'ammonia',
+      nh3: 'ammonia',
+      nitrite: 'nitrite',
+      no2: 'nitrite',
+      nitrate: 'nitrate',
+      no3: 'nitrate',
+      turbidity: 'turbidity',
+      ntu: 'turbidity',
+      water_level: 'waterLevel',
+      waterlevel: 'waterLevel',
+      level: 'waterLevel',
+    });
+    expect(parameterForChannelKey('NH4')).toBeUndefined();
+    expect(parameterForChannelKey('flow_rate')).toBeUndefined();
+    // Own keys only: an inherited property name is not a channel key.
+    expect(parameterForChannelKey('constructor')).toBeUndefined();
+    expect(parameterForChannelKey('__proto__')).toBeUndefined();
   });
 });

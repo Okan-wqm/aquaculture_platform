@@ -5,10 +5,12 @@ import { SensorDataChannel } from '../database/entities/sensor-data-channel.enti
 import { Sensor } from '../database/entities/sensor.entity';
 import { SensorMetricWriterModule } from '../ingestion/sensor-metric-writer.module';
 
+import { DescribeChannelsResponder } from './responders/describe-channels.responder';
 import { ChannelReadingResolver } from './resolvers/channel-reading.resolver';
 import { SensorResolver } from './resolvers/sensor.resolver';
 import { SensorReadingResolver } from './resolvers/sensor-reading.resolver';
 import { CalibrationService } from './services/calibration.service';
+import { ChannelDescriptionService } from './services/channel-description.service';
 import { ChannelReadingQueryService } from './services/channel-reading-query.service';
 import { SeriesTimeZoneService } from './services/series-time-zone.service';
 import { DataQualityService } from './services/data-quality.service';
@@ -59,6 +61,10 @@ import { SensorQueryService } from './services/sensor-query.service';
     SensorQueryService,
     ChannelReadingQueryService,
     SeriesTimeZoneService,
+    // What a channel is now, by (sensorId, channelKey): farm's bindings over
+    // NATS and the channelsByKey query read the same service.
+    ChannelDescriptionService,
+    DescribeChannelsResponder,
 
     // Support Services (SOLID - Single Responsibility)
     CalibrationService,

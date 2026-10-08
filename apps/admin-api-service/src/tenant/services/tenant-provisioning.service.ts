@@ -1,12 +1,7 @@
 import * as crypto from 'crypto';
 
 import { LegalHoldService } from '@aquaculture/backend-common/compliance';
-import {
-  createCleanupDropProof,
-  getTenantSchemaName,
-  queryRowsNormalized,
-  validateSqlIdentifier,
-} from '@aquaculture/backend-common/database';
+import { createCleanupDropProof, queryRowsNormalized } from '@aquaculture/backend-common/database';
 import type {
   CleanupDropProof,
   CleanupDropProofRecoveryPoint,
@@ -21,7 +16,6 @@ import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
 import { ProvisioningSagaService, SagaResult } from './provisioning-saga.service';
-import { colors } from '@aquaculture/shared-contracts';
 
 /**
  * Default tenant role definition for provisioning
@@ -65,7 +59,6 @@ export interface TenantProvisioningOptions {
   adminFirstName?: string;
   adminLastName?: string;
   assignModules?: string[];
-  skipSchemaCreation?: boolean;
   finalizeActivation?: boolean;
   operationId?: string;
   idempotencyKeyBase?: string;
@@ -222,7 +215,6 @@ export class TenantProvisioningService {
       adminFirstName,
       adminLastName,
       assignModules = [],
-      skipSchemaCreation = true,
       finalizeActivation = true,
       operationId = crypto.randomUUID(),
       idempotencyKeyBase = `manual-provision:${tenantId}:${operationId}`,
@@ -315,29 +307,6 @@ export class TenantProvisioningService {
         );
       },
     );
-
-    // Step: Seed default water quality parameter configs
-    if (!skipSchemaCreation) {
-      saga.addStep(
-        'seed_water_quality_params',
-        async () => {
-          await this.seedDefaultWaterQualityParams(tenant.id);
-        },
-        async () => {
-          // Compensate: best effort cleanup
-          this.logger.warn(`Compensating: removing water quality params for tenant ${tenant.id}`);
-          const schemaName = validateSqlIdentifier(getTenantSchemaName(tenant.id), 'schema');
-          await this.dataSource
-            .query(
-              `DELETE FROM "${schemaName}".water_quality_parameter_configs WHERE "tenantId" = $1`,
-              [tenant.id],
-            )
-            .catch((err: Error) => {
-              this.logger.error(`Failed to remove water quality params: ${err.message}`);
-            });
-        },
-      );
-    }
 
     if (createFirstAdmin && adminEmail) {
       saga.addStep(
@@ -1146,273 +1115,5 @@ export class TenantProvisioningService {
     }
 
     return JSON.stringify(value);
-  }
-
-  /**
-   * Seed default water quality parameter configs for a new tenant.
-   * Inserts a comprehensive set of common aquaculture parameters that
-   * works for most species. Tenant admins can add, remove, or customize
-   * parameters after provisioning via the Parameters tab.
-   */
-  private async seedDefaultWaterQualityParams(tenantId: string): Promise<void> {
-    this.logger.log(`Seeding default water quality parameters for tenant ${tenantId}`);
-    const schemaName = validateSqlIdentifier(getTenantSchemaName(tenantId), 'schema');
-
-    // Common aquaculture parameters — covers freshwater + seawater basics
-    const params = [
-      {
-        code: 'temperature',
-        name: 'Temperature',
-        unit: '°C',
-        precision: 1,
-        group: 'basic',
-        optMin: 8,
-        optMax: 20,
-        warnMin: 4,
-        warnMax: 24,
-        critMin: 2,
-        critMax: 28,
-        color: colors.info[500],
-        order: 1,
-        required: true,
-        axis: 'left',
-      },
-      {
-        code: 'dissolved_oxygen',
-        name: 'Dissolved Oxygen',
-        unit: 'mg/L',
-        precision: 1,
-        group: 'basic',
-        optMin: 6,
-        optMax: 12,
-        warnMin: 4.5,
-        warnMax: 14,
-        critMin: 3,
-        critMax: 16,
-        color: colors.success[500],
-        order: 2,
-        required: true,
-        axis: 'left',
-      },
-      {
-        code: 'ph',
-        name: 'pH',
-        unit: '',
-        precision: 2,
-        group: 'basic',
-        optMin: 6.5,
-        optMax: 8.5,
-        warnMin: 6.0,
-        warnMax: 9.0,
-        critMin: 5.5,
-        critMax: 9.5,
-        color: colors.accent[400],
-        order: 3,
-        required: true,
-        axis: 'left',
-      },
-      {
-        code: 'ammonia',
-        name: 'Ammonia (NH₃)',
-        unit: 'mg/L',
-        precision: 3,
-        group: 'nitrogen_cycle',
-        optMin: 0,
-        optMax: 0.02,
-        warnMin: 0,
-        warnMax: 0.05,
-        critMin: 0,
-        critMax: 0.1,
-        color: colors.error[500],
-        order: 4,
-        required: true,
-        axis: 'right',
-      },
-      {
-        code: 'nitrite',
-        name: 'Nitrite (NO₂)',
-        unit: 'mg/L',
-        precision: 3,
-        group: 'nitrogen_cycle',
-        optMin: 0,
-        optMax: 0.1,
-        warnMin: 0,
-        warnMax: 0.3,
-        critMin: 0,
-        critMax: 0.5,
-        color: colors.accent[500],
-        order: 5,
-        required: true,
-        axis: 'right',
-      },
-      {
-        code: 'nitrate',
-        name: 'Nitrate (NO₃)',
-        unit: 'mg/L',
-        precision: 1,
-        group: 'nitrogen_cycle',
-        optMin: 0,
-        optMax: 50,
-        warnMin: 0,
-        warnMax: 80,
-        critMin: 0,
-        critMax: 100,
-        color: colors.warning[500],
-        order: 6,
-        required: false,
-        axis: 'right',
-      },
-      {
-        code: 'salinity',
-        name: 'Salinity',
-        unit: 'ppt',
-        precision: 1,
-        group: 'basic',
-        optMin: 0,
-        optMax: 38,
-        warnMin: 0,
-        warnMax: 42,
-        critMin: 0,
-        critMax: 45,
-        color: colors.info[700],
-        order: 7,
-        required: false,
-        axis: 'left',
-      },
-      {
-        code: 'alkalinity',
-        name: 'Alkalinity',
-        unit: 'mg/L CaCO₃',
-        precision: 0,
-        group: 'basic',
-        optMin: 40,
-        optMax: 200,
-        warnMin: 20,
-        warnMax: 300,
-        critMin: 10,
-        critMax: 400,
-        color: colors.accent[300],
-        order: 8,
-        required: false,
-        axis: 'left',
-      },
-      {
-        code: 'turbidity',
-        name: 'Turbidity',
-        unit: 'NTU',
-        precision: 1,
-        group: 'basic',
-        optMin: 0,
-        optMax: 10,
-        warnMin: 0,
-        warnMax: 25,
-        critMin: 0,
-        critMax: 50,
-        color: colors.neutral[400],
-        order: 9,
-        required: false,
-        axis: 'left',
-      },
-      {
-        code: 'co2',
-        name: 'Carbon Dioxide',
-        unit: 'mg/L',
-        precision: 1,
-        group: 'basic',
-        optMin: 0,
-        optMax: 15,
-        warnMin: 0,
-        warnMax: 25,
-        critMin: 0,
-        critMax: 40,
-        color: colors.info[300],
-        order: 10,
-        required: false,
-        axis: 'right',
-      },
-      {
-        code: 'oxygen_saturation',
-        name: 'Oxygen Saturation',
-        unit: '%',
-        precision: 0,
-        group: 'basic',
-        optMin: 70,
-        optMax: 120,
-        warnMin: 50,
-        warnMax: 130,
-        critMin: 30,
-        critMax: 150,
-        color: colors.success[600],
-        order: 11,
-        required: false,
-        axis: 'left',
-      },
-      {
-        code: 'conductivity',
-        name: 'Conductivity',
-        unit: 'µS/cm',
-        precision: 0,
-        group: 'basic',
-        optMin: 50,
-        optMax: 800,
-        warnMin: 20,
-        warnMax: 1200,
-        critMin: 10,
-        critMax: 2000,
-        color: colors.info[200],
-        order: 12,
-        required: false,
-        axis: 'right',
-      },
-    ];
-
-    try {
-      // C-ADMIN-01: Individual parameterized inserts — no string interpolation of
-      // param values. schemaName (SQL identifier) is validated above and used
-      // with double-quote quoting per PostgreSQL identifier rules.
-      for (const p of params) {
-        await this.dataSource.query(
-          `INSERT INTO "${schemaName}".water_quality_parameter_configs
-             (id, "tenantId", code, name, unit, "dataType", precision, "group",
-              "optimalMin", "optimalMax", "warningMin", "warningMax", "criticalMin", "criticalMax",
-              "chartColor", "displayOrder", "isVisible", "isRequired", "isActive", "chartAxisGroup",
-              "isQuickAccess", "templateSource", "createdAt", "updatedAt")
-           VALUES
-             (gen_random_uuid(), $1, $2, $3, $4, 'number', $5, $6,
-              $7, $8, $9, $10, $11, $12,
-              $13, $14, $15, $15, true, $16,
-              false, 'default_seed', NOW(), NOW())
-           ON CONFLICT ("tenantId", code) DO NOTHING`,
-          [
-            tenantId,
-            p.code,
-            p.name,
-            p.unit,
-            p.precision,
-            p.group,
-            p.optMin,
-            p.optMax,
-            p.warnMin,
-            p.warnMax,
-            p.critMin,
-            p.critMax,
-            p.color,
-            p.order,
-            p.required,
-            p.axis,
-          ],
-        );
-      }
-
-      this.logger.log(
-        `Seeded ${params.length} default water quality parameters for tenant ${tenantId}`,
-      );
-    } catch (error) {
-      this.logger.warn(
-        `Failed to seed water quality params for tenant ${tenantId}: ${(error as Error).message}. ` +
-          `Tenant can manually configure parameters via the Parameters tab.`,
-      );
-      // Non-fatal — tenant can still use the system, just needs to set up params manually
-    }
   }
 }

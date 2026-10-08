@@ -70,6 +70,39 @@ Detection (tier 3), in two places:
   Preflight's sandbox gate therefore refuses a runner on which the implementer cannot commit,
   before a night starts.
 
+## Round 2 — review of #1865 at 756e37033
+
+The adversarial review found that the mint makes the kernel's identity the default but does not
+make another one impossible.
+
+- git's `author.*` and `committer.*` keys outrank `user.*` in every scope, and
+  `GIT_AUTHOR_*` / `GIT_COMMITTER_*` outrank both.
+- The sandbox's HOME is a writable tmpfs, and the agent runs code it wrote (a test suite,
+  `python3 <file>.py`). A commit by another author is reachable from inside the sandbox even
+  though `git config`, `--author` and `-S` are refused at the command line.
+- Measured: `[author] name = Evil` in the HOME config gives `Evil` as author and
+  `aria-implementer` as committer.
+
+Fix:
+
+- The pre-PR-open perimeter gains its 21st check, `commit_identity_is_the_kernels`
+  (`implementation_safety`). Every commit `base..tip` on a machine-approved branch must have
+  the implementer identity as author and as committer, or the delivery is refused before the
+  push with `commit_identity_foreign:<sha>:<role>=<ident>`.
+- `pr_manager` derives the expected identity from the proposal's approval source. A machine
+  approval is minted only by `apply_engine.stage_converged_plan_for_pr`, for the action the
+  executor's implementer commits on. An operator approval is a person's change and declares
+  none.
+- `pr_manager._branch_commits_for_action` reads author and committer in the format
+  `implementation_identity` owns. The perimeter and the containment probe share one
+  comparison, `implementation_identity.foreign_commit_identities`.
+- The mint refuses a `commit_identity` anywhere but a linked worktree
+  (`CommitIdentityScopeRefused`, before any key, snapshot or config write). A main checkout's
+  shared `--local` config can never author everybody's commits.
+- The real spawn keeps the system config layer: see the commit body for why. The hold and the
+  probe point it at `/dev/null` to prove the tree's own config carries the identity, and the
+  perimeter check judges the identity whatever layer supplied it.
+
 Not chosen: the GitHub App bot identity (`<id>+<slug>[bot]@users.noreply.github.com`).
 
 - The kernel holds only `ARIA_GH_APP_ID`. The bot's user id and slug would need GitHub API

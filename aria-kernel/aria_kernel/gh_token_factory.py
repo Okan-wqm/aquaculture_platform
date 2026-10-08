@@ -88,6 +88,12 @@ class GitCommitIdentity:
     email: str
 
 
+class CommitIdentityScopeRefused(ValueError):
+    """ARIA-HIGH-387 — a ``commit_identity`` was asked of a workspace that is
+    not a linked worktree. A ``ValueError``: it is a malformed request of the
+    mint, in the failure class its holders already name."""
+
+
 @dataclass(frozen=True)
 class SigningCheckout:
     """ARIA-HIGH-114 — where one workspace's signing transaction lives.
@@ -470,6 +476,8 @@ def mint_signing_key(
     holder commits as, written into the same config transaction as the
     signing keys (``user.name`` / ``user.email``, same scope, same
     snapshot, same restore). ``None`` for a holder that never commits.
+    Admitted only in a linked worktree (``CommitIdentityScopeRefused``
+    otherwise, before anything is written).
 
     Files written:
       * ``<workspace>/aria-debts/keys/<cycle_id>`` — private key,
@@ -487,6 +495,19 @@ def mint_signing_key(
     """
     _validate_cycle_id(cycle_id)
     workspace_root = _resolve_workspace_root(workspace_root)
+    if commit_identity is not None:
+        # ARIA-HIGH-387 — an identity is written only where it is the tree's
+        # own: a linked worktree's ``--worktree`` config. A main checkout's
+        # ``--local`` config is the one every worktree of the repository
+        # shares, the operator's included, so a commit identity installed
+        # there would author everybody's commits for the window. Refused
+        # before the key, the snapshot or any config write exists.
+        checkout = signing_checkout(workspace_root)
+        if checkout is None or not checkout.linked:
+            raise CommitIdentityScopeRefused(
+                "commit_identity_requires_linked_worktree:"
+                + ("not_a_checkout" if checkout is None else checkout.config_scope)
+            )
     keys_dir = _keys_dir(workspace_root)
     private_path = keys_dir / cycle_id
     public_path = keys_dir / f"{cycle_id}.pub"
@@ -1520,6 +1541,7 @@ def revoke_installation_token(
 __all__ = (
     "CONFIG_SCOPE_LOCAL",
     "CONFIG_SCOPE_WORKTREE",
+    "CommitIdentityScopeRefused",
     "GitCommitIdentity",
     "GitSigningWiring",
     "SigningCheckout",

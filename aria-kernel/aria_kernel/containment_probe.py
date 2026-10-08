@@ -211,9 +211,12 @@ def probe_git_containment(build_argv: ArgvBuilder) -> str | None:
         return "git_missing"
     from .gh_token_factory import mint_signing_key, revoke_signing_key
     from .implementation_identity import (
+        COMMIT_IDENTS_LOG_FORMAT,
         IMPLEMENTER_COMMIT_IDENTITY,
         commit_identity_environment,
         commit_identity_refusal,
+        foreign_commit_identities,
+        parse_commit_idents,
     )
 
     env = probe_git_environment()
@@ -325,12 +328,14 @@ def probe_git_containment(build_argv: ArgvBuilder) -> str | None:
                 return "sandbox_commit_did_not_reach_repository"
             # ARIA-HIGH-387 — the commit is by the kernel's named identity,
             # author and committer, and by nothing the host guessed.
-            idents = _git(["log", "-1", "--format=%an <%ae>%x00%cn <%ce>", landed.stdout.strip()],
+            # The same comparison the delivery's pre-PR-open perimeter makes.
+            idents = _git(["log", "-1", f"--format={COMMIT_IDENTS_LOG_FORMAT}", landed.stdout.strip()],
                           cwd=checkout, env=env)
-            expected = f"{IMPLEMENTER_COMMIT_IDENTITY.name} <{IMPLEMENTER_COMMIT_IDENTITY.email}>"
-            roles = idents.stdout.rstrip("\n").split("\x00")
-            if idents.returncode != 0 or roles != [expected, expected]:
-                return f"sandbox_commit_identity_foreign:{idents.stdout.strip()[:120] or f'rc={idents.returncode}'}"
+            if idents.returncode != 0:
+                return f"sandbox_commit_identity_unreadable:rc={idents.returncode}"
+            foreign = foreign_commit_identities([{"sha": landed.stdout.strip(), **parse_commit_idents(idents.stdout)}])
+            if foreign:
+                return f"sandbox_commit_identity_foreign:{';'.join(foreign)[:200]}"
             signers = containment.private_git_dir / "aria-allowed-signers"
             verified = _git(["-c", f"gpg.ssh.allowedSignersFile={signers}", "verify-commit", "--raw",
                              landed.stdout.strip()], cwd=checkout, env=env)

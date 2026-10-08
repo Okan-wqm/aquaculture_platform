@@ -155,26 +155,37 @@ class TheIdentityRidesTheSigningTransactionTests(_NoAmbientIdentity):
         self.assertEqual(receipt["git_signing_config_restore"], "restored")
         self.assertEqual(self._scoped(worktree, "--worktree"), before)
 
-    def test_a_main_checkout_identity_comes_back_and_a_created_section_is_removed(self) -> None:
-        operator = self.tmp / "operator"
-        repo = make_repo_with_initial_commit(operator, {"g.txt": "y\n"}, name="op")
-        _git(["config", "--local", "user.name", "Operator Name"], cwd=repo)
-        _git(["config", "--local", "user.email", "operator@example.com"], cwd=repo)
-        with_identity = self._scoped(repo, "--local")
-        bare = self._repo_without_identity(self.tmp / "bare-identity", "bare")
-        without_identity = self._scoped(bare, "--local")
-        self.assertFalse(any(line.startswith("user.") for line in without_identity))
+    def test_a_main_checkout_is_refused_an_identity_before_any_write(self) -> None:
+        """N3 — the shared `--local` config every worktree inherits never
+        receives a commit identity: refused before the key, the snapshot or
+        a config write exists."""
+        _git(["config", "--local", "user.name", "Operator Name"], cwd=self.main)
+        before = self._scoped(self.main, "--local")
         self._enter_no_identity()
-        for checkout, expected in ((repo, with_identity), (bare, without_identity)):
-            with self.subTest(checkout=checkout.name):
-                gh_token_factory.mint_signing_key(
-                    cycle_id=CYCLE_ID, workspace_root=checkout, commit_identity=self.IDENTITY,
-                )
-                self.assertIn(f"user.name={self.IDENTITY.name}", self._scoped(checkout, "--local"))
-                gh_token_factory.revoke_signing_key(cycle_id=CYCLE_ID, workspace_root=checkout)
-                self.assertEqual(self._scoped(checkout, "--local"), expected)
-        self.assertNotIn("[user]", (bare / ".git" / "config").read_text(encoding="utf-8"),
-                         "the section the mint created is gone, header and all")
+        with self.assertRaises(gh_token_factory.CommitIdentityScopeRefused) as refused:
+            gh_token_factory.mint_signing_key(
+                cycle_id=CYCLE_ID, workspace_root=self.main, commit_identity=self.IDENTITY,
+            )
+        self.assertEqual(str(refused.exception), "commit_identity_requires_linked_worktree:--local")
+        self.assertIsInstance(refused.exception, ValueError, "the holders' mint-failure class")
+        self.assertFalse((self.main / "aria-debts").exists(), "no key file")
+        self.assertFalse((self.main / ".git" / "aria-signing-config-snapshots").exists(), "no snapshot")
+        self.assertEqual(self._scoped(self.main, "--local"), before)
+        plain = self.tmp / "plain"
+        plain.mkdir()
+        with self.assertRaises(gh_token_factory.CommitIdentityScopeRefused) as not_a_checkout:
+            gh_token_factory.mint_signing_key(cycle_id=CYCLE_ID, workspace_root=plain, commit_identity=self.IDENTITY)
+        self.assertEqual(str(not_a_checkout.exception), "commit_identity_requires_linked_worktree:not_a_checkout")
+
+    def test_a_section_the_mint_created_is_removed_header_and_all(self) -> None:
+        worktree = self._worktree()
+        self._enter_no_identity()
+        gh_token_factory.mint_signing_key(cycle_id=CYCLE_ID, workspace_root=worktree, commit_identity=self.IDENTITY)
+        config_worktree = gh_token_factory.signing_checkout(worktree).git_dir / "config.worktree"
+        self.assertIn("[user]", config_worktree.read_text(encoding="utf-8"))
+        gh_token_factory.revoke_signing_key(cycle_id=CYCLE_ID, workspace_root=worktree)
+        self.assertEqual(self._scoped(worktree, "--worktree"), [])
+        self.assertNotIn("[user]", config_worktree.read_text(encoding="utf-8"))
 
     def test_a_mint_without_an_identity_never_touches_the_operators(self) -> None:
         """The knowledge signer's mint: the operator renames themselves
@@ -203,16 +214,18 @@ class TheIdentityRidesTheSigningTransactionTests(_NoAmbientIdentity):
         self.assertEqual(self._scoped(worktree, "--worktree"), before)
 
     def test_a_re_mint_inside_an_open_transaction_records_the_identity_it_adds(self) -> None:
-        _git(["config", "--local", "user.name", "Operator Name"], cwd=self.main)
-        before = self._scoped(self.main, "--local")
+        worktree = self._worktree()
+        _git(["config", "--local", "extensions.worktreeConfig", "true"], cwd=self.main)
+        _git(["config", "--worktree", "user.name", "Operator Name"], cwd=worktree)
+        before = self._scoped(worktree, "--worktree")
         self._enter_no_identity()
-        gh_token_factory.mint_signing_key(cycle_id=CYCLE_ID, workspace_root=self.main)
+        gh_token_factory.mint_signing_key(cycle_id=CYCLE_ID, workspace_root=worktree)
         gh_token_factory.mint_signing_key(
-            cycle_id=CYCLE_ID, workspace_root=self.main, overwrite=True, commit_identity=self.IDENTITY,
+            cycle_id=CYCLE_ID, workspace_root=worktree, overwrite=True, commit_identity=self.IDENTITY,
         )
-        self.assertIn(f"user.name={self.IDENTITY.name}", self._scoped(self.main, "--local"))
-        gh_token_factory.revoke_signing_key(cycle_id=CYCLE_ID, workspace_root=self.main)
-        self.assertEqual(self._scoped(self.main, "--local"), before)
+        self.assertIn(f"user.name={self.IDENTITY.name}", self._scoped(worktree, "--worktree"))
+        gh_token_factory.revoke_signing_key(cycle_id=CYCLE_ID, workspace_root=worktree)
+        self.assertEqual(self._scoped(worktree, "--worktree"), before)
 
 
 class TheHoldRefusesAnUnresolvableIdentityTests(_NoAmbientIdentity):
@@ -268,6 +281,69 @@ class TheContainmentProbeMintsTheImplementersIdentityTests(_NoAmbientIdentity):
             reason = probe_git_containment(never_built)
         self.assertIsNotNone(reason)
         self.assertTrue(str(reason).startswith("probe_commit_identity_unresolved:author:"), reason)
+
+
+class ThePerimeterJudgesEveryCommitsIdentityTests(_NoAmbientIdentity):
+    """N1 — the mint makes the kernel's identity the default; the pre-PR-open
+    perimeter makes any other one a refusal. git's `author.*` outranks the
+    minted `user.*` in every scope, and the sandbox's HOME is writable."""
+
+    def _perimeter(self, worktree: Path, base: str):
+        from aria_kernel import implementation_safety as safety
+        from aria_kernel.implementation_identity import IMPLEMENTER_COMMIT_IDENTITY
+        from aria_kernel.pr_manager import _branch_commits_for_action
+
+        head = _git(["rev-parse", "HEAD"], cwd=worktree).stdout.strip()
+        commits = _branch_commits_for_action(workspace_path=worktree, base_sha=base, head_sha=head)
+        return safety._check_commit_identity_is_the_kernels(safety.HardFailContext(
+            branch_commits=commits, commit_identity=IMPLEMENTER_COMMIT_IDENTITY,
+        ))
+
+    def test_kernel_commits_pass_and_a_planted_author_is_refused_by_name(self) -> None:
+        worktree = self._worktree()
+        base = _git(["rev-parse", "HEAD"], cwd=worktree).stdout.strip()
+        self._enter_no_identity()
+        with hold_implementation_identity(cycle_id=CYCLE_ID, workspace_root=worktree, base_dir=self.tools):
+            self.assertEqual(self._commit(worktree, "kernel").returncode, 0)
+            clean = self._perimeter(worktree, base)
+            self.assertTrue(clean.passed, clean.reason)
+            # What code the agent wrote can do inside the sandbox: write the
+            # HOME config git reads, where `author.*` outranks `user.*`.
+            global_config = Path(os.environ["GIT_CONFIG_GLOBAL"])
+            global_config.write_text(
+                global_config.read_text(encoding="utf-8") + "[author]\n\tname = Evil\n\temail = evil@example.com\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(self._commit(worktree, "planted").returncode, 0)
+            idents = _git(["log", "-1", "--format=%an|%cn"], cwd=worktree).stdout.strip()
+            self.assertEqual(idents, "Evil|aria-implementer", "the plant really does outrank the mint")
+            refused = self._perimeter(worktree, base)
+        self.assertFalse(refused.passed)
+        self.assertTrue(refused.reason.startswith("commit_identity_foreign:"), refused.reason)
+        self.assertIn(":author=Evil <evil@example.com>", refused.reason)
+        self.assertNotIn(":committer=", refused.reason)
+
+    def test_a_foreign_committer_from_the_environment_is_refused(self) -> None:
+        worktree = self._worktree()
+        base = _git(["rev-parse", "HEAD"], cwd=worktree).stdout.strip()
+        self._enter_no_identity()
+        with hold_implementation_identity(cycle_id=CYCLE_ID, workspace_root=worktree, base_dir=self.tools):
+            with patch.dict(os.environ, {"GIT_COMMITTER_NAME": "Someone", "GIT_COMMITTER_EMAIL": "s@example.com"}):
+                self.assertEqual(self._commit(worktree, "env-committer").returncode, 0)
+            refused = self._perimeter(worktree, base)
+        self.assertFalse(refused.passed)
+        self.assertIn(":committer=Someone <s@example.com>", refused.reason)
+        self.assertNotIn(":author=", refused.reason)
+
+    def test_a_lane_that_commits_as_a_person_declares_no_identity(self) -> None:
+        from aria_kernel import implementation_safety as safety
+
+        result = safety._check_commit_identity_is_the_kernels(safety.HardFailContext(branch_commits=()))
+        self.assertTrue(result.passed)
+        absent = safety._check_commit_identity_is_the_kernels(safety.HardFailContext(
+            commit_identity=gh_token_factory.GitCommitIdentity(name="a", email="b"),
+        ))
+        self.assertEqual((absent.passed, absent.reason), (False, "branch_commits_absent"))
 
 
 class TheCheckIgnoresAmbientIdentityTests(unittest.TestCase):

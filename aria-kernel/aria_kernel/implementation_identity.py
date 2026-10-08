@@ -102,6 +102,7 @@ import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Iterable, Mapping
 from typing import Any, Iterator
 
 from .gh_token_factory import GitCommitIdentity
@@ -231,7 +232,7 @@ def commit_identity_refusal(
     kernel's identity, not whatever the runner happened to be called.
     """
     env = commit_identity_environment()
-    expected_prefix = f"{expected.name} <{expected.email}> "
+    expected_prefix = f"{commit_ident(expected)} "
     for role, variable in _IDENT_VARIABLES:
         try:
             done = subprocess.run(
@@ -245,6 +246,53 @@ def commit_identity_refusal(
         if not done.stdout.startswith(expected_prefix):
             return f"commit_identity_unresolved:{role}:not_the_kernel_identity"
     return None
+
+
+# The `git log` format that reads one commit's author and committer the way
+# `foreign_commit_identities` compares them: `<name> <<email>>` each, NUL
+# separated. One spelling for every reader (the delivery's pre-PR-open
+# perimeter through `pr_manager`, the containment probe).
+COMMIT_IDENTS_LOG_FORMAT: str = "%an <%ae>%x00%cn <%ce>"
+
+
+def commit_ident(identity: GitCommitIdentity) -> str:
+    """``<name> <<email>>`` — how git prints an ident without its date."""
+    return f"{identity.name} <{identity.email}>"
+
+
+def parse_commit_idents(text: str) -> dict[str, str]:
+    """``{"author": ..., "committer": ...}`` from one record of
+    ``COMMIT_IDENTS_LOG_FORMAT``; a missing role reads as ``""``."""
+    author, committer = (text.rstrip("\n").split("\x00", 1) + [""])[:2]
+    return {"author": author, "committer": committer}
+
+
+def foreign_commit_identities(
+    commits: Iterable[Mapping[str, Any]], *, expected: GitCommitIdentity = IMPLEMENTER_COMMIT_IDENTITY,
+) -> list[str]:
+    """Every author or committer in ``commits`` that is not ``expected``,
+    as ``<sha12>:<role>=<ident>`` (``<missing>`` when the record carries
+    no such role) — empty when every commit is the kernel's.
+
+    ARIA-HIGH-387 — the mint makes the kernel's identity the DEFAULT, and
+    this is what makes any other identity a refusal. git's `author.*` /
+    `committer.*` keys outrank `user.*` in every scope, and
+    `GIT_AUTHOR_*` / `GIT_COMMITTER_*` outrank both; the sandbox's HOME is
+    a writable tmpfs and the agent runs code it wrote (a test suite, a
+    `python3 <file>.py`), so a commit carrying another identity is
+    reachable from inside even though `git config`, `--author` and `-S`
+    are refused at the command line. The delivery therefore judges the
+    commits themselves, every one of base..tip, before anything is pushed.
+    """
+    want = commit_ident(expected)
+    violations: list[str] = []
+    for commit in commits:
+        sha = str(commit.get("sha") or "")[:12] or "<unknown>"
+        for role in ("author", "committer"):
+            seen = commit.get(role)
+            if seen != want:
+                violations.append(f"{sha}:{role}={seen if isinstance(seen, str) and seen else '<missing>'}")
+    return violations
 
 
 def _registration_failure_classes() -> tuple[type[BaseException], ...]:
@@ -440,12 +488,16 @@ __all__ = [
     "IMPLEMENTATION_SIGNING_UNAVAILABLE_RELEASE_REASON",
     "IMPLEMENTER_COMMITTER_EMAIL",
     "IMPLEMENTER_COMMITTER_NAME",
+    "COMMIT_IDENTS_LOG_FORMAT",
     "IMPLEMENTER_COMMIT_IDENTITY",
     "ImplementationIdentity",
     "ImplementationIdentityRefusal",
+    "commit_ident",
     "commit_identity_environment",
     "commit_identity_refusal",
+    "foreign_commit_identities",
     "hold_implementation_identity",
     "implementation_record",
+    "parse_commit_idents",
     "stamp_implementation_signer",
 ]

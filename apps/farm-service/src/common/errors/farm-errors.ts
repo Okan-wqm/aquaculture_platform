@@ -8,7 +8,11 @@
  *
  * Phase 6.4 of the "Farm modülü kalan kör noktalar" plan.
  */
-import type { ChannelBindingProblem } from '@aquaculture/shared-contracts';
+import {
+  PARAMETER_SOURCE_ERROR,
+  type ChannelBindingProblem,
+  type ParameterSourceErrorCode,
+} from '@aquaculture/shared-contracts';
 import { HttpStatus } from '@nestjs/common';
 
 import { FarmAppError } from './farm-app-error';
@@ -175,12 +179,38 @@ export class ChannelBindingRefusedError extends FarmAppError {
 
   constructor(problems: readonly ChannelBindingProblem[]) {
     super({
-      code: 'CHANNEL_BINDING_REFUSED',
+      code: PARAMETER_SOURCE_ERROR.CHANNEL_BINDING_REFUSED,
       status: HttpStatus.BAD_REQUEST,
       userMessage: `The channel cannot feed this parameter here: ${problems.join(', ')}`,
       retryable: false,
       context: { problems: [...problems] },
     });
     this.problems = problems;
+  }
+}
+
+/**
+ * A refusal of the parameter-source API (bind, unbind, replace, declare,
+ * clear, the config writers) with a stable code from PARAMETER_SOURCE_ERROR,
+ * which the binding UI branches on. The status says how: 409 for a state that
+ * changed or is taken, 400 for a request that cannot hold, 503 when the sensor
+ * service cannot answer.
+ */
+export class ParameterSourceError extends FarmAppError {
+  constructor(
+    code: ParameterSourceErrorCode,
+    status: HttpStatus,
+    userMessage: string,
+    context?: Record<string, unknown>,
+  ) {
+    super({
+      code,
+      status,
+      userMessage,
+      retryable:
+        code === PARAMETER_SOURCE_ERROR.CONCURRENT_WRITE ||
+        code === PARAMETER_SOURCE_ERROR.SENSOR_DIRECTORY_UNAVAILABLE,
+      context,
+    });
   }
 }

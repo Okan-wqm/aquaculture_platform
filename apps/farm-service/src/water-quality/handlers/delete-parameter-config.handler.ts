@@ -6,7 +6,7 @@
  * @module WaterQuality/Handlers
  */
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -15,6 +15,8 @@ import { WaterQualityParameterConfig } from '../entities/water-quality-parameter
 import { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
 import { liveChannelSourceCount, lockParameterConfig } from '../services/parameter-sources';
 import { runSourceTransaction } from '../services/source-transaction';
+import { ParameterSourceError } from '../../common/errors/farm-errors';
+import { PARAMETER_SOURCE_ERROR } from '@aquaculture/shared-contracts';
 
 @Injectable()
 @CommandHandler(DeleteParameterConfigCommand)
@@ -38,7 +40,9 @@ export class DeleteParameterConfigHandler
       const config = await lockParameterConfig(manager, tenantId, configId);
       // A bound channel feeds this parameter: end it first (plan Q8).
       if ((await liveChannelSourceCount(manager, tenantId, config.id)) > 0) {
-        throw new ConflictException(
+        throw new ParameterSourceError(
+          PARAMETER_SOURCE_ERROR.PARAMETER_BOUND,
+          HttpStatus.CONFLICT,
           'A sensor channel is bound to this parameter; unbind it before deleting the parameter',
         );
       }

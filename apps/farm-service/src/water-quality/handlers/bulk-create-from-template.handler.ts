@@ -6,7 +6,7 @@
  *
  * @module WaterQuality/Handlers
  */
-import { ConflictException, Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -18,9 +18,11 @@ import {
 } from '../entities/water-quality-parameter-config.entity';
 import { getTemplateById, ParameterTemplateEntry } from '../data/parameter-templates.data';
 import { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
-import { parameterHasMeasurements } from '../services/parameter-meaning';
+import { parameterHasMeasurements, unitMeaningChanged } from '../services/parameter-meaning';
 import { liveChannelSourceCount } from '../services/parameter-sources';
 import { runSourceTransaction } from '../services/source-transaction';
+import { ParameterSourceError } from '../../common/errors/farm-errors';
+import { PARAMETER_SOURCE_ERROR } from '@aquaculture/shared-contracts';
 
 @Injectable()
 @CommandHandler(BulkCreateFromTemplateCommand)
@@ -97,10 +99,12 @@ export class BulkCreateFromTemplateHandler
           // change it underneath (plan Q8).
           if (
             current !== undefined &&
-            current.unit !== mapped.unit &&
+            unitMeaningChanged(current, current.unit, param.unit) &&
             (await liveChannelSourceCount(queryRunner.manager, tenantId, current.id)) > 0
           ) {
-            throw new ConflictException(
+            throw new ParameterSourceError(
+              PARAMETER_SOURCE_ERROR.PARAMETER_BOUND,
+              HttpStatus.CONFLICT,
               `Parameter '${current.code}' has a bound sensor channel; the template would change ` +
                 `its unit from '${current.unit}' to '${mapped.unit}'. Unbind it first.`,
             );
@@ -109,10 +113,12 @@ export class BulkCreateFromTemplateHandler
           // measurements its unit is fixed (plan D7).
           if (
             current !== undefined &&
-            current.unit !== mapped.unit &&
+            unitMeaningChanged(current, current.unit, param.unit) &&
             (await parameterHasMeasurements(queryRunner.manager, tenantId, current.code))
           ) {
-            throw new ConflictException(
+            throw new ParameterSourceError(
+              PARAMETER_SOURCE_ERROR.PARAMETER_HAS_MEASUREMENTS,
+              HttpStatus.CONFLICT,
               `Measurements already record '${current.code}' in ${current.unit}; the template ` +
                 `would re-read them as '${mapped.unit}'. Create a new parameter instead.`,
             );

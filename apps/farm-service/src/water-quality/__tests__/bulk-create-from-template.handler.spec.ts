@@ -5,7 +5,7 @@
  * additive vs overwrite mode, bulk save inside runInTenantTransaction,
  * and post-commit cache invalidation.
  */
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 
@@ -114,9 +114,33 @@ describe('BulkCreateFromTemplateHandler', () => {
 
     await expect(
       handler.execute(new BulkCreateFromTemplateCommand(tenantId, templateId, true, userId)),
-    ).rejects.toThrow(ConflictException);
+    ).rejects.toMatchObject({ code: 'PARAMETER_BOUND' });
     expect(mockManager.save).not.toHaveBeenCalled();
     expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+  });
+
+  it('re-applies over an old spelling of the same unit without asking about measurements', async () => {
+    const { handler, mockManager, mockQueryRunner } = setup();
+    const ph = getTemplateById(templateId)?.parameters.find((param) => param.code === 'ph');
+    if (!ph) {
+      throw new Error('salmon_freshwater template fixture has no ph parameter');
+    }
+    // Prod configs still hold pH as '' (an old template spelling) beside
+    // measurements: the same unit, so neither the measurement nor the bound-
+    // channel guard may refuse the re-apply.
+    (mockManager.find as jest.Mock).mockResolvedValueOnce([
+      { id: 'cfg-ph', tenantId, code: 'ph', unit: '' },
+    ]);
+    (mockManager.save as jest.Mock).mockImplementationOnce((entities: unknown[]) =>
+      Promise.resolve(entities),
+    );
+
+    await handler.execute(new BulkCreateFromTemplateCommand(tenantId, templateId, true, userId));
+
+    expect(mockManager.createQueryBuilder).not.toHaveBeenCalled();
+    const saved = (mockManager.save as jest.Mock).mock.calls[0][0] as Array<{ id?: string; unit: string }>;
+    expect(saved.find((entry) => entry.id === 'cfg-ph')?.unit).toBe(ph.unit);
+    expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
   });
 
   it('throws NotFoundException when the template does not exist and never opens a transaction', async () => {

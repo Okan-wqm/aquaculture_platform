@@ -2,7 +2,7 @@ import {
   CircuitBreakerService,
   DEFAULT_BREAKER_OPTIONS,
 } from '@aquaculture/backend-common/resilience';
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { NatsRequestReply } from '@platform/event-bus';
 import {
   describesRequest,
@@ -13,6 +13,8 @@ import {
   type SensorChannelDescription,
   type SensorChannelKey,
 } from '@platform/event-contracts';
+import { ParameterSourceError } from '../../common/errors/farm-errors';
+import { PARAMETER_SOURCE_ERROR } from '@aquaculture/shared-contracts';
 
 const DESCRIBE_TIMEOUT_MS = 3_000;
 const BREAKER = 'farm-sensor-channel-directory';
@@ -28,8 +30,8 @@ const BREAKER = 'farm-sensor-channel-directory';
  *
  * - Fail closed: a transport failure, an open breaker, a remote error or a
  *   reply that is not the contract's shape, or that does not describe exactly
- *   the asked keys in order, is a 503. A bind must not be decided on a guess,
- *   and a source's status must not be shown from one.
+ *   the asked keys in order, is a 503 coded SENSOR_DIRECTORY_UNAVAILABLE. A
+ *   bind must not be decided on a guess, nor a source's status shown from one.
  * - Requests are chunked at the contract's maximum and sent one after
  *   another; the answers keep the asked order.
  * - No cache: a channel can be disabled or re-declared at any moment, and the
@@ -101,7 +103,7 @@ export class SensorChannelDirectory {
     reason: string,
     request: DescribeSensorChannelsRequest,
     error?: unknown,
-  ): ServiceUnavailableException {
+  ): ParameterSourceError {
     this.logger.warn(
       JSON.stringify({
         event: 'sensor_channel_directory_unavailable',
@@ -111,6 +113,10 @@ export class SensorChannelDirectory {
         errorType: error instanceof Error ? error.name : undefined,
       }),
     );
-    return new ServiceUnavailableException('The sensor service cannot describe channels right now');
+    return new ParameterSourceError(
+      PARAMETER_SOURCE_ERROR.SENSOR_DIRECTORY_UNAVAILABLE,
+      HttpStatus.SERVICE_UNAVAILABLE,
+      'The sensor service cannot describe channels right now',
+    );
   }
 }

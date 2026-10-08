@@ -118,3 +118,34 @@ export function channelProblems(
   }
   return problems;
 }
+
+/**
+ * The stable codes (GraphQL `extensions.code`) of the parameter-source API's
+ * refusals beyond the channel problems, so the binding UI branches on what
+ * happened instead of parsing messages. Append-only.
+ */
+export const PARAMETER_SOURCE_ERROR = {
+  /** The channel cannot feed the parameter here; `context.problems` says why. */
+  CHANNEL_BINDING_REFUSED: 'CHANNEL_BINDING_REFUSED',
+  /** A source rule is taken: the priority, the manual line, the channel, or the quantity. */
+  SOURCE_CONFLICT: 'SOURCE_CONFLICT',
+  /** A backup was asked for where there is no primary. */
+  BACKUP_NEEDS_PRIMARY: 'BACKUP_NEEDS_PRIMARY',
+  /** The parameter's code, unit or quantity changed (or it was deactivated) meanwhile. */
+  PARAMETER_CHANGED: 'PARAMETER_CHANGED',
+  /** The measurement point was removed or deactivated meanwhile. */
+  POINT_RETIRED: 'POINT_RETIRED',
+  /** The source being replaced was unbound meanwhile. */
+  SOURCE_UNBOUND: 'SOURCE_UNBOUND',
+  /** A sensor channel is bound: the parameter's code, unit, quantity and activity are fixed. */
+  PARAMETER_BOUND: 'PARAMETER_BOUND',
+  /** Measurements recorded the parameter: its code and unit are fixed. */
+  PARAMETER_HAS_MEASUREMENTS: 'PARAMETER_HAS_MEASUREMENTS',
+  /** Concurrent writes kept colliding (deadlock or serialization failure); retry. */
+  CONCURRENT_WRITE: 'CONCURRENT_WRITE',
+  /** The sensor service could not describe the channel; nothing was decided. */
+  SENSOR_DIRECTORY_UNAVAILABLE: 'SENSOR_DIRECTORY_UNAVAILABLE',
+} as const;
+
+export type ParameterSourceErrorCode =
+  (typeof PARAMETER_SOURCE_ERROR)[keyof typeof PARAMETER_SOURCE_ERROR];

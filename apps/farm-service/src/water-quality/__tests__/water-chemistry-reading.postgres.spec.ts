@@ -15,10 +15,17 @@ import { withTenantContext } from '@aquaculture/backend-common/context';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { stub } from '@aquaculture/testing';
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { PARAMETER_SOURCE_ERROR } from '@aquaculture/shared-contracts';
+import {
+  BadRequestException,
+  ForbiddenException,
+  HttpStatus,
+  NotFoundException,
+} from '@nestjs/common';
 import type { SensorChannelDescription, SensorChannelKey } from '@platform/event-contracts';
 
 import { createFixtureAuditLogService } from '../../__tests__/e2e/helpers/farm-tenant-fixture';
+import { ParameterSourceError } from '../../common/errors/farm-errors';
 import type { AuditLogService } from '../../database/services/audit-log.service';
 import { BindParameterChannelCommand } from '../commands/bind-parameter-channel.command';
 import type { WaterChemistryInputSet } from '../data/water-chemistry-input-sets';
@@ -441,6 +448,39 @@ describe('water-chemistry reading — real Postgres', () => {
       problems: ['SYSTEM_NOT_RECIRCULATING'],
     });
     await setLoop('ras', 120);
+  });
+
+  it('fails closed with SENSOR_DIRECTORY_UNAVAILABLE when the sensor service cannot describe', async () => {
+    const down = stub<SensorChannelDirectory>({
+      describe: async () => {
+        throw new ParameterSourceError(
+          PARAMETER_SOURCE_ERROR.SENSOR_DIRECTORY_UNAVAILABLE,
+          HttpStatus.SERVICE_UNAVAILABLE,
+          'The sensor service cannot describe channels right now',
+        );
+      },
+    });
+    const read = (): Promise<ParameterReading> =>
+      inTenant(() =>
+        new ResolveParameterValueHandler(
+          ds().dataSource,
+          new SiteAuthorizationService(),
+          new ParameterReadingResolver(ds().dataSource, down),
+        ).execute(
+          new ResolveParameterValueQuery(
+            TENANT,
+            topology.configs.temperature,
+            { point: tankPoint(), position: MeasurementPosition.REPRESENTATIVE, depthM: null },
+            null,
+            MANAGER,
+          ),
+        ),
+      );
+    // A bound channel exists (inherited from the loop): no value is guessed without it.
+    await expect(read()).rejects.toMatchObject({
+      code: PARAMETER_SOURCE_ERROR.SENSOR_DIRECTORY_UNAVAILABLE,
+      status: HttpStatus.SERVICE_UNAVAILABLE,
+    });
   });
 
   it('reads a set only at its kind of point, an active parameter only, and a MODULE_USER only at an assigned site', async () => {

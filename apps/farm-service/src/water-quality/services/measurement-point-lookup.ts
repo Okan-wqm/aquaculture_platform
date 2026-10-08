@@ -4,7 +4,7 @@ import type {
   SiteAuthorizationService,
   SiteScopeCaller,
 } from '@aquaculture/backend-common/security';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpStatus, NotFoundException } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 
 import {
@@ -15,6 +15,8 @@ import { Site } from '../../site/entities/site.entity';
 import { System } from '../../system/entities/system.entity';
 
 import type { MeasurementPoint } from './parameter-sources';
+import { ParameterSourceError } from '../../common/errors/farm-errors';
+import { PARAMETER_SOURCE_ERROR } from '@aquaculture/shared-contracts';
 
 /** How a missing point is reported: before the write (404) or inside it (409, it vanished). */
 export type PointCheck = 'lookup' | 'locked';
@@ -39,7 +41,11 @@ export async function assertLivePoint(
   const lock = check === 'locked' ? ({ mode: 'pessimistic_read' } as const) : undefined;
   const gone = (): Error =>
     check === 'locked'
-      ? new ConflictException(`The ${point.kind} '${point.id}' was removed; nothing was bound`)
+      ? new ParameterSourceError(
+          PARAMETER_SOURCE_ERROR.POINT_RETIRED,
+          HttpStatus.CONFLICT,
+          `The ${point.kind} '${point.id}' was removed; nothing was bound`,
+        )
       : new NotFoundException(`No active ${point.kind} '${point.id}' in this tenant`);
 
   if (point.kind === 'site') {

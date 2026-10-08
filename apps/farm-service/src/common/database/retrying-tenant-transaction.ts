@@ -1,7 +1,10 @@
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { sanitizePgError } from '@aquaculture/backend-common/utils';
-import { ConflictException } from '@nestjs/common';
+import { PARAMETER_SOURCE_ERROR } from '@aquaculture/shared-contracts';
+import { HttpStatus } from '@nestjs/common';
 import type { DataSource, QueryRunner } from 'typeorm';
+
+import { ParameterSourceError } from '../errors/farm-errors';
 
 /**
  * A farm tenant transaction that a deadlock (40P01) or a serialization
@@ -29,7 +32,11 @@ export async function runRetryingTenantTransaction<T>(
         throw error;
       }
       if (attempt >= MAX_ATTEMPTS) {
-        throw new ConflictException('A concurrent change kept colliding with this one; retry');
+        throw new ParameterSourceError(
+          PARAMETER_SOURCE_ERROR.CONCURRENT_WRITE,
+          HttpStatus.CONFLICT,
+          'A concurrent change kept colliding with this one; retry',
+        );
       }
     }
   }

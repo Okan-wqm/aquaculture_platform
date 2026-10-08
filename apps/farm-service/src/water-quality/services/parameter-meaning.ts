@@ -1,6 +1,9 @@
+import { unitConversion } from '@aquaculture/shared-contracts';
 import type { EntityManager } from 'typeorm';
 
+import { declarableQuantitiesOfParameter, parameterQuantity } from '../data/parameter-quantities';
 import { WaterQualityMeasurement } from '../entities/water-quality-measurement.entity';
+import type { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
 
 /**
  * Whether any measurement of the tenant recorded a value under this parameter
@@ -22,4 +25,37 @@ export async function parameterHasMeasurements(
     .where('measurement.tenantId = :tenantId', { tenantId })
     .andWhere('jsonb_exists(measurement.parameters, :code)', { code })
     .getExists();
+}
+
+/**
+ * Whether changing a parameter's unit from `from` to `to` changes what its
+ * values mean — the one predicate the config update, the template overwrite
+ * and the bound-channel check share.
+ *
+ * Two spellings of one unit (`''` and `pH`, `mg/L CaCO₃` and `mg/L CaCO3`,
+ * `°C` and `℃`) are not a change: the registry maps both to the same
+ * conversion onto the parameter's quantity. A unit the registry cannot place
+ * for the quantity (or a parameter that records no quantity yet, among the
+ * quantities it may be declared as) is a change unless the strings are equal.
+ */
+export function unitMeaningChanged(
+  config: Pick<WaterQualityParameterConfig, 'code' | 'declaredQuantity'>,
+  from: string,
+  to: string,
+): boolean {
+  if (from.trim() === to.trim()) {
+    return false;
+  }
+  const quantity = parameterQuantity(config.code, config.declaredQuantity);
+  const candidates = quantity !== null ? [quantity] : declarableQuantitiesOfParameter(config.code);
+  return !candidates.some((candidate) => {
+    const before = unitConversion(candidate, from);
+    const after = unitConversion(candidate, to);
+    return (
+      before !== null &&
+      after !== null &&
+      before.factor === after.factor &&
+      (before.offset ?? 0) === (after.offset ?? 0)
+    );
+  });
 }

@@ -1,6 +1,11 @@
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { measuredQuantity, type QuantityId, unitConversion } from '@aquaculture/shared-contracts';
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  measuredQuantity,
+  type QuantityId,
+  unitConversion,
+  PARAMETER_SOURCE_ERROR,
+} from '@aquaculture/shared-contracts';
+import { BadRequestException, ConflictException, HttpStatus } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 
 import type { AuditLogService } from '../../database/services/audit-log.service';
@@ -13,6 +18,7 @@ import { WaterQualityParameterConfig } from '../entities/water-quality-parameter
 
 import { auditQuantityChange } from './parameter-source-audit';
 import { liveChannelSourceCount, lockParameterConfig } from './parameter-sources';
+import { ParameterSourceError } from '../../common/errors/farm-errors';
 
 /**
  * The one writer of a parameter's declared quantity (FARM-MEDIUM-374), shared
@@ -63,7 +69,9 @@ export async function writeDeclaredQuantity(
     }
   }
   if ((await liveChannelSourceCount(manager, tenantId, config.id)) > 0) {
-    throw new ConflictException(
+    throw new ParameterSourceError(
+      PARAMETER_SOURCE_ERROR.PARAMETER_BOUND,
+      HttpStatus.CONFLICT,
       'A sensor channel is bound to this parameter; unbind it before changing what it records',
     );
   }

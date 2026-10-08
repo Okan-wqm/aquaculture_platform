@@ -4389,7 +4389,6 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "judge" and args.judge_command == "replay":
         from .judge_calibration import score_judges
         from .judge_replay import REPLAY_GROUP_PREFIX, replay_judges_on_goldset
-        from .tool_registry import list_tools
 
         if args.tool_id:
             tool_ids = [args.tool_id]

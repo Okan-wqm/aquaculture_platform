@@ -353,6 +353,18 @@ class OrphanReapSettles(_ImplementationRequested):
         self.assertTrue(failure_is_lane_fault({"event_type": "implementation_rejected", "payload": payload},
                                               waited_since=None, at=None, clock=None))
 
+    def test_a_request_claimed_at_the_reap_is_named_in_flight_not_unclaimed(self) -> None:
+        # Final review R2 — a claim row carries no reason; the reap of a held
+        # request was labelled `unclaimed`.
+        from aria_kernel.agent_invocations import claim_request
+        from tests._helpers.operator_acts import operator_set_profile
+
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
+        claim_request(request_id=self.request_id, agent_id="executor-test", base_dir=self.tools)
+        self.assertEqual(settle_orphaned_plan(plan_id="plan-1", base_dir=self.tools)["status"], SETTLED)
+        payload = self.last_rejection()
+        self.assertEqual((payload["fault_domain"], payload["cause"]), ("unclassified", "claimed_in_flight"))
+
     def test_an_executor_that_settled_first_leaves_the_reap_already_settled(self) -> None:
         settle_agent_refusal(request_id=self.request_id, reason_class="safety", base_dir=self.tools)
         self.assertEqual(settle_orphaned_plan(plan_id="plan-1", base_dir=self.tools)["status"], ALREADY_SETTLED)

@@ -139,7 +139,12 @@ _FAILED_PLAN_EVENTS = frozenset({"implementation_rejected", "plan_abandoned"})
 # each time. The SECOND consecutive such ending of one subject is evidence
 # about the subject: it cools off like a failure (`SUBJECT_COOL_OFF`, cause
 # `repeated_unverified_failure`), disclosed by the guard's own refusal row.
-UNVERIFIED_FAULT_DOMAINS = frozenset({"harness", "unclassified"})
+# Only `unclassified` counts (final review R1): a `harness` ending is the
+# lane's by the kernel's own verdict (a refused push, a reap while the
+# request waited on the lane) and never cools a subject off, alone or in a
+# streak. It is transparent to the streak: it neither extends nor breaks it.
+# The cool-off is time-based (`cool_off_days`), like every other cool-off.
+UNVERIFIED_FAULT_DOMAINS = frozenset({"unclassified"})
 UNVERIFIED_FAILURE_STREAK = 2
 
 
@@ -156,8 +161,8 @@ class PlanRecord:
     merge_sha: str | None = None
     failed_at: datetime | None = None
     # ARIA-HIGH-388 — the plan's implementation ended with a SETTLED fault the
-    # kernel could not attribute to the work (`harness`, `unclassified`): not a
-    # failure of the finding, but counted (`UNVERIFIED_FAILURE_STREAK`).
+    # kernel could not attribute at all (`unclassified`): not a failure of the
+    # finding, but counted (`UNVERIFIED_FAILURE_STREAK`).
     unverified_failed_at: datetime | None = None
 
     @property

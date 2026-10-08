@@ -285,11 +285,22 @@ class CycleDetectionTests(_LoopFixture):
         self.plan("plan-u1", "F-076", started=_ago(days=4))
         self._unverified_rejection("plan-u1", _ago(days=3))
         self.plan("plan-u2", "F-076", started=_ago(days=2))
-        self._unverified_rejection("plan-u2", _ago(days=1), domain="harness")
+        self._unverified_rejection("plan-u2", _ago(days=1))
         self.assertIsNone(self.synthesize("cyc-u2"))
         self.assertEqual(self.skips("cyc-u2"), [("F-076", fg.SUBJECT_COOL_OFF)])
         detail = self.skip_detail("F-076")["loop_guard"]
         self.assertEqual((detail["cause"], detail["plans"]), ("repeated_unverified_failure", ["plan-u1", "plan-u2"]))
+
+    def test_harness_endings_never_cool_the_subject_off(self) -> None:
+        # Final review R1 — a `harness` ending is the lane's by the kernel's
+        # own verdict (two refused pushes, two reaps while the request waited
+        # on the delivery authority): never a streak.
+        self.finding("F-078", GROUNDED_FILE)
+        self.plan("plan-h1", "F-078", started=_ago(days=4))
+        self._unverified_rejection("plan-h1", _ago(days=3), domain="harness")
+        self.plan("plan-h2", "F-078", started=_ago(days=2))
+        self._unverified_rejection("plan-h2", _ago(days=1), domain="harness")
+        self.assertEqual(self.selected(self.synthesize("cyc-h2")), ("f_finding", "F-078"))
 
     def test_a_merge_between_unverified_endings_breaks_the_streak(self) -> None:
         self.finding("F-077", GROUNDED_FILE)

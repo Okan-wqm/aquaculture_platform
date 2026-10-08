@@ -30,6 +30,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.cross_review_bridge import issue_implementation_envelope
+from aria_kernel.request_admission import admit_request
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.production_shaped import production_converged_plan
 
@@ -167,6 +168,7 @@ class ImplementationEnvelopeIdsTests(unittest.TestCase):
             "base_sha": "0" * 40,
             "base_dir": self.tools,
             "cycle_id": "cycle-727",
+            "admission": admit_request("implementer.converged_plan", "implementation", base_dir=self.tools),
         }
         kwargs.update(overrides)
         return issue_implementation_envelope(**kwargs)

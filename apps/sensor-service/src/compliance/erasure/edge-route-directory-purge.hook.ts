@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 
 import type { TenantErasurePostErasureHook } from '@aquaculture/backend-common/compliance';
+import { SENSOR_SOURCE_SCHEMA } from '@aquaculture/backend-common/database';
 import type { TenantErasureRequestedEvent } from '@platform/event-contracts';
 
 /**
@@ -33,7 +34,7 @@ export class EdgeRouteDirectoryPurgeHook implements TenantErasurePostErasureHook
     let total = 0;
     for (const table of ROUTE_TABLES) {
       const result: unknown = await manager.query(
-        `DELETE FROM "sensor"."${table}" WHERE "tenant_id" = $1`,
+        `DELETE FROM "${SENSOR_SOURCE_SCHEMA}"."${table}" WHERE "tenant_id" = $1`,
         [event.tenantId],
       );
       const deleted = Array.isArray(result) ? Number(result[1] ?? 0) : 0;

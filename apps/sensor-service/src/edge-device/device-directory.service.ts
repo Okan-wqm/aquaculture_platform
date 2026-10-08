@@ -1,6 +1,7 @@
 import {
   runInSourceRead,
   runInTenantRead,
+  SENSOR_SOURCE_SCHEMA,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
 import { Injectable } from '@nestjs/common';
@@ -67,7 +68,7 @@ export class DeviceDirectoryService {
     // plain pooled read runs with no tenant and bypass 'off', so it matched
     // nothing and every edge device was refused. runInSourceRead is the
     // sanctioned, transaction-local cross-tenant read of a source-schema table.
-    const rows = (await runInSourceRead(this.dataSource, 'sensor', (qr) =>
+    const rows = (await runInSourceRead(this.dataSource, SENSOR_SOURCE_SCHEMA, (qr) =>
       qr.query(`SELECT tenant_id FROM edge_device_directory WHERE "${dirColumn}" = $1 LIMIT 1`, [
         value,
       ]),
@@ -89,7 +90,7 @@ export class DeviceDirectoryService {
       return null;
     }
     const property = DeviceDirectoryService.ENTITY_PROPERTY[column];
-    return runInTenantRead(this.dataSource, 'sensor', tenantId, (qr) =>
+    return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
       tenantManagerRepo(qr.manager, EdgeDevice).findOne({ where: { [property]: value } }),
     );
   }
@@ -124,7 +125,7 @@ export class DeviceDirectoryService {
    */
   private async upsert(entry: DeviceDirectoryEntry, manager: EntityManager): Promise<void> {
     await manager.query(
-      `INSERT INTO sensor.edge_device_directory
+      `INSERT INTO "${SENSOR_SOURCE_SCHEMA}".edge_device_directory
          (device_id, device_code, mqtt_client_id, tenant_id, updated_at)
        VALUES ($1, $2, $3, $4, now())
        ON CONFLICT (device_id) DO UPDATE SET

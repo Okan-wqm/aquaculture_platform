@@ -408,9 +408,24 @@ def _run_judge_batch(
             call_failure = "output_budget_exhausted" if completed.finish_reason == "length" else f"http_{completed.http_status}"
         elif completed.usage is None:
             call_failure = "usage_unavailable"
+        if call_failure is None:
+            # ARIA-HIGH-366 (PR #1835 review MEDIUM-2) — this lane cools Z.ai
+            # on an exhaustion, so its served call is restore evidence too:
+            # without it a Z.ai outage this lane opened stayed open until
+            # some other lane happened to spawn Z.ai.
+            from aria_kernel.provider_outage_ledger import record_provider_restored
+
+            record_provider_restored(tools_dir, provider=route["provider"], seam="judge_batch", request_id=batch_id)
     except ZaiTransportUnavailable as exc:
         call_failure = "transport_unavailable"
         sys.stderr.write(f"zai_transport_unavailable: {exc}\n")
+        # The same `unreachable` fact the single-request Z.ai lane records.
+        from aria_kernel.provider_cooldown import record_provider_cooldown
+        record_provider_cooldown(
+            tools_dir, provider=route["provider"], model=route["model"],
+            cooldown_seconds=policy.provider_cooldown_seconds, request_id=batch_id, claim_id=batch_id,
+            detection={"signature": "zai_unreachable", "marker": str(exc)},
+        )
 
     payload_hash = ("sha256:" + hashlib.sha256(completed.raw_body).hexdigest()) if completed is not None else None
     parsed = None

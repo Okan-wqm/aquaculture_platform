@@ -46,30 +46,22 @@ import time
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
 
-from .agent_invocations import accepted_result_for_request
 from .bridge_exceptions import BridgeContractViolation
 from .convergent_planning_bridge import (
     issue_challenger_envelope,
     start_convergent_plan_drafted_by_primary,
 )
 from .cross_review_bridge import (
-    CROSS_REVIEW_ROLE as CROSS_REVIEW_TARGET_AND_ROLE,
     issue_completeness_critic_envelope,
     issue_cross_review_envelope,
     issue_primary_envelope,
 )
-from .independence_check import (
-    CHALLENGER_ROLE as IND_CHALLENGER_ROLE,
-    CROSS_REVIEW_ROLE as IND_CROSS_REVIEW_ROLE,
-    PRIMARY_ROLE as IND_PRIMARY_ROLE,
-    IndependenceInputError,
-    RoundDispatch,
-    verify_independence,
-)
-from .ledger import load_declared_jsonl, load_segments
+from .ledger import load_declared_jsonl
 from .must_satisfy import architecture_spine_obligation, coverage_gap_obligation, plan_contract_obligation
 from .plan_convergence import (
+    CROSS_REVIEW_SELF_AGREEMENT_REASON,
     TERMINAL_STATES,
+    independence_violations,
     converged_plan_body,
     force_plan_human_required,
     _plan_requires_coverage,
@@ -85,6 +77,13 @@ from .plan_coverage import (
     parse_critic_adjudication,
 )
 from .plan_round_scope import plan_round_contract
+# ARIA-HIGH-375 — moved with the independence verdict that reads them; the
+# drainer's names stay bound for its callers.
+from .round_independence import accepted_output_text as _accepted_output_text
+from .round_independence import plan_texts_from_state
+from .round_independence import requests_for_step as _requests_for_step
+from .request_admission import Admission, admit_request
+from .step_request import StepRequestDisposition, step_request_disposition
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 # Plan ARIA-V10.4 Phase 3.H.2 — the convergence drainer mints
@@ -113,6 +112,14 @@ _ROUND_N_ENVELOPES: tuple[str, ...] = ("primary_revision", "challenger", "cross_
 # indicate the convergence loop must iterate. Imported here as a
 # string literal so we do not redefine the engine's own enum.
 _NEXT_ROUND_REQUIRED = "NEXT_ROUND_REQUIRED"
+
+# ARIA-HIGH-368 — the round cap EVERY autonomous advance of a plan runs
+# under: the nightly `autonomy run` (its `--max-rounds` default) and the
+# executor's in-run advance (`executor_convergence`). `evaluate_plan` turns
+# round == max_rounds with blockers into HUMAN_REQUIRED, so two advancers
+# with two caps would give one plan two terminal rules depending on which
+# job happened to evaluate it. One constant, read by both, closes that.
+AUTONOMY_CYCLE_MAX_ROUNDS: int = 2
 
 # Plan ARIA-V5 §3c v2 — reason codes mapped onto arbiter_verdict.
 # See ``_derive_arbiter_verdict`` for the full mapping table.
@@ -151,6 +158,9 @@ class ConvergenceResult(TypedDict):
         # convergence is advancing across cycles; the orchestrator
         # skips implementation this cycle and resumes next cycle.
         "in_progress",
+        # ARIA-HIGH-364 — the door refused to START this plan this cycle
+        # (request_admission); nothing was started or minted.
+        "request_admission_throttled",
     ]
     unsatisfied_items: list[dict[str, Any]]
     request_ids: list[str]
@@ -228,6 +238,9 @@ def _derive_arbiter_verdict(
         _verdict, _branch = "converged", "terminal_state=CONVERGED"
     elif terminal_state == "ABANDONED" and _REASON_ARIA_STOP in reasons:
         _verdict, _branch = "aria_stop_interrupted", "ABANDONED+aria_stop"
+    elif terminal_state == "HUMAN_REQUIRED" and CROSS_REVIEW_SELF_AGREEMENT_REASON in reasons:
+        # ARIA-HIGH-375 — the independence gate ended the round.
+        _verdict, _branch = "cross_review_self_agreement", "HUMAN_REQUIRED+self_agreement"
     elif terminal_state == "HUMAN_REQUIRED" and _REASON_MAX_ROUNDS in reasons:
         _verdict, _branch = "max_rounds", "HUMAN_REQUIRED+max_rounds"
     elif terminal_state == "HUMAN_REQUIRED" and any(
@@ -279,6 +292,38 @@ _LAST_VERDICT_PROVENANCE: dict[str, Any] = {
     "branch": None,
     "verdict": None,
 }
+
+
+def _seed_producer(plan_seed: dict[str, Any]) -> str:
+    """ARIA-HIGH-364 — who asks to start this plan: an operator-signed request or ARIA.
+
+    The synthesizer stamps an operator-feedback plan's provenance with the
+    signed row it came from (``operator_feedback_ingestion.PROVENANCE_REF_PREFIX``,
+    verified at ingestion, ADR-0018); every other seed is ARIA's own.
+    """
+    from .operator_feedback_ingestion import PROVENANCE_REF_PREFIX
+
+    refs = plan_seed.get("provenance_refs") if isinstance(plan_seed, dict) else None
+    operator = isinstance(refs, list) and any(
+        isinstance(ref, str) and ref.startswith(PROVENANCE_REF_PREFIX) for ref in refs
+    )
+    return "convergence_drainer.operator_plan_seed" if operator else "convergence_drainer.plan_seed"
+
+
+def seed_admission(
+    *, plan_id: str, plan_seed: dict[str, Any], base_dir: str | Path, cycle_id: str,
+) -> Admission | None:
+    """ARIA-HIGH-364 — the door's decision on STARTING ``plan_id``, or None when it already exists.
+
+    One function for both askers: the drainer before it starts the plan, and
+    the orchestrator before it books the plan as minted (re-review of #1833,
+    MEDIUM-B), so a refused seed is never counted as minted and rejected. An
+    admitted decision writes nothing; the round-1 challenger the drainer then
+    mints consumes it.
+    """
+    if fold_plan_state(plan_id=plan_id, base_dir=base_dir).get("state") is not None:
+        return None
+    return admit_request(_seed_producer(plan_seed), _STEP_ROLE_CHALLENGER, base_dir=base_dir, cycle_id=cycle_id)
 
 
 def _persistence_path(root: Path, plan_id: str) -> Path:
@@ -394,50 +439,6 @@ def _structured_revision_content(state: dict[str, Any]) -> dict[str, Any] | None
     return None
 
 
-def _accepted_output_text(
-    *, request_id: str, role: str, base_dir: str | Path
-) -> str | None:
-    """The text an agent actually produced, or ``None`` if unreadable.
-
-    ORPHAN-CRITICAL-446 — the independence gate compares what the
-    primary, the challenger and the cross-reviewer WROTE. Reading that
-    text needs the accepted result row, because the row is the only
-    evidence the agent delivered at all: ``accepted_result_for_request``
-    rejects a claim with no result, a rejection, and a HUMAN_REQUIRED
-    escalation, which is exactly the distinction ORPHAN-HIGH-422
-    established.
-
-    Every failure returns ``None`` rather than an empty string. The two
-    are not interchangeable here: :class:`RoundDispatch` treats ``None``
-    as "no text to compare" and the diversity layer fails closed on it,
-    whereas an empty string would score as maximally diverse against
-    anything and pass.
-    """
-    if not request_id:
-        return None
-    try:
-        accepted = accepted_result_for_request(
-            request_id=request_id, role=role, base_dir=base_dir,
-        )
-    except Exception:
-        return None
-    if not accepted:
-        return None
-    output_path = accepted.get("output_path")
-    if not isinstance(output_path, str) or not output_path:
-        return None
-    from .agent_invocations import resolve_output_artifact_path
-
-    path = resolve_output_artifact_path(ensure_tools_dir(base_dir), output_path)
-    if not path.exists():
-        return None
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-    return text or None
-
-
 # CL-1 (ORPHAN-725) — resumable, wait-free convergence.
 #
 # WHY this body replaced the round loop: convergence used to run as a
@@ -470,66 +471,17 @@ _STEP_ROLE_CROSS_REVIEW = "cross_review"
 _STEP_ROLE_CRITIC = "completeness_critique"
 
 
-def _requests_for_step(
-    base_dir: str | Path,
-    *,
-    convergence_id: str,
-    role: str,
-    round_number: int,
-) -> list[dict[str, Any]]:
-    """Every minted request for one (plan, role, round) — the remint budget's
-    denominator and the idempotent-mint guard's haystack."""
-    rows = load_segments(ensure_tools_dir(base_dir), "agent_invocation_requests")
-    return [
-        row
-        for row in rows
-        if row.get("convergence_id") == convergence_id
-        and row.get("role") == role
-        and row.get("round_number") == round_number
-    ]
-
-
-def _live_request_id(
-    base_dir: str | Path,
-    *,
-    convergence_id: str,
-    role: str,
-    round_number: int,
-) -> str | None:
-    """A request the executor can still deliver.
-
-    Pending, claimed, requeued — and STALE: a claim whose lease expired
-    without a result is the reaper's to requeue (or to escalate once the
-    requeue budget is spent), not the drainer's to bury. Trial nine
-    (2026-09-12, ARIA-HIGH-086): the hook claimed the round-3 cross-review
-    and its spawn died before the executor started; the lease expired; the
-    next drainer step ran before the reaper, saw STALE, raised
-    _EnvelopeDead and forced the plan to HUMAN_REQUIRED for a harness fault
-    the reaper would have requeued for free.
-    """
-    from .agent_invocations import derive_request_state
-
-    for row in _requests_for_step(
-        base_dir, convergence_id=convergence_id, role=role, round_number=round_number,
-    ):
-        request_id = str(row.get("request_id") or "")
-        if not request_id:
-            continue
-        try:
-            state = derive_request_state(request_id=request_id, base_dir=base_dir)
-        except Exception:
-            continue
-        if state in {"PENDING", "CLAIMED", "REQUEUED", "STALE"}:
-            return request_id
-    return None
-
-
 class _EnvelopeDead(Exception):
-    """Raised when a step's envelope died at the request layer."""
+    """Raised when a step can neither wait for nor replace its request.
 
-    def __init__(self, role: str) -> None:
+    ``disposition`` says which (``step_request.StepRequestDisposition``): an
+    outcome no successor can change, or a successor budget already spent.
+    """
+
+    def __init__(self, role: str, disposition: StepRequestDisposition | None = None) -> None:
         super().__init__(role)
         self.role = role
+        self.disposition = disposition
 
 
 def run_convergence_drainer(
@@ -649,136 +601,67 @@ def run_convergence_drainer(
             },
         )
 
-    def _ensure_envelope(role: str, round_n: int, mint: Any) -> str | None:
-        """Idempotent envelope guarantee for one step.
+    def _step_disposition(role: str, round_n: int) -> StepRequestDisposition:
+        return step_request_disposition(
+            _requests_for_step(base_dir, convergence_id=convergence_id, role=role, round_number=round_n),
+            role=role, base_dir=base_dir,
+        )
 
-        Returns the live request id (existing or freshly minted). Raises
-        _EnvelopeDead when a prior request exists but is no longer
-        deliverable — its Y1 request-layer budget is already spent, and
-        the idempotent bridge mint could only fold back onto it.
-        """
-        live = _live_request_id(
-            base_dir, convergence_id=convergence_id, role=role, round_number=round_n,
+    def _mint_step(role: str, round_n: int, mint: Any, remint_of: str | None,
+                   disposition: StepRequestDisposition | None = None,
+                   admission: Admission | None = None) -> str | None:
+        # ARIA-HIGH-364 — every envelope of a started plan is a step of work
+        # in flight: critical path, admitted and recorded, never throttled
+        # (throttling it would stall the plan that drains the backlog). The
+        # only other ticket is the seed's, decided before the plan started.
+        ticket = admission or admit_request(
+            "convergence_drainer.plan_step", role, base_dir=root, cycle_id=cycle_id,
         )
-        if live:
-            return live
-        prior = _requests_for_step(
-            base_dir, convergence_id=convergence_id, role=role, round_number=round_n,
-        )
-        if prior:
-            raise _EnvelopeDead(role)
-        request = mint()
+        request = mint(remint_of, ticket)
         request_id = request.get("request_id")
         if request_id:
             request_ids.append(str(request_id))
+        if remint_of is not None and disposition is not None:
+            append_tools_governance(
+                root,
+                "convergence_envelope_reminted",
+                {
+                    "plan_id": plan_id,
+                    "cycle_id": cycle_id,
+                    "round_number": round_n,
+                    "role": role,
+                    "remint_of": remint_of,
+                    "remint_of_state": disposition.state,
+                    "request_id": request_id,
+                    "remints_so_far": disposition.remints_so_far + 1,
+                },
+            )
         return str(request_id) if request_id else None
+
+    def _ensure_envelope(role: str, round_n: int, mint: Any | None,
+                         seed_admission: Admission | None = None) -> str | None:
+        """Idempotent envelope guarantee for one step (``step_request``).
+
+        Returns the live request id, or a freshly minted one: the first, or a
+        successor of a request that died of queue mechanics or whose answer
+        was refused (ARIA-HIGH-355), within the step's successor budget.
+        ``mint(remint_of)`` builds the envelope; ``None`` means this state
+        cannot rebuild it. Raises _EnvelopeDead for an outcome no successor
+        can change, or once the budget is spent.
+        """
+        disposition = _step_disposition(role, round_n)
+        if disposition.kind == "live":
+            return disposition.request_id
+        if disposition.kind == "absent" and mint is not None:
+            return _mint_step(role, round_n, mint, None, admission=seed_admission)
+        if disposition.kind == "remint" and mint is not None:
+            return _mint_step(role, round_n, mint, disposition.request_id, disposition)
+        raise _EnvelopeDead(role, disposition)
 
     def _plan_texts_from_state(cur: dict[str, Any]) -> tuple[str, bool, str, str, bool]:
         """(primary_text, primary_real, challenger_revision_id,
         challenger_text, challenger_real) — from kernel state only."""
-        import json as _json
-        from .plan_convergence import plan_body_from_state, _coerce_plan_body
-
-        primary_text = ""
-        try:
-            body = plan_body_from_state(cur)
-        except GovernanceError:
-            # The native revision owner also accepts legacy prose. Preserve
-            # that latest text without inventing a structured body or using
-            # an old seed. Structured selection belongs to the hash owner.
-            latest = cur.get("latest_revision") or {}
-            prose = latest.get("content")
-            if isinstance(prose, str) and prose.strip() and _coerce_plan_body(prose) is None:
-                primary_text = prose
-        else:
-            primary_text = _json.dumps(body["plan_content"], indent=2, sort_keys=True)
-        primary_real = bool(primary_text) and primary_text.strip() not in {"", "{}", "null"}
-
-        challenger = cur.get("challenger") or {}
-        challenger_revision_id = f"{plan_id}-c{current_round}"
-        challenger_text = ""
-        if isinstance(challenger, dict):
-            rid = challenger.get("challenger_revision_id")
-            if isinstance(rid, str) and rid:
-                challenger_revision_id = rid
-            content = challenger.get("plan_content")
-            if isinstance(content, dict):
-                challenger_text = _json.dumps(content, indent=2, sort_keys=True)
-        challenger_real = bool(challenger_text)
-        if not challenger_text:
-            challenger_text = (
-                f"{{\"error\": \"challenger plan_content unavailable in plan state for "
-                f"plan_id={plan_id} revision_id={challenger_revision_id}\"}}"
-            )
-        if not primary_real:
-            primary_text = (
-                f"{{\"error\": \"primary plan content unavailable in plan state for "
-                f"plan_id={plan_id}\"}}"
-            )
-        return primary_text, primary_real, challenger_revision_id, challenger_text, challenger_real
-
-    def _store_round_dispatches(round_n: int) -> dict[str, RoundDispatch]:
-        """ORPHAN-HIGH-421 faithful rebuild — keyed store lookup per role,
-        never positional. Built only at CONVERGED time."""
-        cur = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-        primary_text, primary_real, challenger_rid, challenger_text, challenger_real = (
-            _plan_texts_from_state(cur)
-        )
-        out: dict[str, RoundDispatch] = {}
-
-        def _latest_request_id(role: str) -> str:
-            rows = _requests_for_step(
-                base_dir, convergence_id=convergence_id, role=role, round_number=round_n,
-            )
-            return str(rows[-1].get("request_id") or "") if rows else ""
-
-        def _put(ind_role: str, *, request_id: str, revision_id: str | None,
-                 agent_text: str | None) -> None:
-            try:
-                out[ind_role] = RoundDispatch(
-                    role=ind_role,
-                    request_id=request_id or None,
-                    revision_id=revision_id,
-                    agent_text=agent_text,
-                )
-            except IndependenceInputError as exc:
-                append_tools_governance(
-                    root,
-                    "round_dispatch_record_refused",
-                    {"plan_id": plan_id, "cycle_id": cycle_id,
-                     "round_number": round_n, "role": ind_role, "reason": str(exc)},
-                )
-
-        primary_revision_id = f"{plan_id}-r{round_n}"
-        latest = cur.get("latest_revision") or {}
-        if isinstance(latest, dict) and isinstance(latest.get("revision_id"), str):
-            primary_revision_id = latest["revision_id"] if round_n > 1 else f"{plan_id}-r1"
-        _put(
-            IND_PRIMARY_ROLE,
-            request_id=_latest_request_id(_STEP_ROLE_PRIMARY),
-            revision_id=primary_revision_id,
-            agent_text=primary_text if primary_real else None,
-        )
-        _put(
-            IND_CHALLENGER_ROLE,
-            request_id=_latest_request_id(_STEP_ROLE_CHALLENGER),
-            revision_id=challenger_rid,
-            agent_text=challenger_text if challenger_real else None,
-        )
-        cross_review_request_id = _latest_request_id(_STEP_ROLE_CROSS_REVIEW)
-        _put(
-            IND_CROSS_REVIEW_ROLE,
-            request_id=cross_review_request_id,
-            revision_id=None,
-            # ORPHAN-CRITICAL-446 — the reviewer's REAL accepted output, or
-            # None so the gate says self_agreement instead of assuming.
-            agent_text=_accepted_output_text(
-                request_id=cross_review_request_id,
-                role=CROSS_REVIEW_TARGET_AND_ROLE[1],
-                base_dir=base_dir,
-            ) if cross_review_request_id else None,
-        )
-        return out
+        return plan_texts_from_state(cur, plan_id=plan_id, round_number=current_round)
 
     def _read_critic_result_once(request_id: str) -> dict[str, Any] | None:
         """Single non-blocking pass over the results ledger (the executor
@@ -875,32 +758,47 @@ def run_convergence_drainer(
                         if manifest_file.exists()
                         else "(closure manifest unavailable)"
                     )
-                    critic_request_id = _ensure_envelope(
-                        _STEP_ROLE_CRITIC,
-                        round_n,
-                        lambda: issue_completeness_critic_envelope(
+                    def mint_critic(remint_of: str | None, admission: Admission) -> dict[str, Any]:
+                        return issue_completeness_critic_envelope(
                             plan_id=plan_id,
                             round_number=round_n,
                             closure_manifest_text=manifest_text,
                             closure_manifest_hash=str(payload.get("closure_manifest_hash")),
                             waivers=list(payload.get("waived", [])),
-                            evidence_refs=[str(payload.get("closure_manifest_path")), *current_refs],
+                            closure_manifest_path=str(payload.get("closure_manifest_path")),
+                            evidence_refs=list(current_refs),
                             allowed_scope=allowed_scope,
                             base_dir=base_dir,
                             target_sha=target_sha,
-                        ),
-                    )
-                    adjudication = (
-                        _read_critic_result_once(critic_request_id)
-                        if critic_request_id
-                        else None
-                    )
-                    if adjudication is None and critic_request_id and _live_request_id(
-                        base_dir, convergence_id=convergence_id,
-                        role=_STEP_ROLE_CRITIC, round_number=round_n,
-                    ):
+                            remint_of=remint_of,
+                            admission=admission,
+                        )
+
+                    # ARIA-HIGH-355 — the critic is annotation-only: its
+                    # answer is READ here, never bridged into plan state, so
+                    # an answered critic is the normal case, not a dead
+                    # envelope. A refused or dead request gets a successor
+                    # within the step's budget; past it, the waivers stay
+                    # unadjudicated and fail closed to gaps (the
+                    # `adjudicate_waivers` contract), which the round's
+                    # revision then answers.
+                    disposition = _step_disposition(_STEP_ROLE_CRITIC, round_n)
+                    if disposition.kind in {"absent", "remint"}:
+                        remint_of = disposition.request_id if disposition.kind == "remint" else None
+                        critic_request_id = _mint_step(
+                            _STEP_ROLE_CRITIC, round_n, mint_critic, remint_of, disposition,
+                        )
                         _advanced("await_completeness_critic", critic_request_id, round_n)
                         return "waiting"
+                    critic_request_id = disposition.request_id
+                    if disposition.kind == "live":
+                        _advanced("await_completeness_critic", critic_request_id, round_n)
+                        return "waiting"
+                    adjudication = (
+                        _read_critic_result_once(critic_request_id)
+                        if critic_request_id and disposition.state == "ACCEPTED"
+                        else None
+                    )
                     payload = adjudicate_waivers(
                         payload=payload,
                         adjudication=adjudication,
@@ -915,6 +813,8 @@ def run_convergence_drainer(
                             "cycle_id": cycle_id,
                             "round_number": round_n,
                             "critic_request_id": critic_request_id,
+                            "critic_request_state": disposition.state,
+                            "critic_disposition": disposition.kind,
                             **(payload.get("witness") or {}).get("waiver_adjudication", {}),
                             "verdict_after": payload.get("verdict"),
                         },
@@ -942,6 +842,22 @@ def run_convergence_drainer(
             )
             return None
 
+    def _record_self_agreement(round_n: int, violation_reasons: list[str]) -> None:
+        try:
+            append_tools_governance(
+                root,
+                "convergence_invalid_self_agreement",
+                {
+                    "plan_id": plan_id,
+                    "cycle_id": cycle_id,
+                    "round_number": round_n,
+                    "violation_reasons": violation_reasons,
+                    "request_ids": request_ids,
+                },
+            )
+        except Exception:
+            pass
+
     def _terminal_result(cur: dict[str, Any], round_n: int) -> ConvergenceResult:
         terminal_state = cur.get("terminal_state") or cur.get("state")
         # Reasons live in the terminal plan_evaluated event's payload.
@@ -966,39 +882,6 @@ def run_convergence_drainer(
             )
         except Exception:
             pass
-        if arbiter_verdict == "converged":
-            dispatches = _store_round_dispatches(round_n)
-            missing = [
-                role
-                for role in (IND_PRIMARY_ROLE, IND_CHALLENGER_ROLE, IND_CROSS_REVIEW_ROLE)
-                if role not in dispatches
-            ]
-            if missing:
-                independence_ok = False
-                violation_reasons = [f"round_dispatch_missing:{role}" for role in missing]
-            else:
-                independence_ok, violation_reasons = verify_independence(
-                    primary=dispatches[IND_PRIMARY_ROLE],
-                    challenger=dispatches[IND_CHALLENGER_ROLE],
-                    cross_review=dispatches[IND_CROSS_REVIEW_ROLE],
-                    base_dir=base_dir,
-                )
-            if not independence_ok:
-                arbiter_verdict = "cross_review_self_agreement"
-                try:
-                    append_tools_governance(
-                        root,
-                        "convergence_invalid_self_agreement",
-                        {
-                            "plan_id": plan_id,
-                            "cycle_id": cycle_id,
-                            "round_number": round_n,
-                            "violation_reasons": violation_reasons,
-                            "request_ids": request_ids,
-                        },
-                    )
-                except Exception:
-                    pass
         # ORPHAN-CRITICAL-728 — the CONVERGED body comes from the ONE
         # producer that verifies it: `converged_plan_body` returns the
         # recorded body only when its content hash reproduces the
@@ -1034,6 +917,16 @@ def run_convergence_drainer(
             return _terminal_result(state, current_round)
 
         if plan_state is None:
+            # ARIA-HIGH-364 — starting a plan is new work: discretionary,
+            # decided BEFORE the plan exists so a throttled seed leaves no
+            # started plan behind (a started plan's rounds are critical path
+            # and would mint anyway). A seed from an operator-signed request
+            # is operator work and is never throttled. The synthesizer
+            # re-derives the candidate next cycle.
+            seed_ticket = seed_admission(plan_id=plan_id, plan_seed=plan_seed, base_dir=root, cycle_id=cycle_id)
+            if seed_ticket is not None and not seed_ticket.admitted:
+                _advanced(seed_ticket.refusal, None, 1)
+                return _result("request_admission_throttled", rounds=0)
             start_convergent_plan_drafted_by_primary(
                 plan_id=plan_id,
                 plan_content=plan_seed,
@@ -1049,7 +942,7 @@ def run_convergence_drainer(
             request_id = _ensure_envelope(
                 _STEP_ROLE_CHALLENGER,
                 1,
-                lambda: issue_challenger_envelope(
+                lambda remint_of, admission: issue_challenger_envelope(
                     plan_id=plan_id,
                     round_number=1,
                     must_satisfy=[*started_contract.must_satisfy, *coverage_carry, *spine_carry],
@@ -1061,7 +954,10 @@ def run_convergence_drainer(
                     target_sha=target_sha,
                     context_repo_root=workspace_root,
                     cycle_id=cycle_id,
+                    remint_of=remint_of,
+                    admission=admission,
                 ),
+                seed_admission=seed_ticket,
             )
             _advanced("plan_started_and_challenger_minted", request_id, 1)
             return _result("in_progress", rounds=1)
@@ -1071,7 +967,7 @@ def run_convergence_drainer(
             request_id = _ensure_envelope(
                 _STEP_ROLE_CHALLENGER,
                 current_round,
-                lambda: issue_challenger_envelope(
+                lambda remint_of, admission: issue_challenger_envelope(
                     plan_id=plan_id,
                     round_number=current_round,
                     must_satisfy=effective_must_satisfy,
@@ -1083,6 +979,8 @@ def run_convergence_drainer(
                     target_sha=target_sha,
                     context_repo_root=workspace_root,
                     cycle_id=cycle_id,
+                    remint_of=remint_of,
+                    admission=admission,
                 ),
             )
             _advanced("await_challenger", request_id, current_round)
@@ -1092,7 +990,7 @@ def run_convergence_drainer(
             request_id = _ensure_envelope(
                 _STEP_ROLE_CHALLENGER,
                 current_round,
-                lambda: issue_challenger_envelope(
+                lambda remint_of, admission: issue_challenger_envelope(
                     plan_id=plan_id,
                     round_number=current_round,
                     must_satisfy=effective_must_satisfy,
@@ -1104,6 +1002,8 @@ def run_convergence_drainer(
                     target_sha=target_sha,
                     context_repo_root=workspace_root,
                     cycle_id=cycle_id,
+                    remint_of=remint_of,
+                    admission=admission,
                 ),
             )
             _advanced("await_challenger_for_revision", request_id, current_round)
@@ -1123,7 +1023,7 @@ def run_convergence_drainer(
                 request_id = _ensure_envelope(
                     _STEP_ROLE_CROSS_REVIEW,
                     current_round,
-                    lambda: issue_cross_review_envelope(
+                    lambda remint_of, admission: issue_cross_review_envelope(
                         plan_id=plan_id,
                         round_number=current_round,
                         primary_revision_id=str(primary_revision_id),
@@ -1139,6 +1039,8 @@ def run_convergence_drainer(
                         target_sha=target_sha,
                         context_repo_root=workspace_root,
                         cycle_id=cycle_id,
+                        remint_of=remint_of,
+                        admission=admission,
                     ),
                 )
             except Exception as mint_exc:
@@ -1160,13 +1062,9 @@ def run_convergence_drainer(
 
         if plan_state == "CROSS_REVIEW_REQUESTED":
             # Envelope minted on an earlier cycle; executor owns delivery.
-            request_id = _ensure_envelope(
-                _STEP_ROLE_CROSS_REVIEW,
-                current_round,
-                lambda: (_ for _ in ()).throw(
-                    GovernanceError("cross_review re-mint requires CHALLENGER_DRAFTED texts")
-                ),
-            )
+            # The bridge recorded the review tasks, so the request was
+            # answered; a successor here would review a round already opened.
+            request_id = _ensure_envelope(_STEP_ROLE_CROSS_REVIEW, current_round, None)
             _advanced("await_cross_review", request_id, current_round)
             return _result("in_progress", rounds=current_round)
 
@@ -1174,6 +1072,10 @@ def run_convergence_drainer(
             waiting = _coverage_step(current_round)
             if waiting == "waiting":
                 return _result("in_progress", rounds=current_round)
+            # ARIA-HIGH-375 — independence is a gate OF the evaluation
+            # (`round_independence`, derived inside it), so a self-agreeing
+            # round is recorded HUMAN_REQUIRED in the one event and is never
+            # CONVERGED, never deliverable.
             eval_result = evaluate_plan(
                 plan_id=plan_id,
                 round_number=current_round,
@@ -1181,6 +1083,8 @@ def run_convergence_drainer(
                 max_rounds=max_rounds,
             )
             event_payload = eval_result.get("event", {}).get("payload", {})
+            if CROSS_REVIEW_SELF_AGREEMENT_REASON in (event_payload.get("reason_codes") or []):
+                _record_self_agreement(current_round, independence_violations(event_payload))
             terminal_state = event_payload.get("terminal_state")
             if terminal_state in TERMINAL_STATES:
                 return _terminal_result(
@@ -1228,7 +1132,7 @@ def run_convergence_drainer(
                 request_id = _ensure_envelope(
                     _STEP_ROLE_PRIMARY,
                     next_round,
-                    lambda: issue_primary_envelope(
+                    lambda remint_of, admission: issue_primary_envelope(
                         plan_id=plan_id,
                         round_number=next_round,
                         must_satisfy=[*base_ms, *coverage_carry, *spine_carry, *contract_carry],
@@ -1240,6 +1144,8 @@ def run_convergence_drainer(
                         target_sha=target_sha,
                         context_repo_root=workspace_root,
                         cycle_id=cycle_id,
+                        remint_of=remint_of,
+                        admission=admission,
                     ),
                 )
             except BridgeContractViolation:
@@ -1264,6 +1170,7 @@ def run_convergence_drainer(
             round_number=current_round,
             reason_codes=[f"convergence_envelope_dead:{dead.role}"],
             base_dir=base_dir,
+            forced_by="kernel:convergence_drainer",
         )
         append_tools_governance(
             root,
@@ -1273,6 +1180,12 @@ def run_convergence_drainer(
                 "cycle_id": cycle_id,
                 "round_number": current_round,
                 "role": dead.role,
+                **({
+                    "disposition": dead.disposition.kind,
+                    "request_id": dead.disposition.request_id,
+                    "request_state": dead.disposition.state,
+                    "remints_so_far": dead.disposition.remints_so_far,
+                } if dead.disposition is not None else {}),
             },
         )
         return _terminal_result(

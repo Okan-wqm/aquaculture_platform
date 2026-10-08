@@ -7,20 +7,15 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  applyTenantRlsToSchema,
-  getTenantSchemaName,
-  runInTenantTransaction,
-} from '@aquaculture/backend-common/database';
+import { getTenantSchemaName, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { collaborator, stub, stubMember } from '@aquaculture/testing';
-import {
-  bootPostgresContainer,
-  type HarnessContext,
-  shutdownHarness,
-} from '@platform/migration-harness';
-import { DataSource, type QueryRunner, type Repository } from 'typeorm';
+import { type DataSource, type QueryRunner, type Repository } from 'typeorm';
 
 import { CreateTenantProvisioningKeyDirectory1823000000000 } from '../../database/migrations/1823000000000-CreateTenantProvisioningKeyDirectory';
+import {
+  bootSensorRlsHarness,
+  type SensorRlsHarness,
+} from '../../__tests__/support/sensor-rls-postgres.harness';
 import { DeviceDirectoryService } from '../device-directory.service';
 import { DeviceEventService } from '../device-event.service';
 import type {
@@ -51,12 +46,11 @@ import { TenantKeyService } from '../tenant-key.service';
 
 const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-const RUNTIME_ROLE = 'sensor_key_route_rls_test';
 
 jest.setTimeout(240_000);
 
 describe('tenant-key self-register under FORCE RLS (SENSOR-HIGH-175)', () => {
-  let harness: HarnessContext | undefined;
+  let stage: SensorRlsHarness | undefined;
   let admin: DataSource | undefined;
   let runtime: DataSource | undefined;
   let tenantKeys: TenantKeyService;
@@ -115,82 +109,17 @@ describe('tenant-key self-register under FORCE RLS (SENSOR-HIGH-175)', () => {
   }
 
   beforeAll(async () => {
-    harness = await bootPostgresContainer({ startTimeoutMs: 120_000 });
-    admin = harness.dataSource;
-    const password = randomBytes(24).toString('hex');
-    await admin.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
-    await admin.query('CREATE SCHEMA sensor');
-    await admin.query(`CREATE ROLE ${RUNTIME_ROLE} LOGIN PASSWORD '${password}'`);
-
-    // Source pass: the device directory (as 1805 left it) and the new key
-    // directory created + armed by the migration under test.
-    const sensorDdl = new DataSource({
-      type: 'postgres',
-      ...harness.connectionOptions,
-      name: 'key-route-ddl-sensor',
-      entities: [EdgeDeviceDirectory],
-      synchronize: true,
-      logging: false,
+    stage = await bootSensorRlsHarness({
+      name: 'key_route',
+      tenants: [TENANT_A, TENANT_B],
+      entities: [EdgeDevice, TenantProvisioningKey],
+      sourceEntities: [EdgeDeviceDirectory, TenantProvisioningKeyDirectory],
     });
-    await sensorDdl.initialize();
-    await sensorDdl.destroy();
-    await withDdlAuthority(async () => {
-      await migrationPass(admin!, 'sensor');
-      const qr = admin!.createQueryRunner();
-      await applyTenantRlsToSchema(qr, {
-        schemaOverride: 'sensor',
-        includeTables: ['edge_device_directory'],
-      });
-      await qr.release();
-    });
-
-    for (const tenantId of [TENANT_A, TENANT_B]) {
-      const schema = getTenantSchemaName(tenantId);
-      await admin.query(`CREATE SCHEMA "${schema}"`);
-      const ddl = new DataSource({
-        type: 'postgres',
-        ...harness.connectionOptions,
-        name: `key-route-ddl-${schema}`,
-        schema,
-        entities: [EdgeDevice, TenantProvisioningKey],
-        synchronize: true,
-        logging: false,
-      });
-      await ddl.initialize();
-      await ddl.destroy();
-      await withDdlAuthority(async () => {
-        const qr = admin!.createQueryRunner();
-        await applyTenantRlsToSchema(qr, { schemaOverride: schema });
-        await qr.release();
-      });
-      await admin.query(`GRANT USAGE ON SCHEMA "${schema}" TO ${RUNTIME_ROLE}`);
-      await admin.query(
-        `GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA "${schema}" TO ${RUNTIME_ROLE}`,
-      );
-    }
-    await admin.query(`GRANT USAGE ON SCHEMA sensor, public TO ${RUNTIME_ROLE}`);
-    await admin.query(
-      `GRANT SELECT, INSERT, UPDATE, DELETE
-         ON sensor.edge_device_directory, sensor.tenant_provisioning_key_directory
-         TO ${RUNTIME_ROLE}`,
-    );
-
-    runtime = new DataSource({
-      type: 'postgres',
-      ...harness.connectionOptions,
-      username: RUNTIME_ROLE,
-      password,
-      name: `key-route-runtime-${randomBytes(4).toString('hex')}`,
-      entities: [
-        EdgeDevice,
-        EdgeDeviceDirectory,
-        TenantProvisioningKey,
-        TenantProvisioningKeyDirectory,
-      ],
-      synchronize: false,
-      logging: false,
-    });
-    await runtime.initialize();
+    admin = stage.admin;
+    runtime = stage.runtime;
+    // The migration's source pass on the provisioned table: re-arms the policy
+    // and indexes idempotently, as db-migrate would on a redeploy.
+    await withDdlAuthority(() => migrationPass(admin!, 'sensor'));
 
     const directory = new DeviceDirectoryService(runtime);
     const installer = collaborator<InstallerScriptService>(
@@ -237,8 +166,7 @@ describe('tenant-key self-register under FORCE RLS (SENSOR-HIGH-175)', () => {
   });
 
   afterAll(async () => {
-    if (runtime?.isInitialized) await runtime.destroy();
-    if (harness) await shutdownHarness(harness);
+    await stage?.shutdown();
   });
 
   it('self-registers a device into the key\'s tenant (was: every key "invalid")', async () => {

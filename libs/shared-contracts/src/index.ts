@@ -4,8 +4,9 @@
  * NARROW cross-stack constant library. This barrel hosts ONLY zero-dependency
  * values that must be byte-identical on BOTH the backend trust boundary and the
  * standalone aquamobil Vite/Rollup bundle (which cannot reach into the NestJS
- * lib graph). Today that is two things: the messaging media MIME allowlist and
- * the AI persona id grammar + catalogue.
+ * lib graph). Today that is: the messaging media MIME allowlist, the AI persona
+ * id grammar + catalogue, the design tokens, and the sensor-reading tier policy
+ * + time range.
  *
  * Domain ENUMS do NOT live here. @platform/event-contracts is the canonical SSoT
  * for cross-service domain enums (TenantStatus, TenantPlan, PlanTier,
@@ -103,3 +104,85 @@ export type {
   AiSpecialtyDefinition,
   AiPersonaCatalogueEntry,
 } from './ai/persona-catalogue';
+
+// ── Sensor-reading tier policy (SENSOR-MEDIUM-149) ──
+// How far back a reading may be asked for, which store answers it at what
+// width, and how long each store keeps it — read by the series queries, the
+// rollup DDL and the browser's range picker alike.
+export {
+  AGGREGATION_INTERVALS,
+  AGGREGATION_INTERVAL_SQL,
+  MAX_SERIES_RANGE_MS,
+  SERIES_QUERY_TIMEOUT,
+  AS_OF_LOOKBACK,
+  DISPLAY_INTERVAL_LADDER,
+  displayIntervalFor,
+  METRIC_TIERS,
+  metricTier,
+  tierForWindow,
+  MAX_POINTS_PER_CHANNEL,
+  planSeriesRead,
+} from './sensor-readings/tier-policy';
+export type {
+  PolicyDuration,
+  AggregationIntervalSql,
+  MetricTierName,
+  MetricTier,
+  SeriesReadPlan,
+  SeriesBucketZone,
+} from './sensor-readings/tier-policy';
+
+// ── Sensor-reading time range ──
+// Every preset duration any chart offers, the relative/absolute range shape,
+// its check against the tier policy's cap, and its URL form.
+export {
+  RELATIVE_TIME_RANGE_PRESETS,
+  presetDurationMs,
+  parsePresetKey,
+  SCADA_RANGE_TOKENS,
+  scadaRangePreset,
+  scadaRangeDurationMs,
+  MAX_TIME_RANGE_MS,
+  resolveTimeRange,
+  parseTimeRangeParams,
+  timeRangeToParams,
+} from './sensor-readings/time-range';
+export type {
+  RelativePresetKey,
+  ScadaRangeToken,
+  TimeRangeSpec,
+  TimeRangeError,
+  ResolvedTimeRange,
+  TimeRangeParams,
+  ParsedTimeRange,
+} from './sensor-readings/time-range';
+
+// ── Measured quantities ──
+// What a sensor channel measures, in which unit and on which basis, and which
+// device spellings name it — the vocabulary the reading event, the sensor
+// catalog and the farm water-quality templates derive from.
+export {
+  MEASURED_QUANTITIES,
+  QUANTITY_FAMILIES,
+  CHANNEL_KEYS,
+  measuredQuantity,
+  parseQuantityId,
+  channelKeyMeaning,
+  channelKeyUnit,
+  declarableQuantities,
+  effectiveQuantity,
+  readingParameterOfChannelKey,
+  isAcceptedUnit,
+  isLoopHomogeneous,
+  toCanonicalUnit,
+  unitConversion,
+} from './measurement/quantities';
+export type {
+  QuantityId,
+  MeasuredQuantity,
+  QuantityFamily,
+  ReadingParameter,
+  ChannelKeyMeaning,
+  KnownChannelKey,
+  UnitConversion,
+} from './measurement/quantities';

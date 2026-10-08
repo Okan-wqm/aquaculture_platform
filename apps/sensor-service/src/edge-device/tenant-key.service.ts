@@ -12,6 +12,7 @@ import {
   runInSourceRead,
   runInTenantRead,
   runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -70,7 +71,7 @@ export class TenantKeyService {
    * FORCE RLS, so no key was ever found.
    */
   private async findKeyByDigest(tokenHash: string): Promise<TenantProvisioningKey | null> {
-    const rows = (await runInSourceRead(this.dataSource, 'sensor', (qr) =>
+    const rows = (await runInSourceRead(this.dataSource, SENSOR_SOURCE_SCHEMA, (qr) =>
       qr.query(`SELECT tenant_id FROM tenant_provisioning_key_directory WHERE route_hash = $1`, [
         provisioningKeyRouteHash(tokenHash),
       ]),
@@ -79,7 +80,7 @@ export class TenantKeyService {
     if (route === undefined) {
       return null;
     }
-    return runInTenantRead(this.dataSource, 'sensor', route.tenant_id, (qr) =>
+    return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, route.tenant_id, (qr) =>
       tenantManagerRepo(qr.manager, TenantProvisioningKey).findOne({
         where: { keyToken: tokenHash },
       }),
@@ -127,15 +128,20 @@ export class TenantKeyService {
 
     // SENSOR-HIGH-175: the key row and its route commit in one tenant
     // transaction — the public endpoints find a key only through its route.
-    const saved = await runInTenantTransaction(this.dataSource, 'sensor', tenantId, async (qr) => {
-      const persisted = await tenantManagerRepo(qr.manager, TenantProvisioningKey).save(key);
-      await qr.manager.insert(TenantProvisioningKeyDirectory, {
-        routeHash: provisioningKeyRouteHash(persisted.keyToken),
-        keyId: persisted.id,
-        tenantId,
-      });
-      return persisted;
-    });
+    const saved = await runInTenantTransaction(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      tenantId,
+      async (qr) => {
+        const persisted = await tenantManagerRepo(qr.manager, TenantProvisioningKey).save(key);
+        await qr.manager.insert(TenantProvisioningKeyDirectory, {
+          routeHash: provisioningKeyRouteHash(persisted.keyToken),
+          keyId: persisted.id,
+          tenantId,
+        });
+        return persisted;
+      },
+    );
     this.logger.log(`Created tenant provisioning key ${saved.id} for tenant ${tenantId}`);
 
     // Surface the PLAINTEXT key exactly once. `saved.keyToken` is the digest at
@@ -160,7 +166,7 @@ export class TenantKeyService {
     // reported as revoked, not as unknown. No other writer touches keys:
     // creation (createTenantKey), revocation (here) and the used-count claim
     // (incrementUsedCount) are the whole set; expiry is decided at read time.
-    await runInTenantTransaction(this.dataSource, 'sensor', tenantId, async (qr) => {
+    await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, async (qr) => {
       const keys = tenantManagerRepo(qr.manager, TenantProvisioningKey);
       const key = await keys.findOne({ where: { id: keyId } });
       if (!key) {

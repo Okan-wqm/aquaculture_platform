@@ -28,9 +28,6 @@ export type { SearchableSelectProps } from './SearchableSelect';
 export { DatePicker } from './DatePicker';
 export type { DatePickerProps } from './DatePicker';
 
-export { DateRangePicker } from './DateRangePicker';
-export type { DateRangePickerProps, DateRange } from './DateRangePicker';
-
 // File Upload
 export { FileUpload } from './FileUpload';
 export type { FileUploadProps, UploadedFile } from './FileUpload';

@@ -2,6 +2,7 @@ import * as crypto from 'crypto';
 import {
   runInTenantRead,
   runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
 
@@ -162,7 +163,7 @@ export class ProvisioningService {
     // device without a route could never be resolved.
     let saved: EdgeDevice;
     try {
-      saved = await runInTenantTransaction(this.dataSource, 'sensor', tenantId, (qr) =>
+      saved = await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
         this.deviceDirectory.saveNewDevice(device, qr.manager),
       );
     } catch (error: any) {
@@ -390,7 +391,7 @@ export class ProvisioningService {
     // SENSOR-CRITICAL-143: a public endpoint has no request tenant. Pinning
     // search_path alone left the RLS tenant GUC unset, so under FORCE RLS this
     // UPDATE matched zero rows and activation silently did nothing.
-    return await runInTenantTransaction(this.dataSource, 'sensor', device.tenantId, async (qr) => {
+    return await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, device.tenantId, async (qr) => {
       const transactionalManager = qr.manager;
 
       // Update device
@@ -645,7 +646,7 @@ export class ProvisioningService {
 
     // Fingerprint duplicate check (with power-loss recovery - Fix 5)
     if (request.fingerprint.machineId) {
-      const existing = await runInTenantRead(this.dataSource, 'sensor', key.tenantId, async (qr) =>
+      const existing = await runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, key.tenantId, async (qr) =>
         tenantManagerRepo(qr.manager, EdgeDevice, key.tenantId)
           .createQueryBuilder('d')
           .andWhere("d.fingerprint->>'machineId' = :machineId", {
@@ -670,7 +671,7 @@ export class ProvisioningService {
           const { password: mqttPassword, hash: mqttPasswordHash } =
             await this.generateMqttCredentials();
           existing.mqttPasswordHash = mqttPasswordHash;
-          await runInTenantTransaction(this.dataSource, 'sensor', existing.tenantId, (qr) =>
+          await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, existing.tenantId, (qr) =>
             qr.manager.save(existing),
           );
           const mqttResult = await this.mqttAuthService.addDeviceCredentials(existing.mqttClientId ?? '', mqttPasswordHash);
@@ -715,7 +716,7 @@ export class ProvisioningService {
     // If device creation fails, the usedCount rollback happens automatically
     // SENSOR-CRITICAL-143: inside the key's tenant boundary — with search_path
     // alone the INSERT failed the FORCE RLS WITH CHECK (tenant GUC unset).
-    const saved = await runInTenantTransaction(this.dataSource, 'sensor', key.tenantId, async (qr) => {
+    const saved = await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, key.tenantId, async (qr) => {
       const transactionalManager = qr.manager;
 
       // Atomically check and increment used count BEFORE device creation (prevents TOCTOU race + orphans)

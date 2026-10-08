@@ -24,6 +24,7 @@ from aria_kernel.agent_invocations import (
 )
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.runtime_profile import set_profile
+from aria_kernel.request_admission import admit_request
 from tests._helpers.declared_fixtures import sha256_file
 
 
@@ -60,6 +61,7 @@ class ResultContentHashAliasTests(unittest.TestCase):
             evidence_refs=["docs/evidence.md"],
             target_sha=self.target_sha,
             base_dir=self.base,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.base),
         )
         self.claim = claim_request(
             request_id=self.req["request_id"],

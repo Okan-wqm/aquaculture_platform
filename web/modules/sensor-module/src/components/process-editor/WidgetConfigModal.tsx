@@ -10,11 +10,18 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Modal, Spinner, Button, Input } from '@aquaculture/shared-ui';
+import { parsePresetKey, type RelativePresetKey } from '@aquaculture/shared-contracts';
+import { Modal, Spinner, Button, Input, useTimeRangeLabels } from '@aquaculture/shared-ui';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { useDataChannelList, DataChannel } from '../../hooks/useDataChannelList';
-import { WIDGET_TYPES, TIME_RANGES, REFRESH_INTERVALS, WidgetType } from '../dashboard/types';
+import {
+  WIDGET_TYPES,
+  WIDGET_TIME_RANGE_PRESETS,
+  parseWidgetTimeRange,
+  REFRESH_INTERVALS,
+  WidgetType,
+} from '../dashboard/types';
 
 // Widget types suitable for the process editor (single data-channel visualizations).
 const PROCESS_WIDGET_TYPES = WIDGET_TYPES.filter(
@@ -49,7 +56,11 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(
     (data?.dataChannelId as string) || null,
   );
-  const [timeRange, setTimeRange] = useState((data?.timeRange as string) || 'live');
+  // Node data is untyped JSON: read the range through the shared parser.
+  const [timeRange, setTimeRange] = useState<RelativePresetKey>(
+    parseWidgetTimeRange(data?.timeRange),
+  );
+  const rangeLabels = useTimeRangeLabels();
   const [refreshInterval, setRefreshInterval] = useState(
     (data?.refreshInterval as number) || 10000,
   );
@@ -278,16 +289,19 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Time Range
+                {rangeLabels.label}
               </label>
               <select
                 value={timeRange}
-                onChange={(e) => setTimeRange(e.target.value)}
+                onChange={(e) => {
+                  const next = parsePresetKey(e.target.value);
+                  if (next !== null) setTimeRange(next);
+                }}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
               >
-                {TIME_RANGES.map((tr) => (
-                  <option key={tr.value} value={tr.value}>
-                    {tr.label}
+                {WIDGET_TIME_RANGE_PRESETS.map((preset) => (
+                  <option key={preset} value={preset}>
+                    {rangeLabels.preset(preset)}
                   </option>
                 ))}
               </select>

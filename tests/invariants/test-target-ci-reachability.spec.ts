@@ -42,6 +42,17 @@
  *      `rls.module.spec.ts` asserted a boot guard the code had stopped
  *      implementing.
  *
+ * A fourth instance, outside Nx entirely, was found on 2026-10-07:
+ *
+ *   4. Python test modules under `tools/aria-poc/` run only when a workflow
+ *      `unittest discover`s their directory, and the aria-kernel workflow
+ *      discovers `tools/aria-poc/invariants` alone. Four modules beside it —
+ *      `test_poc.py`, `test_adapter_failure_states.py`,
+ *      `test_adapter_scope_narrow.py`, `test_measure_watchdog_fp_rate.py` —
+ *      ran nowhere, and two `test_adapter_scope_narrow.py` pins had rotted:
+ *      they read the gitignored, runtime-compiled `aria-tools/registry.json`,
+ *      which no checkout has (ARIA-MEDIUM-377).
+ *
  * ## What is checked
  *
  * Every project target whose name is `test` or starts with `test:` must be
@@ -50,13 +61,18 @@
  * the repository must be owned by a project whose test target is itself
  * reachable — a config nothing can select is a suite nothing runs.
  *
+ * Every Python test module under the roots in PYTHON_TEST_ROOTS must sit where
+ * a workflow's `unittest discover` step collects it, and every directory a
+ * workflow discovers must exist and hold at least one module its pattern
+ * matches — the same two directions, for the suites Nx cannot see.
+ *
  * Watch-mode targets are exempt by name: their body is an interactive `vitest`
  * with no `run`, so invoking one in CI would hang the job forever. The exemption
  * is asserted, not assumed — an entry that stops looking like a watch script
  * fails, so the list cannot quietly become a dumping ground.
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -306,6 +322,78 @@ const UNOWNED_JEST_CONFIGS: Readonly<Record<string, string>> = {
     'Driven by the root `test:tenant-clone` / `test:schema-invariants` scripts and nats-invariants.yml, all by path; the root-script direction gates those.',
 };
 
+/**
+ * Roots whose Python test modules are driven only by `unittest discover` steps
+ * in workflows. ARIA-MEDIUM-377: `tools/aria-poc` had four modules no step
+ * collected.
+ */
+const PYTHON_TEST_ROOTS: readonly string[] = ['tools/aria-poc'];
+
+interface DiscoverStep {
+  readonly start: string;
+  readonly pattern: RegExp;
+  readonly raw: string;
+}
+
+/** `unittest discover <start> [-p '<glob>']` invocations in every workflow. */
+function pythonDiscoverSteps(corpus: string): DiscoverStep[] {
+  const steps: DiscoverStep[] = [];
+  const re = /unittest discover\s+(?:-s\s+)?([\w./-]+)(?:\s+-p\s+['"]([^'"]+)['"])?/g;
+  for (const match of corpus.matchAll(re)) {
+    const start = (match[1] ?? '').replace(/\/+$/, '');
+    // unittest's default pattern when -p is absent.
+    const glob = match[2] ?? 'test*.py';
+    const source = glob
+      .split('')
+      .map((ch) =>
+        ch === '*' ? '[^/]*' : ch === '?' ? '.' : ch.replace(/[.+^${}()|[\]\\]/g, '\\$&'),
+      )
+      .join('');
+    steps.push({ start, pattern: new RegExp(`^${source}$`), raw: match[0] });
+  }
+  return steps;
+}
+
+/** Python test modules under a root, from git's index. */
+function pythonTestModules(root: string): string[] {
+  return execFileSync(
+    'git',
+    [
+      '-C',
+      REPO_ROOT,
+      'ls-files',
+      `${root}/**/test_*.py`,
+      `${root}/test_*.py`,
+      `${root}/**/*_test.py`,
+      `${root}/*_test.py`,
+    ],
+    {
+      encoding: 'utf8',
+    },
+  )
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+/**
+ * Whether `unittest discover <start> -p <pattern>` collects `file`: the file is
+ * under `start`, its name matches the pattern, and every directory below
+ * `start` on the way to it is a package (discovery only descends into those).
+ */
+function isDiscovered(file: string, step: DiscoverStep): boolean {
+  if (!file.startsWith(`${step.start}/`)) return false;
+  const parts = file.slice(step.start.length + 1).split('/');
+  const name = parts.pop() ?? '';
+  if (!step.pattern.test(name)) return false;
+  let dir = step.start;
+  for (const part of parts) {
+    dir = `${dir}/${part}`;
+    if (!existsSync(join(REPO_ROOT, dir, '__init__.py'))) return false;
+  }
+  return true;
+}
+
 describe('INVARIANT: test-target CI reachability', () => {
   const declared = declaredTestTargets();
   const driven = ciDrivenTargets();
@@ -427,5 +515,30 @@ describe('INVARIANT: test-target CI reachability', () => {
         expect(entry.command).not.toMatch(/vitest\s+run|--run\b|--ci\b/);
       }
     }
+  });
+  it('runs every Python test module under the unittest-driven roots somewhere in CI', () => {
+    const steps = pythonDiscoverSteps(workflowCorpus());
+    // A broken workflow read must not fake a pass.
+    expect(steps.some((step) => step.start === 'tools/aria-poc/invariants')).toBe(true);
+
+    for (const root of PYTHON_TEST_ROOTS) {
+      const modules = pythonTestModules(root);
+      expect(modules.length).toBeGreaterThan(0);
+      const unrun = modules.filter((file) => !steps.some((step) => isDiscovered(file, step)));
+      expect(unrun).toEqual([]);
+    }
+  });
+
+  it('discovers no Python test directory that is missing or holds no module the pattern matches', () => {
+    const steps = pythonDiscoverSteps(workflowCorpus());
+    const empty = steps
+      .filter((step) => {
+        if (!existsSync(join(REPO_ROOT, step.start))) return true;
+        const modules = pythonTestModules(step.start);
+        return !modules.some((file) => isDiscovered(file, step));
+      })
+      .map((step) => step.raw);
+
+    expect(empty).toEqual([]);
   });
 });

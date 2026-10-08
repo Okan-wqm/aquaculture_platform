@@ -24,15 +24,15 @@ import { resolve } from 'node:path';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', () => {
-  it('no file under libs/shared-contracts/src declares an `export enum`', () => {
-    const files = execFileSync(
-      'git',
-      ['-C', REPO_ROOT, 'ls-files', 'libs/shared-contracts/src/**/*.ts'],
-      { encoding: 'utf8' },
-    )
-      .split('\n')
-      .filter((f) => f.length > 0 && !f.endsWith('.spec.ts'));
+  const files = execFileSync(
+    'git',
+    ['-C', REPO_ROOT, 'ls-files', 'libs/shared-contracts/src/**/*.ts'],
+    { encoding: 'utf8' },
+  )
+    .split('\n')
+    .filter((f) => f.length > 0 && !f.endsWith('.spec.ts'));
 
+  it('no file under libs/shared-contracts/src declares an `export enum`', () => {
     const enumRe = /^\s*export\s+enum\s+\w+/m;
     const offenders: string[] = [];
     for (const rel of files) {
@@ -57,6 +57,16 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
     }
   });
 
+  it('imports no other workspace library', () => {
+    // event-contracts now reads the measured-quantity registry from here; an
+    // import the other way would make the two libraries a cycle, and the
+    // standalone aquamobil bundle aliases this lib alone.
+    const offenders = files.filter((rel) =>
+      /from\s+'@(?:aquaculture|platform)\//.test(readFileSync(resolve(REPO_ROOT, rel), 'utf8')),
+    );
+    expect(offenders).toEqual([]);
+  });
+
   it('the public barrel only re-exports the cross-stack allowlisted modules', () => {
     // The allowlist is the explicit gate on this lib's scope: media MIME
     // allowlist (MSG-MEDIUM-057) and the AI persona grammar + catalogue
@@ -66,6 +76,9 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
       './enums/messaging-media-mime',
       './ai/persona-id',
       './ai/persona-catalogue',
+      // The sensor-reading tier policy (SENSOR-MEDIUM-149): the series cap,
+      // store choice, interval whitelist and rollup windows the backend reads.
+      './sensor-readings/tier-policy',
       // The design palette (FE-MEDIUM-093): zero-dependency colour data the
       // browser reads through `web/shared-ui/src/styles/theme.ts` and the HTML
       // e-mail builders read directly, so both paint the product's colours.
@@ -75,6 +88,16 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
       // The product's severity ladder, so an incident is the same colour in the
       // mail, the alert list and the SCADA banner.
       './design/severity',
+      // The sensor-reading tier policy (SENSOR-MEDIUM-149): the series cap,
+      // store choice, interval whitelist and rollup windows the backend reads
+      // and the browser's range picker must agree with.
+      './sensor-readings/tier-policy',
+      // The sensor-reading time range: preset durations, range shape and URL
+      // form shared by every chart surface.
+      './sensor-readings/time-range',
+      // Measured quantities: channel-key vocabulary, units and basis, read by
+      // the reading event, the sensor catalog and the farm templates.
+      './measurement/quantities',
     ]);
     const index = readFileSync(resolve(REPO_ROOT, 'libs/shared-contracts/src/index.ts'), 'utf8');
     const exportFroms = [

@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from 'crypto';
 
 import {
-  bindTenantRlsContext,
-  forEachVerifiedTenantSchema,
+  listActiveTenantSchemaIdentities,
   runInTenantRead,
   runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
   tenantManagerRepo,
 } from '@aquaculture/backend-common/database';
 import {
@@ -504,7 +504,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     // SENSOR-MEDIUM-004: the device and its O(1) directory route commit in one
     // tenant transaction. The broker auth hook resolves a device only through
     // the directory, so a device saved without a route could never connect.
-    const saved = await runInTenantTransaction(this.dataSource, 'sensor', tenantId, (qr) =>
+    const saved = await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, (qr) =>
       this.deviceDirectory.saveNewDevice(device, qr.manager),
     );
     this.logger.log(`Registered new edge device: ${saved.deviceCode} (${saved.id})`);
@@ -711,7 +711,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       return null;
     }
 
-    const device = await runInTenantTransaction(this.dataSource, 'sensor', tenantId, async (qr) => {
+    const device = await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, async (qr) => {
       const found = await tenantManagerRepo(qr.manager, EdgeDevice).findOne({
         where: isUuid ? { id: heartbeat.deviceCode } : { deviceCode: heartbeat.deviceCode },
       });
@@ -850,43 +850,52 @@ export class EdgeDeviceService implements OnModuleDestroy {
     );
     let totalAffected = 0;
 
-    // SENSOR-CRITICAL-143: a search_path-only transaction left the tenant GUC
-    // unset, so under FORCE RLS this UPDATE matched zero rows in every tenant.
-    // The verified fan-out supplies each active tenant's ledger-proven id, and
-    // bindTenantRlsContext binds the policy to it before the statement runs.
-    let results: Awaited<ReturnType<typeof forEachVerifiedTenantSchema>>;
+    // SENSOR-MEDIUM-136 / SENSOR-CRITICAL-143: each tenant's UPDATE runs inside
+    // that tenant's RLS boundary. With search_path pinned alone the statement
+    // matched zero rows under FORCE RLS, so a dead edge device was never marked
+    // offline.
+    let tenants: Awaited<ReturnType<typeof listActiveTenantSchemaIdentities>>;
     try {
-      results = await forEachVerifiedTenantSchema(
-        this.dataSource,
-        async ({ schemaName, tenantId, queryRunner }) => {
-          await bindTenantRlsContext(queryRunner, tenantId, 'sensor');
-          // Structured result: a bare query() returns [rows, count] for an
-          // UPDATE, which never yielded an affected count.
-          const result: unknown = await queryRunner.query(
-            `UPDATE edge_devices
-             SET is_online = false,
-                 lifecycle_state = $1
-             WHERE is_online = true
-               AND last_seen_at < $2
-               AND lifecycle_state::text = ANY($3::text[])`,
-            [DeviceLifecycleState.OFFLINE, cutoff.toISOString(), staleable],
-            true,
-          );
-          const affected = EdgeDeviceService.queryAffectedRows(result);
-          if (affected > 0) {
-            this.logger.log(`Marked ${affected} devices as offline in ${schemaName}`);
-            totalAffected += affected;
-          }
-        },
-      );
+      tenants = await listActiveTenantSchemaIdentities(this.dataSource);
     } catch (err) {
-      this.logger.error(`Failed to list tenants for stale-device check: ${(err as Error).message}`);
+      this.logger.error(
+        `Failed to fetch tenant schemas for stale-device check: ${(err as Error).message}`,
+      );
       return 0;
     }
 
-    for (const failed of results.filter((result) => result.outcome !== 'ok')) {
-      const reason = failed.error === undefined ? failed.outcome : failed.error.message;
-      this.logger.error(`Failed stale-device check for ${failed.schemaName}: ${reason}`);
+    for (const { tenantId, schemaName } of tenants) {
+      try {
+        const result: unknown = await runInTenantTransaction(
+          this.dataSource,
+          SENSOR_SOURCE_SCHEMA,
+          tenantId,
+          (qr) =>
+            qr.query(
+              `UPDATE edge_devices
+               SET is_online = false,
+                   lifecycle_state = $1
+               WHERE is_online = true
+                 AND last_seen_at < $2
+                 AND lifecycle_state::text = ANY($3::text[])`,
+              [DeviceLifecycleState.OFFLINE, cutoff.toISOString(), staleable],
+              // Structured result: a raw UPDATE answers `[rows, count]`,
+              // which queryAffectedRows cannot read — the job always
+              // reported 0 devices even when it changed rows.
+              true,
+            ),
+        );
+
+        const affected = EdgeDeviceService.queryAffectedRows(result);
+        if (affected > 0) {
+          this.logger.log(`Marked ${affected} devices as offline in ${schemaName}`);
+          totalAffected += affected;
+        }
+      } catch (err) {
+        this.logger.error(
+          `Failed stale-device check for ${schemaName}: ${(err as Error).message}`,
+        );
+      }
     }
     if (totalAffected > 0) {
       this.logger.log(`Total devices marked offline across all tenants: ${totalAffected}`);
@@ -924,7 +933,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     // Inside the tenant's read boundary: a pooled query has no RLS tenant bound.
     const results: DeviceStatsRow[] = await runInTenantRead(
       this.dataSource,
-      'sensor',
+      SENSOR_SOURCE_SCHEMA,
       tenantId,
       (qr) => qr.query(query, [tenantId]),
     );

@@ -144,8 +144,19 @@ class ObserveModeHasNoBreakerEdge(unittest.TestCase):
         defs = _function_defs(tree)
         called = _called_names(defs["open_pr_for_action"])
         self.assertIn(OBSERVE_ENTRY, called)
-        self.assertIn("run_hard_fail_checks", called)
-        self.assertNotIn(BREAKER_PRODUCER, called)
+        # ARIA-HIGH-371 — the authorising perimeter moved into
+        # ``prepare_pr_open`` so delivery can run it BEFORE the push; the live
+        # open still reaches it, one hop out, and so does delivery's stage.
+        self.assertIn("prepare_pr_open", called)
+        prepared = _called_names(defs["prepare_pr_open"])
+        self.assertIn("run_hard_fail_checks", prepared)
+        for name in ("open_pr_for_action", "prepare_pr_open", "open_prepared_pr"):
+            self.assertNotIn(BREAKER_PRODUCER, _called_names(defs[name]), msg=name)
+        delivery = _function_defs(_module_tree(_PKG / "implementation_delivery.py"))
+        self.assertTrue(
+            any("prepare_pr_open" in _called_names(node) for node in delivery.values()),
+            msg="delivery no longer runs the pre-PR-open perimeter before its push",
+        )
 
     def test_the_producer_is_called_from_a_declared_set_of_modules_only(self) -> None:
         """Where the breaker CAN be fed is a closed, reviewable set.

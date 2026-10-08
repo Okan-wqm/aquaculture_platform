@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 
 import type { TenantErasurePostErasureHook } from '@aquaculture/backend-common/compliance';
+import { SENSOR_SOURCE_SCHEMA } from '@aquaculture/backend-common/database';
 import type { TenantErasureRequestedEvent } from '@platform/event-contracts';
 
 /**
@@ -24,7 +25,6 @@ import type { TenantErasureRequestedEvent } from '@platform/event-contracts';
  * already has — the audit trail for the erasure itself lives in the
  * proof ledger, not the outbox.
  */
-const OUTBOX_SCHEMA = 'sensor';
 const OUTBOX_TABLE = 'sensor_outbox';
 
 @Injectable()
@@ -39,7 +39,7 @@ export class PublishedOutboxPurgeHook implements TenantErasurePostErasureHook {
       return 0; // Dry-run must not mutate the outbox.
     }
     const result = await manager.query(
-      `DELETE FROM "${OUTBOX_SCHEMA}"."${OUTBOX_TABLE}"
+      `DELETE FROM "${SENSOR_SOURCE_SCHEMA}"."${OUTBOX_TABLE}"
         WHERE "tenantId" = $1 AND "publishedAt" IS NOT NULL`,
       [event.tenantId],
     );

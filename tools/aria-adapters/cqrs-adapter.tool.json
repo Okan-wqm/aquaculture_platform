@@ -1,0 +1,53 @@
+{
+  "tool_id": "cqrs-adapter",
+  "kind": "adapter",
+  "version": "1.0.0",
+  "status": "SHADOW",
+  "declared_scope": ["apps/**/controllers/**/*.ts", "apps/**/*.controller.ts"],
+  "output_schema": {
+    "type": "object",
+    "required": ["observations", "findings", "read_paths", "evidence_sources"]
+  },
+  "fixture_set": "tools/aria-adapters/fixtures/cqrs-adapter",
+  "health_thresholds": {
+    "precision_min": 0.85,
+    "non_critical_false_positives_30d": 3,
+    "critical_false_positives": 0,
+    "crash_rate_last_10": 0.2
+  },
+  "default_input": {
+    "cycle_id": "cqrs-default"
+  },
+  "allowed_read_globs": ["apps/**/controllers/**/*.ts", "apps/**/*.controller.ts"],
+  "forbidden_read_globs": [".git/**", "node_modules/**", "dist/**"],
+  "claim_types": ["cqrs_layer_skip"],
+  "owner": "platform",
+  "rules": {
+    "controller_skips_command_query_bus": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A controller calls a TypeORM repository method directly instead of going through the command or query bus (CLAUDE.md layer rule 1).",
+      "premises": [
+        "The cited file is a NestJS controller that serves requests in production.",
+        "The cited line calls a TypeORM repository, data source or entity manager method directly, and the controller does not route that operation through CommandBus or QueryBus."
+      ]
+    },
+    "controller_injects_repository_directly": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A controller injects a TypeORM repository, skipping the service and bus layers (CLAUDE.md layer rule 1).",
+      "premises": [
+        "The cited file is a NestJS controller that serves requests in production.",
+        "The cited line injects a TypeORM repository into the controller."
+      ]
+    }
+  },
+  "runner": {
+    "type": "subprocess",
+    "argv": ["python3", "cqrs_adapter.py"],
+    "cwd": "tools/aria-poc",
+    "timeout_ms": 60000,
+    "stdin_json": true
+  },
+  "schema_version": 1
+}

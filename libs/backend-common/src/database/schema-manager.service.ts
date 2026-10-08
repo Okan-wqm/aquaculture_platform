@@ -309,6 +309,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // the calibration aggregate; its entity omits schema: so it must be cloned
       // into every tenant schema alongside sensor_data_channels.
       'calibration_events',
+      // Append-only per-tenant history of channel quantity declarations
+      // (who declared what a channel measures, when). Entity omits schema:,
+      // so it is cloned into every tenant schema with sensor_data_channels.
+      'channel_quantity_declarations',
       'sensor_protocols',
       'processes',
 
@@ -1062,6 +1066,24 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     tables: [],
   },
 ];
+
+function sourceSchemaOfModule(moduleName: string): string {
+  const entry = MODULE_SCHEMAS.find((module) => module.moduleName === moduleName);
+  if (entry === undefined) {
+    throw new Error(`MODULE_SCHEMAS has no "${moduleName}" module`);
+  }
+  return entry.sourceSchema;
+}
+
+/**
+ * sensor-service's source schema, read from its MODULE_SCHEMAS entry above —
+ * the argument every tenant boundary (runInTenantTransaction, runInTenantRead,
+ * runInSourceRead) takes to pin `"tenant_<id>", sensor, public`, and the
+ * schema db-migrate fans sensor migrations out from. One definition, so the
+ * boundary argument cannot drift from the registry (SENSOR-LOW-147 moves the
+ * remaining hand-written `'sensor'` arguments onto it).
+ */
+export const SENSOR_SOURCE_SCHEMA = sourceSchemaOfModule('sensor');
 
 /**
  * Reference data tables to copy for each module.

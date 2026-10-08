@@ -13,6 +13,7 @@ import {
   TENANT_SCHEMA_NAME_RE,
   queryRowsNormalized,
   queryRowCountNormalized,
+  SENSOR_SOURCE_SCHEMA,
   verifySourceSchemaWriteGuards,
   verifyTenantSchemaPrivileges,
 } from '@aquaculture/backend-common/database';
@@ -39,7 +40,6 @@ import {
  * continuous aggregates read. Named so the ordering constraint below reads as
  * the constraint it is rather than as a bare string comparison.
  */
-const SENSOR_SOURCE_SCHEMA = 'sensor';
 
 type TenantSchemaJobStatus =
   | 'REQUESTED'

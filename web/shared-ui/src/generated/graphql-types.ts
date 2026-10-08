@@ -1890,6 +1890,19 @@ export type Channel = {
   updatedAt: Scalars['DateTime']['output'];
 };
 
+/** A channel value's position against the channel's own alert thresholds */
+export type ChannelAlertLevel =
+  | 'CRITICAL'
+  | 'NORMAL'
+  | 'WARNING';
+
+export type ChannelDataBounds = {
+  channelId: Scalars['ID']['output'];
+  firstSampleAt?: Maybe<Scalars['DateTime']['output']>;
+  lastSampleAt?: Maybe<Scalars['DateTime']['output']>;
+  sensorId: Scalars['ID']['output'];
+};
+
 /** Data type of the channel value */
 export type ChannelDataType =
   | 'BOOLEAN'
@@ -1935,6 +1948,21 @@ export type ChannelFilterInput = {
   offset?: Scalars['Int']['input'];
 };
 
+export type ChannelLatestValue = {
+  alertLevel?: Maybe<ChannelAlertLevel>;
+  channelId: Scalars['ID']['output'];
+  channelKey: Scalars['String']['output'];
+  displayLabel: Scalars['String']['output'];
+  displayOrder: Scalars['Int']['output'];
+  precision?: Maybe<Scalars['Int']['output']>;
+  qualityCode?: Maybe<Scalars['Int']['output']>;
+  sensorId: Scalars['ID']['output'];
+  time?: Maybe<Scalars['DateTime']['output']>;
+  unit?: Maybe<Scalars['String']['output']>;
+  unitSymbol?: Maybe<Scalars['String']['output']>;
+  value?: Maybe<Scalars['Float']['output']>;
+};
+
 export type ChannelMember = {
   channelId: Scalars['String']['output'];
   id: Scalars['ID']['output'];
@@ -1963,16 +1991,75 @@ export type ChannelPage = {
   total: Scalars['Int']['output'];
 };
 
+/** Whether a (sensorId, channelKey) names a live channel, or what is missing */
+export type ChannelPresence =
+  | 'FOUND'
+  | 'NO_CHANNEL'
+  | 'NO_SENSOR';
+
+/** Immutable record of one change to a channel’s declared quantity */
+export type ChannelQuantityDeclaration = {
+  channelId: Scalars['ID']['output'];
+  channelKey: Scalars['String']['output'];
+  declaredAt: Scalars['DateTime']['output'];
+  declaredBy: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  quantity?: Maybe<Scalars['String']['output']>;
+  reason: QuantityDeclarationReason;
+  sensorId: Scalars['ID']['output'];
+  unit?: Maybe<Scalars['String']['output']>;
+};
+
 export type ChannelSensorInfo = {
   id: Scalars['ID']['output'];
   name: Scalars['String']['output'];
   type?: Maybe<Scalars['String']['output']>;
 };
 
+export type ChannelSeries = {
+  channelId: Scalars['ID']['output'];
+  channelKey: Scalars['String']['output'];
+  displayLabel: Scalars['String']['output'];
+  enabled: Scalars['Boolean']['output'];
+  gaps: Array<TimeWindow>;
+  points: Array<ChannelSeriesPoint>;
+  precision?: Maybe<Scalars['Int']['output']>;
+  unit?: Maybe<Scalars['String']['output']>;
+  unitSymbol?: Maybe<Scalars['String']['output']>;
+};
+
+export type ChannelSeriesPoint = {
+  avg: Scalars['Float']['output'];
+  badCount: Scalars['Int']['output'];
+  bucket: Scalars['DateTime']['output'];
+  count: Scalars['Int']['output'];
+  max?: Maybe<Scalars['Float']['output']>;
+  min?: Maybe<Scalars['Float']['output']>;
+};
+
+export type ChannelSeriesResponse = {
+  bucketTimeZone: Scalars['String']['output'];
+  channels: Array<ChannelSeries>;
+  displayTimeZone: Scalars['String']['output'];
+  displayTimeZoneSource: SeriesTimeZoneSource;
+  endTime: Scalars['DateTime']['output'];
+  /** @deprecated Use resolution */
+  interval: Scalars['String']['output'];
+  maxRangeSeconds: Scalars['Int']['output'];
+  resolution: AggregationInterval;
+  sensorId: Scalars['ID']['output'];
+  sourceTier: MetricSourceTier;
+  startTime: Scalars['DateTime']['output'];
+};
+
 export type ChannelType =
   | 'AI'
   | 'DIRECT'
   | 'GROUP';
+
+export type ChannelsByKeyInput = {
+  keys: Array<SensorChannelKeyInput>;
+};
 
 export type CheckInHistoryEntry = {
   location?: Maybe<CheckInLocation>;
@@ -4252,6 +4339,9 @@ export type DataChannelType = {
   createdAt: Scalars['DateTime']['output'];
   dataPath?: Maybe<Scalars['String']['output']>;
   dataType: ChannelDataType;
+  declarableQuantities: Array<Scalars['String']['output']>;
+  /** The measured quantity an operator declared, when the key does not say */
+  declaredQuantity?: Maybe<Scalars['String']['output']>;
   description?: Maybe<Scalars['String']['output']>;
   discoveredAt?: Maybe<Scalars['DateTime']['output']>;
   discoverySource?: Maybe<DiscoverySource>;
@@ -4264,6 +4354,8 @@ export type DataChannelType = {
   maxValue?: Maybe<Scalars['Float']['output']>;
   minValue?: Maybe<Scalars['Float']['output']>;
   nextCalibrationDue?: Maybe<Scalars['DateTime']['output']>;
+  quantity?: Maybe<Scalars['String']['output']>;
+  quantityFamily?: Maybe<Scalars['String']['output']>;
   sampleValue?: Maybe<Scalars['JSON']['output']>;
   sensor?: Maybe<ChannelSensorInfo>;
   sensorId: Scalars['ID']['output'];
@@ -4307,6 +4399,12 @@ export type DaySummary = {
   leaveCount: Scalars['Int']['output'];
   offCount: Scalars['Int']['output'];
   workingCount: Scalars['Int']['output'];
+};
+
+export type DeclareChannelQuantityInput = {
+  channelId: Scalars['ID']['input'];
+  quantity: Scalars['String']['input'];
+  unit?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type DeductionsBreakdown = {
@@ -9228,6 +9326,13 @@ export type MessageReceipt = {
   userId: Scalars['String']['output'];
 };
 
+/** The store a series was read from: raw rows or a rollup tier */
+export type MetricSourceTier =
+  | 'DAY'
+  | 'HOUR'
+  | 'MINUTE'
+  | 'RAW';
+
 export type MfaStepUpInput = {
   /** TOTP code or recovery code */
   code: Scalars['String']['input'];
@@ -9430,6 +9535,7 @@ export type Mutation = {
   /** @deprecated Use changeMyPassword. This compatibility alias will be removed after rollout. */
   changePassword: ChangeMyPasswordResponse;
   changeSubscriptionPlan: Subscription;
+  clearChannelQuantity: DataChannelType;
   clockIn: AttendanceRecord;
   clockOut: AttendanceRecord;
   cloneAutomationProgram: AutomationProgram;
@@ -9561,6 +9667,7 @@ export type Mutation = {
   deactivateTenantUser: User;
   deactivateVfdDevice: VfdDevice;
   deactivateWorkArea: WorkArea;
+  declareChannelQuantity: DataChannelType;
   decommissionEdgeDevice: EdgeDevice;
   deferGoal: Goal;
   deleteAlertRule: Scalars['Boolean']['output'];
@@ -10621,6 +10728,11 @@ export type MutationChangeSubscriptionPlanArgs = {
 };
 
 
+export type MutationClearChannelQuantityArgs = {
+  channelId: Scalars['ID']['input'];
+};
+
+
 export type MutationClockInArgs = {
   input: ClockInInput;
 };
@@ -11199,6 +11311,11 @@ export type MutationDeactivateVfdDeviceArgs = {
 
 export type MutationDeactivateWorkAreaArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeclareChannelQuantityArgs = {
+  input: DeclareChannelQuantityInput;
 };
 
 
@@ -15287,6 +15404,11 @@ export type QualityRequirementsInput = {
   traceabilityRequired?: InputMaybe<Scalars['Boolean']['input']>;
 };
 
+export type QuantityDeclarationReason =
+  | 'CLEARED'
+  | 'DECLARED'
+  | 'REDISCOVERY_CLEARED';
+
 export type Query = {
   activeEmployees: Array<Employee>;
   activeFeedingParameter?: Maybe<FeedingParameter>;
@@ -15362,7 +15484,16 @@ export type Query = {
   certificationsForWorkArea: Array<CertificationType>;
   /** Get a channel by ID */
   channel: Channel;
+  /** The first and last stored sample of each channel of the given sensors (≤100) — where a sensor's history starts and ends */
+  channelDataBounds: Array<ChannelDataBounds>;
   channelEligibleUsers: Array<PublicUserProfile>;
+  /** Each enabled channel of the given sensors with its last-known value (≤100 sensors) */
+  channelLatestValues: Array<ChannelLatestValue>;
+  channelQuantityDeclarations: Array<ChannelQuantityDeclaration>;
+  /** Bucketed history of every enabled channel of one sensor over a time range */
+  channelSeries: ChannelSeriesResponse;
+  /** What each (sensorId, channelKey) is now (≤100): presence, sensor location, quantity, unit, last value — disabled channels included */
+  channelsByKey: Array<SensorChannelDescriptionType>;
   checkLeaveOverlap: LeaveOverlapResult;
   chemical?: Maybe<ChemicalResponse>;
   chemicalSuppliers: Array<SupplierResponse>;
@@ -15740,6 +15871,8 @@ export type Query = {
   sensorsByProtocol: Array<RegisteredSensorType>;
   /** Weekly aggregate sentiment trends per channel (TENANT_ADMIN only) */
   sentimentTrends: Array<SentimentTrendType>;
+  /** The zone a page of these sensors' charts is shown and picked in (≤1000): their shared site zone, else the tenant's */
+  seriesDisplayTimeZone: SeriesDisplayTimeZone;
   shift: Shift;
   shifts: ShiftConnection;
   /** Semantic similarity search across messages */
@@ -16194,6 +16327,35 @@ export type QueryCertificationsForWorkAreaArgs = {
 
 export type QueryChannelArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryChannelDataBoundsArgs = {
+  sensorIds: Array<Scalars['ID']['input']>;
+};
+
+
+export type QueryChannelLatestValuesArgs = {
+  sensorIds: Array<Scalars['ID']['input']>;
+};
+
+
+export type QueryChannelQuantityDeclarationsArgs = {
+  channelKey: Scalars['String']['input'];
+  sensorId: Scalars['ID']['input'];
+};
+
+
+export type QueryChannelSeriesArgs = {
+  endTime: Scalars['DateTime']['input'];
+  interval?: InputMaybe<AggregationInterval>;
+  sensorId: Scalars['ID']['input'];
+  startTime: Scalars['DateTime']['input'];
+};
+
+
+export type QueryChannelsByKeyArgs = {
+  input: ChannelsByKeyInput;
 };
 
 
@@ -17513,6 +17675,11 @@ export type QuerySensorsByProtocolArgs = {
 
 export type QuerySentimentTrendsArgs = {
   input: SentimentTrendsInput;
+};
+
+
+export type QuerySeriesDisplayTimeZoneArgs = {
+  sensorIds: Array<Scalars['ID']['input']>;
 };
 
 
@@ -19406,6 +19573,12 @@ export type SalinityInput = {
   unit?: Scalars['String']['input'];
 };
 
+/** OPC-UA quality band of a sample, classified by the sensor service */
+export type SampleQuality =
+  | 'BAD'
+  | 'GOOD'
+  | 'UNCERTAIN';
+
 export type SatelliteCoverageStatus =
   | 'FULL'
   | 'OUT_OF_COVERAGE'
@@ -19681,6 +19854,36 @@ export type SensorAlertThresholdsType = {
   warning?: Maybe<AlertThresholdRangeType>;
 };
 
+export type SensorChannelDescriptionType = {
+  /** Null: the channel has no calibration schedule (not "not due") */
+  calibrationDueAt?: Maybe<Scalars['DateTime']['output']>;
+  channelId?: Maybe<Scalars['ID']['output']>;
+  channelKey: Scalars['String']['output'];
+  /** When the unit or quantity last changed; latest* is never older */
+  configuredAt?: Maybe<Scalars['DateTime']['output']>;
+  enabled?: Maybe<Scalars['Boolean']['output']>;
+  /** Non-tank water equipment (a tank is tankId) */
+  equipmentId?: Maybe<Scalars['ID']['output']>;
+  latestAt?: Maybe<Scalars['DateTime']['output']>;
+  latestQuality?: Maybe<SampleQuality>;
+  latestValue?: Maybe<Scalars['Float']['output']>;
+  presence: ChannelPresence;
+  /** Effective measured quantity */
+  quantity?: Maybe<Scalars['String']['output']>;
+  quantityFamily?: Maybe<Scalars['String']['output']>;
+  sensorActive?: Maybe<Scalars['Boolean']['output']>;
+  sensorId: Scalars['ID']['output'];
+  siteId?: Maybe<Scalars['ID']['output']>;
+  systemId?: Maybe<Scalars['ID']['output']>;
+  tankId?: Maybe<Scalars['ID']['output']>;
+  unit?: Maybe<Scalars['String']['output']>;
+};
+
+export type SensorChannelKeyInput = {
+  channelKey: Scalars['String']['input'];
+  sensorId: Scalars['ID']['input'];
+};
+
 export type SensorConnectionStatusType = {
   isConnected: Scalars['Boolean']['output'];
   lastError?: Maybe<Scalars['String']['output']>;
@@ -19947,6 +20150,17 @@ export type SentimentTrendsInput = {
   /** Number of weeks to look back (1-52) */
   weeks?: Scalars['Int']['input'];
 };
+
+export type SeriesDisplayTimeZone = {
+  displayTimeZone: Scalars['String']['output'];
+  source: SeriesTimeZoneSource;
+};
+
+/** Where a series display time zone came from */
+export type SeriesTimeZoneSource =
+  | 'SITE'
+  | 'TENANT'
+  | 'UNAVAILABLE';
 
 export type SetChecklistItemInput = {
   /** Stable client command UUID generated before first submission */
@@ -22286,6 +22500,11 @@ export type TicketStatus =
   | 'OPEN'
   | 'RESOLVED'
   | 'WAITING_CUSTOMER';
+
+export type TimeWindow = {
+  end: Scalars['DateTime']['output'];
+  start: Scalars['DateTime']['output'];
+};
 
 /** Type of timeline event */
 export type TimelineEventType =

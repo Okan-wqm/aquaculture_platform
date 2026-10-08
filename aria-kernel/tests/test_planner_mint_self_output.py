@@ -15,6 +15,7 @@ from pathlib import Path
 
 from aria_kernel.agent_invocations import create_agent_invocation_request
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 class PlannerMintSelfOutputTests(unittest.TestCase):
@@ -34,6 +35,7 @@ class PlannerMintSelfOutputTests(unittest.TestCase):
             allowed_scope=["aria-kernel/**"],
             evidence_refs=refs,
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", role, base_dir=self.tools),
         )
 
     def test_self_output_only_is_refused(self) -> None:

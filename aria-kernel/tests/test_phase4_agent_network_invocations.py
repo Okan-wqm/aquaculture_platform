@@ -16,6 +16,7 @@ from aria_kernel.impact_graph import plan_downstream_impact
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import covered_tool_ledgers, ensure_tools_dir
 from aria_kernel.workspace import ensure_workspace, workspace_paths
+from aria_kernel.request_admission import admit_request
 from tests._helpers.declared_fixtures import append_declared_fixture
 
 
@@ -74,6 +75,7 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
             round_number=1,
             expected_output_path=expected.as_posix(),
             base_dir=self.tools_dir,
+            admission=admit_request("operator_cli.request", "cross_review", base_dir=self.tools_dir),
         )
         wrong = self.tools_dir / "wrong.md"
         wrong.write_text("wrong\n", encoding="utf-8")

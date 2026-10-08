@@ -381,7 +381,7 @@ export class Baseline1800000000000 implements MigrationInterface {
 
     // ── GENERATED postCondition (DATA-CRITICAL-010) — do not hand-edit ──
     public async postCondition(queryRunner: QueryRunner): Promise<boolean> {
-        const rows: Array<{ missing: string }> = await queryRunner.query(`
+        const rows: unknown = await queryRunner.query(`
             SELECT expected.table_name AS missing
               FROM (VALUES ('audit_archive_v1'), ('automation_programs'), ('channel_detection_log'), ('dashboard_layouts'), ('deployment_logs'), ('device_events'), ('device_group_members'), ('device_groups'), ('device_io_configs'), ('devices'), ('edge_devices'), ('feeding_parameters'), ('firmware_releases'), ('industry_templates'), ('licenses'), ('lora_devices'), ('plc_alarms'), ('plc_connections'), ('plc_telemetry'), ('policies'), ('processes'), ('program_steps'), ('program_transitions'), ('program_variables'), ('provisioning_records'), ('scada_deploy_logs'), ('scada_packages'), ('sensor_data_channels'), ('sensor_metrics'), ('sensor_protocols'), ('sensor_type_definitions'), ('sensors'), ('step_actions'), ('tenant_provisioning_keys'), ('unified_tags'), ('vfd_automation_rules'), ('vfd_change_set_items'), ('vfd_change_sets'), ('vfd_devices'), ('vfd_parameter_audit_logs'), ('vfd_parameter_definitions'), ('vfd_readings'), ('witnesses')) AS expected(table_name)
              WHERE NOT EXISTS (
@@ -391,7 +391,7 @@ export class Baseline1800000000000 implements MigrationInterface {
                   AND table_name = expected.table_name
              )
         `);
-        return rows.length === 0;
+        return Array.isArray(rows) && rows.length === 0;
     }
     // ── END GENERATED postCondition ──
 

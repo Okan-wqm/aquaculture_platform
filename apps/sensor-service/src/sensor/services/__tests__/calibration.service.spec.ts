@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { getDataSourceToken } from '@nestjs/typeorm';
+import { createMockRepository, createTenantSessionDataSource } from '@platform/testing';
 
 import { SensorDataChannel } from '../../../database/entities/sensor-data-channel.entity';
 import { SensorReadings } from '../../../database/entities/sensor-reading.entity';
@@ -23,26 +24,28 @@ const seedChannel = (
     'channelKey' | 'calibrationEnabled' | 'calibrationMultiplier' | 'calibrationOffset'
   > as SensorDataChannel;
 
+const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
 describe('CalibrationService', () => {
   let service: CalibrationService;
-
-  const mockChannelRepository = {
-    find: jest.fn(),
-  };
+  let boundTenants: string[];
+  // The channel read runs inside runInTenantRead over this repository.
+  const mockChannelRepository = createMockRepository<SensorDataChannel>();
 
   beforeEach(async () => {
+    jest.clearAllMocks();
+    const tenantSession = createTenantSessionDataSource();
+    boundTenants = tenantSession.boundTenants;
+    tenantSession.mockManager.getRepository.mockReturnValue(mockChannelRepository);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CalibrationService,
-        {
-          provide: getRepositoryToken(SensorDataChannel),
-          useValue: mockChannelRepository,
-        },
+        { provide: getDataSourceToken(), useValue: tenantSession.mockDataSource },
       ],
     }).compile();
 
     service = module.get<CalibrationService>(CalibrationService);
-    jest.clearAllMocks();
   });
 
   describe('LinearCalibrationStrategy', () => {
@@ -188,24 +191,17 @@ describe('CalibrationService', () => {
       mockChannelRepository.find.mockResolvedValue([]);
 
       const readings = { temperature: 25, ph: 7.0 };
-      const result = await service.applyCalibration('sensor-123', readings);
+      const result = await service.applyCalibration('sensor-123', TENANT_A, readings);
 
       expect(result).toEqual(readings);
     });
 
     it('should apply calibration from channel config', async () => {
-      const channels: Partial<SensorDataChannel>[] = [
-        {
-          channelKey: 'temperature',
-          calibrationEnabled: true,
-          calibrationMultiplier: 1.1,
-          calibrationOffset: 0.5,
-        },
-      ];
+      const channels = [seedChannel('temperature', true, 1.1, 0.5)];
       mockChannelRepository.find.mockResolvedValue(channels);
 
       const readings = { temperature: 20, ph: 7.0 };
-      const result = await service.applyCalibration('sensor-123', readings);
+      const result = await service.applyCalibration('sensor-123', TENANT_A, readings);
 
       expect(result.temperature).toBeCloseTo(22.5); // 20 * 1.1 + 0.5
       expect(result.ph).toBe(7.0); // Unchanged
@@ -214,8 +210,8 @@ describe('CalibrationService', () => {
     it('should cache channel configs', async () => {
       mockChannelRepository.find.mockResolvedValue([]);
 
-      await service.applyCalibration('sensor-123', { temperature: 20 });
-      await service.applyCalibration('sensor-123', { temperature: 25 });
+      await service.applyCalibration('sensor-123', TENANT_A, { temperature: 20 });
+      await service.applyCalibration('sensor-123', TENANT_A, { temperature: 25 });
 
       expect(mockChannelRepository.find).toHaveBeenCalledTimes(1);
     });
@@ -223,11 +219,39 @@ describe('CalibrationService', () => {
     it('should clear cache correctly', async () => {
       mockChannelRepository.find.mockResolvedValue([]);
 
-      await service.applyCalibration('sensor-123', { temperature: 20 });
+      await service.applyCalibration('sensor-123', TENANT_A, { temperature: 20 });
       service.clearCache('sensor-123');
-      await service.applyCalibration('sensor-123', { temperature: 25 });
+      await service.applyCalibration('sensor-123', TENANT_A, { temperature: 25 });
 
       expect(mockChannelRepository.find).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('tenant boundary (SENSOR-HIGH-148)', () => {
+    it("reads a sensor's channels inside that sensor's tenant", async () => {
+      mockChannelRepository.find.mockResolvedValue([]);
+
+      await service.getChannels('sensor-123', TENANT_A);
+
+      expect(boundTenants).toEqual([TENANT_A]);
+    });
+
+    it("never serves one tenant's cached channels to another tenant", async () => {
+      service.warmChannelCache('sensor-123', TENANT_A, [seedChannel('ph', true, 2, 0)]);
+      mockChannelRepository.find.mockResolvedValue([]);
+
+      const forB = await service.getChannels('sensor-123', TENANT_B);
+
+      expect(forB).toEqual([]);
+      expect(boundTenants).toEqual([TENANT_B]);
+    });
+
+    it('propagates a failed channel read instead of calibrating with nothing', async () => {
+      mockChannelRepository.find.mockRejectedValue(new Error('connection reset'));
+
+      await expect(service.applyCalibration('sensor-9', TENANT_A, { ph: 7 })).rejects.toThrow(
+        'connection reset',
+      );
     });
   });
 
@@ -258,10 +282,10 @@ describe('CalibrationService', () => {
   // camelCase SensorReadings field, or multi-word metrics never calibrate.
   describe('applyCalibration channel-key reconciliation', () => {
     it('calibrates a multi-word channel whose channelKey is snake_case', async () => {
-      service.warmChannelCache('sensor-1', [seedChannel('dissolved_oxygen', true, 2, 1)]);
+      service.warmChannelCache('sensor-1', TENANT_A, [seedChannel('dissolved_oxygen', true, 2, 1)]);
 
       const readings: SensorReadings = { dissolvedOxygen: 5 };
-      const result = await service.applyCalibration('sensor-1', readings);
+      const result = await service.applyCalibration('sensor-1', TENANT_A, readings);
 
       // 5 * 2 + 1 = 11. Before the codec, 'dissolved_oxygen' never matched the
       // 'dissolvedOxygen' reading key and the value passed through UNCALIBRATED.
@@ -269,17 +293,17 @@ describe('CalibrationService', () => {
     });
 
     it('still calibrates single-word channels (regression guard)', async () => {
-      service.warmChannelCache('sensor-2', [seedChannel('ph', true, 1, 0.5)]);
+      service.warmChannelCache('sensor-2', TENANT_A, [seedChannel('ph', true, 1, 0.5)]);
 
-      const result = await service.applyCalibration('sensor-2', { ph: 7 });
+      const result = await service.applyCalibration('sensor-2', TENANT_A, { ph: 7 });
 
       expect(result.ph).toBe(7.5);
     });
 
     it('leaves readings untouched when calibration is disabled', async () => {
-      service.warmChannelCache('sensor-3', [seedChannel('dissolved_oxygen', false)]);
+      service.warmChannelCache('sensor-3', TENANT_A, [seedChannel('dissolved_oxygen', false)]);
 
-      const result = await service.applyCalibration('sensor-3', { dissolvedOxygen: 5 });
+      const result = await service.applyCalibration('sensor-3', TENANT_A, { dissolvedOxygen: 5 });
 
       expect(result.dissolvedOxygen).toBe(5);
     });

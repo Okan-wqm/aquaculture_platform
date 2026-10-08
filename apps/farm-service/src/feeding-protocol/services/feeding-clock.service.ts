@@ -14,7 +14,7 @@
  * kullanmaz: yerel gün burada hesaplanır ve sorgulara `$n::date` olarak
  * bağlanır.
  *
- * ## Zon hiyerarşisi (tek yerde, isimli)
+ * ## Zon hiyerarşisi (sahibi: localization/SiteTimeZoneService)
  *
  *   `sites.timezone` (NULL = devral) → `tenant_localization.timezone` → `'UTC'`
  *
@@ -26,13 +26,9 @@
  * @module FeedingProtocol/Services
  */
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, In, Repository } from 'typeorm';
+import { EntityManager } from 'typeorm';
 
-import {
-  DEFAULT_TENANT_TIMEZONE,
-  TenantLocalization,
-} from '../entities/tenant-localization.entity';
+import { SiteTimeZoneService } from '../../localization/services/site-time-zone.service';
 import { localDayBoundsUtc, zonedPartsIn } from './meal-schedule.util';
 
 /** Bir tenant/site için çözülmüş zaman bağlamı. */
@@ -56,71 +52,14 @@ export interface FeedingClock {
   dayEndUtc: Date;
 }
 
-/** Bir tenant'ın site → zon haritası + tenant tabanı (tek toplu okuma). */
-export interface TenantZoneMap {
-  tenantZone: string;
-  zoneOf(siteId: string | null | undefined): string;
-}
-
 @Injectable()
 export class FeedingClockService {
-  constructor(
-    /**
-     * CROSS-TENANT ledger: `tenant_localization` `farm` kaynak şemasında yaşar
-     * ve tenantId ile AYRIŞIR (tenant şemalarına klonlanmaz). Entity
-     * `schema: 'farm'` bildirdiği için enjekte edilen repository yazımı
-     * şema-nitelikli yapar — `getScopedRepository` burada yanlış olurdu:
-     * cron tick'i tenant bağlamı OLMADAN koşar ve tablo tenant şemasında yok.
-     */
-    @InjectRepository(TenantLocalization)
-    private readonly localizationRepository: Repository<TenantLocalization>,
-  ) {}
-
   /**
-   * Tenant zonu — cron tick'i tenant transaction'ı AÇMADAN önce okur, bu yüzden
-   * cross-tenant `farm.tenant_localization` tablosuna enjekte edilen
-   * (şema-nitelikli, entity sahipli) repository üzerinden erişir.
+   * Zonun kendisi yemlemeye ait değil: site → tenant → UTC hiyerarşisinin tek
+   * sahibi `SiteTimeZoneService` (localization modülü). Sensör grafikleri de
+   * aynı servisten okur, böylece yemleme günü ile grafik günü ayrışamaz.
    */
-  async tenantZones(tenantIds: string[]): Promise<Map<string, string>> {
-    const zones = new Map<string, string>();
-    if (tenantIds.length === 0) return zones;
-    const rows = await this.localizationRepository.find({
-      where: { tenantId: In(tenantIds) },
-      select: ['tenantId', 'timezone'],
-    });
-    for (const row of rows) {
-      zones.set(row.tenantId, row.timezone || DEFAULT_TENANT_TIMEZONE);
-    }
-    for (const tenantId of tenantIds) {
-      if (!zones.has(tenantId)) zones.set(tenantId, DEFAULT_TENANT_TIMEZONE);
-    }
-    return zones;
-  }
-
-  async tenantZone(tenantId: string): Promise<string> {
-    return (await this.tenantZones([tenantId])).get(tenantId) ?? DEFAULT_TENANT_TIMEZONE;
-  }
-
-  /**
-   * Tenant'ın site → zon haritası. Tek sorguda tüm siteler + tenant tabanı;
-   * plan üretim döngüsü site başına sorgu ATMAZ.
-   */
-  async siteZones(manager: EntityManager, tenantId: string): Promise<TenantZoneMap> {
-    const tenantZone = await this.tenantZone(tenantId);
-    const rows: Array<{ id: string; timezone: string | null }> = await manager.query(
-      `SELECT id, timezone FROM "sites" WHERE "tenantId" = $1`,
-      [tenantId],
-    );
-    const bySite = new Map<string, string>();
-    for (const row of rows) {
-      // NULL/boş = devral. Site kendi zonunu AÇIKÇA yazdıysa o kazanır.
-      if (row.timezone) bySite.set(row.id, row.timezone);
-    }
-    return {
-      tenantZone,
-      zoneOf: (siteId) => (siteId ? (bySite.get(siteId) ?? tenantZone) : tenantZone),
-    };
-  }
+  constructor(private readonly siteTimeZones: SiteTimeZoneService) {}
 
   /** Tek site (veya tenant tabanı) için tam zaman bağlamı. */
   async resolve(
@@ -129,7 +68,7 @@ export class FeedingClockService {
     siteId?: string | null,
     at: Date = new Date(),
   ): Promise<FeedingClock> {
-    const map = await this.siteZones(manager, tenantId);
+    const map = await this.siteTimeZones.siteZones(manager, tenantId);
     return FeedingClockService.clockIn(map.zoneOf(siteId), at);
   }
 

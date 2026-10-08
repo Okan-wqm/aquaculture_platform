@@ -1,3 +1,10 @@
+import {
+  CHANNEL_KEYS,
+  type ChannelKeyMeaning,
+  channelKeyUnit,
+  readingParameterOfChannelKey,
+} from '@aquaculture/shared-contracts';
+
 import { ChannelDataType } from '../../database/entities/sensor-data-channel.entity';
 import { SensorType } from '../../database/entities/sensor.entity';
 import {
@@ -5,6 +12,7 @@ import {
   listParameterCatalog,
   SENSOR_PARAMETER_CATALOG,
 } from '../sensor-parameter-catalog';
+import { ReadingMapperRegistry } from '../../sensor/services/reading-mapper.service';
 
 /**
  * SENSOR-MEDIUM-065: the single aquaculture parameter catalog. These lock the
@@ -43,5 +51,42 @@ describe('sensor-parameter-catalog SSoT (SENSOR-MEDIUM-065)', () => {
       expect(e.dataType).toBe(ChannelDataType.NUMBER);
       expect(e.key).toBe(e.key.toLowerCase());
     }
+  });
+
+  it('names every registry spelling, in the registry unit, and nothing else', () => {
+    expect(Object.keys(SENSOR_PARAMETER_CATALOG).sort()).toEqual(Object.keys(CHANNEL_KEYS).sort());
+    for (const { key, unit } of listParameterCatalog()) {
+      expect(unit).toBe(channelKeyUnit(key));
+    }
+    // Spellings the reading event always carried are now registrable too.
+    expect(lookupParameter('waterlevel')).toEqual(lookupParameter('water_level'));
+    expect(lookupParameter('dissolvedoxygen')).toEqual(lookupParameter('do'));
+    // H2S is µg/L wherever it is named — the farm engine's unit, 1000× mg/L.
+    expect(lookupParameter('h2s')).toMatchObject({ unit: 'µg/L' });
+    expect(lookupParameter('constructor')).toBeUndefined();
+  });
+
+  it('gives one definition to every spelling of one quantity', () => {
+    const nameOf = (meaning: ChannelKeyMeaning): string => meaning.quantity ?? meaning.family;
+    const entries: Array<[string, ChannelKeyMeaning]> = Object.entries(CHANNEL_KEYS);
+    for (const [key, meaning] of entries) {
+      const [first] = entries.find(([, other]) => nameOf(other) === nameOf(meaning)) ?? [key];
+      expect(lookupParameter(key)).toEqual(lookupParameter(first));
+    }
+  });
+
+  it('types a key only as a sensor whose reading mapper writes the key’s reading parameter', () => {
+    // A registered child sensor publishes through the mapper of its type; that
+    // field must be the one the registry says the key lands on (or none).
+    const mappers = new ReadingMapperRegistry();
+    for (const { key, sensorType } of listParameterCatalog()) {
+      expect({ key, field: mappers.getMapper(sensorType)?.getReadingKey() }).toEqual({
+        key,
+        field: readingParameterOfChannelKey(key),
+      });
+    }
+    expect(lookupParameter('oxygen_saturation')?.sensorType).toBe(SensorType.MULTI_PARAMETER);
+    expect(lookupParameter('tan')?.sensorType).toBe(SensorType.MULTI_PARAMETER);
+    expect(lookupParameter('ammonia')?.sensorType).toBe(SensorType.AMMONIA);
   });
 });

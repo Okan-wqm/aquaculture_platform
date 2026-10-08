@@ -64,7 +64,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
-from .autonomy_state import FUNNEL_RECORDED_DETAIL, PLAN_MINTED_PHASE, AutonomyStateReducer
+from .autonomy_state import (
+    FUNNEL_RECORDED_DETAIL,
+    PLAN_MINTED_PHASE,
+    PLAN_PRESSURE_SOURCE_DETAIL,
+    AutonomyStateReducer,
+)
 from .cycle import job_deadline_epoch
 from .file_lock import with_exclusive_lock
 from .next_cycle_queue import mark_consumed, read_pending
@@ -194,6 +199,7 @@ def _drain_next_cycle_queue(
     daemon_agent_id: str,
     limit: int,
     workspace_root: str | Path | None = None,
+    cycle_id: str | None = None,
 ) -> int:
     # A queue item is consumed only after its agent request is appended.
     import json
@@ -222,6 +228,7 @@ def _drain_next_cycle_queue(
         create_agent_invocation_request,
         list_agent_invocation_requests,
     )
+    from .request_admission import admit_request
     from .tool_registry import append_tools_governance
 
     pending = read_pending(base_dir, limit=limit)
@@ -415,6 +422,15 @@ def _drain_next_cycle_queue(
             )
             consumed += 1
             continue
+        # ARIA-HIGH-364 — a projected queue item starts new work:
+        # discretionary. A refused item is NOT consumed, so the next drain
+        # offers it again; the refusal holds for the rest of this cycle (one
+        # snapshot per cycle), so the drain stops asking here.
+        admission = admit_request(
+            "next_cycle_queue.projection", "maintenance_utility", base_dir=base_dir, cycle_id=cycle_id,
+        )
+        if not admission.admitted:
+            break
         try:
             request = create_agent_invocation_request(
                 target_agent="aria-autonomy-planner",
@@ -427,6 +443,7 @@ def _drain_next_cycle_queue(
                 pressure_event_id=pressure_id or None,
                 remint_of=remint_of,
                 base_dir=base_dir,
+                admission=admission,
             )
         except Exception as exc:
             append_tools_governance(
@@ -1261,12 +1278,30 @@ def run_autonomy_orchestrator(
                 # a request_id that dedupes across every later scan.
                 _spared_recent: list[dict[str, Any]] = []
                 _escalated_undateable: list[dict[str, Any]] = []
+                # ARIA-HIGH-365 (B2) — one provider-available clock for the
+                # whole scan: an implementation request outstanding through an
+                # outage of the implementer's provider is not an orphan.
+                from .agent_invocations import list_agent_invocation_requests
+                from .outage_causality import newest_request_id, request_awaits_provider
+                from .provider_clock import provider_clock
+
+                _orphan_clock = provider_clock(root)
+                # Review HIGH-1 — the pause applies only to an implementation
+                # request still waiting on a provider (`outage_causality`).
+                _orphan_requests = (list_agent_invocation_requests(base_dir=root)
+                                    if _orphans else [])
                 for _orphan in _orphans:
                     _orphan_plan_id = _orphan.get("plan_id")
                     if not isinstance(_orphan_plan_id, str) or not _orphan_plan_id:
                         continue
                     _orphan_decision = decide_orphan_reap(
                         _orphan,
+                        clock=_orphan_clock,
+                        awaits_provider=request_awaits_provider(
+                            newest_request_id(_orphan_requests, plan_id=_orphan_plan_id,
+                                              role="implementation"),
+                            base_dir=root,
+                        ),
                         reap_after_hours=ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
                     )
                     if _orphan_decision.decision == ORPHAN_DECISION_ESCALATE_UNDATEABLE:
@@ -1328,6 +1363,7 @@ def run_autonomy_orchestrator(
                                 # auditor of this row must not have to infer.
                                 "age_source": _orphan_decision.age_source,
                                 "age_hours": _orphan_decision.age_hours,
+                                "age_basis": "provider_available",
                                 "reap_after_hours":
                                     ORPHAN_IMPLEMENTATION_REAP_AFTER_HOURS,
                             },
@@ -1553,6 +1589,7 @@ def run_autonomy_orchestrator(
                     # itself in its first accepted response (RC-2,
                     # AIR-aria-autonomy-planner-5636a540ccaa).
                     workspace_root=Path(workspace_root) if workspace_root else root,
+                    cycle_id=cycle_id,
                 )
                 AutonomyStateReducer.transition(
                     root,
@@ -1759,12 +1796,33 @@ def run_autonomy_orchestrator(
                     exit_reason = "bridge_replay_required"
                     break
 
+                # ARIA-HIGH-362 — CONVERGED plans an earlier cycle offered and
+                # left CONVERGED are offered again, through the same entry the
+                # converging call uses, BEFORE this cycle adopts or synthesizes
+                # a plan: the plan this cycle converges is offered once, by its
+                # own converging call. Attempts are counted on each plan's
+                # ledger; a plan whose bound is spent is escalated here.
+                from .converged_delivery import redeliver_stranded_converged_plans
+
+                cycle_summary["converged_redelivery"] = redeliver_stranded_converged_plans(
+                    runner=v9_implementation_runner,
+                    cycle_id=cycle_id,
+                    base_dir=root,
+                    workspace_root=Path(workspace_root) if workspace_root else root,
+                    profile=str(profile_snapshot or "standard"),
+                )
+
                 # E2/F9 — plan identity is DECOUPLED from the cycle id.
                 # Adopt the newest mid-convergence plan (last night's
                 # envelopes answered into it stay OWNED); start fresh only
                 # when nothing is mid-flight.
                 from .plan_convergence import resume_candidate_plan_id
+                from .provider_outage_ledger import escalate_prolonged_outages
 
+                # ARIA-HIGH-365 — the bound on the provider-available clock:
+                # an outage open 30 days goes to the operator as one item;
+                # the plan it pauses is adopted below, never abandoned for it.
+                cycle_summary["prolonged_provider_outages"] = escalate_prolonged_outages(root)
                 active_plan_id = (
                     resume_candidate_plan_id(base_dir=root)
                     or "plan-" + cycle_id
@@ -1804,10 +1862,10 @@ def run_autonomy_orchestrator(
                     base_dir=root,
                     workspace_root=Path(workspace_root) if workspace_root else root,
                     profile=str(profile_snapshot or "standard"),
-                    primary_drafter=_v7_select_drafter(role="primary_authoring"),
-                    challenger_drafter=_v7_select_drafter(role="challenger_authoring"),
-                    evidence_judge=_v7_select_judge(role="evidence_judgment"),
-                    adversarial_judge=_v7_select_judge(role="adversarial_judgment"),
+                    primary_drafter=_v7_select_drafter(role="primary_authoring", cycle_id=cycle_id),
+                    challenger_drafter=_v7_select_drafter(role="challenger_authoring", cycle_id=cycle_id),
+                    evidence_judge=_v7_select_judge(role="evidence_judgment", cycle_id=cycle_id),
+                    adversarial_judge=_v7_select_judge(role="adversarial_judgment", cycle_id=cycle_id),
                     sandbox_runner=_v7_select_sandbox_runner(),
                 )
                 cycle_summary["skill_genesis"] = _v7_genesis_result
@@ -1932,6 +1990,42 @@ def run_autonomy_orchestrator(
                     cycle_summary["reflection"] = post_drain_reflection
                     per_cycle_results.append(cycle_summary)
                     continue
+                # ARIA-HIGH-364 (re-review of #1833, MEDIUM-B) — a NEW plan is
+                # admitted before it is booked: a seed the request-admission
+                # door refuses is neither minted nor rejected in the funnel and
+                # starts no convergence; the cycle records the refusal on
+                # governance and the synthesizer re-derives the candidate next
+                # cycle. An adopted plan (already started) is never asked.
+                from .convergence_drainer import seed_admission
+
+                _seed_ticket = seed_admission(
+                    plan_id=active_plan_id, plan_seed=_v7_plan_content, base_dir=root, cycle_id=cycle_id,
+                )
+                if _seed_ticket is not None and not _seed_ticket.admitted:
+                    append_tools_governance(root, "convergence_seed_throttled", {
+                        "cycle_id": cycle_id, "plan_id": active_plan_id, "refusal": _seed_ticket.refusal,
+                    })
+                    cycle_summary["plan_seed_throttled"] = {
+                        "plan_id": active_plan_id, "refusal": _seed_ticket.refusal,
+                    }
+                    _calibration_reporter_and_auto_promotion(
+                        root, cycle_id, cycle_summary, profile_snapshot,
+                    )
+                    post_drain_reflection = run_reflection(
+                        cycle_id=cycle_id,
+                        base_dir=root,
+                        repo_root=workspace_root,
+                        convergence_result=None,
+                        review_result=None,
+                        **producer_reflection_kwargs(
+                            cycle_summary=cycle_summary,
+                            cycle_result=cycle_result,
+                            pedagogy_lint_result=pedagogy_snapshot,
+                        ),
+                    )
+                    cycle_summary["reflection"] = post_drain_reflection
+                    per_cycle_results.append(cycle_summary)
+                    continue
                 # Plan ARIA-V7 §2i v2 — synthesizer produced real plan.
                 # The funnel's entry: the plan is minted. Recorded BEFORE
                 # the state transition below so that a
@@ -1950,6 +2044,10 @@ def run_autonomy_orchestrator(
                     profile=profile_snapshot,
                     details={
                         "plan_id": active_plan_id,
+                        # ARIA-HIGH-368 — the source this plan was minted
+                        # from, so the executor that converges it credits
+                        # the same source in the funnel.
+                        PLAN_PRESSURE_SOURCE_DETAIL: _v7_pressure_source_type,
                         "affected_surfaces_count": len(
                             _v7_plan_content.get("affected_surfaces", [])
                         ),
@@ -2124,6 +2222,27 @@ def run_autonomy_orchestrator(
                     _record_funnel_counter(
                         root, cycle_id=cycle_id, cycle_summary=cycle_summary, rejected=1,
                     )
+                    # ARIA-HIGH-368 — a plan this verdict left HUMAN_REQUIRED
+                    # (max rounds, a self-agreeing review, a dead envelope)
+                    # gets its ONE operator item, keyed by the plan: the same
+                    # item the executor records when it ends one.
+                    from .convergence_outcome import record_parked_plan
+                    from .ledger import LedgerIntegrityError
+
+                    try:
+                        cycle_summary["parked_plan"] = record_parked_plan(
+                            plan_id=str(convergence_result.get("plan_id") or active_plan_id),
+                            base_dir=root, verdict=str(arbiter_verdict), origin="cycle",
+                        ) is not None
+                    except (GovernanceError, LedgerIntegrityError, OSError) as _parked_exc:
+                        # A refused write (a frozen profile) or a store fault
+                        # is a row; the night's reflection still runs.
+                        append_tools_governance(
+                            root, "parked_plan_unrecorded",
+                            {"cycle_id": cycle_id, "error_class": type(_parked_exc).__name__,
+                             "error_message": str(_parked_exc)[:500]},
+                            bypass_profile_gate=True,
+                        )
                     # ORPHAN-HIGH-782 — the calibration reporter and the V6.4
                     # auto-promote attempt run on convergence-blocked nights
                     # too. This branch used to `continue` straight to
@@ -2324,75 +2443,35 @@ def run_autonomy_orchestrator(
                     # every profile that holds it. The third, `Strict`, refused
                     # under a profile the table grants `pr_create` and is
                     # deleted.
-                    AutonomyStateReducer.transition(
-                        root,
+                    #
+                    # ARIA-HIGH-362 — the offer goes through
+                    # `converged_delivery.deliver_converged_plan`, the ONE call
+                    # site of the runner. The same entry is what the sweep at
+                    # the start of every later cycle uses for a plan this call
+                    # left CONVERGED (a NoOp refusal, a staging error, a runner
+                    # exception), so this cycle is the plan's first offer, not
+                    # its only one. Under a profile holding `pr_create` the offer
+                    # is a counted attempt on the plan's own ledger; the bound
+                    # and the HUMAN_REQUIRED escalation live with it.
+                    from .converged_delivery import ORIGIN_CONVERGED, deliver_converged_plan
+
+                    cycle_summary["v9_implementation"] = deliver_converged_plan(
+                        runner=v9_implementation_runner,
                         cycle_id=cycle_id,
-                        phase="v9_implementation_phase_started",
-                        status="ok",
-                        profile=profile_snapshot,
-                        details={
-                            "plan_id": convergence_result.get("plan_id"),
-                            "runner_class": type(v9_implementation_runner).__name__,
+                        plan_id=str(
+                            convergence_result.get("plan_id") or active_plan_id
+                        ),
+                        workspace_root=Path(workspace_root) if workspace_root else root,
+                        base_dir=root,
+                        cross_review_summary={
+                            "revision_id": convergence_result.get("convergence_id")
+                            or convergence_result.get("plan_id"),
+                            "rounds_count": convergence_result.get("rounds_count"),
+                            "request_ids": convergence_result.get("request_ids", []),
                         },
+                        profile=str(profile_snapshot or "standard"),
+                        origin=ORIGIN_CONVERGED,
                     )
-                    try:
-                        v9_result = v9_implementation_runner.run(
-                            cycle_id=cycle_id,
-                            plan_id=str(
-                                convergence_result.get("plan_id") or active_plan_id
-                            ),
-                            workspace_root=Path(workspace_root) if workspace_root else root,
-                            base_dir=root,
-                            cross_review_summary={
-                                "revision_id": convergence_result.get("convergence_id")
-                                or convergence_result.get("plan_id"),
-                                "rounds_count": convergence_result.get("rounds_count"),
-                                "request_ids": convergence_result.get("request_ids", []),
-                            },
-                            profile=str(profile_snapshot or "standard"),
-                        )
-                        cycle_summary["v9_implementation"] = {
-                            "terminal_state": v9_result.terminal_state,
-                            "pr_url": v9_result.pr_url,
-                            "rejection_class": v9_result.rejection_class,
-                            "specialist_review_signal": v9_result.specialist_review_signal,
-                        }
-                        AutonomyStateReducer.transition(
-                            root,
-                            cycle_id=cycle_id,
-                            phase="v9_implementation_phase_resolved",
-                            status=str(v9_result.terminal_state),
-                            profile=profile_snapshot,
-                            details={
-                                "specialist_review_signal": v9_result.specialist_review_signal,
-                                "pr_url": v9_result.pr_url,
-                                "rejection_class": v9_result.rejection_class,
-                            },
-                        )
-                    except Exception as _v9_exc:
-                        # Best-effort: a V9 phase failure must not block
-                        # specialist_review + worker_drainer. The failure
-                        # surfaces via governance event for operator
-                        # visibility, and the orchestrator falls back to
-                        # review_converged_plan signal (the V8 default).
-                        cycle_summary["v9_implementation"] = {
-                            "terminal_state": "IMPLEMENTATION_REQUEST_REFUSED",
-                            "pr_url": None,
-                            "rejection_class": f"runner_exception:{type(_v9_exc).__name__}",
-                            "specialist_review_signal": "review_converged_plan",
-                        }
-                        try:
-                            append_tools_governance(
-                                root, "v9_implementation_phase_failed",
-                                {
-                                    "cycle_id": cycle_id,
-                                    "plan_id": convergence_result.get("plan_id"),
-                                    "error_class": type(_v9_exc).__name__,
-                                },
-                                bypass_profile_gate=True,
-                            )
-                        except Exception as audit_exc:
-                            cycle_summary["v9_implementation"]["audit_error_class"] = type(audit_exc).__name__
 
                 # Plan ARIA-V6 §2c V6.1 Phase 6.1 — Gate C Lane-A
                 # specialist dispatch. Inserted between Gate A's

@@ -1,10 +1,11 @@
 import { InputType, Field, ID, Int, ObjectType } from '@nestjs/graphql';
 import {
-  IsString,
-  IsOptional,
-  IsEnum,
-  IsUUID,
   IsDate,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -160,6 +161,7 @@ export class AlarmCountBySourceDto {
 @InputType('ApproveAlarmInput')
 export class ApproveAlarmDto {
   @Field(() => Int)
+  @IsInt()
   level!: number;
 
   @Field({ nullable: true })

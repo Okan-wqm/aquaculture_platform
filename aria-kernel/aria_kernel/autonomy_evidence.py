@@ -1030,6 +1030,9 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}convergence_drainer.py",
             f"{_KERNEL}evidence_validator.py",
             f"{_KERNEL}plan_convergence.py",
+            # ARIA-HIGH-375 — the cross-review independence gate reads the
+            # reviewer's ACCEPTED result inside evaluate_plan.
+            f"{_KERNEL}round_independence.py",
             f"{_KERNEL}state_manifest.py",
             # Native runtime attempts: the reservation that binds a managed
             # attempt to a claim lives in budget.py (2026-09-11 integration).
@@ -1060,6 +1063,9 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}evidence_validator.py",
             f"{_KERNEL}genesis_lifecycle.py",
             f"{_KERNEL}plan_convergence.py",
+            # ARIA-HIGH-375 — the accepted cross review decides whether a
+            # round may converge (the independence gate in evaluate_plan).
+            f"{_KERNEL}round_independence.py",
             # Native runtime attempts (2026-09-11 Codex integration): the
             # attempt reservation reads results to validate the claim's
             # dispatch authority before a managed attempt is bound, and the

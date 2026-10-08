@@ -1,4 +1,11 @@
-import { measuredQuantity, type QuantityId } from '@aquaculture/shared-contracts';
+import {
+  MEASURED_QUANTITIES,
+  QUANTITY_FAMILIES,
+  measuredQuantity,
+  type ChannelKeyMeaning,
+  type QuantityFamily,
+  type QuantityId,
+} from '@aquaculture/shared-contracts';
 
 /**
  * Which measured quantity a farm water-quality parameter code records.
@@ -10,35 +17,59 @@ import { measuredQuantity, type QuantityId } from '@aquaculture/shared-contracts
  * channel measuring the same thing — they had: pH as `''` beside `pH`, and
  * `mg/L CaCO₃` beside `mg/L CaCO3`.
  *
- * `ammonia`, `nitrite` and `nitrate` are absent on purpose: the farm records
- * them without a basis (labels say NH₃ / NO₂ / NO₃, thresholds fit either the
- * molecule or the N basis, which differ 1.2× to 4.4×), and an undeclared basis
- * must not feed the chemistry. Their configs carry a declared quantity once
- * the parameter-config binding lands. Codes absent here (transparency, BOD,
- * counts, …) keep their own unit.
+ * A code names a quantity, or a family whose member its config declares — the
+ * same two shapes a channel key has (`ChannelKeyMeaning`). `ammonia`,
+ * `nitrite` and `nitrate` are families: the farm records them without a basis
+ * (labels say NH₃ / NO₂ / NO₃, thresholds fit either the molecule or the N
+ * basis, which differ 1.2× to 4.4×), and an undeclared basis must not feed the
+ * chemistry. Codes absent here (transparency, BOD, counts, custom ones) keep
+ * their own unit and record no quantity until one is declared.
+ *
+ * A config's effective quantity is persisted (`effectiveQuantity`, so the
+ * database keeps one active config per quantity): changing what a listed code
+ * means needs a migration re-deriving that column for existing configs, which
+ * the pinned table in parameter-quantities.spec.ts reminds.
  */
-export const PARAMETER_CODE_QUANTITY: Readonly<Record<string, QuantityId>> = {
-  temperature: 'temperature',
-  ph: 'ph',
-  dissolved_oxygen: 'dissolvedOxygen',
-  oxygen_saturation: 'oxygenSaturation',
-  salinity: 'salinity',
-  conductivity: 'conductivity',
-  total_ammonia_nitrogen: 'tan',
-  h2s: 'h2s',
-  alkalinity: 'alkalinity',
-  hardness: 'hardness',
-  co2: 'co2',
-  turbidity: 'turbidity',
-  chlorine: 'chlorine',
-  ozone: 'ozone',
-};
+export const PARAMETER_CODES = {
+  temperature: { quantity: 'temperature' },
+  ph: { quantity: 'ph' },
+  dissolved_oxygen: { quantity: 'dissolvedOxygen' },
+  oxygen_saturation: { quantity: 'oxygenSaturation' },
+  salinity: { quantity: 'salinity' },
+  conductivity: { quantity: 'conductivity', alternates: ['specificConductance'] },
+  total_ammonia_nitrogen: { quantity: 'tan' },
+  ammonia: { family: 'ammonia' },
+  nitrite: { family: 'nitrite' },
+  nitrate: { family: 'nitrate' },
+  h2s: { quantity: 'h2s' },
+  alkalinity: { quantity: 'alkalinity' },
+  calcium: { quantity: 'calcium' },
+  hardness: { quantity: 'hardness' },
+  co2: { quantity: 'co2' },
+  turbidity: { quantity: 'turbidity' },
+  chlorine: { quantity: 'chlorine' },
+  ozone: { quantity: 'ozone' },
+} as const satisfies Record<string, ChannelKeyMeaning>;
 
-/** The quantity a parameter code records, or null for a code no channel can measure. */
+type ParameterCode = keyof typeof PARAMETER_CODES;
+
+function isParameterCode(code: string): code is ParameterCode {
+  return Object.prototype.hasOwnProperty.call(PARAMETER_CODES, code);
+}
+
+/** What a parameter code names, or undefined for a code outside the table. */
+export function parameterCodeMeaning(code: string): ChannelKeyMeaning | undefined {
+  return isParameterCode(code) ? PARAMETER_CODES[code] : undefined;
+}
+
+/** The quantity a parameter code names by itself, or null (a family, or a code no channel measures). */
 export function quantityOfParameterCode(code: string): QuantityId | null {
-  return Object.prototype.hasOwnProperty.call(PARAMETER_CODE_QUANTITY, code)
-    ? (PARAMETER_CODE_QUANTITY[code] ?? null)
-    : null;
+  return parameterCodeMeaning(code)?.quantity ?? null;
+}
+
+/** The family a code names without saying which member, or null. */
+export function parameterCodeFamily(code: string): QuantityFamily | null {
+  return parameterCodeMeaning(code)?.family ?? null;
 }
 
 /** The registry unit of a code that records a measured quantity. */
@@ -48,4 +79,32 @@ export function unitOfParameterCode(code: string): string {
     throw new Error(`Parameter code ${code} records no measured quantity; give its unit`);
   }
   return measuredQuantity(quantity).unit;
+}
+
+/**
+ * The quantities a config with this code may be declared to record: the
+ * family's members, the code's quantity and its alternates, or — for a code
+ * outside the table — any quantity.
+ */
+export function declarableQuantitiesOfParameter(code: string): readonly QuantityId[] {
+  const meaning = parameterCodeMeaning(code);
+  if (meaning === undefined) {
+    return MEASURED_QUANTITIES.map((quantity) => quantity.id);
+  }
+  if (meaning.family !== undefined) {
+    return QUANTITY_FAMILIES[meaning.family].members;
+  }
+  return [meaning.quantity, ...(meaning.alternates ?? [])];
+}
+
+/**
+ * The quantity a config records: its declaration when the code allows it,
+ * else what the code names. Null for a family nobody declared and for a code
+ * outside the table with no declaration — such a parameter takes no channel.
+ */
+export function parameterQuantity(code: string, declared: QuantityId | null): QuantityId | null {
+  if (declared !== null) {
+    return declarableQuantitiesOfParameter(code).includes(declared) ? declared : null;
+  }
+  return quantityOfParameterCode(code);
 }

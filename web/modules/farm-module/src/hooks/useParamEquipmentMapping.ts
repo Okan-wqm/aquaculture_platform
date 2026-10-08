@@ -15,7 +15,9 @@ export interface ParamEquipmentMapping {
   id: string;
   tenantId: string;
   parameterConfigId: string;
-  equipmentId: string;
+  /** The unit's point: a tank is `tankId`, non-tank water equipment `equipmentId`. */
+  tankId: string | null;
+  equipmentId: string | null;
   isActive: boolean;
   monitoringFrequency: MonitoringFrequency;
   sensorId: string | null;
@@ -68,6 +70,11 @@ export interface ParamEquipmentMappingFilter {
   parameterConfigId?: string;
 }
 
+/** The unit a plan line belongs to: its tank or its equipment. */
+export function mappingUnitId(mapping: ParamEquipmentMapping): string | null {
+  return mapping.tankId ?? mapping.equipmentId;
+}
+
 // ============================================================================
 // GRAPHQL QUERIES & MUTATIONS
 // ============================================================================
@@ -76,6 +83,7 @@ const MAPPING_FRAGMENT = `
   id
   tenantId
   parameterConfigId
+  tankId
   equipmentId
   isActive
   monitoringFrequency

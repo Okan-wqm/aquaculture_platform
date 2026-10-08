@@ -6,3 +6,4 @@
 export * from './water-quality-measurement.entity';
 export * from './water-quality-parameter-config.entity';
 export * from './water-quality-param-equipment.entity';
+export * from './parameter-quantity-declaration.entity';

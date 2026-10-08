@@ -12,6 +12,7 @@ import { SystemUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, Not } from 'typeorm';
 
+import { closeSourcesAtPoints } from '../../water-quality/services/parameter-sources';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { UpdateSystemCommand } from '../commands/update-system.command';
@@ -100,9 +101,16 @@ export class UpdateSystemHandler implements ICommandHandler<UpdateSystemCommand,
       if (input.tankCount !== undefined) updateData.tankCount = input.tankCount;
       if (input.isActive !== undefined) updateData.isActive = input.isActive;
 
+      const wasActive = system.isActive;
       Object.assign(system, updateData);
 
       const updatedSystem = await systemRepository.save(system);
+      // Deactivating retires the point: its water-quality sources end here,
+      // after the point row is written (FARM-HIGH-373, D12). Reactivation
+      // binds anew.
+      if (wasActive && !updatedSystem.isActive) {
+        await closeSourcesAtPoints(queryRunner.manager, tenantId, [{ kind: 'system', id: updatedSystem.id }], userId, 'channels');
+      }
 
       await this.auditLogService.logWithManager(queryRunner.manager, {
         tenantId,

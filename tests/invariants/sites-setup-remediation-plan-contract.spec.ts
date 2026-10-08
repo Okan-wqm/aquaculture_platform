@@ -198,7 +198,9 @@ describe('INVARIANT: sites setup remediation plan is durable and registry-backed
       updateTankStatus,
       deleteTank,
     ]) {
-      expect(source).toContain('runInTenantTransaction');
+      // runRetryingTenantTransaction wraps runInTenantTransaction (farm schema)
+      // with deadlock/serialization retry; the point retirers use it.
+      expect(source).toMatch(/runInTenantTransaction|runRetryingTenantTransaction/);
       expect(source).toContain('tenantManagerRepo');
       expect(source).toContain('AuditLogService');
       expect(source).toContain('logWithManager');

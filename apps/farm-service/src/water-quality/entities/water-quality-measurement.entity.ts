@@ -24,6 +24,7 @@ import {
   JoinColumn,
   BeforeInsert,
   BeforeUpdate,
+  Check,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
@@ -184,6 +185,12 @@ export interface SensorInfo {
 @Index(['overallStatus', 'tenantId'])
 @Index(['tenantId', 'equipmentId', 'measuredAt'])
 @Index(['tenantId', 'idempotencyKey'], { unique: true, where: '"idempotencyKey" IS NOT NULL' })
+@Index('IDX_wqm_tenant_system_measured_at', ['tenantId', 'systemId', 'measuredAt'], {
+  where: '"systemId" IS NOT NULL',
+})
+// At most one measurement point (FARM-MEDIUM-375): a unit is a tank or water
+// equipment (measurement-unit.ts), a loop sample is its system.
+@Check('CHK_wqm_one_point', `num_nonnulls("tankId", "equipmentId", "systemId") <= 1`)
 export class WaterQualityMeasurement {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -224,6 +231,11 @@ export class WaterQualityMeasurement {
   @ManyToOne('Equipment', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'equipmentId' })
   equipment?: unknown; // String ref for Equipment to avoid circular import
+
+  /** A sample of a system's loop (a sump), not of one of its units. */
+  @Field(() => String, { nullable: true, description: 'System (loop) the sample was taken from' })
+  @Column('uuid', { nullable: true })
+  systemId?: string | null;
 
   // -------------------------------------------------------------------------
   // ÖLÇÜM BİLGİLERİ

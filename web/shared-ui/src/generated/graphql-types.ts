@@ -1414,6 +1414,20 @@ export type BillingCycle =
   | 'QUARTERLY'
   | 'SEMI_ANNUAL';
 
+/** Bind a sensor channel as a source of a parameter at a point */
+export type BindParameterChannelInput = {
+  channelKey: Scalars['String']['input'];
+  /** Sampling depth in metres */
+  depthM?: InputMaybe<Scalars['Float']['input']>;
+  parameterConfigId: Scalars['ID']['input'];
+  point: MeasurementPointInput;
+  /** Where at the point the channel samples; representative when omitted */
+  position?: InputMaybe<MeasurementPosition>;
+  /** Primary unless given; a backup needs a primary at the same place */
+  priority?: InputMaybe<ChannelSourcePriority>;
+  sensorId: Scalars['ID']['input'];
+};
+
 export type BiomassAltinnExportOutput = {
   /** Form-ordered CSV (Section,Field,Value) */
   csv: Scalars['String']['output'];
@@ -1540,6 +1554,26 @@ export type BlockingHealthEventOutput = {
   status: HealthEventStatus;
   title: Scalars['String']['output'];
   withdrawalPeriodDays?: Maybe<Scalars['Int']['output']>;
+};
+
+/** A bound sensor channel as the sensor service describes it now */
+export type BoundChannelStatus = {
+  /** Null: no calibration schedule */
+  calibrationDueAt?: Maybe<Scalars['DateTime']['output']>;
+  channelKey: Scalars['String']['output'];
+  /** When the unit or quantity last changed */
+  configuredAt?: Maybe<Scalars['DateTime']['output']>;
+  enabled?: Maybe<Scalars['Boolean']['output']>;
+  latestAt?: Maybe<Scalars['DateTime']['output']>;
+  latestQuality?: Maybe<SampleQuality>;
+  latestValue?: Maybe<Scalars['Float']['output']>;
+  presence: ChannelPresence;
+  /** Effective measured quantity */
+  quantity?: Maybe<Scalars['String']['output']>;
+  quantityFamily?: Maybe<Scalars['String']['output']>;
+  sensorActive?: Maybe<Scalars['Boolean']['output']>;
+  sensorId: Scalars['ID']['output'];
+  unit?: Maybe<Scalars['String']['output']>;
 };
 
 export type BreakPeriod = {
@@ -1896,6 +1930,26 @@ export type ChannelAlertLevel =
   | 'NORMAL'
   | 'WARNING';
 
+/** Whether a channel could be bound as a source, without binding it */
+export type ChannelBindingCheck = {
+  channel: BoundChannelStatus;
+  problems: Array<ChannelBindingProblem>;
+};
+
+/** Why a sensor channel cannot feed a parameter at a point */
+export type ChannelBindingProblem =
+  | 'CHANNEL_DISABLED'
+  | 'CHANNEL_HAS_NO_QUANTITY'
+  | 'CHANNEL_HAS_NO_UNIT'
+  | 'CHANNEL_UNIT_NOT_CONVERTIBLE'
+  | 'NOT_AT_POINT'
+  | 'NO_CHANNEL'
+  | 'NO_SENSOR'
+  | 'PARAMETER_HAS_NO_QUANTITY'
+  | 'PARAMETER_UNIT_NOT_CONVERTIBLE'
+  | 'QUANTITY_MISMATCH'
+  | 'SENSOR_INACTIVE';
+
 export type ChannelDataBounds = {
   channelId: Scalars['ID']['output'];
   firstSampleAt?: Maybe<Scalars['DateTime']['output']>;
@@ -2051,6 +2105,11 @@ export type ChannelSeriesResponse = {
   sourceTier: MetricSourceTier;
   startTime: Scalars['DateTime']['output'];
 };
+
+/** A channel source is the primary of its parameter at its point, or the backup */
+export type ChannelSourcePriority =
+  | 'BACKUP'
+  | 'PRIMARY';
 
 export type ChannelType =
   | 'AI'
@@ -4405,6 +4464,13 @@ export type DeclareChannelQuantityInput = {
   channelId: Scalars['ID']['input'];
   quantity: Scalars['String']['input'];
   unit?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** Declare which measured quantity a parameter records */
+export type DeclareParameterQuantityInput = {
+  parameterConfigId: Scalars['ID']['input'];
+  /** A measured-quantity id, e.g. tan, nh3, nitriteN */
+  quantity: Scalars['String']['input'];
 };
 
 export type DeductionsBreakdown = {
@@ -9195,6 +9261,21 @@ export type MeasurementMethod =
   | 'MANUAL_SCALE'
   | 'SONAR';
 
+/** A measurement point: exactly one of a site, a system, a tank or non-tank water equipment */
+export type MeasurementPointInput = {
+  /** Non-tank water equipment (a tank is tankId) */
+  equipmentId?: InputMaybe<Scalars['ID']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+  systemId?: InputMaybe<Scalars['ID']['input']>;
+  tankId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+/** Where at a measurement point a source samples: representative, inlet or outlet */
+export type MeasurementPosition =
+  | 'INLET'
+  | 'OUTLET'
+  | 'REPRESENTATIVE';
+
 /** Ölçüm tipi */
 export type MeasurementType =
   | 'GRADING'
@@ -9505,6 +9586,7 @@ export type Mutation = {
   batchDeactivateSensors: Scalars['Boolean']['output'];
   batchIngestReadings: Scalars['Int']['output'];
   batchUpdateSensors: Scalars['Boolean']['output'];
+  bindParameterChannel: WaterQualityParamEquipment;
   bulkAcknowledgePlcAlarms: Scalars['Int']['output'];
   bulkAddDeviceIoConfigs: BulkAddIoConfigResult;
   bulkAssignShifts: BulkAssignResultType;
@@ -9536,6 +9618,7 @@ export type Mutation = {
   changePassword: ChangeMyPasswordResponse;
   changeSubscriptionPlan: Subscription;
   clearChannelQuantity: DataChannelType;
+  clearParameterQuantity: WaterQualityParameterConfig;
   clockIn: AttendanceRecord;
   clockOut: AttendanceRecord;
   cloneAutomationProgram: AutomationProgram;
@@ -9668,6 +9751,7 @@ export type Mutation = {
   deactivateVfdDevice: VfdDevice;
   deactivateWorkArea: WorkArea;
   declareChannelQuantity: DataChannelType;
+  declareParameterQuantity: WaterQualityParameterConfig;
   decommissionEdgeDevice: EdgeDevice;
   deferGoal: Goal;
   deleteAlertRule: Scalars['Boolean']['output'];
@@ -9881,6 +9965,7 @@ export type Mutation = {
   reopenSupportThread: SupportMessageThread;
   reorderDataChannels: Array<DataChannelType>;
   reorderParameterConfigs: Array<WaterQualityParameterConfig>;
+  replaceParameterChannel: WaterQualityParamEquipment;
   /** Mint a presigned URL to upload an incident photo (escape/welfare/lice) */
   requestIncidentMediaUpload: IncidentMediaUploadResponse;
   requestMediaUpload: MediaUploadResponse;
@@ -10011,6 +10096,7 @@ export type Mutation = {
   transitionUnitFeed: DayPlanAdminResult;
   unassignProtocolFromUnit: ProtocolAssignment;
   unassignUserFromSite: SiteAssignmentResult;
+  unbindParameterChannel: ParameterChannelUnbinding;
   unlockProgram: AutomationProgram;
   unlockTenantUser: User;
   unpinMessage: Scalars['Boolean']['output'];
@@ -10581,6 +10667,11 @@ export type MutationBatchUpdateSensorsArgs = {
 };
 
 
+export type MutationBindParameterChannelArgs = {
+  input: BindParameterChannelInput;
+};
+
+
 export type MutationBulkAcknowledgePlcAlarmsArgs = {
   input: BulkAcknowledgeAlarmsInput;
 };
@@ -10730,6 +10821,11 @@ export type MutationChangeSubscriptionPlanArgs = {
 
 export type MutationClearChannelQuantityArgs = {
   channelId: Scalars['ID']['input'];
+};
+
+
+export type MutationClearParameterQuantityArgs = {
+  parameterConfigId: Scalars['ID']['input'];
 };
 
 
@@ -11316,6 +11412,11 @@ export type MutationDeactivateWorkAreaArgs = {
 
 export type MutationDeclareChannelQuantityArgs = {
   input: DeclareChannelQuantityInput;
+};
+
+
+export type MutationDeclareParameterQuantityArgs = {
+  input: DeclareParameterQuantityInput;
 };
 
 
@@ -12230,6 +12331,11 @@ export type MutationReorderParameterConfigsArgs = {
 };
 
 
+export type MutationReplaceParameterChannelArgs = {
+  input: ReplaceParameterChannelInput;
+};
+
+
 export type MutationRequestIncidentMediaUploadArgs = {
   input: RequestIncidentMediaUploadInput;
 };
@@ -12762,6 +12868,11 @@ export type MutationUnassignProtocolFromUnitArgs = {
 export type MutationUnassignUserFromSiteArgs = {
   siteId: Scalars['ID']['input'];
   userId: Scalars['ID']['input'];
+};
+
+
+export type MutationUnbindParameterChannelArgs = {
+  sourceId: Scalars['ID']['input'];
 };
 
 
@@ -14032,6 +14143,12 @@ export type PaginatedVfdDeviceList = {
   totalPages: Scalars['Int']['output'];
 };
 
+/** An unbound channel source, and the backup promoted in its place */
+export type ParameterChannelUnbinding = {
+  promoted?: Maybe<WaterQualityParamEquipment>;
+  unbound: WaterQualityParamEquipment;
+};
+
 export type ParameterConfigFilterInput = {
   /** Filter by parameter group */
   group?: InputMaybe<ParameterGroup>;
@@ -14056,11 +14173,36 @@ export type ParameterGroup =
   | 'NITROGEN_CYCLE'
   | 'ORGANIC';
 
+/** Immutable record of one change to a parameter’s declared quantity */
+export type ParameterQuantityDeclaration = {
+  code: Scalars['String']['output'];
+  declaredAt: Scalars['DateTime']['output'];
+  declaredBy: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  parameterConfigId: Scalars['ID']['output'];
+  quantity?: Maybe<Scalars['String']['output']>;
+  reason: ParameterQuantityDeclarationReason;
+  unit: Scalars['String']['output'];
+};
+
+export type ParameterQuantityDeclarationReason =
+  | 'CLEARED'
+  | 'DECLARED';
+
 export type ParameterSendResult = {
   checksum?: Maybe<Scalars['String']['output']>;
   error?: Maybe<Scalars['String']['output']>;
   sentAt: Scalars['DateTime']['output'];
   success: Scalars['Boolean']['output'];
+};
+
+/** A source of a parameter at a point, with its channel as it is now */
+export type ParameterSourceStatus = {
+  /** Null for a manual source */
+  channel?: Maybe<BoundChannelStatus>;
+  /** Why the channel cannot feed the parameter here now; empty when it can */
+  problems: Array<ChannelBindingProblem>;
+  source: WaterQualityParamEquipment;
 };
 
 export type ParameterTemplateResponse = {
@@ -15495,6 +15637,7 @@ export type Query = {
   /** What each (sensorId, channelKey) is now (≤100): presence, sensor location, quantity, unit, last value — disabled channels included */
   channelsByKey: Array<SensorChannelDescriptionType>;
   checkLeaveOverlap: LeaveOverlapResult;
+  checkParameterChannelBinding: ChannelBindingCheck;
   chemical?: Maybe<ChemicalResponse>;
   chemicalSuppliers: Array<SupplierResponse>;
   chemicalTypes: Array<ChemicalTypeResponse>;
@@ -15773,6 +15916,8 @@ export type Query = {
   parameterConfigByCode?: Maybe<WaterQualityParameterConfig>;
   parameterConfigs: Array<WaterQualityParameterConfig>;
   parameterEquipmentMappings: Array<WaterQualityParamEquipment>;
+  parameterQuantityDeclarations: Array<ParameterQuantityDeclaration>;
+  parameterSourcesAtPoint: Array<ParameterSourceStatus>;
   parameterTemplates: Array<ParameterTemplateResponse>;
   parentDevice?: Maybe<ParentDeviceType>;
   parentDevices: SensorListType;
@@ -16365,6 +16510,11 @@ export type QueryCheckLeaveOverlapArgs = {
   endDate: Scalars['String']['input'];
   excludeRequestId?: InputMaybe<Scalars['ID']['input']>;
   startDate: Scalars['String']['input'];
+};
+
+
+export type QueryCheckParameterChannelBindingArgs = {
+  input: BindParameterChannelInput;
 };
 
 
@@ -17309,6 +17459,16 @@ export type QueryParameterEquipmentMappingsArgs = {
   equipmentId?: InputMaybe<Scalars['ID']['input']>;
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
   parameterConfigId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryParameterQuantityDeclarationsArgs = {
+  parameterConfigId: Scalars['ID']['input'];
+};
+
+
+export type QueryParameterSourcesAtPointArgs = {
+  point: MeasurementPointInput;
 };
 
 
@@ -19207,6 +19367,14 @@ export type ReorderChannelsInput = {
 export type ReorderParameterConfigsInput = {
   /** Parameter config IDs in desired display order */
   orderedIds: Array<Scalars['ID']['input']>;
+};
+
+/** Swap the channel of a bound source in one step, keeping its place */
+export type ReplaceParameterChannelInput = {
+  channelKey: Scalars['String']['input'];
+  sensorId: Scalars['ID']['input'];
+  /** The live channel source to replace */
+  sourceId: Scalars['ID']['input'];
 };
 
 export type ReportDeadlineOutput = {
@@ -25484,6 +25652,8 @@ export type WaterQualityMeasurement = {
   siteId?: Maybe<Scalars['String']['output']>;
   source: WaterQualityMeasurementSource;
   summary?: Maybe<Scalars['JSON']['output']>;
+  /** System (loop) the sample was taken from */
+  systemId?: Maybe<Scalars['String']['output']>;
   tankId?: Maybe<Scalars['String']['output']>;
   temperature?: Maybe<Scalars['Float']['output']>;
   tenantId: Scalars['String']['output'];
@@ -25502,11 +25672,20 @@ export type WaterQualityMeasurementSource =
 export type WaterQualityParamEquipment = {
   /** Whether alerts are enabled for this mapping; null for a sensor channel */
   alertEnabled?: Maybe<Scalars['Boolean']['output']>;
+  /** When the source started feeding the parameter at the point */
+  boundAt: Scalars['DateTime']['output'];
+  /** Who bound it; null before tracking */
+  boundBy?: Maybe<Scalars['String']['output']>;
+  /** Channel key of a channel source */
+  channelKey?: Maybe<Scalars['String']['output']>;
   createdAt: Scalars['DateTime']['output'];
+  /** Sampling depth in metres */
+  depthM?: Maybe<Scalars['Float']['output']>;
   equipment?: Maybe<EquipmentRef>;
+  /** Non-tank water equipment point */
   equipmentId?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
-  /** Whether this parameter-equipment mapping is active */
+  /** Whether this manual source is in the entry plan */
   isActive: Scalars['Boolean']['output'];
   /** How often this parameter is monitored on the equipment; null for a sensor channel */
   monitoringFrequency?: Maybe<MonitoringFrequency>;
@@ -25514,9 +25693,23 @@ export type WaterQualityParamEquipment = {
   notes?: Maybe<Scalars['String']['output']>;
   parameterConfig: WaterQualityParameterConfig;
   parameterConfigId: Scalars['String']['output'];
-  /** Linked sensor device UUID */
+  /** Where at the point the source samples */
+  position: MeasurementPosition;
+  /** Null for a manual source */
+  priority?: Maybe<ChannelSourcePriority>;
+  /** Sensor of a channel source */
   sensorId?: Maybe<Scalars['String']['output']>;
+  /** Site point */
+  siteId?: Maybe<Scalars['ID']['output']>;
+  /** System (loop) point */
+  systemId?: Maybe<Scalars['ID']['output']>;
+  /** Tank point */
+  tankId?: Maybe<Scalars['ID']['output']>;
   tenantId: Scalars['String']['output'];
+  /** When it stopped; null while live */
+  unboundAt?: Maybe<Scalars['DateTime']['output']>;
+  /** Who or what unbound it */
+  unboundBy?: Maybe<Scalars['String']['output']>;
   updatedAt: Scalars['DateTime']['output'];
 };
 
@@ -25534,6 +25727,9 @@ export type WaterQualityParameterConfig = {
   criticalMin?: Maybe<Scalars['Float']['output']>;
   /** Value data type */
   dataType: ParameterDataType;
+  declarableQuantities: Array<Scalars['String']['output']>;
+  /** The measured quantity an operator declared, when the code does not say */
+  declaredQuantity?: Maybe<Scalars['String']['output']>;
   /** Display ordering */
   displayOrder: Scalars['Int']['output'];
   /** Allowed values when dataType is ENUM */
@@ -25559,6 +25755,11 @@ export type WaterQualityParameterConfig = {
   optimalMin?: Maybe<Scalars['Float']['output']>;
   /** Decimal places for number values */
   precision: Scalars['Int']['output'];
+  /** The measured quantity the parameter records: declared, else named by its code */
+  quantity?: Maybe<Scalars['String']['output']>;
+  /** When the code, unit or declared quantity last changed */
+  quantityConfiguredAt?: Maybe<Scalars['DateTime']['output']>;
+  quantityFamily?: Maybe<Scalars['String']['output']>;
   /** Species-specific threshold overrides */
   speciesLimits?: Maybe<Scalars['JSON']['output']>;
   /** Source template identifier if provisioned from template */

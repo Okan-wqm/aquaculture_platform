@@ -1,17 +1,23 @@
 /**
  * UpdateParamEquipmentHandler
  *
- * Updates an existing parameter-equipment mapping.
- * Finds by id + tenantId, applies partial updates.
+ * Edits a live line of a unit's manual-entry plan: cadence, alert switch,
+ * whether it is in the plan, notes. A sensor channel source has none of
+ * these (its cadence and alerts are the channel's) and is changed through
+ * the binding commands; a plan line takes no sensor.
  *
  * @module WaterQuality/Handlers
  */
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { DataSource, IsNull } from 'typeorm';
+
 import { UpdateParamEquipmentCommand } from '../commands/update-param-equipment.command';
-import { WaterQualityParamEquipment, MonitoringFrequency } from '../entities/water-quality-param-equipment.entity';
+import { WaterQualityParamEquipment } from '../entities/water-quality-param-equipment.entity';
+import { lockParameterConfig } from '../services/parameter-sources';
+import { runSourceTransaction } from '../services/source-transaction';
 
 @Injectable()
 @CommandHandler(UpdateParamEquipmentCommand)
@@ -20,47 +26,51 @@ export class UpdateParamEquipmentHandler
 {
   private readonly logger = new Logger(UpdateParamEquipmentHandler.name);
 
-  constructor(
-    @InjectRepository(WaterQualityParamEquipment)
-    private readonly mappingRepository: Repository<WaterQualityParamEquipment>,
-  ) {}
+  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
   async execute(command: UpdateParamEquipmentCommand): Promise<WaterQualityParamEquipment> {
     const { tenantId, mappingId, payload } = command;
-
-    this.logger.log(`Updating param-equipment mapping ${mappingId} for tenant ${tenantId}`);
-
-    const mapping = await this.mappingRepository.findOne({
-      where: { id: mappingId, tenantId },
-    });
-
-    if (!mapping) {
-      throw new NotFoundException(
-        `Param-equipment mapping '${mappingId}' not found for this tenant`,
+    if (payload.sensorId !== undefined && payload.sensorId !== null) {
+      throw new BadRequestException(
+        'A plan line takes no sensor; bind a sensor channel with bindParameterChannel',
       );
     }
 
-    // Apply only defined fields from payload
-    if (payload.monitoringFrequency !== undefined) {
-      mapping.monitoringFrequency = payload.monitoringFrequency as MonitoringFrequency;
-    }
-    if (payload.sensorId !== undefined) {
-      mapping.sensorId = payload.sensorId;
-    }
-    if (payload.alertEnabled !== undefined) {
-      mapping.alertEnabled = payload.alertEnabled;
-    }
-    if (payload.isActive !== undefined) {
-      mapping.isActive = payload.isActive;
-    }
-    if (payload.notes !== undefined) {
-      mapping.notes = payload.notes;
-    }
+    const saved = await runSourceTransaction(this.dataSource, tenantId, async (queryRunner) => {
+      const sources = tenantManagerRepo(queryRunner.manager, WaterQualityParamEquipment, tenantId);
+      const found = await sources.findOne({ where: { id: mappingId, unboundAt: IsNull() } });
+      if (found === null) {
+        throw new NotFoundException(`Param-equipment mapping '${mappingId}' not found for this tenant`);
+      }
+      if (found.channelKey !== null) {
+        throw new BadRequestException(
+          'This is a sensor channel source; change it with the channel binding commands',
+        );
+      }
+      await lockParameterConfig(queryRunner.manager, tenantId, found.parameterConfigId);
+      const line = await sources.findOne({
+        where: { id: mappingId, unboundAt: IsNull() },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (line === null) {
+        throw new NotFoundException(`Param-equipment mapping '${mappingId}' not found for this tenant`);
+      }
+      if (payload.monitoringFrequency !== undefined) {
+        line.monitoringFrequency = payload.monitoringFrequency;
+      }
+      if (payload.alertEnabled !== undefined) {
+        line.alertEnabled = payload.alertEnabled;
+      }
+      if (payload.isActive !== undefined) {
+        line.isActive = payload.isActive;
+      }
+      if (payload.notes !== undefined) {
+        line.notes = payload.notes;
+      }
+      return sources.save(line);
+    });
 
-    const saved = await this.mappingRepository.save(mapping);
-
-    this.logger.log(`Param-equipment mapping ${mappingId} updated for tenant ${tenantId}`);
-
+    this.logger.log(JSON.stringify({ event: 'parameter_plan_line_updated', tenantId, mappingId }));
     return saved;
   }
 }

@@ -49,11 +49,21 @@ ledger and gives ``overturned`` the only effect the meta-layer is allowed
 to have on its own — an operator-visible escalation. The plan's terminal
 state is deliberately NOT rewritten: a self-audit that reopened its own
 decisions would be a writer with no external authority behind it.
+
+WHERE THE ANSWER LIVES. The prompt and the must_satisfy criterion both
+name ``details.questioning`` verbatim, so a compliant production answer
+is read from its tier-1 location; the prompt-derived marker
+(``verdict=<token>``) and the ``details.verdict`` fallback exist only so
+envelopes minted before the contract was named still fold instead of
+silently rotting. Prose is never token-scanned: a bare closed-set word
+can be the verdict an answer REFUSES ("should NOT be overturned"), and
+reading it would invert the answer.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -65,7 +75,7 @@ from .agent_invocations import (
 )
 from .human_required import record_human_required
 from .plan_convergence import events_path, fold_plan_state
-from .ledger import append_declared_jsonl, load_declared_jsonl
+from .ledger import load_declared_jsonl, state_transaction
 from .request_admission import admit_request
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
@@ -82,11 +92,23 @@ QUESTIONING_VERDICTS: frozenset[str] = frozenset({
     VERDICT_UPHELD, VERDICT_OVERTURNED, VERDICT_INSUFFICIENT_EVIDENCE,
 })
 
-# The named block the verdict is read from first, mirroring the
-# adjudication contract (ARIA-HIGH-097): one agreed key the pre-submit
-# gate and the fold both spell, so the writer and the reader cannot
-# disagree about where the answer lives.
+# The named block the answer contract lives in. The prompt and the
+# must_satisfy criterion NAME this block verbatim, and the fold reads it
+# first — one agreed location the writer and the reader cannot disagree
+# about, the same one-answer-location contract the adjudication role
+# holds (ARIA-HIGH-097).
 QUESTIONING_DETAILS_KEY: str = "questioning"
+
+# ARIA-HIGH-204 (re-review) — the ONLY prose form tier 3 accepts. A bare
+# closed-set token is NOT a verdict: "the decision should NOT be
+# overturned" contains the token it is refusing, and a substring scan
+# turned that negation into the verdict itself — a false MEDIUM
+# escalation on an answer that upheld the decision. The explicit
+# `verdict=<token>` directive is a machine field, not prose, so reading
+# it cannot invert a negation; anything else in prose is `unparsed`.
+_VERDICT_MARKER_RE = re.compile(
+    r"\bverdict\s*=\s*(upheld|overturned|insufficient_evidence)\b", re.IGNORECASE
+)
 
 # An overturn buys a MEDIUM escalation (7-day SLA window, see
 # ``human_required.SLA_WINDOWS``). Not CRITICAL/HIGH: the decision's
@@ -190,7 +212,12 @@ def _questioning_prompt(decision: dict[str, Any]) -> str:
         "claimed it would? Cite file:line for the difference.\n\n"
         "Return verdict=upheld ONLY if you attempted all three and found "
         "nothing. verdict=insufficient_evidence is the correct answer when you "
-        "cannot establish either way; it is not a failure to return it."
+        "cannot establish either way; it is not a failure to return it.\n\n"
+        "Answer in the response envelope's details.questioning object and "
+        "nowhere else: verdict (exactly one of upheld, overturned, "
+        "insufficient_evidence), attacks_attempted (which of the three attacks "
+        "above you attempted), and the file:line evidence for any claim that "
+        "the decision was wrong. A verdict stated only in prose is not read."
     )
 
 
@@ -247,9 +274,13 @@ def open_decision_questioning(
                 {
                     "id": f"{QUESTION_MUST_SATISFY_PREFIX}{plan_id}",
                     "description": (
-                        "verdict is one of upheld/overturned/insufficient_evidence, "
-                        "names which of the three attacks were attempted, and cites "
-                        "file:line evidence for any claim that the decision was wrong"
+                        "verdict is exactly one of upheld/overturned/"
+                        "insufficient_evidence, written to "
+                        "details.questioning.verdict in the response envelope, "
+                        "with details.questioning.attacks_attempted naming "
+                        "which of the three attacks were attempted, and "
+                        "file:line evidence cited for any claim that the "
+                        "decision was wrong"
                     ),
                 }
             ],
@@ -341,17 +372,22 @@ def _verdict_from_payload(
 
     Extraction order, strongest evidence first:
 
-    1. ``details.questioning.verdict`` — the named block the prompt asks
-       for, the same one-answer-location contract the adjudication role
-       holds (ARIA-HIGH-097).
+    1. ``details.questioning.verdict`` — the named block the prompt and
+       the must_satisfy criterion both point at, the same
+       one-answer-location contract the adjudication role holds
+       (ARIA-HIGH-097).
     2. ``details.verdict`` — a top-level details field some executors
        already write; still a declared field, still checked against the
        closed set.
-    3. A closed-set token scan of the prose the response contract makes
-       agents write anyway (``satisfaction_matrix`` notes/rationales and
-       the envelope ``rationale``). Only taken when exactly ONE distinct
-       verdict token appears: two tokens is an ambiguous answer, and an
-       ambiguous answer is ``unparsed``, not the scanner's pick.
+    3. An explicit ``verdict=<token>`` directive (word-bounded) in the
+       prose the response contract makes agents write anyway
+       (``satisfaction_matrix`` notes/rationales, the envelope
+       ``rationale``). Transitional safety for envelopes minted before
+       the answer location was named; bare closed-set tokens are
+       deliberately NOT scanned — "the decision should NOT be overturned"
+       names the verdict it refuses, and reading that token would invert
+       the negation into the verdict itself. Two DIFFERENT directives is
+       an ambiguous answer: ``unparsed``, not the scanner's pick.
 
     Anything else is ``unparsed`` with the reason — the fold never guesses
     a verdict, because the effect mapping below keys off the value.
@@ -401,19 +437,26 @@ def _verdict_from_payload(
     rationale = payload.get("rationale")
     if isinstance(rationale, str):
         pieces.append(rationale)
-    found: set[str] = set()
+    directed: set[str] = set()
     for text in pieces:
-        for verdict in QUESTIONING_VERDICTS:
-            if verdict in text:
-                found.add(verdict)
-    if len(found) == 1:
-        return found.pop(), None, None
-    if found:
+        for match in _VERDICT_MARKER_RE.finditer(text):
+            directed.add(match.group(1).lower())
+    if len(directed) == 1:
+        return directed.pop(), None, None
+    if directed:
         return (
             VERDICT_UNPARSED, None,
-            "verdict_tokens_ambiguous:" + ",".join(sorted(found)),
+            "verdict_tokens_ambiguous:" + ",".join(sorted(directed)),
         )
     return VERDICT_UNPARSED, None, "verdict_absent"
+
+
+def _folded_result_row_ids(outcomes: Path) -> set[str]:
+    """Every result row the outcomes ledger already carries."""
+    return {
+        str(row.get("result_row_id"))
+        for row in load_declared_jsonl(outcomes, expected_surface=OUTCOMES_SURFACE)
+    }
 
 
 def fold_questioning_results(
@@ -435,26 +478,32 @@ def fold_questioning_results(
     reopen decision stays with the operator. The plan's ledger state is
     not rewritten — this meta-layer observes and escalates; it does not
     overturn its own decisions.
+
+    CONCURRENCY: the dedupe read that gates the append is taken INSIDE the
+    same ``state_transaction`` that appends, so two concurrent folds
+    cannot both read an empty ledger and both append. Actions
+    (escalations, governance events) run before that transaction on
+    purpose: ``record_human_required`` is idempotent on the record file,
+    so a fold that dies between an action and its row is converged by the
+    next fold, never stranded.
     """
     root = ensure_tools_dir(base_dir)
     outcomes = _outcomes_path(root)
-    already_folded = {
-        str(row.get("result_row_id"))
-        for row in load_declared_jsonl(outcomes, expected_surface=OUTCOMES_SURFACE)
-    }
     requests = [
         request
         for request in list_agent_invocation_requests(base_dir=root, role=QUESTIONING_ROLE)
         if _is_questioning_request(request)
     ]
 
-    verdicts: dict[str, list[str]] = {
-        verdict: [] for verdict in sorted(QUESTIONING_VERDICTS)
-    }
-    verdicts[VERDICT_UNPARSED] = []
+    # Best-effort pre-read OUTSIDE the lock: it only keeps an ordinary
+    # sequential re-fold from re-running actions already folded. The
+    # authoritative dedupe read is the one inside the transaction below.
+    already_folded = _folded_result_row_ids(outcomes)
+
     escalated: list[str] = []
     unanswered: list[str] = []
-    written = 0
+    pending_rows: list[dict[str, Any]] = []
+    planned_row_ids: set[str] = set()
 
     for request in requests:
         request_id = str(request.get("request_id") or "")
@@ -470,7 +519,7 @@ def fold_questioning_results(
             unanswered.append(request_id)
             continue
         result_row_id = str(accepted.get("row_id") or "")
-        if result_row_id in already_folded:
+        if result_row_id in already_folded or result_row_id in planned_row_ids:
             continue
         payload, read_error = _read_answer_payload(root, accepted)
         if payload is None:
@@ -478,12 +527,8 @@ def fold_questioning_results(
         else:
             verdict, attacks, reason = _verdict_from_payload(payload)
 
-        # ACTION BEFORE LEDGER, on purpose. The outcome row is this fold's
-        # idempotency key; `record_human_required` is idempotent on the
-        # record FILE. If the row append failed after the escalation, the
-        # next fold re-runs the (idempotent) escalation and then the row.
-        # The opposite order could strand an overturned verdict in a row
-        # whose escalation is never retried.
+        # ACTION BEFORE LEDGER, on purpose — see the docstring's
+        # CONCURRENCY paragraph.
         if verdict == VERDICT_OVERTURNED:
             record_human_required(
                 request_id=request_id,
@@ -530,16 +575,37 @@ def fold_questioning_results(
                 **({"unparsed_reason": reason} if verdict == VERDICT_UNPARSED else {}),
             },
         )
-        append_declared_jsonl(outcomes, row, expected_surface=OUTCOMES_SURFACE)
-        verdicts[verdict].append(plan_id)
-        written += 1
+        pending_rows.append(row)
+        planned_row_ids.add(result_row_id)
+
+    written_rows: list[dict[str, Any]] = []
+    if pending_rows:
+        with state_transaction([outcomes]) as transaction:
+            # The authoritative read, under the lock this append holds:
+            # a concurrent fold's rows are visible here and deduped.
+            folded_now = _folded_result_row_ids(outcomes)
+            written_rows = [
+                row for row in pending_rows
+                if row["result_row_id"] not in folded_now
+            ]
+            if written_rows:
+                transaction.append_declared_jsonl_rows(
+                    outcomes, written_rows, expected_surface=OUTCOMES_SURFACE,
+                )
+
+    verdicts: dict[str, list[str]] = {
+        verdict: [] for verdict in sorted(QUESTIONING_VERDICTS)
+    }
+    verdicts[VERDICT_UNPARSED] = []
+    for row in written_rows:
+        verdicts[str(row["verdict"])].append(str(row["plan_id"]))
 
     return {
         "$schema": FOLD_SCHEMA,
         "schema_version": 1,
         "cycle_id": cycle_id,
         "requests_seen": len(requests),
-        "outcomes_written": written,
+        "outcomes_written": len(written_rows),
         "unanswered": unanswered,
         "verdicts": verdicts,
         "escalated": escalated,

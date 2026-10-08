@@ -235,7 +235,14 @@ export {
 // Frontend authorization (Scope C PR-0a) — mirror of backend matrix
 // ============================================================================
 
-export { FRONTEND_MUTATION_ROLES, useCanMutate, type FrontendMutationName } from './authz';
+export {
+  FRONTEND_MUTATION_ROLES,
+  useCanMutate,
+  useCanMutateSensor,
+  SENSOR_MUTATION_ROLES,
+  type FrontendMutationName,
+  type SensorMutationName,
+} from './authz';
 
 export {
   ADMIN_BILLING_HIDDEN_ROUTES,

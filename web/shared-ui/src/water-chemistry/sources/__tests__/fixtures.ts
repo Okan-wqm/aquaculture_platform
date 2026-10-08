@@ -1,4 +1,13 @@
-/** Resolved input sets as the API answers them, for the adapter and tile specs. */
+/**
+ * Resolved input sets in the backend's real shape (water-chemistry-input-set.ts):
+ * a flagged input KEEPS its value (NOT_SAME_SAMPLE, NOT_AT_SAME_POINT), and a
+ * REFUSED dosing set still carries the loop's volume.
+ */
+import type {
+  WaterChemistryInputProblem,
+  WaterChemistrySetProblem,
+  WaterChemistryVerdict,
+} from '../../../generated/graphql-types';
 import type { InputSetResult, InputStatusResult, ReadingResult } from '../operations';
 
 export function reading(
@@ -26,7 +35,7 @@ export function reading(
 export function input(
   engineInput: string,
   value: number | null,
-  overrides: Partial<InputStatusResult> = {},
+  problems: readonly WaterChemistryInputProblem[] = value === null ? ['NO_VALUE'] : [],
 ): InputStatusResult {
   return {
     engineInput,
@@ -35,51 +44,62 @@ export function input(
     coherenceWindow: 'SHORT',
     windowSeconds: 14_400,
     parameterConfigId: 'param',
-    problems: value === null ? ['NO_VALUE'] : [],
+    problems: [...problems],
     reading: reading(value),
-    ...overrides,
   };
 }
 
 export function dosingSet(
-  values: {
-    pH: number | null;
-    alkalinityMg: number | null;
-    tempC: number | null;
-    salinity: number | null;
-    caMgL: number | null;
+  inputs: readonly InputStatusResult[],
+  options: {
+    volumeM3: number | null;
+    verdict?: WaterChemistryVerdict;
+    problems?: readonly WaterChemistrySetProblem[];
   },
-  volumeM3: number | null,
 ): InputSetResult {
   return {
     set: 'DOSING',
     point: { kind: 'SYSTEM', id: 'system-1' },
     asOf: '2026-10-08T10:01:00.000Z',
-    verdict: 'READY',
-    problems: [],
+    verdict: options.verdict ?? 'READY',
+    problems: [...(options.problems ?? [])],
     systemType: 'RAS',
-    volumeM3,
+    volumeM3: options.volumeM3,
     tankWaterM3: 10,
-    inputs: Object.entries(values).map(([field, value]) => input(field, value)),
+    inputs,
   };
 }
 
-export function toxicitySet(values: {
-  pH: number | null;
-  tempC: number | null;
-  salinity: number | null;
-  tan: number | null;
-  h2sUgL: number | null;
-}): InputSetResult {
+export function readyDosingInputs(): InputStatusResult[] {
+  return [
+    input('pH', 7.4),
+    input('alkalinityMg', 120),
+    input('tempC', 14),
+    input('salinity', 30),
+    input('caMgL', 380),
+  ];
+}
+
+export function toxicitySet(inputs: readonly InputStatusResult[]): InputSetResult {
   return {
     set: 'TOXICITY',
     point: { kind: 'TANK', id: 'tank-1' },
     asOf: '2026-10-08T10:01:00.000Z',
-    verdict: 'READY',
-    problems: [],
+    verdict: inputs.some((entry) => entry.problems.length > 0) ? 'INCOMPLETE' : 'READY',
+    problems: inputs.some((entry) => entry.problems.length > 0) ? ['INPUTS_INCOMPLETE'] : [],
     systemType: null,
     volumeM3: null,
     tankWaterM3: null,
-    inputs: Object.entries(values).map(([field, value]) => input(field, value)),
+    inputs,
   };
+}
+
+export function readyToxicityInputs(): InputStatusResult[] {
+  return [
+    input('pH', 6.9),
+    input('tempC', 15),
+    input('salinity', 31),
+    input('tan', 0.8),
+    input('h2sUgL', 2),
+  ];
 }

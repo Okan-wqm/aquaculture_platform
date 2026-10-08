@@ -97,6 +97,10 @@ export interface ParameterSourceAtPoint {
   readonly source: ParameterSourceRow & { readonly parameterConfig: SourceParameter };
   readonly channel: BoundChannelResult | null;
   readonly problems: readonly ChannelBindingProblem[];
+  /** The channel's newest sample carried into the parameter's unit (null: none, or not convertible). */
+  readonly latestValue: number | null;
+  /** The parameter's unit — the unit of latestValue. */
+  readonly unit: string;
 }
 
 export interface ParameterSourcesAtPointResult {
@@ -133,10 +137,34 @@ export const PARAMETER_SOURCES_AT_POINT_QUERY = `
         calibrationDueAt
       }
       problems
+      latestValue
+      unit
     }
   }
   ${PARAMETER_SOURCE_FIELDS}
 `;
+
+/** The systems a tank belongs to — its loop is the first (a tank in no system has none). */
+export const TANK_SYSTEMS_QUERY = `
+  query WaterChemistryTankSystems($id: ID!) {
+    equipment(id: $id) {
+      id
+      systemIds
+    }
+  }
+`;
+
+export interface TankSystemsResult {
+  equipment: { id: string; systemIds: string[] | null } | null;
+}
+
+/** The loop a tank's water-chemistry reads use: its first system, null when it has none. */
+export function loopSystemOf(result: TankSystemsResult): string | null {
+  const systemIds = result.equipment === null ? null : result.equipment.systemIds;
+  if (systemIds === null) return null;
+  const [first] = systemIds;
+  return first === undefined ? null : first;
+}
 
 export type PointRefResult = Selected<MeasurementPointRef, 'kind' | 'id'>;
 

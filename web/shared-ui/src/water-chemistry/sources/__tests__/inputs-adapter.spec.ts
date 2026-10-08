@@ -1,111 +1,155 @@
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_WATER_CHEMISTRY_INPUTS } from '../../defaults';
-import type { WaterChemistryInputs } from '../../types';
-import { applyResolved } from '../inputs-adapter';
+import { composePointInputs, engineRecordOf } from '../inputs-adapter';
 
-import { dosingSet, input, toxicitySet } from './fixtures';
+import { dosingSet, input, readyDosingInputs, readyToxicityInputs, toxicitySet } from './fixtures';
 
-const BASE: WaterChemistryInputs = { ...DEFAULT_WATER_CHEMISTRY_INPUTS };
+const SETTINGS = { ...DEFAULT_WATER_CHEMISTRY_INPUTS };
 
-describe('applyResolved', () => {
-  it('fills the covered fields from the set and keeps the entry for the rest (calculator)', () => {
-    const applied = applyResolved(
-      BASE,
-      [dosingSet({ pH: 7.4, alkalinityMg: 120, tempC: 14, salinity: 30, caMgL: 380 }, 50)],
-      { overrides: {}, uncovered: 'base' },
+describe('composePointInputs', () => {
+  it("reads a tank's own set and only the loop's alkalinity, calcium and volume from its system", () => {
+    const composed = composePointInputs(
+      {
+        own: toxicitySet(readyToxicityInputs()),
+        loop: dosingSet(readyDosingInputs(), { volumeM3: 50 }),
+      },
+      {},
     );
-
-    expect(applied.missing).toEqual([]);
-    expect(applied.inputs).toMatchObject({
-      pH: 7.4,
-      alkalinityMg: 120,
-      tempC: 14,
-      salinity: 30,
-      caMgL: 380,
-      volume: 50,
-      tan: BASE.tan,
-      h2sUgL: BASE.h2sUgL,
-      targetpH: BASE.targetpH,
+    expect(composed.fields.pH).toMatchObject({ state: 'measured', value: 6.9, from: 'point' });
+    expect(composed.fields.alkalinityMg).toMatchObject({
+      state: 'measured',
+      value: 120,
+      from: 'loop',
     });
-    expect(applied.provenance.pH.origin).toBe('resolved');
-    expect(applied.provenance.pH.reading?.sensorId).toBe('sensor-1');
-    expect(applied.provenance.volume.origin).toBe('resolved');
-    expect(applied.provenance.tan.origin).toBe('manual');
+    expect(composed.fields.caMgL).toMatchObject({ from: 'loop', value: 380 });
+    expect(composed.fields.volume).toMatchObject({ state: 'configured', value: 50, from: 'loop' });
+    // A tank never doses: the dose is the loop's.
+    expect(composed.dosing).toEqual({ available: false, reason: 'NOT_A_LOOP', problems: [] });
   });
 
-  it('never fills a covered field the set has no value for — not from the entry, not from a default', () => {
-    const applied = applyResolved(
-      BASE,
-      [dosingSet({ pH: 7.4, alkalinityMg: null, tempC: 14, salinity: 30, caMgL: 380 }, null)],
-      { overrides: {}, uncovered: 'base' },
+  it('blocks a value the backend keeps but flags (NOT_SAME_SAMPLE), and shows it with its problem', () => {
+    const inputs = readyToxicityInputs().map((entry) =>
+      entry.engineInput === 'h2sUgL' ? input('h2sUgL', 3.5, ['NOT_SAME_SAMPLE']) : entry,
     );
-
-    expect(applied.inputs).toBeNull();
-    expect(applied.missing).toEqual(['alkalinityMg', 'volume']);
-    expect(applied.provenance.alkalinityMg).toMatchObject({
-      origin: 'missing',
+    const composed = composePointInputs({ own: toxicitySet(inputs), loop: null }, {});
+    expect(composed.fields.h2sUgL).toMatchObject({
+      state: 'blocked',
       value: null,
-      set: 'DOSING',
+      problems: ['NOT_SAME_SAMPLE'],
     });
-    expect(applied.provenance.alkalinityMg.input?.problems).toEqual(['NO_VALUE']);
+    expect(composed.fields.h2sUgL.reading?.value).toBe(3.5);
   });
 
-  it('takes a session override in place of a missing or measured value, and says so', () => {
-    const applied = applyResolved(
-      BASE,
-      [dosingSet({ pH: 7.4, alkalinityMg: null, tempC: 14, salinity: 30, caMgL: 380 }, null)],
-      { overrides: { alkalinityMg: 95, volume: 40, pH: 7.2 }, uncovered: 'base' },
+  it('lets the operator correct a blocked field for the session', () => {
+    const inputs = readyToxicityInputs().map((entry) =>
+      entry.engineInput === 'h2sUgL' ? input('h2sUgL', 3.5, ['NOT_SAME_SAMPLE']) : entry,
     );
-
-    expect(applied.missing).toEqual([]);
-    expect(applied.inputs).toMatchObject({ alkalinityMg: 95, volume: 40, pH: 7.2 });
-    expect(applied.provenance.pH.origin).toBe('override');
-    expect(applied.provenance.pH.reading?.value).toBe(7.4);
-    expect(BASE.alkalinityMg).toBe(DEFAULT_WATER_CHEMISTRY_INPUTS.alkalinityMg);
+    const composed = composePointInputs({ own: toxicitySet(inputs), loop: null }, { h2sUgL: 2.5 });
+    expect(composed.fields.h2sUgL).toMatchObject({ state: 'corrected', value: 2.5, problems: [] });
   });
 
-  it('treats an uncovered field as missing when the base holds no entries (monitoring)', () => {
-    const applied = applyResolved(
-      BASE,
-      [dosingSet({ pH: 7.4, alkalinityMg: 120, tempC: 14, salinity: 30, caMgL: 380 }, 50)],
-      { overrides: {}, uncovered: 'missing' },
+  it('never uses the volume of a REFUSED dosing set, nor a zero volume', () => {
+    const refused = composePointInputs(
+      {
+        own: dosingSet(readyDosingInputs(), {
+          volumeM3: 80,
+          verdict: 'REFUSED',
+          problems: ['SYSTEM_NOT_RECIRCULATING'],
+        }),
+        loop: null,
+      },
+      {},
     );
-
-    expect(applied.inputs).toBeNull();
-    expect(applied.missing).toEqual(['tan', 'h2sUgL']);
-  });
-
-  it("reads the point's own set first and the loop's set after it", () => {
-    const applied = applyResolved(
-      BASE,
-      [
-        toxicitySet({ pH: 6.9, tempC: 15, salinity: 31, tan: 0.8, h2sUgL: 2 }),
-        dosingSet({ pH: 7.4, alkalinityMg: 120, tempC: 14, salinity: 30, caMgL: 380 }, 50),
-      ],
-      { overrides: {}, uncovered: 'missing' },
-    );
-
-    expect(applied.missing).toEqual([]);
-    expect(applied.inputs).toMatchObject({
-      pH: 6.9,
-      tempC: 15,
-      tan: 0.8,
-      alkalinityMg: 120,
-      volume: 50,
+    expect(refused.fields.volume).toMatchObject({
+      state: 'blocked',
+      value: null,
+      problems: ['SYSTEM_NOT_RECIRCULATING'],
     });
-    expect(applied.provenance.pH.set).toBe('TOXICITY');
-    expect(applied.provenance.alkalinityMg.set).toBe('DOSING');
+    expect(refused.dosing).toMatchObject({ available: false, reason: 'NOT_READY' });
+
+    const zero = composePointInputs(
+      { own: dosingSet(readyDosingInputs(), { volumeM3: 0 }), loop: null },
+      {},
+    );
+    expect(zero.fields.volume).toMatchObject({ state: 'blocked', problems: ['VOLUME_MISSING'] });
   });
 
-  it('ignores an engine input it does not know rather than guessing a field', () => {
-    const set = dosingSet({ pH: 7.4, alkalinityMg: 120, tempC: 14, salinity: 30, caMgL: 380 }, 50);
-    const applied = applyResolved(
-      BASE,
-      [{ ...set, inputs: [...set.inputs, input('magnesiumMgL', 1)] }],
-      { overrides: {}, uncovered: 'base' },
+  it('offers a dose only at a system whose dosing set is READY with a volume', () => {
+    const ready = composePointInputs(
+      { own: dosingSet(readyDosingInputs(), { volumeM3: 50 }), loop: null },
+      {},
     );
-    expect(applied.missing).toEqual([]);
-    expect(Object.keys(applied.provenance)).not.toContain('magnesiumMgL');
+    expect(ready.dosing).toEqual({ available: true });
+    const incomplete = composePointInputs(
+      {
+        own: dosingSet([...readyDosingInputs().slice(0, 4), input('caMgL', null)], {
+          volumeM3: 50,
+          verdict: 'INCOMPLETE',
+          problems: ['INPUTS_INCOMPLETE'],
+        }),
+        loop: null,
+      },
+      {},
+    );
+    expect(incomplete.dosing).toEqual({
+      available: false,
+      reason: 'NOT_READY',
+      problems: ['INPUTS_INCOMPLETE'],
+    });
+  });
+
+  it('never defaults a field no set covers: missing, unless the operator entered it', () => {
+    const composed = composePointInputs(
+      { own: dosingSet(readyDosingInputs(), { volumeM3: 50 }), loop: null },
+      { tan: 0.4 },
+    );
+    expect(composed.fields.tan).toMatchObject({ state: 'entered', value: 0.4, from: null });
+    expect(composed.fields.h2sUgL).toMatchObject({ state: 'missing', value: null });
+  });
+});
+
+describe('engineRecordOf', () => {
+  it('runs the engine only when every measured field is usable, and names what blocks it', () => {
+    const composed = composePointInputs(
+      { own: dosingSet(readyDosingInputs(), { volumeM3: 50 }), loop: null },
+      {},
+    );
+    const record = engineRecordOf(composed, SETTINGS);
+    expect(record.inputs).toBeNull();
+    if (record.inputs === null) {
+      expect(record.blocking.map((entry) => entry.field)).toEqual(['tan', 'h2sUgL']);
+    }
+  });
+
+  it('is not blocked by a missing volume: the charts run, dosing is off', () => {
+    const composed = composePointInputs(
+      {
+        own: toxicitySet(readyToxicityInputs()),
+        loop: dosingSet(readyDosingInputs(), { volumeM3: null }),
+      },
+      {},
+    );
+    const record = engineRecordOf(composed, SETTINGS);
+    expect(record.inputs).not.toBeNull();
+    if (record.inputs !== null) {
+      expect(record.dosing).toBe(false);
+      expect(Number.isNaN(record.inputs.volume)).toBe(true);
+      expect(record.inputs).toMatchObject({
+        pH: 6.9,
+        alkalinityMg: 120,
+        targetpH: SETTINGS.targetpH,
+      });
+    }
+  });
+
+  it('carries the settings and the usable values, and doses at a READY system', () => {
+    const composed = composePointInputs(
+      { own: dosingSet(readyDosingInputs(), { volumeM3: 50 }), loop: null },
+      { tan: 0.4, h2sUgL: 1 },
+    );
+    const record = engineRecordOf(composed, SETTINGS);
+    expect(record.inputs).toMatchObject({ pH: 7.4, volume: 50, tan: 0.4, h2sUgL: 1 });
+    expect(record.inputs !== null && record.dosing).toBe(true);
   });
 });

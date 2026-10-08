@@ -43,9 +43,14 @@ export function pointInput(point: PointRef): MeasurementPointInput {
   }
 }
 
+/** The kind of a point as the API names it (the enum name, e.g. SYSTEM). */
+export function pointKindOfResult(kind: MeasurementPointKind): PointKind {
+  return KIND_OF_RESULT[kind];
+}
+
 /** A point as the API returns it (kind is the enum name). */
 export function pointOfResult(result: { kind: MeasurementPointKind; id: string }): PointRef {
-  return { kind: KIND_OF_RESULT[result.kind], id: result.id };
+  return { kind: pointKindOfResult(result.kind), id: result.id };
 }
 
 /** The URL form, `tank:<uuid>`. */

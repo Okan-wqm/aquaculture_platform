@@ -1,16 +1,19 @@
 /**
- * One source of a water-chemistry parameter as a tile: its value with unit and
- * age, the sample quality, what kind of source it is (primary, backup,
- * manual) and where it stands when the value is inherited, an optional trend,
- * and — when it cannot feed the parameter — why, with the way to fix it.
+ * One source of a water-chemistry parameter as a tile: its value in the
+ * parameter's unit at the parameter's precision, its age against the window,
+ * the sample quality, what kind of source it is (primary, backup, manual) and
+ * where it stands when the value is inherited, an optional trend (by time, in
+ * its own unit), and — when it cannot feed the parameter — why, with the way
+ * to fix it.
  *
- * Presentation only: the caller hands the facts (from parameterSourcesAtPoint
- * or a resolved reading) and the clock, so the tile renders the same in a
- * test as on a page.
+ * The selectable part is its own button; the problem chips sit beside it, so
+ * each is reached and activated by keyboard on its own.
+ *
+ * Presentation only: the caller hands the facts and the clock, so the tile
+ * renders the same in a test as on a page.
  */
 import React from 'react';
 
-import { SparklineChart } from '../../components/Charts/SparklineChart';
 import { QualityIndicator } from '../../components/Quality';
 import type { ReadingSourceKind, SampleQuality } from '../../generated/graphql-types';
 import { useI18n, type I18nContextValue } from '../../i18n';
@@ -18,13 +21,23 @@ import { useI18n, type I18nContextValue } from '../../i18n';
 import type { PointKind } from './pointRef';
 import { ProblemChips } from './ProblemChips';
 import type { ProblemFix, SourceProblemCode } from './problems';
+import { TimeSparkline, type TrendPoint } from './TimeSparkline';
+
+export interface SourceTrend {
+  readonly points: readonly TrendPoint[];
+  readonly start: number;
+  readonly end: number;
+  /** The unit the trend is in (the channel's). */
+  readonly unit: string | null;
+}
 
 export interface ParameterSourceTileProps {
   /** The parameter's name. */
   name: string;
+  /** The value in the parameter's unit. */
   value: number | null;
   unit: string | null;
-  /** Decimals shown (the parameter's precision). */
+  /** Decimals shown (the parameter's precision, for the parameter's unit). */
   precision: number;
   /** When the value was observed (ISO), null when there is none. */
   observedAt: string | null;
@@ -36,14 +49,13 @@ export interface ParameterSourceTileProps {
   kind: ReadingSourceKind | null;
   /** The point an inherited value was read at (a system or site). */
   inheritedFrom: PointKind | null;
-  /** The channel or sample behind the value, e.g. "Probe 3 · ph". */
+  /** The channel or sample behind the value, e.g. "ph · inlet". */
   detail: string | null;
-  /** The recent trend of the value, oldest first. */
-  trend: readonly number[] | null;
+  trend: SourceTrend | null;
   color: string;
   problems: readonly SourceProblemCode[];
   onFix?: (code: SourceProblemCode, fix: ProblemFix) => void;
-  /** Makes the tile a button (e.g. to expand its trend). */
+  /** Makes the tile's body a button (e.g. to expand its trend). */
   onSelect?: () => void;
   selected?: boolean;
 }
@@ -111,25 +123,24 @@ export const ParameterSourceTile: React.FC<ParameterSourceTileProps> = ({
         )}
       </div>
       <div className="mt-1 flex items-baseline gap-1">
-        {value === null ? (
+        {value === null && (
           <span className="text-sm text-gray-400 dark:text-gray-500">
             {t('wqSource.tile.noValue')}
           </span>
-        ) : (
-          <>
-            <span
-              className={`text-xl font-semibold tabular-nums ${
-                blocked || stale
-                  ? 'text-gray-400 dark:text-gray-500'
-                  : 'text-gray-900 dark:text-gray-100'
-              }`}
-            >
-              {value.toFixed(precision)}
-            </span>
-            {unit !== null && unit !== '' && (
-              <span className="text-xs text-gray-500 dark:text-gray-400">{unit}</span>
-            )}
-          </>
+        )}
+        {value !== null && (
+          <span
+            className={`text-xl font-semibold tabular-nums ${
+              blocked || stale
+                ? 'text-gray-400 dark:text-gray-500'
+                : 'text-gray-900 dark:text-gray-100'
+            }`}
+          >
+            {value.toFixed(precision)}
+          </span>
+        )}
+        {value !== null && unit !== null && unit !== '' && (
+          <span className="text-xs text-gray-500 dark:text-gray-400">{unit}</span>
         )}
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-gray-500 dark:text-gray-400">
@@ -151,18 +162,15 @@ export const ParameterSourceTile: React.FC<ParameterSourceTileProps> = ({
           {detail}
         </div>
       )}
-      {trend !== null && trend.length > 1 && (
-        <SparklineChart
-          data={[...trend]}
-          width={160}
-          height={28}
+      {trend !== null && trend.points.length > 1 && (
+        <TimeSparkline
+          points={trend.points}
+          start={trend.start}
+          end={trend.end}
           color={color}
-          showDot={false}
-          animate={false}
-          className="mt-1 w-full"
+          caption={t('wqSource.trendUnit', { unit: trend.unit === null ? '—' : trend.unit })}
         />
       )}
-      <ProblemChips problems={problems} onFix={onFix} className="mt-1.5" />
     </>
   );
 
@@ -173,31 +181,23 @@ export const ParameterSourceTile: React.FC<ParameterSourceTileProps> = ({
         ? 'border-warning-300 dark:border-warning-700'
         : 'border-gray-200 dark:border-gray-700'
   }`;
-
-  if (onSelect === undefined) {
-    return (
-      <div className={frame} data-testid="parameter-source-tile">
+  const selectable =
+    onSelect === undefined ? null : (
+      <button
+        type="button"
+        aria-pressed={selected}
+        aria-label={t('wqSource.ui.showTrend', { name })}
+        className="block w-full cursor-pointer rounded text-left hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-info-500 dark:hover:bg-gray-800"
+        onClick={onSelect}
+      >
         {body}
-      </div>
+      </button>
     );
-  }
-  // A div with a button role: the tile holds fix buttons, and a button element cannot.
+
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      aria-pressed={selected}
-      className={`${frame} cursor-pointer hover:border-info-400`}
-      data-testid="parameter-source-tile"
-      onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onSelect();
-        }
-      }}
-    >
-      {body}
+    <div className={frame} data-testid="parameter-source-tile">
+      {selectable === null ? body : selectable}
+      <ProblemChips problems={problems} onFix={onFix} className="mt-1.5" />
     </div>
   );
 };

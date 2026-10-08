@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { I18nProvider } from '../../../i18n';
@@ -58,6 +59,45 @@ describe('ParameterSourceTile', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Fix: The channel is disabled' }));
     expect(onFix).toHaveBeenCalledWith('CHANNEL_DISABLED', 'channel');
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('keeps the fix chips reachable by keyboard: Enter on a chip fixes, it does not select the tile', async () => {
+    const user = userEvent.setup();
+    const onFix = vi.fn();
+    const onSelect = vi.fn();
+    render(<ParameterSourceTile {...props({ problems: ['CHANNEL_DISABLED'], onFix, onSelect })} />);
+
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Show the trend of pH' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(onSelect).toHaveBeenCalledTimes(1);
+
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Fix: The channel is disabled' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    await user.keyboard(' ');
+    expect(onFix).toHaveBeenCalledTimes(2);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws the trend by time and names its own unit', () => {
+    render(
+      <ParameterSourceTile
+        {...props({
+          trend: {
+            points: [
+              { t: NOW - 3_600_000, v: 7.1 },
+              { t: NOW - 1_800_000, v: null },
+              { t: NOW, v: 7.2 },
+            ],
+            start: NOW - 86_400_000,
+            end: NOW,
+            unit: 'NBS',
+          },
+        })}
+      />,
+    );
+    expect(screen.getByTestId('time-sparkline')).toHaveTextContent('last 24 h, in NBS');
   });
 
   it('renders read-only problems as text when no fix is offered', () => {

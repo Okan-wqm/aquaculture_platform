@@ -32,6 +32,7 @@ import {
   type WaterQualityStatus,
   type WaterQualityMeasurement,
 } from '../../../hooks/useWaterQuality';
+import { useEquipmentList } from '../../../hooks/useEquipment';
 import { useTanksList } from '../../../hooks/useTanks';
 import { useSystemList } from '../../../hooks/useSystems';
 import { useParameterConfigList, type ParameterConfig } from '../../../hooks/useParameterConfigs';
@@ -72,6 +73,8 @@ const FALLBACK_COLUMNS: ParameterConfig[] = [
   {
     id: 'fb-temp',
     code: 'temperature',
+    // the quantity its code names
+    quantity: 'temperature',
     name: 'Temp',
     unit: '\u00B0C',
     dataType: 'NUMBER',
@@ -100,6 +103,8 @@ const FALLBACK_COLUMNS: ParameterConfig[] = [
   {
     id: 'fb-do',
     code: 'dissolvedOxygen',
+    // the quantity its code names
+    quantity: 'dissolvedOxygen',
     name: 'DO',
     unit: 'mg/L',
     dataType: 'NUMBER',
@@ -128,6 +133,8 @@ const FALLBACK_COLUMNS: ParameterConfig[] = [
   {
     id: 'fb-ph',
     code: 'pH',
+    // the quantity its code names
+    quantity: 'ph',
     name: 'pH',
     unit: '',
     dataType: 'NUMBER',
@@ -156,6 +163,8 @@ const FALLBACK_COLUMNS: ParameterConfig[] = [
   {
     id: 'fb-nh3',
     code: 'ammonia',
+    // a family: no quantity until one is declared
+    quantity: null,
     name: 'NH\u2083',
     unit: 'mg/L',
     dataType: 'NUMBER',
@@ -184,6 +193,8 @@ const FALLBACK_COLUMNS: ParameterConfig[] = [
   {
     id: 'fb-no2',
     code: 'nitrite',
+    // a family: no quantity until one is declared
+    quantity: null,
     name: 'NO\u2082',
     unit: 'mg/L',
     dataType: 'NUMBER',
@@ -269,6 +280,17 @@ function resolveParameterValue(m: WaterQualityMeasurement, code: string): number
   }
 
   return null;
+}
+
+/**
+ * The point a measurement is filed at: its tank, its water equipment or its
+ * system — exactly one is set (FARM-LOW-370: reading tankId alone showed '-'
+ * for every row filed at equipment or a system).
+ */
+export function measurementPointId(
+  m: Pick<WaterQualityMeasurement, 'tankId' | 'equipmentId' | 'systemId'>,
+): string | null {
+  return m.tankId ?? m.equipmentId ?? m.systemId ?? null;
 }
 
 // ============================================================================
@@ -360,14 +382,16 @@ export const HistoryTab: React.FC = () => {
 
   const listQuery = useWaterQualityList(listFilters);
 
-  // Tank name lookup
-  const tankMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    tanks.forEach((t) => {
-      map[t.id] = t.name || t.code;
-    });
+  // Point name lookup: a measurement is filed at a tank, water equipment or a
+  // system (the one-point rule), so the unit column names whichever it carries.
+  const { data: equipmentData } = useEquipmentList({ isActive: true });
+  const pointNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of tanks) map.set(t.id, t.name || t.code);
+    for (const e of equipmentData?.items ?? []) map.set(e.id, e.name || e.code);
+    for (const s of systems) map.set(s.id, s.name || s.code);
     return map;
-  }, [tanks]);
+  }, [tanks, equipmentData, systems]);
 
   // Chart data transformation - flatten parameters into top-level keys
   const chartData = useMemo(() => {
@@ -447,12 +471,15 @@ export const HistoryTab: React.FC = () => {
     },
     {
       key: 'tankId',
-      header: 'Tank',
-      render: (_value, m) => (
-        <span className="whitespace-nowrap text-gray-900 dark:text-gray-100">
-          {m.tankId ? tankMap[m.tankId] || m.tankId.slice(0, 8) : '-'}
-        </span>
-      ),
+      header: 'Unit',
+      render: (_value, m) => {
+        const pointId = measurementPointId(m);
+        return (
+          <span className="whitespace-nowrap text-gray-900 dark:text-gray-100">
+            {pointId === null ? '-' : (pointNames.get(pointId) ?? pointId.slice(0, 8))}
+          </span>
+        );
+      },
     },
     ...visibleConfigs.map(
       (config: ParameterConfig): DataTableColumn<MeasurementRow> => ({

@@ -1,0 +1,178 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "security/detect-non-literal-regexp at web/apps/aquamobil/src/i18n/I18nProvider.tsx:84 (tool lint-rules-adapter, finding lint-rules:security/detect-non-literal-regexp:web/apps/aquamobil/src/i18n/I18nProvider.tsx:84:29, AI consensus confidence 0.855): The cited code has the defect the named lint rule describes.",
+  "claim_type": "wrong_code",
+  "closes_in_commit": null,
+  "created_at": "2026-10-08T12:54:34Z",
+  "evidence_chain_id": "chain_03d81abf3910c403",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx",
+        "content_hash": "sha256:59f464c19bc86d8d06f816579613f889663c7eb07a114195e210d1ee140772dd",
+        "envelope_hash": "sha256:2e036aaf637a29184cddf76b71c07fb2c8474a4ff2809916803131c67c7b3942",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 84,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx:84"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx",
+        "content_hash": "sha256:59f464c19bc86d8d06f816579613f889663c7eb07a114195e210d1ee140772dd",
+        "envelope_hash": "sha256:717a3b35152187c3ba56e688d966c55cfc7ca29fe4512831016963135da2dc28",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 105,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx:105"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx",
+        "content_hash": "sha256:59f464c19bc86d8d06f816579613f889663c7eb07a114195e210d1ee140772dd",
+        "envelope_hash": "sha256:0e2a709a31321f373c19eecbfd11d506c48012b2f7bc136c88d008a028492e8d",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 107,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx:107"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx",
+        "content_hash": "sha256:59f464c19bc86d8d06f816579613f889663c7eb07a114195e210d1ee140772dd",
+        "envelope_hash": "sha256:3259be4117d76b5a744a4d428b8db3fbf3e2e775127c40455b232edc09ad68fd",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 125,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx:125"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx",
+        "content_hash": "sha256:59f464c19bc86d8d06f816579613f889663c7eb07a114195e210d1ee140772dd",
+        "envelope_hash": "sha256:f42b89d3b9f8e7c3282eb580ffe27af0149c0a6e2d9c57003212a2ef6c87e192",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 126,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx:126"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx",
+        "content_hash": "sha256:59f464c19bc86d8d06f816579613f889663c7eb07a114195e210d1ee140772dd",
+        "envelope_hash": "sha256:2aee74ee3e056800f5257a428c693586116fc987b798ebe3ced34fee24591aee",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 29,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx:29"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx",
+        "content_hash": "sha256:59f464c19bc86d8d06f816579613f889663c7eb07a114195e210d1ee140772dd",
+        "envelope_hash": "sha256:43cf57792ac9b2e4e3c0b326381ab3a510430694efea00fa19366080abb7f91e",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 80,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx:80"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx",
+        "content_hash": "sha256:59f464c19bc86d8d06f816579613f889663c7eb07a114195e210d1ee140772dd",
+        "envelope_hash": "sha256:8c31eed05507d61d5feab16b9b06c1aa247fc697037caf66682c196524ba458d",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 83,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/apps/aquamobil/src/i18n/I18nProvider.tsx:83"
+    }
+  ],
+  "facts": [
+    "finding_fingerprint=finding:68b9c784c1b4acbb06be7eebd6c6da093c6b7b387d04b12e62209d5a7878d6db",
+    "rule=security/detect-non-literal-regexp",
+    "judgment_group_id=judge:lint-rules-adapter:finding:68b9c784c1b4acbb06be7eebd6c6da093c6b7b387d04b12e62209d5a7878d6db",
+    "consensus_run_id=ece12ddf-38df-4d6e-ba1c-517a267f7f76"
+  ],
+  "finding_id": "F-021",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": "ece12ddf-38df-4d6e-ba1c-517a267f7f76",
+  "originating_skill": "ai_consensus:judgment_pipeline",
+  "recommendation": null,
+  "related_specialized_agent_domains": [
+    "accessibility-auditor",
+    "frontend-expert",
+    "frontend-mobile-development:mobile-developer"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "web/apps/aquamobil/src/i18n/I18nProvider.tsx"
+    ]
+  },
+  "service": "web:aquamobil",
+  "services": [
+    "web:aquamobil"
+  ],
+  "severity": "MEDIUM",
+  "source_event_id": "finding:F-021:emitted",
+  "source_ledger_hash": "sha256:7f1fad4cabecbdf97bea39e36e3d7ec0dab94765fb67768734f42c668a50490e",
+  "status": "OPEN"
+}

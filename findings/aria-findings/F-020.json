@@ -1,0 +1,193 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "security/detect-non-literal-regexp at apps/alert-engine/src/rules-engine/safe-regex.util.ts:79 (tool lint-rules-adapter, finding lint-rules:security/detect-non-literal-regexp:apps/alert-engine/src/rules-engine/safe-regex.util.ts:79:17, AI consensus confidence 0.8): The cited code has the defect the named lint rule describes.",
+  "claim_type": "wrong_code",
+  "closes_in_commit": null,
+  "created_at": "2026-10-08T12:54:32Z",
+  "evidence_chain_id": "chain_43639f1ddd392748",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts",
+        "content_hash": "sha256:3c1a3485b4be04d6d91d2db842e6a09b7b1dad535c86418602b8fde8b2658e94",
+        "envelope_hash": "sha256:89fc8448ee4d4424c87c11a30d6575017e5540bac3d6f489270f9061d0fee84f",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 79,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts:79"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts",
+        "content_hash": "sha256:3c1a3485b4be04d6d91d2db842e6a09b7b1dad535c86418602b8fde8b2658e94",
+        "envelope_hash": "sha256:9b83d932ce74bdc3a8ed9ccb6bfd56d3b9770bc3674713cfadebe127979ec094",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 13,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts:13"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts",
+        "content_hash": "sha256:3c1a3485b4be04d6d91d2db842e6a09b7b1dad535c86418602b8fde8b2658e94",
+        "envelope_hash": "sha256:c7098d534e17497c58ff5637e9cb1cd6ed096c15987610539093fd10b2afc068",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 31,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts:31"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts",
+        "content_hash": "sha256:3c1a3485b4be04d6d91d2db842e6a09b7b1dad535c86418602b8fde8b2658e94",
+        "envelope_hash": "sha256:548fc92f37210d6093fe0bed3229e09ac5b5d93ad78098a62a749c3d8d14f72e",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 36,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts:36"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts",
+        "content_hash": "sha256:3c1a3485b4be04d6d91d2db842e6a09b7b1dad535c86418602b8fde8b2658e94",
+        "envelope_hash": "sha256:33a9ebb3f7c40147ffbcdd4dcd56647f110fe2e3af5e3104e0623b41b4206836",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 40,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts:40"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts",
+        "content_hash": "sha256:3c1a3485b4be04d6d91d2db842e6a09b7b1dad535c86418602b8fde8b2658e94",
+        "envelope_hash": "sha256:9c8f8e7fe9392a6fa5af211f67359999e49e2842a6a5ddc9783577a88742cc1a",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 48,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts:48"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts",
+        "content_hash": "sha256:3c1a3485b4be04d6d91d2db842e6a09b7b1dad535c86418602b8fde8b2658e94",
+        "envelope_hash": "sha256:8a059b3f2cbcd08ebd55e928f17dc1e0004a0824ee6737bfe25dc7e7fa2cb820",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 5,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts:5"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts",
+        "content_hash": "sha256:3c1a3485b4be04d6d91d2db842e6a09b7b1dad535c86418602b8fde8b2658e94",
+        "envelope_hash": "sha256:586111f26cc2887c457ae8cec1200b5de5533882e7e797b1eb6ed1616fd02a3a",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 60,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts:60"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts",
+        "content_hash": "sha256:3c1a3485b4be04d6d91d2db842e6a09b7b1dad535c86418602b8fde8b2658e94",
+        "envelope_hash": "sha256:056a8fe323bb59ab9a61d11ae1032d0e6ba41da41a4bb6bfb269b0d69cb6ad53",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 61,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/alert-engine/src/rules-engine/safe-regex.util.ts:61"
+    }
+  ],
+  "facts": [
+    "finding_fingerprint=finding:ea8d6bf2a2d7dc3ff57a997dacb3876add998752eb8324f21f9545979535ad06",
+    "rule=security/detect-non-literal-regexp",
+    "judgment_group_id=judge:lint-rules-adapter:finding:ea8d6bf2a2d7dc3ff57a997dacb3876add998752eb8324f21f9545979535ad06",
+    "consensus_run_id=ece12ddf-38df-4d6e-ba1c-517a267f7f76"
+  ],
+  "finding_id": "F-020",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": "ece12ddf-38df-4d6e-ba1c-517a267f7f76",
+  "originating_skill": "ai_consensus:judgment_pipeline",
+  "recommendation": null,
+  "related_specialized_agent_domains": [
+    "alert-engine-expert"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "apps/alert-engine/src/rules-engine/safe-regex.util.ts"
+    ]
+  },
+  "service": "alert-engine",
+  "services": [
+    "alert-engine"
+  ],
+  "severity": "MEDIUM",
+  "source_event_id": "finding:F-020:emitted",
+  "source_ledger_hash": "sha256:fe15f4f8f08b0572e56ba32bcc5df0b463a13c8e27ecbb27a70114ba183e5217",
+  "status": "OPEN"
+}

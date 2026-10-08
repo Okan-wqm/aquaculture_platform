@@ -6,11 +6,26 @@
     "role": "challenger_plan",
     "target_agent": "aria-challenger-planner"
   },
+  "kernel_disposition": {
+    "closed_panel_request_ids": [
+      "AIR-aria-evidence-judge-5de0c62129b3",
+      "AIR-aria-adversarial-judge-b87fc2a68538",
+      "AIR-aria-consensus-arbiter-8e640fcb6967"
+    ],
+    "disposition": "expired_producer_owned",
+    "expiry_fault_class": "unclassified",
+    "expiry_reason": "anchor_expired",
+    "reason": "producer_owned:convergence_drainer",
+    "role": "challenger_plan"
+  },
   "reason": "request 'AIR-aria-challenger-planner-a0c0c5320bdc' died ANCHOR_STALE unclaimed; panel disposition required (re_mint / drop_with_reason).",
   "recorded_at": "2026-08-17T17:32:08Z",
   "request_id": "AIR-aria-challenger-planner-a0c0c5320bdc",
+  "resolution_note": "kernel disposition expired_producer_owned: producer_owned:convergence_drainer",
+  "resolved_at": "2026-10-08T12:30:16Z",
+  "resolved_by": "kernel",
   "schema_version": 1,
   "severity": "HIGH",
   "sla_deadline": "2026-08-20T17:32:08Z",
-  "status": "open"
+  "status": "resolved"
 }

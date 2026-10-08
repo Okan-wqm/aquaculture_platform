@@ -203,10 +203,58 @@
       "source_event_id": "finding:F-017:emitted",
       "source_ledger_hash": "sha256:74e27b7e1a9c610a2e18d2d5be2180935aca9c0c19cdae2fc489b979aaf763e1",
       "status": "OPEN"
+    },
+    {
+      "claim_summary": "doc_references_missing_path at docs/adr/_draft/028-sensor-payload-raw-value-contract.md:39 (tool doc-staleness-adapter, finding doc-staleness:missing:docs/adr/_draft/028-sensor-payload-raw-value-contract.md:39:libs/event-contracts/src/upcasters/sensor-payload-v1-to-v2.ts, AI consensus confidence 0.855): A document describes a repository path that no longer exists, so a reader is pointed at a surface that is gone.",
+      "claim_type": "currency_gap",
+      "created_at": "2026-10-08T12:54:28Z",
+      "evidence_chain_id": "chain_4f4522763a7a7df3",
+      "finding_id": "F-018",
+      "path": "F-018.json",
+      "severity": "MEDIUM",
+      "source_event_id": "finding:F-018:emitted",
+      "source_ledger_hash": "sha256:e9851810f04849ad72d0a856997ba17386cfe552e774181050fe88f9c9e5825b",
+      "status": "OPEN"
+    },
+    {
+      "claim_summary": "doc_references_missing_path at docs/architecture/farm-service-tenant-isolation.md:31 (tool doc-staleness-adapter, finding doc-staleness:missing:docs/architecture/farm-service-tenant-isolation.md:31:apps/farm-service/src/__tests__/e2e/graphql-loader-tenant-source.architecture.spec.ts, AI consensus confidence 0.825): A document describes a repository path that no longer exists, so a reader is pointed at a surface that is gone.",
+      "claim_type": "currency_gap",
+      "created_at": "2026-10-08T12:54:30Z",
+      "evidence_chain_id": "chain_4421339bb474ffba",
+      "finding_id": "F-019",
+      "path": "F-019.json",
+      "severity": "MEDIUM",
+      "source_event_id": "finding:F-019:emitted",
+      "source_ledger_hash": "sha256:7e62e1bbca922887fc305ceb298b4e882b87ac829a8d9af397aba487477ae6a8",
+      "status": "OPEN"
+    },
+    {
+      "claim_summary": "security/detect-non-literal-regexp at apps/alert-engine/src/rules-engine/safe-regex.util.ts:79 (tool lint-rules-adapter, finding lint-rules:security/detect-non-literal-regexp:apps/alert-engine/src/rules-engine/safe-regex.util.ts:79:17, AI consensus confidence 0.8): The cited code has the defect the named lint rule describes.",
+      "claim_type": "wrong_code",
+      "created_at": "2026-10-08T12:54:32Z",
+      "evidence_chain_id": "chain_43639f1ddd392748",
+      "finding_id": "F-020",
+      "path": "F-020.json",
+      "severity": "MEDIUM",
+      "source_event_id": "finding:F-020:emitted",
+      "source_ledger_hash": "sha256:fe15f4f8f08b0572e56ba32bcc5df0b463a13c8e27ecbb27a70114ba183e5217",
+      "status": "OPEN"
+    },
+    {
+      "claim_summary": "security/detect-non-literal-regexp at web/apps/aquamobil/src/i18n/I18nProvider.tsx:84 (tool lint-rules-adapter, finding lint-rules:security/detect-non-literal-regexp:web/apps/aquamobil/src/i18n/I18nProvider.tsx:84:29, AI consensus confidence 0.855): The cited code has the defect the named lint rule describes.",
+      "claim_type": "wrong_code",
+      "created_at": "2026-10-08T12:54:34Z",
+      "evidence_chain_id": "chain_03d81abf3910c403",
+      "finding_id": "F-021",
+      "path": "F-021.json",
+      "severity": "MEDIUM",
+      "source_event_id": "finding:F-021:emitted",
+      "source_ledger_hash": "sha256:7f1fad4cabecbdf97bea39e36e3d7ec0dab94765fb67768734f42c668a50490e",
+      "status": "OPEN"
     }
   ],
-  "generated_at": "2026-10-07T23:33:25Z",
+  "generated_at": "2026-10-08T12:54:34Z",
   "schema_version": 2,
   "source_ledger": "aria-findings/finding-events.jsonl",
-  "source_ledger_tip_hash": "sha256:74e27b7e1a9c610a2e18d2d5be2180935aca9c0c19cdae2fc489b979aaf763e1"
+  "source_ledger_tip_hash": "sha256:7f1fad4cabecbdf97bea39e36e3d7ec0dab94765fb67768734f42c668a50490e"
 }

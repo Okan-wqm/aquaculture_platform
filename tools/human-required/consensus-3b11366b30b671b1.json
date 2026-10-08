@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "tenant-raw-query-missing-predicate:apps/messaging-service/src/event-handlers/messaging-nats.handler.ts:611",
+    "judgment_group_id": "judge:tenant-scoping-adapter:finding:2f9971ba75f584b57a0b6b92f1c50f7b7a55bd7a583464837e8d759bc0724db0",
+    "kind": "consensus_escalation",
+    "run_id": "85cb0443-6a19-473f-9faf-4d253d2ad7ae",
+    "tool_id": "tenant-scoping-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'tenant-raw-query-missing-predicate:apps/messaging-service/src/event-handlers/messaging-nats.handler.ts:611' (tool 'tenant-scoping-adapter', run '85cb0443-6a19-473f-9faf-4d253d2ad7ae'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-08T12:29:49Z",
+  "request_id": "consensus-3b11366b30b671b1",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-11T12:29:49Z",
+  "status": "open"
+}

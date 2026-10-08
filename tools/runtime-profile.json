@@ -1,10 +1,10 @@
 {
-  "active_profile": "standard",
+  "active_profile": "strict",
   "merge_lane_grant": null,
-  "operator_approval_ref": "aria-auto-cycle:ceiling=strict:l1-unlock=false:run=37728223278",
-  "previous_profile": "strict",
+  "operator_approval_ref": "aria-auto-cycle:ceiling=strict:l1-unlock=true:run=37769037347",
+  "previous_profile": "standard",
   "previous_scheduler_profile_ceiling": "strict",
   "scheduler_profile_ceiling": "strict",
-  "set_at": "2026-10-08T04:38:58+00:00",
+  "set_at": "2026-10-08T12:01:07+00:00",
   "set_by": "autonomy-cli"
 }

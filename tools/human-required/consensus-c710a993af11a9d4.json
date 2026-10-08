@@ -1,0 +1,18 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "finding_id": "public-write-endpoint-without-allowlist:apps/auth-service/src/modules/authentication/resolvers/webauthn.resolver.ts:187",
+    "judgment_group_id": "judge:security-boundary-adapter:finding:c7192b0088ecf7bb4f6c811a05ae6ff2bbf5d1b2f95f5700a2d9e766999a0684",
+    "kind": "consensus_escalation",
+    "run_id": "6e8a73da-94f3-4957-9ff0-ca6264e85795",
+    "tool_id": "security-boundary-adapter",
+    "uncertainty_reason": "judge_disagreement"
+  },
+  "reason": "AI consensus could not be reached (judge_disagreement) for finding 'public-write-endpoint-without-allowlist:apps/auth-service/src/modules/authentication/resolvers/webauthn.resolver.ts:187' (tool 'security-boundary-adapter', run '6e8a73da-94f3-4957-9ff0-ca6264e85795'); independent judges disagreed or were low-confidence. Operator adjudication required.",
+  "recorded_at": "2026-10-08T12:29:38Z",
+  "request_id": "consensus-c710a993af11a9d4",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-10-11T12:29:38Z",
+  "status": "open"
+}

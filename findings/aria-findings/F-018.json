@@ -1,0 +1,138 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "doc_references_missing_path at docs/adr/_draft/028-sensor-payload-raw-value-contract.md:39 (tool doc-staleness-adapter, finding doc-staleness:missing:docs/adr/_draft/028-sensor-payload-raw-value-contract.md:39:libs/event-contracts/src/upcasters/sensor-payload-v1-to-v2.ts, AI consensus confidence 0.855): A document describes a repository path that no longer exists, so a reader is pointed at a surface that is gone.",
+  "claim_type": "currency_gap",
+  "closes_in_commit": null,
+  "created_at": "2026-10-08T12:54:28Z",
+  "evidence_chain_id": "chain_4f4522763a7a7df3",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/adr/_draft/028-sensor-payload-raw-value-contract.md",
+        "content_hash": "sha256:44630fb218551ce524d4e5aa912dc7ddf053f4752ed4209a8ead203413cbb3d0",
+        "envelope_hash": "sha256:5576ad8779c359b05e0d398b40257570d3e7f18c98765839afe9f1a4f7b94f75",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 39,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/adr/_draft/028-sensor-payload-raw-value-contract.md:39"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/adr/_draft/028-sensor-payload-raw-value-contract.md",
+        "content_hash": "sha256:44630fb218551ce524d4e5aa912dc7ddf053f4752ed4209a8ead203413cbb3d0",
+        "envelope_hash": "sha256:3c113a690e39127aab6af9bf8bf1524fc16649621a04f1a28150cf40ddb91323",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": null,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/adr/_draft/028-sensor-payload-raw-value-contract.md"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/adr/_draft/028-sensor-payload-raw-value-contract.md",
+        "content_hash": "sha256:44630fb218551ce524d4e5aa912dc7ddf053f4752ed4209a8ead203413cbb3d0",
+        "envelope_hash": "sha256:8190d47f96bc0163a3cf22fc03486ba51d2bd6d66fc6f2f3b7669dd23b09a925",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 110,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/adr/_draft/028-sensor-payload-raw-value-contract.md:110"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/adr/_draft/028-sensor-payload-raw-value-contract.md",
+        "content_hash": "sha256:44630fb218551ce524d4e5aa912dc7ddf053f4752ed4209a8ead203413cbb3d0",
+        "envelope_hash": "sha256:56273781fa0570e98db591c3b976211d4931ecfd03e2547dc11fb9bee8e70cb6",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 114,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/adr/_draft/028-sensor-payload-raw-value-contract.md:114"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/adr/_draft/028-sensor-payload-raw-value-contract.md",
+        "content_hash": "sha256:44630fb218551ce524d4e5aa912dc7ddf053f4752ed4209a8ead203413cbb3d0",
+        "envelope_hash": "sha256:a0afe4a3274a53dd9a03648a4c603bca48d3b0f7f083c1991273da3d0c6619f8",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 116,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/adr/_draft/028-sensor-payload-raw-value-contract.md:116"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/adr/_draft/028-sensor-payload-raw-value-contract.md",
+        "content_hash": "sha256:44630fb218551ce524d4e5aa912dc7ddf053f4752ed4209a8ead203413cbb3d0",
+        "envelope_hash": "sha256:a96c635edcdc2d346ec6c387dfd3c4dfcf0ed18549df9b67740d771eabd60e2e",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 41,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/adr/_draft/028-sensor-payload-raw-value-contract.md:41"
+    }
+  ],
+  "facts": [
+    "finding_fingerprint=finding:a8d0781c4a888812f4b50ac446d0ba3e99cee679393d26f89bb1f9b71d07b308",
+    "rule=doc_references_missing_path",
+    "judgment_group_id=judge:doc-staleness-adapter:finding:a8d0781c4a888812f4b50ac446d0ba3e99cee679393d26f89bb1f9b71d07b308",
+    "consensus_run_id=b4f26a17-c5a3-4cc4-a1e6-4c14fc3ab2ae"
+  ],
+  "finding_id": "F-018",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": "b4f26a17-c5a3-4cc4-a1e6-4c14fc3ab2ae",
+  "originating_skill": "ai_consensus:judgment_pipeline",
+  "recommendation": null,
+  "related_specialized_agent_domains": [],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "docs/adr/_draft/028-sensor-payload-raw-value-contract.md"
+    ]
+  },
+  "service": null,
+  "services": [],
+  "severity": "MEDIUM",
+  "source_event_id": "finding:F-018:emitted",
+  "source_ledger_hash": "sha256:e9851810f04849ad72d0a856997ba17386cfe552e774181050fe88f9c9e5825b",
+  "status": "OPEN"
+}

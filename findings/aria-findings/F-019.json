@@ -1,0 +1,53 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "doc_references_missing_path at docs/architecture/farm-service-tenant-isolation.md:31 (tool doc-staleness-adapter, finding doc-staleness:missing:docs/architecture/farm-service-tenant-isolation.md:31:apps/farm-service/src/__tests__/e2e/graphql-loader-tenant-source.architecture.spec.ts, AI consensus confidence 0.825): A document describes a repository path that no longer exists, so a reader is pointed at a surface that is gone.",
+  "claim_type": "currency_gap",
+  "closes_in_commit": null,
+  "created_at": "2026-10-08T12:54:30Z",
+  "evidence_chain_id": "chain_4421339bb474ffba",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "docs/architecture/farm-service-tenant-isolation.md",
+        "content_hash": "sha256:240457900d4ad0366e688d0271dce211ecc3eec2b1e5a21aaf48fc0f0271ad2f",
+        "envelope_hash": "sha256:185a86f0e2ee582ef6a5bc0ef6004846561a1a761374125fd4d361ec9ede6ceb",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 31,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "869807c9f8aa67bcc5f393db59eb177d9dc84925",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "docs/architecture/farm-service-tenant-isolation.md:31"
+    }
+  ],
+  "facts": [
+    "finding_fingerprint=finding:04638d850212c9e24649ddab893060782a224fe5a859e333ec6e8ebd76518bb3",
+    "rule=doc_references_missing_path",
+    "judgment_group_id=judge:doc-staleness-adapter:finding:04638d850212c9e24649ddab893060782a224fe5a859e333ec6e8ebd76518bb3",
+    "consensus_run_id=b4f26a17-c5a3-4cc4-a1e6-4c14fc3ab2ae"
+  ],
+  "finding_id": "F-019",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": "b4f26a17-c5a3-4cc4-a1e6-4c14fc3ab2ae",
+  "originating_skill": "ai_consensus:judgment_pipeline",
+  "recommendation": null,
+  "related_specialized_agent_domains": [],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "docs/architecture/farm-service-tenant-isolation.md"
+    ]
+  },
+  "service": null,
+  "services": [],
+  "severity": "MEDIUM",
+  "source_event_id": "finding:F-019:emitted",
+  "source_ledger_hash": "sha256:7e62e1bbca922887fc305ceb298b4e882b87ac829a8d9af397aba487477ae6a8",
+  "status": "OPEN"
+}

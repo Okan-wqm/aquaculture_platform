@@ -1,0 +1,10 @@
+{
+  "$schema": "aria/human-required/v1",
+  "reason": "agent_refused:evidence: only admissible ref unrecognized by submit law",
+  "recorded_at": "2026-10-08T19:54:01Z",
+  "request_id": "AIR-aria-autonomy-planner-902f6ca58cf1",
+  "schema_version": 1,
+  "severity": "LOW",
+  "sla_deadline": "2026-10-22T19:54:01Z",
+  "status": "open"
+}

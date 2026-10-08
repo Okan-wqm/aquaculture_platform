@@ -7,7 +7,8 @@
  * Runs behind the parameter's lock like every write to its sources or meaning
  * (FARM-HIGH-373, plan D8). While a sensor channel is bound, the code and the
  * unit cannot change and the parameter cannot be deactivated: the channel was
- * accepted for this meaning (plan Q8). A code change must keep a declared
+ * accepted for this meaning (plan Q8). Once measurements recorded values under
+ * the code, code and unit are fixed for good (plan D7). A code change must keep a declared
  * quantity valid. The database refuses a second active config of one
  * measured quantity (409).
  *
@@ -22,6 +23,7 @@ import { UpdateParameterConfigCommand } from '../commands/update-parameter-confi
 import { WaterQualityParameterConfig } from '../entities/water-quality-parameter-config.entity';
 import { declarableQuantitiesOfParameter } from '../data/parameter-quantities';
 import { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
+import { parameterHasMeasurements } from '../services/parameter-meaning';
 import { liveChannelSourceCount, lockParameterConfig } from '../services/parameter-sources';
 import { runSourceTransaction } from '../services/source-transaction';
 
@@ -71,6 +73,12 @@ export class UpdateParameterConfigHandler
       const meaningChanges =
         (payload.code !== undefined && payload.code !== config.code) ||
         (payload.unit !== undefined && payload.unit !== config.unit);
+      if (meaningChanges && (await parameterHasMeasurements(manager, tenantId, config.code))) {
+        throw new ConflictException(
+          `Measurements already record '${config.code}' in ${config.unit}; its code and unit are ` +
+            'fixed. Create a new parameter for the new meaning.',
+        );
+      }
       const deactivates = payload.isActive === false && config.isActive;
       if (
         (meaningChanges || deactivates) &&

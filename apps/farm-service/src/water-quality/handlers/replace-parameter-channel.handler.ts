@@ -16,6 +16,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { DataSource } from 'typeorm';
 
+import { ChannelBindingRefusedError } from '../../common/errors/farm-errors';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { ReplaceParameterChannelCommand } from '../commands/replace-parameter-channel.command';
@@ -24,7 +25,6 @@ import { WaterQualityParameterConfig } from '../entities/water-quality-parameter
 import {
   assertParameterUnchanged,
   assessChannel,
-  ChannelBindingRefusedException,
   quantitySnapshot,
 } from '../services/channel-binding-rules';
 import { assertLivePoint } from '../services/measurement-point-lookup';
@@ -80,6 +80,9 @@ export class ReplaceParameterChannelHandler
         assertParameterUnchanged(config, seen.snapshot);
         const found = await findLiveChannelSource(manager, tenantId, sourceId);
         const location = locationOf(found);
+        // One lock order everywhere: parameter, then point, then source rows —
+        // the order a point delete takes too (point, then sources).
+        await assertLivePoint(manager, tenantId, location.point, 'locked');
         const live = await liveChannelSourcesAt(manager, tenantId, config.id, location);
         const old = live.find((candidate) => candidate.id === sourceId);
         if (old === undefined) {
@@ -94,7 +97,6 @@ export class ReplaceParameterChannelHandler
         ) {
           throw new ConflictException('This channel is already a source of the parameter here');
         }
-        await assertLivePoint(manager, tenantId, location.point, 'locked');
         const problems = await assessChannel(
           manager,
           tenantId,
@@ -103,7 +105,7 @@ export class ReplaceParameterChannelHandler
           description,
         );
         if (problems.length > 0) {
-          throw new ChannelBindingRefusedException(problems);
+          throw new ChannelBindingRefusedError(problems);
         }
         await unbindSources(manager, tenantId, [old.id], userId);
         const created = await tenantManagerRepo(manager, WaterQualityParamEquipment, tenantId).save(

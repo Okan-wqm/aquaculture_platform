@@ -10,6 +10,8 @@
  * @module WaterQuality/QueryHandlers
  */
 import { runInTenantRead, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { Role, roleHasPermission } from '@aquaculture/backend-common/decorators';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { IQueryHandler, QueryHandler } from '@platform/cqrs';
@@ -31,7 +33,7 @@ import {
 } from '../queries/parameter-source-queries';
 import { assessChannel, bindingProblems } from '../services/channel-binding-rules';
 import { loadFarmPlacement } from '../services/channel-placement';
-import { assertLivePoint } from '../services/measurement-point-lookup';
+import { assertLivePoint, siteOfPoint } from '../services/measurement-point-lookup';
 import { liveAtPoint, pointOf } from '../services/parameter-sources';
 import { SensorChannelDirectory } from '../services/sensor-channel-directory.service';
 
@@ -77,16 +79,25 @@ export class ListParameterSourcesAtPointHandler
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly directory: SensorChannelDirectory,
+    private readonly siteAuth: SiteAuthorizationService,
   ) {}
 
   async execute(query: ListParameterSourcesAtPointQuery): Promise<ParameterSourceStatus[]> {
-    const { tenantId, point } = query;
+    const { tenantId, point, caller } = query;
     const sources = await runInTenantRead(
       this.dataSource,
       'farm',
       tenantId,
       async (queryRunner) => {
         await assertLivePoint(queryRunner.manager, tenantId, point, 'lookup');
+        // Object-level site gate (SEC-HIGH-051 / FARM-MEDIUM-274): MODULE_MANAGER
+        // and above pass; a MODULE_USER reads only a point at an assigned site.
+        if (!caller.roles.some((role) => roleHasPermission(role, Role.MODULE_MANAGER))) {
+          this.siteAuth.assertSiteAssignment({
+            caller,
+            siteId: await siteOfPoint(queryRunner.manager, tenantId, point),
+          });
+        }
         return tenantManagerRepo(queryRunner.manager, WaterQualityParamEquipment, tenantId).find({
           where: liveAtPoint(point),
           relations: ['parameterConfig'],

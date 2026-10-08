@@ -141,9 +141,12 @@ export async function liveChannelSourceCount(
 }
 
 /**
- * Ends live sources, stamped with the database clock (the row's boundAt is
- * database time too, and the CHECK requires unboundAt >= boundAt). Returns how
- * many were live.
+ * Ends live sources, stamped with the database clock at THIS statement. The
+ * row's boundAt is its binding transaction's start (now()); that transaction
+ * committed before this statement could see the row, so
+ * statement_timestamp() >= boundAt and the CHECK (unboundAt >= boundAt)
+ * holds. now() — this transaction's start — could precede a boundAt
+ * committed meanwhile. Returns how many were live.
  */
 export async function unbindSources(
   manager: EntityManager,
@@ -157,7 +160,7 @@ export async function unbindSources(
   const result = await manager
     .createQueryBuilder()
     .update(WaterQualityParamEquipment)
-    .set({ unboundAt: () => 'now()', unboundBy })
+    .set({ unboundAt: () => 'statement_timestamp()', unboundBy })
     .where('"tenantId" = :tenantId', { tenantId })
     .andWhere('"id" IN (:...sourceIds)', { sourceIds: [...sourceIds] })
     .andWhere('"unboundAt" IS NULL')
@@ -198,6 +201,19 @@ export async function findLiveChannelSource(
 }
 
 /**
+ * The points a retired unit may be sourced at: its id as a tank point and as
+ * an equipment point. A unit id is one or the other (the classifier decides,
+ * and an equipment row flagged isTank is a tank point), and ids are unique,
+ * so closing both is exact — the retiring handler need not classify it.
+ */
+export function unitPoints(unitIds: readonly string[]): MeasurementPoint[] {
+  return unitIds.flatMap((id) => [
+    { kind: 'tank' as const, id },
+    { kind: 'equipment' as const, id },
+  ]);
+}
+
+/**
  * Closes every live source at these points — manual plan lines and channel
  * sources alike — in the caller's transaction: a deleted tank or system is no
  * longer a place a parameter is measured (plan D12). The rows stay as history.
@@ -225,7 +241,7 @@ export async function closeSourcesAtPoints(
   const result = await manager
     .createQueryBuilder()
     .update(WaterQualityParamEquipment)
-    .set({ unboundAt: () => 'now()', unboundBy })
+    .set({ unboundAt: () => 'statement_timestamp()', unboundBy })
     .where('"tenantId" = :tenantId', { tenantId })
     .andWhere('"unboundAt" IS NULL')
     .andWhere(`(${clauses.join(' OR ')})`, byKind)

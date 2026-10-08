@@ -10,8 +10,35 @@ const MEASUREMENTS = 'water_quality_measurements';
 const LEDGER = 'parameter_quantity_declarations';
 const STAMP_FUNCTION = 'wqpc_stamp_quantity_configured_at';
 const STAMP_TRIGGER = 'trg_wqpc_quantity_configured_at';
-/** The unique (tenant, parameter, equipment) over every row; it forbids history and a backup. */
+/**
+ * The unique (tenant, parameter, equipment) over every row; it forbids history
+ * and a backup. Its Baseline name, used only by `down` to restore it. Tenant
+ * schemas cloned with LIKE … INCLUDING ALL carry it under a Postgres-generated
+ * name (prod: `water_quality_param_equipment_tenantId_parameterConfigId_eq_idx`),
+ * so `up` finds it by definition (LEGACY_UNIQUE_IN_SCHEMA), not by name.
+ */
 const LEGACY_MAPPING_UNIQUE = 'IDX_3283cafd2982b3e394ac021307';
+
+/**
+ * Every unique, predicate-free index on exactly (tenantId, parameterConfigId,
+ * equipmentId) of the mapping table in the pinned schema, whatever its name.
+ */
+const LEGACY_UNIQUE_IN_SCHEMA = `
+  SELECT i.indexrelid::regclass::text AS name
+    FROM pg_index i
+    JOIN pg_class t ON t.oid = i.indrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+   WHERE n.nspname = current_schema()
+     AND t.relname = '${MAPPINGS}'
+     AND i.indisunique
+     AND NOT i.indisprimary
+     AND i.indpred IS NULL
+     AND i.indnkeyatts = 3
+     AND (
+       SELECT array_agg(a.attname::text ORDER BY a.attname)
+         FROM pg_attribute a
+        WHERE a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+     ) = ARRAY['equipmentId', 'parameterConfigId', 'tenantId']`;
 
 const MAPPING_CHECKS: ReadonlyArray<readonly [string, string]> = [
   // One measurement point per row. Legacy rows name equipmentId only, which
@@ -325,7 +352,16 @@ export class ExtendParamEquipmentToChannelSources1822000000000 implements Migrat
         END IF;
       END $$`);
 
-    await queryRunner.query(`DROP INDEX IF EXISTS "${LEGACY_MAPPING_UNIQUE}"`);
+    // By definition, not by name: LIKE-cloned tenant schemas renamed it.
+    await queryRunner.query(`
+      DO $$
+      DECLARE
+        legacy record;
+      BEGIN
+        FOR legacy IN ${LEGACY_UNIQUE_IN_SCHEMA} LOOP
+          EXECUTE 'DROP INDEX IF EXISTS ' || legacy.name;
+        END LOOP;
+      END $$`);
     await queryRunner.query(
       `CREATE UNIQUE INDEX IF NOT EXISTS "UQ_wqpe_manual_source"
          ON "${MAPPINGS}" ("tenantId", "parameterConfigId", "pointKey")
@@ -437,8 +473,7 @@ export class ExtendParamEquipmentToChannelSources1822000000000 implements Migrat
                  AND tablename = '${MAPPINGS}'
                  AND indexname IN ('UQ_wqpe_manual_source', 'UQ_wqpe_channel_priority',
                                    'UQ_wqpe_channel_key')) = 3
-           AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = current_schema()
-                            AND indexname = '${LEGACY_MAPPING_UNIQUE}')
+           AND NOT EXISTS (${LEGACY_UNIQUE_IN_SCHEMA})
            AND EXISTS (SELECT 1 FROM information_schema.columns
                         WHERE table_schema = current_schema() AND table_name = '${MAPPINGS}'
                           AND column_name = 'pointKey' AND is_generated = 'ALWAYS'

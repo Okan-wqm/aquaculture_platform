@@ -3,6 +3,7 @@
  *
  * @module WaterQuality/Queries
  */
+import type { Role } from '@aquaculture/backend-common/decorators';
 import { ITenantQuery } from '@platform/cqrs';
 
 import type { ChannelSourceTarget } from '../commands/bind-parameter-channel.command';
@@ -18,6 +19,13 @@ export class CheckParameterChannelBindingQuery implements ITenantQuery {
   ) {}
 }
 
+/** Who reads the sources at a point: a MODULE_USER only at a site assigned to them. */
+export interface SourceReader {
+  sub: string;
+  roles: Role[];
+  assignedSiteIds?: string[];
+}
+
 /** Every live source at a point, with each channel's status and problems now. */
 export class ListParameterSourcesAtPointQuery implements ITenantQuery {
   readonly queryName = 'ListParameterSourcesAtPointQuery';
@@ -25,6 +33,7 @@ export class ListParameterSourcesAtPointQuery implements ITenantQuery {
   constructor(
     public readonly tenantId: string,
     public readonly point: MeasurementPoint,
+    public readonly caller: SourceReader,
   ) {}
 }
 

@@ -13,7 +13,9 @@ import { ExtendParamEquipmentToChannelSources1822000000000 } from '../1822000000
  * orchestrator runs it: once per schema with the search_path pinned.
  *
  * The tenant schema starts in the Baseline shape (the legacy unique, NOT NULL
- * point, the shared monitoring-frequency enum in `farm`) with the legacy rows
+ * point, the shared monitoring-frequency enum in `farm`), CLONED from a source
+ * schema with LIKE … INCLUDING ALL the way pre-2026-04-28 tenants were — so its
+ * legacy unique carries a Postgres-generated name, as in prod — with the legacy rows
  * prod could hold: a mapping whose equipmentId is a tank, one with a sensorId,
  * configs whose code names a quantity or a family, and measurements filed in
  * both unit columns. Every rule the migration adds is then exercised by the
@@ -37,6 +39,24 @@ describe('ExtendParamEquipmentToChannelSources1822000000000', () => {
   let admin: DataSource | undefined;
   const schema = getTenantSchemaName(TENANT);
   const unused = getTenantSchemaName(OTHER_TENANT);
+
+  const LEGACY_TABLES = [
+    'tanks',
+    'equipment',
+    'water_quality_parameter_configs',
+    'water_quality_param_equipment',
+    'water_quality_measurements',
+  ];
+
+  /** A tenant schema cloned from the Baseline-shaped source: generated index names. */
+  async function likeClone(target: string): Promise<void> {
+    await admin!.query(`CREATE SCHEMA "${target}"`);
+    for (const table of LEGACY_TABLES) {
+      await admin!.query(
+        `CREATE TABLE "${target}"."${table}" (LIKE "baseline_src"."${table}" INCLUDING ALL)`,
+      );
+    }
+  }
 
   async function baseline(target: string): Promise<void> {
     await admin!.query(`CREATE SCHEMA "${target}"`);
@@ -88,7 +108,9 @@ describe('ExtendParamEquipmentToChannelSources1822000000000', () => {
     await admin.query(`
       CREATE TYPE farm.water_quality_param_equipment_monitoringfrequency_enum
         AS ENUM ('continuous', 'hourly', 'daily', 'weekly', 'on_demand')`);
-    await baseline(schema);
+    await baseline('baseline_src');
+    await likeClone(schema);
+    // The other tenant was built by migration replay: Baseline index names.
     await baseline(unused);
     await admin.query(`CREATE SCHEMA "empty_schema"`);
 
@@ -158,6 +180,18 @@ describe('ExtendParamEquipmentToChannelSources1822000000000', () => {
   const migration = new ExtendParamEquipmentToChannelSources1822000000000();
   const mappings = `"${schema}".water_quality_param_equipment`;
   const configs = `"${schema}".water_quality_parameter_configs`;
+
+  it('starts from a LIKE clone whose legacy unique has a generated name', async () => {
+    const indexes: Array<{ indexname: string }> = await admin!.query(
+      `SELECT indexname FROM pg_indexes
+        WHERE schemaname = $1 AND tablename = 'water_quality_param_equipment'
+          AND indexdef LIKE 'CREATE UNIQUE INDEX%' AND indexname NOT LIKE '%pkey'`,
+      [schema],
+    );
+    expect(indexes.map((index) => index.indexname)).toEqual([
+      'water_quality_param_equipment_tenantId_parameterConfigId_eq_idx',
+    ]);
+  });
 
   it('applies, re-applies as a no-op, and passes its post-condition', async () => {
     await inSchema(schema, (qr) => migration.up(qr));
@@ -248,6 +282,8 @@ describe('ExtendParamEquipmentToChannelSources1822000000000', () => {
        VALUES ($1, $2, $3, 'outlet', 1.5)`,
       [TENANT, TEMPERATURE, TANK],
     );
+    // The renamed legacy unique is gone: otherwise this second live row of the
+    // same (tenant, parameter, point) would have been refused above.
     const [{ live, history }] = await admin!.query(
       `SELECT count(*) FILTER (WHERE "unboundAt" IS NULL)::int AS live,
               count(*) FILTER (WHERE "unboundAt" IS NOT NULL)::int AS history
@@ -255,6 +291,35 @@ describe('ExtendParamEquipmentToChannelSources1822000000000', () => {
       [TEMPERATURE, TANK],
     );
     expect({ live, history }).toEqual({ live: 2, history: 1 });
+  });
+
+  it('drops the renamed legacy unique: an equipment point takes history and a backup', async () => {
+    await admin!.query(
+      `UPDATE ${mappings} SET "unboundAt" = now(), "unboundBy" = 'user-1'
+        WHERE "equipmentId" = $1 AND "parameterConfigId" = $2`,
+      [BIOFILTER, TEMPERATURE],
+    );
+    await admin!.query(
+      `INSERT INTO ${mappings} ("tenantId", "parameterConfigId", "equipmentId") VALUES ($1, $2, $3)`,
+      [TENANT, TEMPERATURE, BIOFILTER],
+    );
+    for (const [priority, key] of [
+      ['primary', 'temp'],
+      ['backup', 'temp_2'],
+    ]) {
+      await admin!.query(
+        `INSERT INTO ${mappings}
+           ("tenantId", "parameterConfigId", "equipmentId", "sensorId", "channelKey", "priority",
+            "monitoringFrequency", "alertEnabled")
+         VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL)`,
+        [TENANT, TEMPERATURE, BIOFILTER, SENSOR, key, priority],
+      );
+    }
+    const [{ n }] = await admin!.query(
+      `SELECT count(*)::int AS n FROM ${mappings} WHERE "equipmentId" = $1`,
+      [BIOFILTER],
+    );
+    expect(n).toBe(4);
   });
 
   it('derives what each config records, keeps one active config per quantity, and stamps changes', async () => {

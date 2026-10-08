@@ -27,6 +27,7 @@ import { WaterQualityParameterConfig } from '../../entities/water-quality-parame
  */
 export interface SourceTopology {
   siteId: string;
+  departmentId: string;
   systemId: string;
   tankId: string;
   biofilterId: string;
@@ -148,11 +149,88 @@ export async function seedSourceTopology(
     }
     return {
       siteId: site.id,
+      departmentId: department.id,
       systemId: system.id,
       tankId: tank.id,
       biofilterId: biofilter.id,
       sensorId: '9a9a9a9a-9a9a-4a9a-8a9a-9a9a9a9a9a9a',
       configs,
     };
+  });
+}
+
+/** Another active tank in the topology's department, optionally in a loop. */
+export async function seedTank(
+  dataSource: DataSource,
+  tenantId: string,
+  topology: Pick<SourceTopology, 'departmentId'>,
+  code: string,
+  userId: string,
+  systemId: string | null = null,
+): Promise<string> {
+  const manager = dataSource.manager;
+  return withTenantContext(tenantId, async () => {
+    const tank = await manager.save(
+      manager.create(Tank, {
+        tenantId,
+        name: code,
+        code,
+        departmentId: topology.departmentId,
+        systemId: systemId ?? undefined,
+        tankType: TankType.CIRCULAR,
+        material: TankMaterial.FIBERGLASS,
+        waterType: WaterType.SALTWATER,
+        diameter: 5,
+        depth: 2,
+        waterDepth: 2,
+        maxBiomass: 1500,
+        currentBiomass: 0,
+        currentCount: 0,
+        maxDensity: 30,
+        status: TankStatus.ACTIVE,
+        isActive: true,
+        createdBy: userId,
+        updatedBy: userId,
+      }),
+    );
+    return tank.id;
+  });
+}
+
+/** Another loop at the topology's site with one piece of water equipment linked to it. */
+export async function seedLoop(
+  dataSource: DataSource,
+  tenantId: string,
+  topology: Pick<SourceTopology, 'siteId' | 'departmentId'>,
+  code: string,
+): Promise<{ systemId: string; equipmentId: string }> {
+  const manager = dataSource.manager;
+  return withTenantContext(tenantId, async () => {
+    const system = await manager.save(
+      manager.create(System, {
+        tenantId,
+        siteId: topology.siteId,
+        name: code,
+        code,
+        type: SystemType.RAS,
+        isActive: true,
+      }),
+    );
+    const equipment = await manager.save(
+      manager.create(Equipment, {
+        tenantId,
+        equipmentTypeId: '0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e',
+        name: `${code} filter`,
+        code: `${code}-BF`,
+        departmentId: topology.departmentId,
+        isTank: false,
+        isActive: true,
+        isDeleted: false,
+      }),
+    );
+    await manager.save(
+      manager.create(EquipmentSystem, { tenantId, equipmentId: equipment.id, systemId: system.id }),
+    );
+    return { systemId: system.id, equipmentId: equipment.id };
   });
 }

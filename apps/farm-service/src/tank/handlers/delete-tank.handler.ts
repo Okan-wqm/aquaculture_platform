@@ -2,13 +2,14 @@
  * Delete Tank Command Handler
  * @module Tank/Handlers
  */
-import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { toEventIso, TankDeletedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
+import { runRetryingTenantTransaction } from '../../common/database/retrying-tenant-transaction';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { defaultFarmStockProjectionForDirectHandlerConstruction } from '../../common/services/direct-handler-dependency-defaults';
 import { AuditAction } from '../../database/entities/audit-log.entity';
@@ -36,7 +37,7 @@ export class DeleteTankHandler implements ICommandHandler<DeleteTankCommand, boo
 
     this.logger.log(`Deleting tank: ${id} for tenant: ${tenantId}`);
 
-    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+    await runRetryingTenantTransaction(this.dataSource, tenantId, async (queryRunner) => {
       const tankRepository = tenantManagerRepo(queryRunner.manager, Tank, tenantId);
       const tankBatchRepository = tenantManagerRepo(queryRunner.manager, TankBatch, tenantId);
 

@@ -18,6 +18,7 @@ import { GraphQLError } from 'graphql';
 
 import {
   BackdateBlockedError,
+  ChannelBindingRefusedError,
   BatchWithdrawalBlockedError,
   HarvestPlanRequiredError,
   RestoreUniquenessConflictError,
@@ -153,6 +154,18 @@ describe('FarmAppError subclasses', () => {
 });
 
 describe('FarmAppErrorFilter', () => {
+  it('carries a refused channel binding’s problem codes to the GraphQL extensions', () => {
+    const out = new FarmAppErrorFilter().catch(
+      new ChannelBindingRefusedError(['QUANTITY_MISMATCH', 'NOT_AT_POINT']),
+      makeGqlHost({}),
+    );
+    expect(out.extensions?.['code']).toBe('CHANNEL_BINDING_REFUSED');
+    expect(out.extensions?.['statusCode']).toBe(HttpStatus.BAD_REQUEST);
+    expect(out.extensions?.['context']).toEqual({
+      problems: ['QUANTITY_MISMATCH', 'NOT_AT_POINT'],
+    });
+  });
+
   it('produces a GraphQLError with the documented extensions envelope', () => {
     const filter = new FarmAppErrorFilter();
     const err = new BatchWithdrawalBlockedError({

@@ -13,15 +13,21 @@
 import 'reflect-metadata';
 
 import { withTenantContext } from '@aquaculture/backend-common/context';
-import { stub } from '@aquaculture/testing';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
+import { collaborator, stub } from '@aquaculture/testing';
+import { ConflictException, ForbiddenException, HttpException } from '@nestjs/common';
 import type { SensorChannelDescription, SensorChannelKey } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 
 import { createFixtureAuditLogService } from '../../__tests__/e2e/helpers/farm-tenant-fixture';
 import type { AuditLogService } from '../../database/services/audit-log.service';
+import type { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { FarmOutbox } from '../../outbox/farm-outbox.entity';
 import { DeleteSystemCommand } from '../../system/commands/delete-system.command';
 import { DeleteSystemHandler } from '../../system/handlers/delete-system.handler';
+import { DeleteTankCommand } from '../../tank/commands/delete-tank.command';
+import { DeleteTankHandler } from '../../tank/handlers/delete-tank.handler';
 import { BindParameterChannelCommand } from '../commands/bind-parameter-channel.command';
 import {
   ClearParameterQuantityCommand,
@@ -47,6 +53,8 @@ import { DeleteParameterConfigHandler } from '../handlers/delete-parameter-confi
 import { ReplaceParameterChannelHandler } from '../handlers/replace-parameter-channel.handler';
 import { UnbindParameterChannelHandler } from '../handlers/unbind-parameter-channel.handler';
 import { UpdateParameterConfigHandler } from '../handlers/update-parameter-config.handler';
+import { GetUnitMeasurementPlanQuery } from '../queries/get-unit-measurement-plan.query';
+import { GetUnitMeasurementPlanHandler } from '../query-handlers/get-unit-measurement-plan.handler';
 import {
   CheckParameterChannelBindingQuery,
   ListParameterSourcesAtPointQuery,
@@ -56,11 +64,7 @@ import {
   ListParameterSourcesAtPointHandler,
 } from '../query-handlers/parameter-source-query.handlers';
 import type { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
-import {
-  closeSourcesAtPoints,
-  type MeasurementPoint,
-  type SourceLocation,
-} from '../services/parameter-sources';
+import { type MeasurementPoint, type SourceLocation } from '../services/parameter-sources';
 import type { SensorChannelDirectory } from '../services/sensor-channel-directory.service';
 
 import {
@@ -68,7 +72,12 @@ import {
   shutdownSourceDatabase,
   type SourceDatabase,
 } from './helpers/source-database';
-import { seedSourceTopology, type SourceTopology } from './helpers/source-topology';
+import {
+  seedLoop,
+  seedSourceTopology,
+  seedTank,
+  type SourceTopology,
+} from './helpers/source-topology';
 
 jest.setTimeout(180_000);
 
@@ -85,8 +94,16 @@ describe('parameter channel binding — real Postgres', () => {
   const directory = stub<SensorChannelDirectory>({
     describe: async (_tenantId: string, keys: readonly SensorChannelKey[]) =>
       keys.map((key) => describedChannel(key)),
-    describeOne: async (_tenantId: string, key: SensorChannelKey) => describedChannel(key),
+    describeOne: async (_tenantId: string, key: SensorChannelKey) => {
+      // A concurrent change landing while the bind waits on the sensor service.
+      const meanwhile = whileDescribing;
+      whileDescribing = null;
+      if (meanwhile !== null) await meanwhile();
+      return describedChannel(key);
+    },
   });
+  let whileDescribing: (() => Promise<void>) | null = null;
+  const MANAGER = { sub: USER, roles: [Role.MODULE_MANAGER] };
   const cache = stub<ParameterConfigCacheService>({ invalidate: () => undefined });
 
   function describedChannel(key: SensorChannelKey): SensorChannelDescription {
@@ -170,6 +187,45 @@ describe('parameter channel binding — real Postgres', () => {
       ),
     );
 
+  const farmStockProjection = collaborator<FarmStockProjectionService>(
+    { refreshContainers: async () => undefined },
+    'FarmStockProjectionService',
+  );
+  const deleteTank = (tankId: string): Promise<boolean> =>
+    inTenant(() =>
+      new DeleteTankHandler(
+        ds().dataSource,
+        auditLog,
+        new OutboxPublisher(FarmOutbox),
+        farmStockProjection,
+      ).execute(new DeleteTankCommand(TENANT, USER, tankId)),
+    );
+  const deleteSystem = (systemId: string): Promise<boolean> =>
+    inTenant(() =>
+      new DeleteSystemHandler(ds().dataSource, auditLog, new OutboxPublisher(FarmOutbox)).execute(
+        new DeleteSystemCommand(systemId, TENANT, USER),
+      ),
+    );
+
+  /** A racing write either lands or is refused as a conflict or a gone point — never a 500. */
+  function expectClientOutcome(result: PromiseSettledResult<unknown>): void {
+    if (result.status === 'fulfilled') return;
+    const reason: unknown = result.reason;
+    if (!(reason instanceof HttpException)) throw reason;
+    expect([404, 409]).toContain(reason.getStatus());
+  }
+
+  /** No live source at a retired point, and every row's validity window is ordered. */
+  async function expectNoLiveSourcesAt(column: string, id: string): Promise<void> {
+    const [{ live, disordered }] = await ds().dataSource.query(
+      `SELECT count(*) FILTER (WHERE "unboundAt" IS NULL AND "${column}" = $1)::int AS live,
+              count(*) FILTER (WHERE "unboundAt" < "boundAt")::int AS disordered
+         FROM "${ds().schema}".water_quality_param_equipment`,
+      [id],
+    );
+    expect({ live, disordered }).toEqual({ live: 0, disordered: 0 });
+  }
+
   beforeAll(async () => {
     database = await bootSourceDatabase(TENANT);
     topology = await seedSourceTopology(database.dataSource, database.schema, TENANT, USER);
@@ -203,6 +259,19 @@ describe('parameter channel binding — real Postgres', () => {
       [source.id],
     );
     expect(audit).toEqual({ action: 'CREATE', source: 'parameter-sources:bindParameterChannel' });
+  });
+
+  it('leaves an unplanned unit unplanned: a bound channel is not a manual plan line', async () => {
+    const plan = await inTenant(() =>
+      new GetUnitMeasurementPlanHandler(ds().dataSource).execute(
+        new GetUnitMeasurementPlanQuery(TENANT, topology.tankId),
+      ),
+    );
+    expect(plan.planned).toBe(false);
+    expect(plan.entries.map((entry) => entry.parameter.id).sort()).toEqual(
+      Object.values(topology.configs).sort(),
+    );
+    expect(plan.entries.every((entry) => !entry.required)).toBe(true);
   });
 
   it('refuses a channel with the problem codes the UI shows, and writes nothing', async () => {
@@ -335,9 +404,11 @@ describe('parameter channel binding — real Postgres', () => {
     // The bound TAN channel is disabled after it was bound: the read says so.
     channel('tan', { tankId: topology.tankId, quantity: 'tan', unit: 'mg/L', enabled: false });
     const statuses = await inTenant(() =>
-      new ListParameterSourcesAtPointHandler(ds().dataSource, directory).execute(
-        new ListParameterSourcesAtPointQuery(TENANT, tank),
-      ),
+      new ListParameterSourcesAtPointHandler(
+        ds().dataSource,
+        directory,
+        new SiteAuthorizationService(),
+      ).execute(new ListParameterSourcesAtPointQuery(TENANT, tank, MANAGER)),
     );
     const tan = statuses.find((status) => status.source.channelKey === 'tan');
     expect(tan?.problems).toEqual(['CHANNEL_DISABLED']);
@@ -411,19 +482,148 @@ describe('parameter channel binding — real Postgres', () => {
     ).rejects.toThrow(/unbindParameterChannel/);
   });
 
-  it('closes every source at a removed tank in the deleting transaction, as history', async () => {
-    const closed = await inTenant(() =>
-      ds().dataSource.transaction((manager) =>
-        closeSourcesAtPoints(manager, TENANT, [{ kind: 'tank', id: topology.tankId }], USER),
-      ),
+  it('refuses to bind on a parameter whose meaning changed while the sensor service answered', async () => {
+    const tank: MeasurementPoint = { kind: 'tank', id: topology.tankId };
+    const key = channel('ph_tank', { tankId: topology.tankId, quantity: 'ph', unit: 'pH' });
+    // 'NBS' is a spelling of the pH unit: the channel rule alone would still pass.
+    whileDescribing = async () => {
+      await ds().dataSource.query(
+        `UPDATE "${ds().schema}".water_quality_parameter_configs SET unit = 'NBS' WHERE id = $1`,
+        [topology.configs.ph],
+      );
+    };
+    await expect(bind(topology.configs.ph, tank, key)).rejects.toThrow(/changed while binding/);
+    await ds().dataSource.query(
+      `UPDATE "${ds().schema}".water_quality_parameter_configs SET unit = 'pH' WHERE id = $1`,
+      [topology.configs.ph],
     );
-    expect(closed).toBeGreaterThan(0);
-    const [{ live }] = await ds().dataSource.query(
-      `SELECT count(*)::int AS live FROM "${ds().schema}".water_quality_param_equipment
-        WHERE "tankId" = $1 AND "unboundAt" IS NULL`,
-      [topology.tankId],
+  });
+
+  it('refuses to bind at a point removed while the sensor service answered', async () => {
+    const doomed = await seedTank(ds().dataSource, TENANT, topology, 'DOOMED-1', USER);
+    const key = channel('ph_doomed', { tankId: doomed, quantity: 'ph', unit: 'pH' });
+    whileDescribing = async () => {
+      await ds().dataSource.query(
+        `UPDATE "${ds().schema}".tanks SET "isActive" = false WHERE id = $1`,
+        [doomed],
+      );
+    };
+    await expect(bind(topology.configs.ph, { kind: 'tank', id: doomed }, key)).rejects.toThrow(
+      /was removed; nothing was bound/,
     );
-    expect(live).toBe(0);
+  });
+
+  it('shows a MODULE_USER the sources at a point only at an assigned site', async () => {
+    const list = (assignedSiteIds: string[]): Promise<unknown> =>
+      inTenant(() =>
+        new ListParameterSourcesAtPointHandler(
+          ds().dataSource,
+          directory,
+          new SiteAuthorizationService(),
+        ).execute(
+          new ListParameterSourcesAtPointQuery(
+            TENANT,
+            { kind: 'tank', id: topology.tankId },
+            { sub: USER, roles: [Role.MODULE_USER], assignedSiteIds },
+          ),
+        ),
+      );
+    await expect(list(['99999999-9999-4999-8999-999999999999'])).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    await expect(list([topology.siteId])).resolves.toEqual(expect.any(Array));
+  });
+
+  it('fixes a parameter’s code and unit once measurements recorded it', async () => {
+    const [{ id: turbidity }] = await ds().dataSource.query(
+      `INSERT INTO "${ds().schema}".water_quality_parameter_configs
+         ("tenantId", code, name, unit, "effectiveQuantity")
+       VALUES ($1, 'turbidity', 'Turbidity', 'NTU', 'turbidity') RETURNING id`,
+      [TENANT],
+    );
+    const updateUnit = (unit: string): Promise<unknown> =>
+      inTenant(() =>
+        new UpdateParameterConfigHandler(ds().dataSource, cache).execute(
+          new UpdateParameterConfigCommand(TENANT, turbidity, { unit }, USER),
+        ),
+      );
+    await updateUnit('FNU');
+    await ds().dataSource.query(
+      `INSERT INTO "${ds().schema}".water_quality_measurements
+         ("tenantId", "measuredAt", source, parameters, "overallStatus", "hasAlarm")
+       VALUES ($1, now(), 'manual', '{"turbidity": 3.1}'::jsonb, 'optimal', false)`,
+      [TENANT],
+    );
+    await expect(updateUnit('NTU')).rejects.toThrow(/Measurements already record 'turbidity'/);
+  });
+
+  it('serializes two binds of one primary: one lands, the other is a 409', async () => {
+    const tank = await seedTank(ds().dataSource, TENANT, topology, 'RACE-BIND', USER);
+    const point: MeasurementPoint = { kind: 'tank', id: tank };
+    const first = channel('ph_a', { tankId: tank, quantity: 'ph', unit: 'pH' });
+    const second = channel('ph_b', { tankId: tank, quantity: 'ph', unit: 'pH' });
+    const results = await Promise.allSettled([
+      bind(topology.configs.ph, point, first),
+      bind(topology.configs.ph, point, second),
+    ]);
+    results.forEach(expectClientOutcome);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find((result) => result.status === 'rejected')).toEqual(
+      expect.objectContaining({ reason: expect.any(ConflictException) }),
+    );
+  });
+
+  it('races binds against deleting their tank: no deadlock, no 500, no live source left', async () => {
+    for (let round = 0; round < 5; round += 1) {
+      const tank = await seedTank(ds().dataSource, TENANT, topology, `RACE-TANK-${round}`, USER);
+      const key = channel(`ph_race_${round}`, { tankId: tank, quantity: 'ph', unit: 'pH' });
+      const results = await Promise.allSettled([
+        bind(topology.configs.ph, { kind: 'tank', id: tank }, key),
+        deleteTank(tank),
+      ]);
+      results.forEach(expectClientOutcome);
+      expect(results[1].status).toBe('fulfilled');
+      await expectNoLiveSourcesAt('tankId', tank);
+    }
+  });
+
+  it('races a replace against deleting its system: no deadlock, no 500, no live source left', async () => {
+    for (let round = 0; round < 3; round += 1) {
+      const loop = await seedLoop(ds().dataSource, TENANT, topology, `RAS-RACE-${round}`);
+      const point: MeasurementPoint = { kind: 'system', id: loop.systemId };
+      const bound = await bind(
+        topology.configs.ph,
+        point,
+        channel(`ph_loop_${round}`, { equipmentId: loop.equipmentId, quantity: 'ph', unit: 'pH' }),
+      );
+      const replacement = channel(`ph_loop_${round}_new`, {
+        equipmentId: loop.equipmentId,
+        quantity: 'ph',
+        unit: 'pH',
+      });
+      const results = await Promise.allSettled([
+        inTenant(() =>
+          new ReplaceParameterChannelHandler(ds().dataSource, directory, auditLog).execute(
+            new ReplaceParameterChannelCommand(TENANT, bound.id, replacement, USER),
+          ),
+        ),
+        deleteSystem(loop.systemId),
+      ]);
+      results.forEach(expectClientOutcome);
+      expect(results[1].status).toBe('fulfilled');
+      await expectNoLiveSourcesAt('systemId', loop.systemId);
+    }
+  });
+
+  it('deleting a tank closes its sources in the deleting transaction, as history', async () => {
+    await deleteTank(topology.tankId);
+    const [{ live, closed }] = await ds().dataSource.query(
+      `SELECT count(*) FILTER (WHERE "unboundAt" IS NULL)::int AS live,
+              count(*) FILTER (WHERE "unboundBy" = $2)::int AS closed
+         FROM "${ds().schema}".water_quality_param_equipment WHERE "tankId" = $1`,
+      [topology.tankId, USER],
+    );
+    expect({ live, closed: closed > 0 }).toEqual({ live: 0, closed: true });
   });
 
   it('deleting a system closes its sources and those of the equipment it deactivates', async () => {

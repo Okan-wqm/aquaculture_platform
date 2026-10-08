@@ -24,6 +24,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { DataSource } from 'typeorm';
 
+import { ChannelBindingRefusedError } from '../../common/errors/farm-errors';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { BindParameterChannelCommand } from '../commands/bind-parameter-channel.command';
@@ -32,7 +33,6 @@ import { WaterQualityParameterConfig } from '../entities/water-quality-parameter
 import {
   assertParameterUnchanged,
   assessChannel,
-  ChannelBindingRefusedException,
   priorityConflict,
   quantitySnapshot,
 } from '../services/channel-binding-rules';
@@ -90,7 +90,7 @@ export class BindParameterChannelHandler
       await assertLivePoint(manager, tenantId, location.point, 'locked');
       const problems = await assessChannel(manager, tenantId, config, location.point, description);
       if (problems.length > 0) {
-        throw new ChannelBindingRefusedException(problems);
+        throw new ChannelBindingRefusedError(problems);
       }
       const live = await liveChannelSourcesAt(manager, tenantId, parameterConfigId, location);
       const conflict = priorityConflict(live, channel, priority);

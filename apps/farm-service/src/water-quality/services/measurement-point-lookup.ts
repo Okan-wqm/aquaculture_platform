@@ -2,7 +2,10 @@ import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 
-import { findTankOrEquipmentWithManager } from '../../batch/utils/tank-lookup.util';
+import {
+  findTankOrEquipmentWithManager,
+  resolveUnitSiteIds,
+} from '../../batch/utils/tank-lookup.util';
 import { Site } from '../../site/entities/site.entity';
 import { System } from '../../system/entities/system.entity';
 
@@ -60,4 +63,28 @@ export async function assertLivePoint(
         : `'${point.id}' is water equipment, not a tank: give it as equipmentId`,
     );
   }
+}
+
+/**
+ * The site a point belongs to — a site itself, a system's site, a unit's site
+ * through its department — or null when it resolves to none (the site gate
+ * treats null as a denial, never as an implicit allow).
+ */
+export async function siteOfPoint(
+  manager: EntityManager,
+  tenantId: string,
+  point: MeasurementPoint,
+): Promise<string | null> {
+  if (point.kind === 'site') {
+    return point.id;
+  }
+  if (point.kind === 'system') {
+    const system = await tenantManagerRepo(manager, System, tenantId).findOne({
+      where: { id: point.id },
+      select: { id: true, siteId: true },
+    });
+    return system?.siteId ?? null;
+  }
+  const sites = await resolveUnitSiteIds(manager, [point.id], tenantId);
+  return sites.get(point.id) ?? null;
 }

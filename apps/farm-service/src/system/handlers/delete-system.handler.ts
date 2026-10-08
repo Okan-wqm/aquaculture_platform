@@ -3,7 +3,6 @@
  * Supports cascade soft delete of all related items
  */
 import {
-  runInTenantTransaction,
   tenantManagerRepo,
   TenantScopedRepository,
 } from '@aquaculture/backend-common/database';
@@ -13,11 +12,15 @@ import { toEventIso, SystemDeletedEvent, createBaseEvent } from '@platform/event
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, In } from 'typeorm';
 
+import { runRetryingTenantTransaction } from '../../common/database/retrying-tenant-transaction';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
-import { closeSourcesAtPoints } from '../../water-quality/services/parameter-sources';
+import {
+  closeSourcesAtPoints,
+  unitPoints,
+} from '../../water-quality/services/parameter-sources';
 import { DeleteSystemCommand } from '../commands/delete-system.command';
 import { System } from '../entities/system.entity';
 
@@ -38,7 +41,7 @@ export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand,
 
     this.logger.log(`Deleting system ${systemId} for tenant ${tenantId} (cascade: ${cascade})`);
 
-    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+    await runRetryingTenantTransaction(this.dataSource, tenantId, async (queryRunner) => {
       const systemRepository = tenantManagerRepo(queryRunner.manager, System, tenantId);
       const equipmentRepository = tenantManagerRepo(queryRunner.manager, Equipment, tenantId);
       const equipmentSystemRepository = tenantManagerRepo(
@@ -126,7 +129,7 @@ export class DeleteSystemHandler implements ICommandHandler<DeleteSystemCommand,
         tenantId,
         [
           ...removedSystemIds.map((id) => ({ kind: 'system' as const, id })),
-          ...deactivatedEquipmentIds.map((id) => ({ kind: 'equipment' as const, id })),
+          ...unitPoints(deactivatedEquipmentIds),
         ],
         userId,
       );

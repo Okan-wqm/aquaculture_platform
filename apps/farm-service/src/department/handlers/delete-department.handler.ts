@@ -2,13 +2,15 @@
  * Delete Department Command Handler
  * Supports cascade soft delete of all related items
  */
-import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { toEventIso, DepartmentDeletedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
+import { runRetryingTenantTransaction } from '../../common/database/retrying-tenant-transaction';
+import { closeSourcesAtPoints, unitPoints } from '../../water-quality/services/parameter-sources';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { Equipment } from '../../equipment/entities/equipment.entity';
@@ -36,7 +38,7 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
       `Deleting department ${departmentId} for tenant ${tenantId} (cascade: ${cascade})`,
     );
 
-    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+    await runRetryingTenantTransaction(this.dataSource, tenantId, async (queryRunner) => {
       const departmentRepository = tenantManagerRepo(queryRunner.manager, Department, tenantId);
       const equipmentRepository = tenantManagerRepo(queryRunner.manager, Equipment, tenantId);
       const tankRepository = tenantManagerRepo(queryRunner.manager, Tank, tenantId);
@@ -111,6 +113,15 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
             `Soft deleted ${equipment.length} equipment for department ${departmentId}`,
           );
         }
+
+        // The retired tanks and equipment are no longer places a parameter is
+        // measured: their water-quality sources end here (FARM-HIGH-373, D12).
+        await closeSourcesAtPoints(
+          queryRunner.manager,
+          tenantId,
+          unitPoints([...tanks.map((tank) => tank.id), ...equipment.map((unit) => unit.id)]),
+          userId,
+        );
 
         await systemRepository.update(
           { departmentId, isDeleted: false },

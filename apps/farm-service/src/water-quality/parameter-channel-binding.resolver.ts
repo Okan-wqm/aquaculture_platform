@@ -126,9 +126,10 @@ export class ParameterChannelBindingResolver {
   async parameterSourcesAtPoint(
     @Args('point') point: MeasurementPointInput,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; roles: Role[]; assignedSiteIds?: string[] },
   ): Promise<ParameterSourceStatus[]> {
     return this.queryBus.execute(
-      new ListParameterSourcesAtPointQuery(tenantId, measurementPointOf(point)),
+      new ListParameterSourcesAtPointQuery(tenantId, measurementPointOf(point), user),
     );
   }
 

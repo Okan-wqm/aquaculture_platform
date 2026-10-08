@@ -54,17 +54,6 @@ export async function assessChannel(
   return bindingProblems(parameter, point, channel, farm);
 }
 
-/** A bind refused for what the channel is: the problem codes travel with the 400. */
-export class ChannelBindingRefusedException extends BadRequestException {
-  constructor(readonly problems: readonly ChannelBindingProblem[]) {
-    super({
-      message: `The channel cannot feed this parameter here: ${problems.join(', ')}`,
-      code: 'CHANNEL_BINDING_REFUSED',
-      problems: [...problems],
-    });
-  }
-}
-
 /**
  * Why a channel cannot take this priority among the live channel sources of
  * the parameter at the location, or null. One primary and one backup; a

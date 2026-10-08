@@ -105,8 +105,9 @@ parameter's lock (`FOR UPDATE`), with deadlocks retried and unique violations an
 (`source-transaction.ts`). A tank is now a tank point instead of a 404. A plan line refuses a
 `sensorId` (bind a channel instead); update and remove refuse a channel source. The plan
 readers (`mappedCodesForUnit`, `parameterEquipmentMappings`, `equipmentParameters`) read live
-rows and match a unit as a tank or an equipment point; the legacy list endpoints return manual
-sources only. farm-module's plan panel names a tank line from the unit list.
+manual lines only and match a unit as a tank or an equipment point (a bound channel is not a
+plan line — see the review fixes). farm-module's plan panel names a tank line from the unit
+list.
 
 `down` reverts only a schema whose rows still have the legacy shape; otherwise it refuses
 rather than drop sources and history.
@@ -147,15 +148,20 @@ concurrent tank or system delete waits and then closes the new source), applies 
 
 ### Lifecycle (D12)
 
-- Deleting a tank closes its sources; deleting a system closes the sources at it, at its
-  cascaded children and at the equipment it deactivates — in the deleting transaction, as
-  history.
+- Retiring a point closes the sources standing there, in the retiring transaction, as
+  history: tank delete; system delete (with cascaded children and the equipment it
+  deactivates); equipment delete (with cascaded children); department delete (its tanks and
+  equipment); site delete (the site, its systems, tanks and equipment).
 - A parameter's code, unit and activity are fixed while a channel is bound (Q8): update,
   delete and template overwrite refuse (409); declare and clear refuse too.
 - A tank moving to another system closes nothing: its own sources stay valid, and a system
   source whose sensor stood at that tank now reads `NOT_AT_POINT` at every read. Finding such
   sources inside the tank edit would need the sensor's location, which farm does not copy
   and cannot fetch inside that transaction; the read-time rule is the authority for it.
+- D12 as amended on review: a source's validity window (`boundAt`–`unboundAt`) does NOT prove
+  its sensor stood at the point throughout — placement is decided at read time from the
+  current location and topology. PR-4's period reads must re-derive placement for the
+  period; tracked as FARM-MEDIUM-378.
 
 ### GraphQL API (for PR-5)
 
@@ -208,7 +214,68 @@ Queries:
 ## Open, tracked
 
 - **FARM-LOW-376:** no writer files a measurement at a system point (PR-4/PR-5).
+- **FARM-LOW-377:** `effectiveQuantity` is kept only by the entity hook; the contract
+  migration re-derives and asserts it (a trigger would need a SQL copy of the registry).
+- **FARM-MEDIUM-378:** PR-4's period reads re-derive placement (D12 as amended).
 - **DATA-MEDIUM-020:** the drift validator's expand-awareness (architectural-arbiter).
 - Plan items owned by later PRs, not this one: the reading resolver and inheritance (PR-4),
   the temperature read switch and the one-temperature-channel-per-sensor bind refusal (PR-3b,
   D13), the binding UI (PR-5), the contract migration (D11).
+
+## Independent review → fixes
+
+Two reviews (database-reviewer, farm-expert) blocked the first cut of PR-3.1/3.2.
+
+### The legacy unique survived under a generated name
+
+DBR-HIGH-001, confirmed in prod: tenant schemas cloned with LIKE … INCLUDING ALL carry the
+Baseline unique (tenant, parameter, equipment) as
+`water_quality_param_equipment_tenantId_parameterConfigId_eq_idx`. The migration dropped it
+by its Baseline name, so in prod it would have survived and refused every backup, re-added
+source and second position at an equipment point.
+
+- The migration drops every unique, predicate-free index on exactly those three columns in
+  the pinned schema, whatever its name (`pg_index`), and `postCondition` asserts none remains.
+- The migration spec builds its tenant with LIKE … INCLUDING ALL from a Baseline-shaped
+  source; with the by-name drop restored it fails. The command specs' tenant is a LIKE clone
+  too, with the legacy unique in its source.
+- A unique violation is named from the violated key's columns (the driver's `Key (…)`
+  detail), not the index name, so a renamed clone still reads as its rule; the config's
+  (tenant, code) unique is mapped as well.
+
+### Lock order, clock and races
+
+- DBR-MEDIUM-003: replace now takes the point before the source rows, the order bind and
+  every point delete use (parameter, point, sources). Tank, system, equipment, department and
+  site deletes run in `runRetryingTenantTransaction` (common/database): a deadlock or
+  serialization failure retries, and one that persists is a 409, never a 500.
+- DBR-MEDIUM-004: `unboundAt` is `statement_timestamp()`; `now()` (transaction start) could
+  precede a `boundAt` committed meanwhile and break `CHK_wqpe_unbound`.
+- DBR-MEDIUM-005: two-connection races on Postgres — two binds of one primary (one lands, one
+  409), bind against deleting its tank and replace against deleting its system (5 and 3
+  rounds; each side lands or is a 404/409, no live source left, every window ordered). The
+  real drift validator, fatal as in production, boots the Release A entity clean against the
+  expand schema and refuses the release before it.
+
+### The plan, retirement, errors, access
+
+- FARM-HIGH-001: `mappedCodesForUnit` counted channel sources, so one probe turned an
+  unplanned tank into a one-parameter plan and the forms refused manual samples. The plan is
+  live manual lines only; a spec binds a channel and the unit stays unplanned.
+- FARM-HIGH-002: equipment, department and site deletes never closed sources, leaving their
+  parameters 409-locked with no source id left to unbind. All five retirers close; the
+  invariant `point-retirement-closes-sources.invariant.spec.ts` fails any file that retires a
+  point entity without calling `closeSourcesAtPoints` (three non-point retirers listed with
+  reasons).
+- FARM-MEDIUM-003: the refusal is `ChannelBindingRefusedError` (a `FarmAppError`):
+  `extensions.code = CHANNEL_BINDING_REFUSED`, `extensions.context.problems` — the global
+  filter dropped a plain 400's body. Tested through `FarmAppErrorFilter`.
+- FARM-MEDIUM-004: `parameterSourcesAtPoint` applies the site gate for MODULE_USER at the
+  point's site (site, system's site, unit's site), as `effectiveUnitTemperatures` does.
+- FARM-MEDIUM-005 (D7): once measurements recorded values under a code, its code and unit are
+  fixed (update and template overwrite refuse); a new meaning is a new config.
+- FARM-MEDIUM-006: the command spec drives the real `DeleteTankHandler`; it fails with the
+  tank delete's closure removed, with the bind's snapshot re-check removed (the config's unit
+  re-spelled while the sensor service answers) and with the bind's locked point check removed
+  (the tank retired meanwhile).
+- DBR-LOW-007: tracked as FARM-LOW-377. D12 deviation accepted, amended above, FARM-MEDIUM-378.

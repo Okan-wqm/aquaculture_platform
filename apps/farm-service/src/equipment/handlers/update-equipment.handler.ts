@@ -204,7 +204,7 @@ export class UpdateEquipmentHandler implements ICommandHandler<UpdateEquipmentCo
       // after the point row is written (FARM-HIGH-373, D12). Reactivation
       // binds anew.
       if (wasActive && !persistedEquipment.isActive) {
-        await closeSourcesAtPoints(queryRunner.manager, tenantId, unitPoints([persistedEquipment.id]), userId);
+        await closeSourcesAtPoints(queryRunner.manager, tenantId, unitPoints([persistedEquipment.id]), userId, 'channels');
       }
 
       if (hasParentEquipmentId && oldParentEquipmentId !== input.parentEquipmentId) {

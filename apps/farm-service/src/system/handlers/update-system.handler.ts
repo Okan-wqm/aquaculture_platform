@@ -109,7 +109,7 @@ export class UpdateSystemHandler implements ICommandHandler<UpdateSystemCommand,
       // after the point row is written (FARM-HIGH-373, D12). Reactivation
       // binds anew.
       if (wasActive && !updatedSystem.isActive) {
-        await closeSourcesAtPoints(queryRunner.manager, tenantId, [{ kind: 'system', id: updatedSystem.id }], userId);
+        await closeSourcesAtPoints(queryRunner.manager, tenantId, [{ kind: 'system', id: updatedSystem.id }], userId, 'channels');
       }
 
       await this.auditLogService.logWithManager(queryRunner.manager, {

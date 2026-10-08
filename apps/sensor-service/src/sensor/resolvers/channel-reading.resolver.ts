@@ -59,7 +59,8 @@ export class ChannelReadingResolver {
 
   @Query(() => ChannelSeriesResponse, {
     name: 'channelSeries',
-    description: 'Bucketed history of every enabled channel of one sensor over a time range',
+    description:
+      'Bucketed history of the channels of one sensor over a time range: every channel, or only the given keys',
   })
   async channelSeries(
     @Args('sensorId', { type: () => ID }) sensorId: string,
@@ -68,8 +69,21 @@ export class ChannelReadingResolver {
     @Tenant() tenantId: string,
     @Args('interval', { type: () => AggregationInterval, nullable: true })
     interval?: AggregationInterval,
+    @Args('channelKeys', {
+      type: () => [String],
+      nullable: true,
+      description: 'Only these channels of the sensor (≤50); every channel when omitted',
+    })
+    channelKeys?: string[] | null,
   ): Promise<ChannelSeriesResponse> {
-    return this.channelReadings.getSeries(sensorId, tenantId, startTime, endTime, interval);
+    return this.channelReadings.getSeries(
+      sensorId,
+      tenantId,
+      startTime,
+      endTime,
+      interval,
+      channelKeys ?? undefined,
+    );
   }
 
   @Query(() => SeriesDisplayTimeZone, {

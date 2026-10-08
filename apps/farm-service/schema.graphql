@@ -2796,6 +2796,11 @@ type WaterQualityParameterConfig {
   updatedAt: DateTime!
   quantityFamily: String
   declarableQuantities: [String!]!
+
+  """
+  Sensor channels bound to the parameter now; its meaning is fixed while any is
+  """
+  liveChannelSourceCount: Int!
 }
 
 """Data type of a water quality parameter value"""

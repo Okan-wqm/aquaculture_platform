@@ -15684,7 +15684,7 @@ export type Query = {
   /** Each enabled channel of the given sensors with its last-known value (≤100 sensors) */
   channelLatestValues: Array<ChannelLatestValue>;
   channelQuantityDeclarations: Array<ChannelQuantityDeclaration>;
-  /** Bucketed history of every enabled channel of one sensor over a time range */
+  /** Bucketed history of the channels of one sensor over a time range: every channel, or only the given keys */
   channelSeries: ChannelSeriesResponse;
   /** What each (sensorId, channelKey) is now (≤100): presence, sensor location, quantity, unit, last value — disabled channels included */
   channelsByKey: Array<SensorChannelDescriptionType>;
@@ -16547,6 +16547,7 @@ export type QueryChannelQuantityDeclarationsArgs = {
 
 
 export type QueryChannelSeriesArgs = {
+  channelKeys?: InputMaybe<Array<Scalars['String']['input']>>;
   endTime: Scalars['DateTime']['input'];
   interval?: InputMaybe<AggregationInterval>;
   sensorId: Scalars['ID']['input'];
@@ -25921,6 +25922,8 @@ export type WaterQualityParameterConfig = {
   isRequired: Scalars['Boolean']['output'];
   /** Visible in UI lists and charts */
   isVisible: Scalars['Boolean']['output'];
+  /** Sensor channels bound to the parameter now; its meaning is fixed while any is */
+  liveChannelSourceCount: Scalars['Int']['output'];
   /** Display name */
   name: Scalars['String']['output'];
   /** Optimal maximum value */

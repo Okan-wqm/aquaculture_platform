@@ -156,9 +156,18 @@ with its reason.
     `converged_delivery` recovers.
 - **N5, closed: a held plan lock left the plan to the reaper.** The settlement retries a held
   lock three times, one and two seconds apart, before it records the row.
-- **Reaper, still open: waiting for #1863.** Item 2's reaper interaction and its test land after
-  #1863 is on main. The reaper's `orchestrator_restart_reaped_orphan` will then go through the
-  settlement with a fault domain.
+- **Reaper, closed (after #1863): the reap goes through the settlement.**
+  - `implementation_settlement.settle_orphaned_plan` is the reaper's writer. It reads the plan's
+    newest implementation request and decides the fault domain from its wait.
+  - Still waiting on the lane is `harness`: never claimed, or last released for a harness cause
+    (an outage, a missing delivery authority, a window). The cause is the wait's, e.g.
+    `authority_absent`. Anything else (claimed and lost, answered) is `unclassified`.
+  - The reap never judged an answer, so it is never `request` and never cools a finding off.
+  - The state is checked under the plan lock. A plan the executor settled first is
+    `already_settled`, counted in the reaper summary (`already_settled_count`), never "spared".
+    A settlement the store refused is `reap_failed_count`, beside its own failure row.
+  - Tests: the reap of a plan waiting on the delivery authority under `standard` (kernel and
+    orchestrator level), an answered request (`unclassified`), and an executor that settled first.
 - **Submit refused after delivery, tracked.** A result refused after a successful delivery (the PR
   already open) is not settled; settling it needs a decision on the open PR. Tracked as
   ARIA-HIGH-389 (owner claude, deadline 2026-10-15).

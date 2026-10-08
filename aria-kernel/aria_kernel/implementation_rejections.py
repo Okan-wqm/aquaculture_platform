@@ -120,6 +120,8 @@ FAULT_HARNESS = "harness"
 FAULT_UNCLASSIFIED = "unclassified"
 AGENT_REFUSAL_STAGE = "agent_refusal"
 PRE_SPAWN_STAGE = "pre_spawn"
+ORPHAN_REAP_STAGE = "orphan_reap"
+ORPHAN_REAPED = "orchestrator_restart_reaped_orphan"
 # Gate blockers that PROVE the agent's change is at fault: a regression
 # against the baseline the same suite measured (`validation.
 # compare_validation_groups`), and a suppression pattern in the agent's own
@@ -205,3 +207,17 @@ PRE_SPAWN_SETTLEMENT: dict[str, tuple[str, str]] = {
 def settlement_for_pre_spawn(*, release_reason: str, request_id: str) -> ImplementationSettlement:
     rejection_class, domain = PRE_SPAWN_SETTLEMENT[release_reason]
     return ImplementationSettlement(rejection_class, domain, PRE_SPAWN_STAGE, release_reason, request_id)
+
+
+def settlement_for_orphan(*, request_id: str, wait_cause: str, waiting: bool) -> ImplementationSettlement:
+    """The orphan reaper's settlement (ARIA-HIGH-388): a plan whose implementation
+    request produced no outcome inside the reap bound.
+
+    No agent answer was judged, so it is never a `request` fault: `harness`
+    when the request was still waiting for the lane (never claimed, or last
+    released harness-class: an outage, a missing delivery authority, a
+    window), `unclassified` otherwise (claimed and lost, or escalated by a
+    writer that predates the settlement). Neither cools the finding off.
+    """
+    return ImplementationSettlement(ORPHAN_REAPED, FAULT_HARNESS if waiting else FAULT_UNCLASSIFIED,
+                                    ORPHAN_REAP_STAGE, _cause(wait_cause), request_id)

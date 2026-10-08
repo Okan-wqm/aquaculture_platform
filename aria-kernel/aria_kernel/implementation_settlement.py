@@ -88,14 +88,14 @@ def _settle_with_bounded_retry(*, plan_id: str, settlement: ImplementationSettle
             attempt += 1
 
 
-def _settle(settlement: ImplementationSettlement, *, base_dir: Path) -> dict[str, Any]:
+def _settle(settlement: ImplementationSettlement, *, base_dir: Path, plan_id: str | None = None) -> dict[str, Any]:
     from .ledger import LedgerIntegrityError
     from .plan_convergence import PlanLedgerLocked, PlanStateRefused
     from .tool_registry import append_tools_governance, ensure_tools_dir
 
     root = ensure_tools_dir(base_dir)
     outcome: dict[str, Any] = {"rejection_class": settlement.rejection_class, **settlement.payload()}
-    plan_id = _plan_of(settlement.request_id, root)
+    plan_id = plan_id or _plan_of(settlement.request_id, root)
     if plan_id is None:
         return {**outcome, "status": NOT_AN_IMPLEMENTATION}
     outcome["plan_id"] = plan_id
@@ -146,6 +146,50 @@ def settle_pre_spawn_refusal(*, request_id: str, release_reason: str, base_dir: 
                    base_dir=base_dir)
 
 
+def _wait_of(request: dict[str, Any] | None, *, root: Path) -> tuple[str, bool]:
+    """(cause, still waiting on the lane) for the plan's newest implementation request."""
+    from .agent_invocations import _claims_path, derive_request_state
+    from .implementation_dispatch import implementation_dispatch_refusal
+    from .ledger import load_jsonl
+    from .outage_causality import WAITING_STATES
+    from .release_reason import parse_release_reason
+
+    if request is None:
+        return "no_request", True
+    request_id = str(request.get("request_id") or "")
+    state = derive_request_state(request_id=request_id, base_dir=root)
+    undispatchable = implementation_dispatch_refusal(request=request, base_dir=root)
+    if state in WAITING_STATES and undispatchable is not None:
+        return undispatchable, True
+    path = _claims_path(root)
+    reasoned = [row for row in (load_jsonl(path) if path.is_file() else [])
+                if row.get("request_id") == request_id and isinstance(row.get("reason"), str) and row["reason"].strip()]
+    last = reasoned[-1]["reason"] if reasoned else None
+    if last is not None and parse_release_reason(last).fault_domain == "harness":
+        return last, True
+    return (last or "unclaimed"), state in WAITING_STATES
+
+
+def settle_orphaned_plan(*, plan_id: str, base_dir: Path) -> dict[str, Any]:
+    """The orphan reaper's terminal for ``plan_id``, through the one settlement
+    writer (ARIA-HIGH-388): ``implementation_settlement.settlement_for_orphan``
+    decides the fault domain from the newest implementation request's wait,
+    and the state is checked under the plan lock, so an executor that settled
+    first leaves this ``already_settled``."""
+    from .agent_invocations import list_agent_invocation_requests
+    from .implementation_rejections import settlement_for_orphan
+    from .outage_causality import newest_request_id
+    from .tool_registry import ensure_tools_dir
+
+    root = ensure_tools_dir(base_dir)
+    requests = list_agent_invocation_requests(base_dir=root)
+    request_id = newest_request_id(requests, plan_id=plan_id, role="implementation")
+    request = next((row for row in requests if row.get("request_id") == request_id), None)
+    cause, waiting = _wait_of(request, root=root)
+    return _settle(settlement_for_orphan(request_id=request_id or "", wait_cause=cause, waiting=waiting),
+                   base_dir=root, plan_id=plan_id)
+
+
 __all__ = [
     "ALREADY_SETTLED",
     "FAILED",
@@ -154,5 +198,6 @@ __all__ = [
     "SETTLEMENT_FAILED_KIND",
     "settle_agent_refusal",
     "settle_delivery_refusal",
+    "settle_orphaned_plan",
     "settle_pre_spawn_refusal",
 ]

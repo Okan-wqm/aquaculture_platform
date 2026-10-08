@@ -39,6 +39,7 @@ from aria_kernel.implementation_settlement import (
     SETTLEMENT_FAILED_KIND,
     settle_agent_refusal,
     settle_delivery_refusal,
+    settle_orphaned_plan,
     settle_pre_spawn_refusal,
 )
 from aria_kernel.ledger import load_jsonl
@@ -310,3 +311,49 @@ class AnUndispatchableRequestIsNeverHandedOut(_ImplementationRequested):
                                        rejected_at="2026-10-08T00:00:00Z", base_dir=self.tools)
         self.assertEqual(close_abandoned_plan_requests(self.tools), [self.request_id])
         self.assertEqual(derive_request_state(request_id=self.request_id, base_dir=self.tools), "CANCELLED")
+
+
+class OrphanReapSettles(_ImplementationRequested):
+    """The orchestrator's orphan reaper ends a plan through the same writer
+    (ARIA-HIGH-388 after #1863): it never judged an answer, so its fault domain
+    is the lane's (`harness`) while the request still waited on the lane and
+    `unclassified` otherwise; neither cools the finding off."""
+
+    def _rejections(self) -> list[dict]:
+        return [row for row in load_jsonl(events_path(self.tools))
+                if row.get("event_type") == "implementation_rejected"]
+
+    def test_a_request_waiting_on_the_delivery_authority_is_reaped_as_the_lanes(self) -> None:
+        from aria_kernel.agent_invocations import derive_request_state
+
+        reaped = settle_orphaned_plan(plan_id="plan-1", base_dir=self.tools)
+        self.assertEqual(reaped["status"], SETTLED)
+        self.assertEqual(self.state(), "IMPLEMENTATION_REJECTED")
+        payload = self.last_rejection()
+        self.assertEqual(
+            {key: payload[key] for key in ("rejection_class", "stage", "fault_domain", "cause", "request_id")},
+            {"rejection_class": "orchestrator_restart_reaped_orphan", "stage": "orphan_reap",
+             "fault_domain": "harness", "cause": "authority_absent", "request_id": self.request_id},
+        )
+        self.assertTrue(failure_is_lane_fault({"event_type": "implementation_rejected", "payload": payload},
+                                              waited_since=None, at=None, clock=None))
+        self.assertEqual(derive_request_state(request_id=self.request_id, base_dir=self.tools), "CANCELLED")
+
+    def test_a_claimed_and_answered_request_is_reaped_unclassified(self) -> None:
+        from tests._helpers.declared_fixtures import append_declared_fixture
+
+        append_declared_fixture(self.tools / "agent-invocations" / "claims.jsonl", {
+            "schema_version": 1, "event": "human_required", "claim_id": "CL-answered",
+            "request_id": self.request_id, "reason": "agent_refused:evidence", "requeue_count": 1,
+            "at": "2026-10-08T00:00:00Z",
+        }, expected_surface="agent_invocation_claims")
+        self.assertEqual(settle_orphaned_plan(plan_id="plan-1", base_dir=self.tools)["status"], SETTLED)
+        payload = self.last_rejection()
+        self.assertEqual((payload["fault_domain"], payload["cause"]), ("unclassified", "agent_refused"))
+        self.assertTrue(failure_is_lane_fault({"event_type": "implementation_rejected", "payload": payload},
+                                              waited_since=None, at=None, clock=None))
+
+    def test_an_executor_that_settled_first_leaves_the_reap_already_settled(self) -> None:
+        settle_agent_refusal(request_id=self.request_id, reason_class="safety", base_dir=self.tools)
+        self.assertEqual(settle_orphaned_plan(plan_id="plan-1", base_dir=self.tools)["status"], ALREADY_SETTLED)
+        self.assertEqual([row["payload"]["rejection_class"] for row in self._rejections()], [IMPLEMENTER_REFUSED])

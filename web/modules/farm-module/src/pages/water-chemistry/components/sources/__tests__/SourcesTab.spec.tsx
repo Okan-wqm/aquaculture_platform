@@ -28,6 +28,8 @@ import { channelSource, parameterConfig, sourceAtPoint, TANK_ID } from './source
 const TAN = { id: 'p-tan', code: 'tan', name: 'TAN' };
 const PRIMARY = channelSource('s-primary', TAN, 'tan_probe_a', 'PRIMARY');
 const BACKUP = channelSource('s-backup', TAN, 'tan_probe_b', 'BACKUP');
+// A primary sampling the inlet: listed beside the representative one, never hidden.
+const INLET = { ...channelSource('s-inlet', TAN, 'tan_inlet', 'PRIMARY'), position: 'INLET' };
 
 function routes(): void {
   routeGraphql([
@@ -41,6 +43,7 @@ function routes(): void {
         parameterSourcesAtPoint: [
           sourceAtPoint(PRIMARY, TAN, 0.41),
           sourceAtPoint(BACKUP, TAN, 0.44, ['CHANNEL_DISABLED']),
+          sourceAtPoint(INLET, TAN, 0.52),
         ],
       },
     },
@@ -90,7 +93,10 @@ describe('SourcesTab', () => {
     const tableRow = row.closest('tr');
     expect(tableRow).not.toBeNull();
     expect(within(tableRow as HTMLElement).getByText('0.41')).toBeInTheDocument();
-    expect(screen.getByText('Incomplete')).toBeInTheDocument();
+    expect(screen.getByText('Toxicity calculation here: Incomplete')).toBeInTheDocument();
+    // Every position is listed; the tile shows the parameter's unit.
+    expect(screen.getByText('0.52')).toBeInTheDocument();
+    expect(screen.getByText('tan_inlet · at the Inlet')).toBeInTheDocument();
     // The backup's problem is shown in words.
     expect(screen.getByText('The channel is disabled')).toBeInTheDocument();
     for (const action of ['Bind', 'Add backup', 'Replace', 'Unbind']) {

@@ -96,17 +96,21 @@ export const BindChannelDialog: React.FC<BindChannelDialogProps> = ({
   const bind = useBindParameterChannel();
   const replace = useReplaceParameterChannel();
 
+  // Keyed on the point's kind and id, not its object: a parent that renders a
+  // new point object must not restart the dry run.
+  const pointKind = point.kind;
+  const pointId = point.id;
   const target = useMemo((): ChannelBindingTarget | null => {
     if (sensorId === null || channelKey === null) return null;
     return {
       parameterConfigId: parameter.id,
-      point,
+      point: { kind: pointKind, id: pointId },
       position,
       sensorId,
       channelKey,
       priority: mode.priority,
     };
-  }, [parameter.id, point, position, sensorId, channelKey, mode.priority]);
+  }, [parameter.id, pointKind, pointId, position, sensorId, channelKey, mode.priority]);
   const settledTarget = useDebounced(target, DRY_RUN_DEBOUNCE_MS);
   const check = useChannelBindingCheck(settledTarget);
   const settling = target !== settledTarget;
@@ -160,18 +164,21 @@ export const BindChannelDialog: React.FC<BindChannelDialogProps> = ({
 
   const title =
     mode.kind === 'replace'
-      ? `Replace the channel of ${parameter.name}`
+      ? t('wqSource.ui.replaceTitle', { name: parameter.name })
       : mode.priority === 'BACKUP'
-        ? `Add a backup channel for ${parameter.name}`
-        : `Bind a channel to ${parameter.name}`;
+        ? t('wqSource.ui.backupTitle', { name: parameter.name })
+        : t('wqSource.ui.bindTitle', { name: parameter.name });
 
   return (
     <Modal isOpen onClose={onClose} title={title} size="md">
       <div className="space-y-4">
         <p className="text-sm text-gray-600 dark:text-gray-400">
           {parameter.quantity === null
-            ? 'This parameter records no measured quantity yet: declare one in its settings first.'
-            : `Records ${quantityLabel(parameter.quantity)}, in ${parameter.unit}.`}
+            ? t('wqSource.ui.recordsNone')
+            : t('wqSource.ui.records', {
+                quantity: quantityLabel(parameter.quantity),
+                unit: parameter.unit,
+              })}
         </p>
         <Select
           label={t('wqSource.ui.sensor')}
@@ -185,7 +192,10 @@ export const BindChannelDialog: React.FC<BindChannelDialogProps> = ({
           options={[
             {
               value: '',
-              label: sensors.length === 0 ? 'No sensor at this site' : 'Choose a sensor',
+              label:
+                sensors.length === 0
+                  ? t('wqSource.ui.noSensorAtSite')
+                  : t('wqSource.ui.chooseSensor'),
             },
             ...sensors.map((sensor) => ({ value: sensor.id, label: sensor.name })),
           ]}
@@ -198,7 +208,7 @@ export const BindChannelDialog: React.FC<BindChannelDialogProps> = ({
             setChannelKey(event.target.value === '' ? null : event.target.value);
             setRefusal(null);
           }}
-          options={[{ value: '', label: 'Choose a channel' }, ...channelOptions]}
+          options={[{ value: '', label: t('wqSource.ui.chooseChannel') }, ...channelOptions]}
         />
 
         <div aria-live="polite" className="min-h-[2rem] text-sm">

@@ -46,7 +46,10 @@ export const SourcesTab: React.FC = () => {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const point = parsePointRef(searchParams.get('point'));
+  // Memoised on the URL string: a new object each render would re-key every
+  // query (and the bind dialog's dry run) on every parent render.
+  const pointParam = searchParams.get('point');
+  const point = useMemo(() => parsePointRef(pointParam), [pointParam]);
   const [position, setPosition] = useState<MeasurementPosition>('REPRESENTATIVE');
   const [siteId, setSiteId] = useState<string | null>(
     point !== null && point.kind === 'site' ? point.id : null,
@@ -116,9 +119,11 @@ export const SourcesTab: React.FC = () => {
               data-testid="input-set-verdict"
             >
               <span className="font-medium text-gray-700 dark:text-gray-300">
-                {inputs.data.set === 'DOSING' ? 'Dosing' : 'Toxicity'} calculation here:
+                {t('wqSource.ui.calcHere', {
+                  set: t(`wqSource.set.${inputs.data.set}`),
+                  verdict: t(`wqSource.verdict.${inputs.data.verdict}`),
+                })}
               </span>
-              <span>{t(`wqSource.verdict.${inputs.data.verdict}`)}</span>
               <ProblemChips
                 problems={inputs.data.problems}
                 onFix={(code, fix) => handleFix(code, fix, null)}
@@ -127,7 +132,7 @@ export const SourcesTab: React.FC = () => {
           )}
           {sources.error !== null && (
             <p role="alert" className="text-sm text-error-700 dark:text-error-300">
-              The sources at this point could not be read: {sources.error.message}
+              {t('wqSource.ui.sourcesReadFailed', { error: sources.error.message })}
             </p>
           )}
           {parameters.isLoading || sources.isLoading ? (

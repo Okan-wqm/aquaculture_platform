@@ -90,5 +90,8 @@ export function sourceAtPoint(
       calibrationDueAt: null,
     },
     problems,
+    // The backend carries the sample into the parameter's unit.
+    latestValue,
+    unit: 'mg/L',
   };
 }

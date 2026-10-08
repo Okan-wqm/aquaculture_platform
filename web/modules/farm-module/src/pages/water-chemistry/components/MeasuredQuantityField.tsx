@@ -43,7 +43,9 @@ export const MeasuredQuantityField: React.FC<{ parameterConfigId: string }> = ({
   if (config.declarableQuantities.length === 0) {
     return (
       <div className="text-sm text-gray-600 dark:text-gray-400">
-        Measured quantity: {config.quantity === null ? 'none' : quantityLabel(config.quantity)}
+        {config.quantity === null
+          ? t('wqSource.ui.quantityNone')
+          : t('wqSource.ui.quantityIs', { quantity: quantityLabel(config.quantity) })}
       </div>
     );
   }
@@ -72,8 +74,11 @@ export const MeasuredQuantityField: React.FC<{ parameterConfigId: string }> = ({
             value: CODE_MEANING,
             label:
               config.quantityFamily === null
-                ? `As the code '${config.code}' says`
-                : `Not declared ('${config.code}' names the ${config.quantityFamily} family)`,
+                ? t('wqSource.ui.asCodeSays', { code: config.code })
+                : t('wqSource.ui.familyUndeclared', {
+                    code: config.code,
+                    family: config.quantityFamily,
+                  }),
           },
           ...config.declarableQuantities.map((quantity) => ({
             value: quantity,
@@ -82,8 +87,8 @@ export const MeasuredQuantityField: React.FC<{ parameterConfigId: string }> = ({
         ]}
         helperText={
           bound
-            ? `${t('wqSource.error.PARAMETER_BOUND')} (${config.liveChannelSourceCount} bound).`
-            : 'Channels can feed this parameter only when they measure exactly this quantity.'
+            ? t('wqSource.ui.quantityFixed', { count: config.liveChannelSourceCount })
+            : t('wqSource.ui.quantityHelp')
         }
       />
       {writeError !== null && (

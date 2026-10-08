@@ -89,9 +89,8 @@ function routes(answers: Answers): void {
   ]);
 }
 
-async function pickTanChannel(): Promise<ReturnType<typeof userEvent.setup>> {
-  const user = userEvent.setup();
-  renderWithProviders(
+function dialog(): React.ReactElement {
+  return (
     <BindChannelDialog
       parameter={{ id: 'p-tan', name: 'TAN', unit: 'mg/L', quantity: 'tan' }}
       point={{ kind: 'tank', id: TANK_ID }}
@@ -100,13 +99,31 @@ async function pickTanChannel(): Promise<ReturnType<typeof userEvent.setup>> {
       siteId={null}
       onClose={vi.fn()}
       onDone={vi.fn()}
-    />,
+    />
   );
+}
+
+async function pickTanChannel(): Promise<ReturnType<typeof userEvent.setup>> {
+  const user = userEvent.setup();
+  renderWithProviders(<Parent />);
   await screen.findByRole('option', { name: 'Tank 3 probe' });
   await user.selectOptions(screen.getByLabelText('Sensor'), SENSOR_ID);
   await screen.findByRole('option', { name: /TAN probe/ });
   await user.selectOptions(screen.getByLabelText('Channel'), 'tan');
   return user;
+}
+
+/** A parent that re-renders the dialog with a NEW point object each time (as a page does). */
+function Parent(): React.ReactElement {
+  const [renders, setRenders] = React.useState(0);
+  return (
+    <>
+      <button type="button" onClick={() => setRenders(renders + 1)}>
+        re-render parent
+      </button>
+      {dialog()}
+    </>
+  );
 }
 
 describe('BindChannelDialog', () => {
@@ -179,5 +196,24 @@ describe('BindChannelDialog', () => {
       await screen.findByText('The channel can feed this parameter here.'),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Bind' })).toBeEnabled();
+  });
+});
+
+describe('BindChannelDialog dry run', () => {
+  it('keeps a passed dry run on a parent render: no re-check, Bind stays enabled', async () => {
+    const check = vi.fn(() => ({
+      checkParameterChannelBinding: { channel: CHECKED_CHANNEL, problems: [] },
+    }));
+    routes({ check });
+    await pickTanChannel();
+    await screen.findByText('The channel can feed this parameter here.');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Bind' })).toBeEnabled());
+    await userEvent.click(screen.getByRole('button', { name: 're-render parent' }));
+    // A new point object from the parent must not put the dialog back to "checking".
+    expect(screen.queryByText('Checking the channel…')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Bind' })).toBeEnabled();
+    await userEvent.click(screen.getByRole('button', { name: 're-render parent' }));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(check).toHaveBeenCalledTimes(1);
   });
 });

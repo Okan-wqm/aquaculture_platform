@@ -1,20 +1,20 @@
 /**
  * Where the calculator's measured values come from: the operator's entries
- * (Manual), or a measurement point — a system resolves the DOSING inputs, a
- * tank the TOXICITY inputs (waterChemistryInputs). For a point, each covered
- * field shows its value, where it was read, how old it is and whether it is
- * older than its window; a missing value stays missing (the calculator does
- * not run on it) unless the operator corrects it for this session.
+ * (Manual), or a measurement point. At a point the shared composition
+ * (composePointInputs) decides every field — a system's DOSING set; a tank's
+ * TOXICITY set with its loop's alkalinity, calcium and volume — and each
+ * field shows its value, where it was read, its age and window, and why it is
+ * not usable. A flagged or missing value is never used: the operator may
+ * correct a covered field, or enter one no set covers, for this session.
  */
 import {
   Button,
+  FieldProvenanceChip,
   formatAge,
-  Input,
   ProblemChips,
   RESOLVABLE_FIELDS,
   useI18n,
-  type AppliedInputs,
-  type FieldProvenance,
+  type ComposedInputs,
   type InputSetResult,
   type PointRef,
   type ResolvableField,
@@ -26,92 +26,27 @@ import { PointPicker } from './sources/PointPicker';
 export interface ValuesSourceBarProps {
   point: PointRef | null;
   onPointChange: (point: PointRef | null) => void;
-  /** The point's resolved inputs (undefined while loading or in manual mode). */
-  inputSet: InputSetResult | undefined;
-  applied: AppliedInputs | null;
+  /** The point's own resolved set (null while it is read, or in manual mode). */
+  ownSet: InputSetResult | null;
+  composed: ComposedInputs | null;
+  loading: boolean;
   loadError: Error | null;
+  /** The shown values were resolved, and the last refresh failed. */
+  refreshFailed: boolean;
   now: number;
-  onOverride: (field: ResolvableField, value: number | null) => void;
+  onEnter: (field: ResolvableField, value: number | null) => void;
 }
-
-const FieldChip: React.FC<{
-  entry: FieldProvenance;
-  now: number;
-  onOverride: (value: number | null) => void;
-}> = ({ entry, now, onOverride }) => {
-  const { t } = useI18n();
-  const reading = entry.reading;
-  const observed = reading === null ? null : reading.observedAt;
-  const ageSeconds =
-    observed === null ? null : Math.max(0, Math.floor((now - Date.parse(observed)) / 1000));
-  const windowSeconds = entry.input === null ? null : entry.input.windowSeconds;
-  const stale = ageSeconds !== null && windowSeconds !== null && ageSeconds > windowSeconds;
-  const problems = entry.input === null ? [] : entry.input.problems;
-  return (
-    <div
-      className={`rounded border px-2 py-1.5 text-xs ${
-        entry.origin === 'missing'
-          ? 'border-warning-300 bg-warning-50 dark:border-warning-700 dark:bg-warning-900/20'
-          : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900'
-      }`}
-      data-field={entry.field}
-      data-origin={entry.origin}
-    >
-      <div className="font-medium text-gray-700 dark:text-gray-300">
-        {t(`wqSource.field.${entry.field}`)}
-      </div>
-      <div className="flex items-baseline gap-1">
-        <span className="text-sm tabular-nums text-gray-900 dark:text-gray-100">
-          {entry.value === null ? '—' : entry.value}
-        </span>
-        <span className="text-gray-500 dark:text-gray-400">
-          {t(`wqSource.origin.${entry.origin}`)}
-        </span>
-      </div>
-      {reading !== null && reading.sourceKind !== null && (
-        <div className="text-gray-500 dark:text-gray-400">
-          {t(`wqSource.kind.${reading.sourceKind}`)}
-          {ageSeconds !== null && ` · ${formatAge(t, ageSeconds)}`}
-          {stale && ` · ${t('wqSource.tile.stale')}`}
-        </div>
-      )}
-      {entry.input !== null && (
-        <div className="text-gray-400 dark:text-gray-500">
-          {t(`wqSource.window.${entry.input.coherenceWindow}`)}
-        </div>
-      )}
-      <ProblemChips problems={problems} className="mt-1" />
-      {entry.origin !== 'manual' && (
-        <div className="mt-1">
-          <Input
-            type="number"
-            step="any"
-            size="xs"
-            placeholder={t('wqSource.ui.correct')}
-            aria-label={t('wqSource.ui.correctField', {
-              field: t(`wqSource.field.${entry.field}`),
-            })}
-            value={entry.origin === 'override' && entry.value !== null ? entry.value : ''}
-            onChange={(event) => {
-              const raw = event.target.value;
-              const parsed = Number(raw);
-              onOverride(raw === '' || !Number.isFinite(parsed) ? null : parsed);
-            }}
-          />
-        </div>
-      )}
-    </div>
-  );
-};
 
 export const ValuesSourceBar: React.FC<ValuesSourceBarProps> = ({
   point,
   onPointChange,
-  inputSet,
-  applied,
+  ownSet,
+  composed,
+  loading,
   loadError,
+  refreshFailed,
   now,
-  onOverride,
+  onEnter,
 }) => {
   const { t } = useI18n();
   const [pointMode, setPointMode] = React.useState(point !== null);
@@ -120,6 +55,10 @@ export const ValuesSourceBar: React.FC<ValuesSourceBarProps> = ({
     setPointMode(false);
     onPointChange(null);
   };
+  const resolvedAge =
+    ownSet === null
+      ? null
+      : formatAge(t, Math.max(0, Math.floor((now - Date.parse(ownSet.asOf)) / 1000)));
 
   return (
     <div
@@ -150,10 +89,13 @@ export const ValuesSourceBar: React.FC<ValuesSourceBarProps> = ({
             {t('wqSource.ui.aPoint')}
           </Button>
         </div>
-        {inputSet !== undefined && point !== null && (
+        {ownSet !== null && point !== null && (
           <span className="ml-2 text-gray-600 dark:text-gray-400">
-            {inputSet.set === 'DOSING' ? 'Dosing' : 'Toxicity'} inputs:{' '}
-            <strong>{t(`wqSource.verdict.${inputSet.verdict}`)}</strong>
+            {t('wqSource.ui.inputsVerdict', {
+              set: t(`wqSource.set.${ownSet.set}`),
+              verdict: t(`wqSource.verdict.${ownSet.verdict}`),
+            })}
+            {resolvedAge !== null && ` · ${t('wqSource.ui.resolvedAt', { age: resolvedAge })}`}
           </span>
         )}
       </div>
@@ -161,24 +103,39 @@ export const ValuesSourceBar: React.FC<ValuesSourceBarProps> = ({
       {pointMode && (
         <div className="mt-3 space-y-3">
           <PointPicker value={point} onChange={onPointChange} kinds={['system', 'tank']} />
-          {loadError !== null && (
-            <p role="alert" className="text-sm text-error-700 dark:text-error-300">
-              The values at this point could not be read: {loadError.message}
+          {point === null && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {t('wqSource.ui.chooseCalcPoint')}
             </p>
           )}
-          {inputSet !== undefined && <ProblemChips problems={inputSet.problems} />}
-          {applied !== null && (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
-              {RESOLVABLE_FIELDS.map((field) => applied.provenance[field])
-                .filter((entry) => entry.origin !== 'manual')
-                .map((entry) => (
-                  <FieldChip
-                    key={entry.field}
-                    entry={entry}
-                    now={now}
-                    onOverride={(value) => onOverride(entry.field, value)}
-                  />
-                ))}
+          {point !== null && loading && composed === null && (
+            <p role="status" className="text-sm text-gray-500 dark:text-gray-400">
+              {t('wqSource.ui.loadingPoint')}
+            </p>
+          )}
+          {loadError !== null && (
+            <p role="alert" className="text-sm text-error-700 dark:text-error-300">
+              {t('wqSource.ui.readFailed', { error: loadError.message })}
+            </p>
+          )}
+          {refreshFailed && resolvedAge !== null && (
+            <p role="alert" className="text-sm text-warning-700 dark:text-warning-300">
+              {t('wqSource.ui.refreshFailed', { age: resolvedAge })}
+            </p>
+          )}
+          {ownSet !== null && <ProblemChips problems={ownSet.problems} />}
+          {composed !== null && (
+            <div
+              className={`grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8 ${refreshFailed ? 'opacity-60' : ''}`}
+            >
+              {RESOLVABLE_FIELDS.map((field) => (
+                <FieldProvenanceChip
+                  key={field}
+                  entry={composed.fields[field]}
+                  now={now}
+                  onEnter={(value) => onEnter(field, value)}
+                />
+              ))}
             </div>
           )}
         </div>

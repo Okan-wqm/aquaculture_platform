@@ -53,14 +53,20 @@ export interface PointSourcesTableProps {
 interface SourceRow {
   parameter: ParameterConfig;
   engineInput: string | null;
-  primary: ParameterSourceAtPoint | null;
-  backup: ParameterSourceAtPoint | null;
+  /** Every primary channel at the point, at any position. */
+  primaries: ParameterSourceAtPoint[];
+  backups: ParameterSourceAtPoint[];
   manual: ParameterSourceAtPoint[];
+  /** Whether the position new channels go to already has its primary / backup. */
+  primaryAtPosition: boolean;
+  backupAtPosition: boolean;
   inputProblems: readonly SourceProblemCode[];
 }
 
 type DialogState = null | {
   parameter: ParameterConfig;
+  /** Where the bound channel samples: the chosen position for a new bind, the source's for a replace. */
+  position: MeasurementPosition;
   mode:
     | { kind: 'bind'; priority: ChannelSourcePriority }
     | { kind: 'replace'; sourceId: string; priority: ChannelSourcePriority };
@@ -83,12 +89,6 @@ function orderParameters(
   return [...parameters]
     .sort((a, b) => rank(a) - rank(b) || a.displayOrder - b.displayOrder)
     .map((parameter) => ({ parameter, engineInput: inputOf.get(parameter.id) ?? null }));
-}
-
-function channelDetail(entry: ParameterSourceAtPoint): string | null {
-  const { source } = entry;
-  if (source.channelKey === null) return 'In the manual entry plan';
-  return `${source.channelKey} · ${source.position.toLowerCase()}`;
 }
 
 export const PointSourcesTable: React.FC<PointSourcesTableProps> = ({
@@ -116,7 +116,10 @@ export const PointSourcesTable: React.FC<PointSourcesTableProps> = ({
     const { source } = entry;
     const confirmed = await confirm({
       title: t('wqSource.ui.unbind'),
-      message: `Stop reading ${source.parameterConfig.name} from ${channelKey}? A backup at the same place takes over.`,
+      message: t('wqSource.ui.unbindConfirm', {
+        name: source.parameterConfig.name,
+        channel: channelKey,
+      }),
       confirmText: t('wqSource.ui.unbind'),
       variant: 'warning',
     });
@@ -126,8 +129,12 @@ export const PointSourcesTable: React.FC<PointSourcesTableProps> = ({
       const { promoted } = await unbind.mutateAsync(source.id);
       setNotice(
         promoted === null || promoted.channelKey === null
-          ? `${source.parameterConfig.name}: ${channelKey} unbound.`
-          : `${source.parameterConfig.name}: ${channelKey} unbound; the backup ${promoted.channelKey} is now the primary.`,
+          ? t('wqSource.ui.unbound', { name: source.parameterConfig.name, channel: channelKey })
+          : t('wqSource.ui.promoted', {
+              name: source.parameterConfig.name,
+              channel: channelKey,
+              backup: promoted.channelKey,
+            }),
       );
     } catch {
       // Shown from unbind.error below, by its stable code when it has one.
@@ -135,21 +142,38 @@ export const PointSourcesTable: React.FC<PointSourcesTableProps> = ({
   };
   const unbindRefusal = unbind.error === null ? null : bindingRefusal(unbind.error);
 
+  /** The window the parameter is read within here, when it is an input of the point's calculation. */
+  const windowOf = (parameterConfigId: string): number | null => {
+    if (inputSet === null) return null;
+    const input = inputSet.inputs.find(
+      (candidate) => candidate.parameterConfigId === parameterConfigId,
+    );
+    return input === undefined ? null : input.windowSeconds;
+  };
+
   const tileOf = (entry: ParameterSourceAtPoint): React.ReactElement => {
     const { source, channel, problems } = entry;
+    const detail =
+      source.channelKey === null
+        ? t('wqSource.ui.manualPlan')
+        : `${source.channelKey} · ${t('wqSource.ui.positionAt', {
+            position: t(`wqSource.ui.position.${source.position}`),
+          })}`;
+    // The value in the parameter's unit (the backend converts it), at its precision.
     return (
       <ParameterSourceTile
         name={source.parameterConfig.name}
-        value={channel === null ? null : channel.latestValue}
-        unit={channel === null ? source.parameterConfig.unit : channel.unit}
+        value={entry.latestValue}
+        unit={entry.unit}
         precision={source.parameterConfig.precision}
         observedAt={channel === null ? null : channel.latestAt}
         now={now}
-        windowSeconds={null}
+        windowSeconds={windowOf(source.parameterConfigId)}
         quality={channel === null ? null : channel.latestQuality}
         kind={sourceKindOf(source)}
+        // A source listed at a point stands there: inheritance shows in the calculator's field chips.
         inheritedFrom={null}
-        detail={channelDetail(entry)}
+        detail={detail}
         trend={null}
         color={source.parameterConfig.chartColor}
         problems={problems}
@@ -160,13 +184,16 @@ export const PointSourcesTable: React.FC<PointSourcesTableProps> = ({
 
   const sourceRows: SourceRow[] = rows.map(({ parameter, engineInput }) => {
     const own = sources.filter((entry) => entry.source.parameterConfigId === parameter.id);
-    const here = own.filter((entry) => entry.source.position === position);
+    const primaries = own.filter((entry) => sourceKindOf(entry.source) === 'CHANNEL_PRIMARY');
+    const backups = own.filter((entry) => sourceKindOf(entry.source) === 'CHANNEL_BACKUP');
     return {
       parameter,
       engineInput,
-      primary: here.find((entry) => sourceKindOf(entry.source) === 'CHANNEL_PRIMARY') ?? null,
-      backup: here.find((entry) => sourceKindOf(entry.source) === 'CHANNEL_BACKUP') ?? null,
+      primaries,
+      backups,
       manual: own.filter((entry) => entry.source.channelKey === null),
+      primaryAtPosition: primaries.some((entry) => entry.source.position === position),
+      backupAtPosition: backups.some((entry) => entry.source.position === position),
       inputProblems:
         inputSet === null
           ? []
@@ -191,6 +218,7 @@ export const PointSourcesTable: React.FC<PointSourcesTableProps> = ({
             onClick={() =>
               setDialog({
                 parameter,
+                position: entry.source.position,
                 mode: {
                   kind: 'replace',
                   sourceId: entry.source.id,
@@ -233,21 +261,35 @@ export const PointSourcesTable: React.FC<PointSourcesTableProps> = ({
       variant="secondary"
       size="xs"
       type="button"
-      onClick={() => setDialog({ parameter: row.parameter, mode: { kind: 'bind', priority } })}
+      onClick={() =>
+        setDialog({ parameter: row.parameter, position, mode: { kind: 'bind', priority } })
+      }
     >
       {priority === 'PRIMARY' ? t('wqSource.ui.bind') : t('wqSource.ui.addBackup')}
     </Button>
   );
 
-  const primaryCell = (row: SourceRow): React.ReactElement => {
-    if (row.primary !== null) return boundCell(row, row.primary);
-    return canBind ? bindButton(row, 'PRIMARY') : empty(t('wqSource.ui.noChannel'));
-  };
+  // Every source at the point is listed, at whatever position it samples; the
+  // bind actions add a channel at the position chosen for new channels.
+  const primaryCell = (row: SourceRow): React.ReactElement => (
+    <div className="space-y-2">
+      {row.primaries.map((entry) => (
+        <div key={entry.source.id}>{boundCell(row, entry)}</div>
+      ))}
+      {!row.primaryAtPosition && canBind && bindButton(row, 'PRIMARY')}
+      {row.primaries.length === 0 && !canBind && empty(t('wqSource.ui.noChannel'))}
+    </div>
+  );
 
-  const backupCell = (row: SourceRow): React.ReactElement => {
-    if (row.backup !== null) return boundCell(row, row.backup);
-    return row.primary !== null && canBind ? bindButton(row, 'BACKUP') : empty('—');
-  };
+  const backupCell = (row: SourceRow): React.ReactElement => (
+    <div className="space-y-2">
+      {row.backups.map((entry) => (
+        <div key={entry.source.id}>{boundCell(row, entry)}</div>
+      ))}
+      {row.primaryAtPosition && !row.backupAtPosition && canBind && bindButton(row, 'BACKUP')}
+      {row.backups.length === 0 && !(row.primaryAtPosition && canBind) && empty('—')}
+    </div>
+  );
 
   const columns: DataTableColumn<SourceRow>[] = [
     {
@@ -330,7 +372,7 @@ export const PointSourcesTable: React.FC<PointSourcesTableProps> = ({
             quantity: dialog.parameter.quantity,
           }}
           point={point}
-          position={position}
+          position={dialog.position}
           mode={dialog.mode}
           siteId={siteId}
           onClose={() => setDialog(null)}

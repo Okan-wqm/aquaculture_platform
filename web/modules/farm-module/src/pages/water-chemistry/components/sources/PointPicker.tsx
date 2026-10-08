@@ -21,13 +21,6 @@ export interface PointPickerProps {
   onSiteChange?: (siteId: string | null) => void;
 }
 
-const KIND_LABEL: Readonly<Record<PointKind, string>> = {
-  system: 'System',
-  tank: 'Tank',
-  equipment: 'Water equipment',
-  site: 'Whole site',
-};
-
 const ALL_KINDS: readonly PointKind[] = ['system', 'tank', 'equipment', 'site'];
 
 interface Option {
@@ -90,7 +83,7 @@ export const PointPicker: React.FC<PointPickerProps> = ({
         value={siteId ?? ''}
         onChange={(event) => changeSite(event.target.value)}
         options={[
-          { value: '', label: 'All sites' },
+          { value: '', label: t('wqSource.ui.allSites') },
           ...(sites.data?.items ?? []).map((site) => ({ value: site.id, label: site.name })),
         ]}
       />
@@ -101,16 +94,19 @@ export const PointPicker: React.FC<PointPickerProps> = ({
           const next = kinds.find((candidate) => candidate === event.target.value);
           if (next !== undefined) changeKind(next);
         }}
-        options={kinds.map((candidate) => ({ value: candidate, label: KIND_LABEL[candidate] }))}
+        options={kinds.map((candidate) => ({
+          value: candidate,
+          label: t(`wqSource.ui.kind.${candidate}`),
+        }))}
       />
       {kind !== 'site' && (
         <Select
-          label={KIND_LABEL[kind]}
+          label={t(`wqSource.ui.kind.${kind}`)}
           value={value !== null && value.kind === kind ? value.id : ''}
           onChange={(event) =>
             onChange(event.target.value === '' ? null : { kind, id: event.target.value })
           }
-          options={[{ value: '', label: `Choose a ${KIND_LABEL[kind].toLowerCase()}` }, ...options]}
+          options={[{ value: '', label: t(`wqSource.ui.chooseKind.${kind}`) }, ...options]}
         />
       )}
     </div>

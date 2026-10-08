@@ -86,7 +86,7 @@ describe('ConfigFormModal measured quantity', () => {
 
     const select = await screen.findByLabelText('Measured quantity');
     expect(select).toBeDisabled();
-    expect(screen.getByText(/A sensor channel is bound: unbind it/)).toBeInTheDocument();
+    expect(screen.getByText(/A sensor channel is bound \(2\): unbind it/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByDisplayValue('mg/L')).toBeDisabled());
   });
 

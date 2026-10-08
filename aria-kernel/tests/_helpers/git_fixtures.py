@@ -101,3 +101,35 @@ def make_repo_with_initial_commit(
         _git(["add", str(rel)], cwd=repo)
     _git(["commit", "-q", "-m", f"fixture: seed {len(files)} files"], cwd=repo)
     return repo
+
+
+def commit_files(repo: Path, files: dict[str, str], *, message: str = "fixture: add files") -> str:
+    """Write ``files`` (path → content) into ``repo``, commit them, and return the new HEAD.
+
+    For tests whose subject grades refs against a committed tree (the agent
+    evidence law, ARIA-HIGH-384): a ref is admissible only when its blob is
+    at the target commit, so the fixture commits what it cites.
+    """
+    for rel, content in files.items():
+        path = repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        _git(["add", str(rel)], cwd=repo)
+    _git(
+        ["-c", "user.email=fixture@aria.test", "-c", "user.name=Aria Fixture",
+         "commit", "-q", "-m", message],
+        cwd=repo,
+    )
+    return _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+
+
+def implementer_identity_args() -> list[str]:
+    """``git -c`` args that commit as the kernel's implementer identity
+    (ARIA-HIGH-387): a fixture standing in for the implementer's commit on a
+    machine-approved branch must carry the identity the pre-PR-open
+    perimeter (``commit_identity_is_the_kernels``) requires, which the
+    executor's hold writes into the request worktree in production."""
+    from aria_kernel.implementation_identity import IMPLEMENTER_COMMIT_IDENTITY
+
+    return ["-c", f"user.name={IMPLEMENTER_COMMIT_IDENTITY.name}",
+            "-c", f"user.email={IMPLEMENTER_COMMIT_IDENTITY.email}"]

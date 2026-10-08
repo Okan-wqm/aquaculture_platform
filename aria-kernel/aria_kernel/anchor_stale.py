@@ -62,6 +62,7 @@ from .human_required import DEFAULT_SEVERITY, list_human_required, write_kernel_
 from .human_required_adjudication import _adjudications_path
 from .judge_subject_liveness import JudgeSubjectLiveness
 from .ledger import load_declared_jsonl
+from .request_admission import RequestAdmissionThrottled
 from .tool_registry import append_tools_governance
 
 ANCHOR_STALE_KIND = "anchor_stale"
@@ -204,6 +205,7 @@ def dispose_anchor_stale_requests(
     states: Mapping[str, str],
     claims: list[dict[str, Any]],
     now: datetime | None = None,
+    cycle_id: str | None = None,
 ) -> dict[str, Any]:
     """Apply ``decide_expiry_disposition`` to the expired requests (module docstring).
 
@@ -221,7 +223,7 @@ def dispose_anchor_stale_requests(
     panels = _panel_request_ids(root) if open_records or any(
         r.get("role") == "human_required_adjudication" for r in stale) else {}
     panel_ids = frozenset(rid for ids in panels.values() for rid in ids)
-    gate = RemintGate(root, requests, states)
+    gate = RemintGate(root, requests, states, cycle_id=cycle_id)
     owners = {str(r["request_id"]): owner_of(r, panel_ids) for r in stale}
     for record in open_records:
         request = by_id.get(str(record["request_id"]))
@@ -236,15 +238,26 @@ def dispose_anchor_stale_requests(
     waiting = [rid for rid, request, _record in work if request is not None and rid not in successor_of
                and owners[rid][0] == OWNER_KERNEL_REMINT and gate.full(str(request.get("role") or ""))]
     waiting_ids = set(waiting)
-    due = [item for item in work if item[0] not in waiting_ids][:ANCHOR_STALE_DISPOSITIONS_PER_SWEEP]
+    # ARIA-HIGH-364 (re-review of #1833, HIGH-A) — the bound counts decided
+    # items, not examined ones. A re-mint the request-admission door refuses
+    # waits like a full judge backlog: no record, retried next cycle, and it
+    # does not take one of the sweep's slots. Slicing the first items of
+    # `work` instead re-planned the same newest refused judges every cycle
+    # while the backlog stayed over budget, and the open records and other
+    # expiries behind them (operator hand-offs, re-offers, drops) were never
+    # decided.
+    candidates = [item for item in work if item[0] not in waiting_ids]
     summary: dict[str, Any] = {"disposed": [], "waiting_judge_backlog_full": len(waiting),
                                "waiting_sample": waiting[:20], "bound": ANCHOR_STALE_DISPOSITIONS_PER_SWEEP}
-    if not due:
+    if not candidates:
         return summary
     causes = _causes(claims)
     subjects = JudgeSubjectLiveness(base_dir=root, now=reference)
     planned: list[tuple[str, dict[str, Any], dict[str, Any] | None, ExpiryCause, ExpiryDecision]] = []
-    for rid, request, record in due:
+    waiting_admission: list[str] = []
+    for rid, request, record in candidates:
+        if len(planned) >= ANCHOR_STALE_DISPOSITIONS_PER_SWEEP:
+            break
         cause = causes.get(rid, ExpiryCause.from_reason(""))
         if request is None:
             # Only an open record can name a request the ledger lacks.
@@ -261,10 +274,14 @@ def dispose_anchor_stale_requests(
             waiting.append(rid)
             continue
         if decision.action == ACTION_REMINT:
+            if gate.refusal(request) is not None:
+                waiting_admission.append(rid)
+                continue
             gate.minted(str(request.get("role") or ""))
         planned.append((rid, request, record, cause, decision))
     summary["waiting_judge_backlog_full"] = len(waiting)
     summary["waiting_sample"] = waiting[:20]
+    summary["waiting_request_admission"] = len(waiting_admission)
     # Written before any effect, so a crash mid-batch leaves the plan on the
     # ledger; the next sweep decides the unwritten items again.
     append_tools_governance(root, STARTED_GOVERNANCE_KIND, {
@@ -272,9 +289,16 @@ def dispose_anchor_stale_requests(
         "planned": [{"request_id": rid, "action": d.action, "reason": d.reason} for rid, _r, _c, _x, d in planned],
     })
     disposed: list[dict[str, Any]] = []
+    throttled: list[dict[str, str]] = []
     for rid, request, record, cause, decision in planned:
         try:
             effect = _effect(decision, request, root=root, requests=requests, subjects=subjects, gate=gate)
+        except RequestAdmissionThrottled as refusal:
+            # ARIA-HIGH-364 (review of #1833, MEDIUM-5) — the door refused the
+            # re-mint this cycle: no record, so the next sweep decides the
+            # request again. Never the operator's.
+            throttled.append({"request_id": rid, "reason": str(refusal)})
+            continue
         except Exception as exc:  # noqa: BLE001 — one item's failure is recorded by name, never the batch's
             # Review of PR #1825: an uncaught mint error aborted the sweep on
             # the newest item, so every later cycle stopped at the same one.
@@ -296,6 +320,7 @@ def dispose_anchor_stale_requests(
     append_tools_governance(root, DISPOSED_GOVERNANCE_KIND, {"count": len(disposed), "dispositions": disposed})
     _notify_operator(root, [d["request_id"] for d in disposed if d["disposition"] == DISPOSITION_OPERATOR], reference)
     summary["disposed"] = disposed
+    summary["throttled_retry"] = throttled
     return summary
 
 

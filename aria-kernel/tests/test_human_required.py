@@ -20,6 +20,7 @@ from aria_kernel.human_required import (
     sweep_lease_lifecycle_for_human_required,
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 
 class HumanRequiredRecordTests(unittest.TestCase):
@@ -172,6 +173,7 @@ class SweepLeaseLifecycleTests(unittest.TestCase):
             allowed_scope=["aria-kernel/**"],
             convergence_id="conv-sweep-001",
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "primary_plan", base_dir=self.tools),
         )
         rid = request["request_id"]
         for i in range(DEFAULT_MAX_REQUEUES + 1):

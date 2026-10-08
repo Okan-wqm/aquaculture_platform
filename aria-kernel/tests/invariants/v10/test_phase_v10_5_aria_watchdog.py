@@ -32,7 +32,12 @@ from aria_kernel.aria_watchdog import (
     MAX_FINDINGS_PER_PATTERN_PER_24H,
 )
 from aria_kernel.finding import ORIGINATING_SKILL_ALLOWLIST, CLAIM_TYPES, _validate_originating_skill
+from aria_kernel.provider_clock import ProviderClock
 from aria_kernel.tool_registry import GovernanceError
+
+# ARIA-HIGH-366 — the stall age is provider-available time; these invariants
+# pin the detector on a store that saw no outage, where it equals wall time.
+_NO_OUTAGE = ProviderClock(())
 
 
 class StallDetectorInvariants(unittest.TestCase):
@@ -43,7 +48,7 @@ class StallDetectorInvariants(unittest.TestCase):
         past = now - timedelta(seconds=700)
         governance = [{"plan_id": "plan-X", "kind": "challenger_drafted", "ts": past.isoformat()}]
         autonomy = []
-        findings = detect_stall(governance, autonomy, now=now)
+        findings = detect_stall(governance, autonomy, now=now, clock=_NO_OUTAGE)
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].pattern, "stall")
         self.assertEqual(findings[0].originating_skill, "aria-watchdog:stall")
@@ -53,7 +58,7 @@ class StallDetectorInvariants(unittest.TestCase):
         past = now - timedelta(seconds=500)
         governance = [{"plan_id": "plan-Y", "kind": "challenger_drafted", "ts": past.isoformat()}]
         autonomy = []
-        findings = detect_stall(governance, autonomy, now=now)
+        findings = detect_stall(governance, autonomy, now=now, clock=_NO_OUTAGE)
         self.assertEqual(len(findings), 0)
 
     def test_i_v10_5_wd_03_stall_skips_human_required(self):
@@ -64,7 +69,7 @@ class StallDetectorInvariants(unittest.TestCase):
             {"plan_id": "plan-HR", "kind": "human_required_recorded", "ts": past.isoformat()},
         ]
         autonomy = []
-        findings = detect_stall(governance, autonomy, now=now)
+        findings = detect_stall(governance, autonomy, now=now, clock=_NO_OUTAGE)
         self.assertEqual(len(findings), 0, "stall must skip HUMAN_REQUIRED cycles")
 
     def test_i_v10_5_wd_04_stall_skips_active_backoff(self):
@@ -76,7 +81,7 @@ class StallDetectorInvariants(unittest.TestCase):
             {"plan_id": "plan-BO", "kind": "api_backoff_engaged", "ts": backoff_recent.isoformat()},
         ]
         autonomy = []
-        findings = detect_stall(governance, autonomy, now=now)
+        findings = detect_stall(governance, autonomy, now=now, clock=_NO_OUTAGE)
         self.assertEqual(len(findings), 0, "stall must skip cycles in active api_backoff window")
 
 

@@ -62,6 +62,10 @@ POLICY_KEYS = {
     # rhythm_policy.
     "executor",
     "rhythm",
+    # ARIA-HIGH-364 — agent-request admission: the backlog the measured drain
+    # may carry and when the executor counts as not draining. Consumed by
+    # request_drain_capacity.request_admission_policy.
+    "request_admission",
     # E24-a (ORPHAN-711) — runtime telemetry pull: where the watchdog reads
     # production metrics from, and the thresholds its detectors apply.
     # Consumed by aria_watchdog.run_watchdog_sweep via watchdog_pull_policy.

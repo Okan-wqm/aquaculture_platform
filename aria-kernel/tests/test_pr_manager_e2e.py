@@ -290,7 +290,10 @@ class OpenPRForActionTests(unittest.TestCase):
         gh_calls = [c for c in calls if c.argv[:3] == ["gh", "pr", "create"]]
         git_calls = [c for c in calls if c.argv[:2] == ["git", "rev-parse"]]
         self.assertEqual(len(gh_calls), 1)
-        self.assertEqual(len(git_calls), 1)
+        # ARIA-HIGH-371 — the head is read when the perimeter judges it
+        # (`prepare_pr_open`) and re-read at the create (`open_prepared_pr`),
+        # which refuses a head that moved in between.
+        self.assertEqual(len(git_calls), 2)
         argv = gh_calls[0].argv
         self.assertIn("--title", argv)
         self.assertEqual(argv[argv.index("--title") + 1], proposal["title"])

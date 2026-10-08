@@ -22,24 +22,18 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
   const { data: systems, isLoading: sysLoading } = useSystemsByDepartment(
     values.departmentId || '',
   );
+  // The server narrows the units to the picked system (farm's list filter
+  // covers tanks and system-linked equipment alike); the list carries no system
+  // links to filter on here.
   const { data: equipmentData, isLoading: equipLoading } = useEquipmentList({
     departmentId: values.departmentId,
+    systemId: values.systemId,
     isActive: true,
   });
 
   // Extract items arrays
   const sites = useMemo(() => sitesData?.items || [], [sitesData]);
   const equipment = useMemo(() => equipmentData?.items || [], [equipmentData]);
-
-  // Filter equipment by system if selected
-  const filteredEquipment = useMemo(() => {
-    if (!values.systemId) return equipment;
-    return equipment.filter(
-      (e) =>
-        e.systemIds?.includes(values.systemId!) ||
-        e.systems?.some((s) => s.systemId === values.systemId),
-    );
-  }, [equipment, values.systemId]);
 
   const handleChange = (field: keyof ParentDeviceInfo, value: string) => {
     onChange({ [field]: value || undefined });
@@ -281,7 +275,7 @@ export function ParentDeviceInfoStep({ values, onChange }: ParentDeviceInfoStepP
                     ? 'Loading equipment...'
                     : 'Select Equipment (optional)...'}
               </option>
-              {filteredEquipment.map((equip) => (
+              {equipment.map((equip) => (
                 <option key={equip.id} value={equip.id}>
                   {equip.name} ({equip.code})
                 </option>

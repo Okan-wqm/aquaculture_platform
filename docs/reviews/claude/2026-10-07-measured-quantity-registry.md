@@ -199,10 +199,23 @@ Fix (closed):
 - the admin step, its 12-entry list and the `skipSchemaCreation` option, which
   gated nothing else, are deleted;
 - farm's seeder, whose units come from the registry, is the one owner;
-- `tests/invariants/admin-no-tenant-table-writes.spec.ts` fails on any admin
+- `tests/invariants/admin-no-tenant-table-writes.spec.ts` fails on an admin
   raw-SQL write to a named table in a runtime-built schema. Run against the old
   code, it reported both lines (the insert and the compensating delete).
+  - It matches the whole file, so a statement split across lines is caught.
+  - Any interpolation counts (`${record.schemaName}`, `${schemaOf(id)}`), quoted
+    or not, with a prefix (`tenant_${hex}`) or not. TRUNCATE counts as a write.
+  - A search_path set from a runtime value fails too, since an unqualified
+    write would then land in the tenant schema. The one allowed setter is the
+    explorer's EXPLAIN, inside a READ ONLY transaction; the spec checks both.
 - The database explorer's generic row editor names no table and is not matched.
+
+The independent review of this change (multi-tenant) found no blocking
+defect. It traced the farm seeding path end to end: the outbox event, the
+durable consumer, the idempotent seeder writing into the tenant schema. It
+found no other caller of `skipSchemaCreation`. Its one finding, a matcher
+blind to member, call and prefixed interpolation, split lines, TRUNCATE and
+search_path writes, is the hardening above.
 
 No runtime behaviour changes. A new tenant still gets farm's set.
 

@@ -93,6 +93,15 @@ def _subject_ref(finding: dict[str, Any]) -> str:
     return f"{path}:{line}" if line else path
 
 
+def _subject_facts(adapter_finding: dict[str, Any]) -> list[str]:
+    from .finding_subject import ADAPTER_SUBJECT_FACT_PREFIX
+
+    subject = adapter_finding.get("subject")
+    if isinstance(subject, str) and subject.strip():
+        return [f"{ADAPTER_SUBJECT_FACT_PREFIX}{subject.strip()}"]
+    return []
+
+
 def promote_consensus_findings(
     *,
     repo_root: str | Path,
@@ -223,6 +232,10 @@ def promote_consensus_findings(
                 f"rule={rule}",
                 f"judgment_group_id={row.get('judgment_group_id')}",
                 f"consensus_run_id={row.get('run_id')}",
+                # ARIA-MEDIUM-378 — the adapter's declared subject, so findings
+                # of two rules about one defect share a subject key
+                # (finding_subject.finding_subject_key).
+                *_subject_facts(subject),
             ],
             scope_files=scope_files,
             originating_skill="ai_consensus:judgment_pipeline",

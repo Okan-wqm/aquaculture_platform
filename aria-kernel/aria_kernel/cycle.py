@@ -38,6 +38,7 @@ from .human_required import (
 from .human_required_adjudication import sweep_human_required_adjudications
 from .agent_invocations import reap_stale_claims
 from .calibration import recommend_calibration
+from .calibration_actuator import apply_bounded_calibration
 from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
@@ -1542,6 +1543,22 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
         # rechecked with.
         workspace_root=context.workspace_root,
     )
+    # ARIA-HIGH-372 — main is strict (up-to-date required): ARIA's own
+    # behind-main, green PRs are updated by GitHub's update-branch on the
+    # delivery credential path, once per (head, base). ARIA-HIGH-373 — every
+    # open ARIA PR the merge lane cannot merge is ONE HUMAN_REQUIRED item
+    # (URL, CI state, why), resolved when GitHub reports it merged or closed.
+    from .human_merge_surface import surface_human_merge_prs
+    from .pr_branch_update import update_behind_aria_prs
+
+    scan_result["branch_updates"] = update_behind_aria_prs(
+        cycle_id=context.cycle_id, base_dir=context.base_dir, workspace_root=context.workspace_root,
+        reader=reader, profile=profile,
+    )
+    scan_result["human_merge"] = surface_human_merge_prs(
+        cycle_id=context.cycle_id, base_dir=context.base_dir, reader=reader,
+        workspace_root=context.workspace_root,
+    )
     return scan_result
 
 
@@ -1662,7 +1679,7 @@ def _phase_lease_lifecycle_escalation(context: PhaseContext) -> dict[str, Any]:
     # CLI-only callers — so an escalation was visible in one view and
     # invisible in the one operators and the daily report read. Running it
     # every cycle is what makes the two views agree.
-    return sweep_lease_lifecycle_for_human_required(base_dir=context.base_dir)
+    return sweep_lease_lifecycle_for_human_required(base_dir=context.base_dir, cycle_id=context.cycle_id)
 
 
 def _phase_human_required_adjudication(context: PhaseContext) -> dict[str, Any]:
@@ -1671,7 +1688,7 @@ def _phase_human_required_adjudication(context: PhaseContext) -> dict[str, Any]:
     # panel that had zero non-test importers, so escalations were still
     # being raised every cycle and cleared by nobody: the finding's own
     # defect, reproduced by its fix. This is the caller.
-    return sweep_human_required_adjudications(base_dir=context.base_dir)
+    return sweep_human_required_adjudications(base_dir=context.base_dir, cycle_id=context.cycle_id)
 
 
 def _phase_decision_questioning(context: PhaseContext) -> dict[str, Any]:
@@ -1686,7 +1703,7 @@ def _phase_decision_questioning(context: PhaseContext) -> dict[str, Any]:
     """
     from .decision_questioning import open_decision_questioning
 
-    return open_decision_questioning(base_dir=context.base_dir)
+    return open_decision_questioning(base_dir=context.base_dir, cycle_id=context.cycle_id)
 
 def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
     """Carry each merge into the impact ledger, then ask what the globs missed.
@@ -2017,6 +2034,7 @@ def _phase_judge_replay(context: PhaseContext) -> dict[str, Any]:
         try:
             result = replay_judges_on_goldset(
                 tool_id=tool_id, base_dir=context.base_dir, target_sha=target_sha,
+                cycle_id=context.cycle_id,
             )
             replayed.append({"tool_id": tool_id, "status": result.get("status"), "replayed_items": result.get("replayed_items")})
         except GovernanceError as exc:
@@ -2171,11 +2189,19 @@ def _phase_calibration_recommendation(context: PhaseContext) -> dict[str, Any]:
     # producer becomes a phase, next to judge_calibration and goldset_proposal
     # which read the same feedback ledger.
     #
-    # It stops at `recommendation_only` on purpose. Applying a weight change is
-    # an operator act (`pressure weight-override`), because a system that
-    # silently reweights its own scoring can rationalise anything it later
-    # measures — the same line goldset promotion draws.
+    # The pressure-source table stays an operator act (`pressure
+    # weight-override`): a system that silently reweights its own scoring can
+    # rationalise anything it later measures. ARIA-HIGH-370 — the per-tool
+    # dial the labels actually measure (`calibration_dials`) is moved by the
+    # bounded actuator instead: inside declared bounds, one step per dial per
+    # cycle on fresh labels whose interval supports it, undone with
+    # hysteresis and a cooldown, raise-only for security adapters, every
+    # application ledgered with its evidence. What it may not apply stays
+    # `recommendation_only` and is surfaced in `auto_apply`.
     result = recommend_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
+    result["auto_apply"] = apply_bounded_calibration(
+        recommendation=result, base_dir=context.base_dir, cycle_id=context.cycle_id,
+    )
     # FAZ 4c — rank_pressure_sources' first caller. The effectiveness ledger
     # (converged/minted per pressure source) is exactly the context an
     # operator needs to judge a weight recommendation, and the ranking
@@ -2805,6 +2831,7 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
     is the door that can ask.
     """
     from .adapter_fixture_contract import assert_fixture_backed
+    from .adapter_quarantine import apply_manifest_quarantine, assert_manifest_quarantine_stands
 
     manifest_dir = Path(context.workspace_root) / "tools" / "aria-adapters"
     # The manifest's `status` is the tool's BIRTH status; after registration
@@ -2823,16 +2850,25 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
         for tool in list_tools(base_dir=context.base_dir)
     }
     synced: list[str] = []
+    quarantined_by_manifest: list[dict[str, str]] = []
     refused: list[dict[str, str]] = []
     for manifest_path in sorted(manifest_dir.glob("*.tool.json")):
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             assert_fixture_backed(manifest, context.workspace_root)
+            assert_manifest_quarantine_stands(manifest, repo_root=context.workspace_root)
             live_status = live_status_by_id.get(str(manifest.get("tool_id")))
             if live_status is not None:
                 manifest = {**manifest, "status": live_status}
             register_tool(manifest, base_dir=context.base_dir)
             synced.append(str(manifest.get("tool_id") or manifest_path.stem))
+            # ARIA-MEDIUM-378 — a manifest that names a quarantine is
+            # registered like every other one and then held QUARANTINED, so
+            # the adapter is visible by name every night instead of running
+            # as a silent no-op (adapter_quarantine).
+            quarantined = apply_manifest_quarantine(manifest, base_dir=context.base_dir)
+            if quarantined is not None:
+                quarantined_by_manifest.append(quarantined)
         except (GovernanceError, ValueError, OSError) as exc:
             refused.append({
                 "manifest": manifest_path.name,
@@ -2872,6 +2908,7 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
     return {
         "status": "synced",
         "synced_tool_ids": synced,
+        "quarantined_by_manifest": quarantined_by_manifest,
         "refused": refused,
         "manifest_dir": str(manifest_dir),
         "promotions_activated": veto_settlement.get("activated") or [],

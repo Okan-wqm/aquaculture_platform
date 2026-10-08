@@ -25,6 +25,7 @@ from typing import Any, Mapping
 
 from .agent_invocations import create_agent_invocation_request
 from .judge_subject_liveness import JudgeSubjectLiveness
+from .request_admission import Admission
 
 RULE_CONTRACT_UNDECLARED = "rule_contract_undeclared"
 
@@ -35,9 +36,15 @@ def remint_judge_request(
     subjects: JudgeSubjectLiveness,
     target_sha: str | None,
     workspace: Path | None,
+    admission: Admission,
     extra_evidence_refs: tuple[str, ...] = (),
 ) -> dict[str, Any] | str:
-    """The successor row, or the fan-out's named refusal (``rule_contract_undeclared``)."""
+    """The successor row, or the fan-out's named refusal (``rule_contract_undeclared``).
+
+    ``admission`` is the caller's decision (ARIA-HIGH-364): the panel's
+    ``human_required_panel.remint*`` or the anchor-stale sweep's
+    ``anchor_stale.remint*``, each inheriting the dead request's class.
+    """
     from .feedback_store import _sample_item_from_finding, finding_fingerprint
     from .judge_fanout import _evidence_refs, judge_request_fields
     from .rule_contract import resolve_rule_contract
@@ -68,11 +75,12 @@ def remint_judge_request(
         remint_of=str(dead.get("request_id") or ""),
         base_dir=root,
         context_repo_root=workspace,
+        admission=admission,
     )
 
 
 def remint_judge_for_panel(
-    root: Path, dead: Mapping[str, Any], *, adjudication_ref: str | None,
+    root: Path, dead: Mapping[str, Any], *, adjudication_ref: str | None, admission: Admission,
 ) -> dict[str, Any] | str:
     """The panel's ``re_mint`` of a dead fan-out judge request, through the same gate.
 
@@ -93,6 +101,7 @@ def remint_judge_for_panel(
         subjects=JudgeSubjectLiveness(base_dir=root, now=datetime.now(timezone.utc)),
         target_sha=_resolve_workspace_head_sha(workspace),
         workspace=workspace,
+        admission=admission,
         extra_evidence_refs=(adjudication_ref,) if adjudication_ref else (),
     )
 

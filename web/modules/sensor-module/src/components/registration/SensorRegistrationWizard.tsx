@@ -17,6 +17,7 @@ import {
   ChildSensorConfig,
   RegisterParentWithChildrenInput,
   toRegisterChildInput,
+  toRegisterParentInput,
   ParameterCatalog,
   inferChildSensorConfig,
   SensorType,
@@ -225,25 +226,11 @@ export function SensorRegistrationWizard({
     setError(null);
 
     const input: RegisterParentWithChildrenInput = {
-      parent: {
-        name: parentDeviceInfo.name!,
-        protocolCode: selectedProtocol,
-        protocolConfiguration: protocolConfig,
-        manufacturer: parentDeviceInfo.manufacturer,
-        model: parentDeviceInfo.model,
-        serialNumber: parentDeviceInfo.serialNumber,
-        description: parentDeviceInfo.description,
-        // SENSOR-HIGH-024: serialize the location hierarchy the wizard collects
-        // (and marks required). It was previously dropped — only the dead legacy
-        // farm/pond/tank keys were sent — so devices persisted with NULL
-        // site/department and were orphaned from the site tree.
-        siteId: parentDeviceInfo.siteId,
-        departmentId: parentDeviceInfo.departmentId,
-        systemId: parentDeviceInfo.systemId,
-        tankId: parentDeviceInfo.tankId,
-        equipmentId: parentDeviceInfo.equipmentId,
-        location: parentDeviceInfo.location,
-      },
+      parent: toRegisterParentInput(
+        { ...parentDeviceInfo, name: parentDeviceInfo.name },
+        selectedProtocol,
+        protocolConfig,
+      ),
       children: selectedChildren.map(toRegisterChildInput),
       skipConnectionTest: !connectionTestResult?.success,
     };

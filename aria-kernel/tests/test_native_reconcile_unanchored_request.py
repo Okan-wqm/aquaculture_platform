@@ -43,6 +43,7 @@ from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.agent_surface import DISPATCHABLE_ROLES, ROLE_TARGET_PAIRING
 from aria_kernel.runtime_profiles import load_provider_routing
 from aria_kernel.tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 from tests._helpers.adjudication import adjudicator_agent_text
 from tests._helpers.declared_fixtures import sha256_file
 from tests._helpers.executor_module import load_ci_executor
@@ -106,6 +107,7 @@ class _NativeSubmitFixture(unittest.TestCase):
             allowed_scope=[f"human-required:{escalation}"],
             evidence_refs=[f"human-required:{escalation}"],
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", hra.ADJUDICATION_ROLE, base_dir=self.tools),
         )
 
     def _seat_text(self, request: dict[str, Any]) -> str:
@@ -131,6 +133,7 @@ class _NativeSubmitFixture(unittest.TestCase):
             must_satisfy=[{"id": "src-line", "description": "cite the first source line"}],
             allowed_scope=["**"], evidence_refs=["src.txt:1"],
             convergence_id="native-reconcile", target_sha=target_sha, base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
 
     def _judge_text(self) -> str:

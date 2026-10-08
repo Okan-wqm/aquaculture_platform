@@ -24,6 +24,11 @@ not work for tanks:
   water equipment as `equipmentId`. Changing site, department or system clears
   both. The parent sends both, and child sensors already inherit the parent's
   location.
+  - The parent's wire input is built in one place, `toRegisterParentInput`.
+  - A picked system narrows the units on the server. Farm's list filter covers
+    tanks and system-linked equipment alike. The old client-side filter read
+    system links the query never selected, so a system pick offered no tank
+    at all: the main RAS flow could not record a tank.
 - **Description.** `equipmentId` is added to the description (contract field
   and validator, SQL, GraphQL). Location is the device that owns the channel.
 - **Registry.** Quantities that are uniform across a recirculating loop are
@@ -33,14 +38,39 @@ not work for tanks:
   inherited. Dissolved oxygen, pH, CO2, the nitrogen species and sulfide are
   never inherited.
 
-Not changed: sensors registered before this keep `equipment_id` set to a tank
-id. Farm's placement check (PR-3) also accepts that legacy shape for a tank
-point.
+No backfill is needed. On 2026-10-08 the only deployment (prod, one tenant)
+held one sensor, with neither `tank_id` nor `equipment_id` set. No sensor
+carries a tank's id as `equipment_id`, so the description's `equipmentId`
+means non-tank equipment for every row, and farm's placement check (PR-3) has
+no legacy shape to accept.
 
 Proof:
 
 - `devicePlacement.test.ts`;
+- `ParentDeviceInfoStep.placement.test.tsx`:
+  - the step asks the server for the picked system's units and offers them;
+  - a tank pick is sent as `tankId` and a biofilter pick as `equipmentId`;
+  - the registration input carries the step's choice.
+  - Reverting any of the three wizard lines fails it.
 - the RLS Postgres spec: a biofilter-placed sensor reads `equipmentId`, a
   tank-placed one `tankId`;
 - contract and DTO specs;
 - the registry spec pins the inheritable set.
+
+### Independent review → fixes
+
+A sensor review found no critical or high defect, and three medium and one
+low:
+
+- **Medium: a system pick offered no tank.** Fixed by the server-side filter
+  above.
+- **Medium: tank sensors registered before this keep a tank id as equipment.**
+  Checked against prod: there are none (above).
+- **Medium: the tests did not prove the wizard change.** The step test above
+  fails on a revert.
+- **Low: `tankId` was still labelled a deprecated legacy field.** It is
+  documented as the tank placement now.
+
+It also confirmed that a newer description validator refuses a reply without
+`equipmentId`. Sensor-service must therefore deploy before farm's PR-3 caller,
+which is the order of the plan.

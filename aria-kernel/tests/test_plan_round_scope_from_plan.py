@@ -52,6 +52,7 @@ from aria_kernel.plan_convergence import (
 )
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
+from aria_kernel.request_admission import admit_request
 from tests.test_autonomy_orchestrator import (
     _fake_auto_merge_runner,
     _fake_bridge_drainer,
@@ -275,6 +276,7 @@ class MintRefusesAForeignRoundEnvelope(_TwoCandidateCycle):
             suggested_prompt="Write a competing plan.", must_satisfy=must_satisfy,
             allowed_scope=allowed_scope, evidence_refs=list(self.f_plan["evidence_refs"]),
             convergence_id=PLAN_ID, round_number=1, base_dir=self.tools, cycle_id="cyc-mint",
+            admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools),
         )
 
     def _plan_obligation(self) -> dict[str, Any]:

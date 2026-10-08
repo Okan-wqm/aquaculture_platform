@@ -64,6 +64,7 @@ from aria_kernel.specialist_review_runner import (  # noqa: E402
     run_specialist_review_runner,
 )
 from aria_kernel.tool_registry import ensure_tools_dir  # noqa: E402
+from aria_kernel.request_admission import admit_request
 
 
 _ADVERSARIAL_ROLE = "adversarial_judgment"
@@ -79,6 +80,7 @@ def _seed_review_request(tools: Path) -> str:
         allowed_scope=["aria-kernel/**"],
         convergence_id="conv-gate-001",
         base_dir=tools,
+        admission=admit_request("operator_cli.request", _ADVERSARIAL_ROLE, base_dir=tools),
     )
     return str(request["request_id"])
 

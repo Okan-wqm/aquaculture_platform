@@ -36,6 +36,7 @@ from aria_kernel.must_satisfy import (
     waiver_adjudication_obligation,
 )
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.request_admission import admit_request
 
 from tests.test_implementation_lifecycle_continuity import (
     converging_plan_content,
@@ -171,6 +172,7 @@ class QueueMintHoldsTheShapeTests(unittest.TestCase):
             suggested_prompt="judge it", must_satisfy=must_satisfy,
             allowed_scope=["apps/svc/**"], evidence_refs=["apps/svc/src/a.ts:1"],
             base_dir=self.tools, cycle_id="cyc-shape",
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
 
     def test_the_queue_refuses_an_item_the_contract_refuses(self) -> None:
@@ -244,6 +246,7 @@ class ImplementationEnvelopeValidatesTests(unittest.TestCase):
             cross_review_summary_text="{}", proposal_id="proposal-104", change_id="chg-104",
             branch="aria-impl-0123456789abcdef", base_sha="0" * 40, base_dir=self.tools,
             cycle_id="cyc-104",
+            admission=admit_request("implementer.converged_plan", "implementation", base_dir=self.tools),
         )
         validate_request(row, base_dir=self.tools)
         # ARIA-HIGH-144 — the envelope names the commit it is grounded at:
@@ -468,6 +471,7 @@ class ConvergedPlanWithBannedWordsStillMintsTests(unittest.TestCase):
             cross_review_summary_text="{}", proposal_id="proposal-104b", change_id="chg-104b",
             branch="aria-impl-0123456789abcdef", base_sha="0" * 40, base_dir=self.tools,
             cycle_id="cyc-104b",
+            admission=admit_request("implementer.converged_plan", "implementation", base_dir=self.tools),
         )
         validate_request(row, base_dir=self.tools)
         key_change = next(item for item in row["must_satisfy"] if item["id"] == "key_change:0")
@@ -497,6 +501,7 @@ class ConvergedPlanWithBannedWordsStillMintsTests(unittest.TestCase):
             waivers=[{"node_id": self.path, "reason": self.waiver_reason}],
             evidence_refs=["plan:plan-104-banned-words"], allowed_scope=[self.path],
             base_dir=self.tools,
+            admission=admit_request("convergence_drainer.plan_step", "completeness_critique", base_dir=self.tools),
         )
         obligation = row["must_satisfy"][0]
         self.assertEqual(obligation["node_id"], self.path)

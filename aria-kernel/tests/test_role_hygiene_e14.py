@@ -55,6 +55,7 @@ from aria_kernel.pr_tracking import (
     ingest_merged_pr_lifecycle,
 )
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.request_admission import admit_request
 
 
 REMOVED_ROLES = (
@@ -202,7 +203,8 @@ class GoldsetCurationMinterTest(_ToolsDirTest):
         kwargs = dict(target_agent=GOLDSET_CURATOR_AGENT, role=GOLDSET_CURATION_ROLE, suggested_prompt="draft",
                       must_satisfy=[{"id": "corpus-draft", "description": "d"}], allowed_scope=["**"],
                       evidence_refs=["goldset-proposal:tool-a:t", f"{self.tools.name}/goldsets/proposals.jsonl"],
-                      tool_id="tool-a", target_sha="a" * 40, base_dir=self.tools)
+                      tool_id="tool-a", target_sha="a" * 40, base_dir=self.tools,
+                      admission=admit_request("operator_cli.request", GOLDSET_CURATION_ROLE, base_dir=self.tools))
         with self.assertRaisesRegex(Exception, "request_evidence_state_store_record"):
             create_agent_invocation_request(**kwargs)
         # Seal the row the way a pre-guard kernel did, then ask for it again.
@@ -441,6 +443,10 @@ class RemovedRolesTest(_ToolsDirTest):
                         must_satisfy=[{"id": "MS-1", "description": "review"}],
                         allowed_scope=["**"],
                         base_dir=self.tools,
+                        # A removed role has no class at the door either; the
+                        # admission is any valid one so the mint's own refusal
+                        # is what this pins.
+                        admission=admit_request("operator_cli.request", "verification", base_dir=self.tools),
                     )
 
     def test_the_envelope_validator_refuses_them(self) -> None:
@@ -482,6 +488,7 @@ class SubjectIdempotencySeamTest(_ToolsDirTest):
             evidence_refs=["merged-pr:1:abc"],
             cycle_id="cyc-1",
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", CHANGE_INTELLIGENCE_ROLE, base_dir=self.tools),
         )
         second = create_agent_invocation_request(
             target_agent=CHANGE_INTELLIGENCE_AGENT,
@@ -492,6 +499,7 @@ class SubjectIdempotencySeamTest(_ToolsDirTest):
             evidence_refs=["merged-pr:1:abc"],
             cycle_id="cyc-2",
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", CHANGE_INTELLIGENCE_ROLE, base_dir=self.tools),
         )
 
         self.assertNotEqual(first["request_id"], second["request_id"])

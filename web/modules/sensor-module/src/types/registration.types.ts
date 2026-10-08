@@ -1,4 +1,7 @@
-import type { RegisterChildSensorInput } from '@platform/shared-ui/generated/graphql-types';
+import type {
+  RegisterChildSensorInput,
+  RegisterParentDeviceInput,
+} from '@platform/shared-ui/generated/graphql-types';
 
 // Protocol types
 export enum ProtocolCategory {
@@ -449,11 +452,13 @@ export interface ParentDeviceInfo {
   // Legacy location fields (deprecated)
   farmId?: string;
   pondId?: string;
-  tankId?: string;
-  // New location hierarchy fields
+  // Location hierarchy. The placement unit is exactly one of tankId (a tank,
+  // pond or cage — its tanks.id) or equipmentId (non-tank water equipment);
+  // see steps/devicePlacement.ts.
   siteId?: string;
   departmentId?: string;
   systemId?: string;
+  tankId?: string;
   equipmentId?: string;
   location?: string;
   metadata?: Record<string, unknown>;
@@ -548,6 +553,34 @@ export function toRegisterChildInput(child: ChildSensorConfig): RegisterChildSen
 }
 
 /**
+ * Build the wire input for the wizard's parent device. The location hierarchy
+ * is sent as collected (SENSOR-HIGH-024), the placement unit as the one key
+ * devicePlacement chose: a tank's id as tankId, other water equipment as
+ * equipmentId (SENSOR-MEDIUM-172).
+ */
+export function toRegisterParentInput(
+  info: ParentDeviceInfo,
+  protocolCode: string,
+  protocolConfiguration: Record<string, unknown>,
+): RegisterParentDeviceInput {
+  return {
+    name: info.name,
+    protocolCode,
+    protocolConfiguration,
+    manufacturer: info.manufacturer,
+    model: info.model,
+    serialNumber: info.serialNumber,
+    description: info.description,
+    siteId: info.siteId,
+    departmentId: info.departmentId,
+    systemId: info.systemId,
+    tankId: info.tankId,
+    equipmentId: info.equipmentId,
+    location: info.location,
+  };
+}
+
+/**
  * Registered parent device
  */
 export interface RegisteredParentDevice {
@@ -564,11 +597,11 @@ export interface RegisteredParentDevice {
   // Legacy location fields (deprecated)
   farmId?: string;
   pondId?: string;
-  tankId?: string;
-  // New location hierarchy fields
+  // Location hierarchy; the placement unit is tankId or equipmentId, never both.
   siteId?: string;
   departmentId?: string;
   systemId?: string;
+  tankId?: string;
   equipmentId?: string;
   location?: string;
   childSensors?: RegisteredChildSensor[];

@@ -77,15 +77,29 @@ export async function loadFarmPlacement(
   tenantId: string,
   sensors: readonly SensorLocation[],
 ): Promise<FarmPlacement> {
-  const units = [...new Set(sensors.map(sensorUnit).filter((id): id is string => id !== null))];
-  const systems = [
-    ...new Set(
-      sensors
-        .filter((sensor) => sensorUnit(sensor) === null)
-        .map((sensor) => sensor.systemId)
-        .filter((id): id is string => id !== null),
-    ),
-  ];
+  return loadFarmArrangement(manager, tenantId, {
+    units: sensors.map(sensorUnit).filter((id): id is string => id !== null),
+    systems: sensors
+      .filter((sensor) => sensorUnit(sensor) === null)
+      .map((sensor) => sensor.systemId)
+      .filter((id): id is string => id !== null),
+  });
+}
+
+/**
+ * Reads how farm arranges these units (tanks or water equipment) and systems:
+ * the systems each unit is in (a tank's own system, and every system an
+ * equipment row is linked to), each unit's site through its department, and
+ * each live system's site. The one read of farm topology that placement and
+ * the reading resolver's inheritance chain share.
+ */
+export async function loadFarmArrangement(
+  manager: EntityManager,
+  tenantId: string,
+  asked: { readonly units: readonly string[]; readonly systems: readonly string[] },
+): Promise<FarmPlacement> {
+  const units = [...new Set(asked.units)];
+  const systems = [...new Set(asked.systems)];
   const systemsOfUnit = new Map<string, Set<string>>();
   const addSystem = (unitId: string, systemId: string): void => {
     const known = systemsOfUnit.get(unitId) ?? new Set<string>();

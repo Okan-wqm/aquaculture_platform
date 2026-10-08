@@ -58,6 +58,17 @@ registerEnumType(MeasurementSource, {
 });
 
 /**
+ * Provenance only machine ingestion paths may set. Every other source is a
+ * person's sample (manual, lab, calibration): the create input refuses these
+ * (IsHumanMeasurementSource), and the reading resolver's manual fallback
+ * reads only the others, so a value labelled manual was taken by a person.
+ */
+export const MACHINE_MEASUREMENT_SOURCES: readonly MeasurementSource[] = [
+  MeasurementSource.SENSOR_AUTOMATIC,
+  MeasurementSource.SENSOR_TRIGGERED,
+];
+
+/**
  * Genel su kalitesi durumu
  */
 export enum WaterQualityStatus {

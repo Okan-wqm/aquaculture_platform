@@ -175,6 +175,8 @@ export {
   isAcceptedUnit,
   isLoopHomogeneous,
   toCanonicalUnit,
+  fromCanonicalUnit,
+  convertUnit,
   unitConversion,
 } from './measurement/quantities';
 export type {

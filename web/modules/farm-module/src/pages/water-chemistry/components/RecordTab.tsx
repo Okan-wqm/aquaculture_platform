@@ -68,9 +68,10 @@ export const RecordTab: React.FC = () => {
   const parameterConfigs = useEquipmentParameterConfigs(selectedEquipmentId);
   const createMutation = useCreateWaterQuality();
 
-  // Recent entries for selected equipment
+  // Recent entries for the selected unit — by unit, not tankId: a biofilter's
+  // or sump's measurement is filed as equipmentId and has no tankId.
   const recentEntriesQuery = useWaterQualityList(
-    selectedEquipmentId ? { tankId: selectedEquipmentId, limit: RECENT_ENTRIES_LIMIT } : undefined,
+    selectedEquipmentId ? { unitId: selectedEquipmentId, limit: RECENT_ENTRIES_LIMIT } : undefined,
   );
 
   // ----- Derived data -----

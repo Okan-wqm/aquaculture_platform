@@ -1,8 +1,10 @@
 /**
- * Equipment Parameter Configs hook for farm-module
+ * Measurement form parameters for a unit (tank or water equipment).
  *
- * Fetches parameter configs that are mapped to a specific equipment item,
- * transformed into ParameterFieldConfig[] ready for DynamicMeasurementForm.
+ * Reads the server's `unitMeasurementPlan`: the unit's plan, or every active
+ * parameter when nobody mapped one, each marked required exactly as the
+ * server's validator requires it — so the form and the validator cannot
+ * disagree. Transformed into ParameterFieldConfig[] for DynamicMeasurementForm.
  */
 import { useQuery } from '@tanstack/react-query';
 import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
@@ -12,17 +14,17 @@ import type { ParameterFieldConfig } from '@aquaculture/farm-shared';
 // GRAPHQL QUERY
 // ============================================================================
 
-const GET_EQUIPMENT_PARAMETER_CONFIGS = `
-  query EquipmentParameterConfigs($equipmentId: ID!) {
-    equipmentParameters(equipmentId: $equipmentId) {
-      id
-      parameterConfigId
-      equipmentId
-      isActive
-      parameterConfig {
-        id code name unit dataType precision group
-        optimalMin optimalMax warningMin warningMax criticalMin criticalMax
-        enumValues displayOrder isRequired chartColor
+const GET_UNIT_MEASUREMENT_PLAN = `
+  query UnitMeasurementPlan($unitId: ID!) {
+    unitMeasurementPlan(unitId: $unitId) {
+      planned
+      entries {
+        required
+        parameter {
+          id code name unit dataType precision group
+          optimalMin optimalMax warningMin warningMax criticalMin criticalMax
+          enumValues displayOrder chartColor
+        }
       }
     }
   }
@@ -32,12 +34,9 @@ const GET_EQUIPMENT_PARAMETER_CONFIGS = `
 // TYPES
 // ============================================================================
 
-interface EquipmentParameterMapping {
-  id: string;
-  parameterConfigId: string;
-  equipmentId: string;
-  isActive: boolean;
-  parameterConfig: {
+interface UnitMeasurementPlanEntry {
+  required: boolean;
+  parameter: {
     id: string;
     code: string;
     name: string;
@@ -53,7 +52,6 @@ interface EquipmentParameterMapping {
     criticalMax: number | null;
     enumValues: string[] | null;
     displayOrder: number;
-    isRequired: boolean;
     chartColor: string;
   };
 }
@@ -63,41 +61,41 @@ interface EquipmentParameterMapping {
 // ============================================================================
 
 /**
- * Fetch parameter configs mapped to a specific equipment item.
- * Returns ParameterFieldConfig[] sorted by displayOrder, ready for DynamicMeasurementForm.
+ * The parameters to record at a unit (tank or water equipment), from the
+ * server's measurement plan. Returns ParameterFieldConfig[] sorted by
+ * displayOrder, ready for DynamicMeasurementForm.
  */
 export function useEquipmentParameterConfigs(equipmentId: string | null) {
   const { token } = useAuth();
 
   const { tenantId } = useAuth();
   return useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'equipmentParameterConfigs', equipmentId),
+    queryKey: createTenantQueryKey(tenantId, 'unitMeasurementPlan', equipmentId),
     queryFn: async (): Promise<ParameterFieldConfig[]> => {
       if (!equipmentId) return [];
       const response = await graphqlClient.request<{
-        equipmentParameters: EquipmentParameterMapping[];
-      }>(GET_EQUIPMENT_PARAMETER_CONFIGS, { equipmentId });
+        unitMeasurementPlan: { planned: boolean; entries: UnitMeasurementPlanEntry[] };
+      }>(GET_UNIT_MEASUREMENT_PLAN, { unitId: equipmentId });
 
-      return response.equipmentParameters
-        .filter((m) => m.isActive)
-        .map((m) => ({
-          code: m.parameterConfig.code,
-          name: m.parameterConfig.name,
-          unit: m.parameterConfig.unit,
-          dataType: m.parameterConfig.dataType as 'NUMBER' | 'ENUM' | 'BOOLEAN',
-          precision: m.parameterConfig.precision,
-          enumValues: m.parameterConfig.enumValues,
-          isRequired: m.parameterConfig.isRequired,
-          group: m.parameterConfig.group,
-          displayOrder: m.parameterConfig.displayOrder,
-          chartColor: m.parameterConfig.chartColor,
+      return response.unitMeasurementPlan.entries
+        .map(({ parameter, required }) => ({
+          code: parameter.code,
+          name: parameter.name,
+          unit: parameter.unit,
+          dataType: parameter.dataType as 'NUMBER' | 'ENUM' | 'BOOLEAN',
+          precision: parameter.precision,
+          enumValues: parameter.enumValues,
+          isRequired: required,
+          group: parameter.group,
+          displayOrder: parameter.displayOrder,
+          chartColor: parameter.chartColor,
           limits: {
-            optimalMin: m.parameterConfig.optimalMin,
-            optimalMax: m.parameterConfig.optimalMax,
-            warningMin: m.parameterConfig.warningMin,
-            warningMax: m.parameterConfig.warningMax,
-            criticalMin: m.parameterConfig.criticalMin,
-            criticalMax: m.parameterConfig.criticalMax,
+            optimalMin: parameter.optimalMin,
+            optimalMax: parameter.optimalMax,
+            warningMin: parameter.warningMin,
+            warningMax: parameter.warningMax,
+            criticalMin: parameter.criticalMin,
+            criticalMax: parameter.criticalMax,
           },
         }))
         .sort((a, b) => a.displayOrder - b.displayOrder);

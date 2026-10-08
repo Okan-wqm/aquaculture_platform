@@ -90,6 +90,13 @@ const MECHANISM_HINTS: readonly RegExp[] = [
   /\bclass-validator\b/i,
   /\bgenerated\b/i,
   /\bcodegen\b/i,
+  // ARIA-MEDIUM-392 — Rust mechanisms: Tier-1 newtype, exhaustive
+  // match, non_exhaustive attribute. Tier-2 crate clippy deny wall.
+  // Tier-3 clippy or rustc lint id, Rust CI invariant.
+  /\bnewtype\b/i,
+  /\bexhaustive\s+match\b/i,
+  /#\[non_exhaustive\]/,
+  /\bclippy\b/i,
 ];
 
 type RuleId =
@@ -149,7 +156,11 @@ function matchesAllowlist(relPath: string, globs: readonly string[]): boolean {
   return false;
 }
 
-const DOMAIN_CODE_RE = /^apps\/[^/]+\/src\//;
+// ARIA-MEDIUM-392 — the enforcement domain admits the Rust roots
+// (sens-api-gateway/src, crates/<crate>/src) beside the NestJS apps,
+// so a tier-4 claim in Rust code faces the same boundary allowlist
+// gate as one in TypeScript.
+const DOMAIN_CODE_RE = /^(?:apps\/[^/]+|sens-api-gateway|crates\/[^/]+)\/src\//;
 
 function scanContent(relPath: string, content: string, allowlist: readonly string[]): Violation[] {
   const violations: Violation[] = [];
@@ -215,7 +226,7 @@ function scanContent(relPath: string, content: string, allowlist: readonly strin
           lineNo,
           'R7-vague-claim',
           line.trim(),
-          'tier-N justification does not name a concrete mechanism (branded type / ESLint rule / invariant / migration / ADR / @Column / etc.).',
+          'tier-N justification does not name a concrete mechanism (branded type / ESLint rule / invariant / migration / ADR / @Column / Rust newtype / exhaustive match / clippy / etc.).',
         );
       }
       if (blockStack.length > 0) {
@@ -231,7 +242,7 @@ function scanContent(relPath: string, content: string, allowlist: readonly strin
           lineNo,
           'R6-unapproved-tier4-in-domain',
           line.trim(),
-          'tier-4 claim in apps/**/src/** requires an entry in .claude/allowlists/boundary-files.yaml.',
+          'tier-4 claim in enforced source roots (apps, sens-api-gateway, crates) requires an entry in .claude/allowlists/boundary-files.yaml.',
         );
       }
       blockStack.push({ tier, openLine: lineNo });
@@ -260,7 +271,7 @@ function scanContent(relPath: string, content: string, allowlist: readonly strin
           lineNo,
           'R7-vague-claim',
           line.trim(),
-          'tier-N justification does not name a concrete mechanism (branded type / ESLint rule / invariant / migration / ADR / @Column / etc.).',
+          'tier-N justification does not name a concrete mechanism (branded type / ESLint rule / invariant / migration / ADR / @Column / Rust newtype / exhaustive match / clippy / etc.).',
         );
       }
       if (tier === 4 && inDomain && !isAllowlisted) {
@@ -268,7 +279,7 @@ function scanContent(relPath: string, content: string, allowlist: readonly strin
           lineNo,
           'R6-unapproved-tier4-in-domain',
           line.trim(),
-          'tier-4 claim in apps/**/src/** requires an entry in .claude/allowlists/boundary-files.yaml.',
+          'tier-4 claim in enforced source roots (apps, sens-api-gateway, crates) requires an entry in .claude/allowlists/boundary-files.yaml.',
         );
       }
     }
@@ -299,16 +310,24 @@ function run(cmd: string): string {
   }
 }
 
+// Staged/range selection is the PRODUCT surface: test data under tests/
+// deliberately contains claims that violate rules (the fixtures that pin
+// this gate), so it is excluded from product scanning. --mode=file remains
+// the explicit operator surface and scans any path given, fixtures included.
+function isProductCode(relPath: string): boolean {
+  return !relPath.startsWith('tests/') && /\.(ts|tsx|rs)$/.test(relPath);
+}
+
 function stagedFiles(): string[] {
   return run('git diff --cached --name-only --diff-filter=ACM')
     .split('\n')
-    .filter((f) => f.length > 0 && /\.(ts|tsx)$/.test(f));
+    .filter((f) => f.length > 0 && isProductCode(f));
 }
 
 function rangeFiles(baseRef: string, headRef: string): string[] {
   return run(`git diff ${baseRef}..${headRef} --name-only --diff-filter=ACM`)
     .split('\n')
-    .filter((f) => f.length > 0 && /\.(ts|tsx)$/.test(f));
+    .filter((f) => f.length > 0 && isProductCode(f));
 }
 
 function scanFile(relPath: string, allowlist: readonly string[]): Violation[] {

@@ -6,8 +6,7 @@
  *
  * @module WaterQuality/Handlers
  */
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -19,6 +18,11 @@ import {
 } from '../entities/water-quality-parameter-config.entity';
 import { getTemplateById, ParameterTemplateEntry } from '../data/parameter-templates.data';
 import { ParameterConfigCacheService } from '../services/parameter-config-cache.service';
+import { parameterHasMeasurements, unitMeaningChanged } from '../services/parameter-meaning';
+import { liveChannelSourceCount } from '../services/parameter-sources';
+import { runSourceTransaction } from '../services/source-transaction';
+import { ParameterSourceError } from '../../common/errors/farm-errors';
+import { PARAMETER_SOURCE_ERROR } from '@aquaculture/shared-contracts';
 
 @Injectable()
 @CommandHandler(BulkCreateFromTemplateCommand)
@@ -71,32 +75,61 @@ export class BulkCreateFromTemplateHandler
       }
     }
 
-    const created = await runInTenantTransaction(
-      this.dataSource,
-      'farm',
-      tenantId,
-      async (queryRunner) => {
-        if (overwrite) {
-          // Non-destructive re-apply: upsert each template parameter BY CODE.
-          // An existing row is updated in place (id preserved); a missing one is
-          // inserted. Rows whose code is not in the template (custom params) are
-          // left untouched — the prior delete-all silently destroyed them along
-          // with tuned thresholds (ORPHAN-MEDIUM-267).
-          const existing = await queryRunner.manager.find(WaterQualityParameterConfig, {
-            where: { tenantId },
-          });
-          const byCode = new Map(existing.map((config) => [config.code, config]));
-          const toSave = template.parameters.map((param) => {
-            const mapped = this.mapTemplateEntryToEntity(param, tenantId, templateId);
-            const current = byCode.get(param.code);
-            return this.configRepository.create(current ? { ...current, ...mapped } : mapped);
-          });
-          return toSave.length > 0 ? queryRunner.manager.save(toSave) : [];
+    // The source transaction maps the one-active-config-per-quantity index to a
+    // 409 (a custom parameter may already be declared as a template's quantity).
+    const created = await runSourceTransaction(this.dataSource, tenantId, async (queryRunner) => {
+      if (overwrite) {
+        // Non-destructive re-apply: upsert each template parameter BY CODE.
+        // An existing row is updated in place (id preserved); a missing one is
+        // inserted. Rows whose code is not in the template (custom params) are
+        // left untouched — the prior delete-all silently destroyed them along
+        // with tuned thresholds (ORPHAN-MEDIUM-267).
+        // Locked like every write to a parameter's meaning (FARM-HIGH-373, D8).
+        const existing = await queryRunner.manager.find(WaterQualityParameterConfig, {
+          where: { tenantId },
+          order: { id: 'ASC' },
+          lock: { mode: 'pessimistic_write' },
+        });
+        const byCode = new Map(existing.map((config) => [config.code, config]));
+        const toSave: WaterQualityParameterConfig[] = [];
+        for (const param of template.parameters) {
+          const mapped = this.mapTemplateEntryToEntity(param, tenantId, templateId);
+          const current = byCode.get(param.code);
+          // A bound channel was accepted for this unit: the template may not
+          // change it underneath (plan Q8).
+          if (
+            current !== undefined &&
+            unitMeaningChanged(current, current.unit, param.unit) &&
+            (await liveChannelSourceCount(queryRunner.manager, tenantId, current.id)) > 0
+          ) {
+            throw new ParameterSourceError(
+              PARAMETER_SOURCE_ERROR.PARAMETER_BOUND,
+              HttpStatus.CONFLICT,
+              `Parameter '${current.code}' has a bound sensor channel; the template would change ` +
+                `its unit from '${current.unit}' to '${mapped.unit}'. Unbind it first.`,
+            );
+          }
+          // Recorded values are read in the config's unit: once a code has
+          // measurements its unit is fixed (plan D7).
+          if (
+            current !== undefined &&
+            unitMeaningChanged(current, current.unit, param.unit) &&
+            (await parameterHasMeasurements(queryRunner.manager, tenantId, current.code))
+          ) {
+            throw new ParameterSourceError(
+              PARAMETER_SOURCE_ERROR.PARAMETER_HAS_MEASUREMENTS,
+              HttpStatus.CONFLICT,
+              `Measurements already record '${current.code}' in ${current.unit}; the template ` +
+                `would re-read them as '${mapped.unit}'. Create a new parameter instead.`,
+            );
+          }
+          toSave.push(this.configRepository.create(current ? { ...current, ...mapped } : mapped));
         }
+        return toSave.length > 0 ? queryRunner.manager.save(toSave) : [];
+      }
 
-        return additiveEntities.length > 0 ? queryRunner.manager.save(additiveEntities) : [];
-      },
-    );
+      return additiveEntities.length > 0 ? queryRunner.manager.save(additiveEntities) : [];
+    });
 
     this.configCache.invalidate(tenantId);
 

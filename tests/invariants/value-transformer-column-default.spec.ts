@@ -58,6 +58,7 @@ import {
 } from '../../apps/event-store-service/src/event-store/transformers/bigint.transformer';
 import { EncryptedColumnTransformer } from '../../apps/sensor-service/src/infrastructure/vault/credential.transformer';
 import { EncryptedProtocolConfigTransformer } from '../../apps/sensor-service/src/infrastructure/vault/protocol-config.transformer';
+import { QuantityIdTransformer } from '../../apps/farm-service/src/water-quality/entities/quantity-id.transformer';
 import { DecimalTransformer } from '../../libs/backend-common/src/database/decimal-transformer';
 import { DecimalValueTransformer } from '../../libs/backend-common/src/monetary/decimal-column.decorator';
 import { createEncryptedColumnTransformer } from '../../libs/backend-common/src/security/encryption/encrypted-column.transformer';
@@ -107,6 +108,8 @@ const TRANSFORMERS: readonly RegisteredTransformer[] = [
     aliases: ['EncryptedProtocolConfigTransformer'],
     create: () => EncryptedProtocolConfigTransformer,
   },
+  // Farm parameter configs' measured-quantity ids (FARM-MEDIUM-374).
+  { aliases: ['QuantityIdTransformer'], create: () => QuantityIdTransformer },
   {
     aliases: ['createEncryptedColumnTransformer'],
     // Both nullish branches short-circuit before the key is resolved, so the

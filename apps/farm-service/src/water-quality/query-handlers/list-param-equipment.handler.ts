@@ -9,7 +9,7 @@
 import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, FindOptionsWhere } from 'typeorm';
+import { DataSource, FindOptionsWhere, IsNull } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { ListParamEquipmentQuery } from '../queries/list-param-equipment.query';
 import { WaterQualityParamEquipment } from '../entities/water-quality-param-equipment.entity';
@@ -31,24 +31,30 @@ export class ListParamEquipmentHandler
 
     this.logger.debug(`Listing param-equipment mappings for tenant ${tenantId}`);
 
-    const where: FindOptionsWhere<WaterQualityParamEquipment> = { tenantId };
-
-    if (filters) {
-      if (filters.equipmentId) {
-        where.equipmentId = filters.equipmentId;
-      }
-      if (filters.parameterConfigId) {
-        where.parameterConfigId = filters.parameterConfigId;
-      }
-      if (filters.isActive !== undefined) {
-        where.isActive = filters.isActive;
-      }
+    // The manual-entry plan: live manual sources. Channel sources and unbound
+    // history are read through parameterSourcesAtPoint.
+    const base: FindOptionsWhere<WaterQualityParamEquipment> = {
+      channelKey: IsNull(),
+      unboundAt: IsNull(),
+    };
+    if (filters?.parameterConfigId) {
+      base.parameterConfigId = filters.parameterConfigId;
     }
+    if (filters?.isActive !== undefined) {
+      base.isActive = filters.isActive;
+    }
+    // A unit id is a tank point or an equipment point (the classifier filed it).
+    const where: Array<FindOptionsWhere<WaterQualityParamEquipment>> = filters?.equipmentId
+      ? [
+          { ...base, tankId: filters.equipmentId },
+          { ...base, equipmentId: filters.equipmentId },
+        ]
+      : [base];
 
     // Read through the fail-closed tenant boundary.
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) =>
       queryRunner.manager.find(WaterQualityParamEquipment, {
-        where,
+        where: where.map((clause) => ({ ...clause, tenantId })),
         relations: ['parameterConfig', 'equipment'],
         order: { createdAt: 'ASC' },
       }),

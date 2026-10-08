@@ -603,7 +603,6 @@ __all__ = [
     "select_auto_merge_runner",
     # Plan ARIA-V9.6 — V9 implementation-phase auto-merge surface
     "compute_v9_idempotency_key",
-    "verify_branch_tip",
     "poll_pr_checks",
     "evaluate_v9_implementation_merge",
     "V9MergeDecision",
@@ -715,48 +714,6 @@ def compute_v9_idempotency_key(
     }
     raw = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(raw).hexdigest()
-
-
-def verify_branch_tip(
-    *,
-    pr_number: int,
-    expected_branch_tip_sha: str,
-    gh_cli: str = "gh",
-) -> bool:
-    """Plan ARIA-V9.6 — pre-merge headRefOid recheck.
-
-    Closes sec HIGH-002 + ai HIGH-007 — the CI green check happened
-    against a specific branch tip. If the branch was force-pushed
-    or rebased between IMPLEMENTATION_RECORDED + merge, the green
-    check no longer applies to the current code. Tier-1 — abort the
-    merge if drift detected.
-
-    Returns True iff `gh pr view --json headRefOid` matches
-    expected_branch_tip_sha. False on any mismatch, gh-CLI absence,
-    or API failure (fail-closed).
-    """
-    if not isinstance(expected_branch_tip_sha, str) or not expected_branch_tip_sha:
-        return False
-    if not shutil.which(gh_cli):
-        return False
-    try:
-        proc = subprocess.run(
-            [gh_cli, "pr", "view", str(pr_number),
-             "--json", "headRefOid"],
-            capture_output=True, text=True, timeout=15,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return False
-    if proc.returncode != 0:
-        return False
-    try:
-        payload = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return False
-    head_oid = payload.get("headRefOid") if isinstance(payload, dict) else None
-    if not isinstance(head_oid, str):
-        return False
-    return head_oid == expected_branch_tip_sha
 
 
 def poll_pr_checks(

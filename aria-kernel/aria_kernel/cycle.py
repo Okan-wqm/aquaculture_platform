@@ -1700,10 +1700,20 @@ def _phase_decision_questioning(context: PhaseContext) -> dict[str, Any]:
     moved keeps its verdict forever. This phase is that question's only
     production caller: without it the minter would be exactly the
     mechanism-with-no-caller defect the sibling invariant in this change hunts.
-    """
-    from .decision_questioning import open_decision_questioning
 
-    return open_decision_questioning(base_dir=context.base_dir, cycle_id=context.cycle_id)
+    ARIA-HIGH-204 — asking was only half the mechanism. The fold runs right
+    AFTER the mint in the same phase, so the answers previous cycles earned
+    (this cycle's envelopes are answered later, by the executor) land in the
+    outcome ledger every cycle instead of waiting on a caller that never
+    came: an overturn that nothing read was spend without effect.
+    """
+    from .decision_questioning import fold_questioning_results, open_decision_questioning
+
+    summary = open_decision_questioning(base_dir=context.base_dir, cycle_id=context.cycle_id)
+    summary["fold"] = fold_questioning_results(
+        base_dir=context.base_dir, cycle_id=context.cycle_id,
+    )
+    return summary
 
 def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
     """Carry each merge into the impact ledger, then ask what the globs missed.

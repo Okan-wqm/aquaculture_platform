@@ -4926,6 +4926,27 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     # identity a pre-spawn refusal left held.
     _identity_stack = _runtime_stack.enter_context(_ExitStack())
     if request_envelope["role"] == "implementation":
+        # ARIA-HIGH-388 — the same question the queue's selection asks before
+        # any claim (`implementation_dispatch`), asked again here for a
+        # targeted dispatch, BEFORE the signing identity is minted and the
+        # delivery credential leased: no authority, or a plan that already
+        # ended, spends nothing. Harness-class, the budget kept.
+        from aria_kernel.implementation_dispatch import implementation_dispatch_refusal
+
+        _undispatchable = implementation_dispatch_refusal(request=request_envelope, base_dir=tools_dir)
+        if _undispatchable is not None:
+            sys.stderr.write(f"{DELIVERY_WINDOW_REFUSAL.release_reason}: {_undispatchable} (before the identity)\n")
+            _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token,
+                reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+            )
+            return _refuse_dispatch(
+                request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+                failure_class=DELIVERY_WINDOW_REFUSAL.failure_class,
+                retryable=DELIVERY_WINDOW_REFUSAL.retryable,
+            )
         from aria_kernel.gh_token_factory import signing_keys_dir as _signing_keys_dir
         from aria_kernel.implementation_identity import (
             ImplementationIdentityRefusal,
@@ -5075,7 +5096,7 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                         else IMPLEMENTATION_REQUEST_INVALID_REFUSAL.release_reason if _request_invalid
                         else IMPLEMENTATION_IDENTITY_REFUSAL.release_reason),
             )
-            return _refuse_dispatch(
+            _refused = _refuse_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 reason=_branch_refusal_reason,
                 failure_class=(IMPLEMENTATION_BRANCH_COLLISION_REFUSAL.failure_class if _collision
@@ -5085,6 +5106,16 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                            else IMPLEMENTATION_REQUEST_INVALID_REFUSAL.retryable if _request_invalid
                            else IMPLEMENTATION_IDENTITY_REFUSAL.retryable),
             )
+            if _collision or _request_invalid:
+                # ARIA-HIGH-388 — both end the request for good (escalated
+                # above), so they end its plan too
+                # (`implementation_rejections.PRE_SPAWN_SETTLEMENT`).
+                from aria_kernel.implementation_settlement import settle_pre_spawn_refusal
+
+                _settled = settle_pre_spawn_refusal(request_id=request_id, release_reason=_branch_refusal_reason,
+                                                    base_dir=tools_dir)
+                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
+            return _refused
         _stage(f"implementation_branch_prepared branch={_implementation_ids.get('branch')} base_sha={_implementation_ids.get('base_sha')}")
         # ARIA-HIGH-124 (round 3) — the window: the job's remaining wall
         # clock must hold the CLI at its cap AND everything this child runs
@@ -5481,14 +5512,6 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 agent_id=agent_id, lease_token=lease_token,
                 reason=f"agent_refused:{_reason_class}",
             )
-            if request_envelope.get("role") == "implementation":
-                # ARIA-HIGH-388 — the refusal ends the PLAN too, on its own
-                # ledger: without it the plan sat IMPLEMENTATION_REQUESTED
-                # until the orphan reaper relabelled it unattributable.
-                from aria_kernel.implementation_settlement import settle_agent_refusal
-
-                _settled = settle_agent_refusal(request_id=request_id, base_dir=tools_dir)
-                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
             # Refusal is a legitimate terminal — not a build failure, and not
             # a success either: invoke_claude_cli's summary said "succeeded"
             # (the CLI ran to completion); this later terminal supersedes it
@@ -5496,10 +5519,22 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             # agent-supplied class stays out of the summary (it is sanitized
             # by construction); the release reason and the HUMAN_REQUIRED
             # row carry it.
-            return _refuse_dispatch(
+            _refused = _refuse_dispatch(
                 request=request_envelope, request_id=request_id, target_agent=subagent_type,
                 reason="agent_refused",
             )
+            if request_envelope.get("role") == "implementation":
+                # ARIA-HIGH-388 — the refusal ends the PLAN too, on its own
+                # ledger, `unclassified` (the agent's word is not a verified
+                # cause: the 2026-10-08 `safety` refusal was the host's missing
+                # git identity), so the finding is never cooled off by it.
+                # After the dispatch's own refusal: a settlement fault can
+                # never skip it.
+                from aria_kernel.implementation_settlement import settle_agent_refusal
+
+                _settled = settle_agent_refusal(request_id=request_id, reason_class=_reason_class, base_dir=tools_dir)
+                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
+            return _refused
     if isinstance(_envelope_for_validation, dict):
         # Plan ARIA-V8.4 — auto-fill missing canonical plan_content
         # fields from compatible sources within the envelope before
@@ -5633,16 +5668,20 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                     agent_id=agent_id, lease_token=lease_token,
                     reason=f"implementation_delivery_refused:{exc.stage}",
                 )
-                # ARIA-HIGH-388 — the plan ends with the stage's class and fault
-                # domain (`implementation_rejections.DELIVERY_STAGE_SETTLEMENT`).
-                from aria_kernel.implementation_settlement import settle_delivery_refusal
-
-                _settled = settle_delivery_refusal(request_id=request_id, stage=exc.stage, base_dir=tools_dir)
-                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
-                return _refuse_dispatch(
+                _refused = _refuse_dispatch(
                     request=request_envelope, request_id=request_id, target_agent=subagent_type,
                     reason="implementation_delivery_refused",
                 )
+                # ARIA-HIGH-388 — the plan ends with the class and fault domain
+                # the kernel can VERIFY from the refusal's own reason
+                # (`implementation_rejections.settlement_for_delivery`); an
+                # unverifiable cause is `unclassified` and cools nothing off.
+                from aria_kernel.implementation_settlement import settle_delivery_refusal
+
+                _settled = settle_delivery_refusal(request_id=request_id, stage=exc.stage, reason=exc.reason,
+                                                   base_dir=tools_dir)
+                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
+                return _refused
             _mutated_delivery = stamp_implementation_delivery(
                 _envelope_for_validation, delivery=_delivery, request_id=request_id, claim_id=claim_id,
                 base_dir=tools_dir,

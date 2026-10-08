@@ -20,13 +20,15 @@ path and never flows through ``record_implementation_outcome`` validation.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 
 # ARIA-HIGH-388 — the classes an executor-side terminal outcome settles with
-# (see ``DELIVERY_STAGE_SETTLEMENT`` below and ``implementation_settlement``).
+# (``settlement_for_*`` below, written by ``implementation_settlement``).
 IMPLEMENTER_REFUSED = "implementer_refused"
-IMPLEMENTATION_UNPUBLISHED = "implementation_unpublished"
 IMPLEMENTATION_RESULT_INADMISSIBLE = "implementation_result_inadmissible"
-PR_PERIMETER_REFUSED = "pr_perimeter_refused"
+IMPLEMENTATION_DELIVERY_UNCLASSIFIED = "implementation_delivery_unclassified"
+IMPLEMENTATION_REQUEST_INVALID = "implementation_request_invalid"
 PUSH_REFUSED = "push_refused"
 PR_OPEN_REFUSED = "pr_open_refused"
 
@@ -76,40 +78,13 @@ VALID_IMPLEMENTATION_REJECTION_CLASSES: frozenset[str] = frozenset(
         # (`implementation_settlement`) instead of living only in governance
         # and HUMAN_REQUIRED rows that no learning consumer reads.
         IMPLEMENTER_REFUSED,
-        IMPLEMENTATION_UNPUBLISHED,
         IMPLEMENTATION_RESULT_INADMISSIBLE,
-        PR_PERIMETER_REFUSED,
+        IMPLEMENTATION_DELIVERY_UNCLASSIFIED,
+        IMPLEMENTATION_REQUEST_INVALID,
         PUSH_REFUSED,
         PR_OPEN_REFUSED,
     }
 )
-
-
-# ARIA-HIGH-388 — where a delivery refusal is SETTLED: each request-class
-# stage of ``implementation_delivery.DELIVERY_STAGES`` maps to the rejection
-# class its plan is closed with and the fault domain that class carries
-# (``release_reason.FAULT_DOMAINS``). ``request`` means the work (the agent's
-# commit, its result, the gate its change failed) and may cool the finding's
-# subject off; ``harness`` means the lane (GitHub refused a push or a PR,
-# the kernel's commit identity) and never does
-# (``outage_attribution.failure_is_lane_fault``). Whether the IMPLEMENTER is
-# blamed is ``failure_attribution.APPLY_GATE_REJECTION_CLASSES``'s decision,
-# not this table's. The host stages (``admission``, ``credential``) are
-# absent on purpose: they are released harness-class and retried, never
-# settled (`implementation_delivery.HOST_STAGES`).
-DELIVERY_STAGE_SETTLEMENT: dict[str, tuple[str, str]] = {
-    "branch_publication": (IMPLEMENTATION_UNPUBLISHED, "request"),
-    "commit_identity": ("commit_signature_unverified", "harness"),
-    # The scope verdict on the agent's commit (`change_committed_refused`);
-    # a diff git cannot produce is rarer and is not told apart here.
-    "change_ledger": ("forbidden_scope_violation", "request"),
-    "result_admissible": (IMPLEMENTATION_RESULT_INADMISSIBLE, "request"),
-    "apply_gate": ("validation_failed", "request"),
-    "change_validated": ("validation_failed", "request"),
-    "pre_pr_open": (PR_PERIMETER_REFUSED, "request"),
-    "push": (PUSH_REFUSED, "harness"),
-    "pr_open": (PR_OPEN_REFUSED, "harness"),
-}
 
 
 # V9 auto-merge "merge path disabled" rejection class. Stamped onto a
@@ -118,3 +93,111 @@ DELIVERY_STAGE_SETTLEMENT: dict[str, tuple[str, str]] = {
 # VALID_IMPLEMENTATION_REJECTION_CLASSES: it is emitted only on the auto-merge
 # decision path and is never validated by record_implementation_outcome.
 V9_MERGE_PATH_DISABLED_REJECTION_CLASS: str = "v9_merge_path_disabled_use_merge_if_green"
+
+
+# ===========================================================================
+# ARIA-HIGH-388 — how an implementation request's terminal outcome is SETTLED
+# ===========================================================================
+#
+# A settlement says what ended the plan and WHOSE fault it was, and the fault
+# domain decides two things downstream: whether the finding's subject cools
+# off (`outage_attribution.failure_is_lane_fault`: only a `request` fault does)
+# and, through the class, whether the implementer is blamed
+# (`failure_attribution.APPLY_GATE_REJECTION_CLASSES`).
+#
+# The domain is `request` ONLY where the kernel can VERIFY the cause is the
+# work's: a reason the kernel itself produced from the agent's output. A
+# delivery stage is not enough (adversarial review of cd2166bb4): the same
+# `branch_publication` stage refuses an agent that committed nothing AND a
+# host with no git identity, and `apply_gate` refuses a red suite AND a
+# kernel GovernanceError. Everything the kernel cannot verify is
+# `unclassified`: it ends the plan, cools nothing off and blames no one. An
+# agent's own refusal is never verifiable (it is the agent's word; on
+# 2026-10-08 `agent_refused:safety` was the host's missing commit identity).
+
+FAULT_REQUEST = "request"
+FAULT_HARNESS = "harness"
+FAULT_UNCLASSIFIED = "unclassified"
+AGENT_REFUSAL_STAGE = "agent_refusal"
+PRE_SPAWN_STAGE = "pre_spawn"
+# Gate blockers that judge the agent's change against the baseline
+# (`validation.compare_validation_groups`, `apply_engine` suppression scan).
+# `validation_room_unobserved` is absent: an unobserved room is the host's.
+AGENT_GATE_BLOCKERS: frozenset[str] = frozenset({
+    "validation_regression", "candidate_validation_not_green", "suppression_pattern",
+})
+
+
+@dataclass(frozen=True)
+class ImplementationSettlement:
+    """The typed facts a settled ``implementation_rejected`` event carries."""
+
+    rejection_class: str
+    fault_domain: str
+    stage: str
+    cause: str
+    request_id: str = ""
+
+    def payload(self) -> dict[str, str]:
+        return {"stage": self.stage, "fault_domain": self.fault_domain, "cause": self.cause,
+                "request_id": self.request_id}
+
+
+def _cause(reason: str) -> str:
+    return reason.split(":", 1)[0].strip()[:64]
+
+
+def _gate_blockers_are_the_agents(reason: str) -> bool:
+    items = {item for item in reason.split(":", 1)[1].split(",") if item}
+    return bool(items) and items <= AGENT_GATE_BLOCKERS
+
+
+def _result_codes_are_the_agents(reason: str) -> bool:
+    from .failure_attribution import attributable_rejection_code
+
+    codes = [code for code in reason.split(":", 2)[1].split(",") if code]
+    return bool(codes) and all(attributable_rejection_code(code) for code in codes)
+
+
+# (stage, reason prefix, class, domain, verifier) — the delivery causes the
+# kernel can attribute; the first match wins, no match is unclassified.
+_VERIFIED_DELIVERY_CAUSES: tuple[tuple[str, str, str, str, object], ...] = (
+    ("change_ledger", "change_committed_refused:scope_drift_requires_human",
+     "forbidden_scope_violation", FAULT_REQUEST, None),
+    ("result_admissible", "diff_secret_shaped:", "secret_leak_detected", FAULT_REQUEST, None),
+    ("result_admissible", "result_rejected:", IMPLEMENTATION_RESULT_INADMISSIBLE, FAULT_REQUEST,
+     _result_codes_are_the_agents),
+    ("apply_gate", "gate_blocked:", "validation_failed", FAULT_REQUEST, _gate_blockers_are_the_agents),
+    ("push", "push_failed:", PUSH_REFUSED, FAULT_HARNESS, None),
+    ("pr_open", "pr_open_refused:", PR_OPEN_REFUSED, FAULT_HARNESS, None),
+)
+
+
+def settlement_for_delivery(*, stage: str, reason: str, request_id: str) -> ImplementationSettlement:
+    """The settlement of a delivery the kernel refused at ``stage`` for ``reason``."""
+    for rule_stage, prefix, rejection_class, domain, verifier in _VERIFIED_DELIVERY_CAUSES:
+        if stage == rule_stage and reason.startswith(prefix) and (verifier is None or verifier(reason)):
+            return ImplementationSettlement(rejection_class, domain, stage, _cause(reason), request_id)
+    return ImplementationSettlement(IMPLEMENTATION_DELIVERY_UNCLASSIFIED, FAULT_UNCLASSIFIED, stage,
+                                    _cause(reason), request_id)
+
+
+def settlement_for_agent_refusal(*, reason_class: str, request_id: str) -> ImplementationSettlement:
+    """An agent's refusal: the agent's word, never verifiable, so unclassified."""
+    return ImplementationSettlement(IMPLEMENTER_REFUSED, FAULT_UNCLASSIFIED, AGENT_REFUSAL_STAGE,
+                                    _cause(reason_class), request_id)
+
+
+# The executor's pre-spawn refusals that end a request for good (released
+# request-class, escalated): a published branch a retry would collide with
+# (whose cause the kernel cannot tell), and a request row whose own
+# implementation ids are unusable (the kernel's mint).
+PRE_SPAWN_SETTLEMENT: dict[str, tuple[str, str]] = {
+    "implementation_branch_collision": ("branch_collision", FAULT_UNCLASSIFIED),
+    "implementation_request_invalid": (IMPLEMENTATION_REQUEST_INVALID, FAULT_HARNESS),
+}
+
+
+def settlement_for_pre_spawn(*, release_reason: str, request_id: str) -> ImplementationSettlement:
+    rejection_class, domain = PRE_SPAWN_SETTLEMENT[release_reason]
+    return ImplementationSettlement(rejection_class, domain, PRE_SPAWN_STAGE, release_reason, request_id)

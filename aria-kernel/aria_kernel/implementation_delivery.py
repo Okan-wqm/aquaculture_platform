@@ -575,6 +575,24 @@ def _staged_suite(*, proposal_id: str, base_dir: str | Path | None) -> tuple[lis
     return commands, int(action.get("validation_timeout_ms") or CANONICAL_VALIDATION_TIMEOUT_MS)
 
 
+def delivery_authority_refusal(*, base_dir: str | Path | None) -> str | None:
+    """``authority_absent:profile=<p>:missing=<actions>`` when the store's
+    runtime profile lacks ``DELIVERY_ACTIONS``, else None (ARIA-HIGH-388).
+
+    The ONE authority check of an implementation request, asked at three
+    points that must agree: the queue's selection, before any claim
+    (``implementation_dispatch``); the executor, before it mints an identity
+    or a delivery credential; and the delivery's own admission.
+    """
+    from .runtime_profile import get_profile, permitted_actions
+
+    profile = get_profile(base_dir=base_dir)
+    missing = sorted(set(DELIVERY_ACTIONS) - permitted_actions(profile))
+    if missing:
+        return f"authority_absent:profile={profile}:missing={','.join(missing)}"
+    return None
+
+
 def delivery_admission_refusal(
     *,
     workspace_root: str | Path,
@@ -614,12 +632,9 @@ def delivery_admission_refusal(
       before the spawn, it is the host's: released harness-class, retried
       once the authority is back.
     """
-    from .runtime_profile import get_profile, permitted_actions
-
-    profile = get_profile(base_dir=base_dir)
-    missing = sorted(set(DELIVERY_ACTIONS) - permitted_actions(profile))
-    if missing:
-        return f"authority_absent:profile={profile}:missing={','.join(missing)}"
+    refused_authority = delivery_authority_refusal(base_dir=base_dir)
+    if refused_authority is not None:
+        return refused_authority
     workspace = Path(workspace_root).resolve()
     commands, timeout_ms = _staged_suite(proposal_id=proposal_id, base_dir=base_dir)
     try:
@@ -1058,6 +1073,7 @@ __all__ = [
     "DELIVERY_COMMIT_IDENTITY_SECONDS",
     "DELIVERY_RESULT_ADMISSIBLE_SECONDS",
     "DELIVERY_ACTIONS",
+    "delivery_authority_refusal",
     "HOST_STAGES",
     "PRE_PR_OPEN_STAGE",
     "RESULT_ADMISSIBLE_STAGE",

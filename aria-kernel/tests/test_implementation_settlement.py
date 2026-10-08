@@ -1,18 +1,20 @@
-"""ARIA-HIGH-388 — every implementation request ends on the plan ledger.
+"""ARIA-HIGH-388 — every implementation request ends on the plan ledger, with a verified fault.
 
 Measured 2026-10-08: ``AIR-aria-implementer-e056f97fe09b`` was refused by its
 agent; the executor wrote HUMAN_REQUIRED and a claim release and nothing else,
 so its plan sat IMPLEMENTATION_REQUESTED until the orphan reaper relabelled it
 unattributable, and ``memory/procedural`` never held one implementer episode.
-Pinned here:
+That refusal (``safety``) was the HOST's missing git identity. Pinned here:
 
-* the stage → (class, fault domain) table covers every request-class delivery
-  stage and only those, with classes the validator accepts;
-* an agent refusal and a delivery refusal settle the plan with their class,
-  stage, fault domain and request, once (a second settle is reported);
-* the settled event reaches the scorecard (attributed only when the change
-  was the implementer's) and the loop guard's lane-fault rule;
-* a store fault while settling is a row, never an exception in the executor.
+* a fault is ``request`` only where the kernel verifies the cause from the
+  refusal's own reason; a stage alone, and an agent's word, are not enough;
+* only a ``request`` fault cools the finding off; ``harness`` and
+  ``unclassified`` never do, and only a verified class blames the implementer;
+* settling is once, decided under the plan lock (a reaper or a second settle
+  first is ``already_settled``); a lock or store fault is a row; a
+  programming error raises;
+* an implementation request is never handed out without the delivery's
+  authority or after its plan ended (before any claim, mint or lease).
 """
 from __future__ import annotations
 
@@ -21,11 +23,13 @@ import unittest
 from unittest import mock
 
 from aria_kernel import convergence_drainer as cd
-from aria_kernel.implementation_delivery import DELIVERY_STAGES, HOST_STAGES
 from aria_kernel.implementation_rejections import (
-    DELIVERY_STAGE_SETTLEMENT,
+    AGENT_GATE_BLOCKERS,
+    IMPLEMENTATION_DELIVERY_UNCLASSIFIED,
     IMPLEMENTER_REFUSED,
+    PRE_SPAWN_SETTLEMENT,
     VALID_IMPLEMENTATION_REJECTION_CLASSES,
+    settlement_for_delivery,
 )
 from aria_kernel.implementation_settlement import (
     ALREADY_SETTLED,
@@ -35,27 +39,53 @@ from aria_kernel.implementation_settlement import (
     SETTLEMENT_FAILED_KIND,
     settle_agent_refusal,
     settle_delivery_refusal,
+    settle_pre_spawn_refusal,
 )
 from aria_kernel.ledger import load_jsonl
-from aria_kernel.plan_convergence import events_path, plan_status
+from aria_kernel.outage_attribution import failure_is_lane_fault
+from aria_kernel.plan_convergence import events_path
 from aria_kernel.release_reason import FAULT_DOMAINS
 from tests.test_executor_event_driven_planning import _PlanCase
 
 _VERIFY = "aria_kernel.round_independence.verify_independence"
 
 
-class SettlementTableIsComplete(unittest.TestCase):
-    def test_every_request_class_stage_and_no_host_stage_is_settled(self) -> None:
-        self.assertEqual(set(DELIVERY_STAGE_SETTLEMENT), set(DELIVERY_STAGES) - set(HOST_STAGES))
-        for stage, (rejection_class, fault_domain) in DELIVERY_STAGE_SETTLEMENT.items():
-            self.assertIn(rejection_class, VALID_IMPLEMENTATION_REJECTION_CLASSES, stage)
-            self.assertIn(fault_domain, FAULT_DOMAINS, stage)
-        self.assertIn(IMPLEMENTER_REFUSED, VALID_IMPLEMENTATION_REJECTION_CLASSES)
+class SettlementIsDecidedByTheVerifiedCause(unittest.TestCase):
+    def test_a_stage_alone_never_makes_a_request_fault(self) -> None:
+        # The causes the adversarial review found settled `request` by stage.
+        for stage, reason in (
+            ("branch_publication", "branch_has_no_commit"), ("branch_publication", "publication_missing"),
+            ("change_ledger", "diff_unresolvable:fatal"), ("result_admissible", "judgment_refused:GovernanceError"),
+            ("apply_gate", "gate_refused:ProfileActionRefused"), ("apply_gate", "gate_blocked:validation_room_unobserved"),
+            ("change_validated", "change_validated_refused:profile_frozen"), ("commit_identity", "commit_unverified:x"),
+            ("pre_pr_open", "pre_pr_open_refused:x"), ("result_admissible", "result_rejected:response_schema:reasons=1:x"),
+        ):
+            settled = settlement_for_delivery(stage=stage, reason=reason, request_id="AIR-1")
+            self.assertEqual((settled.rejection_class, settled.fault_domain),
+                             (IMPLEMENTATION_DELIVERY_UNCLASSIFIED, "unclassified"), (stage, reason))
 
-    def test_a_host_stage_is_never_settled(self) -> None:
-        for stage in HOST_STAGES:
-            with self.assertRaises(ValueError):
-                settle_delivery_refusal(request_id="AIR-x", stage=stage, base_dir=None)
+    def test_the_verified_causes(self) -> None:
+        for stage, reason, expected in (
+            ("change_ledger", "change_committed_refused:scope_drift_requires_human: x", ("forbidden_scope_violation", "request")),
+            ("result_admissible", "diff_secret_shaped:x", ("secret_leak_detected", "request")),
+            ("result_admissible", "result_rejected:agent_evidence_line_out_of_range:reasons=1:x",
+             ("implementation_result_inadmissible", "request")),
+            ("apply_gate", "gate_blocked:" + ",".join(sorted(AGENT_GATE_BLOCKERS)), ("validation_failed", "request")),
+            ("push", "push_failed:rc=128:x", ("push_refused", "harness")),
+            ("pr_open", "pr_open_refused:x", ("pr_open_refused", "harness")),
+        ):
+            settled = settlement_for_delivery(stage=stage, reason=reason, request_id="AIR-1")
+            self.assertEqual((settled.rejection_class, settled.fault_domain), expected, (stage, reason))
+            self.assertIn(settled.rejection_class, VALID_IMPLEMENTATION_REJECTION_CLASSES)
+            self.assertIn(settled.fault_domain, FAULT_DOMAINS)
+        for rejection_class, domain in PRE_SPAWN_SETTLEMENT.values():
+            self.assertIn(rejection_class, VALID_IMPLEMENTATION_REJECTION_CLASSES)
+            self.assertIn(domain, FAULT_DOMAINS)
+
+    def test_only_a_request_fault_cools_off(self) -> None:
+        for domain, cools in (("request", True), ("harness", False), ("unclassified", False)):
+            event = {"event_type": "implementation_rejected", "payload": {"rejection_class": "x", "fault_domain": domain}}
+            self.assertEqual(failure_is_lane_fault(event, waited_since=None, at=None, clock=None), not cools, domain)
 
 
 class _ImplementationRequested(_PlanCase):
@@ -98,61 +128,119 @@ class _ImplementationRequested(_PlanCase):
 
 
 class AgentRefusalSettles(_ImplementationRequested):
-    def test_the_refusal_ends_the_plan_once_with_its_class(self) -> None:
-        first = settle_agent_refusal(request_id=self.request_id, base_dir=self.tools)
+    def test_the_refusal_ends_the_plan_once_unclassified_and_cools_nothing_off(self) -> None:
+        first = settle_agent_refusal(request_id=self.request_id, reason_class="safety", base_dir=self.tools)
         self.assertEqual(first["status"], SETTLED)
         self.assertEqual(self.state(), "IMPLEMENTATION_REJECTED")
         payload = self.last_rejection()
         self.assertEqual(
-            {key: payload[key] for key in ("rejection_class", "stage", "fault_domain", "request_id")},
-            {"rejection_class": IMPLEMENTER_REFUSED, "stage": "agent_refusal",
-             "fault_domain": "request", "request_id": self.request_id},
+            {key: payload[key] for key in ("rejection_class", "stage", "fault_domain", "cause", "request_id")},
+            {"rejection_class": IMPLEMENTER_REFUSED, "stage": "agent_refusal", "fault_domain": "unclassified",
+             "cause": "safety", "request_id": self.request_id},
         )
-        again = settle_agent_refusal(request_id=self.request_id, base_dir=self.tools)
-        self.assertEqual((again["status"], again["plan_state"]), (ALREADY_SETTLED, "IMPLEMENTATION_REJECTED"))
-
-    def test_the_scorecard_records_the_episode_without_blaming_the_implementer(self) -> None:
-        settle_agent_refusal(request_id=self.request_id, base_dir=self.tools)
-        episodes = self.implementer_episodes()
-        self.assertEqual([(row["failure_mode"], row["attributable"]) for row in episodes],
+        self.assertTrue(failure_is_lane_fault({"event_type": "implementation_rejected", "payload": payload},
+                                              waited_since=None, at=None, clock=None))
+        self.assertEqual([(row["failure_mode"], row["attributable"]) for row in self.implementer_episodes()],
                          [(IMPLEMENTER_REFUSED, False)])
+        again = settle_agent_refusal(request_id=self.request_id, reason_class="safety", base_dir=self.tools)
+        self.assertEqual(again["status"], ALREADY_SETTLED)
 
     def test_a_request_of_another_role_is_not_settled(self) -> None:
         challenger = self.requests("challenger_plan")[0]["request_id"]
-        self.assertEqual(settle_agent_refusal(request_id=challenger, base_dir=self.tools)["status"],
+        self.assertEqual(settle_agent_refusal(request_id=challenger, reason_class="safety", base_dir=self.tools)["status"],
                          NOT_AN_IMPLEMENTATION)
         self.assertEqual(self.state(), "IMPLEMENTATION_REQUESTED")
 
 
 class DeliveryRefusalSettles(_ImplementationRequested):
-    def test_a_failed_gate_is_the_implementers_and_cools_the_subject(self) -> None:
-        from aria_kernel.outage_attribution import failure_is_lane_fault
-
-        settle_delivery_refusal(request_id=self.request_id, stage="apply_gate", base_dir=self.tools)
-        self.assertEqual(self.last_rejection()["rejection_class"], "validation_failed")
+    def test_a_verified_red_gate_is_the_implementers_and_cools_the_subject(self) -> None:
+        settle_delivery_refusal(request_id=self.request_id, stage="apply_gate",
+                                reason="gate_blocked:validation_regression", base_dir=self.tools)
+        payload = self.last_rejection()
+        self.assertEqual((payload["rejection_class"], payload["fault_domain"]), ("validation_failed", "request"))
         self.assertEqual([(row["failure_mode"], row["attributable"]) for row in self.implementer_episodes()],
                          [("validation_failed", True)])
-        event = {"event_type": "implementation_rejected", "payload": self.last_rejection()}
-        self.assertFalse(failure_is_lane_fault(event, waited_since=None, at=None, clock=mock.Mock()))
+        self.assertFalse(failure_is_lane_fault({"event_type": "implementation_rejected", "payload": payload},
+                                               waited_since=None, at=None, clock=None))
 
-    def test_a_refused_push_is_the_lanes_never_the_findings(self) -> None:
-        from aria_kernel.outage_attribution import failure_is_lane_fault
-
-        settle_delivery_refusal(request_id=self.request_id, stage="push", base_dir=self.tools)
+    def test_a_refused_push_is_the_lanes(self) -> None:
+        settle_delivery_refusal(request_id=self.request_id, stage="push", reason="push_failed:rc=128:x",
+                                base_dir=self.tools)
         payload = self.last_rejection()
         self.assertEqual((payload["rejection_class"], payload["fault_domain"]), ("push_refused", "harness"))
-        self.assertTrue(failure_is_lane_fault({"event_type": "implementation_rejected", "payload": payload},
-                                              waited_since=None, at=None, clock=mock.Mock()))
         self.assertEqual([row["attributable"] for row in self.implementer_episodes()], [False])
 
-    def test_a_store_fault_is_a_row_not_an_exception(self) -> None:
-        from aria_kernel.tool_registry import GovernanceError
+    def test_a_pre_spawn_collision_settles_unclassified(self) -> None:
+        settle_pre_spawn_refusal(request_id=self.request_id, release_reason="implementation_branch_collision",
+                                 base_dir=self.tools)
+        payload = self.last_rejection()
+        self.assertEqual((payload["rejection_class"], payload["fault_domain"], payload["stage"]),
+                         ("branch_collision", "unclassified", "pre_spawn"))
 
-        with mock.patch("aria_kernel.plan_convergence.record_implementation_rejected",
-                        side_effect=GovernanceError("plan lock timeout")):
-            outcome = settle_delivery_refusal(request_id=self.request_id, stage="apply_gate", base_dir=self.tools)
+    def test_a_reaper_that_got_there_first_is_already_settled_not_a_failure(self) -> None:
+        from aria_kernel.plan_convergence import record_implementation_rejected
+
+        record_implementation_rejected(plan_id="plan-1", rejection_class="orchestrator_restart_reaped_orphan",
+                                       rejected_at="2026-10-08T00:00:00Z", base_dir=self.tools)
+        outcome = settle_delivery_refusal(request_id=self.request_id, stage="push", reason="push_failed:x",
+                                          base_dir=self.tools)
+        self.assertEqual(outcome["status"], ALREADY_SETTLED)
+
+    def test_a_held_lock_is_a_row_not_an_exception(self) -> None:
+        from aria_kernel.plan_convergence import PlanLedgerLocked
+
+        with mock.patch("aria_kernel.plan_convergence.settle_implementation_rejected",
+                        side_effect=PlanLedgerLocked("plans/events.jsonl is locked")):
+            outcome = settle_delivery_refusal(request_id=self.request_id, stage="push", reason="push_failed:x",
+                                              base_dir=self.tools)
         self.assertEqual(outcome["status"], FAILED)
         kinds = [json.loads(line).get("kind") for line in
                  (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()]
         self.assertIn(SETTLEMENT_FAILED_KIND, kinds)
         self.assertEqual(self.state(), "IMPLEMENTATION_REQUESTED")
+
+    def test_a_programming_error_raises(self) -> None:
+        from aria_kernel.tool_registry import GovernanceError
+
+        with mock.patch("aria_kernel.plan_convergence.settle_implementation_rejected",
+                        side_effect=GovernanceError("implementation_rejected rejection_class must be one of")):
+            with self.assertRaises(GovernanceError):
+                settle_delivery_refusal(request_id=self.request_id, stage="push", reason="push_failed:x",
+                                        base_dir=self.tools)
+
+
+class AnUndispatchableRequestIsNeverHandedOut(_ImplementationRequested):
+    def _next(self):
+        from aria_kernel.agent_invocations import next_pending_request
+
+        return next_pending_request(role="implementation", base_dir=self.tools)
+
+    def _undispatchable_rows(self) -> list[dict]:
+        from aria_kernel.implementation_dispatch import UNDISPATCHABLE_KIND
+
+        return [json.loads(line) for line in (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()
+                if json.loads(line).get("kind") == UNDISPATCHABLE_KIND]
+
+    def test_without_the_delivery_authority_it_waits_unclaimed_and_is_disclosed_once(self) -> None:
+        self.assertIsNone(self._next())
+        self.assertIsNone(self._next())
+        rows = self._undispatchable_rows()
+        self.assertEqual([(row["details"]["request_id"], row["details"]["cause"]) for row in rows],
+                         [(self.request_id, "authority_absent")])
+
+    def test_with_the_authority_it_is_handed_out(self) -> None:
+        from tests._helpers.operator_acts import operator_set_profile
+
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
+        self.assertEqual((self._next() or {}).get("request_id"), self.request_id)
+
+    def test_after_its_plan_ended_it_is_never_handed_out(self) -> None:
+        from aria_kernel.plan_convergence import record_implementation_rejected
+        from tests._helpers.operator_acts import operator_set_profile
+
+        operator_set_profile("strict", base_dir=self.tools, scheduler_ceiling="strict")
+        record_implementation_rejected(plan_id="plan-1", rejection_class="orchestrator_restart_reaped_orphan",
+                                       rejected_at="2026-10-08T00:00:00Z", base_dir=self.tools)
+        self.assertIsNone(self._next())
+        self.assertEqual([row["details"]["cause"] for row in self._undispatchable_rows()],
+                         ["plan_not_awaiting_implementation"])

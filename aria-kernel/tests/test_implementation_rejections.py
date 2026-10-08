@@ -44,9 +44,9 @@ class ImplementationRejectionsSsotTests(unittest.TestCase):
             "commit_signature_unverified",
             # ARIA-HIGH-388 — settled executor outcomes.
             "implementer_refused",
-            "implementation_unpublished",
             "implementation_result_inadmissible",
-            "pr_perimeter_refused",
+            "implementation_delivery_unclassified",
+            "implementation_request_invalid",
             "push_refused",
             "pr_open_refused",
         }

@@ -66,3 +66,63 @@ Tests:
 - `aria-kernel/tests/test_implementation_settlement.py` (8): table completeness, settling once,
   scorecard attribution, lane fault, wrong role, store fault.
 - `aria-kernel/tests/test_delivery_authority_admission.py` (2).
+
+## Review corrections (adversarial review of `cd2166bb4`)
+
+The review said **do not merge**. Each item below is either closed on this branch or disclosed
+with its reason.
+
+1. **HIGH, closed: an agent refusal was billed to the request.**
+   - Every `agent_refused:<class>` settled `implementer_refused` / `request`, so the finding cooled
+     off for 7 days. Today's case, `safety` for a missing git identity, was the host's fault.
+   - An agent's refusal is the agent's word, which the kernel cannot verify. It now settles
+     `unclassified`. `outage_attribution.failure_is_lane_fault` cools off on a verified `request`
+     fault only.
+   - Executor test: a host-caused refusal ends the plan `unclassified`, cools nothing off and
+     blames no one.
+2. **HIGH, closed except the reaper interaction: the `authority_absent` loop.**
+   - `implementation_dispatch.implementation_dispatch_refusal` is the one dispatchability check:
+     the delivery authority, plus whether the plan still awaits an implementation.
+   - The queue's selection (`next_pending_request`) asks it before any claim. The executor asks it
+     again before the identity mint and the credential lease. A skip is disclosed once per
+     (request, cause). Nothing is minted, leased or spent.
+   - A request whose plan already ended is never handed out, so no implementer runs on a dead
+     plan.
+   - Executor test: under `standard` the request is released harness-class with no turn, no key
+     and no lease.
+   - Disclosed: a request that waits more than 24 h for authority is still reaped by the orphan
+     reaper, because the reaper ages it by wall time. The reaper's call site is in
+     `autonomy_orchestrator.py`, owned by #1863. After #1863 lands this branch rebases and routes
+     the reaper through the settlement, with the waiting cause as its fault domain.
+3. **MEDIUM, closed: a stage was taken as a verified cause.** `settlement_for_delivery` now
+   classifies by the refusal's own reason.
+   - Only these are `request`: a scope drift, a secret-shaped diff, a result rejected for
+     agent-only codes, and a gate blocked only by the agent's change.
+   - A push or PR the remote refused is `harness`.
+   - Anything else is `unclassified` (`implementation_delivery_unclassified`), which blames no one
+     and cools nothing off.
+4. **MEDIUM, disclosed: a harness fault after publication ends the plan.** Once the branch is
+   published, a retry in place collides with it (`implementation_branch_collision`). So the plan
+   ends `harness`, which never cools the finding off, and the next cycle re-plans the finding.
+   Host faults before publication (window, sandbox, credential, authority) are still released and
+   retried in place.
+5. **MEDIUM, partly closed.**
+   - The branch-collision and invalid-request pre-spawn exits now settle
+     (`PRE_SPAWN_SETTLEMENT`).
+   - The state check runs inside the plan lock (`plan_convergence.settle_implementation_rejected`),
+     so a reaper that settled first is reported `already_settled`, not `failed`.
+   - Disclosed: the reaper routing (see 2). An implementation result that the submit rejects after
+     a successful delivery is outside the settlement.
+6. **LOW, closed.**
+   - Only `PlanLedgerLocked`, `LedgerIntegrityError` and `OSError` are caught; a programming error
+     raises.
+   - The executor settles after `_refuse_dispatch`, so a raise can no longer skip it.
+   - The payload is a typed `ImplementationSettlement` written through
+     `settle_implementation_rejected`. `record_implementation_rejected` is unchanged.
+7. **Tests, closed except the reaper × authority interaction.**
+   - The six executor tests assert the class and the `fault_domain`.
+   - New executor tests cover the agent-refusal settlement and the pre-identity `authority_absent`
+     release.
+   - New unit tests cover reason classification, cool-off by domain, the lock race, a held lock, a
+     programming error, and the queue's dispatchability.
+   - The reaper × authority test lands with the reaper routing (see 2).

@@ -2052,6 +2052,11 @@ export type ChannelSeriesResponse = {
   startTime: Scalars['DateTime']['output'];
 };
 
+/** A channel source is the primary of its parameter at its point, or the backup */
+export type ChannelSourcePriority =
+  | 'BACKUP'
+  | 'PRIMARY';
+
 export type ChannelType =
   | 'AI'
   | 'DIRECT'
@@ -9194,6 +9199,12 @@ export type MeasurementMethod =
   | 'IMAGE_ANALYSIS'
   | 'MANUAL_SCALE'
   | 'SONAR';
+
+/** Where at a measurement point a source samples: representative, inlet or outlet */
+export type MeasurementPosition =
+  | 'INLET'
+  | 'OUTLET'
+  | 'REPRESENTATIVE';
 
 /** Ölçüm tipi */
 export type MeasurementType =
@@ -25484,6 +25495,8 @@ export type WaterQualityMeasurement = {
   siteId?: Maybe<Scalars['String']['output']>;
   source: WaterQualityMeasurementSource;
   summary?: Maybe<Scalars['JSON']['output']>;
+  /** System (loop) the sample was taken from */
+  systemId?: Maybe<Scalars['String']['output']>;
   tankId?: Maybe<Scalars['String']['output']>;
   temperature?: Maybe<Scalars['Float']['output']>;
   tenantId: Scalars['String']['output'];
@@ -25502,11 +25515,20 @@ export type WaterQualityMeasurementSource =
 export type WaterQualityParamEquipment = {
   /** Whether alerts are enabled for this mapping; null for a sensor channel */
   alertEnabled?: Maybe<Scalars['Boolean']['output']>;
+  /** When the source started feeding the parameter at the point */
+  boundAt: Scalars['DateTime']['output'];
+  /** Who bound it; null before tracking */
+  boundBy?: Maybe<Scalars['String']['output']>;
+  /** Channel key of a channel source */
+  channelKey?: Maybe<Scalars['String']['output']>;
   createdAt: Scalars['DateTime']['output'];
+  /** Sampling depth in metres */
+  depthM?: Maybe<Scalars['Float']['output']>;
   equipment?: Maybe<EquipmentRef>;
+  /** Non-tank water equipment point */
   equipmentId?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
-  /** Whether this parameter-equipment mapping is active */
+  /** Whether this manual source is in the entry plan */
   isActive: Scalars['Boolean']['output'];
   /** How often this parameter is monitored on the equipment; null for a sensor channel */
   monitoringFrequency?: Maybe<MonitoringFrequency>;
@@ -25514,9 +25536,23 @@ export type WaterQualityParamEquipment = {
   notes?: Maybe<Scalars['String']['output']>;
   parameterConfig: WaterQualityParameterConfig;
   parameterConfigId: Scalars['String']['output'];
-  /** Linked sensor device UUID */
+  /** Where at the point the source samples */
+  position: MeasurementPosition;
+  /** Null for a manual source */
+  priority?: Maybe<ChannelSourcePriority>;
+  /** Sensor of a channel source */
   sensorId?: Maybe<Scalars['String']['output']>;
+  /** Site point */
+  siteId?: Maybe<Scalars['ID']['output']>;
+  /** System (loop) point */
+  systemId?: Maybe<Scalars['ID']['output']>;
+  /** Tank point */
+  tankId?: Maybe<Scalars['ID']['output']>;
   tenantId: Scalars['String']['output'];
+  /** When it stopped; null while live */
+  unboundAt?: Maybe<Scalars['DateTime']['output']>;
+  /** Who or what unbound it */
+  unboundBy?: Maybe<Scalars['String']['output']>;
   updatedAt: Scalars['DateTime']['output'];
 };
 
@@ -25534,6 +25570,8 @@ export type WaterQualityParameterConfig = {
   criticalMin?: Maybe<Scalars['Float']['output']>;
   /** Value data type */
   dataType: ParameterDataType;
+  /** The measured quantity an operator declared, when the code does not say */
+  declaredQuantity?: Maybe<Scalars['String']['output']>;
   /** Display ordering */
   displayOrder: Scalars['Int']['output'];
   /** Allowed values when dataType is ENUM */
@@ -25559,6 +25597,10 @@ export type WaterQualityParameterConfig = {
   optimalMin?: Maybe<Scalars['Float']['output']>;
   /** Decimal places for number values */
   precision: Scalars['Int']['output'];
+  /** The measured quantity the parameter records: declared, else named by its code */
+  quantity?: Maybe<Scalars['String']['output']>;
+  /** When the code, unit or declared quantity last changed */
+  quantityConfiguredAt?: Maybe<Scalars['DateTime']['output']>;
   /** Species-specific threshold overrides */
   speciesLimits?: Maybe<Scalars['JSON']['output']>;
   /** Source template identifier if provisioned from template */

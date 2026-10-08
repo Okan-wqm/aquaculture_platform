@@ -7,13 +7,15 @@
  */
 import { ITenantCommand } from '@platform/cqrs';
 
+import type { MonitoringFrequency } from '../entities/water-quality-param-equipment.entity';
+
 /**
  * Payload for bulk-mapping parameters to equipment
  */
 export interface BulkMapParamsEquipmentPayload {
   equipmentId: string;
   parameterConfigIds: string[];
-  monitoringFrequency?: string;
+  monitoringFrequency?: MonitoringFrequency;
 }
 
 export class BulkMapParamsEquipmentCommand implements ITenantCommand {

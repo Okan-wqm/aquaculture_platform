@@ -23,8 +23,13 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  BeforeInsert,
+  BeforeUpdate,
 } from 'typeorm';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import type { QuantityId } from '@aquaculture/shared-contracts';
+import { parameterQuantity } from '../data/parameter-quantities';
+import { QuantityIdTransformer } from './quantity-id.transformer';
 import {
   ObjectType,
   Field,
@@ -100,6 +105,10 @@ export type SpeciesLimits = Record<string, SpeciesLimitEntry>;
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'isActive', 'displayOrder'])
 @Index(['tenantId', 'group'])
+@Index('UQ_wqpc_tenant_effective_quantity', ['tenantId', 'effectiveQuantity'], {
+  unique: true,
+  where: '"isActive" AND "effectiveQuantity" IS NOT NULL',
+})
 export class WaterQualityParameterConfig {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -125,6 +134,47 @@ export class WaterQualityParameterConfig {
   @Field({ description: 'Measurement unit, e.g. °C, mg/L, NTU' })
   @Column({ type: 'varchar', length: 30 })
   unit!: string;
+
+  // -------------------------------------------------------------------------
+  // MEASURED QUANTITY (FARM-MEDIUM-374)
+  // -------------------------------------------------------------------------
+
+  /**
+   * What an operator declared the parameter records (a registry quantity id),
+   * for a code that names a family (ammonia) or nothing. Written only by the
+   * declare/clear commands, which keep the declaration ledger.
+   */
+  @Field(() => String, {
+    nullable: true,
+    description: 'The measured quantity an operator declared, when the code does not say',
+  })
+  @Column({ type: 'varchar', length: 32, nullable: true, transformer: QuantityIdTransformer })
+  declaredQuantity!: QuantityId | null;
+
+  /**
+   * The quantity the parameter records: declared, else named by its code.
+   * Derived on every save from parameterQuantity() — never set by hand — and
+   * persisted so the database keeps one active config per quantity.
+   */
+  @Field(() => String, {
+    name: 'quantity',
+    nullable: true,
+    description: 'The measured quantity the parameter records: declared, else named by its code',
+  })
+  @Column({ type: 'varchar', length: 32, nullable: true, transformer: QuantityIdTransformer })
+  effectiveQuantity!: QuantityId | null;
+
+  /**
+   * When code, unit or declared quantity last changed — stamped by the
+   * database trigger, never by the application. Null: not since tracking
+   * began. A reader never pairs a value with a meaning newer than the value.
+   */
+  @Field(() => Date, {
+    nullable: true,
+    description: 'When the code, unit or declared quantity last changed',
+  })
+  @Column({ type: 'timestamptz', nullable: true, insert: false, update: false })
+  quantityConfiguredAt!: Date | null;
 
   @Field(() => ParameterDataType, { description: 'Value data type' })
   @Column({
@@ -241,4 +291,11 @@ export class WaterQualityParameterConfig {
   @Field()
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
+
+  /** Keeps the persisted quantity equal to what the code and declaration say, on every save. */
+  @BeforeInsert()
+  @BeforeUpdate()
+  deriveEffectiveQuantity(): void {
+    this.effectiveQuantity = parameterQuantity(this.code, this.declaredQuantity ?? null);
+  }
 }

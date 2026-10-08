@@ -27,6 +27,7 @@ import { SensorTemperatureLatest } from './entities/sensor-temperature-latest.en
 import { SensorTemperatureDaily } from './entities/sensor-temperature-daily.entity';
 import { WaterQualityParameterConfig } from './entities/water-quality-parameter-config.entity';
 import { WaterQualityParamEquipment } from './entities/water-quality-param-equipment.entity';
+import { ParameterQuantityDeclaration } from './entities/parameter-quantity-declaration.entity';
 
 // Related entities
 import { Tank } from '../tank/entities/tank.entity';
@@ -96,6 +97,7 @@ const CommandHandlers = [
       WaterQualityMeasurement,
       WaterQualityParameterConfig,
       WaterQualityParamEquipment,
+      ParameterQuantityDeclaration,
       Tank,
       Equipment,
       SensorTemperatureLatest,

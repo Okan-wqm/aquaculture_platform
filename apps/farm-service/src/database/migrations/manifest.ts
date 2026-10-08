@@ -114,6 +114,7 @@ import { AddSensorTemperatureEventId1810200000000 } from './1810200000000-AddSen
 import { LinkTankOperationToHarvestRecord1810300000000 } from './1810300000000-LinkTankOperationToHarvestRecord';
 import { RestoreFeedingAttributionQuarantineTemplate1810400000000 } from './1810400000000-RestoreFeedingAttributionQuarantineTemplate';
 import { RestoreFeedingClockLedgersInSource1810500000000 } from './1810500000000-RestoreFeedingClockLedgersInSource';
+import { ExtendParamEquipmentToChannelSources1822000000000 } from './1822000000000-ExtendParamEquipmentToChannelSources';
 
 /**
  * Canonical farm-service migration class list.
@@ -220,4 +221,5 @@ export const FARM_MIGRATIONS = [
   LinkTankOperationToHarvestRecord1810300000000,
   RestoreFeedingAttributionQuarantineTemplate1810400000000,
   RestoreFeedingClockLedgersInSource1810500000000,
+  ExtendParamEquipmentToChannelSources1822000000000,
 ] as const;

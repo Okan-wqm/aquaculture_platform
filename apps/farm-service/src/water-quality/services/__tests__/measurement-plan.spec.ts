@@ -44,7 +44,7 @@ describe('measurementPlan', () => {
 });
 
 describe('mappedCodesForUnit', () => {
-  it('reads only active mappings of the unit, inner-joined to an active config of the tenant', async () => {
+  it('reads only live sources at the unit, inner-joined to an active config of the tenant', async () => {
     const calls: Array<[string, ...unknown[]]> = [];
     const query = {
       innerJoin: (...args: unknown[]) => (calls.push(['innerJoin', ...args]), query),
@@ -62,8 +62,15 @@ describe('mappedCodesForUnit', () => {
       ['innerJoin', 'mapping.parameterConfig', 'config'],
       ['select', 'config.code', 'code'],
       ['where', 'mapping.tenantId = :tenantId', { tenantId: 'tenant-1' }],
-      ['andWhere', 'mapping.equipmentId = :unitId', { unitId: 'unit-1' }],
-      ['andWhere', 'mapping.isActive = true'],
+      // A unit is a tank point or an equipment point; a live source at it is a
+      // manual source in the plan or a bound channel. Unbound rows are history.
+      [
+        'andWhere',
+        '(mapping.tankId = :unitId OR mapping.equipmentId = :unitId)',
+        { unitId: 'unit-1' },
+      ],
+      ['andWhere', 'mapping.unboundAt IS NULL'],
+      ['andWhere', '(mapping.channelKey IS NOT NULL OR mapping.isActive = true)'],
       // A soft-deleted config (isActive false) keeps its mappings active; it must
       // not make the unit planned with no entries.
       ['andWhere', 'config.isActive = true'],

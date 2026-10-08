@@ -2722,6 +2722,17 @@ type WaterQualityParameterConfig {
   """Measurement unit, e.g. °C, mg/L, NTU"""
   unit: String!
 
+  """The measured quantity an operator declared, when the code does not say"""
+  declaredQuantity: String
+
+  """
+  The measured quantity the parameter records: declared, else named by its code
+  """
+  quantity: String
+
+  """When the code, unit or declared quantity last changed"""
+  quantityConfiguredAt: DateTime
+
   """Value data type"""
   dataType: ParameterDataType!
 
@@ -2813,9 +2824,35 @@ type WaterQualityParamEquipment {
   id: ID!
   tenantId: String!
   parameterConfigId: String!
+
+  """Site point"""
+  siteId: ID
+
+  """System (loop) point"""
+  systemId: ID
+
+  """Tank point"""
+  tankId: ID
+
+  """Non-tank water equipment point"""
   equipmentId: String
 
-  """Whether this parameter-equipment mapping is active"""
+  """Where at the point the source samples"""
+  position: MeasurementPosition!
+
+  """Sampling depth in metres"""
+  depthM: Float
+
+  """Sensor of a channel source"""
+  sensorId: String
+
+  """Channel key of a channel source"""
+  channelKey: String
+
+  """Null for a manual source"""
+  priority: ChannelSourcePriority
+
+  """Whether this manual source is in the entry plan"""
   isActive: Boolean!
 
   """
@@ -2823,18 +2860,44 @@ type WaterQualityParamEquipment {
   """
   monitoringFrequency: MonitoringFrequency
 
-  """Linked sensor device UUID"""
-  sensorId: String
-
   """Whether alerts are enabled for this mapping; null for a sensor channel"""
   alertEnabled: Boolean
 
   """Free-text notes for this mapping"""
   notes: String
+
+  """When the source started feeding the parameter at the point"""
+  boundAt: DateTime!
+
+  """Who bound it; null before tracking"""
+  boundBy: String
+
+  """When it stopped; null while live"""
+  unboundAt: DateTime
+
+  """Who or what unbound it"""
+  unboundBy: String
   parameterConfig: WaterQualityParameterConfig!
   equipment: EquipmentRef
   createdAt: DateTime!
   updatedAt: DateTime!
+}
+
+"""
+Where at a measurement point a source samples: representative, inlet or outlet
+"""
+enum MeasurementPosition {
+  REPRESENTATIVE
+  INLET
+  OUTLET
+}
+
+"""
+A channel source is the primary of its parameter at its point, or the backup
+"""
+enum ChannelSourcePriority {
+  PRIMARY
+  BACKUP
 }
 
 """Frequency at which a water quality parameter is monitored on equipment"""
@@ -2882,6 +2945,9 @@ type WaterQualityMeasurement {
   pondId: String
   siteId: String
   equipmentId: String
+
+  """System (loop) the sample was taken from"""
+  systemId: String
   measuredAt: DateTime!
   source: WaterQualityMeasurementSource!
   measuredBy: String

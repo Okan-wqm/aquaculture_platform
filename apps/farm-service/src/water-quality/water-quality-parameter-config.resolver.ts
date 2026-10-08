@@ -357,16 +357,18 @@ export class WaterQualityParameterConfigResolver {
   }
 
   /**
-   * Hard-deletes a parameter-equipment mapping
+   * Removes a line from a unit's manual-entry plan. The row is unbound, not
+   * deleted: what was planned at a unit on a past date stays answerable.
    */
   @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteParamEquipmentMapping(
     @Args('id', { type: () => ID }) id: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string },
   ): Promise<boolean> {
     this.logger.log(`Deleting param-equipment mapping ${id} for tenant ${tenantId}`);
-    return this.commandBus.execute(new DeleteParamEquipmentCommand(tenantId, id));
+    return this.commandBus.execute(new DeleteParamEquipmentCommand(tenantId, id, user.sub));
   }
 
   /**

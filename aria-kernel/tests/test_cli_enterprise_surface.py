@@ -62,6 +62,8 @@ class EnterpriseCliSurfaceTests(unittest.TestCase):
             'add_subparser(skill_genesis_sub, "approve")',
             'worker_result_submit.add_argument("--lease-token"',
             'worker_result_submit.add_argument("--allow-legacy-no-token"',
+            'add_subparser(narrative_sub, "validate")',
+            'narrative_validate.add_argument("--file", required=True)',
         ):
             self.assertIn(required, source)
 

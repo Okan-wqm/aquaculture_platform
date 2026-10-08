@@ -2,12 +2,14 @@ import { randomUUID } from 'node:crypto';
 
 import { ConfigService } from '@nestjs/config';
 import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+import { collaborator } from '@aquaculture/testing';
 import { DataSource, Repository } from 'typeorm';
 
 import { AutomationService } from '../automation/automation.service';
 import { AutomationProgram, ProgramStatus } from '../automation/entities/automation-program.entity';
 import { DeploymentLog, DeploymentStatus } from '../automation/entities/deployment-log.entity';
 import { DeploymentLogService } from '../automation/services/deployment-log.service';
+import { DeviceDirectoryService } from '../edge-device/device-directory.service';
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import {
@@ -113,6 +115,8 @@ describe('sensor-service scheduled jobs under FORCE RLS (SENSOR-MEDIUM-136)', ()
       null,
       {} as Partial<InstallerScriptService> as InstallerScriptService,
       { get: () => undefined } as Partial<ConfigService> as ConfigService,
+      // Only device creation writes routes; the stale sweep never touches it.
+      collaborator<DeviceDirectoryService>({}, 'DeviceDirectoryService'),
     );
 
     await expect(service.markStaleDevicesOffline(5)).resolves.toBe(2);

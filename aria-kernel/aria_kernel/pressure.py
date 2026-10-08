@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .pressure_evidence import require_citable_evidence, split_citable_refs
 from .runs_reader import read_runs_rows
 from .tool_health import runs_path
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
@@ -172,6 +173,11 @@ DRIFT_CLASS_BY_SOURCE = {
     "post_merge_ci": "process_health",
 }
 
+# ARIA-HIGH-384 — the code that writes discovery's COMPLETION_PROOF.json: the
+# repo evidence of a `discovery_incomplete` pressure (the proof itself is a
+# store record, so it travels as provenance).
+DISCOVERY_OWNER_PATH = "aria-kernel/aria_kernel/discovery.py"
+
 PRESSURE_STATES = {"active", "faded", "sleeping", "archived", "closed", "satisfied"}
 TERMINAL_STATES = {"closed", "satisfied"}
 DECAY_BUCKETS = (
@@ -262,7 +268,10 @@ def run_pressure(
                 pressure_type="UNKNOWN",
                 severity="high",
                 reason="discovery completion proof is incomplete",
-                evidence=[(discovery_dir / "COMPLETION_PROOF.json").as_posix()],
+                # The proof is a store record; the code that writes it is
+                # what an agent can read (ARIA-HIGH-384).
+                evidence=[DISCOVERY_OWNER_PATH],
+                provenance_refs=[(discovery_dir / "COMPLETION_PROOF.json").as_posix()],
                 occurrence_count=1,
                 candidate_tools=["discovery"],
                 recommended_action="rerun discovery and inspect missing fates",
@@ -273,6 +282,7 @@ def run_pressure(
     # migration paths in ``migration_evidence_paths``; a glob is not resolvable.
     migration_evidence_paths = fingerprint.get("migration_evidence_paths") or []
     if migration_count >= 5 and isinstance(migration_evidence_paths, list) and migration_evidence_paths:
+        migration_evidence, migration_provenance = split_citable_refs(migration_evidence_paths)
         pressures.append(
             _pressure(
                 weights=_weights,
@@ -281,7 +291,8 @@ def run_pressure(
                 pressure_type="REPETITION",
                 severity="medium",
                 reason="repository has repeated TypeORM migration surfaces",
-                evidence=list(migration_evidence_paths),
+                evidence=migration_evidence,
+                provenance_refs=migration_provenance,
                 occurrence_count=migration_count,
                 candidate_tools=["typeorm-entity-schema-adapter"],
                 recommended_action="continue TypeORM schema drift checks",
@@ -300,7 +311,7 @@ def run_pressure(
                     pressure_type="CONTRADICTION",
                     severity="high",
                     reason=f"belief is stale: {belief.get('belief_id')}",
-                    evidence=_array_of_strings(belief.get("evidence_refs")),
+                    **_citable(belief.get("evidence_refs")),
                     occurrence_count=int(belief.get("needs_revalidation_cycles", 1)),
                     candidate_tools=[],
                     recommended_action="operator review stale belief",
@@ -318,7 +329,7 @@ def run_pressure(
                     pressure_type="UNKNOWN",
                     severity="medium",
                     reason=f"belief needs revalidation: {belief.get('belief_id')}",
-                    evidence=_array_of_strings(belief.get("evidence_refs")),
+                    **_citable(belief.get("evidence_refs")),
                     occurrence_count=int(belief.get("needs_revalidation_cycles", 1)),
                     candidate_tools=[],
                     recommended_action="validate belief evidence or withdraw belief",
@@ -339,7 +350,8 @@ def run_pressure(
                 pressure_type="CONTRADICTION",
                 severity="high",
                 reason="open memory contradictions require operator attention",
-                evidence=["aria-tools/memory/contradictions.jsonl"],
+                evidence=[],
+                provenance_refs=["aria-tools/memory/contradictions.jsonl"],
                 occurrence_count=len(contradictions),
                 candidate_tools=[],
                 recommended_action="review contradiction ledger",
@@ -369,9 +381,10 @@ def run_pressure(
                     f"{', '.join(red_jobs) or 'failed checks'}"
                 ),
                 # The truthful pointer: the PR head the checks ran against.
-                # Free-form by design (pressure evidence is a lead, not the
-                # agent-envelope's admissible-evidence contract).
-                evidence=[f"pr-{red.get('pr_number')}:{red.get('head_sha') or 'HEAD'}"],
+                # A PR is where the pressure came from, not a file an agent
+                # can cite at target_sha (ARIA-HIGH-384).
+                evidence=[],
+                provenance_refs=[f"pr-{red.get('pr_number')}:{red.get('head_sha') or 'HEAD'}"],
                 occurrence_count=1,
                 candidate_tools=[],
                 recommended_action=(
@@ -402,7 +415,8 @@ def run_pressure(
                     f"#{red.get('pr_number')} ({red.get('merge_sha')}): "
                     f"{', '.join(red_jobs) or 'failed workflow runs'}"
                 ),
-                evidence=[f"pr-{red.get('pr_number')}:{red.get('merge_sha') or 'main'}"],
+                evidence=[],
+                provenance_refs=[f"pr-{red.get('pr_number')}:{red.get('merge_sha') or 'main'}"],
                 occurrence_count=1,
                 candidate_tools=[],
                 recommended_action=(
@@ -432,7 +446,8 @@ def run_pressure(
                     f"({red.get('head_ref')}, author {red.get('author')}) "
                     f"is RED in CI: {', '.join(red_jobs) or 'failed checks'}"
                 ),
-                evidence=[f"pr-{red.get('pr_number')}:{red.get('head_ref')}"],
+                evidence=[],
+                provenance_refs=[f"pr-{red.get('pr_number')}:{red.get('head_ref')}"],
                 occurrence_count=1,
                 candidate_tools=[],
                 recommended_action=(
@@ -483,7 +498,11 @@ def run_pressure(
                 pressure_type="UNKNOWN",
                 severity="critical",
                 reason=stall.summary,
-                evidence=[
+                # ARIA-HIGH-384 — the stalled stage's code is the evidence;
+                # the effectiveness ledger the counters live in is a
+                # tools-root record, so it is provenance.
+                evidence=list(stall.owner_paths),
+                provenance_refs=[
                     f"knowledge-graph/pressure-source-effectiveness.jsonl:"
                     f"{stall.source_type}"
                 ],
@@ -511,7 +530,7 @@ def run_pressure(
                     f"runtime signal ({signal.get('source')}) for "
                     f"{signal.get('service')}: {signal.get('summary')}"
                 ),
-                evidence=_array_of_strings(signal.get("code_refs")),
+                **_citable(signal.get("code_refs")),
                 occurrence_count=1,
                 candidate_tools=[],
                 recommended_action=(
@@ -540,7 +559,7 @@ def run_pressure(
                     pressure_type="CONTRADICTION",
                     severity="high",
                     reason=f"tool health violation: {run.get('tool_id')} {status}",
-                    evidence=_array_of_strings(run.get("read_paths")),
+                    **_citable(run.get("read_paths")),
                     occurrence_count=1,
                     candidate_tools=[str(run.get("tool_id"))],
                     recommended_action="inspect quarantine reason before next run",
@@ -561,7 +580,7 @@ def run_pressure(
                     pressure_type="REPETITION",
                     severity="medium",
                     reason=f"raw SHADOW findings increased for {run.get('tool_id')}: +{delta}",
-                    evidence=_array_of_strings(run.get("read_paths"))[:20],
+                    **_citable(_array_of_strings(run.get("read_paths"))[:20]),
                     occurrence_count=delta,
                     candidate_tools=[str(run.get("tool_id"))],
                     recommended_action="sample and judge increased SHADOW findings before calibration",
@@ -677,7 +696,8 @@ def _uncertainty_repeat_pressures(
                     f"uncertainty '{kind}'{subject_note} recorded {count} times "
                     "with no escalation — an advisory nobody reads is not advice"
                 ),
-                evidence=["aria-tools/memory/uncertainties.jsonl"],
+                evidence=[],
+                provenance_refs=["aria-tools/memory/uncertainties.jsonl"],
                 occurrence_count=count,
                 candidate_tools=[],
                 recommended_action=(
@@ -985,6 +1005,7 @@ def _pressure(
     tool_id: str | None = None,
     weights: dict[str, int] | None = None,
     discriminator: str | None = None,
+    provenance_refs: list[str] | None = None,
 ) -> dict[str, Any]:
     recency_decay = 1.0
     # ORPHAN-CRITICAL-733 — a source missing from the weight table used to
@@ -1002,6 +1023,12 @@ def _pressure(
             "(both tables are closed vocabularies; the drift-class parity "
             "test pins the pair)"
         )
+    # ARIA-HIGH-384 — `evidence` is what the autonomy projection hands an
+    # agent to cite, so it holds only refs the agent law can accept; where the
+    # pressure came from (a state ledger, a PR, a store file) is
+    # `provenance_refs`. Refused by name here, at construction, for every
+    # source (`pressure_evidence.require_citable_evidence`).
+    evidence = require_citable_evidence(source, evidence)
     base_weight = table[source]
     count = max(1, occurrence_count)
     raw_score = base_weight * recency_decay * (1 + math.log10(count))
@@ -1026,6 +1053,7 @@ def _pressure(
         },
         "reason": reason,
         "evidence": evidence,
+        "provenance_refs": list(provenance_refs or []),
         "candidate_tools": candidate_tools,
         "recommended_action": recommended_action,
         "belief_id": belief_id,
@@ -1176,6 +1204,17 @@ def _array_of_strings(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item) for item in value if isinstance(item, str) and item.strip()]
+
+
+def _citable(value: Any) -> dict[str, list[str]]:
+    """``evidence`` / ``provenance_refs`` for refs read off a record this module does not author.
+
+    ARIA-HIGH-384 — a belief's refs, a tool run's read paths and a runtime
+    signal's code refs are data; one the agent law cannot accept the shape of
+    stays visible on the provenance channel instead of failing the phase.
+    """
+    evidence, provenance = split_citable_refs(_array_of_strings(value))
+    return {"evidence": evidence, "provenance_refs": provenance}
 
 
 def _raw_finding_delta(run: dict[str, Any], cycle_id: str, root: Path) -> int:

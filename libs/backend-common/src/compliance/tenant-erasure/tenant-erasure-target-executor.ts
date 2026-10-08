@@ -20,6 +20,7 @@ import {
 import { MODULE_SCHEMAS } from '../../database/schema-manager.service';
 import { validateSqlIdentifier } from '../../database/sql-identifier.util';
 import { getTenantSchemaName } from '../../database/tenant-schema.utils';
+import { bindTenantRlsContext } from '../../database/tenant-transaction';
 import { LegalHoldActiveError } from '../legal-hold';
 
 import { tenantErasureFenceLockKey } from './tenant-erasure-fence';
@@ -56,11 +57,17 @@ export interface TenantErasurePostErasureHook {
   readonly hookName: string;
   /**
    * MUST be idempotent (erasure retries re-invoke it) and MUST reject on
-   * failure. Receives the transaction EntityManager so hooks that write can
-   * commit atomically with the erasure; hooks with their own persistence (e.g.
-   * an idempotent crypto-shred) may ignore it.
+   * failure. Receives the transaction EntityManager — already bound to the
+   * erased tenant's RLS context — so hooks that write can commit atomically
+   * with the erasure; hooks with their own persistence (e.g. an idempotent
+   * crypto-shred) may ignore it.
+   *
+   * Resolves to the number of rows (or keys) this run removed or destroyed.
+   * The count is folded into the proof next to the hook name, so a hook that
+   * silently matched nothing is visible in the attested material instead of
+   * hiding behind its name.
    */
-  onTenantErased(event: TenantErasureRequestedEvent, manager: EntityManager): Promise<void>;
+  onTenantErased(event: TenantErasureRequestedEvent, manager: EntityManager): Promise<number>;
 }
 
 interface TenantErasureTargetExecutorBaseOptions {
@@ -197,7 +204,9 @@ export class TenantErasureTargetExecutor {
 
   async eraseFromRequest(event: TenantErasureRequestedEvent): Promise<TenantErasureTargetResult> {
     const idempotencyKey = this.idempotencyKey(event.operationId);
-    const existingProof = await this.readExistingProof(event, this.deps.dataSource);
+    const existingProof = await this.inErasedTenantTransaction(event.tenantId, (manager) =>
+      this.readExistingProof(event, manager),
+    );
     if (existingProof) {
       this.logger.warn(
         `Tenant erasure proof already exists for operation=${event.operationId} target=${this.options.targetService}`,
@@ -231,7 +240,7 @@ export class TenantErasureTargetExecutor {
     }
 
     try {
-      return await this.deps.dataSource.transaction(async (manager) => {
+      return await this.inErasedTenantTransaction(event.tenantId, async (manager) => {
         await this.lockTenantFence(manager, event.tenantId);
         await this.lockOperation(manager, event);
         const proofAfterLock = await this.readExistingProof(event, manager);
@@ -312,6 +321,29 @@ export class TenantErasureTargetExecutor {
   }
 
   /**
+   * Every erasure transaction runs bound to the erased tenant's RLS context.
+   *
+   * Tenant erasure was a no-op under pool RLS: the NATS handler reaches the
+   * executor with no request tenant, and a pool-RLS service's checkout hook
+   * sets `app.current_tenant = ''` with bypass off. Under FORCE RLS and a
+   * NOBYPASSRLS role every DELETE, hook purge, proof read and outbox write then
+   * matched zero rows — while the proof attested the erasure. Binding the
+   * tenant transaction-locally, before anything else in the transaction runs,
+   * makes exactly that tenant's rows visible and writable for every mode and
+   * every service; bindTenantRlsContext reads the binding back and fails
+   * closed on a GUC that did not take.
+   */
+  private inErasedTenantTransaction<T>(
+    tenantId: string,
+    work: (manager: EntityManager) => Promise<T>,
+  ): Promise<T> {
+    return this.deps.dataSource.transaction(async (manager) => {
+      await bindTenantRlsContext(manager, tenantId, this.options.sourceSchema);
+      return work(manager);
+    });
+  }
+
+  /**
    * Runs the registered post-erasure hooks sequentially, returning the names of
    * the hooks that completed (folded into the proof hash).
    *
@@ -336,8 +368,12 @@ export class TenantErasureTargetExecutor {
     }
     const executed: string[] = [];
     for (const hook of hooks) {
-      await hook.onTenantErased(event, manager);
-      executed.push(hook.hookName);
+      const affected = await hook.onTenantErased(event, manager);
+      this.logger.log(
+        `action=tenant_erasure_hook hook=${hook.hookName} affected=${affected} ` +
+          `operation=${event.operationId} target=${this.options.targetService}`,
+      );
+      executed.push(`${hook.hookName}:${affected}`);
     }
     return executed;
   }
@@ -649,7 +685,7 @@ export class TenantErasureTargetExecutor {
     storedProof: TenantErasureStoredProofRow,
     idempotencyKey: string,
   ): Promise<TenantErasureTargetResult> {
-    return this.deps.dataSource.transaction((manager) =>
+    return this.inErasedTenantTransaction(event.tenantId, (manager) =>
       this.replayStoredProofInTransaction(manager, event, storedProof, idempotencyKey),
     );
   }
@@ -825,7 +861,7 @@ export class TenantErasureTargetExecutor {
     event: TenantErasureRequestedEvent,
     error: LegalHoldActiveError,
   ): Promise<void> {
-    await this.deps.dataSource.transaction(async (manager) => {
+    await this.inErasedTenantTransaction(event.tenantId, async (manager) => {
       const blockedAt = new Date().toISOString();
       const blockedEventType = tenantErasureOutcomeEventType(this.options.targetService, 'blocked');
       const blockedEvent: TenantErasureBlockedEvent = {
@@ -853,7 +889,7 @@ export class TenantErasureTargetExecutor {
     error: unknown,
     retryable: boolean,
   ): Promise<void> {
-    await this.deps.dataSource.transaction(async (manager) => {
+    await this.inErasedTenantTransaction(event.tenantId, async (manager) => {
       const failedAt = new Date().toISOString();
       const errorMessage = error instanceof Error ? error.message : String(error);
       const failureEventType = tenantErasureOutcomeEventType(this.options.targetService, 'failed');
@@ -907,7 +943,8 @@ export class TenantErasureTargetExecutor {
       perTable,
       // Hook coverage is part of the attested proof material: the hash of a
       // successful erasure binds WHICH non-deletion treatments (e.g. the
-      // stored_events crypto-shred) completed inside the same transaction.
+      // stored_events crypto-shred) completed inside the same transaction,
+      // and how many rows/keys each removed (`name:count`).
       args.executedHooks.join(','),
     ].join('|');
     return `sha256:${createHash('sha256').update(material).digest('hex')}`;

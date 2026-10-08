@@ -12,7 +12,7 @@ import { AccessLogEntity, AccessLogModule, AuditedOperationModule } from '@aquac
 import { TenantErasureTargetModule } from '@aquaculture/backend-common/compliance';
 
 import {
-  MqttAuthCacheInvalidationHook,
+  EdgeRouteDirectoryPurgeHook,
   PublishedOutboxPurgeHook,
   SensorErasureModule,
 } from './compliance/erasure/erasure.module';
@@ -361,11 +361,11 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
     }),
     SensorOutboxModule,
     TenantErasureTargetModule.forService('sensor-service', {
-      // Task 1.8: purge the tenant's PUBLISHED outbox rows + drop the MQTT
-      // auth cache entries mapping to the erased tenant, atomically with
-      // the erasure.
+      // Task 1.8: purge the tenant's PUBLISHED outbox rows, and (SENSOR-HIGH-175)
+      // its device and provisioning-key routes in `sensor`, atomically with
+      // the erasure. (MQTT auth keeps no positive device cache to drop.)
       imports: [SensorErasureModule],
-      postErasureHooks: [PublishedOutboxPurgeHook, MqttAuthCacheInvalidationHook],
+      postErasureHooks: [PublishedOutboxPurgeHook, EdgeRouteDirectoryPurgeHook],
     }),
 
     // SECURITY (CRITICAL-001): RS256 asymmetric verification via the shared

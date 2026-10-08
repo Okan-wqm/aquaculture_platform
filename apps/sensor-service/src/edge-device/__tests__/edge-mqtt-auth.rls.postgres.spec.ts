@@ -7,12 +7,19 @@ import {
   type HarnessContext,
   shutdownHarness,
 } from '@platform/migration-harness';
-import { DataSource } from 'typeorm';
+import { DataSource, type Repository } from 'typeorm';
 
 import { BackfillEdgeDeviceDirectory1822000000000 } from '../../database/migrations/1822000000000-BackfillEdgeDeviceDirectory';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+import { collaborator } from '@aquaculture/testing';
+
 import { DeviceDirectoryService } from '../device-directory.service';
+import { EdgeDeviceService } from '../edge-device.service';
+import { InstallerScriptService } from '../installer-script.service';
 import { EdgeDeviceDirectory } from '../entities/edge-device-directory.entity';
 import { DeviceLifecycleState, DeviceModel, EdgeDevice } from '../entities/edge-device.entity';
+import { DeviceIoConfig } from '../entities/device-io-config.entity';
+import { LoRaDevice } from '../entities/lora-device.entity';
 import { MqttAuthService } from '../mqtt-auth.service';
 
 /**
@@ -100,6 +107,7 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
   let runtime: DataSource | undefined;
   let auth: MqttAuthService;
   const deviceIds = new Map<string, string>();
+  const edgeServices: EdgeDeviceService[] = [];
 
   async function armRls(schema: string): Promise<void> {
     const previousDdlAuthority = process.env['DB_MIGRATE_DDL_AUTHORITY'];
@@ -229,6 +237,7 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
   });
 
   afterAll(async () => {
+    for (const service of edgeServices) service.onModuleDestroy();
     if (runtime?.isInitialized) await runtime.destroy();
     if (harness) await shutdownHarness(harness);
   });
@@ -349,6 +358,104 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
     await expect(
       auth.checkTopicAccess(REVOKED_CLIENT_ID, `tenants/${TENANT_B}/devices/${id}/telemetry`, 2),
     ).resolves.toBe(false);
+  });
+
+  /** EdgeDeviceService over the runtime role; only the tenant-boundary paths are live. */
+  function edgeDevices(): EdgeDeviceService {
+    const service = new EdgeDeviceService(
+      collaborator<Repository<EdgeDevice>>({}, 'EdgeDeviceRepository'),
+      collaborator<Repository<DeviceIoConfig>>({}, 'DeviceIoConfigRepository'),
+      collaborator<Repository<LoRaDevice>>({}, 'LoRaDeviceRepository'),
+      runtime!,
+      createScheduledJobTestExecutor().executor,
+      null,
+      collaborator<InstallerScriptService>({}, 'InstallerScriptService'),
+      new ConfigService({}),
+      new DeviceDirectoryService(runtime!),
+    );
+    edgeServices.push(service);
+    return service;
+  }
+
+  async function deviceRow(
+    tenantId: string,
+    mqttClientId: string,
+  ): Promise<{ is_online: boolean; lifecycle_state: string; cpu_usage: number | null }> {
+    const rows: Array<{ is_online: boolean; lifecycle_state: string; cpu_usage: number | null }> =
+      await admin!.query(
+        `SELECT is_online, lifecycle_state, cpu_usage
+           FROM "${getTenantSchemaName(tenantId)}".edge_devices WHERE mqtt_client_id = $1`,
+        [mqttClientId],
+      );
+    const row = rows[0];
+    if (row === undefined) throw new Error(`no seeded device ${mqttClientId}`);
+    return row;
+  }
+
+  it('records a heartbeat in the publishing tenant only (was: dropped as unknown under FORCE RLS)', async () => {
+    const service = edgeDevices();
+    const idB = deviceIds.get(CLIENT_ID)!;
+    const idA = deviceIds.get(CLIENT_ID_A)!;
+
+    const updated = await service.updateHeartbeat({
+      deviceCode: idB,
+      tenantId: TENANT_B,
+      isOnline: true,
+      cpuUsage: 42,
+    });
+    expect(updated?.id).toBe(idB);
+    expect(await deviceRow(TENANT_B, CLIENT_ID)).toMatchObject({ is_online: true, cpu_usage: 42 });
+
+    // TENANT_A's device UUID published under TENANT_B's topic resolves nothing
+    // and writes nothing.
+    await expect(
+      service.updateHeartbeat({
+        deviceCode: idA,
+        tenantId: TENANT_B,
+        isOnline: true,
+        cpuUsage: 99,
+      }),
+    ).resolves.toBeNull();
+    expect(await deviceRow(TENANT_A, CLIENT_ID_A)).toMatchObject({
+      is_online: false,
+      cpu_usage: null,
+    });
+
+    // A tenant-less (legacy) heartbeat resolves the owning tenant through the directory.
+    await expect(
+      service.updateHeartbeat({ deviceCode: idA, isOnline: true, cpuUsage: 7 }),
+    ).resolves.toMatchObject({ id: idA, tenantId: TENANT_A });
+    expect(await deviceRow(TENANT_A, CLIENT_ID_A)).toMatchObject({ is_online: true, cpu_usage: 7 });
+  });
+
+  it('marks stale in-service devices offline in every tenant, and leaves a revoked one revoked', async () => {
+    for (const [tenantId, clientId] of [
+      [TENANT_A, CLIENT_ID_A],
+      [TENANT_B, CLIENT_ID],
+      [TENANT_B, REVOKED_CLIENT_ID],
+    ] as const) {
+      await admin!.query(
+        `UPDATE "${getTenantSchemaName(tenantId)}".edge_devices
+            SET is_online = true, last_seen_at = now() - interval '10 minutes'
+          WHERE mqtt_client_id = $1`,
+        [clientId],
+      );
+    }
+
+    await expect(edgeDevices().markStaleDevicesOffline(5)).resolves.toBe(2);
+
+    expect(await deviceRow(TENANT_A, CLIENT_ID_A)).toMatchObject({
+      is_online: false,
+      lifecycle_state: 'offline',
+    });
+    expect(await deviceRow(TENANT_B, CLIENT_ID)).toMatchObject({
+      is_online: false,
+      lifecycle_state: 'offline',
+    });
+    expect(await deviceRow(TENANT_B, REVOKED_CLIENT_ID)).toMatchObject({
+      is_online: true,
+      lifecycle_state: 'revoked',
+    });
   });
 
   it('denies on a directory miss (no tenant scan), and the backfill migration restores the route', async () => {

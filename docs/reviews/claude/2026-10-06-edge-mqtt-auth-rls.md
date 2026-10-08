@@ -92,8 +92,36 @@ same PR unless noted.
    devices, a directory miss and the backfill. Each refusal is paired with an
    acceptance on the same fixture, so deny-everything fails it.
 
-Not fixed here: a suspended tenant is not checked on a directory hit; two
-concurrent activations with one token can race (provisioning.service.ts).
+Heartbeats and the stale-offline sweep were blind the same way (pooled reads
+of `"tenant_x".edge_devices`, search_path without the tenant GUC). Fixed in
+the same PR:
+
+- `updateHeartbeat` reads and writes the device inside the topic tenant's
+  `runInTenantTransaction`; a tenant-less legacy topic resolves the tenant
+  through the directory. A device UUID under another tenant's topic matches
+  nothing.
+- `markStaleDevicesOffline` runs on `forEachVerifiedTenantSchema` (active,
+  ledger-proven tenants) with `bindTenantRlsContext`, and reads the affected
+  count from a structured result (a bare `query()` never reported one).
+- `getStats` reads inside `runInTenantRead`.
+
+The real-Postgres spec proves heartbeat and sweep now see rows, only in their
+own tenant; against the previous service both cases fail.
+
+Still open, tracked:
+
+- SENSOR-HIGH-175 — tenant provisioning-key lookup is FORCE-RLS blind
+  (`tenant-key.service.ts`, pooled UNION), so self-register still fails.
+- SENSOR-MEDIUM-176 — a suspended/archived tenant's devices authenticate on a
+  directory hit.
+- SENSOR-MEDIUM-177 — two concurrent activations with one token can both
+  succeed (no `token_used_at IS NULL` claim).
+- SENSOR-MEDIUM-178 — with caches off each PUBLISH costs two transactions:
+  7.9 ms serial, ~200 ACL checks/s per instance on the test harness.
+- SENSOR-LOW-179 — lookup by `device_code` is ambiguous across tenants
+  (fails closed).
+- `bulkAddIoConfigs` uses `manager.getRepository(DeviceIoConfig)` inside an
+  unscoped `dataSource.transaction`; already tracked as ORPHAN-DIC-001.
 
 ## SENSOR-MEDIUM-174 — the broker cannot carry the auth endpoints' secret
 

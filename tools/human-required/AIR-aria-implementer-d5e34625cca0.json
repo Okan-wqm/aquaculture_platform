@@ -1,0 +1,19 @@
+{
+  "$schema": "aria/human-required/v1",
+  "context": {
+    "claim_id": "claim_8e0a0861b55c7703",
+    "code": "agent_refused:scope",
+    "kind": "executor_escalation",
+    "reason_class": "scope",
+    "reason_summary": "Key change 2's prescribed import of '@platform/shared-ui/generated/graphql-types' cannot resolve for hr-module (observed TS2307, npm run type-check exit 1), and the only admissible fix \u2014 adding the '@platform/shared-ui/*' path alias to web/modules/hr-module/tsconfig.json \u2014 lies outside this request's three-file allowed_scope.",
+    "request_id": "AIR-aria-implementer-d5e34625cca0",
+    "stage": "agent_refusal"
+  },
+  "reason": "agent_refused:scope: the agent refused the request; its summary is on the record",
+  "recorded_at": "2026-10-08T13:55:05Z",
+  "request_id": "AIR-aria-implementer-d5e34625cca0",
+  "schema_version": 1,
+  "severity": "MEDIUM",
+  "sla_deadline": "2026-10-15T13:55:05Z",
+  "status": "open"
+}

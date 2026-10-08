@@ -79,7 +79,7 @@ describe('AnalyzeSensorDataTool', () => {
 
       const humField = result.data!.detectedFields.find((f) => f.key === 'humidity');
       expect(humField).toBeDefined();
-      expect(humField!.suggestedUnit).toBe('%RH');
+      expect(humField!.suggestedUnit).toBe('%');
     });
 
     it('should detect boolean fields', async () => {
@@ -139,6 +139,9 @@ describe('AnalyzeSensorDataTool', () => {
             wind_direction: 180,
             lux: 500,
             pressure: 1013,
+            tds: 420,
+            nh3: 0.01,
+            pond_temp_c: 18,
             current_amps: 2.5,
             power_watts: 30,
             vibration: 0.5,
@@ -158,7 +161,14 @@ describe('AnalyzeSensorDataTool', () => {
       expect(fieldMap.get('wind_speed')!.suggestedUnit).toBe('m/s');
       expect(fieldMap.get('wind_direction')!.suggestedUnit).toBe('\u00b0');
       expect(fieldMap.get('lux')!.suggestedUnit).toBe('lux');
-      expect(fieldMap.get('pressure')!.suggestedUnit).toBe('hPa');
+      // Registry units: the unit sensor discovery gives the same channel key.
+      // A field named `pressure` is line pressure in bar; a weather station's
+      // barometric hPa is the key's declarable alternate, which a suggestion
+      // from the name alone cannot tell apart.
+      expect(fieldMap.get('pressure')!.suggestedUnit).toBe('bar');
+      expect(fieldMap.get('tds')!.suggestedUnit).toBe('ppm');
+      expect(fieldMap.get('nh3')!.suggestedUnit).toBe('mg/L');
+      expect(fieldMap.get('pond_temp_c')!.suggestedUnit).toBe('\u00b0C');
       expect(fieldMap.get('current_amps')!.suggestedUnit).toBe('A');
       expect(fieldMap.get('power_watts')!.suggestedUnit).toBe('W');
       expect(fieldMap.get('vibration')!.suggestedUnit).toBe('mm/s');

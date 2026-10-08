@@ -25,6 +25,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
+import { unitOfParameterCode } from '../data/parameter-quantities';
 import {
   ParameterDataType,
   ParameterGroup,
@@ -67,7 +68,7 @@ const DEFAULT_SEEDS: readonly SeedEntry[] = [
   {
     code: 'temperature',
     name: 'Temperature',
-    unit: '°C',
+    unit: unitOfParameterCode('temperature'),
     dataType: ParameterDataType.NUMBER,
     precision: 2,
     group: ParameterGroup.BASIC,
@@ -87,7 +88,7 @@ const DEFAULT_SEEDS: readonly SeedEntry[] = [
   {
     code: 'ph',
     name: 'pH',
-    unit: 'pH',
+    unit: unitOfParameterCode('ph'),
     dataType: ParameterDataType.NUMBER,
     precision: 2,
     group: ParameterGroup.BASIC,
@@ -107,7 +108,7 @@ const DEFAULT_SEEDS: readonly SeedEntry[] = [
   {
     code: 'dissolved_oxygen',
     name: 'Dissolved Oxygen',
-    unit: 'mg/L',
+    unit: unitOfParameterCode('dissolved_oxygen'),
     dataType: ParameterDataType.NUMBER,
     precision: 2,
     group: ParameterGroup.BASIC,
@@ -167,7 +168,7 @@ const DEFAULT_SEEDS: readonly SeedEntry[] = [
   {
     code: 'salinity',
     name: 'Salinity',
-    unit: 'ppt',
+    unit: unitOfParameterCode('salinity'),
     dataType: ParameterDataType.NUMBER,
     precision: 1,
     group: ParameterGroup.BASIC,
@@ -187,7 +188,7 @@ const DEFAULT_SEEDS: readonly SeedEntry[] = [
   {
     code: 'turbidity',
     name: 'Turbidity',
-    unit: 'NTU',
+    unit: unitOfParameterCode('turbidity'),
     dataType: ParameterDataType.NUMBER,
     precision: 2,
     group: ParameterGroup.BASIC,

@@ -1,3 +1,5 @@
+import { readingParameterOfChannelKey } from '@aquaculture/shared-contracts';
+
 import { SensorReadingParameter } from './sensor-events';
 
 /**
@@ -59,52 +61,22 @@ export const PARAMETER_BY_READING_FIELD: Readonly<
 );
 
 /**
- * channelKey (and its device-naming aliases) → canonical parameter. Keys are
- * lowercased. Consolidates the alias sets previously spread across the NATS
- * consumer switch and the sensor-parameter catalog.
- */
-const PARAMETER_BY_CHANNEL_KEY: Readonly<Record<string, SensorReadingParameter>> = Object.freeze({
-  temperature: 'temperature',
-  temp: 'temperature',
-  water_temperature: 'temperature',
-  water_temp: 'temperature',
-  ph: 'ph',
-  ph_level: 'ph',
-  dissolved_oxygen: 'dissolvedOxygen',
-  dissolvedoxygen: 'dissolvedOxygen',
-  do: 'dissolvedOxygen',
-  do_level: 'dissolvedOxygen',
-  oxygen: 'dissolvedOxygen',
-  o2: 'dissolvedOxygen',
-  salinity: 'salinity',
-  salt: 'salinity',
-  ammonia: 'ammonia',
-  nh3: 'ammonia',
-  nitrite: 'nitrite',
-  no2: 'nitrite',
-  nitrate: 'nitrate',
-  no3: 'nitrate',
-  turbidity: 'turbidity',
-  ntu: 'turbidity',
-  water_level: 'waterLevel',
-  waterlevel: 'waterLevel',
-  level: 'waterLevel',
-});
-
-/**
  * Resolve a device/channel key to its canonical reading parameter, or undefined
  * when the channel is outside the nine-parameter vocabulary (e.g. flow_rate, orp,
  * co2 — the types the flat event shape cannot yet carry; convergence phase ≥3
  * gives them a channel-keyed representation).
  */
 export function parameterForChannelKey(channelKey: string): SensorReadingParameter | undefined {
-  return PARAMETER_BY_CHANNEL_KEY[channelKey.toLowerCase()];
+  // The measured-quantity registry owns the device spellings and which
+  // reading parameter each lands on; own keys only, so `constructor` is
+  // not a parameter.
+  return readingParameterOfChannelKey(channelKey);
 }
 
 /**
  * The channel key to MINT for a parameter — the inverse this SSoT was missing.
  *
- * `PARAMETER_BY_CHANNEL_KEY` maps many device spellings onto one parameter,
+ * The registry maps many device spellings onto one parameter,
  * which is right for reading whatever a device calls its channel. But when the
  * platform itself creates a channel — auto-provisioning one for a reported
  * parameter that had none — it has to pick a spelling, and picking it at the

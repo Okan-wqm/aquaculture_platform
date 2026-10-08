@@ -69,7 +69,10 @@ describe('Tenant Isolation Static Analysis', () => {
       // parks a historical feeding record whose unit was occupied by nobody on
       // that date (FARM-HIGH-240). tenant_localization and feeding_job_runs do
       // NOT fan out: they are cross-tenant ledgers in farm's infrastructureTables.
-      expect(tenantTotal).toBe(197);
+      // 197 → 198: sensor's channel_quantity_declarations, the append-only ledger
+      // of what a channel was declared to measure, by whom and when
+      // (SENSOR-MEDIUM-170). Per-tenant: it is keyed by the tenant's channels.
+      expect(tenantTotal).toBe(198);
     });
 
     it('every module should have a sourceSchema', () => {
@@ -120,8 +123,9 @@ describe('Tenant Isolation Static Analysis', () => {
       // `tables` lists churn with registry completeness, not fan-out.)
       // 46 → 47: telemetry_archive_events joined the per-tenant clone list
       // (ADR-011 tenant_id rule — erasure drops the archive history with
-      // the schema).
-      expect(counts['sensor']).toBe(47);
+      // the schema). 47 → 48: channel_quantity_declarations (see the
+      // tenantTotal note above).
+      expect(counts['sensor']).toBe(48);
       // 85 → 91: feeding_protocols_v2, feeding_protocol_assignments,
       // feeding_day_plans, feeding_meals, feeding_forecast_snapshots and
       // farm_incident_media. 91 → 95: environmental scene, versioned coverage

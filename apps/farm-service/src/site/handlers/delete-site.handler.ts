@@ -160,6 +160,7 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
             ...retiredSystems.map((system) => ({ kind: 'system' as const, id: system.id })),
           ],
           userId,
+          'all',
         );
       }
 
@@ -177,6 +178,7 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
         tenantId,
         [{ kind: 'site', id: siteId }],
         userId,
+        'all',
       );
 
       await this.auditLogService.logWithManager(queryRunner.manager, {

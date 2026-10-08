@@ -155,7 +155,7 @@ export class DeleteEquipmentHandler implements ICommandHandler<DeleteEquipmentCo
     const saved = await equipmentRepository.save(equipment);
     // A deleted unit is no longer a place a parameter is measured: its
     // water-quality sources end with it, kept as history (FARM-HIGH-373, D12).
-    await closeSourcesAtPoints(queryRunner.manager, tenantId, unitPoints([saved.id]), userId);
+    await closeSourcesAtPoints(queryRunner.manager, tenantId, unitPoints([saved.id]), userId, 'all');
 
     await this.auditLogService.logWithManager(queryRunner.manager, {
       tenantId,

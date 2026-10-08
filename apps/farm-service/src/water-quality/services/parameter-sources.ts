@@ -214,15 +214,26 @@ export function unitPoints(unitIds: readonly string[]): MeasurementPoint[] {
 }
 
 /**
- * Closes every live source at these points — manual plan lines and channel
- * sources alike — in the caller's transaction: a deleted tank or system is no
- * longer a place a parameter is measured (plan D12). The rows stay as history.
+ * Which sources a point's retirement ends.
+ * - `all`: the point is gone (deleted) — its manual plan lines and its channel
+ *   sources end with it.
+ * - `channels`: the point is deactivated, not gone — its channel sources end
+ *   (a channel bound at an inactive point would keep its parameter locked with
+ *   no live read naming it), while its manual-entry plan survives for the
+ *   unit's reactivation.
+ */
+export type SourceClosure = 'all' | 'channels';
+
+/**
+ * Closes the live sources at these points that `scope` names, in the caller's
+ * transaction (plan D12). The rows stay as history.
  */
 export async function closeSourcesAtPoints(
   manager: EntityManager,
   tenantId: string,
   points: readonly MeasurementPoint[],
   unboundBy: string,
+  scope: SourceClosure,
 ): Promise<number> {
   const ids = (kind: MeasurementPointKind): string[] =>
     points.filter((point) => point.kind === kind).map((point) => point.id);
@@ -244,6 +255,7 @@ export async function closeSourcesAtPoints(
     .set({ unboundAt: () => 'statement_timestamp()', unboundBy })
     .where('"tenantId" = :tenantId', { tenantId })
     .andWhere('"unboundAt" IS NULL')
+    .andWhere(scope === 'channels' ? '"channelKey" IS NOT NULL' : 'TRUE')
     .andWhere(`(${clauses.join(' OR ')})`, byKind)
     .execute();
   return result.affected ?? 0;

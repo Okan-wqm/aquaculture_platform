@@ -309,3 +309,19 @@ source and second position at an equipment point.
   `CONCURRENT_WRITE`, `SENSOR_DIRECTORY_UNAVAILABLE`), thrown as `ParameterSourceError`
   (a `FarmAppError`), so `extensions.code` carries them; a unique violation adds the key
   columns to `extensions.context`.
+
+### Third review round
+
+- FARM-MEDIUM-009: closing every source on deactivation also ended a unit's manual-entry plan,
+  so after maintenance (deactivate, reactivate) the unit came back unplanned. Only channel
+  sources lock a parameter. `closeSourcesAtPoints` takes an explicit `SourceClosure`: `all`
+  for a deleted point (plan lines and channels end), `channels` for a deactivated one (the
+  plan survives). A spec deactivates and reactivates equipment: its plan line stays, its
+  channel source is closed.
+- The point-retirement invariant is an AST walk with the type checker
+  (`helpers/point-retirement-scan.ts`): each point write must be followed by a close inside
+  the same function, and writes are found by property and type — `x.isActive` on a point
+  entity whatever the payload is called, `Object.assign(point, payload)` with `isActive`,
+  repository `update`, `softDelete`, and raw SQL updating a point table. Objects built with
+  `new` (views mapped onto `Equipment`) are not stored points. Synthetic snippets prove each
+  shape is flagged and each legitimate one passes.

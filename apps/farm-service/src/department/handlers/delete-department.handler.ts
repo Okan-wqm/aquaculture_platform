@@ -121,6 +121,7 @@ export class DeleteDepartmentHandler implements ICommandHandler<DeleteDepartment
           tenantId,
           unitPoints([...tanks.map((tank) => tank.id), ...equipment.map((unit) => unit.id)]),
           userId,
+          'all',
         );
 
         await systemRepository.update(

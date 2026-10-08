@@ -130,6 +130,17 @@ LOOP_POLICY_BLOCK = "f_finding_loop_guards"
 # Inclusive bounds: a cap of 0 switches the source off; above one plan an hour is no cap.
 _LOOP_POLICY_BOUNDS: dict[str, tuple[int, int]] = {"max_plans_per_24h": (0, 24), "cool_off_days": (1, 365)}
 _FAILED_PLAN_EVENTS = frozenset({"implementation_rejected", "plan_abandoned"})
+# ARIA-HIGH-388 (re-review N3) — an implementation that ended with a fault the
+# kernel cannot attribute (`implementation_rejections`: `harness`,
+# `unclassified`) cools nothing off on its own: one such ending can be the
+# host's (on 2026-10-08 a missing git identity). But nothing else bounded the
+# re-plans, so a finding whose implementation always ends that way took the
+# daily F-finding slot (`max_plans_per_24h`) forever, a full P+C+CR debate
+# each time. The SECOND consecutive such ending of one subject is evidence
+# about the subject: it cools off like a failure (`SUBJECT_COOL_OFF`, cause
+# `repeated_unverified_failure`), disclosed by the guard's own refusal row.
+UNVERIFIED_FAULT_DOMAINS = frozenset({"harness", "unclassified"})
+UNVERIFIED_FAILURE_STREAK = 2
 
 
 @dataclass(frozen=True)
@@ -144,6 +155,10 @@ class PlanRecord:
     merged_at: datetime | None = None
     merge_sha: str | None = None
     failed_at: datetime | None = None
+    # ARIA-HIGH-388 — the plan's implementation ended with a SETTLED fault the
+    # kernel could not attribute to the work (`harness`, `unclassified`): not a
+    # failure of the finding, but counted (`UNVERIFIED_FAILURE_STREAK`).
+    unverified_failed_at: datetime | None = None
 
     @property
     def f_sourced(self) -> bool:
@@ -392,6 +407,8 @@ def _fold_plans(tools_root: Path, now: datetime) -> tuple[PlanRecord, ...]:
             # is re-planned once the provider is back, not after a 7-day cool-off.
             if not failure_is_lane_fault(event, waited_since=waited_since, at=at, clock=clock):
                 plans[plan_id]["failed_at"] = at
+            elif kind == "implementation_rejected" and payload.get("fault_domain") in UNVERIFIED_FAULT_DOMAINS:
+                plans[plan_id]["unverified_failed_at"] = at
     return tuple(PlanRecord(**fields) for fields in plans.values())
 
 
@@ -574,6 +591,22 @@ def _subject_outcomes(
     return causes
 
 
+def _unverified_failure_streak(own: list[PlanRecord]) -> list[PlanRecord]:
+    """The subject's most recent ENDED plans, oldest first, back to the last
+    one that ended any other way (merged, a verified failure): the consecutive
+    unattributable implementation endings."""
+    def ended_at(plan: PlanRecord) -> datetime | None:
+        return plan.unverified_failed_at or plan.failed_at or plan.merged_at
+
+    ended = sorted((plan for plan in own if ended_at(plan) is not None), key=ended_at)
+    streak: list[PlanRecord] = []
+    for plan in reversed(ended):
+        if plan.unverified_failed_at is None:
+            break
+        streak.insert(0, plan)
+    return streak
+
+
 def _subject_ids(finding_id: str, findings: Mapping[str, dict[str, Any]]) -> frozenset[str]:
     """``finding_id`` and every finding sharing its subject key (itself alone without one)."""
     from .finding_subject import finding_subject_key
@@ -620,6 +653,11 @@ def _loop_refusal(
                                             and o.merged_at > reverted for o in own):
             return SUBJECT_QUARANTINED, {"plan_id": plan.plan_id, "merge_sha": plan.merge_sha,
                                          "reverted_at": reverted.isoformat()}
+    streak = _unverified_failure_streak(own)
+    if len(streak) >= UNVERIFIED_FAILURE_STREAK and now - streak[-1].unverified_failed_at < history.cool_off:
+        return SUBJECT_COOL_OFF, {"plan_id": streak[-1].plan_id, "cause": "repeated_unverified_failure",
+                                  "plans": [plan.plan_id for plan in streak],
+                                  "until": (streak[-1].unverified_failed_at + history.cool_off).isoformat()}
     for plan in own:
         for cause, at in _subject_outcomes(plan, finding_id, findings, now):
             if now - at < history.cool_off:
@@ -715,6 +753,7 @@ __all__ = [
     "SELF_LOOP_OWN_CHANGE",
     "SELF_LOOP_WATCHDOG_RECENT",
     "SUBJECT_COOL_OFF",
+    "UNVERIFIED_FAILURE_STREAK",
     "SUBJECT_QUARANTINED",
     "WATCHDOG_RESOLUTION_STREAK",
     "FindingAdmission",

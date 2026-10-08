@@ -126,3 +126,39 @@ with its reason.
    - New unit tests cover reason classification, cool-off by domain, the lock race, a held lock, a
      programming error, and the queue's dispatchability.
    - The reaper × authority test lands with the reaper routing (see 2).
+
+## Re-review corrections (`044a4e65f`)
+
+- **N1, closed: a red baseline was blamed on the implementer.**
+  - `validation.py` sets `candidate_validation_not_green` whenever the candidate run is not ok,
+    including when the baseline was red too (a red main, a missing toolchain).
+  - A blocked gate is now the agent's fault only when a blocker proves it: `validation_regression`
+    (worse than the baseline) or `suppression_pattern` (in its own diff).
+  - `candidate_validation_not_green` alone is `unclassified`.
+- **N2, closed: under `frozen`, the selection raised on its own disclosure.**
+  - `next_pending_request` asks once whether the profile admits its records (claims and
+    governance).
+  - Under a profile that stops writes, an undispatchable request and a stale anchor are still
+    skipped, just not recorded. `agent next-pending` and the drain keep answering.
+- **N3, closed: re-plans of a subject were unbounded.**
+  - One `harness`/`unclassified` implementation ending cools nothing off; it can be the host's.
+  - The second consecutive such ending of one subject is evidence about the subject.
+    `finding_grounding` then cools the subject off (`SUBJECT_COOL_OFF`,
+    `repeated_unverified_failure`), disclosed by the guard's refusal row.
+  - A merge or a verified failure in between breaks the streak.
+  - Why a cool-off and not a quarantine: the cause is unverified. A cool-off lifts on its own once
+    the host is fixed; a quarantine needs an operator's merge.
+- **N4, closed: a request on an ended plan stayed in the queue.** `plan_request_closure` ends an
+  unheld implementation request whose plan left its implementation phase (rejected, merged,
+  abandoned, escalated) with `plan_closed`, which reads as CANCELLED.
+  - The settlement closes its plan's queue, and the pre-mint sweep closes it after a reap.
+  - CONVERGED is excluded: a request on a still-CONVERGED plan is the mint's crash window, which
+    `converged_delivery` recovers.
+- **N5, closed: a held plan lock left the plan to the reaper.** The settlement retries a held
+  lock three times, one and two seconds apart, before it records the row.
+- **Reaper, still open: waiting for #1863.** Item 2's reaper interaction and its test land after
+  #1863 is on main. The reaper's `orchestrator_restart_reaped_orphan` will then go through the
+  settlement with a fault domain.
+- **Submit refused after delivery, tracked.** A result refused after a successful delivery (the PR
+  already open) is not settled; settling it needs a decision on the open PR. Tracked as
+  ARIA-HIGH-389 (owner claude, deadline 2026-10-15).

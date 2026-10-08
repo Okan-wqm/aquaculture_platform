@@ -62,9 +62,35 @@ def _plan_of(request_id: str, base_dir: Path) -> str | None:
     return str(plan_id) if isinstance(plan_id, str) and plan_id else None
 
 
+# Re-review N5 — the plan lock is held for milliseconds by every plan writer;
+# a settlement that met it gave up and left the plan for the orphan reaper.
+# Three attempts, a second apart, cover any writer that holds it briefly.
+SETTLE_LOCK_ATTEMPTS = 3
+SETTLE_LOCK_BACKOFF_SECONDS = 1.0
+
+
+def _settle_with_bounded_retry(*, plan_id: str, settlement: ImplementationSettlement, root: Path) -> dict[str, Any]:
+    import time
+
+    from .plan_convergence import PlanLedgerLocked, settle_implementation_rejected
+
+    attempt = 1
+    while True:
+        try:
+            return settle_implementation_rejected(
+                plan_id=plan_id, settlement=settlement, base_dir=root,
+                rejected_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            )
+        except PlanLedgerLocked:
+            if attempt >= SETTLE_LOCK_ATTEMPTS:
+                raise
+            time.sleep(SETTLE_LOCK_BACKOFF_SECONDS * attempt)
+            attempt += 1
+
+
 def _settle(settlement: ImplementationSettlement, *, base_dir: Path) -> dict[str, Any]:
     from .ledger import LedgerIntegrityError
-    from .plan_convergence import PlanLedgerLocked, PlanStateRefused, settle_implementation_rejected
+    from .plan_convergence import PlanLedgerLocked, PlanStateRefused
     from .tool_registry import append_tools_governance, ensure_tools_dir
 
     root = ensure_tools_dir(base_dir)
@@ -74,10 +100,7 @@ def _settle(settlement: ImplementationSettlement, *, base_dir: Path) -> dict[str
         return {**outcome, "status": NOT_AN_IMPLEMENTATION}
     outcome["plan_id"] = plan_id
     try:
-        written = settle_implementation_rejected(
-            plan_id=plan_id, settlement=settlement, base_dir=root,
-            rejected_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        )
+        written = _settle_with_bounded_retry(plan_id=plan_id, settlement=settlement, root=root)
     except PlanStateRefused as refused:
         return {**outcome, "status": ALREADY_SETTLED, "detail": str(refused)[:200]}
     except (PlanLedgerLocked, LedgerIntegrityError, OSError) as exc:
@@ -92,7 +115,17 @@ def _settle(settlement: ImplementationSettlement, *, base_dir: Path) -> dict[str
         return {**outcome, "status": FAILED, "error_class": type(exc).__name__}
     # The same settlement replayed (an executor re-run) is the event already on
     # the ledger, returned by its idempotency key.
-    return {**outcome, "status": ALREADY_SETTLED if written.get("idempotent") else SETTLED}
+    if written.get("idempotent"):
+        return {**outcome, "status": ALREADY_SETTLED}
+    # The plan's other unheld implementation requests close with it
+    # (`plan_request_closure`), so no selection ever folds them again.
+    from .plan_request_closure import close_abandoned_plan_requests
+
+    try:
+        outcome["closed_requests"] = close_abandoned_plan_requests(root, plan_ids=[plan_id])
+    except (LedgerIntegrityError, OSError) as exc:
+        outcome["closed_requests_error"] = type(exc).__name__
+    return {**outcome, "status": SETTLED}
 
 
 def settle_agent_refusal(*, request_id: str, reason_class: str, base_dir: Path) -> dict[str, Any]:

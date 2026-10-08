@@ -120,12 +120,16 @@ FAULT_HARNESS = "harness"
 FAULT_UNCLASSIFIED = "unclassified"
 AGENT_REFUSAL_STAGE = "agent_refusal"
 PRE_SPAWN_STAGE = "pre_spawn"
-# Gate blockers that judge the agent's change against the baseline
-# (`validation.compare_validation_groups`, `apply_engine` suppression scan).
-# `validation_room_unobserved` is absent: an unobserved room is the host's.
-AGENT_GATE_BLOCKERS: frozenset[str] = frozenset({
-    "validation_regression", "candidate_validation_not_green", "suppression_pattern",
-})
+# Gate blockers that PROVE the agent's change is at fault: a regression
+# against the baseline the same suite measured (`validation.
+# compare_validation_groups`), and a suppression pattern in the agent's own
+# diff (`apply_engine`). `candidate_validation_not_green` alone proves
+# nothing (re-review N1): it is set whenever the candidate run is not ok,
+# including when the baseline was red too (a red main, a missing toolchain).
+# It may accompany a proving blocker; on its own the gate is unclassified.
+# `validation_room_unobserved` is the host's.
+AGENT_PROVING_GATE_BLOCKERS: frozenset[str] = frozenset({"validation_regression", "suppression_pattern"})
+AGENT_GATE_BLOCKERS: frozenset[str] = AGENT_PROVING_GATE_BLOCKERS | frozenset({"candidate_validation_not_green"})
 
 
 @dataclass(frozen=True)
@@ -149,7 +153,7 @@ def _cause(reason: str) -> str:
 
 def _gate_blockers_are_the_agents(reason: str) -> bool:
     items = {item for item in reason.split(":", 1)[1].split(",") if item}
-    return bool(items) and items <= AGENT_GATE_BLOCKERS
+    return items <= AGENT_GATE_BLOCKERS and bool(items & AGENT_PROVING_GATE_BLOCKERS)
 
 
 def _result_codes_are_the_agents(reason: str) -> bool:

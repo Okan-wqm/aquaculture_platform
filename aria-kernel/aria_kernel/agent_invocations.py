@@ -3613,6 +3613,25 @@ def next_pending_request(
     clock = provider_clock(root)
     undecided: dict[str, str] = {}
     selected: dict[str, Any] | None = None
+    # ARIA-HIGH-388 (re-review N2) — the selection's answer never depends on a
+    # write succeeding: under `frozen` (or `observe`) the profile refuses the
+    # claims and governance surfaces, and the disclosure or the durable
+    # anchor refusal raising took `agent next-pending`, and with it the whole
+    # drain, down. Asked once, only when a candidate needs a record.
+    writable: list[bool] = []
+
+    def may_record() -> bool:
+        if not writable:
+            from .runtime_profile import enforce_profile_for_write
+
+            try:
+                enforce_profile_for_write("tool_governance", base_dir=root)
+                enforce_profile_for_write("agent_claim", base_dir=root)
+                writable.append(True)
+            except GovernanceError:
+                writable.append(False)
+        return writable[0]
+
     for request in requests:
         if _target_is_shadow(root, str(request.get("target_agent") or "")) and not request.get("shadow_eval"):
             continue
@@ -3638,7 +3657,8 @@ def next_pending_request(
         # handed out: before any claim, identity mint or credential lease.
         undispatchable = implementation_dispatch_refusal(request=request, base_dir=root)
         if undispatchable is not None:
-            disclose_undispatchable(request=request, reason=undispatchable, base_dir=root)
+            if may_record():
+                disclose_undispatchable(request=request, reason=undispatchable, base_dir=root)
             continue
         if repo_root is not None:
             now = _utc_now_dt()
@@ -3651,7 +3671,10 @@ def next_pending_request(
                 max_age_seconds=_anchor_max_age_seconds(root),
             )
             if verdict.refusal is not None:
-                _record_anchor_stale(root, request, verdict.refusal, now=now)
+                # Under a profile that stops writes the refusal is not made
+                # durable; the request is still skipped (re-review N2).
+                if may_record():
+                    _record_anchor_stale(root, request, verdict.refusal, now=now)
                 continue
             if verdict.undecided is not None:
                 # Skipped, not refused: the row stays PENDING and the next

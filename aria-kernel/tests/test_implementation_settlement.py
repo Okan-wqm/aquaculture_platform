@@ -59,6 +59,9 @@ class SettlementIsDecidedByTheVerifiedCause(unittest.TestCase):
             ("apply_gate", "gate_refused:ProfileActionRefused"), ("apply_gate", "gate_blocked:validation_room_unobserved"),
             ("change_validated", "change_validated_refused:profile_frozen"), ("commit_identity", "commit_unverified:x"),
             ("pre_pr_open", "pre_pr_open_refused:x"), ("result_admissible", "result_rejected:response_schema:reasons=1:x"),
+            # Re-review N1: `candidate_validation_not_green` alone is set
+            # whenever the candidate run is not ok, a red baseline included.
+            ("apply_gate", "gate_blocked:candidate_validation_not_green"),
         ):
             settled = settlement_for_delivery(stage=stage, reason=reason, request_id="AIR-1")
             self.assertEqual((settled.rejection_class, settled.fault_domain),
@@ -71,6 +74,9 @@ class SettlementIsDecidedByTheVerifiedCause(unittest.TestCase):
             ("result_admissible", "result_rejected:agent_evidence_line_out_of_range:reasons=1:x",
              ("implementation_result_inadmissible", "request")),
             ("apply_gate", "gate_blocked:" + ",".join(sorted(AGENT_GATE_BLOCKERS)), ("validation_failed", "request")),
+            ("apply_gate", "gate_blocked:candidate_validation_not_green,validation_regression",
+             ("validation_failed", "request")),
+            ("apply_gate", "gate_blocked:suppression_pattern", ("validation_failed", "request")),
             ("push", "push_failed:rc=128:x", ("push_refused", "harness")),
             ("pr_open", "pr_open_refused:x", ("pr_open_refused", "harness")),
         ):
@@ -186,11 +192,32 @@ class DeliveryRefusalSettles(_ImplementationRequested):
                                           base_dir=self.tools)
         self.assertEqual(outcome["status"], ALREADY_SETTLED)
 
+    def test_a_lock_that_clears_within_the_bound_settles(self) -> None:
+        from aria_kernel import plan_convergence
+        from aria_kernel.plan_convergence import PlanLedgerLocked
+
+        real = plan_convergence.settle_implementation_rejected
+        calls: list[int] = []
+
+        def locked_once(**kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                raise PlanLedgerLocked("plans/events.jsonl is locked")
+            return real(**kwargs)
+
+        with mock.patch("aria_kernel.implementation_settlement.SETTLE_LOCK_BACKOFF_SECONDS", 0), \
+                mock.patch("aria_kernel.plan_convergence.settle_implementation_rejected", side_effect=locked_once):
+            outcome = settle_delivery_refusal(request_id=self.request_id, stage="push", reason="push_failed:x",
+                                              base_dir=self.tools)
+        self.assertEqual((outcome["status"], len(calls)), (SETTLED, 2))
+        self.assertEqual(self.state(), "IMPLEMENTATION_REJECTED")
+
     def test_a_held_lock_is_a_row_not_an_exception(self) -> None:
         from aria_kernel.plan_convergence import PlanLedgerLocked
 
-        with mock.patch("aria_kernel.plan_convergence.settle_implementation_rejected",
-                        side_effect=PlanLedgerLocked("plans/events.jsonl is locked")):
+        with mock.patch("aria_kernel.implementation_settlement.SETTLE_LOCK_BACKOFF_SECONDS", 0), \
+                mock.patch("aria_kernel.plan_convergence.settle_implementation_rejected",
+                           side_effect=PlanLedgerLocked("plans/events.jsonl is locked")):
             outcome = settle_delivery_refusal(request_id=self.request_id, stage="push", reason="push_failed:x",
                                               base_dir=self.tools)
         self.assertEqual(outcome["status"], FAILED)
@@ -244,3 +271,42 @@ class AnUndispatchableRequestIsNeverHandedOut(_ImplementationRequested):
         self.assertIsNone(self._next())
         self.assertEqual([row["details"]["cause"] for row in self._undispatchable_rows()],
                          ["plan_not_awaiting_implementation"])
+
+    def test_under_a_frozen_profile_the_selection_never_raises(self) -> None:
+        # Re-review N2: the disclosure's governance write under `frozen` took
+        # `agent next-pending`, and the drain, down.
+        from aria_kernel.runtime_profile import set_profile
+
+        set_profile("frozen", operator_approval_ref="test:freeze", base_dir=self.tools)
+        before = (self.tools / "governance.jsonl").read_text(encoding="utf-8")
+        self.assertIsNone(self._next())
+        self.assertEqual(self._undispatchable_rows(), [])
+        self.assertEqual((self.tools / "governance.jsonl").read_text(encoding="utf-8"), before)
+
+    def test_under_a_frozen_profile_a_stale_anchor_is_skipped_unrecorded(self) -> None:
+        from types import SimpleNamespace
+
+        from aria_kernel.agent_invocations import next_pending_request
+        from aria_kernel.runtime_profile import set_profile
+
+        set_profile("frozen", operator_approval_ref="test:freeze", base_dir=self.tools)
+        stale = SimpleNamespace(refusal="anchor_expired", undecided=None)
+        with mock.patch("aria_kernel.agent_invocations._anchor_repo_root", return_value=self.root), \
+                mock.patch("aria_kernel.agent_invocations._anchor_refusal_reason", return_value=stale):
+            self.assertIsNone(next_pending_request(role="cross_review", base_dir=self.tools))
+        claims = self.tools / "agent-invocations" / "claims.jsonl"
+        events = [json.loads(line).get("event") for line in claims.read_text(encoding="utf-8").splitlines()] \
+            if claims.exists() else []
+        self.assertNotIn("anchor_stale", events)
+
+    def test_a_settled_plan_closes_its_other_unheld_implementation_requests(self) -> None:
+        # Re-review N4: a request whose plan ended is CANCELLED, not skipped by
+        # every selection forever.
+        from aria_kernel.agent_invocations import derive_request_state
+        from aria_kernel.plan_request_closure import close_abandoned_plan_requests
+        from aria_kernel.plan_convergence import record_implementation_rejected
+
+        record_implementation_rejected(plan_id="plan-1", rejection_class="orchestrator_restart_reaped_orphan",
+                                       rejected_at="2026-10-08T00:00:00Z", base_dir=self.tools)
+        self.assertEqual(close_abandoned_plan_requests(self.tools), [self.request_id])
+        self.assertEqual(derive_request_state(request_id=self.request_id, base_dir=self.tools), "CANCELLED")

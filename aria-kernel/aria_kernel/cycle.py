@@ -25,7 +25,12 @@ from .cycle_diff import run_cycle_diff
 from .cycle_progress import emit_progress
 from .cycle_runtime_status import RUNTIME_OK, RUNTIME_DEGRADED, degraded_tool_records, non_ok_runs, runtime_status
 from .impact_graph import cycle_service_examination
-from .memory import decay_beliefs_by_head_distance, decay_stale_beliefs_by_age, update_memory
+from .memory import (
+    decay_beliefs_by_head_distance,
+    decay_beliefs_by_runtime_signals,
+    decay_stale_beliefs_by_age,
+    update_memory,
+)
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .runtime_artifacts import budget_projection, read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
@@ -1448,6 +1453,13 @@ def _phase_belief_decay(context: PhaseContext) -> dict[str, Any]:
         repo_root=context.workspace_root,
         base_dir=context.base_dir,
     )
+    # ARIA-MEDIUM-393 (Plan 028 §D's event trigger) — the world moved
+    # with no local diff: an OPEN runtime signal referencing a belief's
+    # evidence re-opens the belief through the same transition, so
+    # run_pressure surfaces it this cycle.
+    runtime_signal = decay_beliefs_by_runtime_signals(
+        cycle_id=context.cycle_id, base_dir=context.base_dir,
+    )
     # M4+M8/E8 — the belief-verdict channel's producer half. A contradiction
     # open across >= 3 distinct cycles becomes a HUMAN_REQUIRED record whose
     # resolution routes the operator's verdict back into belief confidence
@@ -1460,7 +1472,12 @@ def _phase_belief_decay(context: PhaseContext) -> dict[str, Any]:
     escalation = escalate_stuck_contradictions(
         cycle_id=context.cycle_id, base_dir=context.base_dir,
     )
-    return {**age, "head_distance_decay": head_distance, "belief_escalation": escalation}
+    return {
+        **age,
+        "head_distance_decay": head_distance,
+        "runtime_signal_decay": runtime_signal,
+        "belief_escalation": escalation,
+    }
 
 
 def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:

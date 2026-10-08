@@ -836,6 +836,137 @@ def decay_stale_beliefs_by_age(
     }
 
 
+def _normalize_ref(raw: str) -> str:
+    """Normalize an evidence/code ref for matching: strip a ``:line``
+    suffix, backslashes to slashes, drop leading ``./``."""
+    ref = str(raw).split(":", 1)[0].replace("\\", "/")
+    while ref.startswith("./"):
+        ref = ref[2:]
+    return ref
+
+
+def _refs_touch(ref_a: str, ref_b: str) -> bool:
+    """Do two normalized refs describe the same code area? Either side
+    may carry fnmatch wildcards (a belief about a CLASS of files, or a
+    signal naming an area) — the concrete side matches the glob side."""
+    if any(ch in ref_a for ch in ("*", "?", "[")):
+        if fnmatch.fnmatch(ref_b, ref_a):
+            return True
+    if any(ch in ref_b for ch in ("*", "?", "[")):
+        if fnmatch.fnmatch(ref_a, ref_b):
+            return True
+    return ref_a == ref_b
+
+
+def decay_beliefs_by_runtime_signals(
+    *,
+    cycle_id: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """ARIA-MEDIUM-393 (Plan 028 §D's event trigger) — an OPEN runtime
+    signal referencing a belief's evidence re-opens the belief.
+
+    Age decay covers time and head-distance decay covers other people's
+    commits; neither covers the world moving with no local diff. A
+    runtime signal (Sentry error, incident lead, log anomaly — ingested
+    through runtime_signal_bridge as an UNVERIFIED external lead) whose
+    code_refs touch a supported belief's evidence_refs moves that belief
+    to ``needs_revalidation`` through the same in-row transition the
+    other decay paths use, so run_pressure surfaces it with zero new
+    plumbing.
+
+    Matching reuses the evidence normalization (``:line`` suffix,
+    backslash, ``./``) and accepts fnmatch globs on either side — a
+    code_ref is a free-form area string, not a guaranteed path. Refs
+    that match nothing are REPORTED (``unmatched_refs``), never silent:
+    a signal nobody's beliefs speak to is an observation gap, not a
+    zero. Only OPEN signals decay; resolution is the signal lane's own
+    lifecycle.
+    """
+    from .runtime_signal_bridge import load_open_runtime_signals
+
+    root = ensure_tools_dir(base_dir)
+    signals = load_open_runtime_signals(base_dir=root)
+    if not signals:
+        return {
+            "schema_version": 1, "cycle_id": cycle_id,
+            "signal_count": 0, "decayed_count": 0, "decayed": [],
+            "unmatched_refs": [],
+        }
+    normalized_signals = [
+        {
+            "signal_id": str(s.get("signal_id") or ""),
+            "source": str(s.get("source") or ""),
+            "refs": [_normalize_ref(r) for r in (s.get("code_refs") or []) if str(r).strip()],
+        }
+        for s in signals
+    ]
+    matched_refs: set[str] = set()
+    decayed: list[dict[str, Any]] = []
+    repo_state = _repo_state(root, cycle_id)
+    for belief in latest_beliefs(load_jsonl(root / "memory" / "beliefs.jsonl")):
+        if belief.get("status") != "supported":
+            continue
+        evidence = belief.get("evidence_refs") or []
+        if not evidence:
+            continue
+        hit = None
+        for signal in normalized_signals:
+            for ref in signal["refs"]:
+                if any(_refs_touch(ref, _normalize_ref(e)) for e in evidence):
+                    hit = signal
+                    matched_refs.add(ref)
+                    break
+            if hit is not None:
+                break
+        if hit is None:
+            continue
+        revalidation_cycles = int(belief.get("needs_revalidation_cycles", 0)) + 1
+        status = "stale" if revalidation_cycles >= STALE_AFTER_REVALIDATION_CYCLES else "needs_revalidation"
+        row = dict(belief)
+        row.update(
+            {
+                "status": status,
+                "confidence": _decayed_confidence(belief, status),
+                "needs_revalidation_cycles": revalidation_cycles,
+                "stale_reason": (
+                    f"open runtime signal references belief evidence "
+                    f"(runtime-signal decay, source={hit['source']}, "
+                    f"signal={hit['signal_id']})"
+                ),
+                "verification_status": "needs_revalidation",
+            },
+        )
+        _stamp_belief_freshness(
+            row,
+            cycle_id=cycle_id,
+            repo_state=repo_state,
+            status=status,
+            prior_verified_at=belief.get("verified_at"),
+        )
+        append_jsonl(root / "memory" / "beliefs.jsonl", row)
+        decayed.append({
+            "belief_id": belief.get("belief_id"),
+            "signal_id": hit["signal_id"],
+            "source": hit["source"],
+            "status": status,
+        })
+    unmatched = sorted({
+        ref
+        for signal in normalized_signals
+        for ref in signal["refs"]
+        if ref not in matched_refs
+    })
+    return {
+        "schema_version": 1,
+        "cycle_id": cycle_id,
+        "signal_count": len(normalized_signals),
+        "decayed_count": len(decayed),
+        "decayed": decayed,
+        "unmatched_refs": unmatched,
+    }
+
+
 def _changed_files_since(repo_root: Path, base_sha: str) -> list[str] | None:
     """git diff --name-only base_sha..HEAD, or None if the range is unusable."""
     import subprocess

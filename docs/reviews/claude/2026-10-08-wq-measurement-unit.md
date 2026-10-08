@@ -24,7 +24,7 @@ equipment.
 - **The site check read only `tankId`.** An equipment-only submission had no
   site, so a MODULE_USER was denied.
 
-### Fix
+### Fix: one classifier and one plan
 
 - **One unit classifier** (`measurement-unit.ts`). `resolveMeasurementUnit`
   finds the active unit, classifies it as tank or equipment, and resolves its
@@ -122,7 +122,7 @@ Postgres folded them to lowercase. Run on Postgres 16, the generated SQL failed 
 latest.tankid does not exist`: the widget has never returned a row. The mocked unit specs
 were green because a mocked EntityManager returns whatever it is handed.
 
-### Fix
+### Fix: the latest row per unit
 
 - The join quotes `"latest"."unitId"` and `"latest"."maxDate"` and keys on the unit (above).
 - `unit-readers.postgres.spec.ts` (integration lane, Testcontainers) runs the critical list,

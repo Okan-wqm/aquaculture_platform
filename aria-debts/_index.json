@@ -1,7 +1,7 @@
 {
   "debts": [
     {
-      "current_status": "OPEN",
+      "current_status": "RESOLVED",
       "debt_id": "DEBT-2026-05-07-001",
       "due_date": "2026-07-06T07:37:04Z",
       "originating_finding_id": "F-001",

@@ -6,12 +6,12 @@
  * TenantPayloadCryptoService.shred(): it must shred exactly the erased tenant's
  * key and propagate a shred failure so the erasure fails closed upstream.
  */
-import {
-  createBaseEvent,
-  type TenantErasureRequestedEvent,
-} from '@platform/event-contracts';
+import { createBaseEvent, type TenantErasureRequestedEvent } from '@platform/event-contracts';
+
+import { collaborator } from '@aquaculture/testing';
 
 import { StoredEventsCryptoShredHook } from '../stored-events-crypto-shred.hook';
+import { TenantPayloadCryptoService } from '../tenant-payload-crypto.service';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OPERATION = '11111111-2222-4333-8444-555555555555';
@@ -32,7 +32,7 @@ function makeRequest(): TenantErasureRequestedEvent {
 }
 
 function makeCrypto() {
-  return { shred: jest.fn(() => Promise.resolve()) };
+  return { shred: jest.fn((_tenantId: string) => Promise.resolve(true)) };
 }
 
 describe('StoredEventsCryptoShredHook', () => {
@@ -40,10 +40,23 @@ describe('StoredEventsCryptoShredHook', () => {
     const crypto = makeCrypto();
     const hook = new StoredEventsCryptoShredHook(crypto as never);
 
-    await hook.onTenantErased(makeRequest());
+    await expect(hook.onTenantErased(makeRequest())).resolves.toBe(1);
 
     expect(crypto.shred).toHaveBeenCalledTimes(1);
     expect(crypto.shred).toHaveBeenCalledWith(TENANT);
+  });
+
+  it('reports 0 destroyed keys when the key was already gone (idempotent retry)', async () => {
+    const crypto = makeCrypto();
+    crypto.shred.mockReturnValueOnce(Promise.resolve(false));
+    const hook = new StoredEventsCryptoShredHook(
+      collaborator<TenantPayloadCryptoService>(
+        { shred: crypto.shred },
+        'TenantPayloadCryptoService',
+      ),
+    );
+
+    await expect(hook.onTenantErased(makeRequest())).resolves.toBe(0);
   });
 
   it('propagates a shred failure so the erasure fails closed upstream', async () => {

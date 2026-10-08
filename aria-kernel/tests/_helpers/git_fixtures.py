@@ -121,3 +121,15 @@ def commit_files(repo: Path, files: dict[str, str], *, message: str = "fixture: 
         cwd=repo,
     )
     return _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+
+
+def implementer_identity_args() -> list[str]:
+    """``git -c`` args that commit as the kernel's implementer identity
+    (ARIA-HIGH-387): a fixture standing in for the implementer's commit on a
+    machine-approved branch must carry the identity the pre-PR-open
+    perimeter (``commit_identity_is_the_kernels``) requires, which the
+    executor's hold writes into the request worktree in production."""
+    from aria_kernel.implementation_identity import IMPLEMENTER_COMMIT_IDENTITY
+
+    return ["-c", f"user.name={IMPLEMENTER_COMMIT_IDENTITY.name}",
+            "-c", f"user.email={IMPLEMENTER_COMMIT_IDENTITY.email}"]

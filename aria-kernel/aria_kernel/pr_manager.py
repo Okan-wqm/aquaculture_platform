@@ -11,6 +11,7 @@ from typing import Any, Mapping
 from .apply_engine import list_apply_actions, verify_plan_converged_approval
 from .auto_merge import record_pr_lifecycle
 from .canonical_path import normalize_repo_relpath
+from .gh_token_factory import GitCommitIdentity
 from .github_writes import require_installation_credential, run_gh_write
 from .implementation_safety import (
     GATE_PRE_PR_OPEN,
@@ -113,7 +114,13 @@ def _branch_commits_for_action(
     base_sha: Any,
     head_sha: str,
 ) -> tuple[dict[str, str], ...] | None:
-    """The commits base_sha..head, ``{sha, subject, body}`` in branch order, or None.
+    """The commits base_sha..head, ``{sha, subject, body, author, committer}``
+    in branch order, or None.
+
+    ARIA-HIGH-387 — ``author`` / ``committer`` are read in the format
+    ``implementation_identity`` owns (``COMMIT_IDENTS_LOG_FORMAT``), so the
+    perimeter's identity check compares what git recorded with the one
+    spelling the containment probe compares too.
 
     ARIA-HIGH-104 (4) — None on any failure, for the same reason
     ``_diff_text_for_action`` returns None: ``_check_commit_contract_honoured``
@@ -121,10 +128,13 @@ def _branch_commits_for_action(
     would be judged as "no commits on branch". The record separator makes the
     parse unambiguous however many blank lines a body carries.
     """
+    from .implementation_identity import COMMIT_IDENTS_LOG_FORMAT, parse_commit_idents
+
     if not isinstance(base_sha, str) or not base_sha.strip():
         return None
     completed = subprocess.run(
-        ["git", "log", "--reverse", "--format=%H%x00%s%x00%b%x1e", f"{base_sha.strip()}..{head_sha}"],
+        ["git", "log", "--reverse", f"--format=%H%x00{COMMIT_IDENTS_LOG_FORMAT}%x00%s%x00%b%x1e",
+         f"{base_sha.strip()}..{head_sha}"],
         cwd=workspace_path,
         capture_output=True,
         text=True,
@@ -137,8 +147,9 @@ def _branch_commits_for_action(
         record = record.strip("\n")
         if not record.strip():
             continue
-        sha, subject, body = (record.split("\x00", 2) + ["", ""])[:3]
-        commits.append({"sha": sha.strip(), "subject": subject.strip(), "body": body})
+        sha, author, committer, subject, body = (record.split("\x00", 4) + ["", "", "", ""])[:5]
+        commits.append({"sha": sha.strip(), "subject": subject.strip(), "body": body,
+                        **parse_commit_idents(f"{author}\x00{committer}")})
     return tuple(commits)
 
 
@@ -160,6 +171,22 @@ def _commit_contract_for_action(
 
     body = plan_body_from_state(fold_plan_state(plan_id=plan_id, base_dir=base_dir))
     return commit_contract_for_plan(body["plan_content"], plan_id=plan_id)
+
+
+def _commit_identity_for_proposal(proposal: dict[str, Any]) -> GitCommitIdentity | None:
+    """ARIA-HIGH-387 — whose commits the branch must carry, from who approved it.
+
+    A MACHINE approval is minted in exactly one place
+    (``apply_engine.stage_converged_plan_for_pr`` → ``record_machine_approval``),
+    for the action the executor's implementer then commits on: its commits
+    are the kernel's implementer identity's and nobody else's. An operator
+    approval is a person's change, committed as that person.
+    """
+    if approval_source_of(proposal) != "machine":
+        return None
+    from .implementation_identity import IMPLEMENTER_COMMIT_IDENTITY
+
+    return IMPLEMENTER_COMMIT_IDENTITY
 
 
 def build_pr_body(
@@ -468,6 +495,9 @@ def _pr_open_inputs(
             base_sha=action.get("base_sha"),
             head_sha=resolved_head_sha,
         ),
+        # ARIA-HIGH-387 — every one of those commits authored and committed
+        # by the kernel's implementer identity, on a machine-approved action.
+        commit_identity=_commit_identity_for_proposal(proposal),
     )
 
     return _PrOpenInputs(

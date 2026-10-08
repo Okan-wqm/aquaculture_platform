@@ -1685,6 +1685,7 @@ def record_implementation_rejected(
     rejection_class: str,
     rejected_at: str,
     base_dir: str | Path | None = None,
+    settlement: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """V9.2 — emit ``implementation_rejected`` event (terminal state
     IMPLEMENTATION_REJECTED).
@@ -1694,6 +1695,12 @@ def record_implementation_rejected(
 
     rejection_class MUST be in the V9.0-B canonical set (validated
     by _validate_event on append; double-checked here for fail-fast).
+
+    ``settlement`` (ARIA-HIGH-388) — the facts the executor settled the
+    request with (``implementation_settlement``): ``request_id``, ``stage``
+    and ``fault_domain`` (``release_reason.FAULT_DOMAINS``), carried on the
+    payload so every reader of the plan ledger (the loop guard's lane-fault
+    rule, the scorecard) decides from the one terminal event.
     """
     _validate_id(plan_id, "plan_id")
     _require_non_empty(rejection_class, "rejection_class")
@@ -1701,6 +1708,7 @@ def record_implementation_rejected(
     payload = {
         "rejection_class": rejection_class,
         "rejected_at": rejected_at,
+        **{key: str(value) for key, value in (settlement or {}).items() if value},
     }
     return _mutate(
         plan_id=plan_id,

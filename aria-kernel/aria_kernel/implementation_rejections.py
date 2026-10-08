@@ -21,6 +21,16 @@ path and never flows through ``record_implementation_outcome`` validation.
 from __future__ import annotations
 
 
+# ARIA-HIGH-388 — the classes an executor-side terminal outcome settles with
+# (see ``DELIVERY_STAGE_SETTLEMENT`` below and ``implementation_settlement``).
+IMPLEMENTER_REFUSED = "implementer_refused"
+IMPLEMENTATION_UNPUBLISHED = "implementation_unpublished"
+IMPLEMENTATION_RESULT_INADMISSIBLE = "implementation_result_inadmissible"
+PR_PERIMETER_REFUSED = "pr_perimeter_refused"
+PUSH_REFUSED = "push_refused"
+PR_OPEN_REFUSED = "pr_open_refused"
+
+
 # Closed set of rejection classes accepted by
 # plan_convergence.record_implementation_outcome for IMPLEMENTATION_REJECTED rows.
 # The inline descriptions record WHERE each class is raised (provenance relocated
@@ -61,8 +71,45 @@ VALID_IMPLEMENTATION_REJECTION_CLASSES: frozenset[str] = frozenset(
         # lands; if the agent's claim was IMPLEMENTATION_IN_FLIGHT, the
         # orchestrator can reap with this canonical class.
         "commit_signature_unverified",
+        # ARIA-HIGH-388 — the executor's own terminal outcomes of an
+        # implementation request, settled onto the plan ledger
+        # (`implementation_settlement`) instead of living only in governance
+        # and HUMAN_REQUIRED rows that no learning consumer reads.
+        IMPLEMENTER_REFUSED,
+        IMPLEMENTATION_UNPUBLISHED,
+        IMPLEMENTATION_RESULT_INADMISSIBLE,
+        PR_PERIMETER_REFUSED,
+        PUSH_REFUSED,
+        PR_OPEN_REFUSED,
     }
 )
+
+
+# ARIA-HIGH-388 — where a delivery refusal is SETTLED: each request-class
+# stage of ``implementation_delivery.DELIVERY_STAGES`` maps to the rejection
+# class its plan is closed with and the fault domain that class carries
+# (``release_reason.FAULT_DOMAINS``). ``request`` means the work (the agent's
+# commit, its result, the gate its change failed) and may cool the finding's
+# subject off; ``harness`` means the lane (GitHub refused a push or a PR,
+# the kernel's commit identity) and never does
+# (``outage_attribution.failure_is_lane_fault``). Whether the IMPLEMENTER is
+# blamed is ``failure_attribution.APPLY_GATE_REJECTION_CLASSES``'s decision,
+# not this table's. The host stages (``admission``, ``credential``) are
+# absent on purpose: they are released harness-class and retried, never
+# settled (`implementation_delivery.HOST_STAGES`).
+DELIVERY_STAGE_SETTLEMENT: dict[str, tuple[str, str]] = {
+    "branch_publication": (IMPLEMENTATION_UNPUBLISHED, "request"),
+    "commit_identity": ("commit_signature_unverified", "harness"),
+    # The scope verdict on the agent's commit (`change_committed_refused`);
+    # a diff git cannot produce is rarer and is not told apart here.
+    "change_ledger": ("forbidden_scope_violation", "request"),
+    "result_admissible": (IMPLEMENTATION_RESULT_INADMISSIBLE, "request"),
+    "apply_gate": ("validation_failed", "request"),
+    "change_validated": ("validation_failed", "request"),
+    "pre_pr_open": (PR_PERIMETER_REFUSED, "request"),
+    "push": (PUSH_REFUSED, "harness"),
+    "pr_open": (PR_OPEN_REFUSED, "harness"),
+}
 
 
 # V9 auto-merge "merge path disabled" rejection class. Stamped onto a

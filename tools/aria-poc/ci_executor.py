@@ -5481,6 +5481,14 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 agent_id=agent_id, lease_token=lease_token,
                 reason=f"agent_refused:{_reason_class}",
             )
+            if request_envelope.get("role") == "implementation":
+                # ARIA-HIGH-388 — the refusal ends the PLAN too, on its own
+                # ledger: without it the plan sat IMPLEMENTATION_REQUESTED
+                # until the orphan reaper relabelled it unattributable.
+                from aria_kernel.implementation_settlement import settle_agent_refusal
+
+                _settled = settle_agent_refusal(request_id=request_id, base_dir=tools_dir)
+                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
             # Refusal is a legitimate terminal — not a build failure, and not
             # a success either: invoke_claude_cli's summary said "succeeded"
             # (the CLI ran to completion); this later terminal supersedes it
@@ -5625,6 +5633,12 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                     agent_id=agent_id, lease_token=lease_token,
                     reason=f"implementation_delivery_refused:{exc.stage}",
                 )
+                # ARIA-HIGH-388 — the plan ends with the stage's class and fault
+                # domain (`implementation_rejections.DELIVERY_STAGE_SETTLEMENT`).
+                from aria_kernel.implementation_settlement import settle_delivery_refusal
+
+                _settled = settle_delivery_refusal(request_id=request_id, stage=exc.stage, base_dir=tools_dir)
+                _stage(f"implementation_settled status={_settled['status']} class={_settled['rejection_class']}")
                 return _refuse_dispatch(
                     request=request_envelope, request_id=request_id, target_agent=subagent_type,
                     reason="implementation_delivery_refused",

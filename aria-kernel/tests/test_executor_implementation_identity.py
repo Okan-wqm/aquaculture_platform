@@ -870,6 +870,21 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
     def _plan_state(self) -> str:
         return str(self._plan_fold()["state"])
 
+    def _assert_settled(self, stage: str, rejection_class: str) -> None:
+        """ARIA-HIGH-388 — a refused delivery ends the PLAN on its own ledger,
+        with the stage's class (`implementation_rejections.DELIVERY_STAGE_SETTLEMENT`).
+        Until then the plan stayed IMPLEMENTATION_REQUESTED for the orphan
+        reaper to relabel unattributable a day later."""
+        from aria_kernel.ledger import load_jsonl
+        from aria_kernel.plan_convergence import events_path
+
+        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REJECTED")
+        rejected = [row["payload"] for row in load_jsonl(events_path(self.tools))
+                    if row.get("event_type") == "implementation_rejected" and row.get("plan_id") == self.plan_id]
+        self.assertEqual(len(rejected), 1, rejected)
+        self.assertEqual((rejected[0]["rejection_class"], rejected[0]["stage"], rejected[0]["request_id"]),
+                         (rejection_class, stage, self.request_id))
+
     def _plan_fold(self) -> dict:
         from aria_kernel.plan_convergence import fold_plan_state
 
@@ -1343,7 +1358,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(_git(["show-ref", f"refs/heads/{self.ids['branch']}"], cwd=self.remote, check=False).returncode, 1, "nothing was pushed")
         self.assertEqual([row for row in self._external_effects() if row.get("request_id") == self.request_id], [])
         self._assert_escalated_from_the_release("implementation_delivery_refused:branch_publication")
-        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REQUESTED")
+        self._assert_settled("branch_publication", "implementation_unpublished")
         self.assertFalse(Path(self.request["expected_output_path"]).exists() and "pr_url" in
                          json.loads(Path(self.request["expected_output_path"]).read_text(encoding="utf-8"))["details"]["implementation"])
 
@@ -1365,7 +1380,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(self._gh_calls(), [])
         self.assertEqual(_git(["show-ref", f"refs/heads/{self.ids['branch']}"], cwd=self.remote, check=False).returncode, 1, "nothing was pushed")
         self._assert_escalated_from_the_release("implementation_delivery_refused:apply_gate")
-        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REQUESTED")
+        self._assert_settled("apply_gate", "validation_failed")
 
     def test_a_branch_the_repository_already_holds_is_refused_before_any_turn(self) -> None:
         # ARIA-HIGH-124 — an earlier attempt published the branch: the
@@ -1589,7 +1604,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(_git(["show-ref", f"refs/heads/{self.ids['branch']}"], cwd=self.remote, check=False).returncode, 1, "nothing was pushed")
         self.assertEqual([row for row in self._external_effects() if row.get("request_id") == self.request_id], [])
         self._assert_escalated_from_the_release("implementation_delivery_refused:change_ledger")
-        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REQUESTED")
+        self._assert_settled("change_ledger", "forbidden_scope_violation")
 
     def test_an_envelope_the_kernel_would_reject_spends_no_suite_no_push_and_no_pr(self) -> None:
         # ARIA-HIGH-124 (round 5) — the same plain, signed, in-scope commit
@@ -1630,7 +1645,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(self._governance("agent_result_accepted"), [])
         self.assertEqual(self._governance("agent_bridge_warning"), [])
         self._assert_escalated_from_the_release("implementation_delivery_refused:result_admissible")
-        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REQUESTED")
+        self._assert_settled("result_admissible", "implementation_result_inadmissible")
         # The identity was retired before the delivery here too, and the
         # published (unpushed) branch is the kernel's own commit.
         self.assertEqual(self._governance(ci_executor.IMPLEMENTATION_IDENTITY_RETIRED_EVENT)[0]["details"]["keys_dir_entries"], [])
@@ -1669,7 +1684,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(self._change_committed(), [])
         self.assertEqual(self._governance("implementation_delivered"), [])
         self._assert_escalated_from_the_release("implementation_delivery_refused:apply_gate")
-        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REQUESTED")
+        self._assert_settled("apply_gate", "validation_failed")
 
     def test_a_request_whose_implementation_ids_cannot_stand_a_sandbox_is_escalated_not_retried_forever(self) -> None:
         # ARIA-HIGH-124 (round 2) — the request row names a branch that is
@@ -1737,7 +1752,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         # decision the delivery already made.
         self.assertEqual(self._governance("agent_bridge_warning"), [])
         self._assert_escalated_from_the_release("implementation_delivery_refused:commit_identity")
-        self.assertEqual(self._plan_state(), "IMPLEMENTATION_REQUESTED")
+        self._assert_settled("commit_identity", "commit_signature_unverified")
 
     def test_an_unsigned_commit_is_refused_by_name(self) -> None:
         self._install_implementer(commit_shape="unsigned")

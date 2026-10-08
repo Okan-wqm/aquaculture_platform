@@ -55,6 +55,12 @@ def failure_is_lane_fault(
     """True when the failure ``event`` records was caused by the lane, not by the work."""
     from .release_reason import parse_release_reason
 
+    # ARIA-HIGH-388 — a settled implementation outcome names its own fault
+    # domain (`implementation_rejections.DELIVERY_STAGE_SETTLEMENT`): GitHub
+    # refusing a push or a PR is the lane's, never the finding's.
+    if event.get("event_type") == "implementation_rejected" and (
+            (event.get("payload") or {}).get("fault_domain") == "harness"):
+        return True
     stall = (event.get("payload") or {}).get("stall")
     if isinstance(stall, dict):
         domain = stall.get("fault_domain") or parse_release_reason(str(stall.get("cause") or "")).fault_domain

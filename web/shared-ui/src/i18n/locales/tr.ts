@@ -804,7 +804,6 @@ export const tr: Record<MessageKey, string> = {
   'wqSource.fromLoop': 'döngüden',
   'wqSource.ui.enter': 'Gir',
   'wqSource.ui.enterField': '{field} değerini bu oturum için gir',
-  'wqSource.ui.showTrend': '{name} eğilimini göster',
   'wqSource.trendUnit': 'son 24 sa, {unit} cinsinden',
   'wqSource.dosing.NOT_A_LOOP': 'Doz döngü için hesaplanır: tankın sistemini seçin',
   'wqSource.dosing.NOT_READY': 'Burada doz yok: dozlama girdileri hazır değil',
@@ -814,11 +813,17 @@ export const tr: Record<MessageKey, string> = {
     'Çizilmedi: toksik bölgeler tanklarda okunan TAN ve H₂S ister; döngünün karbonat durumu her tankla birlikte çizilir',
   'wqSource.defaultLimits':
     'Hedefler ve toksik sınırlar hesaplayıcının varsayılanlarıdır, bu sistemin yapılandırması değil',
+  'wqSource.problem.NO_LOOP':
+    'Tank hiçbir etkin sistemde değil: döngünün alkalinitesini, kalsiyumunu ya da hacmini paylaşmaz',
+  'wqSource.problem.LOOP_AMBIGUOUS':
+    'Tank iki ya da daha fazla etkin sistemde: hangisinin suyunu tuttuğu bilinmiyor, döngü değeri kullanılmaz',
+  'wqSource.ui.selectHint': '{name} eğilimini göster',
+  'wqSource.ui.systemsReadFailed': 'Sistemler okunamadı: {error}',
+  'wqSource.ui.refreshFailedSet': '{set} girdilerinin yenilenmesi başarısız — {age} çözülmüşlerdi',
   'wqSource.ui.loadingPoint': 'Bu noktadaki değerler okunuyor…',
   'wqSource.ui.readFailed': 'Bu noktadaki değerler okunamadı: {error}',
   'wqSource.ui.outage': 'Okunamadı: çiftlik servisi yanıt vermedi ({error})',
   'wqSource.ui.resolvedAt': '{age} çözüldü',
-  'wqSource.ui.refreshFailed': 'Yenileme başarısız — gösterilen değerler {age} çözüldü',
   'wqSource.ui.chooseCalcPoint': 'Değerlerini okumak için bir sistem ya da tank seçin.',
   'wqSource.ui.inputsVerdict': '{set} girdileri: {verdict}',
   'wqSource.ui.calcHere': 'Buradaki {set} hesabı: {verdict}',

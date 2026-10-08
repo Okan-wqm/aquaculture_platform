@@ -25722,6 +25722,8 @@ export type WaterChemistryInputStatus = {
 export type WaterChemistryInputsResult = {
   asOf: Scalars['DateTime']['output'];
   inputs: Array<WaterChemistryInputStatus>;
+  /** At a tank: the live systems it belongs to — exactly one is the loop whose carbonate state and volume it shares; none or two or more (which loop is unknown) give it none. Empty at a system. */
+  loopSystemIds: Array<Scalars['ID']['output']>;
   point: MeasurementPointRef;
   problems: Array<WaterChemistrySetProblem>;
   set: WaterChemistryInputSet;

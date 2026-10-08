@@ -9,7 +9,10 @@
  *   and the loop's volume);
  * - a tank: its TOXICITY set (pH, temperature, salinity, TAN, H2S), and from
  *   its loop's DOSING set only what is the loop's — alkalinity, calcium and
- *   the volume — shown as the loop's.
+ *   the volume — shown as the loop's. The loop is the backend's
+ *   (`loopSystemIds`, the rule inheritance applies): a tank in no live system
+ *   or in two or more has none, and those fields are missing with that
+ *   reason (NO_LOOP, LOOP_AMBIGUOUS).
  *
  * Per field:
  *
@@ -33,8 +36,13 @@ import type {
 } from '../../generated/graphql-types';
 import type { WaterChemistryInputs } from '../types';
 
-import type { InputSetResult, InputStatusResult, ReadingResult } from './operations';
-import type { SourceProblemCode } from './problems';
+import {
+  loopOf,
+  type InputSetResult,
+  type InputStatusResult,
+  type ReadingResult,
+} from './operations';
+import type { LoopProblem, SourceProblemCode } from './problems';
 
 /** The measured fields of WaterChemistryInputs a resolved set can fill (the backend's EngineInput). */
 export const ENGINE_INPUT_FIELDS = [
@@ -132,7 +140,11 @@ function inputOf(set: InputSetResult, field: EngineInputField): InputStatusResul
   );
 }
 
-function uncovered(field: ResolvableField, entries: OperatorEntries): FieldProvenance {
+function uncovered(
+  field: ResolvableField,
+  entries: OperatorEntries,
+  reason: readonly SourceProblemCode[] = [],
+): FieldProvenance {
   const entered = entries[field];
   return {
     field,
@@ -142,8 +154,24 @@ function uncovered(field: ResolvableField, entries: OperatorEntries): FieldProve
     set: null,
     input: null,
     reading: null,
-    problems: [],
+    problems: entered === undefined ? reason : [],
   };
+}
+
+/**
+ * The loop set a tank may read, or why it has none. A system reads no loop
+ * (it is one); a tank reads the set passed only when the backend names
+ * exactly one live system for it.
+ */
+function usableLoop(sets: PointSets): {
+  set: InputSetResult | null;
+  reason: readonly LoopProblem[];
+} {
+  if (sets.own.set === 'DOSING') return { set: null, reason: [] };
+  const loop = loopOf(sets.own);
+  if (loop.kind === 'ambiguous') return { set: null, reason: ['LOOP_AMBIGUOUS'] };
+  if (loop.kind === 'none') return { set: null, reason: ['NO_LOOP'] };
+  return { set: sets.loop, reason: [] };
 }
 
 function measuredField(
@@ -152,16 +180,15 @@ function measuredField(
   entries: OperatorEntries,
 ): FieldProvenance {
   const own = inputOf(sets.own, field);
+  const loop = usableLoop(sets);
+  const isLoopField = LOOP_FIELDS.includes(field);
   const loopInput =
-    own === undefined && sets.loop !== null && LOOP_FIELDS.includes(field)
-      ? inputOf(sets.loop, field)
-      : undefined;
-  if (own === undefined && (loopInput === undefined || sets.loop === null)) {
-    return uncovered(field, entries);
-  }
+    own === undefined && loop.set !== null && isLoopField ? inputOf(loop.set, field) : undefined;
   const input = own === undefined ? loopInput : own;
-  const set = own === undefined ? sets.loop : sets.own;
-  if (input === undefined || set === null) return uncovered(field, entries);
+  const set = own === undefined ? loop.set : sets.own;
+  if (input === undefined || set === null) {
+    return uncovered(field, entries, own === undefined && isLoopField ? loop.reason : []);
+  }
 
   const common = {
     field,
@@ -185,13 +212,14 @@ function measuredField(
 
 function dosingSetOf(sets: PointSets): { set: InputSetResult; from: 'point' | 'loop' } | null {
   if (sets.own.set === 'DOSING') return { set: sets.own, from: 'point' };
-  if (sets.loop !== null && sets.loop.set === 'DOSING') return { set: sets.loop, from: 'loop' };
+  const loop = usableLoop(sets).set;
+  if (loop !== null && loop.set === 'DOSING') return { set: loop, from: 'loop' };
   return null;
 }
 
 function volumeField(sets: PointSets, entries: OperatorEntries): FieldProvenance {
   const dosing = dosingSetOf(sets);
-  if (dosing === null) return uncovered('volume', entries);
+  if (dosing === null) return uncovered('volume', entries, usableLoop(sets).reason);
   const common = {
     field: 'volume' as const,
     from: dosing.from,

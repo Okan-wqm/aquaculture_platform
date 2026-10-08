@@ -58,6 +58,7 @@ import {
   type SourceDatabase,
 } from './helpers/source-database';
 import {
+  seedEquipmentTank,
   seedLoop,
   seedSourceTopology,
   seedTank,
@@ -507,6 +508,23 @@ describe('water-chemistry reading — real Postgres', () => {
       from: null,
     });
     h2s(ago(5 * MINUTE));
+  });
+
+  it('names the loop a tank shares: its one live system, none at a system, unknown in two', async () => {
+    expect((await inputsAt(tankPoint(), 'TOXICITY')).loopSystemIds).toEqual([topology.systemId]);
+    expect((await inputsAt(systemPoint(), 'DOSING')).loopSystemIds).toEqual([]);
+
+    // A tank in two live loops: whose water it holds is unknown — inheritance
+    // gives it none, and the UI reads no loop for it (both say so).
+    const second = await seedLoop(ds().dataSource, TENANT, topology, 'AMB-2');
+    const shared = await seedEquipmentTank(ds().dataSource, TENANT, topology, 'AMB-TANK', [
+      topology.systemId,
+      second.systemId,
+    ]);
+    const ambiguous = await inputsAt({ kind: 'tank', id: shared }, 'TOXICITY');
+    expect([...ambiguous.loopSystemIds].sort()).toEqual(
+      [topology.systemId, second.systemId].sort(),
+    );
   });
 
   it('is INCOMPLETE at a tank whose TAN sample is older than its window, saying why', async () => {

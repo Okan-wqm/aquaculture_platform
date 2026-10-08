@@ -11,7 +11,7 @@ export * from './quantities';
 export * from './fixPaths';
 export { ProblemChips } from './ProblemChips';
 export type { ProblemChipsProps } from './ProblemChips';
-export { ParameterSourceTile, formatAge } from './ParameterSourceTile';
+export { ParameterSourceTile, formatAge, staleSetText } from './ParameterSourceTile';
 export type { ParameterSourceTileProps, SourceTrend } from './ParameterSourceTile';
 export { FieldProvenanceChip } from './FieldProvenanceChip';
 export type { FieldProvenanceChipProps } from './FieldProvenanceChip';

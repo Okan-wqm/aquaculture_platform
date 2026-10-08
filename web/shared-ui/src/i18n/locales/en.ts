@@ -808,7 +808,6 @@ export const en = {
   'wqSource.fromLoop': 'from the loop',
   'wqSource.ui.enter': 'Enter',
   'wqSource.ui.enterField': 'Enter {field} for this session',
-  'wqSource.ui.showTrend': 'Show the trend of {name}',
   'wqSource.trendUnit': 'last 24 h, in {unit}',
   'wqSource.dosing.NOT_A_LOOP': "A dose is computed for the loop: choose the tank's system",
   'wqSource.dosing.NOT_READY': 'No dose here: the dosing inputs are not ready',
@@ -818,11 +817,17 @@ export const en = {
     "Not drawn: the toxic zones need TAN and H₂S, which are read at tanks; the loop's carbonate state is drawn with each tank",
   'wqSource.defaultLimits':
     "Targets and toxic limits are the calculator defaults, not this system's configuration",
+  'wqSource.problem.NO_LOOP':
+    "The tank is in no live system: it shares no loop's alkalinity, calcium or volume",
+  'wqSource.problem.LOOP_AMBIGUOUS':
+    "The tank is in two or more live systems: whose water it holds is unknown, so no loop's values are used",
+  'wqSource.ui.selectHint': 'Show the trend of {name}',
+  'wqSource.ui.systemsReadFailed': 'The systems could not be read: {error}',
+  'wqSource.ui.refreshFailedSet': 'Refresh of the {set} inputs failed — they were resolved {age}',
   'wqSource.ui.loadingPoint': 'Reading the values at this point…',
   'wqSource.ui.readFailed': 'The values at this point could not be read: {error}',
   'wqSource.ui.outage': 'Not read: the farm service did not answer ({error})',
   'wqSource.ui.resolvedAt': 'Resolved {age}',
-  'wqSource.ui.refreshFailed': 'Refresh failed — the values shown were resolved {age}',
   'wqSource.ui.chooseCalcPoint': 'Choose a system or a tank to read its values.',
   'wqSource.ui.inputsVerdict': '{set} inputs: {verdict}',
   'wqSource.ui.calcHere': '{set} calculation here: {verdict}',

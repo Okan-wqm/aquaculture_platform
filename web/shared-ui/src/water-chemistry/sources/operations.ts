@@ -144,28 +144,6 @@ export const PARAMETER_SOURCES_AT_POINT_QUERY = `
   ${PARAMETER_SOURCE_FIELDS}
 `;
 
-/** The systems a tank belongs to — its loop is the first (a tank in no system has none). */
-export const TANK_SYSTEMS_QUERY = `
-  query WaterChemistryTankSystems($id: ID!) {
-    equipment(id: $id) {
-      id
-      systemIds
-    }
-  }
-`;
-
-export interface TankSystemsResult {
-  equipment: { id: string; systemIds: string[] | null } | null;
-}
-
-/** The loop a tank's water-chemistry reads use: its first system, null when it has none. */
-export function loopSystemOf(result: TankSystemsResult): string | null {
-  const systemIds = result.equipment === null ? null : result.equipment.systemIds;
-  if (systemIds === null) return null;
-  const [first] = systemIds;
-  return first === undefined ? null : first;
-}
-
 export type PointRefResult = Selected<MeasurementPointRef, 'kind' | 'id'>;
 
 export type SkippedCandidateResult = Selected<
@@ -211,7 +189,14 @@ export type InputStatusResult = Selected<
 /** A water-chemistry calculation's inputs at a point, resolved, and its verdict. */
 export type InputSetResult = Selected<
   WaterChemistryInputsResult,
-  'set' | 'asOf' | 'verdict' | 'problems' | 'systemType' | 'volumeM3' | 'tankWaterM3'
+  | 'set'
+  | 'asOf'
+  | 'verdict'
+  | 'problems'
+  | 'systemType'
+  | 'volumeM3'
+  | 'tankWaterM3'
+  | 'loopSystemIds'
 > & {
   readonly point: PointRefResult;
   readonly inputs: readonly InputStatusResult[];
@@ -236,6 +221,7 @@ export const WATER_CHEMISTRY_INPUTS_QUERY = `
       systemType
       volumeM3
       tankWaterM3
+      loopSystemIds
       inputs {
         engineInput
         quantity
@@ -274,3 +260,25 @@ export const WATER_CHEMISTRY_INPUTS_QUERY = `
     }
   }
 `;
+
+/**
+ * The loop a tank shares, as the backend decides it (loopSystemIds, the rule
+ * its inheritance applies): its one live system; none when it is in no live
+ * system, AMBIGUOUS in two or more (whose water it holds is unknown).
+ */
+export type TankLoop =
+  | { readonly kind: 'one'; readonly systemId: string }
+  | { readonly kind: 'none' }
+  | { readonly kind: 'ambiguous' };
+
+export function loopOf(own: InputSetResult): TankLoop {
+  const [first, ...rest] = own.loopSystemIds;
+  if (first === undefined) return { kind: 'none' };
+  return rest.length === 0 ? { kind: 'one', systemId: first } : { kind: 'ambiguous' };
+}
+
+/** A set whose last refresh failed: its values are shown as resolved at `asOf`. */
+export interface StaleSet {
+  readonly set: InputSetResult['set'];
+  readonly asOf: string;
+}

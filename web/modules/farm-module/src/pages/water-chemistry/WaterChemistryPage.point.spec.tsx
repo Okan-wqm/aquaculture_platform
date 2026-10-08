@@ -75,10 +75,6 @@ function input(
 function routes(h2sProblems: string[]): void {
   routeGraphql([
     {
-      match: 'query WaterChemistryTankSystems',
-      result: { equipment: { id: TANK, systemIds: [SYSTEM] } },
-    },
-    {
       match: 'query WaterChemistryInputs',
       result: (variables) =>
         variables !== undefined && variables.set === 'TOXICITY'
@@ -92,6 +88,7 @@ function routes(h2sProblems: string[]): void {
                 systemType: null,
                 volumeM3: null,
                 tankWaterM3: null,
+                loopSystemIds: [SYSTEM],
                 inputs: [
                   input('pH', 7.1),
                   input('tempC', 12),
@@ -111,6 +108,7 @@ function routes(h2sProblems: string[]): void {
                 systemType: 'RAS',
                 volumeM3: 120,
                 tankWaterM3: 40,
+                loopSystemIds: [],
                 inputs: [
                   input('pH', 7.3),
                   input('alkalinityMg', 110),

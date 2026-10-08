@@ -13,6 +13,7 @@ import {
   ProblemChips,
   problemFixPath,
   RESOLVABLE_FIELDS,
+  staleSetText,
   useI18n,
   type I18nContextValue,
   type ParameterSourceRow,
@@ -132,7 +133,7 @@ export function WcPointPanel({
   return (
     <section
       className={`space-y-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900 ${
-        state.status === 'ready' && state.refreshFailed ? 'opacity-70' : ''
+        state.status === 'ready' && state.stale.length > 0 ? 'opacity-70' : ''
       }`}
       aria-label={label}
       data-testid="wc-point-panel"
@@ -188,11 +189,16 @@ export function WcPointPanel({
           {t('wqSource.ui.outage', { error: state.message })}
         </p>
       )}
-      {state.status === 'ready' && state.refreshFailed && resolvedAge !== null && (
-        <p role="alert" className="text-xs text-warning-700 dark:text-warning-300">
-          {t('wqSource.ui.refreshFailed', { age: resolvedAge })}
-        </p>
-      )}
+      {state.status === 'ready' &&
+        state.stale.map((entry) => (
+          <p
+            key={entry.set}
+            role="alert"
+            className="text-xs text-warning-700 dark:text-warning-300"
+          >
+            {staleSetText(t, entry, now)}
+          </p>
+        ))}
 
       {state.status === 'ready' && (
         <div

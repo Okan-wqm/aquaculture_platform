@@ -10,8 +10,10 @@ import {
   engineRecordOf,
   type ComposedInputs,
   type EngineRecord,
+  loopOf,
   type InputSetResult,
   type PointSets,
+  type StaleSet,
 } from '@aquaculture/shared-ui';
 
 /** The part of a query result a point's state reads. */
@@ -29,8 +31,8 @@ export type PointState =
       readonly sets: PointSets;
       readonly composed: ComposedInputs;
       readonly record: EngineRecord;
-      /** The last refresh failed: the values shown are from `sets.own.asOf`. */
-      readonly refreshFailed: boolean;
+      /** Each set whose last refresh failed (its values are shown as resolved then). */
+      readonly stale: readonly StaleSet[];
     };
 
 /**
@@ -49,16 +51,26 @@ export function pointStateOf(own: SetAnswer | undefined, loop: SetAnswer | null)
   if (own === undefined || own.data === undefined || (loop !== null && loop.data === undefined)) {
     return { status: 'loading' };
   }
-  const sets: PointSets = {
-    own: own.data,
-    loop: loop === null || loop.data === undefined ? null : loop.data,
-  };
+  // The loop's set is read only for the system the backend names as the tank's one loop.
+  const tankLoop = loopOf(own.data);
+  const loopData =
+    loop === null || loop.data === undefined
+      ? null
+      : tankLoop.kind === 'one' && tankLoop.systemId === loop.data.point.id
+        ? loop.data
+        : null;
+  const sets: PointSets = { own: own.data, loop: loopData };
+  const stale: StaleSet[] = [];
+  if (own.isRefetchError) stale.push({ set: own.data.set, asOf: own.data.asOf });
+  if (loopData !== null && loop !== null && loop.isRefetchError) {
+    stale.push({ set: loopData.set, asOf: loopData.asOf });
+  }
   const composed = composePointInputs(sets, {});
   return {
     status: 'ready',
     sets,
     composed,
     record: engineRecordOf(composed, { ...MONITORING_SETTINGS }),
-    refreshFailed: own.isRefetchError || (loop !== null && loop.isRefetchError),
+    stale,
   };
 }

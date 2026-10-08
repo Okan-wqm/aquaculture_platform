@@ -273,6 +273,14 @@ export class WaterChemistryInputsResult {
 
   @Field(() => [WaterChemistryInputStatus])
   inputs!: WaterChemistryInputStatus[];
+
+  @Field(() => [ID], {
+    description:
+      'At a tank: the live systems it belongs to — exactly one is the loop whose carbonate ' +
+      'state and volume it shares; none or two or more (which loop is unknown) give it none. ' +
+      'Empty at a system.',
+  })
+  loopSystemIds!: string[];
 }
 
 function pointRef(point: MeasurementPoint): MeasurementPointRef {
@@ -345,6 +353,7 @@ export function waterChemistryInputsOf(
   point: MeasurementPoint,
   asOf: Date,
   evaluation: InputSetEvaluation,
+  loopSystemIds: readonly string[],
 ): WaterChemistryInputsResult {
   const location = representativeLocation(point);
   const inputOf = (input: InputStatus): WaterChemistryInputStatus => ({
@@ -371,5 +380,6 @@ export function waterChemistryInputsOf(
     volumeM3: loop === null ? null : loop.volumeM3,
     tankWaterM3: loop === null ? null : loop.tankWaterM3,
     inputs: evaluation.inputs.map(inputOf),
+    loopSystemIds: [...loopSystemIds],
   };
 }

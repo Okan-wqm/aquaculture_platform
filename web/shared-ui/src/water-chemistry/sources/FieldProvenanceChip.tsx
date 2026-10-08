@@ -53,6 +53,7 @@ export const FieldProvenanceChip: React.FC<FieldProvenanceChipProps> = ({
       ? null
       : pointKindOfResult(reading.inheritedFrom);
   const label = t(`wqSource.field.${entry.field}`);
+  const operators = entry.state === 'corrected' || entry.state === 'entered';
 
   return (
     <div
@@ -64,7 +65,7 @@ export const FieldProvenanceChip: React.FC<FieldProvenanceChipProps> = ({
       <div className="flex items-baseline gap-1">
         <span
           className={`text-sm tabular-nums ${
-            entry.value === null
+            entry.value === null && !operators
               ? 'text-gray-400 line-through dark:text-gray-500'
               : 'text-gray-900 dark:text-gray-100'
           }`}
@@ -75,17 +76,20 @@ export const FieldProvenanceChip: React.FC<FieldProvenanceChipProps> = ({
           {t(`wqSource.state.${entry.state}`)}
         </span>
       </div>
-      <div className="text-gray-500 dark:text-gray-400">
-        {reading !== null &&
-          reading.sourceKind !== null &&
-          t(`wqSource.kind.${reading.sourceKind}`)}
-        {entry.from === 'loop' && ` · ${t('wqSource.fromLoop')}`}
-        {inheritedFrom !== null &&
-          ` · ${t('wqSource.inheritedFrom', { point: t(`wqSource.point.${inheritedFrom}`) })}`}
-        {ageSeconds !== null && ` · ${formatAge(t, ageSeconds)}`}
-        {stale && ` · ${t('wqSource.tile.stale')}`}
-      </div>
-      {entry.input !== null && (
+      {/* The operator's own value: the reading's source, age and window no longer apply. */}
+      {!operators && (
+        <div className="text-gray-500 dark:text-gray-400">
+          {reading !== null &&
+            reading.sourceKind !== null &&
+            t(`wqSource.kind.${reading.sourceKind}`)}
+          {entry.from === 'loop' && ` · ${t('wqSource.fromLoop')}`}
+          {inheritedFrom !== null &&
+            ` · ${t('wqSource.inheritedFrom', { point: t(`wqSource.point.${inheritedFrom}`) })}`}
+          {ageSeconds !== null && ` · ${formatAge(t, ageSeconds)}`}
+          {stale && ` · ${t('wqSource.tile.stale')}`}
+        </div>
+      )}
+      {!operators && entry.input !== null && (
         <div className="text-gray-400 dark:text-gray-500">
           {t(`wqSource.window.${entry.input.coherenceWindow}`)}
         </div>

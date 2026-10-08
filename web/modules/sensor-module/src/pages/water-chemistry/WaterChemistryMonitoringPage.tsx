@@ -77,7 +77,7 @@ const WaterChemistryMonitoringPage: FC = () => {
 
       {systems.error !== null && (
         <p role="alert" className="text-sm text-error-700 dark:text-error-300">
-          The systems could not be read: {systems.error.message}
+          {t('wqSource.ui.systemsReadFailed', { error: systems.error.message })}
         </p>
       )}
       {systems.isSuccess && systemList.length === 0 && (

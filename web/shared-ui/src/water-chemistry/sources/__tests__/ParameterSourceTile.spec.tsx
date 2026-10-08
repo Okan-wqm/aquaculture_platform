@@ -68,7 +68,11 @@ describe('ParameterSourceTile', () => {
     render(<ParameterSourceTile {...props({ problems: ['CHANNEL_DISABLED'], onFix, onSelect })} />);
 
     await user.tab();
-    expect(screen.getByRole('button', { name: 'Show the trend of pH' })).toHaveFocus();
+    // Named by what it shows (value, unit, quality, age); described by what it does.
+    const tile = screen.getByRole('button', { description: 'Show the trend of pH' });
+    expect(tile).toHaveFocus();
+    expect(tile).toHaveAccessibleName(expect.stringContaining('7.23'));
+    expect(tile).toHaveAccessibleName(expect.stringContaining('5 min ago'));
     await user.keyboard('{Enter}');
     expect(onSelect).toHaveBeenCalledTimes(1);
 

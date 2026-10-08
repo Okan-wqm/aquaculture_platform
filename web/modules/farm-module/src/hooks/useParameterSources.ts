@@ -11,10 +11,9 @@
 import {
   formatPointRef,
   graphqlClient,
-  loopSystemOf,
-  TANK_SYSTEMS_QUERY,
+  loopOf,
   type PointSets,
-  type TankSystemsResult,
+  type StaleSet,
   pointInput,
   PARAMETER_SOURCES_AT_POINT_QUERY,
   useTenantMutation,
@@ -116,59 +115,45 @@ export function useWaterChemistryInputs(point: PointRef | null): UseQueryResult<
   );
 }
 
-/** The loop (first system) a tank reads its carbonate state and volume from; null when it has none. */
-export function useTankLoop(tankId: string | null): UseQueryResult<string | null> {
-  return useTenantQuery(
-    ['parameterSources', 'tankLoop', tankId],
-    async (): Promise<string | null> => {
-      if (tankId === null) return null;
-      const result = await graphqlClient.request<TankSystemsResult>(TANK_SYSTEMS_QUERY, {
-        id: tankId,
-      });
-      return loopSystemOf(result);
-    },
-    { enabled: tankId !== null, staleTime: 60_000, keepPreviousData: false },
-  );
-}
-
 export interface PointSetsState {
   /** The point's own set and, for a tank, its loop's DOSING set; null until both are read. */
   sets: PointSets | null;
   loading: boolean;
   /** A read that failed (an outage is not "no value"). */
   error: Error | null;
-  /** When the shown sets were resolved, and whether the last refresh failed with them on screen. */
-  asOf: string | null;
-  refreshFailed: boolean;
+  /** Each set whose last refresh failed while its earlier values are shown. */
+  stale: StaleSet[];
 }
 
 /**
  * What a point's calculation reads — the composition both views run
- * (composePointInputs): a system's DOSING set; a tank's TOXICITY set and its
+ * (composePointInputs): a system's DOSING set; a tank's TOXICITY set and, when
+ * the backend names exactly one live system for it (loopSystemIds), that
  * loop's DOSING set.
  */
 export function usePointSets(point: PointRef | null): PointSetsState {
   const own = useWaterChemistryInputs(point);
-  const tankId = point !== null && point.kind === 'tank' ? point.id : null;
-  const loopId = useTankLoop(tankId);
+  const tankLoop =
+    point !== null && point.kind === 'tank' && own.data !== undefined ? loopOf(own.data) : null;
   const loopPoint: PointRef | null =
-    loopId.data === undefined || loopId.data === null ? null : { kind: 'system', id: loopId.data };
+    tankLoop !== null && tankLoop.kind === 'one' ? { kind: 'system', id: tankLoop.systemId } : null;
   const loop = useWaterChemistryInputs(loopPoint);
-  const error = own.error ?? loopId.error ?? loop.error;
-  // A tank's sets are ready once its loop is known and, when it has one, read.
-  const loopReady =
-    tankId === null ||
-    (loopId.data !== undefined && (loopId.data === null || loop.data !== undefined));
-  const ready = own.data !== undefined && loopReady;
+  const ready = own.data !== undefined && (loopPoint === null || loop.data !== undefined);
+  const stale: StaleSet[] = [];
+  if (own.isRefetchError && own.data !== undefined) {
+    stale.push({ set: own.data.set, asOf: own.data.asOf });
+  }
+  if (loopPoint !== null && loop.isRefetchError && loop.data !== undefined) {
+    stale.push({ set: loop.data.set, asOf: loop.data.asOf });
+  }
   return {
     sets:
-      own.data === undefined || !ready
+      !ready || own.data === undefined
         ? null
-        : { own: own.data, loop: loop.data === undefined ? null : loop.data },
-    loading: own.isLoading || loopId.isLoading || loop.isLoading,
-    error: own.data === undefined || !ready ? error : null,
-    asOf: own.data === undefined ? null : own.data.asOf,
-    refreshFailed: own.data !== undefined && (own.isRefetchError || loop.isRefetchError),
+        : { own: own.data, loop: loop.data === undefined || loopPoint === null ? null : loop.data },
+    loading: own.isLoading || loop.isLoading,
+    error: ready ? null : (own.error ?? loop.error),
+    stale,
   };
 }
 

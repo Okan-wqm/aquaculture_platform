@@ -28,7 +28,14 @@ import type {
 } from '../../generated/graphql-types';
 import type { I18nContextValue } from '../../i18n/I18nProvider';
 
+/**
+ * Why a tank has no loop to read its carbonate state from — the backend's
+ * loopSystemIds read by the composition (in no live system, or two or more).
+ */
+export type LoopProblem = 'NO_LOOP' | 'LOOP_AMBIGUOUS';
+
 export type SourceProblemCode =
+  | LoopProblem
   | ChannelBindingProblem
   | ReadingProblem
   | ReadingUnresolved
@@ -75,6 +82,9 @@ export const PROBLEM_FIX: Readonly<Record<SourceProblemCode, ProblemFix>> = {
   VOLUME_MISSING: 'system',
   VOLUME_BELOW_TANK_WATER: 'system',
   INPUTS_INCOMPLETE: 'source',
+  // Why a tank shares no loop's carbonate state and volume.
+  NO_LOOP: 'system',
+  LOOP_AMBIGUOUS: 'system',
 };
 
 function isSourceProblemCode(value: string): value is SourceProblemCode {

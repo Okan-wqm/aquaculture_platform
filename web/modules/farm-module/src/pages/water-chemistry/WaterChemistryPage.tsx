@@ -137,7 +137,7 @@ const OverviewContent: React.FC = () => {
         composed={composed}
         loading={pointSets.loading}
         loadError={pointSets.error}
-        refreshFailed={pointSets.refreshFailed}
+        stale={pointSets.stale}
         now={Date.now()}
         onEnter={enter}
       />

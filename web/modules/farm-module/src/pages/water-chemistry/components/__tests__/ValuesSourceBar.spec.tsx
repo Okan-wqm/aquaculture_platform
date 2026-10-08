@@ -69,6 +69,7 @@ const TOXICITY: InputSetResult = {
   systemType: null,
   volumeM3: null,
   tankWaterM3: null,
+  loopSystemIds: ['system-1'],
   inputs: [
     input('pH', 7.1),
     input('tempC', 12),
@@ -88,6 +89,7 @@ const LOOP: InputSetResult = {
   systemType: 'FLOW_THROUGH',
   volumeM3: 120,
   tankWaterM3: 40,
+  loopSystemIds: [],
   inputs: [
     input('pH', 7.3),
     input('alkalinityMg', 110),
@@ -106,7 +108,7 @@ function renderBar(onEnter = vi.fn()): ReturnType<typeof vi.fn> {
       composed={composePointInputs({ own: TOXICITY, loop: LOOP }, {})}
       loading={false}
       loadError={null}
-      refreshFailed={false}
+      stale={[]}
       now={NOW}
       onEnter={onEnter}
     />,

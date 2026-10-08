@@ -14,7 +14,7 @@ import {
   buildDeffeyesData,
   Button,
   colors,
-  formatAge,
+  staleSetText,
   useI18n,
   type PointRef,
 } from '@aquaculture/shared-ui';
@@ -112,10 +112,8 @@ export function WcSystemView({
   const legendNote = (state: PointState): string | null => {
     if (state.status === 'loading') return t('wqSource.ui.loadingPoint');
     if (state.status === 'error') return t('wqSource.ui.outage', { error: state.message });
-    if (state.refreshFailed) {
-      const age = Math.max(0, Math.floor((now - Date.parse(state.sets.own.asOf)) / 1000));
-      return t('wqSource.ui.refreshFailed', { age: formatAge(t, age) });
-    }
+    const [stale] = state.stale;
+    if (stale !== undefined) return staleSetText(t, stale, now);
     return state.record.inputs === null ? notDrawnReason(t, state) : null;
   };
 
@@ -129,7 +127,7 @@ export function WcSystemView({
           const note = legendNote(entry.state);
           const stale =
             entry.state.status === 'error' ||
-            (entry.state.status === 'ready' && entry.state.refreshFailed);
+            (entry.state.status === 'ready' && entry.state.stale.length > 0);
           return (
             <li key={entry.point.id} className={stale ? 'opacity-60' : ''}>
               <Button

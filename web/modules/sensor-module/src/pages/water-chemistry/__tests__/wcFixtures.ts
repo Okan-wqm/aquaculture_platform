@@ -42,6 +42,7 @@ export function dosingSet(alkalinity: number | null = 120): InputSetResult {
     systemType: 'RAS',
     volumeM3: 80,
     tankWaterM3: 40,
+    loopSystemIds: [],
     inputs: [
       input('pH', 7.3),
       input('alkalinityMg', alkalinity),
@@ -62,6 +63,7 @@ export function toxicitySet(): InputSetResult {
     systemType: null,
     volumeM3: null,
     tankWaterM3: null,
+    loopSystemIds: [SYSTEM_ID],
     inputs: [
       input('pH', 7.1),
       input('tempC', 13.5),

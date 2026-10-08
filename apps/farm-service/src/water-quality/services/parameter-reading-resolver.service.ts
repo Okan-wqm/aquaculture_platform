@@ -5,6 +5,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import type { SensorChannelDescription, SensorChannelKey } from '@platform/event-contracts';
 import { DataSource, type EntityManager } from 'typeorm';
 
+import type { SystemType } from '../../system/entities/system.entity';
 import { holdsSiteWater } from '../data/water-chemistry-input-sets';
 import {
   MACHINE_MEASUREMENT_SOURCES,
@@ -236,6 +237,31 @@ function isChannelSource(source: WaterQualityParamEquipment): source is ChannelS
  *   water it holds is not known;
  * - a system: its site, only when its type says it holds site water.
  */
+/**
+ * The live systems a tank or equipment belongs to, read from farm's topology
+ * now — the one rule inheritance (readingChain) and the water-chemistry
+ * input set's loop (loopSystemIds) both apply: exactly one is its loop, none
+ * means no loop, two or more mean which loop's water it holds is unknown.
+ */
+export async function liveSystemsOfUnit(
+  manager: EntityManager,
+  tenantId: string,
+  unitId: string,
+): Promise<{
+  live: string[];
+  typeOfSystem: ReadonlyMap<string, SystemType>;
+  siteId: string | undefined;
+}> {
+  const unit = await loadFarmArrangement(manager, tenantId, { units: [unitId], systems: [] });
+  const linked = [...(unit.systemsOfUnit.get(unitId) ?? [])];
+  const loops = await loadFarmArrangement(manager, tenantId, { units: [], systems: linked });
+  return {
+    live: linked.filter((systemId) => loops.typeOfSystem.has(systemId)),
+    typeOfSystem: loops.typeOfSystem,
+    siteId: unit.siteOfUnit.get(unitId),
+  };
+}
+
 async function readingChain(
   manager: EntityManager,
   tenantId: string,
@@ -255,17 +281,13 @@ async function readingChain(
       ancestors.push({ kind: 'site', id: siteId });
     }
   } else {
-    const unit = await loadFarmArrangement(manager, tenantId, { units: [point.id], systems: [] });
-    const linked = [...(unit.systemsOfUnit.get(point.id) ?? [])];
-    const loops = await loadFarmArrangement(manager, tenantId, { units: [], systems: linked });
-    const live = linked.filter((systemId) => loops.typeOfSystem.has(systemId));
+    const { live, typeOfSystem, siteId } = await liveSystemsOfUnit(manager, tenantId, point.id);
     if (live.length > 1) {
       return [location];
     }
     const [systemId] = live;
-    const type = systemId === undefined ? undefined : loops.typeOfSystem.get(systemId);
+    const type = systemId === undefined ? undefined : typeOfSystem.get(systemId);
     if (systemId !== undefined) ancestors.push({ kind: 'system', id: systemId });
-    const siteId = unit.siteOfUnit.get(point.id);
     if (siteId !== undefined && (type === undefined || holdsSiteWater(type))) {
       ancestors.push({ kind: 'site', id: siteId });
     }

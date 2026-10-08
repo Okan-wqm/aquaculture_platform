@@ -1,8 +1,8 @@
 /**
  * The farm topology the water-chemistry monitoring view is laid out by: the
  * tenant's systems (one tab each), a system's tanks (its other measurement
- * points). The system a tank belongs to, the sources and the resolved inputs
- * at a point are shared-ui's documents
+ * points) and the system a tank-scoped link opens. The sources and the
+ * resolved inputs at a point are shared-ui's documents
  * (@aquaculture/shared-ui water-chemistry/sources/operations.ts), one owner
  * with the farm module.
  */
@@ -55,6 +55,20 @@ export const WC_SYSTEM_TANKS_QUERY = `
         name
         code
       }
+    }
+  }
+`;
+
+export interface WcTankSystemsResult {
+  equipment: { id: string; systemIds: string[] | null } | null;
+}
+
+/** The systems of a tank — a tank-scoped link opens the tab of the first (navigation only). */
+export const WC_TANK_SYSTEMS_QUERY = `
+  query WaterChemistryTankSystems($id: ID!) {
+    equipment(id: $id) {
+      id
+      systemIds
     }
   }
 `;

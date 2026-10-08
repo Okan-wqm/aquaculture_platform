@@ -13,11 +13,13 @@ import {
   formatAge,
   ProblemChips,
   RESOLVABLE_FIELDS,
+  staleSetText,
   useI18n,
   type ComposedInputs,
   type InputSetResult,
   type PointRef,
   type ResolvableField,
+  type StaleSet,
 } from '@aquaculture/shared-ui';
 import React from 'react';
 
@@ -31,8 +33,8 @@ export interface ValuesSourceBarProps {
   composed: ComposedInputs | null;
   loading: boolean;
   loadError: Error | null;
-  /** The shown values were resolved, and the last refresh failed. */
-  refreshFailed: boolean;
+  /** Each set whose last refresh failed (its values are shown as resolved then). */
+  stale: readonly StaleSet[];
   now: number;
   onEnter: (field: ResolvableField, value: number | null) => void;
 }
@@ -44,7 +46,7 @@ export const ValuesSourceBar: React.FC<ValuesSourceBarProps> = ({
   composed,
   loading,
   loadError,
-  refreshFailed,
+  stale,
   now,
   onEnter,
 }) => {
@@ -118,15 +120,19 @@ export const ValuesSourceBar: React.FC<ValuesSourceBarProps> = ({
               {t('wqSource.ui.readFailed', { error: loadError.message })}
             </p>
           )}
-          {refreshFailed && resolvedAge !== null && (
-            <p role="alert" className="text-sm text-warning-700 dark:text-warning-300">
-              {t('wqSource.ui.refreshFailed', { age: resolvedAge })}
+          {stale.map((entry) => (
+            <p
+              key={entry.set}
+              role="alert"
+              className="text-sm text-warning-700 dark:text-warning-300"
+            >
+              {staleSetText(t, entry, now)}
             </p>
-          )}
+          ))}
           {ownSet !== null && <ProblemChips problems={ownSet.problems} />}
           {composed !== null && (
             <div
-              className={`grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8 ${refreshFailed ? 'opacity-60' : ''}`}
+              className={`grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8 ${stale.length > 0 ? 'opacity-60' : ''}`}
             >
               {RESOLVABLE_FIELDS.map((field) => (
                 <FieldProvenanceChip

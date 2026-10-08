@@ -11,9 +11,6 @@
 import {
   createTenantQueryKey,
   formatPointRef,
-  loopSystemOf,
-  TANK_SYSTEMS_QUERY,
-  type TankSystemsResult,
   PARAMETER_SOURCES_AT_POINT_QUERY,
   pointInput,
   useAuth,
@@ -32,6 +29,8 @@ import { graphqlFetch } from '../../config/api';
 import {
   WC_SYSTEM_TANKS_QUERY,
   WC_SYSTEMS_QUERY,
+  WC_TANK_SYSTEMS_QUERY,
+  type WcTankSystemsResult,
   type WcSystem,
   type WcSystemsResult,
   type WcSystemTanksResult,
@@ -68,15 +67,20 @@ export function useSystemTanks(systemId: string | null): UseQueryResult<WcTank[]
   );
 }
 
-/** The system a tank-scoped link opens: the tank's first system, null when it has none. */
+/**
+ * The tab a tank-scoped link opens: the tank's first system, null when it has
+ * none. Navigation only — which loop a tank READS is the backend's
+ * loopSystemIds (none when it is in two or more).
+ */
 export function useTankSystem(tankId: string | null): UseQueryResult<string | null> {
   return useTenantQuery(
     ['waterChemistry', 'tankSystem', tankId],
     async (): Promise<string | null> => {
       if (tankId === null) return null;
-      return loopSystemOf(
-        await graphqlFetch<TankSystemsResult>(TANK_SYSTEMS_QUERY, { id: tankId }),
-      );
+      const result = await graphqlFetch<WcTankSystemsResult>(WC_TANK_SYSTEMS_QUERY, { id: tankId });
+      const systemIds = result.equipment === null ? null : result.equipment.systemIds;
+      const [first] = systemIds === null ? [] : systemIds;
+      return first === undefined ? null : first;
     },
     { enabled: tankId !== null, staleTime: 60_000 },
   );

@@ -28,6 +28,42 @@ describe('composePointInputs', () => {
     expect(composed.dosing).toEqual({ available: false, reason: 'NOT_A_LOOP', problems: [] });
   });
 
+  it('reads no loop for a tank the backend places in no live system, or in two, and says why', () => {
+    const loop = dosingSet(readyDosingInputs(), { volumeM3: 50 });
+    const ambiguous = composePointInputs(
+      { own: toxicitySet(readyToxicityInputs(), ['system-1', 'system-2']), loop },
+      {},
+    );
+    expect(ambiguous.fields.alkalinityMg).toMatchObject({
+      state: 'missing',
+      value: null,
+      problems: ['LOOP_AMBIGUOUS'],
+    });
+    expect(ambiguous.fields.volume).toMatchObject({
+      state: 'missing',
+      problems: ['LOOP_AMBIGUOUS'],
+    });
+    // The tank's own inputs are untouched.
+    expect(ambiguous.fields.pH).toMatchObject({ state: 'measured', value: 6.9 });
+
+    const none = composePointInputs(
+      { own: toxicitySet(readyToxicityInputs(), []), loop: null },
+      {},
+    );
+    expect(none.fields.caMgL).toMatchObject({ state: 'missing', problems: ['NO_LOOP'] });
+
+    // An operator's entry stands in for the loop value, with no reason left.
+    const entered = composePointInputs(
+      { own: toxicitySet(readyToxicityInputs(), ['system-1', 'system-2']), loop },
+      { alkalinityMg: 100 },
+    );
+    expect(entered.fields.alkalinityMg).toMatchObject({
+      state: 'entered',
+      value: 100,
+      problems: [],
+    });
+  });
+
   it('blocks a value the backend keeps but flags (NOT_SAME_SAMPLE), and shows it with its problem', () => {
     const inputs = readyToxicityInputs().map((entry) =>
       entry.engineInput === 'h2sUgL' ? input('h2sUgL', 3.5, ['NOT_SAME_SAMPLE']) : entry,

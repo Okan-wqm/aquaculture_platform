@@ -51,6 +51,19 @@ describe('FieldProvenanceChip', () => {
     expect(screen.getByText('50.0')).toBeInTheDocument();
   });
 
+  it("shows a corrected field as the operator's, without the reading's source, age or window", () => {
+    const { fields } = composePointInputs(
+      { own: dosingSet(readyDosingInputs(), { volumeM3: 50 }), loop: null },
+      { pH: 7.2 },
+    );
+    render(<FieldProvenanceChip entry={fields.pH} now={NOW} />);
+    expect(screen.getByText('Corrected for this session')).toBeInTheDocument();
+    expect(screen.getByText('7.20')).not.toHaveClass('line-through');
+    expect(screen.queryByText(/Primary channel/)).toBeNull();
+    expect(screen.queryByText(/min ago/)).toBeNull();
+    expect(screen.queryByText('read within 4 h')).toBeNull();
+  });
+
   it('takes an entry for an uncovered field, and a correction for a covered one', () => {
     const onEnter = vi.fn();
     const { fields } = composePointInputs(

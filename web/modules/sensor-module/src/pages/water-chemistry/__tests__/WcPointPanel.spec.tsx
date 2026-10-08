@@ -142,6 +142,17 @@ describe('WcPointPanel', () => {
     );
   });
 
+  it('reads no loop for a tank the backend places in two live systems, and says why', () => {
+    sourcesMock.mockReturnValue({ data: [], error: null });
+    const ambiguous = { ...toxicitySet(), loopSystemIds: [SYSTEM_ID, 'another-system'] };
+    renderPanel(pointStateOf(answer(ambiguous), answer(dosingSet())));
+    expect(screen.queryByTestId('deffeyes-chart')).toBeNull();
+    const fields = screen.getByTestId('wc-point-fields');
+    expect(within(fields).getByText('Alkalinity (mg/L CaCO₃)').parentElement).toHaveTextContent(
+      'The tank is in two or more live systems',
+    );
+  });
+
   it('tells an outage from a missing value', () => {
     sourcesMock.mockReturnValue({ data: [], error: null });
     renderPanel(pointStateOf(answer(undefined, new Error('HTTP 503')), answer(dosingSet())));
@@ -163,7 +174,7 @@ describe('WcPointPanel', () => {
     // The temperature channel reports °F; the tile shows the parameter's 13.0 °C.
     expect(screen.getByText('13.0')).toBeInTheDocument();
     expect(screen.getByText('last 24 h, in pH')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Show the trend of pH' }));
+    fireEvent.click(screen.getByRole('button', { description: 'Show the trend of pH' }));
     expect(screen.getByTestId('trend-card')).toHaveTextContent('pH — ph');
   });
 

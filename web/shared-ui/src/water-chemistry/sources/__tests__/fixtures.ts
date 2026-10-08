@@ -66,6 +66,7 @@ export function dosingSet(
     systemType: 'RAS',
     volumeM3: options.volumeM3,
     tankWaterM3: 10,
+    loopSystemIds: [],
     inputs,
   };
 }
@@ -80,7 +81,10 @@ export function readyDosingInputs(): InputStatusResult[] {
   ];
 }
 
-export function toxicitySet(inputs: readonly InputStatusResult[]): InputSetResult {
+export function toxicitySet(
+  inputs: readonly InputStatusResult[],
+  loopSystemIds: readonly string[] = ['system-1'],
+): InputSetResult {
   return {
     set: 'TOXICITY',
     point: { kind: 'TANK', id: 'tank-1' },
@@ -90,6 +94,7 @@ export function toxicitySet(inputs: readonly InputStatusResult[]): InputSetResul
     systemType: null,
     volumeM3: null,
     tankWaterM3: null,
+    loopSystemIds: [...loopSystemIds],
     inputs,
   };
 }

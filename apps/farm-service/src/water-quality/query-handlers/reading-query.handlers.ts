@@ -31,7 +31,10 @@ import {
   ResolveWaterChemistryInputsQuery,
 } from '../queries/reading-queries';
 import { assertPointReadable } from '../services/measurement-point-lookup';
-import { ParameterReadingResolver } from '../services/parameter-reading-resolver.service';
+import {
+  liveSystemsOfUnit,
+  ParameterReadingResolver,
+} from '../services/parameter-reading-resolver.service';
 import { representativeLocation } from '../services/parameter-sources';
 import {
   evaluateInputSet,
@@ -100,7 +103,7 @@ export class ResolveWaterChemistryInputsHandler
       throw new BadRequestException(`The ${set} inputs are read at a ${spec.point} point`);
     }
     const asOf = new Date();
-    const { parameters, loop } = await runInTenantRead(
+    const { parameters, loop, loopSystemIds } = await runInTenantRead(
       this.dataSource,
       'farm',
       tenantId,
@@ -121,6 +124,12 @@ export class ResolveWaterChemistryInputsHandler
         return {
           parameters: new Map(configs.map((config) => [config.effectiveQuantity, config])),
           loop: spec.needsLoopVolume ? await loopFacts(manager, tenantId, point.id) : null,
+          // The rule inheritance applies (liveSystemsOfUnit): the UI reads the
+          // loop's carbonate state and volume for a tank only when it is one.
+          loopSystemIds:
+            point.kind === 'tank' || point.kind === 'equipment'
+              ? (await liveSystemsOfUnit(manager, tenantId, point.id)).live
+              : [],
         };
       },
     );
@@ -146,7 +155,7 @@ export class ResolveWaterChemistryInputsHandler
         reading: reading === undefined ? null : reading,
       };
     });
-    return waterChemistryInputsOf(point, asOf, evaluateInputSet(set, loop, inputs));
+    return waterChemistryInputsOf(point, asOf, evaluateInputSet(set, loop, inputs), loopSystemIds);
   }
 }
 

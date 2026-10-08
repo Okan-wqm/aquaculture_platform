@@ -12,12 +12,13 @@
  * Presentation only: the caller hands the facts and the clock, so the tile
  * renders the same in a test as on a page.
  */
-import React from 'react';
+import React, { useId } from 'react';
 
 import { QualityIndicator } from '../../components/Quality';
 import type { ReadingSourceKind, SampleQuality } from '../../generated/graphql-types';
 import { useI18n, type I18nContextValue } from '../../i18n';
 
+import type { StaleSet } from './operations';
 import type { PointKind } from './pointRef';
 import { ProblemChips } from './ProblemChips';
 import type { ProblemFix, SourceProblemCode } from './problems';
@@ -72,6 +73,15 @@ export function formatAge(t: I18nContextValue['t'], seconds: number): string {
   if (seconds < 3_600) return t('wqSource.age.minutes', { n: Math.floor(seconds / 60) });
   if (seconds < 86_400) return t('wqSource.age.hours', { n: Math.floor(seconds / 3_600) });
   return t('wqSource.age.days', { n: Math.floor(seconds / 86_400) });
+}
+
+/** Why a set's values may be old: its refresh failed, and when they were resolved. */
+export function staleSetText(t: I18nContextValue['t'], stale: StaleSet, now: number): string {
+  const age = Math.max(0, Math.floor((now - Date.parse(stale.asOf)) / 1000));
+  return t('wqSource.ui.refreshFailedSet', {
+    set: t(`wqSource.set.${stale.set}`),
+    age: formatAge(t, age),
+  });
 }
 
 export const ParameterSourceTile: React.FC<ParameterSourceTileProps> = ({
@@ -181,16 +191,22 @@ export const ParameterSourceTile: React.FC<ParameterSourceTileProps> = ({
         ? 'border-warning-300 dark:border-warning-700'
         : 'border-gray-200 dark:border-gray-700'
   }`;
+  // The button's name is its content (name, value, unit, quality, age), so a
+  // screen reader hears what is shown; what pressing it does is its description.
+  const hintId = useId();
   const selectable =
     onSelect === undefined ? null : (
       <button
         type="button"
         aria-pressed={selected}
-        aria-label={t('wqSource.ui.showTrend', { name })}
+        aria-describedby={hintId}
         className="block w-full cursor-pointer rounded text-left hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-info-500 dark:hover:bg-gray-800"
         onClick={onSelect}
       >
         {body}
+        <span id={hintId} className="sr-only">
+          {t('wqSource.ui.selectHint', { name })}
+        </span>
       </button>
     );
 

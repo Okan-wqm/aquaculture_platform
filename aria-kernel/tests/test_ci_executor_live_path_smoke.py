@@ -46,6 +46,7 @@ if str(_KERNEL_DIR) not in sys.path:
 
 import ci_executor  # noqa: E402
 from aria_kernel.agent_invocations import render_invocation_prompt  # noqa: E402
+from aria_kernel.request_admission import admit_request
 from tests._helpers.declared_fixtures import native_invocation_bytes  # noqa: E402
 
 
@@ -506,6 +507,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
             convergence_id="s4-native-admission", cycle_id="s4-native-admission",
             target_sha=target_sha, context_repo_root=self.repo, base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
         rows = ai.list_agent_invocation_requests(base_dir=self.tools)
         self.assertEqual(len(rows), 1)
@@ -704,6 +706,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
             convergence_id="s4-hook-root", cycle_id="s4-hook-root", target_sha=target_sha,
             context_repo_root=self.repo, context_source_paths=["src/model_fleet.py"], base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools),
         )
         binding = self.ai.verify_invocation_context_binding(
             request_id=request["request_id"], context_hash=request["context_hash"],
@@ -932,6 +935,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
                 plan_id=plan.plan_id, cross_review_revision_id=plan.revision_id, cross_review_summary_text="{}",
                 proposal_id="proposal-144", change_id="chg-144", branch="aria-impl-0144014401440144",
                 base_sha=base_sha, cycle_id="s4-native-admission", base_dir=self.tools,
+                admission=admit_request("implementer.converged_plan", "implementation", base_dir=self.tools),
             )
         self.assertIsNone(self.request.get("target_sha"))
         self.assertEqual(self.request["implementation_ids"]["base_sha"], base_sha)
@@ -1027,6 +1031,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
             convergence_id="s4-unanchored", cycle_id="s4-unanchored",
             context_repo_root=self.repo, base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
         self.assertIsNone(self.ai.request_anchor_sha(self.request))
         self.native_bytes = native_invocation_bytes(self.tools)
@@ -1474,6 +1479,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
             convergence_id="s4-native-verification", cycle_id="s4-native-verification",
             target_sha=target_sha, context_repo_root=self.repo, base_dir=self.tools,
+            admission=admit_request("operator_cli.request", "verification", base_dir=self.tools),
         )
         native_before = native_invocation_bytes(self.tools)
         binding = self.ai.verify_invocation_context_binding(

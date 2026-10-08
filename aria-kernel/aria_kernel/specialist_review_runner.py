@@ -54,6 +54,7 @@ from .agent_invocations import (
 )
 from .agent_surface import TERMINAL_REQUEST_STATES
 from .must_satisfy import must_satisfy_item
+from .request_admission import admit_request
 from .tool_registry import ensure_tools_dir
 
 _SPECIALIST_ROLE = "specialist_domain_review"
@@ -555,6 +556,12 @@ def run_specialist_review_runner(
                 )],
                 convergence_id=convergence_id,
                 base_dir=base_dir,
+                # ARIA-HIGH-364 — the specialist review of the converged plan
+                # gates worker dispatch: critical path, never throttled.
+                admission=admit_request(
+                    "specialist_review_runner.converged_plan", _SPECIALIST_ROLE,
+                    base_dir=base_dir, cycle_id=cycle_id,
+                ),
                 **request_context,
             )
             request_ids.append(req["request_id"])

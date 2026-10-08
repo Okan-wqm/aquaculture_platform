@@ -39,6 +39,7 @@ from typing import Any
 
 from .agent_eval import recurring_failure_modes
 from .agent_invocations import create_agent_invocation_request
+from .request_admission import Admission
 from .bridge_exceptions import BridgeContractViolation
 from .implementation_safety import (
     READONLY_PATHS,
@@ -212,6 +213,7 @@ def issue_cross_review_envelope(
     cycle_id: str | None = None,
     context_source_paths: list[str] | None = None,
     remint_of: str | None = None,
+    admission: Admission,
 ) -> dict[str, Any]:
     """Issue a cross_review envelope (Tier-1).
 
@@ -257,6 +259,8 @@ def issue_cross_review_envelope(
         plan_contract=render_plan_contract(base_dir),
         # ARIA-HIGH-355 — the step's dead or refused request this one replaces.
         remint_of=remint_of,
+        # ARIA-HIGH-364 — the producer's admission decision, carried to the mint.
+        admission=admission,
     )
 
 
@@ -309,6 +313,7 @@ def issue_primary_envelope(
     cycle_id: str | None = None,
     context_source_paths: list[str] | None = None,
     remint_of: str | None = None,
+    admission: Admission,
 ) -> dict[str, Any]:
     """Tier-1 IMPOSSIBLE-to-mint round-1 primary envelope.
 
@@ -354,7 +359,7 @@ def issue_primary_envelope(
         role=role,
         suggested_prompt=suggested_prompt,
         # ARIA-HIGH-309 — the lessons recorded plans in this plan's scope teach.
-        must_satisfy=[*must_satisfy, *planner_lesson_obligations(base_dir=base_dir, plan_id=plan_id)],
+        must_satisfy=[*must_satisfy, *planner_lesson_obligations(base_dir=base_dir, plan_id=plan_id, envelope_role=PRIMARY_REVISION_ROLE[1])],
         allowed_scope=allowed_scope,
         evidence_refs=evidence_refs,
         convergence_id=plan_id,
@@ -368,6 +373,8 @@ def issue_primary_envelope(
         plan_contract=render_plan_contract(base_dir),
         # ARIA-HIGH-355 — the step's dead or refused request this one replaces.
         remint_of=remint_of,
+        # ARIA-HIGH-364 — the producer's admission decision, carried to the mint.
+        admission=admission,
     )
 
 
@@ -433,6 +440,7 @@ def issue_completeness_critic_envelope(
     base_dir: str | Path | None = None,
     target_sha: str | None = None,
     remint_of: str | None = None,
+    admission: Admission,
 ) -> dict[str, Any]:
     """Issue a completeness_critique envelope (Tier-1).
 
@@ -495,6 +503,8 @@ def issue_completeness_critic_envelope(
         target_sha=target_sha,
         # ARIA-HIGH-355 — the step's dead or refused request this one replaces.
         remint_of=remint_of,
+        # ARIA-HIGH-364 — the producer's admission decision, carried to the mint.
+        admission=admission,
     )
 
 
@@ -755,6 +765,7 @@ def issue_implementation_envelope(
     base_sha: str,
     cycle_id: str,
     base_dir: str | Path | None = None,
+    admission: Admission,
 ) -> dict[str, Any]:
     """Plan ARIA-V9.3 — issue implementation envelope (Tier-1).
 
@@ -946,6 +957,8 @@ def issue_implementation_envelope(
         # task binding) then agree with `request_anchor_sha` without the
         # fallback.
         target_sha=implementation_ids["base_sha"],
+        # ARIA-HIGH-364 — the producer's admission decision, carried to the mint.
+        admission=admission,
     )
     # E2/F1 — the mint IS the state transition. This function's own error
     # message above says "exactly one escape from CONVERGED — into

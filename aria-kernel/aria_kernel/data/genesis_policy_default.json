@@ -85,6 +85,14 @@
   },
   "materialization_requires_acknowledge": true,
   "max_requests_per_cycle": 5,
+  "request_admission": {
+    "_doc": "ARIA-HIGH-364 (2026-10-07) \u2014 agent-request admission (request_admission.admit_request). Critical-path mints (plan steps, implementation and its reviews, operator acts) are always admitted. A discretionary mint is admitted only while the executor drains (no result or claim for executor_liveness_hours while a claimable request has waited as long stops it), the role has a provider that is not cooled, and the claimable backlog stays within budget = max(backlog_floor, backlog_days_of_drain x drained-per-day over drain_window_days). plan_seeds_per_cycle new plans start per cycle ahead of the budget (still requiring a draining executor and an uncooled provider), because panels and judges run earlier in the cycle and would otherwise take all headroom. An out-of-bounds value takes the shipped default and is disclosed once on governance (request_admission_policy_invalid). Measured 2026-10-06: ~28 drained/day against ~66 minted. Bounds: request_drain_capacity.REQUEST_ADMISSION_BOUNDS; a value outside them is refused by name.",
+    "backlog_days_of_drain": 2.0,
+    "backlog_floor": 32,
+    "drain_window_days": 7,
+    "executor_liveness_hours": 36.0,
+    "plan_seeds_per_cycle": 1
+  },
   "rhythm": {
     "_doc": "Wall #7 (2026-10-03) \u2014 backlog_cap bounds the CLOSABLE backlog: findings ARIA's own plan lane could close (finding_grounding.closure_blocker is None) plus findings the runner could not judge. Operator-only findings never count; they are escalated once on governance at operator_escalation_age_days. The closure SLO compares closable findings opened inside closure_slo_window_days with the findings closed inside it. Either pressure throttles a finding opener to one admission per opener_throttle_interval_hours (a rate, never a freeze; event finding_opener_throttled). Bounds: genesis_policy.RHYTHM_BOUNDS; a value outside them is refused by name.",
     "backlog_cap": 25,

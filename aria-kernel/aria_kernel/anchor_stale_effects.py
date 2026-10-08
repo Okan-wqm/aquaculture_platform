@@ -15,6 +15,7 @@ from .expiry_ownership import queue_item_id_of
 from .judge_fanout import pending_judge_counts
 from .judge_remint import remint_judge_request
 from .judge_subject_liveness import JudgeSubjectLiveness
+from .request_admission import RequestAdmissionThrottled, admit_request, inherits_critical_path
 from .tool_registry import GovernanceError, bound_workspace_root
 
 DISPOSITION_REMINTED = "expired_reminted"
@@ -36,8 +37,13 @@ DISPOSITION_STATUS: Mapping[str, str] = {
 class RemintGate:
     """The judge backlog ceiling and the current HEAD, each read at most once per sweep."""
 
-    def __init__(self, root: Path, requests: list[dict[str, Any]], states: Mapping[str, str]) -> None:
+    def __init__(self, root: Path, requests: list[dict[str, Any]], states: Mapping[str, str],
+                 cycle_id: str | None = None) -> None:
         self._root = root
+        # ARIA-HIGH-364 — the cycle a re-mint's admission is budgeted under,
+        # and the door's answer per (producer, role), asked once per sweep.
+        self.cycle_id = cycle_id
+        self._refusals: dict[tuple[str, str], str | None] = {}
         self._requests = requests
         self._states = states
         self._pending: dict[str, int] | None = None
@@ -64,6 +70,15 @@ class RemintGate:
             self._head_read = True
         return self._head
 
+    def refusal(self, request: Mapping[str, Any]) -> str | None:
+        """The door's refusal of this request's re-mint class, asked once per (producer, role) per sweep."""
+        key = (_anchor_remint_producer(request), str(request.get("role") or ""))
+        if key not in self._refusals:
+            admission = admit_request(_anchor_remint_producer(request), key[1], base_dir=self._root,
+                                      cycle_id=self.cycle_id)
+            self._refusals[key] = None if admission.admitted else admission.refusal
+        return self._refusals[key]
+
     def minted(self, role: str) -> None:
         """Reserve a planned re-mint against the ceiling before it is minted."""
         if self._pending is not None:
@@ -74,12 +89,33 @@ def operator_required(reason: str, **extra: Any) -> dict[str, Any]:
     return {"disposition": DISPOSITION_OPERATOR, "reason": reason, **extra}
 
 
+def _anchor_remint_producer(request: Mapping[str, Any]) -> str:
+    """The class a re-asked judge inherits from its expired predecessor (ARIA-HIGH-364)."""
+    return "anchor_stale.remint_critical" if inherits_critical_path(request) else "anchor_stale.remint"
+
+
 def remint_judge(
     request: Mapping[str, Any], reason: str, *, subjects: JudgeSubjectLiveness, gate: RemintGate,
 ) -> dict[str, Any]:
-    """Re-mint as the fan-out mints; its contract refusal closes the subject, a refused mint is the operator's."""
+    """Re-mint as the fan-out mints; its contract refusal closes the subject, a refused mint is the operator's.
+
+    ARIA-HIGH-364 (review of #1833, MEDIUM-5) — a re-mint the request-admission
+    door refuses is neither: it raises ``RequestAdmissionThrottled`` past the
+    operator arm, and the sweep records nothing for the request, so the next
+    sweep decides it again. Routed to the operator, a throttle would open an
+    escalation and feed the panels (the amplifier ARIA-HIGH-360 removes).
+    """
+    admission = admit_request(
+        _anchor_remint_producer(request), str(request.get("role") or ""),
+        base_dir=subjects.root, cycle_id=gate.cycle_id,
+    )
+    if not admission.admitted:
+        raise RequestAdmissionThrottled(admission.refusal)
     try:
-        successor = remint_judge_request(request, subjects=subjects, target_sha=gate.head(), workspace=gate.workspace)
+        successor = remint_judge_request(request, subjects=subjects, target_sha=gate.head(),
+                                         workspace=gate.workspace, admission=admission)
+    except RequestAdmissionThrottled:
+        raise
     except GovernanceError as exc:
         return operator_required("remint_refused", error=str(exc)[:300])
     if isinstance(successor, str):

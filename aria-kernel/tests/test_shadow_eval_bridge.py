@@ -31,6 +31,7 @@ from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.operator_provenance import record_operator_approval
 from aria_kernel.shadow_eval_bridge import bridge_shadow_eval_from_invocation
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 from tests._helpers.operator_acts import operator_set_profile
 
 AGENT = "aria-bridge-candidate"
@@ -256,6 +257,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
                 must_satisfy=[{"id": "m1", "predicate": "pass"}],
                 allowed_scope=["libs/example/**"],
                 base_dir=self.tools,
+                admission=admit_request("operator_cli.request", "primary_plan", base_dir=self.tools),
             )
 
     # -- refusals --------------------------------------------------------

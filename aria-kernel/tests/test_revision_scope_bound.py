@@ -53,6 +53,7 @@ from aria_kernel.plan_origin import (
 )
 from aria_kernel.plan_synthesizer import PlanEvidenceGround, convert_candidate_to_plan_content
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.request_admission import admit_request
 from tests._helpers.git_fixtures import make_local_git_repo
 from tests._helpers.operator_acts import operator_set_profile
 from tests.test_implementation_lifecycle_continuity import (
@@ -280,6 +281,7 @@ class ImplementationScopeNeverExceedsTheBoundTests(unittest.TestCase):
             plan_id="plan-impl", cross_review_revision_id="cr-1", cross_review_summary_text="{}",
             proposal_id="proposal-261", change_id="chg-261", branch="aria-impl-0123456789abcdef",
             base_sha="0" * 40, base_dir=self.tools, cycle_id="cyc-261",
+            admission=admit_request("implementer.converged_plan", "implementation", base_dir=self.tools),
         )
 
     def test_the_scope_function_refuses_a_path_outside_the_bound(self) -> None:

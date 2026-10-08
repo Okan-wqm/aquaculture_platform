@@ -38,6 +38,7 @@ from aria_kernel.agent_invocations import render_invocation_prompt
 from aria_kernel.cycle import CYCLE_PHASES, _phase_twin_refresh, build_phase_context
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.twin import read_twin_map
+from aria_kernel.request_admission import admit_request
 from tests._helpers.declared_fixtures import native_invocation_bytes
 from tests._helpers.policy_fixtures import AMPLE_QUALIFICATION_DEADLINE_SECONDS, write_source_qualification_override
 
@@ -237,6 +238,7 @@ class TwinRefreshPhaseTests(unittest.TestCase):
             base_dir=self.tools, context_repo_root=root or self.repo, cycle_id=cycle_id,
             target_sha=_git(root or self.repo, "rev-parse", "HEAD").strip(),
             **budget_options,
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
         native = ai.verify_invocation_context_binding(
             request_id=request["request_id"], context_hash=request["context_hash"],
@@ -837,6 +839,7 @@ class TwinRefreshPhaseTests(unittest.TestCase):
             evidence_refs=["apps/svc/src/a.ts:1"],
             base_dir=self.tools,
             cycle_id="cyc-1",
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=self.tools),
         )
         self.assertIn("repository_map", request)
         self.assertEqual(
@@ -859,6 +862,7 @@ class TwinRefreshPhaseTests(unittest.TestCase):
             evidence_refs=["apps/svc/src/a.ts:1"],
             base_dir=ensure_tools_dir(Path(self._tmp.name) / "aria-tools-empty"),
             cycle_id="cyc-1",
+            admission=admit_request("operator_cli.request", "evidence_judgment", base_dir=ensure_tools_dir(Path(self._tmp.name) / "aria-tools-empty")),
         )
         self.assertNotIn("repository_map", request)
 

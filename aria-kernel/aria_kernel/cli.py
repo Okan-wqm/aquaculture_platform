@@ -70,6 +70,7 @@ from aria_kernel.mission import (
     transition_mission,
 )
 from aria_kernel.plan_round_controller import advance_plan_rounds
+from aria_kernel.request_admission import admit_request
 from aria_kernel.promotion_controller import promote_converged_plan_to_dispatch
 from aria_kernel.state_store import STATE_BRANCH
 from aria_kernel.plan_convergence import (
@@ -924,6 +925,11 @@ def build_parser() -> argparse.ArgumentParser:
     fb_request.add_argument("--expires-in-hours", type=int, default=None,
                             help="Signed expiry (default and maximum: the operator-act lifetime, 168h)")
     fb_request.add_argument("--request-id", default=None, help="Optional stable id (default OP-<uuid4>)")
+    # ARIA-HIGH-381 — the signed write boundary; a cited file outside every
+    # root is read-only evidence for the plan. Omitted: the finding's own fix
+    # target (a drift's copy side and its module) decides.
+    fb_request.add_argument("--write-root", action="append", default=None, dest="write_roots",
+                            help="Repository root the plan may change (repeatable)")
     # ADR-0023 — the only way the allowed-signers file or the namespace
     # registry changes: the operator signs the edited pair as the child of
     # the pair committed on main, with a key that parent enrols.
@@ -2337,10 +2343,11 @@ def build_parser() -> argparse.ArgumentParser:
         # E13-C11 — the backfill-window-metadata subcommand is gone: freshness
         # metadata is manifest-owned and derived by validate_tool_definition,
         # so there is nothing left to patch at runtime.
-        help="Plan 016 Faz F1 — MVP adapter registration + status.",
+        # ARIA-MEDIUM-378 — `register-mvp` is gone: it wrote stub-runner rows
+        # no workflow ever invoked; manifests are the only declaration.
+        help="Plan 016 Faz F1 — MVP adapter status.",
     )
     adapter_sub = adapter_parser.add_subparsers(dest="adapter_portfolio_command", required=True)
-    ap_register = add_subparser(adapter_sub, "register-mvp")
     ap_status = add_subparser(adapter_sub, "status")
     review_parser = add_subparser(sub, 
         "review",
@@ -2510,9 +2517,12 @@ def build_parser() -> argparse.ArgumentParser:
     cp_start.add_argument("--plan-id", required=True)
     cp_start.add_argument("--initial-revision-id", required=True)
     cp_start.add_argument("--plan-content-file", required=True)
-    cp_start.add_argument("--must-satisfy-file", required=True)
-    cp_start.add_argument("--evidence-ref", action="append", required=True)
-    cp_start.add_argument("--allowed-scope", action="append", required=True)
+    # ARIA-MEDIUM-376 — the operator's obligations, ADDED to the ones the
+    # plan's own record derives. Round-1 scope and evidence are not flags:
+    # they come from `plan_started` (ARIA-HIGH-345), as in the drainer.
+    cp_start.add_argument("--must-satisfy-file", default=None)
+    cp_start.add_argument("--workspace-root", default=".",
+                          help="Checkout the plan's admission bound and head SHA are read from")
     cp_challenger = add_subparser(cp_sub, "issue-challenger")
     cp_challenger.add_argument("--plan-id", required=True)
     cp_challenger.add_argument("--round-number", type=int, required=True)
@@ -2775,8 +2785,11 @@ def build_parser() -> argparse.ArgumentParser:
     # timeout: the resumable drainer waits on nothing). Default
     # numerics come from convergence_drainer.run_convergence_drainer
     # signature + budget.DEFAULT_MAX_BUDGET_USD_PER_RUN.
+    from .convergence_drainer import AUTONOMY_CYCLE_MAX_ROUNDS
+
     auto_run.add_argument(
-        "--max-rounds", type=int, default=2,
+        # ARIA-HIGH-368 — the executor's in-run advance reads the same cap.
+        "--max-rounds", type=int, default=AUTONOMY_CYCLE_MAX_ROUNDS,
         help="Max convergence rounds per plan (default 2 for "
              "autonomous cycles). Reduced from V5.1 default 4 because "
              "V8 P+C+CR multiplies LLM cost per round.",
@@ -3665,6 +3678,7 @@ def _main(argv: list[str] | None = None) -> int:
             expires_in_hours=args.expires_in_hours,
             base_dir=args.tools_dir,
             repo_root=args.repo_root,
+            write_roots=args.write_roots,
         ), indent=2, sort_keys=True))
         return 0
 
@@ -5218,6 +5232,9 @@ def _main(argv: list[str] | None = None) -> int:
                 round_number=args.round_number,
                 expected_output_path=args.expected_output_path,
                 base_dir=args.tools_dir,
+                # ARIA-HIGH-364 — an operator's mint: critical path, recorded.
+                # A role the table does not classify is refused by name here.
+                admission=admit_request("operator_cli.request", args.role, base_dir=args.tools_dir),
             )
         # Plan 024 §B-1 — `submit-result` dispatch removed alongside the
         # subparser. Operators use `agent submit-result` (strict path) or,
@@ -5395,15 +5412,8 @@ def _main(argv: list[str] | None = None) -> int:
         parser.error("unknown budget command")
 
     if args.command == "adapter-portfolio":
-        from aria_kernel.adapter_portfolio import (
-            list_mvp_status,
-            register_mvp_adapters,
-        )
+        from aria_kernel.adapter_portfolio import list_mvp_status
 
-        if args.adapter_portfolio_command == "register-mvp":
-            result = register_mvp_adapters(base_dir=args.tools_dir)
-            print(json.dumps(result, indent=2, sort_keys=True))
-            return 0
         if args.adapter_portfolio_command == "status":
             result = list_mvp_status(base_dir=args.tools_dir)
             print(json.dumps(result, indent=2, sort_keys=True))
@@ -5673,22 +5683,30 @@ def _main(argv: list[str] | None = None) -> int:
         parser.error("unknown critical-observation command")
 
     if args.command == "convergent-plan":
+        # ARIA-MEDIUM-376 — this import named a function V8 deleted, so the
+        # whole subcommand died before argument dispatch.
         from aria_kernel.convergent_planning_bridge import (
             issue_challenger_envelope,
-            start_convergent_plan_with_envelope,
+            start_convergent_plan_with_challenger,
         )
 
         if args.convergent_plan_command == "start":
             content = json.loads(Path(args.plan_content_file).read_text(encoding="utf-8"))
-            must_satisfy = json.loads(Path(args.must_satisfy_file).read_text(encoding="utf-8"))
-            result = start_convergent_plan_with_envelope(
+            operator_must_satisfy = (
+                json.loads(Path(args.must_satisfy_file).read_text(encoding="utf-8"))
+                if args.must_satisfy_file else []
+            )
+            result = start_convergent_plan_with_challenger(
                 plan_id=args.plan_id,
                 plan_content=content,
                 initial_revision_id=args.initial_revision_id,
-                must_satisfy=must_satisfy,
-                evidence_refs=args.evidence_ref,
-                allowed_scope=args.allowed_scope,
+                operator_must_satisfy=operator_must_satisfy,
                 base_dir=args.tools_dir,
+                workspace_root=Path(args.workspace_root).resolve(),
+                # An operator starting a plan: critical path, recorded.
+                admission=admit_request(
+                    "operator_cli.convergent_plan", "challenger_plan", base_dir=args.tools_dir,
+                ),
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
@@ -5707,6 +5725,10 @@ def _main(argv: list[str] | None = None) -> int:
                 evidence_refs=args.evidence_ref,
                 allowed_scope=args.allowed_scope,
                 base_dir=args.tools_dir,
+                # ARIA-HIGH-364 — an operator's mint: critical path, recorded.
+                admission=admit_request(
+                    "operator_cli.convergent_plan", "challenger_plan", base_dir=args.tools_dir,
+                ),
             )
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0

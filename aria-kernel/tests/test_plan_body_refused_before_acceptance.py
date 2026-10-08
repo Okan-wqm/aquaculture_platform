@@ -34,6 +34,7 @@ from aria_kernel.plan_coverage import build_synthetic_risk
 from aria_kernel.plan_origin import REVISION_SCOPE_EXCEEDS_ADMISSION_CLOSURE
 from aria_kernel.plan_round_scope import plan_round_contract
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.request_admission import admit_request
 from tests.test_revision_scope_bound import FARM, SHARED, _body, _ScopeBoundFixture, _seed
 
 
@@ -84,6 +85,7 @@ class TheBridgeLawIsAskedBeforeAcceptance(_Plan):
             convergence_id=self.plan_id, round_number=1, must_satisfy=list(contract.must_satisfy),
             allowed_scope=list(contract.allowed_scope), evidence_refs=[f"{FARM}:1"],
             base_dir=self.tools, target_sha=head,
+            admission=admit_request("operator_cli.request", "challenger_plan", base_dir=self.tools),
         )
         envelope = {"request_id": request["request_id"], "role": "challenger_plan",
                     "plan_content": _body(self.seed, [FARM, SHARED])}
@@ -118,7 +120,7 @@ class EveryLaterPlanningEnvelopeCarriesTheMeasuredRoundsPointers(_Plan):
 
 
 class NoStepWaitsOnAStateNothingMovesOn(unittest.TestCase):
-    """EXTERNAL_OUTAGE has no wired reaper and SUBMITTED (a legacy partial) no exit."""
+    """SUBMITTED (a legacy partial) has no exit; EXTERNAL_OUTAGE is retired (ARIA-HIGH-366)."""
 
     def disposition(self, state: str, role: str = "challenger_plan"):
         from unittest.mock import patch
@@ -129,10 +131,12 @@ class NoStepWaitsOnAStateNothingMovesOn(unittest.TestCase):
         with patch.object(agent_invocations, "derive_request_state", return_value=state):
             return step_request_disposition([{"request_id": "AIR-1"}], role=role, base_dir=".")
 
-    def test_an_external_outage_is_succeeded_like_a_queue_death(self) -> None:
+    def test_no_step_mints_a_successor_for_a_provider_outage_state(self) -> None:
+        from aria_kernel.step_request import successor_eligible_states
+
         for role in ("challenger_plan", "completeness_critique"):
             with self.subTest(role=role):
-                self.assertEqual(self.disposition("EXTERNAL_OUTAGE", role).kind, "remint")
+                self.assertNotIn("EXTERNAL_OUTAGE", successor_eligible_states(role))
 
     def test_a_legacy_partial_is_an_outcome_not_a_wait(self) -> None:
         self.assertEqual(self.disposition("SUBMITTED").kind, "outcome")

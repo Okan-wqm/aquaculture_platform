@@ -36,6 +36,7 @@ from aria_kernel.plan_contract import (
     validation_command_catalog,
 )
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 RECIPE = "python3 -m unittest discover aria-kernel -p '*test*.py'"
 
@@ -208,7 +209,7 @@ class EveryPlanningEnvelopeCarriesTheContract(unittest.TestCase):
         from aria_kernel.convergent_planning_bridge import issue_challenger_envelope
 
         row = issue_challenger_envelope(plan_id="plan-c", round_number=1, must_satisfy=self.must_satisfy,
-                                        evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["**"], base_dir=self.tools)
+                                        evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["**"], base_dir=self.tools, admission=admit_request("convergence_drainer.plan_step", "challenger_plan", base_dir=self.tools))
         self._assert_block(row)
 
     def test_the_cross_review_envelope(self) -> None:
@@ -218,6 +219,7 @@ class EveryPlanningEnvelopeCarriesTheContract(unittest.TestCase):
             plan_id="plan-c", round_number=1, primary_revision_id="r1", primary_plan_text="{}",
             challenger_revision_id="c1", challenger_plan_text="{}", must_satisfy=self.must_satisfy,
             evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["**"], base_dir=self.tools,
+            admission=admit_request("convergence_drainer.plan_step", "cross_review", base_dir=self.tools),
         )
         self._assert_block(row)
         self.assertIn("Judge each plan's `architectural_tier` claim", row["suggested_prompt"])
@@ -232,7 +234,7 @@ class EveryPlanningEnvelopeCarriesTheContract(unittest.TestCase):
         with patch("aria_kernel.cross_review_bridge.fold_plan_state", return_value=state):
             row = issue_primary_envelope(plan_id="plan-c", round_number=2, must_satisfy=self.must_satisfy,
                                          evidence_refs=["docs/aria/SPEC.md"], allowed_scope=["**"],
-                                         base_dir=self.tools)
+                                         base_dir=self.tools, admission=admit_request("convergence_drainer.plan_step", "primary_plan", base_dir=self.tools))
         self._assert_block(row)
 
     def test_the_native_controller_envelopes(self) -> None:

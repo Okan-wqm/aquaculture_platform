@@ -45,6 +45,7 @@ from claude_runtime import (
     ClaudeCliUnavailable,
     ClaudeCreditExhausted,
     ClaudePolicyViolation,
+    ClaudeProviderUnreachable,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
     UsageRecording,
@@ -347,7 +348,13 @@ def main(argv: list[str] | None = None) -> int:
                 f"{completed.refusal.get('category')!r}); operator triage required\n"
             )
             return 1
-    except ClaudeCreditExhausted as exc:
+    except (ClaudeCreditExhausted, ClaudeAuthFailure, ClaudeProviderUnreachable) as exc:
+        # ARIA-HIGH-366 — a dead credential and an unreachable vendor are
+        # provider facts exactly like a quota: the auth failure used to fall
+        # into the generic arm below with no cooldown and no outage, so the
+        # hook re-claimed and re-spawned into the same dead login every tick
+        # and no timer knew the provider was gone.
+        #
         # Operator decision 2026-09-12 — a quota exhaustion is a PROVIDER
         # fact, answered by the queue, never by a weaker tier. The worker is
         # a write-scope role that only the managed Claude route can run, so
@@ -380,19 +387,16 @@ def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         return 1
     except (
-        ClaudeAuthFailure, ClaudeAuthUnavailable, ClaudeCliUnavailable,
+        ClaudeAuthUnavailable, ClaudeCliUnavailable,
         ClaudePolicyViolation, ClaudeUsageUnavailable,
     ) as exc:
         # ORPHAN-HIGH-470 follow-through — this arm now also receives a
         # refused spawn (`ResourceLimitsUnavailable` / `SandboxUnavailable`,
         # translated to ClaudePolicyViolation at the
         # `claude_runtime._apply_resource_limits` / `_apply_write_containment`
-        # boundary), and — operator decision 2026-09-12 — the terminal
-        # credential fact the helper raises for a write-scope profile: a
-        # dead credential (ClaudeAuthFailure; no read-only vendor can run a
-        # worker). It used to escape main() as a traceback with no classified
-        # summary; the sibling ClaudeCreditExhausted has its own arm above
-        # because it also cools the provider. Unlike ci_executor.main, this
+        # boundary). The terminal credential fact (ClaudeAuthFailure) moved
+        # to the cooling arm above (ARIA-HIGH-366): it cools the provider
+        # like a quota does. Unlike ci_executor.main, this
         # process owns NONE of the in-flight state, so `return 1` releases
         # everything it holds:
         #
@@ -435,6 +439,13 @@ def main(argv: list[str] | None = None) -> int:
             _redact_lease_in_message(completed.stderr, lease_token) + "\n"
         )
         return completed.returncode
+    # ARIA-HIGH-366 — the vendor served this spawn: its open outages end and
+    # their HUMAN_REQUIRED items resolve themselves.
+    from aria_kernel.model_fleet import dispatching_provider_for_model
+    from aria_kernel.provider_outage_ledger import record_provider_restored
+
+    record_provider_restored(tools_dir, provider=dispatching_provider_for_model(completed.model or profile.model),
+                             seam="spawn", request_id=assignment_id)
     submit_rc = _submit_worker_result(
         assignment_id=assignment_id,
         worktree_path=worktree_path,

@@ -364,17 +364,24 @@ class CreditExhaustionReleasesTheClaimAsRequeued(unittest.TestCase):
     def test_the_handler_records_the_provider_cooldown_before_releasing(self) -> None:
         handler = self._credit_handler()
         statements = [ast.dump(node) for node in handler.body]
-        cooldown_index = next(i for i, text in enumerate(statements) if "record_provider_cooldown" in text)
+        # ARIA-HIGH-366 — the arm cools through `_cool_provider`, the one
+        # writer the auth, quota and unreachable arms share on both lanes.
+        cooldown_index = next(i for i, text in enumerate(statements) if "_cool_provider" in text)
         release_index = next(i for i, text in enumerate(statements) if "_release_claim" in text)
         self.assertLess(cooldown_index, release_index, "cool the provider, then hand the claim back")
-        cooldown_call = next(node for node in ast.walk(handler.body[cooldown_index]) if isinstance(node, ast.Call)
+        helper = next(node for node in ast.walk(ast.parse(_CI_SOURCE))
+                      if isinstance(node, ast.FunctionDef) and node.name == "_cool_provider")
+        cooldown_call = next(node for node in ast.walk(helper) if isinstance(node, ast.Call)
                              and isinstance(node.func, ast.Name) and node.func.id == "record_provider_cooldown")
         keywords = {keyword.arg for keyword in cooldown_call.keywords}
         self.assertLessEqual({"provider", "model", "cooldown_seconds", "request_id", "claim_id", "detection"}, keywords)
         seconds = next(keyword.value for keyword in cooldown_call.keywords if keyword.arg == "cooldown_seconds")
-        # The one duration is the policy's — not a literal here.
-        self.assertIsInstance(seconds, ast.Attribute)
-        self.assertEqual(seconds.attr, "provider_cooldown_seconds")
+        # The one duration is the policy's — not a literal here: the bound
+        # native policy's, else the same policy default the worker lane reads.
+        self.assertIsInstance(seconds, ast.IfExp)
+        self.assertIsInstance(seconds.body, ast.Attribute)
+        self.assertEqual(seconds.body.attr, "provider_cooldown_seconds")
+        self.assertEqual(seconds.orelse.func.id, "provider_cooldown_seconds")
 
     def test_the_reason_is_a_harness_fault_the_kernel_owns(self) -> None:
         from aria_kernel.agent_invocations import classify_release_reason

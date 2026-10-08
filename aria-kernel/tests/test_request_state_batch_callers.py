@@ -39,6 +39,7 @@ from aria_kernel.human_required import sweep_lease_lifecycle_for_human_required
 from aria_kernel.judge_fanout import CONSENSUS_ARBITRATION_ROLE, pending_arbitration_group_ids
 from aria_kernel.plan_016_metrics import compute_plan_016_metrics
 from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.request_admission import admit_request
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FIXTURE_REQUESTS = 6
@@ -59,6 +60,8 @@ BOUNDED_PER_REQUEST_SITES: dict[tuple[str, str], str] = {
         "the request ids of one adjudication panel",
     ("aria-kernel/aria_kernel/mission_dispatch.py", "in_flight_mission_request"):
         "only rows matching one mission's marker and contract are derived",
+    ("aria-kernel/aria_kernel/outage_causality.py", "request_awaits_provider"):
+        "one request: a stalled plan's newest request, or one orphaned plan's implementation request",
     ("aria-kernel/aria_kernel/step_request.py", "step_request_disposition"):
         "the requests of one (plan, role, round) step: at most 1 + MAX_STEP_REQUEST_REMINTS",
     ("aria-kernel/aria_kernel/review_runner.py", "run_review_runner"):
@@ -155,6 +158,7 @@ class _Store(unittest.TestCase):
             cycle_id="cyc-1",
             target_sha="a" * 40,
             base_dir=self.tools,
+            admission=admit_request("operator_cli.request", role, base_dir=self.tools),
         )
         return str(row["request_id"])
 

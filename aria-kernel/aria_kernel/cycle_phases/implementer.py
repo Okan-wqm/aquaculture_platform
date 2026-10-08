@@ -248,6 +248,7 @@ class AutonomousV9ImplementationRunner:
         from ..apply_engine import stage_converged_plan_for_pr
         from ..bridge_exceptions import BridgeContractViolation
         from ..cross_review_bridge import issue_implementation_envelope
+        from ..request_admission import admit_request
         from ..runtime_profile import ProfileActionRefused
         from ..tool_registry import GovernanceError, append_tools_governance
         import json as _json
@@ -327,6 +328,11 @@ class AutonomousV9ImplementationRunner:
                 # cycle the envelope belongs to; this runner is the
                 # only producer that knows it.
                 cycle_id=cycle_id,
+                # ARIA-HIGH-364 — implementation of a CONVERGED plan is the
+                # work that closes the finding: critical path, never throttled.
+                admission=admit_request(
+                    "implementer.converged_plan", "implementation", base_dir=base_dir, cycle_id=cycle_id,
+                ),
             )
         except BridgeContractViolation as exc:
             # Plan ARIA-V3.1-B-5 closes C-10: BridgeContractViolation

@@ -7,6 +7,7 @@ from typing import Any
 
 from .agent_invocations import create_agent_invocation_request, list_agent_invocation_requests
 from .plan_contract import render_plan_contract
+from .request_admission import admit_request
 from .plan_convergence import (
     content_hash,
     _planning_source_context,
@@ -75,6 +76,7 @@ def advance_plan_rounds(
                     round_number=round_number,
                     reason_codes=["max_rounds_reached", "unresolved_material_risk"],
                     base_dir=root,
+                    forced_by="kernel:plan_round_controller",
                 )
                 actions.append({"kind": "human_required", "result": forced})
                 return _result(plan_id, fold_plan_state(plan_id=plan_id, base_dir=root), "human_required", actions)
@@ -149,7 +151,7 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
             },
             *contract.must_satisfy,
             # ARIA-HIGH-309 — the lessons recorded plans in this plan's scope teach.
-            *planner_lesson_obligations(base_dir=root, plan_id=plan_id),
+            *planner_lesson_obligations(base_dir=root, plan_id=plan_id, envelope_role=role),
         ],
         allowed_scope=list(contract.allowed_scope),
         evidence_refs=source_refs,
@@ -160,6 +162,8 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
         remint_of=remint_of,
         base_dir=root,
         plan_contract=render_plan_contract(root),
+        # ARIA-HIGH-364 — a round of a started plan: critical path.
+        admission=admit_request("plan_round_controller.plan_step", role, base_dir=root),
     )
     kind = "planner_request_reminted" if remint_of else "planner_request_created"
     return {"kind": kind, "role": role, "request_id": request.get("request_id"), "remint_of": remint_of}
@@ -224,6 +228,8 @@ def _ensure_cross_review_round(root: Path, state: dict[str, Any], *,
             target_sha=target_sha,
             base_dir=root,
             plan_contract=render_plan_contract(root),
+            # ARIA-HIGH-364 — a round of a started plan: critical path.
+            admission=admit_request("plan_round_controller.plan_step", "cross_review", base_dir=root),
         )
         actions.append({
             "kind": "cross_review_request_created",

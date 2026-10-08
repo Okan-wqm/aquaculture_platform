@@ -44,6 +44,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from tests._helpers.mint_patch import patched_mint
 
 from aria_kernel import autonomy_orchestrator as ao
 from aria_kernel import self_change_bridge as scb
@@ -125,7 +126,7 @@ class TheMissionBranchMintsTheContract(_Store):
                 "recommended_action": SELF_CHANGE_NEXT_ACTION, "candidate_tools": []}
         with patch.object(ao, "read_pending", return_value=[item]), patch.object(ao, "mark_consumed"), \
              patch.object(ao, "_find_projected_queue_request", return_value=None), \
-             patch("aria_kernel.agent_invocations.create_agent_invocation_request", fake_create), \
+             patched_mint(fake_create), \
              patch("aria_kernel.tool_registry.append_tools_governance"):
             ao._drain_next_cycle_queue(base_dir=self.tools, daemon_agent_id="t", limit=1, workspace_root=self.ws)
         return captured
@@ -178,7 +179,7 @@ class TheMissionBranchMintsTheContract(_Store):
                 "recommended_action": SELF_CHANGE_NEXT_ACTION, "candidate_tools": []}
         with patch.object(ao, "read_pending", return_value=[item]), patch.object(ao, "mark_consumed"), \
              patch.object(ao, "_find_projected_queue_request", return_value=None), \
-             patch("aria_kernel.agent_invocations.create_agent_invocation_request") as create, \
+             patched_mint() as create, \
              patch("aria_kernel.tool_registry.append_tools_governance", side_effect=lambda _r, kind, details: disclosed.append((kind, details))):
             consumed = ao._drain_next_cycle_queue(base_dir=self.tools, daemon_agent_id="t", limit=1, workspace_root=self.ws)
         self.assertEqual((consumed, create.call_count), (0, 0))

@@ -30,6 +30,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from tests._helpers.mint_patch import patched_mint
 
 from aria_kernel import autonomy_orchestrator as ao
 from aria_kernel import pressure as pressure_mod
@@ -157,7 +158,7 @@ class MintedRequestsCarryParseableEvidenceTest(unittest.TestCase):
         with patch.object(ao, "read_pending", return_value=[item]), \
              patch.object(ao, "mark_consumed"), \
              patch.object(ao, "_find_projected_queue_request", return_value=None), \
-             patch("aria_kernel.agent_invocations.create_agent_invocation_request", fake_create), \
+             patched_mint(fake_create), \
              patch("aria_kernel.tool_registry.append_tools_governance", side_effect=record_governance):
             self._invoke_drain(root)
         return captured

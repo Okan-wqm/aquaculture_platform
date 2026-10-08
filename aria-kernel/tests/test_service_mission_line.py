@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from tests._helpers.mint_patch import patched_mint
 
 from aria_kernel import cycle as cycle_mod
 from aria_kernel import mission as mission_module
@@ -897,7 +898,7 @@ class DrainResolvesMissionMarkersTest(unittest.TestCase):
             with patch.object(ao, "read_pending", return_value=[item]), \
                  patch.object(ao, "mark_consumed"), \
                  patch.object(ao, "_find_projected_queue_request", return_value=None), \
-                 patch("aria_kernel.agent_invocations.create_agent_invocation_request", fake_create), \
+                 patched_mint(fake_create), \
                  patch("aria_kernel.tool_registry.append_tools_governance", side_effect=record_governance):
                 ao._drain_next_cycle_queue(
                     base_dir=root, daemon_agent_id="t", limit=1, workspace_root=workspace,

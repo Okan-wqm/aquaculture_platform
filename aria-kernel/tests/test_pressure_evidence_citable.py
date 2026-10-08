@@ -38,6 +38,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
+from tests._helpers.mint_patch import patched_mint
 
 from aria_kernel import autonomy_orchestrator as ao
 from aria_kernel import pressure as pressure_mod
@@ -322,7 +323,7 @@ class _DrainFixture(unittest.TestCase):
         with patch.object(ao, "read_pending", return_value=items), \
              patch.object(ao, "mark_consumed", side_effect=lambda *_a, **kw: self.consumed.append(kw["queue_item_id"])), \
              patch.object(ao, "_find_projected_queue_request", return_value=None), \
-             patch("aria_kernel.agent_invocations.create_agent_invocation_request", fake_create), \
+             patched_mint(fake_create), \
              patch("aria_kernel.request_admission.admit_request", return_value=type("A", (), {"admitted": True})()), \
              patch("aria_kernel.tool_registry.append_tools_governance",
                    side_effect=lambda _b, kind, details, **_k: self.governance.append((kind, details))), \

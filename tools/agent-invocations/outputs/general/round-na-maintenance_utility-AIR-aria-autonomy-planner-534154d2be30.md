@@ -1,7 +1,7 @@
 {
   "$schema": "aria/agent-refusal/v1",
   "request_id": "AIR-aria-autonomy-planner-534154d2be30",
-  "claim_id": "claim_b0010ec677799199",
+  "claim_id": "claim_8d0485c044ade254",
   "agent_id": "ci-executor:zcode-manual-20261008",
   "role": "maintenance_utility",
   "reason_class": "evidence",

@@ -5,6 +5,7 @@
  * each source's trend from one series request per sensor, and opens a
  * problem where it is fixed.
  */
+import type { JSX } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

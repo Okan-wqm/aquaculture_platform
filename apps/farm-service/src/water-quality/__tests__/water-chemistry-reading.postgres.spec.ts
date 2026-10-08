@@ -421,6 +421,25 @@ describe('water-chemistry reading — real Postgres', () => {
       );
     }
 
+    // A hatchery says nothing about recirculation (a smolt hatchery loop runs at 12 °C off a
+    // 6 °C intake): its tanks do not take the intake's value until the system is typed.
+    const hatchery = await seedLoop(ds().dataSource, TENANT, topology, 'HATCH-1');
+    await setLoop(hatchery.systemId, 'hatchery', null);
+    const hatcheryTank = await seedTank(
+      ds().dataSource,
+      TENANT,
+      topology,
+      'HATCH-TANK',
+      USER,
+      hatchery.systemId,
+    );
+    expect(
+      await resolve(topology.configs.temperature, { kind: 'tank', id: hatcheryTank }),
+    ).toMatchObject({ value: null, unresolved: 'NO_SOURCE' });
+    expect(
+      await resolve(topology.configs.temperature, { kind: 'system', id: hatchery.systemId }),
+    ).toMatchObject({ value: null, unresolved: 'NO_SOURCE' });
+
     // Water equipment in two live loops: whose water it holds is unknown, so nothing is inherited.
     const biofilter: MeasurementPoint = { kind: 'equipment', id: topology.biofilterId };
     expect(await resolve(topology.configs.temperature, biofilter)).toMatchObject({

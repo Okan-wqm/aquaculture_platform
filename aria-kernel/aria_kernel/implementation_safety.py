@@ -57,6 +57,7 @@ from .dependency_tree import (
     installed_checkout,
     prepare_dependency_mountpoints,
 )
+from .gh_token_factory import GitCommitIdentity
 from .git_containment import GitContainment
 from .hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET
 from .mcp_broker import MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET
@@ -2036,6 +2037,13 @@ class HardFailContext:
     # reports the check as not evaluable rather than as a refusal.
     commit_contract: dict[str, Any] | None = None
     branch_commits: tuple[dict[str, str], ...] | None = None
+    # ARIA-HIGH-387 — the identity every commit base..head must carry as
+    # author AND committer (``implementation_identity.
+    # IMPLEMENTER_COMMIT_IDENTITY`` for a machine-approved action, whose
+    # commits are the executor's implementer's), or None on a lane whose
+    # commits are a person's. Each ``branch_commits`` record then carries
+    # ``author`` / ``committer`` as git prints them (``<name> <<email>>``).
+    commit_identity: GitCommitIdentity | None = None
 
 
 @dataclass(frozen=True)
@@ -2792,6 +2800,32 @@ def _check_commit_contract_honoured(context: HardFailContext) -> HardFailResult:
     return _passed(name)
 
 
+def _check_commit_identity_is_the_kernels(context: HardFailContext) -> HardFailResult:
+    """ARIA-HIGH-387 — every commit base..head on a machine-approved branch
+    is authored AND committed by the kernel's implementer identity.
+
+    The identity mint makes that identity the worktree's default; it does
+    not make another one impossible. git's ``author.*``/``committer.*``
+    keys outrank ``user.*`` in any scope and ``GIT_AUTHOR_*`` outranks all
+    of them, the sandbox HOME is writable, and the agent runs code it wrote
+    — so the commits themselves are judged here, before the push, by the
+    one comparison the containment probe makes too
+    (``implementation_identity.foreign_commit_identities``). A lane whose
+    commits are a person's declares no identity and is not judged here.
+    """
+    from .implementation_identity import foreign_commit_identities
+
+    name = "commit_identity_is_the_kernels"
+    if context.commit_identity is None:
+        return _passed(name, "no_kernel_commit_identity:the_lane_commits_as_a_person")
+    if context.branch_commits is None:
+        return _failed(name, "branch_commits_absent")
+    foreign = foreign_commit_identities(context.branch_commits, expected=context.commit_identity)
+    if foreign:
+        return _failed(name, "commit_identity_foreign:" + ";".join(foreign)[:400])
+    return _passed(name)
+
+
 def _check_pr_body_templating(context: HardFailContext) -> HardFailResult:
     name = "pr_body_templating"
     body = context.pr_body
@@ -3068,6 +3102,18 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         ),
         closes_findings=("ARIA-HIGH-104",),
         check=_check_commit_contract_honoured,
+        gate=GATE_PRE_PR_OPEN,
+    ),
+    # ARIA-HIGH-387 — the 21st check. The implementer's commits carry the
+    # kernel's named identity, author and committer, every one of them.
+    HardFailCheck(
+        name="commit_identity_is_the_kernels",
+        description=(
+            "every commit base_sha..head on a machine-approved branch is authored "
+            "and committed by implementation_identity.IMPLEMENTER_COMMIT_IDENTITY"
+        ),
+        closes_findings=("ARIA-HIGH-387",),
+        check=_check_commit_identity_is_the_kernels,
         gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(

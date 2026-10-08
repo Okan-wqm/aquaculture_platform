@@ -1,18 +1,30 @@
 import { execFile } from 'child_process';
-import { pbkdf2Sync, randomBytes, timingSafeEqual, createHash } from 'crypto';
+import { pbkdf2, randomBytes, timingSafeEqual, createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import { promisify } from 'util';
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 
 import { DeviceDirectoryService } from './device-directory.service';
-import { EdgeDevice } from './entities/edge-device.entity';
+import {
+  type DeviceLifecycleState,
+  type EdgeDevice,
+  mayHoldBrokerSession,
+} from './entities/edge-device.entity';
 
 const execFileAsync = promisify(execFile);
+// PBKDF2 at 600k iterations is ~0.5 s of CPU; on the event loop it stalls every
+// request in the process for each CONNECT. The async form runs on libuv's pool.
+const pbkdf2Async = promisify(pbkdf2);
+
+/** Why a device CONNECT was refused — logged, never returned to the broker. */
+type DeviceAuthDenial =
+  | 'device_not_found'
+  | 'lifecycle_state'
+  | 'client_id_mismatch'
+  | 'no_password_hash'
+  | 'password_mismatch';
 
 /**
  * MQTT Authentication Service
@@ -57,30 +69,23 @@ export class MqttAuthService implements OnModuleInit {
   private static readonly HTTP_MODE_ITERATIONS = 600_000;
   private static readonly FILE_MODE_ITERATIONS = 101;
 
-  // In-memory cache: mqttClientId → tenantId (prevents N+1 DB queries on ACL checks)
-  // Max 10,000 entries with LRU-style eviction to prevent unbounded memory growth (LOW-02)
-  private readonly tenantIdCache = new Map<string, { tenantId: string; expiresAt: number }>();
-  private readonly TENANT_CACHE_TTL_MS = 300_000; // 5 minutes
-  private static readonly TENANT_CACHE_MAX_SIZE = 10_000;
-
-  // SENSOR-MEDIUM-004: negative-result cache for cross-schema device lookups.
-  // A lookup that misses BOTH the O(1) directory and the fallback UNION-ALL scan
-  // is recorded here (keyed `${column}:${value}`) for a short window, so a flood
-  // of the same unknown identifier is not re-scanned across every tenant schema.
-  // It lives in findDeviceAcrossSchemas so EVERY public entry point benefits —
-  // the unauthenticated verifyDeviceCredentials (MQTT CONNECT) and the ACL
-  // own-device check, not just getDeviceTenantId. Short TTL so a freshly
+  // SENSOR-MEDIUM-004: negative-result cache for device lookups. A lookup that
+  // misses the directory is recorded here (keyed `${column}:${value}`) for a
+  // short window, so a flood of the same unknown identifier on the
+  // unauthenticated CONNECT path is answered in memory. Short TTL so a freshly
   // provisioned device becomes resolvable quickly; bounded with LRU eviction so
   // the flood cannot itself grow memory unboundedly.
+  //
+  // There is deliberately NO positive cache: whether a device may connect or
+  // publish depends on its lifecycle state, which an operator changes at any
+  // moment (approve, decommission, reset). A cached "yes" would outlive that
+  // change; every CONNECT and ACL check reads the device row.
   private readonly negativeLookupCache = new Map<string, number>(); // `${column}:${value}` → expiresAt
   private readonly NEGATIVE_LOOKUP_CACHE_TTL_MS = 30_000; // 30 seconds
   private static readonly NEGATIVE_LOOKUP_CACHE_MAX_SIZE = 10_000;
 
   constructor(
     private readonly configService: ConfigService,
-    @InjectRepository(EdgeDevice)
-    private readonly deviceRepository: Repository<EdgeDevice>,
-    private readonly dataSource: DataSource,
     private readonly deviceDirectory: DeviceDirectoryService,
   ) {
     // SENSOR-LOW-008: default to the DB-backed HTTP backend. File mode hashes
@@ -146,36 +151,97 @@ export class MqttAuthService implements OnModuleInit {
    *
    * Checks service accounts first, then device credentials in DB.
    */
-  async verifyDeviceCredentials(username: string, password: string): Promise<boolean> {
+  async verifyDeviceCredentials(
+    username: string,
+    password: string,
+    clientId: string | undefined,
+  ): Promise<boolean> {
     // Check service accounts first
     const serviceHash = this.serviceAccounts.get(username);
     if (serviceHash) {
       return this.verifyPassword(password, serviceHash);
     }
 
-    // Look up device by mqttClientId across all tenant schemas
-    const device = await this.findDeviceAcrossSchemas('mqtt_client_id', username);
+    const device = await this.findSessionDevice(username);
+    if (device === 'not_found' || device === 'not_in_service') {
+      return false;
+    }
 
-    if (!device) {
-      this.logger.debug(`MQTT auth: device not found for ${username}`);
+    // SENSOR-HIGH-144: a device may only connect under its username or the
+    // exact client ID the edge gateway derives, `${username}-${deviceCode}`
+    // (sens-api-gateway/src/mqtt.rs). Mosquitto evicts the existing session on
+    // a duplicate client ID, so a looser rule (any `${username}-*`) would let a
+    // device take a sibling's ID, and none at all would let it connect as
+    // `aqua-sensor-service-main` and knock the ingestion listener off.
+    if (!MqttAuthService.isOwnClientId(username, clientId, device.deviceCode)) {
+      this.logAuthDenied('client_id_mismatch', username);
       return false;
     }
     if (!device.mqttPasswordHash) {
-      this.logger.debug(`MQTT auth: no password hash for ${username} (state=${device.lifecycleState})`);
+      this.logAuthDenied('no_password_hash', username, device.lifecycleState);
       return false;
     }
 
-    // Don't allow revoked/decommissioned devices to connect
-    if (device.lifecycleState === 'revoked' || device.lifecycleState === 'decommissioned') {
-      this.logger.warn(`MQTT auth rejected for ${username}: device is ${device.lifecycleState}`);
-      return false;
-    }
-
-    const valid = this.verifyPassword(password, device.mqttPasswordHash);
+    const valid = await this.verifyPassword(password, device.mqttPasswordHash);
     if (!valid) {
-      this.logger.debug(`MQTT auth: password mismatch for ${username} (state=${device.lifecycleState})`);
+      this.logAuthDenied('password_mismatch', username, device.lifecycleState);
     }
     return valid;
+  }
+
+  /** True when `clientId` is the username itself or exactly `${username}-${deviceCode}`. */
+  private static isOwnClientId(
+    username: string,
+    clientId: string | undefined,
+    deviceCode: string,
+  ): boolean {
+    return clientId === username || clientId === `${username}-${deviceCode}`;
+  }
+
+  /**
+   * Resolve the device a broker principal names and admit it only if its
+   * lifecycle state may hold a broker session (`mayHoldBrokerSession`, the one
+   * allow-list CONNECT and ACL share). A PENDING_APPROVAL device holds a
+   * password from self-registration; this is what keeps it off the broker
+   * until it is approved.
+   */
+  private async findSessionDevice(
+    username: string,
+  ): Promise<EdgeDevice | 'not_found' | 'not_in_service'> {
+    const device = await this.findDeviceAcrossSchemas('mqtt_client_id', username);
+    if (!device) {
+      this.logAuthDenied('device_not_found', username);
+      return 'not_found';
+    }
+    if (!mayHoldBrokerSession(device.lifecycleState)) {
+      this.logAuthDenied('lifecycle_state', username, device.lifecycleState);
+      return 'not_in_service';
+    }
+    return device;
+  }
+
+  /**
+   * The username on a refused CONNECT is attacker-supplied and arrives on every
+   * attempt. Log a structured record at debug with a short, non-reversible
+   * fingerprint instead of the raw value, so a flood can neither inject text
+   * into nor fill the warn stream.
+   */
+  private logAuthDenied(
+    reason: DeviceAuthDenial,
+    username: string,
+    lifecycleState?: DeviceLifecycleState,
+  ): void {
+    this.logger.debug({
+      event: 'mqtt_device_auth_denied',
+      reason,
+      principal: MqttAuthService.principalFingerprint(username),
+      ...(lifecycleState === undefined ? {} : { lifecycleState }),
+    });
+  }
+
+  /** First 12 hex chars of sha256(username): correlatable, not reversible. */
+  static principalFingerprint(username: string): string {
+    return createHash('sha256').update(username).digest('hex').slice(0, 12);
   }
 
   /**
@@ -232,29 +298,23 @@ export class MqttAuthService implements OnModuleInit {
       const topicTenantId = tenantTopicMatch[1];
       const topicDeviceId = tenantTopicMatch[2];
 
-      // Device can only access its own device namespace.
-      // Match by mqttClientId (username) OR by device UUID (looked up from DB).
-      let isOwnDevice = topicDeviceId === username;
-      if (!isOwnDevice) {
-        // Topic uses device UUID — verify the UUID belongs to this mqttClientId
-        const device = await this.findDeviceAcrossSchemas('mqtt_client_id', username);
-        isOwnDevice = !!device && device.id === topicDeviceId;
-      }
-
-      if (!isOwnDevice) {
+      // The device must still be in service: the same allow-list as CONNECT,
+      // re-read on every check. Mosquitto keeps an established session across
+      // a decommission or a reset, so this is what stops it publishing.
+      const device = await this.findSessionDevice(username);
+      if (device === 'not_found' || device === 'not_in_service') {
         return false;
       }
 
-      // Verify the tenant_id in the topic matches the device's actual tenant
-      const deviceTenantId = await this.getDeviceTenantId(username);
-
-      if (!deviceTenantId) {
+      // Device can only access its own device namespace, named by its
+      // mqttClientId (username) or its UUID.
+      if (topicDeviceId !== username && topicDeviceId !== device.id) {
         return false;
       }
 
       // Timing-safe comparison of tenant IDs to prevent timing attacks
       const topicTenantHash = createHash('sha256').update(topicTenantId).digest();
-      const deviceTenantHash = createHash('sha256').update(deviceTenantId).digest();
+      const deviceTenantHash = createHash('sha256').update(device.tenantId).digest();
       return timingSafeEqual(topicTenantHash, deviceTenantHash);
     }
 
@@ -359,85 +419,6 @@ export class MqttAuthService implements OnModuleInit {
     }
   }
 
-  /**
-   * Look up a device's tenantId, using an in-memory cache to avoid repeated DB queries.
-   * ACL checks happen on every PUBLISH/SUBSCRIBE, so caching is critical.
-   *
-   * Security (LOW-02):
-   * - Rejects client IDs that do not match the expected 'edge-{...}-{...}' format early,
-   *   preventing repeated DB queries from random-client-ID floods.
-   * - Enforces a maximum cache size with LRU-style eviction (delete oldest entry when full).
-   */
-  private async getDeviceTenantId(username: string): Promise<string | null> {
-    // Early return for client IDs that cannot possibly be valid edge device identifiers
-    // Expected format: edge-{uuid}-{deviceCode} or similar structured prefix
-    if (!username.startsWith('edge-') && !this.serviceAccountNames.has(username)) {
-      return null;
-    }
-
-    const now = Date.now();
-    const cached = this.tenantIdCache.get(username);
-    if (cached && now < cached.expiresAt) {
-      // Move to end (most-recently-used) by re-inserting
-      this.tenantIdCache.delete(username);
-      this.tenantIdCache.set(username, cached);
-      return cached.tenantId;
-    }
-
-    // SENSOR-MEDIUM-004: the negative-result cache now lives one level down in
-    // findDeviceAcrossSchemas, so an unknown-username flood is bounded here AND
-    // on the unauthenticated auth/own-device paths.
-    const device = await this.findDeviceAcrossSchemas('mqtt_client_id', username);
-
-    if (!device?.tenantId) {
-      this.tenantIdCache.delete(username); // drop any stale positive entry
-      return null;
-    }
-
-    // Enforce max cache size: evict the oldest entry (first inserted) before adding new one
-    if (this.tenantIdCache.size >= MqttAuthService.TENANT_CACHE_MAX_SIZE) {
-      const oldestKey = this.tenantIdCache.keys().next().value;
-      if (oldestKey) {
-        this.tenantIdCache.delete(oldestKey);
-      }
-    }
-
-    this.tenantIdCache.set(username, {
-      tenantId: device.tenantId,
-      expiresAt: now + this.TENANT_CACHE_TTL_MS,
-    });
-
-    return device.tenantId;
-  }
-
-  /**
-   * Invalidate the tenant cache for a device (call when device is revoked/decommissioned).
-   */
-  /**
-   * Task 1.8 (erasure): drop EVERY cache entry mapping to one tenant.
-   * Returns the number of dropped entries so the erasure hook can log
-   * the blast radius. Process-local by necessity — see the hook's doc.
-   */
-  invalidateEntriesForTenant(tenantId: string): number {
-    let dropped = 0;
-    for (const [username, entry] of this.tenantIdCache) {
-      if (entry.tenantId === tenantId) {
-        this.tenantIdCache.delete(username);
-        this.negativeLookupCache.delete(`mqtt_client_id:${username}`);
-        dropped++;
-      }
-    }
-    return dropped;
-  }
-
-  invalidateTenantCache(username: string): void {
-    this.tenantIdCache.delete(username);
-    // Also clear any negative entry so a just-provisioned/revoked device is
-    // re-resolved immediately rather than waiting out the negative TTL
-    // (SENSOR-MEDIUM-004). The lookup key is column-qualified.
-    this.negativeLookupCache.delete(`mqtt_client_id:${username}`);
-  }
-
   // ═══════════════════════════════════════════════════════════════════════════
   // Cross-Schema Device Lookup
   // ═══════════════════════════════════════════════════════════════════════════
@@ -445,20 +426,19 @@ export class MqttAuthService implements OnModuleInit {
   /**
    * Resolve a device by a public identifier without tenant context.
    *
-   * SENSOR-MEDIUM-004: consult the O(1) sensor.edge_device_directory first and,
-   * on a hit, issue a single targeted query against the owning tenant's
-   * edge_devices. Only a directory miss (or a stale entry) falls back to the
-   * O(number-of-tenants) UNION-ALL scan, which then backfills the directory so
-   * the next lookup is O(1). This removes the per-request cross-schema fan-out
-   * that the un-rate-limited MQTT-auth path could be driven into as a DoS.
+   * SENSOR-MEDIUM-004: DeviceDirectoryService.findDevice consults the O(1)
+   * sensor.edge_device_directory and reads the owning tenant only; a miss is a
+   * miss (every device is published to the directory when it is created). The
+   * negative cache here bounds a flood of unknown identifiers on the
+   * un-rate-limited MQTT-auth path.
    */
   private async findDeviceAcrossSchemas(
     column: 'mqtt_client_id' | 'id',
     value: string,
   ): Promise<EdgeDevice | null> {
     // SENSOR-MEDIUM-004: short-circuit recently-confirmed-absent identifiers so a
-    // flood of the same unknown value (auth CONNECT, ACL, own-device) does not
-    // re-scan every tenant schema. Bounds the DoS on the unauthenticated path.
+    // flood of the same unknown value (auth CONNECT, ACL) stays in memory.
+    // Bounds the DoS on the unauthenticated path.
     const negativeKey = `${column}:${value}`;
     const now = Date.now();
     const negativeExpiry = this.negativeLookupCache.get(negativeKey);
@@ -469,32 +449,15 @@ export class MqttAuthService implements OnModuleInit {
       this.negativeLookupCache.delete(negativeKey);
     }
 
-    const tenantId = await this.deviceDirectory.lookupTenantId(column, value);
-    if (tenantId) {
-      const schema = getTenantSchemaName(tenantId);
-      const rows = await this.dataSource.query(
-        `SELECT * FROM "${schema}".edge_devices WHERE "${column}" = $1 LIMIT 1`,
-        [value],
-      );
-      if (rows && rows.length > 0) {
-        return this.mapRowToEdgeDevice(rows[0]);
-      }
-      // Directory pointed at a tenant that no longer holds the row (moved /
-      // deleted): fall through to the authoritative scan.
-    }
-
-    const device = await this.scanDeviceAcrossSchemas(column, value);
+    // SENSOR-CRITICAL-143: directory → owning tenant's boundary; never an
+    // unscoped pooled read, which FORCE RLS answers with zero rows (every edge
+    // CONNECT and ACL check was refused).
+    const device = await this.deviceDirectory.findDevice(column, value);
     if (device) {
-      await this.deviceDirectory.backfill({
-        deviceId: device.id,
-        deviceCode: device.deviceCode,
-        mqttClientId: device.mqttClientId ?? null,
-        tenantId: device.tenantId,
-      });
       return device;
     }
 
-    // Confirmed absent by both the directory and the scan: record a bounded,
+    // Confirmed absent from the directory: record a bounded,
     // short-lived negative so repeated lookups of this identifier stay O(1).
     if (this.negativeLookupCache.size >= MqttAuthService.NEGATIVE_LOOKUP_CACHE_MAX_SIZE) {
       const oldest = this.negativeLookupCache.keys().next().value;
@@ -506,53 +469,6 @@ export class MqttAuthService implements OnModuleInit {
     return null;
   }
 
-  /**
-   * Authoritative fallback: UNION-ALL scan of edge_devices across every tenant
-   * schema. Used only when the directory misses.
-   */
-  private async scanDeviceAcrossSchemas(
-    column: 'mqtt_client_id' | 'id',
-    value: string,
-  ): Promise<EdgeDevice | null> {
-    const schemas: { schema_name: string }[] = await this.dataSource.query(
-      `SELECT schema_name FROM information_schema.schemata WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'`,
-    );
-
-    if (schemas.length === 0) {
-      return null;
-    }
-
-    const unionParts = schemas.map(
-      (s) => `SELECT * FROM "${s.schema_name}".edge_devices WHERE "${column}" = $1`,
-    );
-    const sql = `(${unionParts.join(' UNION ALL ')}) LIMIT 1`;
-
-    const rows = await this.dataSource.query(sql, [value]);
-
-    if (!rows || rows.length === 0) {
-      return null;
-    }
-
-    return this.mapRowToEdgeDevice(rows[0]);
-  }
-
-  /**
-   * Map a raw database row (snake_case) to an EdgeDevice entity (camelCase).
-   */
-  private mapRowToEdgeDevice(row: Record<string, any>): EdgeDevice {
-    const device = new EdgeDevice();
-    device.id = row['id'];
-    device.tenantId = row['tenant_id'];
-    device.deviceCode = row['device_code'];
-    device.deviceName = row['device_name'];
-    device.lifecycleState = row['lifecycle_state'];
-    device.mqttClientId = row['mqtt_client_id'];
-    device.mqttPasswordHash = row['mqtt_password_hash'];
-    device.isOnline = row['is_online'];
-    device.lastSeenAt = row['last_seen_at'] ? new Date(row['last_seen_at']) : undefined;
-    return device;
-  }
-
   // ═══════════════════════════════════════════════════════════════════════════
   // Credential Generation & Verification (shared by both modes)
   // ═══════════════════════════════════════════════════════════════════════════
@@ -561,12 +477,12 @@ export class MqttAuthService implements OnModuleInit {
    * Generate MQTT credentials for a device.
    * Returns the plain password (to send to agent) and hash (to store in DB).
    */
-  generateCredentials(): { password: string; hash: string } {
+  async generateCredentials(): Promise<{ password: string; hash: string }> {
     const password = randomBytes(16).toString('base64');
     const iterations = this.authMode === 'http'
       ? MqttAuthService.HTTP_MODE_ITERATIONS
       : MqttAuthService.FILE_MODE_ITERATIONS;
-    const hash = this.hashPassword(password, iterations);
+    const hash = await this.hashPassword(password, iterations);
     return { password, hash };
   }
 
@@ -577,18 +493,22 @@ export class MqttAuthService implements OnModuleInit {
    * SENSOR-LOW-008: the default is the OWASP-grade HTTP-mode count; the weak
    * 101-iteration file-mode value must be passed explicitly by the legacy path.
    */
-  hashPassword(password: string, iterations: number = MqttAuthService.HTTP_MODE_ITERATIONS): string {
+  async hashPassword(
+    password: string,
+    iterations: number = MqttAuthService.HTTP_MODE_ITERATIONS,
+  ): Promise<string> {
     const salt = randomBytes(12);
     const keyLength = 24;
-    const derivedKey = pbkdf2Sync(password, salt, iterations, keyLength, 'sha512');
+    const derivedKey = await pbkdf2Async(password, salt, iterations, keyLength, 'sha512');
     return `$7$${iterations}$${salt.toString('base64')}$${derivedKey.toString('base64')}`;
   }
 
   /**
    * Verify a password against a PBKDF2-SHA512 hash.
-   * Uses timing-safe comparison to prevent timing attacks.
+   * Uses timing-safe comparison to prevent timing attacks. Async so the
+   * 600k-iteration derivation never blocks the event loop.
    */
-  verifyPassword(password: string, hash: string): boolean {
+  async verifyPassword(password: string, hash: string): Promise<boolean> {
     try {
       const parts = hash.split('$');
       if (parts.length !== 5 || parts[1] !== '7') {
@@ -607,7 +527,13 @@ export class MqttAuthService implements OnModuleInit {
       const salt = Buffer.from(saltStr, 'base64');
       const expectedHash = Buffer.from(hashStr, 'base64');
 
-      const derivedKey = pbkdf2Sync(password, salt, iterations, expectedHash.length, 'sha512');
+      const derivedKey = await pbkdf2Async(
+        password,
+        salt,
+        iterations,
+        expectedHash.length,
+        'sha512',
+      );
 
       // Timing-safe comparison
       return timingSafeEqual(derivedKey, expectedHash);

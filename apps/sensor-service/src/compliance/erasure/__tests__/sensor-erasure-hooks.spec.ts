@@ -2,18 +2,17 @@ import { collaborator, stub, stubMember } from '@aquaculture/testing';
 import type { TenantErasureRequestedEvent } from '@platform/event-contracts';
 import { DataSource, EntityManager } from 'typeorm';
 
+import { EdgeRouteDirectoryPurgeHook } from '../edge-route-directory-purge.hook';
 import { ErasedTenantTombstoneService } from '../erased-tenant-tombstone.service';
-import { MqttAuthCacheInvalidationHook } from '../mqtt-auth-cache-invalidation.hook';
 import { PublishedOutboxPurgeHook } from '../published-outbox-purge.hook';
-import { MqttAuthService } from '../../../edge-device/mqtt-auth.service';
 
 /**
  * Task 1.8 (100-tenant readiness plan): the sensor-service erasure
  * extensions. The published-outbox purge deletes ONLY published rows for
  * the erased tenant (pending rows — including the erasure's own proof —
- * must survive); the MQTT-auth cache invalidation drops every entry
- * mapping to the tenant; the tombstone makes ingress ACK-drop erased
- * tenants' late messages instead of recreating data.
+ * must survive); the route purge drops the tenant's rows from the two
+ * cross-tenant directories; the tombstone makes ingress ACK-drop erased tenants'
+ * late messages instead of recreating data.
  */
 const TENANT = '11111111-1111-4111-8111-111111111111';
 
@@ -56,7 +55,7 @@ describe('PublishedOutboxPurgeHook (Task 1.8)', () => {
     const hook = new PublishedOutboxPurgeHook();
     const { manager, queries } = makeManager();
 
-    await hook.onTenantErased(erasureEvent(false), manager);
+    await expect(hook.onTenantErased(erasureEvent(false), manager)).resolves.toBe(3);
 
     expect(queries).toHaveLength(1);
     expect(queries[0]!.sql).toContain('DELETE FROM "sensor"."sensor_outbox"');
@@ -77,20 +76,28 @@ describe('PublishedOutboxPurgeHook (Task 1.8)', () => {
   });
 });
 
-describe('MqttAuthCacheInvalidationHook (Task 1.8)', () => {
-  it('drops every MQTT auth cache entry mapping to the erased tenant', async () => {
-    const invalidate = jest.fn().mockReturnValue(2);
-    const mqttAuth = collaborator<MqttAuthService>(
-      { invalidateEntriesForTenant: invalidate },
-      'MqttAuthService',
-    );
-    const hook = new MqttAuthCacheInvalidationHook(mqttAuth);
-    const { manager } = makeManager();
+describe('EdgeRouteDirectoryPurgeHook (SENSOR-HIGH-175)', () => {
+  it("deletes the erased tenant's device and provisioning-key routes, inside the tx", async () => {
+    const hook = new EdgeRouteDirectoryPurgeHook();
+    const { manager, queries } = makeManager();
 
-    await hook.onTenantErased(erasureEvent(false), manager);
+    // makeManager answers every DELETE with 3 affected rows.
+    await expect(hook.onTenantErased(erasureEvent(false), manager)).resolves.toBe(6);
 
-    expect(invalidate).toHaveBeenCalledWith(TENANT);
-    expect(hook.hookName).toBe('sensor-mqtt-auth-cache-invalidation');
+    expect(queries.map((q) => q.sql)).toEqual([
+      'DELETE FROM "sensor"."edge_device_directory" WHERE "tenant_id" = $1',
+      'DELETE FROM "sensor"."tenant_provisioning_key_directory" WHERE "tenant_id" = $1',
+    ]);
+    expect(queries.every((q) => q.params[0] === TENANT)).toBe(true);
+    expect(hook.hookName).toBe('sensor-edge-route-directory-purge');
+  });
+
+  it('is a no-op on dry-run', async () => {
+    const hook = new EdgeRouteDirectoryPurgeHook();
+    const { manager, queries } = makeManager();
+
+    await hook.onTenantErased(erasureEvent(true), manager);
+    expect(queries).toHaveLength(0);
   });
 });
 

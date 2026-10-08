@@ -15,13 +15,14 @@ Adding an audit-shaped entity: decide the classification from the DATA, then mak
 
 ## Cross-tenant set
 
-<!-- infra-tables:sensor -->`migrations`, `sensor_audit_logs`, `sensor_outbox`, `vfd_register_mappings`, `edge_device_directory`, `scada_alarms`, `scada_alarm_chronicle`, `scada_tag_history`, `vfd_command_audit_logs`, `tenant_erasure_target_proofs`<!-- /infra-tables -->
+<!-- infra-tables:sensor -->`migrations`, `sensor_audit_logs`, `sensor_outbox`, `vfd_register_mappings`, `edge_device_directory`, `tenant_provisioning_key_directory`, `scada_alarms`, `scada_alarm_chronicle`, `scada_tag_history`, `vfd_command_audit_logs`, `tenant_erasure_target_proofs`<!-- /infra-tables -->
 
 Proven against `MODULE_SCHEMAS` by `tests/invariants/nested-steering-parity.spec.ts` — edit the registry, never this copy. Two entries there are non-obvious:
 
 - `vfd_register_mappings` is GLOBAL vendor reference data pinned to `sensor` (SENSOR-MEDIUM-009), not tenant data.
 - The SCADA trio (`scada_alarms`, `scada_alarm_chronicle`, `scada_tag_history`) is cross-tenant BECAUSE process-wide singletons write it; isolation comes from a forced `tenant_isolation_policy` instead of schema routing. Guarded by `tests/invariants/scada-storage-tenant-context.spec.ts`.
 - `edge_device_directory` is a cross-tenant index; its `device_code` index is deliberately NOT unique.
+- `tenant_provisioning_key_directory` routes a presented provisioning key (by a hash of its digest, never the key) to its tenant (SENSOR-HIGH-175).
 
 ## `sensor_readings` does not exist — do not "restore" it
 

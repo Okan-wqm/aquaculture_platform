@@ -223,9 +223,7 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
       // A trailing `)` (no options) or `,` (options — e.g. sensor-service's
       // postErasureHooks) both mean the call goes through the SHARED module;
       // only a locally-rolled subscriber would fail this.
-      expect(src).toMatch(
-        new RegExp(`TenantErasureTargetModule\\.forService\\('${service}'[),]`),
-      );
+      expect(src).toMatch(new RegExp(`TenantErasureTargetModule\\.forService\\('${service}'[),]`));
     }
   });
 
@@ -273,9 +271,7 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
 
     expect(moduleSrc).toContain('LegalHoldModule.forRoot()');
     expect(moduleSrc).toMatch(/legalHoldService:\s*LegalHoldService/);
-    expect(executorSrc).toMatch(
-      /readonly legalHoldService:\s*TenantErasureTargetLegalHold/,
-    );
+    expect(executorSrc).toMatch(/readonly legalHoldService:\s*TenantErasureTargetLegalHold/);
     expect(executorSrc).toMatch(
       /interface TenantErasureTargetLegalHold[\s\S]{0,160}assertNoHold\(tenantId: string, scope: 'tenant'\): Promise<void>/,
     );
@@ -289,7 +285,12 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
     );
 
     const holdOffset = executorSrc.indexOf('await this.deps.legalHoldService.assertNoHold');
-    const transactionOffset = executorSrc.indexOf('return await this.deps.dataSource.transaction');
+    // The erasure transaction opens through inErasedTenantTransaction, which
+    // binds the erased tenant's RLS context first (PLAT-CRITICAL-923).
+    const transactionOffset = executorSrc.indexOf(
+      'return await this.inErasedTenantTransaction(event.tenantId',
+    );
+    expect(transactionOffset).toBeGreaterThan(0);
     expect(holdOffset).toBeGreaterThan(0);
     expect(holdOffset).toBeLessThan(transactionOffset);
   });

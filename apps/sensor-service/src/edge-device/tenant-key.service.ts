@@ -8,15 +8,40 @@ import {
   UnauthorizedException,
   ConflictException,
 } from '@nestjs/common';
+import {
+  runInSourceRead,
+  runInTenantRead,
+  runInTenantTransaction,
+  SENSOR_SOURCE_SCHEMA,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, EntityManager, DataSource } from 'typeorm';
 
-import {
-  CreateTenantKeyInput,
-  TenantKeyResponse,
-} from './dto/provisioning.dto';
+import { CreateTenantKeyInput, TenantKeyResponse } from './dto/provisioning.dto';
+import { TenantProvisioningKeyDirectory } from './entities/tenant-provisioning-key-directory.entity';
 import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
 import { InstallerScriptService } from './installer-script.service';
+
+/**
+ * Domain separator for the provisioning-key route hash. The route is
+ * sha256(prefix || sha256(rawKey)): derivable from the at-rest digest (so a
+ * migration can backfill it) but never equal to it.
+ */
+export const PROVISIONING_KEY_ROUTE_PREFIX = 'sensor-provisioning-key-route:';
+
+/** Route hash of a provisioning key, from its at-rest sha256 hex digest. */
+export function provisioningKeyRouteHash(keyDigestHex: string): string {
+  return crypto
+    .createHash('sha256')
+    .update(
+      Buffer.concat([
+        Buffer.from(PROVISIONING_KEY_ROUTE_PREFIX, 'utf8'),
+        Buffer.from(keyDigestHex, 'hex'),
+      ]),
+    )
+    .digest('hex');
+}
 
 /**
  * Tenant Key Service
@@ -35,39 +60,31 @@ export class TenantKeyService {
   ) {}
 
   /**
-   * SENSOR-HIGH-027: tenant_provisioning_keys is a per-tenant table, so keys
-   * created by the authenticated admin path land in `tenant_<uuid>`. But
-   * validateAndGetKey is reached from PUBLIC endpoints (self-register /
-   * installer) whose search_path defaults to "sensor, public", so a plain
-   * repository lookup queried the empty source-schema template and every
-   * legitimate token failed as "Invalid installer token".
+   * Resolve a presented key to its row (SENSOR-HIGH-027 / SENSOR-HIGH-175).
    *
-   * This mirrors the sibling `findDeviceAcrossSchemas` (edge_devices): resolve
-   * the token by UNION-ALL across all tenant schemas. keyToken is a 256-bit
-   * crypto-random value, so a cross-schema collision is not a practical concern
-   * for the LIMIT 1 resolution.
-   *
-   * SENSOR-MEDIUM-001: `key_token` is stored as the SHA-256 hex digest, so the
-   * lookup matches on `sha256(providedToken)` — the raw token is never in the
-   * database and the query still hits the existing unique index on the digest.
+   * The public self-register / installer endpoints have no tenant. The key's
+   * route (`sensor.tenant_provisioning_key_directory`, read through
+   * runInSourceRead) names the tenant; the key row is then read inside THAT
+   * tenant's runInTenantRead by its at-rest digest. A route miss, or a route
+   * naming a tenant that does not hold the key, resolves nothing. The pooled
+   * UNION over every tenant schema that used to do this saw zero rows under
+   * FORCE RLS, so no key was ever found.
    */
-  private async findKeyAcrossSchemas(tokenHash: string): Promise<TenantProvisioningKey | null> {
-    const schemas: { schema_name: string }[] = await this.dataSource.query(
-      `SELECT schema_name FROM information_schema.schemata WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'`,
-    );
-    if (schemas.length === 0) {
+  private async findKeyByDigest(tokenHash: string): Promise<TenantProvisioningKey | null> {
+    const rows = (await runInSourceRead(this.dataSource, SENSOR_SOURCE_SCHEMA, (qr) =>
+      qr.query(`SELECT tenant_id FROM tenant_provisioning_key_directory WHERE route_hash = $1`, [
+        provisioningKeyRouteHash(tokenHash),
+      ]),
+    )) as Array<{ tenant_id: string }>;
+    const route = rows[0];
+    if (route === undefined) {
       return null;
     }
-    // Schema names are constrained by the regex above (tenant_ + 16 hex chars).
-    const unionParts = schemas.map(
-      (s) => `SELECT * FROM "${s.schema_name}".tenant_provisioning_keys WHERE key_token = $1`,
+    return runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, route.tenant_id, (qr) =>
+      tenantManagerRepo(qr.manager, TenantProvisioningKey).findOne({
+        where: { keyToken: tokenHash },
+      }),
     );
-    const sql = `(${unionParts.join(' UNION ALL ')}) LIMIT 1`;
-    const rows = await this.dataSource.query(sql, [tokenHash]);
-    if (!rows || rows.length === 0) {
-      return null;
-    }
-    return this.mapRowToKey(rows[0]);
   }
 
   /**
@@ -78,24 +95,6 @@ export class TenantKeyService {
    */
   private hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
-  }
-
-  private mapRowToKey(row: Record<string, unknown>): TenantProvisioningKey {
-    const key = new TenantProvisioningKey();
-    key.id = row['id'] as string;
-    key.tenantId = row['tenant_id'] as string;
-    key.keyToken = row['key_token'] as string;
-    key.name = (row['name'] as string) ?? undefined;
-    key.isActive = row['is_active'] as boolean;
-    key.maxDevices = (row['max_devices'] as number) ?? undefined;
-    key.usedCount = row['used_count'] as number;
-    key.autoApprove = row['auto_approve'] as boolean;
-    key.defaultSiteId = (row['default_site_id'] as string) ?? undefined;
-    key.expiresAt = row['expires_at'] ? new Date(row['expires_at'] as string) : undefined;
-    key.createdBy = (row['created_by'] as string) ?? undefined;
-    key.createdAt = new Date(row['created_at'] as string);
-    key.updatedAt = new Date(row['updated_at'] as string);
-    return key;
   }
 
   /**
@@ -127,7 +126,22 @@ export class TenantKeyService {
       createdBy,
     });
 
-    const saved = await this.tenantKeyRepository.save(key);
+    // SENSOR-HIGH-175: the key row and its route commit in one tenant
+    // transaction — the public endpoints find a key only through its route.
+    const saved = await runInTenantTransaction(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      tenantId,
+      async (qr) => {
+        const persisted = await tenantManagerRepo(qr.manager, TenantProvisioningKey).save(key);
+        await qr.manager.insert(TenantProvisioningKeyDirectory, {
+          routeHash: provisioningKeyRouteHash(persisted.keyToken),
+          keyId: persisted.id,
+          tenantId,
+        });
+        return persisted;
+      },
+    );
     this.logger.log(`Created tenant provisioning key ${saved.id} for tenant ${tenantId}`);
 
     // Surface the PLAINTEXT key exactly once. `saved.keyToken` is the digest at
@@ -147,16 +161,20 @@ export class TenantKeyService {
    * Revoke a tenant provisioning key
    */
   async revokeTenantKey(keyId: string, tenantId: string): Promise<boolean> {
-    const key = await this.tenantKeyRepository.findOne({
-      where: { id: keyId, tenantId },
+    // Revocation lives on the tenant row (is_active), which validateAndGetKey
+    // reads inside the tenant boundary; the route stays so a revoked key is
+    // reported as revoked, not as unknown. No other writer touches keys:
+    // creation (createTenantKey), revocation (here) and the used-count claim
+    // (incrementUsedCount) are the whole set; expiry is decided at read time.
+    await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, async (qr) => {
+      const keys = tenantManagerRepo(qr.manager, TenantProvisioningKey);
+      const key = await keys.findOne({ where: { id: keyId } });
+      if (!key) {
+        throw new NotFoundException(`Provisioning key ${keyId} not found`);
+      }
+      key.isActive = false;
+      await keys.save(key);
     });
-
-    if (!key) {
-      throw new NotFoundException(`Provisioning key ${keyId} not found`);
-    }
-
-    await this.tenantKeyRepository.update(key.id, { isActive: false });
-    key.isActive = false;
     this.logger.log(`Revoked tenant provisioning key ${keyId}`);
     return true;
   }
@@ -178,8 +196,8 @@ export class TenantKeyService {
   async validateAndGetKey(token: string): Promise<TenantProvisioningKey> {
     // SENSOR-MEDIUM-001: the column stores sha256(rawKey); resolve by digest.
     const tokenHash = this.hashToken(token);
-    // SENSOR-HIGH-027: resolve across tenant schemas (see findKeyAcrossSchemas).
-    const key = await this.findKeyAcrossSchemas(tokenHash);
+    // SENSOR-HIGH-175: route → owning tenant's boundary; a miss denies.
+    const key = await this.findKeyByDigest(tokenHash);
 
     if (!key) {
       throw new NotFoundException('Invalid installer token');
@@ -189,10 +207,7 @@ export class TenantKeyService {
     // defeating any timing oracle on the resolved row.
     const storedBuf = Buffer.from(key.keyToken, 'hex');
     const inboundBuf = Buffer.from(tokenHash, 'hex');
-    if (
-      storedBuf.length !== inboundBuf.length ||
-      !crypto.timingSafeEqual(storedBuf, inboundBuf)
-    ) {
+    if (storedBuf.length !== inboundBuf.length || !crypto.timingSafeEqual(storedBuf, inboundBuf)) {
       throw new NotFoundException('Invalid installer token');
     }
 
@@ -212,33 +227,29 @@ export class TenantKeyService {
   }
 
   /**
-   * Atomically increment the used_count for a tenant provisioning key.
-   * If maxDevices is set, only increments if used_count < max_devices (prevents TOCTOU race).
-   * Throws ConflictException if the limit has been reached.
+   * Claim one registration on a key, atomically, inside the registering
+   * transaction. The claim re-checks everything validateAndGetKey checked —
+   * active, not expired, under max_devices — in the same UPDATE, so a key
+   * revoked, expired or exhausted between validation and registration claims
+   * nothing and the registration rolls back (TOCTOU). Exactly one row must be
+   * claimed.
    */
-  async incrementUsedCount(
-    keyId: string,
-    maxDevices: number | null | undefined,
-    transactionalManager: EntityManager,
-  ): Promise<void> {
-    if (maxDevices) {
-      const result = await transactionalManager
-        .createQueryBuilder()
-        .update(TenantProvisioningKey)
-        .set({ usedCount: () => '"used_count" + 1' })
-        .where('id = :id AND ("max_devices" IS NULL OR "used_count" < "max_devices")', { id: keyId })
-        .execute();
+  async incrementUsedCount(keyId: string, transactionalManager: EntityManager): Promise<void> {
+    const result = await transactionalManager
+      .createQueryBuilder()
+      .update(TenantProvisioningKey)
+      .set({ usedCount: () => '"used_count" + 1' })
+      .where(
+        'id = :id AND "is_active" AND ("expires_at" IS NULL OR "expires_at" > now()) ' +
+          'AND ("max_devices" IS NULL OR "used_count" < "max_devices")',
+        { id: keyId },
+      )
+      .execute();
 
-      if (result.affected === 0) {
-        throw new ConflictException('Maximum device limit reached for this key');
-      }
-    } else {
-      await transactionalManager
-        .createQueryBuilder()
-        .update(TenantProvisioningKey)
-        .set({ usedCount: () => '"used_count" + 1' })
-        .where('id = :id', { id: keyId })
-        .execute();
+    if (result.affected !== 1) {
+      throw new ConflictException(
+        'This installer key can no longer register devices (revoked, expired or at its limit)',
+      );
     }
   }
 }

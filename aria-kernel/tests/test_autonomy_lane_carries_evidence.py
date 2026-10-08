@@ -15,7 +15,9 @@ response's own verification matrix — and each closed here:
    cannot parse under the evidence validator's ref grammar — so the only
    envelope that could pass was empty-evidence + satisfied; a blocked verdict
    was structurally unrepresentable. Refs now come from the pressure's own
-   evidence paths, which are concrete repo paths by construction.
+   evidence paths, judged by the agent law at the envelope's target_sha
+   (ARIA-HIGH-384: "by construction" did not hold — seven sources wrote
+   ledger, PR and store refs there).
 
 3. The drain passed `workspace_root` through raw while every sibling call site
    applies `if workspace_root else root`, so daemon runs minted
@@ -28,6 +30,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from tests._helpers.mint_patch import patched_mint
 
 from aria_kernel import autonomy_orchestrator as ao
 from aria_kernel import pressure as pressure_mod
@@ -155,7 +158,7 @@ class MintedRequestsCarryParseableEvidenceTest(unittest.TestCase):
         with patch.object(ao, "read_pending", return_value=[item]), \
              patch.object(ao, "mark_consumed"), \
              patch.object(ao, "_find_projected_queue_request", return_value=None), \
-             patch("aria_kernel.agent_invocations.create_agent_invocation_request", fake_create), \
+             patched_mint(fake_create), \
              patch("aria_kernel.tool_registry.append_tools_governance", side_effect=record_governance):
             self._invoke_drain(root)
         return captured
@@ -164,8 +167,19 @@ class MintedRequestsCarryParseableEvidenceTest(unittest.TestCase):
         # _drain_next_cycle_queue does its own imports; patching module
         # globals is not enough for names it imports lazily, so this helper
         # exists for the subclass to override if the shape changes.
+        #
+        # ARIA-HIGH-384 — the projection admits only refs the agent law
+        # accepts at the checkout HEAD, so the workspace is a repository
+        # holding the cited migrations.
+        from tests._helpers.git_fixtures import commit_files, make_local_git_repo
+
+        workspace = make_local_git_repo(root, name="repo")
+        commit_files(workspace, {
+            "apps/ai-service/src/database/migrations/001.ts": "export {};\n",
+            "apps/ai-service/src/database/migrations/002.ts": "export {};\n",
+        })
         ao._drain_next_cycle_queue(
-            base_dir=root, daemon_agent_id="test-daemon", limit=1, workspace_root=root,
+            base_dir=root, daemon_agent_id="test-daemon", limit=1, workspace_root=workspace,
         )
 
     def test_refs_come_from_the_pressures_evidence_paths(self) -> None:
@@ -197,6 +211,8 @@ class MintedRequestsCarryParseableEvidenceTest(unittest.TestCase):
             "queue_item_id": "qi-test",
             "pressure_id": "pressure:migration-surface-repeat:repetition",
             "source_cycle_id": "cyc-1",
+            "provenance_refs": [],
+            "refused_evidence_refs": [],
         })])
 
 

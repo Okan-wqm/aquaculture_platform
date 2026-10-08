@@ -11,6 +11,15 @@ thing the implementation contract is made of. A runner whose containment
 cannot run git was admitted, claimed a request, spent a turn, and refused
 the result at the end.
 
+ARIA-HIGH-387 — and the identity: the sandbox commit runs with no
+``GIT_AUTHOR_*``/``GIT_COMMITTER_*``/``EMAIL`` and no global or system
+config (``implementation_identity.commit_identity_environment``), so its
+author and committer come from what the mint wrote into the worktree
+(``IMPLEMENTER_COMMIT_IDENTITY``), and the landed commit is checked to
+carry exactly that. Until then the probe's env identity reached the
+sandbox and it admitted a runner on which the implementer's own
+``git commit`` exited 128 "Author identity unknown".
+
 The first cut of this probe committed UNSIGNED with ``GIT_AUTHOR_*`` set,
 and passed on the production runner where the signed route did not: git
 needs no account lookup when the ident is in the environment, but
@@ -201,8 +210,25 @@ def probe_git_containment(build_argv: ArgvBuilder) -> str | None:
     if shutil.which("git") is None:
         return "git_missing"
     from .gh_token_factory import mint_signing_key, revoke_signing_key
+    from .implementation_identity import (
+        COMMIT_IDENTS_LOG_FORMAT,
+        IMPLEMENTER_COMMIT_IDENTITY,
+        commit_identity_environment,
+        commit_identity_refusal,
+        foreign_commit_identities,
+        parse_commit_idents,
+    )
 
     env = probe_git_environment()
+    # ARIA-HIGH-387 — the sandbox runs with the implementer's identity
+    # sources, not the probe's: no `GIT_AUTHOR_*`/`GIT_COMMITTER_*`, no
+    # `EMAIL`, no global or system config. The probe's own `git commit`
+    # outside (the throwaway base) keeps its env identity; the one inside
+    # must resolve author and committer from what the mint wrote into the
+    # worktree, exactly as the implementer's does. With the env identity
+    # passed through, this probe admitted a runner whose implementer then
+    # exited 128 "Author identity unknown" at its last step.
+    sandbox_env = commit_identity_environment(env)
     below_floor = _git_version_below_floor(env)
     if below_floor is not None:
         return below_floor
@@ -230,13 +256,19 @@ def probe_git_containment(build_argv: ArgvBuilder) -> str | None:
         # The identity's own mint: the key under the worktree, the
         # worktree's config wired to sign with it.
         try:
-            key = mint_signing_key(cycle_id=PROBE_CYCLE_ID, workspace_root=worktree)
+            key = mint_signing_key(
+                cycle_id=PROBE_CYCLE_ID, workspace_root=worktree, commit_identity=IMPLEMENTER_COMMIT_IDENTITY,
+            )
         except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
             return f"probe_key_unavailable:{type(exc).__name__}"
         try:
             wiring = key.git_signing
             if wiring is None or not wiring.configured:
                 return f"probe_signing_unwired:{'re-mint' if wiring is None else wiring.reason}"
+            # The hold's own guard on the identity the mint wrote.
+            identity_refusal = commit_identity_refusal(worktree)
+            if identity_refusal is not None:
+                return f"probe_{identity_refusal}"
             try:
                 with hold_signing_agent(key.private_key_path, expected_fingerprint=key.fingerprint) as agent:
                     try:
@@ -263,7 +295,7 @@ def probe_git_containment(build_argv: ArgvBuilder) -> str | None:
                     argv = build_argv(["sh", "-c", script], worktree, containment)
                     try:
                         inside = subprocess.run(
-                            argv, env=env, capture_output=True, text=True, check=False,
+                            argv, env=sandbox_env, capture_output=True, text=True, check=False,
                             timeout=_PROBE_SANDBOX_TIMEOUT_SECONDS,
                         )
                     except (OSError, subprocess.SubprocessError) as exc:
@@ -294,6 +326,16 @@ def probe_git_containment(build_argv: ArgvBuilder) -> str | None:
             landed = _git(["rev-parse", "--verify", f"refs/heads/{PROBE_BRANCH}^{{commit}}"], cwd=checkout, env=env)
             if landed.returncode != 0 or landed.stdout.strip() == base.stdout.strip():
                 return "sandbox_commit_did_not_reach_repository"
+            # ARIA-HIGH-387 — the commit is by the kernel's named identity,
+            # author and committer, and by nothing the host guessed.
+            # The same comparison the delivery's pre-PR-open perimeter makes.
+            idents = _git(["log", "-1", f"--format={COMMIT_IDENTS_LOG_FORMAT}", landed.stdout.strip()],
+                          cwd=checkout, env=env)
+            if idents.returncode != 0:
+                return f"sandbox_commit_identity_unreadable:rc={idents.returncode}"
+            foreign = foreign_commit_identities([{"sha": landed.stdout.strip(), **parse_commit_idents(idents.stdout)}])
+            if foreign:
+                return f"sandbox_commit_identity_foreign:{';'.join(foreign)[:200]}"
             signers = containment.private_git_dir / "aria-allowed-signers"
             verified = _git(["-c", f"gpg.ssh.allowedSignersFile={signers}", "verify-commit", "--raw",
                              landed.stdout.strip()], cwd=checkout, env=env)

@@ -141,13 +141,15 @@ with its reason.
   - Under a profile that stops writes, an undispatchable request and a stale anchor are still
     skipped, just not recorded. `agent next-pending` and the drain keep answering.
 - **N3, closed: re-plans of a subject were unbounded.**
-  - One `harness`/`unclassified` implementation ending cools nothing off; it can be the host's.
+  - One `unclassified` implementation ending cools nothing off; it can be the host's.
   - The second consecutive such ending of one subject is evidence about the subject.
     `finding_grounding` then cools the subject off (`SUBJECT_COOL_OFF`,
     `repeated_unverified_failure`), disclosed by the guard's refusal row.
   - A merge or a verified failure in between breaks the streak.
-  - Why a cool-off and not a quarantine: the cause is unverified. A cool-off lifts on its own once
-    the host is fixed; a quarantine needs an operator's merge.
+  - A `harness` ending is the lane's by the kernel's own verdict. It never cools a subject off,
+    alone or in a streak, and it neither extends nor breaks one (final review R1).
+  - Why a cool-off and not a quarantine: the cause is unverified. A cool-off lifts on its own after
+    `cool_off_days` (time-based, like every cool-off); a quarantine needs an operator's merge.
 - **N4, closed: a request on an ended plan stayed in the queue.** `plan_request_closure` ends an
   unheld implementation request whose plan left its implementation phase (rejected, merged,
   abandoned, escalated) with `plan_closed`, which reads as CANCELLED.
@@ -162,7 +164,12 @@ with its reason.
   - Still waiting on the lane is `harness`: never claimed, or last released for a harness cause
     (an outage, a missing delivery authority, a window). The cause is the wait's, e.g.
     `authority_absent`. Anything else (claimed and lost, answered) is `unclassified`.
+  - A request held by a live claim at the reap is named `claimed_in_flight`, `unclassified` (final
+    review R2: claim rows carry no reason, so it read `unclaimed`).
   - The reap never judged an answer, so it is never `request` and never cools a finding off.
+  - Folded into ARIA-HIGH-389, both pre-existing: the reaper ages a plan by its ledger events and
+    ignores a live claim lease, so it can reap a plan mid-delivery; and the scan-to-settle window
+    lets a reap settle a plan that reached `IMPLEMENTATION_RECORDED` in between.
   - The state is checked under the plan lock. A plan the executor settled first is
     `already_settled`, counted in the reaper summary (`already_settled_count`), never "spared".
     A settlement the store refused is `reap_failed_count`, beside its own failure row.

@@ -51,6 +51,7 @@ SETTLED = "settled"
 ALREADY_SETTLED = "already_settled"
 NOT_AN_IMPLEMENTATION = "not_an_implementation_request"
 FAILED = "failed"
+CLAIMED_IN_FLIGHT = "claimed_in_flight"
 
 
 def _plan_of(request_id: str, base_dir: Path) -> str | None:
@@ -168,6 +169,10 @@ def _wait_of(request: dict[str, Any] | None, *, root: Path) -> tuple[str, bool]:
     last = reasoned[-1]["reason"] if reasoned else None
     if last is not None and parse_release_reason(last).fault_domain == "harness":
         return last, True
+    if state == "CLAIMED":
+        # Final review R2 — a claim row carries no reason; a request held by
+        # a live claim at the reap was in flight, not unclaimed.
+        return CLAIMED_IN_FLIGHT, False
     return (last or "unclaimed"), state in WAITING_STATES
 
 

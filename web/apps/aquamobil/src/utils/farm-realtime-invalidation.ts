@@ -15,6 +15,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 
 import { createTenantQueryKey } from './tenant-query-keys';
+import { UNIT_MEASUREMENT_PLAN_QUERY_KEY } from './unit-measurement-plan-query-key';
 
 export type FarmRealtimeEvent =
   | 'mortalityRecorded'
@@ -76,10 +77,10 @@ export const FARM_REALTIME_INVALIDATION_SEGMENTS: Record<
   tankDeleted: [['tanks']],
   tankStatusChanged: [['tanks']],
   tankCleared: [['tanks'], ['dailyOpsCounts']],
-  // Equipment (tank cards surface equipment params).
-  equipmentCreated: [['tanks'], ['equipment-params']],
-  equipmentUpdated: [['tanks'], ['equipment-params']],
-  equipmentDeleted: [['tanks'], ['equipment-params']],
+  // Equipment (tank cards; a unit's water-quality measurement plan).
+  equipmentCreated: [['tanks'], [UNIT_MEASUREMENT_PLAN_QUERY_KEY]],
+  equipmentUpdated: [['tanks'], [UNIT_MEASUREMENT_PLAN_QUERY_KEY]],
+  equipmentDeleted: [['tanks'], [UNIT_MEASUREMENT_PLAN_QUERY_KEY]],
   subEquipmentCreated: [['tanks']],
   subEquipmentUpdated: [['tanks']],
   subEquipmentDeleted: [['tanks']],

@@ -26,6 +26,7 @@ import { Tank } from '../../tank/entities/tank.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { WaterQualityMeasurement } from '../../water-quality/entities/water-quality-measurement.entity';
+import { measurementUnitMatchSql } from '../../water-quality/services/measurement-unit-reader';
 import { GetBatchHistoryQuery, BatchHistoryEntry } from '../queries/get-batch-history.query';
 import {
   GetBatchTraceabilityQuery,
@@ -288,7 +289,7 @@ export class GetBatchTraceabilityHandler
       .addSelect('MAX(m.temperature)', 'tmax')
       .addSelect('COUNT(m.id)', 'cnt')
       .where('m.tenantId = :tenantId', { tenantId })
-      .andWhere('(m.tankId = :cid OR m.equipmentId = :cid)', { cid: containerId })
+      .andWhere(measurementUnitMatchSql('m', '= :cid'), { cid: containerId })
       .andWhere('m.temperature IS NOT NULL')
       .andWhere('m.measuredAt >= :from', { from });
     if (to) {

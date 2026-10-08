@@ -15975,6 +15975,7 @@ export type Query = {
   unacknowledgedPlcAlarms: Array<PlcAlarm>;
   unifiedTag?: Maybe<UnifiedTagType>;
   unifiedTags: UnifiedTagListType;
+  unitMeasurementPlan: UnitMeasurementPlan;
   unpaidInvoices: Array<Invoice>;
   unreadNotificationCount: Scalars['Int']['output'];
   /** Get upcoming harvest plans within specified days */
@@ -18111,6 +18112,11 @@ export type QueryUnifiedTagArgs = {
 export type QueryUnifiedTagsArgs = {
   filter?: InputMaybe<TagFilterInput>;
   pagination?: InputMaybe<ProcessPaginationInput>;
+};
+
+
+export type QueryUnitMeasurementPlanArgs = {
+  unitId: Scalars['ID']['input'];
 };
 
 
@@ -22945,6 +22951,20 @@ export type UnifiedTagType = {
   updatedAt: Scalars['DateTime']['output'];
 };
 
+/** What to record at a unit: its plan, or every active parameter */
+export type UnitMeasurementPlan = {
+  entries: Array<UnitMeasurementPlanEntry>;
+  /** Whether the unit has a plan of its own */
+  planned: Scalars['Boolean']['output'];
+};
+
+/** One parameter to record at a unit, and whether it is required there */
+export type UnitMeasurementPlanEntry = {
+  parameter: WaterQualityParameterConfig;
+  /** Whether a measurement at this unit must carry this parameter */
+  required: Scalars['Boolean']['output'];
+};
+
 export type UnresolvedTagRefType = {
   reason: Scalars['String']['output'];
   ref: Scalars['String']['output'];
@@ -25415,10 +25435,12 @@ export type WaterQualityFilterInput = {
   status?: InputMaybe<WaterQualityStatus>;
   /** System ID — aggregates all equipment in the system */
   systemId?: InputMaybe<Scalars['ID']['input']>;
-  /** Tank ID */
+  /** A tank ID, matched by unit like unitId (the name predates water equipment) */
   tankId?: InputMaybe<Scalars['ID']['input']>;
   /** Bitiş tarihi */
   toDate?: InputMaybe<Scalars['DateTime']['input']>;
+  /** The unit (a tank or water equipment) the measurements were taken at */
+  unitId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type WaterQualityListResponse = {

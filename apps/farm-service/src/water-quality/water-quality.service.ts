@@ -34,8 +34,14 @@ import {
   MeasurementSource,
   ParameterStatus,
 } from './entities/water-quality-measurement.entity';
-import { resolveTankSiteId, resolveUnitSiteIds } from '../batch/utils/tank-lookup.util';
+import { resolveUnitSiteIds } from '../batch/utils/tank-lookup.util';
 import { Tank } from '../tank/entities/tank.entity';
+import {
+  type MeasurementUnit,
+  measurementUnitColumns,
+  resolveMeasurementUnit,
+} from './services/measurement-unit';
+import { measurementUnitIdOf } from './services/measurement-unit-reader';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
 import { CreateBatchWaterQualityInput } from './dto/create-batch-water-quality.input';
@@ -68,9 +74,11 @@ export interface WaterQualityCaller {
   assignedSiteIds?: string[];
 }
 export interface CreateWaterQualityData {
-  tankId?: string;
+  /** Optional echo of the unit; must equal `equipmentId`. GraphQL may send null. */
+  tankId?: string | null;
   pondId?: string;
-  siteId?: string;
+  /** Optional consistency check against the unit's site. GraphQL may send null. */
+  siteId?: string | null;
   batchId?: string;
   measuredAt: Date;
   source: MeasurementSource;
@@ -94,6 +102,9 @@ export interface UpdateWaterQualityData {
 }
 
 export interface WaterQualityFilters {
+  /** The unit (a tank or water equipment) the measurements were taken at. */
+  unitId?: string;
+  /** A tank's id, matched by unit like `unitId` (the name predates water equipment). */
   tankId?: string;
   pondId?: string;
   siteId?: string;
@@ -161,19 +172,21 @@ export class WaterQualityService {
       );
     }
 
-    const measurement = this.repository.create({
-      tenantId,
-      tankId,
-      equipmentId: tankId,
-      measuredAt: new Date(),
-      source: MeasurementSource.MANUAL,
-      parameters: { temperature: celsius },
-      temperature: celsius,
-      measuredBy: recordedBy,
-    });
     // Kayıt + gün içi recalc TEK transaction'da (P-31): yeni sıcaklık
-    // çarpanı kalan öğünlere hemen yansır, yarını beklemez.
+    // çarpanı kalan öğünlere hemen yansır, yarını beklemez. The unit is
+    // classified first: a tank is recorded as tankId, other equipment as
+    // equipmentId (measurement-unit.ts).
     await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+      const unit = await this.requireMeasurementUnit(queryRunner.manager, tankId, tenantId);
+      const measurement = queryRunner.manager.create(WaterQualityMeasurement, {
+        tenantId,
+        ...measurementUnitColumns(unit),
+        measuredAt: new Date(),
+        source: MeasurementSource.MANUAL,
+        parameters: { temperature: celsius },
+        temperature: celsius,
+        measuredBy: recordedBy,
+      });
       await queryRunner.manager.save(measurement);
       await this.dayPlanRecalc.recalcForUnit(queryRunner.manager, tenantId, tankId, 'temperature', {
         newTemperatureC: celsius,
@@ -182,15 +195,19 @@ export class WaterQualityService {
     return true;
   }
 
-  /**
-   * SEC-HIGH-051: resolve the site a water-quality measurement belongs to.
-   *
-   * A direct `siteId` wins (the measurement is explicitly site-scoped). Else a
-   * `tankId` resolves via Department.siteId. A pond-only measurement has no Site
-   * linkage in this schema (Pond -> Farm, not Site), so it resolves to `null`
-   * and the fail-closed deny restricts pond WQ to MODULE_MANAGER+ — the correct
-   * conservative posture (NEVER an implicit allow on an unresolved site).
-   */
+  /** The unit a measurement is taken at; a missing or inactive unit is refused. */
+  private async requireMeasurementUnit(
+    manager: EntityManager,
+    unitId: string,
+    tenantId: string,
+  ): Promise<MeasurementUnit> {
+    const unit = await resolveMeasurementUnit(manager, unitId, tenantId);
+    if (unit === null) {
+      throw new NotFoundException(`Unit '${unitId}' not found`);
+    }
+    return unit;
+  }
+
   /**
    * Site yetkisi kapısı — ÜNİTE LİSTESİ okuyan sorgular için (W8 —
    * FARM-MEDIUM-274).
@@ -224,22 +241,6 @@ export class WaterQualityService {
     for (const unitId of unitIds) {
       this.siteAuth.assertSiteAssignment({ caller, siteId: siteByUnit.get(unitId) ?? null });
     }
-  }
-
-  private async resolveMeasurementSiteId(
-    manager: EntityManager,
-    input: Pick<CreateWaterQualityData, 'siteId' | 'tankId'>,
-    tenantId: string,
-  ): Promise<string | null> {
-    if (input.siteId) {
-      return input.siteId;
-    }
-    if (input.tankId) {
-      // Reuse the ONE tank site-resolver (checks equipment + legacy tanks tables
-      // → Department.siteId) so equipment-table tanks resolve too.
-      return resolveTankSiteId(manager, input.tankId, tenantId);
-    }
-    return null;
   }
 
   // -------------------------------------------------------------------------
@@ -310,20 +311,29 @@ export class WaterQualityService {
       // BEFORE persisting. MODULE_MANAGER+ bypasses; an unresolved site (e.g. a
       // pond-only measurement, or a site-less department) for a MODULE_USER is
       // DENIED — never an implicit allow.
-      const measurementSiteId = await this.resolveMeasurementSiteId(
+      // The unit is the client's one id (`equipmentId`); a tankId, when sent,
+      // must name the same unit. The unit's own site is authoritative and is the
+      // only site stored: a client-sent siteId is a consistency check, refused
+      // when it names another site, never trusted for a unit without one.
+      if (input.tankId != null && input.tankId !== input.equipmentId) {
+        throw new BadRequestException('tankId and equipmentId name different units');
+      }
+      const unit = await this.requireMeasurementUnit(
         queryRunner.manager,
-        { siteId: input.siteId, tankId: input.tankId },
+        input.equipmentId,
         tenantId,
       );
-      this.siteAuth.assertSiteAssignment({ caller, siteId: measurementSiteId });
+      if (input.siteId != null && unit.siteId !== null && input.siteId !== unit.siteId) {
+        throw new BadRequestException('siteId does not match the unit’s site');
+      }
+      this.siteAuth.assertSiteAssignment({ caller, siteId: unit.siteId });
 
       const measurement = queryRunner.manager.create(WaterQualityMeasurement, {
         tenantId,
-        tankId: input.tankId,
+        ...measurementUnitColumns(unit),
         pondId: input.pondId,
-        siteId: input.siteId,
+        siteId: unit.siteId ?? undefined,
         batchId: input.batchId,
-        equipmentId: input.equipmentId,
         measuredAt: input.measuredAt,
         source: input.source,
         measuredBy: input.measuredBy,
@@ -490,16 +500,17 @@ export class WaterQualityService {
         // is keyed by equipmentId (a tank/equipment id) → Department.siteId.
         // MODULE_MANAGER+ bypasses; an unresolved site for a MODULE_USER DENIES
         // the whole batch (the transaction rolls back) — never an implicit allow.
-        const itemSiteId = await this.resolveMeasurementSiteId(
+        const unit = await this.requireMeasurementUnit(
           queryRunner.manager,
-          { tankId: item.equipmentId },
+          item.equipmentId,
           tenantId,
         );
-        this.siteAuth.assertSiteAssignment({ caller, siteId: itemSiteId });
+        this.siteAuth.assertSiteAssignment({ caller, siteId: unit.siteId });
 
         const measurement = queryRunner.manager.create(WaterQualityMeasurement, {
           tenantId,
-          equipmentId: item.equipmentId,
+          ...measurementUnitColumns(unit),
+          siteId: unit.siteId ?? undefined,
           measuredAt: input.measuredAt,
           source: input.source,
           measuredBy: userId,
@@ -603,9 +614,9 @@ export class WaterQualityService {
   /**
    * Sıcaklık taşıyan ölçümler → gün-içi plan yeniden fiyatlaması (P-31).
    *
-   * Ünite kimliği `tankId ?? equipmentId`: toplu giriş yalnız `equipmentId`
-   * yazar, tekil giriş `tankId` — ikisi de AYNI fiziksel üniteyi gösterir
-   * (Equipment.id kanonik ünite kimliği).
+   * Ünite kimliği measurementUnitIdOf (`tankId ?? equipmentId`): bir tank
+   * `tankId`, diğer ekipman `equipmentId` olarak dosyalanır; eski satırlar
+   * ikisini de taşıyabilir — hepsi AYNI fiziksel üniteyi gösterir.
    *
    * Üniteler unitId'ye göre SIRALI işlenir: recalc kilit alır ve kanonik
    * kilit sırası (K-1) aynı yönde ilerlemeyi şart koşar — iki eşzamanlı
@@ -618,7 +629,7 @@ export class WaterQualityService {
   ): Promise<void> {
     const byUnit = new Map<string, number>();
     for (const measurement of measurements) {
-      const unitId = measurement.tankId ?? measurement.equipmentId;
+      const unitId = measurementUnitIdOf(measurement);
       if (!unitId || typeof measurement.temperature !== 'number') continue;
       byUnit.set(unitId, Number(measurement.temperature));
     }
@@ -665,9 +676,11 @@ export class WaterQualityService {
 
     if (input.dynamicParameters) {
       // SINGLE-INGRESS (Tier-1): merge the incoming dynamic parameters onto the
-      // existing measurement, then validate the MERGED set against the
-      // measurement's stored equipment mappings BEFORE persisting — identical
-      // strict gate to create. Rejects on !valid exactly like create.
+      // existing measurement, then validate the MERGED set against the plan of
+      // the measurement's unit BEFORE persisting — identical strict gate to
+      // create. The unit is measurementUnitIdOf: a tank row stores its unit in
+      // `tankId` (equipmentId NULL), and validating against `equipmentId` alone
+      // applied the no-unit rule (every tenant-required parameter required).
       const mergedParameters = {
         ...measurement.parameters,
         ...input.dynamicParameters,
@@ -676,7 +689,7 @@ export class WaterQualityService {
       const validation = await this.validationService.validate(
         tenantId,
         mergedParameters as Record<string, number | string | boolean>,
-        measurement.equipmentId,
+        measurementUnitIdOf(measurement),
       );
       if (!validation.valid) {
         throw new BadRequestException({

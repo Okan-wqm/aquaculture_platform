@@ -42,6 +42,7 @@ interface Harness {
   service: CalibrationRecordingService;
   eventFind: jest.Mock;
   managerSave: jest.Mock;
+  channelFindOne: jest.Mock;
   savedEvent: () => Partial<CalibrationEvent>;
 }
 
@@ -57,7 +58,7 @@ async function setup(channel: SensorDataChannel | null): Promise<Harness> {
     return plain;
   });
   const managerSave = jest.fn((_entity: unknown, obj: unknown) => Promise.resolve(obj));
-  const manager = { create: managerCreate, save: managerSave };
+  const manager = { create: managerCreate, save: managerSave, findOne: channelFindOne };
   const dataSource = {
     transaction: jest.fn((cb: (m: typeof manager) => Promise<unknown>) => cb(manager)),
   };
@@ -66,7 +67,6 @@ async function setup(channel: SensorDataChannel | null): Promise<Harness> {
     providers: [
       CalibrationRecordingService,
       { provide: getRepositoryToken(CalibrationEvent), useValue: { find: eventFind } },
-      { provide: getRepositoryToken(SensorDataChannel), useValue: { findOne: channelFindOne } },
       { provide: DataSource, useValue: dataSource },
     ],
   }).compile();
@@ -75,6 +75,7 @@ async function setup(channel: SensorDataChannel | null): Promise<Harness> {
     service: module.get(CalibrationRecordingService),
     eventFind,
     managerSave,
+    channelFindOne,
     savedEvent: () => createdEvent,
   };
 }
@@ -115,6 +116,11 @@ describe('CalibrationRecordingService.recordCalibration (SENSOR-HIGH-083)', () =
     expect(event.channelId).toBe('ch-1');
     expect(event.sensorId).toBe('sensor-1');
     expect(h.managerSave).toHaveBeenCalledWith(CalibrationEvent, expect.anything());
+    // Read under the row lock inside the same transaction as the writes.
+    expect(h.channelFindOne).toHaveBeenCalledWith(SensorDataChannel, {
+      where: { id: 'ch-1', tenantId: TENANT },
+      lock: { mode: 'pessimistic_write' },
+    });
   });
 
   it('reuses the channel stored interval when none is supplied', async () => {

@@ -579,6 +579,18 @@ jobs:
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         uses: ./.github/actions/ensure-sandbox-backend
 
+      # ARIA-HIGH-383 — the validation room binds every toolchain the tree
+      # declares (`implementation_safety.validation_toolchains_for`): the
+      # root Cargo.toml declares cargo + rustc. This runner had none, so
+      # the first CONVERGED plan's implementer was refused before the
+      # spawn with `validation_toolchain_unresolvable:cargo` (run
+      # 37713931273). Same shared action the CI lanes use: the pinned
+      # channel, components and targets come from one manifest, and the
+      # action puts `$CARGO_HOME/bin` on the PATH the room resolves on.
+      - name: Provision the Rust toolchain the tree declares
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        uses: ./.github/actions/setup-rust-workspace
+
       # FAZ 5a — attestation producer on the executor lane too: the merge
       # A2 — the executor lane never provisioned the node deps the agent
       # validation commands need, so FAZ 5's pre-claim gate refused its

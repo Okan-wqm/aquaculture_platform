@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import ast as _ast
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -114,9 +115,8 @@ def build_twin_map(
         }
         for name, meta in graph["projects"].items()
     }
-    test_files = _iter_test_files(root)
-    projects = _with_test_surface(root, projects, test_files)
-    tested_by = _tested_by_edges(root, test_files)
+    projects = _with_test_surface(root, projects)
+    tested_by = _tested_by_edges(root, _iter_test_files(root))
     twin = {
         "schema_version": TWIN_SCHEMA_VERSION,
         "generated_at": utc_now(),
@@ -223,9 +223,9 @@ def refresh_twin_map(
         graph_source = prior["graph_source"]
     # ARIA-MEDIUM-382 — a spec added or a package.json script changed alters a
     # project's test surface without touching the graph, so it is recomputed on
-    # every refresh by the function the full build uses (one tree walk, ~1 s here).
-    all_test_files = _iter_test_files(root)
-    projects = _with_test_surface(root, projects, all_test_files)
+    # every refresh by the function the full build uses: one pruned walk that
+    # never enters a dependency tree (about 0.1 s on this repository).
+    projects = _with_test_surface(root, projects)
 
     tested_by = dict(prior.get("tested_by") or {})
     changed_tests = [p for p in changed if _is_test_file(p)]
@@ -236,8 +236,9 @@ def refresh_twin_map(
         # all those dependencies (including previously unresolved imports).
         # Rebuild this association layer through its existing extractor.
         # This is cycle scan work, not bounded per-request qualification.
-        tested_by = _tested_by_edges(root, all_test_files)
-        reparsed_tests = len(all_test_files)
+        test_files = _iter_test_files(root)
+        tested_by = _tested_by_edges(root, test_files)
+        reparsed_tests = len(test_files)
     elif changed_tests:
         changed_test_set = set(changed_tests)
         # Replace surviving changed tests' associations as well as removing
@@ -689,32 +690,39 @@ def _impacted_project_view(meta: dict[str, Any]) -> dict[str, Any]:
     if "test_targets" in meta:
         specs = list(meta.get("spec_files") or [])
         view.update(test_targets=list(meta["test_targets"]), spec_file_count=len(specs),
-                    spec_files=specs[:CONTEXT_SPEC_FILES_SHOWN])
+                    spec_files=specs[:CONTEXT_SPEC_FILES_SHOWN],
+                    test_surface_modelled=bool(meta.get("test_surface_modelled", True)))
     return view
 
 
-def _with_test_surface(root: Path, projects: dict[str, Any], test_files: list[Path]) -> dict[str, Any]:
+def _with_test_surface(root: Path, projects: dict[str, Any]) -> dict[str, Any]:
     """``projects`` with each entry's test targets and spec files (``twin_test_surface``)."""
-    from .twin_test_surface import project_test_surface
+    from .twin_test_surface import project_test_surface, spec_inventory
 
-    rels = [path.relative_to(root).as_posix() for path in test_files]
-    surface = project_test_surface(root, projects, rels)
+    surface = project_test_surface(root, projects, spec_inventory(root))
     return {name: {**meta, **surface[name]} for name, meta in projects.items()}
 
 
 # --- layer builders -------------------------------------------------------
 
 
+_TEST_WALK_PRUNED = frozenset({"node_modules", "dist", "build", "coverage", ".git"})
+
+
 def _iter_test_files(root: Path) -> list[Path]:
+    """The TS specs and the kernel's pytest modules the TESTED_BY layer reads.
+
+    Review MEDIUM-2 (PR #1859) — four ``rglob`` passes walked every
+    ``node_modules`` tree and filtered afterwards (about 4.5 s per refresh on
+    the runner's real dependency tree). One ``os.walk`` that prunes the same
+    directory names before entering them yields the same set.
+    """
     tests: list[Path] = []
-    for pattern in ("*.spec.ts", "*.spec.tsx", "*.test.ts", "*.test.tsx"):
-        tests.extend(root.rglob(pattern))
+    for directory, dirs, files in os.walk(root):
+        dirs[:] = [name for name in dirs if name not in _TEST_WALK_PRUNED]
+        tests.extend(Path(directory) / name for name in files if name.endswith(_TEST_SUFFIXES))
     tests.extend((root / "aria-kernel" / "tests").glob("test_*.py"))
-    return sorted(
-        p
-        for p in tests
-        if not any(part in ("node_modules", "dist", "build", "coverage", ".git") for part in p.parts)
-    )
+    return sorted(tests)
 
 
 def _is_test_file(rel: str) -> bool:

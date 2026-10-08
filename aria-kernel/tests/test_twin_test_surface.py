@@ -22,7 +22,13 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.agent_invocations import _render_repository_map
-from aria_kernel.twin import TWIN_MAP_RELPATH, build_twin_map, refresh_twin_map, twin_context_for_files
+from aria_kernel.twin import (
+    TWIN_MAP_RELPATH,
+    build_twin_map,
+    read_twin_map,
+    refresh_twin_map,
+    twin_context_for_files,
+)
 
 _PAGE = "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx"
 _SPECS = ["web/modules/hr-module/src/components/leave/LeaveBalanceWidget.spec.tsx",
@@ -63,7 +69,17 @@ class TwinTestSurface(unittest.TestCase):
             "apps/hr-service/project.json": json.dumps({"name": "hr-service", "targets": {
                 "test": {"executor": "@nx/jest:jest", "options": {"jestConfig": "apps/hr-service/jest.config.ts"}}}}),
             "apps/hr-service/src/main.ts": "export const main = 1;\n",
+            "libs/untested/project.json": json.dumps({"name": "untested", "targets": {"build": {}}}),
             "libs/untested/src/index.ts": "export const x = 1;\n",
+            "libs/bare/src/index.ts": "export const bare = 1;\n",
+            # Review MEDIUM-2 — a Rust crate and a Python project, which nx manifests do not describe.
+            "crates/codec/Cargo.toml": "[package]\nname = \"codec\"\nversion = \"0.1.0\"\n",
+            "crates/codec/src/lib.rs": "pub fn f() {}\n#[cfg(test)]\nmod tests {}\n",
+            "crates/codec/src/plain.rs": "pub fn g() {}\n",
+            "crates/codec/tests/round_trip.rs": "#[test]\nfn round_trip() {}\n",
+            "tools/pykit/pyproject.toml": "[project]\nname = \"pykit\"\n[tool.pytest.ini_options]\n",
+            "tools/pykit/tests/test_kit.py": "def test_kit():\n    pass\n",
+            "tools/pykit/kit.py": "X = 1\n",
         }, "first")
 
     def test_the_inferred_target_and_the_specs_are_on_every_project(self) -> None:
@@ -78,6 +94,27 @@ class TwinTestSurface(unittest.TestCase):
                          [{"name": "test", "source": "project.json", "command": "@nx/jest:jest"}])
         # A project with neither still carries the fact, as an empty list.
         self.assertEqual((projects["untested"]["test_targets"], projects["untested"]["spec_files"]), ([], []))
+
+    def test_a_rust_crate_and_a_python_project_report_their_runners(self) -> None:
+        projects = build_twin_map(workspace_root=self.repo, base_dir=self.tools)["projects"]
+        codec = projects["crates-codec"]
+        self.assertEqual(codec["test_targets"], [{"name": "cargo test", "source": "Cargo.toml", "command": "cargo test"}])
+        # Integration tests under tests/ and modules with #[cfg(test)]; a plain module is not a spec.
+        self.assertEqual(codec["spec_files"], ["crates/codec/src/lib.rs", "crates/codec/tests/round_trip.rs"])
+        pykit = projects["tools-pykit"]
+        self.assertEqual(pykit["test_targets"], [{"name": "pytest", "source": "pyproject.toml", "command": "pytest"}])
+        self.assertEqual(pykit["spec_files"], ["tools/pykit/tests/test_kit.py"])
+        twin = read_twin_map(base_dir=self.tools)
+        rendered = _render_repository_map(twin_context_for_files(twin, ["crates/codec/src/plain.rs"]))
+        self.assertIn("test targets: `cargo test` (`cargo test`, Cargo.toml)", rendered)
+        self.assertIn("spec files (2)", rendered)
+
+    def test_a_project_whose_manifest_is_not_read_says_not_modelled_never_none(self) -> None:
+        twin = build_twin_map(workspace_root=self.repo, base_dir=self.tools)
+        self.assertFalse(twin["projects"]["bare"]["test_surface_modelled"])
+        rendered = _render_repository_map(twin_context_for_files(twin, ["libs/bare/src/index.ts"]))
+        self.assertIn("test targets: not modelled", rendered)
+        self.assertNotIn("none declared or inferred", rendered)
 
     def test_the_planner_prompt_states_the_runner_for_a_file_with_no_spec_of_its_own(self) -> None:
         twin = build_twin_map(workspace_root=self.repo, base_dir=self.tools)

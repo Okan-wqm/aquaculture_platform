@@ -8,6 +8,7 @@ import { SiteUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, Not } from 'typeorm';
 
+import { closeSourcesAtPoints } from '../../water-quality/services/parameter-sources';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { UpdateSiteCommand } from '../commands/update-site.command';
@@ -145,6 +146,7 @@ export class UpdateSiteHandler implements ICommandHandler<UpdateSiteCommand, Sit
       if (input.contactPhone !== undefined) {
         site.contactPhone = input.contactPhone;
       }
+      const wasActive = site.isActive;
       if (input.isActive !== undefined) {
         site.isActive = input.isActive;
       }
@@ -159,6 +161,18 @@ export class UpdateSiteHandler implements ICommandHandler<UpdateSiteCommand, Sit
       }
 
       const updatedSite = await siteRepository.save(site);
+      // Deactivating retires the point: its water-quality sources end here,
+      // after the point row is written (FARM-HIGH-373, D12). Reactivation
+      // binds anew.
+      if (wasActive && !updatedSite.isActive) {
+        await closeSourcesAtPoints(
+          queryRunner.manager,
+          tenantId,
+          [{ kind: 'site', id: updatedSite.id }],
+          userId,
+          'channels',
+        );
+      }
 
       await this.auditLogService.logWithManager(queryRunner.manager, {
         tenantId,

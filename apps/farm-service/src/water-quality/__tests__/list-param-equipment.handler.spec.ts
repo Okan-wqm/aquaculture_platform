@@ -1,4 +1,5 @@
 import { createMockDataSource } from '@aquaculture/testing';
+import { IsNull } from 'typeorm';
 
 import { ListParamEquipmentQuery } from '../queries/list-param-equipment.query';
 import { ListParamEquipmentHandler } from '../query-handlers/list-param-equipment.handler';
@@ -6,7 +7,9 @@ import { ListParamEquipmentHandler } from '../query-handlers/list-param-equipmen
 describe('ListParamEquipmentHandler', () => {
   const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
-  it('lists mappings filtered by tenant through the tenant boundary', async () => {
+  const live = { channelKey: IsNull(), unboundAt: IsNull() };
+
+  it('lists the live manual sources of the tenant through the tenant boundary', async () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.find as jest.Mock).mockResolvedValueOnce([{ id: 'pe-1' }, { id: 'pe-2' }]);
 
@@ -15,13 +18,13 @@ describe('ListParamEquipmentHandler', () => {
 
     expect(result).toHaveLength(2);
     expect(mockManager.find).toHaveBeenCalledWith(expect.anything(), {
-      where: { tenantId },
+      where: [{ tenantId, ...live }],
       relations: ['parameterConfig', 'equipment'],
       order: { createdAt: 'ASC' },
     });
   });
 
-  it('applies equipment and isActive filters', async () => {
+  it('matches a unit filter as a tank or an equipment point, with the isActive filter', async () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     (mockManager.find as jest.Mock).mockResolvedValueOnce([]);
 
@@ -31,7 +34,10 @@ describe('ListParamEquipmentHandler', () => {
     );
 
     expect(mockManager.find).toHaveBeenCalledWith(expect.anything(), {
-      where: { tenantId, equipmentId: 'eq-1', isActive: false },
+      where: [
+        { tenantId, ...live, isActive: false, tankId: 'eq-1' },
+        { tenantId, ...live, isActive: false, equipmentId: 'eq-1' },
+      ],
       relations: ['parameterConfig', 'equipment'],
       order: { createdAt: 'ASC' },
     });

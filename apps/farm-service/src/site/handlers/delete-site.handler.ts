@@ -2,13 +2,15 @@
  * Delete Site Command Handler
  * Supports cascade soft delete of all related items
  */
-import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { toEventIso, SiteDeletedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, In } from 'typeorm';
 
+import { runRetryingTenantTransaction } from '../../common/database/retrying-tenant-transaction';
+import { closeSourcesAtPoints, unitPoints } from '../../water-quality/services/parameter-sources';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { Department } from '../../department/entities/department.entity';
@@ -35,7 +37,7 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
 
     this.logger.log(`Deleting site ${siteId} for tenant ${tenantId} (cascade: ${cascade})`);
 
-    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+    await runRetryingTenantTransaction(this.dataSource, tenantId, async (queryRunner) => {
       const siteRepository = tenantManagerRepo(queryRunner.manager, Site, tenantId);
       const departmentRepository = tenantManagerRepo(queryRunner.manager, Department, tenantId);
       const systemRepository = tenantManagerRepo(queryRunner.manager, System, tenantId);
@@ -67,6 +69,8 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
 
         const now = new Date();
 
+        // Collected before they are retired, to close their water-quality sources.
+        const retiredUnitIds: string[] = [];
         if (departmentIds.length > 0) {
           const tanksWithBiomass = await tankRepository
             .createQueryBuilder('tank')
@@ -84,6 +88,19 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
               `Cannot delete site "${site.name}". ${tanksWithBiomass.length} tank(s) contain ${totalBiomass.toFixed(2)} kg of active biomass. Please harvest or transfer fish before deleting.`,
             );
           }
+
+          const retiredTanks = await tankRepository.find({
+            where: { departmentId: In(departmentIds), tenantId },
+            select: { id: true },
+          });
+          const retiredEquipment = await equipmentRepository.find({
+            where: { departmentId: In(departmentIds), isDeleted: false, tenantId },
+            select: { id: true },
+          });
+          retiredUnitIds.push(
+            ...retiredTanks.map((tank) => tank.id),
+            ...retiredEquipment.map((unit) => unit.id),
+          );
 
           await tankRepository.update(
             { departmentId: In(departmentIds) },
@@ -107,6 +124,11 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
           this.logger.log(`Soft deleted tanks and equipment for site ${siteId}`);
         }
 
+        const retiredSystems = await systemRepository.find({
+          where: { siteId, isDeleted: false, tenantId },
+          select: { id: true },
+        });
+
         await systemRepository.update(
           { siteId, isDeleted: false },
           {
@@ -127,6 +149,19 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
         );
 
         this.logger.log(`Soft deleted systems and orphaned departments for site ${siteId}`);
+
+        // The site's units and systems are no longer places a parameter is
+        // measured: their water-quality sources end here (FARM-HIGH-373, D12).
+        await closeSourcesAtPoints(
+          queryRunner.manager,
+          tenantId,
+          [
+            ...unitPoints(retiredUnitIds),
+            ...retiredSystems.map((system) => ({ kind: 'system' as const, id: system.id })),
+          ],
+          userId,
+          'all',
+        );
       }
 
       site.isDeleted = true;
@@ -135,6 +170,16 @@ export class DeleteSiteHandler implements ICommandHandler<DeleteSiteCommand, boo
       site.isActive = false;
       site.updatedBy = userId;
       const deletedSite = await siteRepository.save(site);
+      // Sources at the site point end with the site, cascade or not — after
+      // the site row is written, so a bind holding the site FOR SHARE has
+      // either committed (and is closed here) or will see the site gone.
+      await closeSourcesAtPoints(
+        queryRunner.manager,
+        tenantId,
+        [{ kind: 'site', id: siteId }],
+        userId,
+        'all',
+      );
 
       await this.auditLogService.logWithManager(queryRunner.manager, {
         tenantId,

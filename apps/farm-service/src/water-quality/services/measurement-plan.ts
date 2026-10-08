@@ -7,7 +7,7 @@ import type { WaterQualityParameterConfig } from '../entities/water-quality-para
  * What to record at a unit: the one rule the entry forms and the validator
  * share, so a form never asks for less or more than the server requires.
  *
- * A unit's plan is the parameters mapped to it (water_quality_param_equipment).
+ * A unit's plan is its manual plan lines (water_quality_param_equipment).
  * - A planned unit shows its plan; the plan's required parameters are
  *   required. A configured parameter outside the plan is still accepted
  *   (ad-hoc lab and vet samples).
@@ -54,12 +54,18 @@ export function measurementPlan(
 }
 
 /**
- * The codes of the parameters actively mapped to a unit (its plan). An inner
- * join: a mapping whose config row is gone (tenant schemas carry no FK) names
- * no parameter, and so does one whose config is soft-deleted (`isActive`
- * false — deleting a config leaves its mappings active) or belongs to another
- * tenant. Otherwise such a mapping made the unit `planned` with no entries,
- * and its form offered nothing.
+ * The codes of the parameters in a unit's manual-entry plan: its live manual
+ * sources (`channelKey` NULL, `isActive`) at any position or depth. A bound
+ * sensor channel is not a plan line: counting it made an unplanned unit
+ * `planned` with only the channel's parameter, and its forms dropped every
+ * other parameter and refused manual samples as missing required ones. A
+ * unit id names a tank point or an
+ * equipment point (the classifier filed it), so both columns are matched. An
+ * inner join: a mapping whose config row is gone (tenant schemas carry no FK)
+ * names no parameter, and so does one whose config is soft-deleted
+ * (`isActive` false — deleting a config leaves its mappings active) or
+ * belongs to another tenant. Otherwise such a mapping made the unit `planned`
+ * with no entries, and its form offered nothing.
  */
 export async function mappedCodesForUnit(
   manager: EntityManager,
@@ -71,7 +77,9 @@ export async function mappedCodesForUnit(
     .innerJoin('mapping.parameterConfig', 'config')
     .select('config.code', 'code')
     .where('mapping.tenantId = :tenantId', { tenantId })
-    .andWhere('mapping.equipmentId = :unitId', { unitId })
+    .andWhere('(mapping.tankId = :unitId OR mapping.equipmentId = :unitId)', { unitId })
+    .andWhere('mapping.unboundAt IS NULL')
+    .andWhere('mapping.channelKey IS NULL')
     .andWhere('mapping.isActive = true')
     .andWhere('config.isActive = true')
     .andWhere('config.tenantId = :tenantId', { tenantId })

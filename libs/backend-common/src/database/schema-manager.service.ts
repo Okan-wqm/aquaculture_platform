@@ -535,6 +535,8 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'water_quality_measurements',
       'water_quality_parameter_configs',
       'water_quality_param_equipment',
+      // Append-only history of a parameter's declared quantity (FARM-MEDIUM-374).
+      'parameter_quantity_declarations',
       'sensor_temperature_latest',
       'sensor_temperature_daily',
       'health_events',
